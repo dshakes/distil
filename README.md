@@ -468,8 +468,9 @@ planted markers, no synthetic oracle.
 - **Real data, no HuggingFace needed** — `python benchmarks/fetch_real.py tau --src tau:gpt-4o-airline --out tau.json` pulls real τ-bench trajectories (the tau-bench repo ships them); SWE-bench adapters included.
 - **Four experiments** (`benchmarks/prove.py`): **E1** savings-vs-decision-change frontier · **E2** *certification coverage* (certify on calibration, verify the realized decision-change rate stays ≤ α on a disjoint held-out split, over many splits — the out-of-sample proof) · **E3** leave-one-domain-out shift · **E4** downstream task-success.
 - **Real-model graders, three ways** — `--runner claude-cli` (your Claude subscription, no API key), `--runner openai` (vLLM/Ollama/any OpenAI-compatible, free at scale), `--runner anthropic` (forced-tool, structured). Majority-vote; `--expand` measures the reversible tier **with** the recovery loop.
+- **Head-to-head vs. real baselines (E5)** — the actual `llmlingua` packages now run on Apple-silicon (MPS), not just wired: **LLMLingua-2 (XLM-RoBERTa) certifies at 11.6% savings / 7.0% decision-change** on the content-based frontier, just below distil's certified operating point. Read it as a frontier illustration, not a dominance claim — the contribution rests on E2. Full writeup and figures: **[compiled paper (PDF)](docs/paper/main.pdf)**.
 
-> **Docs:** [`benchmarks/PROVE.md`](benchmarks/PROVE.md) (harness) · [`docs/PAPER_PLAN.md`](docs/PAPER_PLAN.md) (protocol) · [`docs/PAPER.md`](docs/PAPER.md) (findings) · [`docs/paper/`](docs/paper/) (**arXiv-ready LaTeX paper, TikZ figures**) · [`docs/PUBLISHING.md`](docs/PUBLISHING.md) (how to publish — first-timer guide).
+> **Docs:** [`docs/paper/main.pdf`](docs/paper/main.pdf) (**compiled paper, PDF**) · [`benchmarks/PROVE.md`](benchmarks/PROVE.md) (harness) · [`docs/PAPER_PLAN.md`](docs/PAPER_PLAN.md) (protocol) · [`docs/PAPER.md`](docs/PAPER.md) (findings) · [`docs/paper/`](docs/paper/) (arXiv-ready LaTeX source + TikZ figures) · [`docs/PUBLISHING.md`](docs/PUBLISHING.md) (how to publish — first-timer guide).
 
 ## 🤝 Contributing
 

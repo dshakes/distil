@@ -6,7 +6,8 @@ abstract: >-
   a statistical non-inferiority test. Reframes lossless compression as
   decision-equivalence and certifies it across a multi-domain trajectory corpus.
 authors:
-  - family-names: shakes
+  - given-names: "Chandra Shekhar"
+    family-names: Mudarapu
     email: chandu1221@gmail.com
 repository-code: "https://github.com/dshakes/distil"
 license: Apache-2.0
