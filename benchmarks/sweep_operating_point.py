@@ -101,7 +101,10 @@ def point_stats(matrix, names, tids):
 
 def select_on_calibration(cal_stats, *, alpha, delta):
     """Among points whose CAL decision-change certifies (HB p ≤ δ at α), return the
-    highest-SAVINGS one. Falls back to byte-exact (always safe) if none certify."""
+    highest-SAVINGS one's name; returns ``None`` if none certify (byte-exact, with
+    rhat≈0, certifies in any real run, so ``None`` is pathological in practice). This
+    selection is exploratory over the candidate grid — only the subsequent single
+    evaluation on the disjoint TEST half carries the finite-sample δ guarantee."""
     certifying = [
         (name, s)
         for name, s in cal_stats.items()

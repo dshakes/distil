@@ -145,14 +145,14 @@ def _assert_sweep_schema(d: dict) -> None:
             assert _is_number(st["decision_change"]) and _is_number(st["savings"])
     # cal and test must cover the same operating points (apples-to-apples selection)
     assert set(d["calibration"]) == set(d["test"]) == set(d["full"])
+    # the disjoint-split invariant the whole experiment rests on (holds unconditionally)
+    assert d["n_cal"] + d["n_test"] == d["n_trajectories"]
     sel = d["selected"]
     if sel is not None:
         assert sel["operating_point"] in d["test"]
         for k in ("cal_savings", "test_savings", "test_decision_change"):
             assert _is_number(sel[k])
         assert isinstance(sel["test_certifies"], bool)
-        # the disjoint-split invariant the whole experiment rests on
-        assert d["n_cal"] + d["n_test"] == d["n_trajectories"]
 
 
 @pytest.mark.parametrize("path", SWEEP_REPORTS, ids=lambda p: p.name)

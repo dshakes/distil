@@ -529,6 +529,10 @@ The generated tables below are auto-generated from \texttt{results.json} by
   truncations---is graded on both halves. We \emph{select} on calibration the
   highest-savings point whose decision-change certifies (Hoeffding--Bentkus
   $p\le\delta$ at $\alpha$), then \emph{evaluate it once} on the held-out test half.
+  The calibration-side selection ranges over all $23$ candidates and is
+  \emph{exploratory} (uncorrected for multiplicity); the finite-sample $\delta$
+  guarantee is carried only by the \emph{single} Hoeffding--Bentkus test applied to
+  the disjoint test half---which is what ``certifies out-of-sample'' below refers to.
   \textbf{Result:} the winner is \SweepPoint{} (\SweepCalSav{} cal savings), and it
   certifies out-of-sample at \SweepTestSav{} test savings / \SweepTestDC{}
   decision-change. So distil's full ladder \emph{does} contain a certified

@@ -795,6 +795,40 @@ def test_report_to_latex_fragments():
         assert out and "\\" in out  # produced LaTeX, didn't crash
 
 
+def test_e5_macros_prefix_and_skips_absent_methods():
+    r2l = _load_r2l()
+    rep = {
+        "head_to_head": [
+            {
+                "method": "recency-window@500",
+                "kind": "baseline",
+                "savings": 0.16,
+                "decision_change": 0.085,
+                "certifies": True,
+            },
+            {
+                "method": "longllmlingua",
+                "kind": "baseline",
+                "savings": 0.057,
+                "decision_change": 0.035,
+                "certifies": True,
+            },
+            # llmlingua-2, recomp, lossless, truncate@120, byte-exact all ABSENT here
+        ],
+        "coverage": {"empirical_coverage": 0.993},
+    }
+    out = r2l.e5_macros(rep, prefix="Orig")
+    # cited methods present in the report get prefixed DC + Sav macros
+    assert "\\renewcommand{\\OrigRecencyDC}{8.5\\%}" in out
+    assert "\\renewcommand{\\OrigRecencySav}{16.0\\%}" in out
+    assert "\\renewcommand{\\OrigLongLLDC}{3.5\\%}" in out
+    assert "\\renewcommand{\\OrigCoverage}{99.3\\%}" in out
+    # methods absent from this report are silently skipped (no macro emitted)
+    assert "LLMtwo" not in out and "TruncShort" not in out and "ByteExact" not in out
+    # a different prefix renames every macro
+    assert "\\ShufRecencyDC" in r2l.e5_macros(rep, prefix="Shuf")
+
+
 # --- honest-denominator + guards (added with the real-run hardening) ---------- #
 
 

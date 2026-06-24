@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sys
 import urllib.request
@@ -234,9 +235,7 @@ def build_swe_localization_episode(
     if gold_seed is None:
         hits.append(gold_hit)  # original construction: gold last
     else:
-        import random as _random
-
-        rng = _random.Random(f"{gold_seed}:{iid}")
+        rng = random.Random(f"{gold_seed}:{iid}")
         hits.insert(rng.randint(0, len(hits)), gold_hit)
     obs = "code_search(issue_keywords) ->\n" + "\n\n".join(hits)
 

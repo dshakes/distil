@@ -190,6 +190,8 @@ def _strip_question(compressed_prompt: str, question: str) -> str:
     was really "compressed, then thrown away". Splicing the question back out lets the
     block actually shrink. Robust to the question appearing before or after the
     context; falls back to the full string if the question can't be located."""
+    if not question:  # str.rfind("") returns len(text), not -1 — guard it explicitly
+        return compressed_prompt.strip()
     idx = compressed_prompt.rfind(question)
     if idx == -1:
         return compressed_prompt
