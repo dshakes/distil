@@ -272,10 +272,11 @@ the runner identity and the LaTeX generator refuses non-evidential (smoke) repor
 
 \section{Results}
 \label{sec:results}
+{\sloppy
 All figures and tables are produced by the released harness
 (\texttt{benchmarks/prove.py}) on real traces; committed result JSONs live in
 \texttt{docs/paper/results/} and the generated LaTeX in
-\texttt{docs/paper/generated/}.
+\texttt{docs/paper/generated/}.\par}
 
 \subsection{E1: Decision-change frontier (real SWE-bench traces)}
 
@@ -341,12 +342,13 @@ decision-equivalence evaluation must control; each is now enforced or flagged.
   E1/E2 then measure a strawman. Grade with a same-family/strength model and publish
   the agreement number as a gate.
   \item \textbf{The reversible tier must be graded \emph{with} its recovery loop.}
+  {\sloppy
   Graded without \texttt{distil\_expand}, folding a decision-relevant tool output
   behind a handle changes the decision; graded with the loop, the model recovers the
   content and the decision is preserved (\Cref{fig:expand}). Reporting only the
   no-expand bound understates the reversible tier; reporting only perfect recovery
   overstates it---we report both on the 40-instance subset where we have both
-  measurements (11.2\% no-expand vs.\ 7.5\% $+$expand at 23.9\% savings).
+  measurements (11.2\% no-expand vs.\ 7.5\% $+$expand at 23.9\% savings).\par}
 \end{enumerate}
 
 \begin{figure}[t]
