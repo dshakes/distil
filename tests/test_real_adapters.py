@@ -485,6 +485,57 @@ def test_baselines_load_and_compress():
     assert "earlier turns dropped" in hist_out
 
 
+def test_longllmlingua_threads_question_through(monkeypatch):
+    """Regression: the LongLLMLingua adapter must pass a non-empty ``question=`` to
+    ``compress_prompt`` — its rank_method="longllmlingua" path asserts without one, and
+    the bare ``except`` would silently swallow that into a misleading no-op (0% savings)
+    row. We inject a fake ``llmlingua`` so the real Llama-2 backbone never loads, then
+    assert the standing (non-volatile) context reaches the call as the question. Against
+    the pre-fix code (no ``question=``) ``recorded["question"]`` is unset → this fails."""
+    import sys
+    import types
+
+    from distil.trajectory import Block, Kind, Stability
+
+    recorded: dict = {}
+
+    class _Recorder:
+        def __init__(self, *a, **k):
+            pass
+
+        def compress_prompt(self, *a, **k):
+            recorded.update(k)
+            recorded["pos_args"] = a
+            return {"compressed_prompt": "x"}  # strictly shorter → _map_volatile keeps it
+
+    fake = types.ModuleType("llmlingua")
+    fake.PromptCompressor = _Recorder
+    monkeypatch.setitem(sys.modules, "llmlingua", fake)
+
+    bl = _load_baselines_mod()
+    strat = bl.longllmlingua(rate=0.5)
+    assert strat is not None  # fake loads → factory returns a strategy
+
+    blocks = [
+        Block(
+            "sys",
+            Kind.SYSTEM,
+            "ISSUE: the refund flow double-charges customers",
+            Stability.STABLE,
+        ),
+        Block("obs", Kind.TOOL_OUTPUT, "log line " * 200, Stability.VOLATILE),
+    ]
+    out = strat(blocks, 0)
+
+    # the question was actually threaded through (this is what the bug dropped)…
+    assert recorded.get("question"), "question= was not passed to compress_prompt"
+    # …and it is the standing context (the SYSTEM issue), not the volatile tail compressed
+    assert "refund flow double-charges" in recorded["question"]
+    assert "log line" not in recorded["question"]
+    # and the volatile block was compressed using it
+    assert any(b.text == "x" for b in out)
+
+
 def test_head_to_head_distil_certifies_aggressive_baseline_does_not():
     prove = _load_prove()
     bl = _load_baselines_mod()

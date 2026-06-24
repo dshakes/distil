@@ -134,6 +134,23 @@ def selective_context(keep_frac: float = 0.5):
 # --------------------------------------------------------------------------- #
 
 
+def _best_device() -> str:
+    """Best available torch device for the real compressors: MPS on Apple silicon,
+    CUDA on a GPU host, else CPU. PromptCompressor defaults to ``"cuda"``, which
+    hard-fails on machines without it — which is exactly why these baselines were
+    skipped (and the paper said they "require a GPU host") before this run."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:  # noqa: BLE001 — torch missing/odd build → fall back to CPU
+        pass
+    return "cpu"
+
+
 def llmlingua2(rate: float = 0.5):
     """LLMLingua-2 via the real ``llmlingua`` package, applied per volatile block —
     the way it deploys. Returns None if the package isn't importable (skipped)."""
@@ -143,6 +160,7 @@ def llmlingua2(rate: float = 0.5):
         comp = PromptCompressor(
             model_name="microsoft/llmlingua-2-xlm-roberta-large-meetingbank",
             use_llmlingua2=True,
+            device_map=_best_device(),
         )
     except Exception:  # noqa: BLE001 — not importable OR model won't load (e.g. no GPU); skip
         return None
@@ -165,15 +183,27 @@ def longllmlingua(rate: float = 0.5):
     try:
         from llmlingua import PromptCompressor
 
-        comp = PromptCompressor(use_llmlingua2=False)  # original LLMLingua/LongLLMLingua LM
+        comp = PromptCompressor(
+            use_llmlingua2=False,  # original LLMLingua/LongLLMLingua LM (Llama-2-7B)
+            device_map=_best_device(),
+        )
     except Exception:  # noqa: BLE001 — not importable OR backbone won't load (e.g. no GPU); skip
         return None
 
     def strat(blocks, turn):
+        # LongLLMLingua is question-aware: its rank_method="longllmlingua" + condition_*
+        # path *requires* a question and asserts without one. The faithful question here
+        # is the standing context the decision conditions on — every non-volatile block
+        # (system/issue/policy + settled history), i.e. the complement of the volatile
+        # tail being compressed. Plumb it through; without it the call raised an
+        # AssertionError that the except-clause silently swallowed into a no-op row.
+        question = "\n".join(b.text for b in blocks if b.stability is not Stability.VOLATILE)
+
         def fn(text):
             try:
                 return comp.compress_prompt(
                     [text],
+                    question=question,
                     rate=rate,
                     condition_compare=True,
                     condition_in_question="after",
@@ -202,7 +232,10 @@ def load_baselines(*, include_real: bool = True) -> list[tuple[str, object]]:
         ("selective-context", selective_context()),
     ]
     if include_real:
-        for label, factory in (("llmlingua-2", llmlingua2), ("longllmlingua", longllmlingua)):
+        for label, factory in (
+            ("llmlingua-2", llmlingua2),
+            ("longllmlingua", longllmlingua),
+        ):
             strat = factory()
             if strat is not None:
                 rungs.append((label, strat))
