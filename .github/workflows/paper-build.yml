@@ -1,0 +1,72 @@
+name: paper-build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/paper/**"
+      - ".github/workflows/paper-build.yml"
+  pull_request:
+    paths:
+      - "docs/paper/**"
+      - ".github/workflows/paper-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One in-flight build per ref; new pushes cancel the previous run.
+concurrency:
+  group: paper-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-paper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # TeX Live full ships every package main.tex needs (tikz, pgfplots,
+      # algorithm2e, cleveref, microtype...). The paper has no external images
+      # and a manual thebibliography, so latexmk alone is sufficient — no
+      # bibtex/biber pass required.
+      - name: Compile paper
+        uses: xu-cheng/latex-action@v3
+        with:
+          working_directory: docs/paper
+          root_file: main.tex
+          latexmk_use_xelatex: false
+          args: -pdf -interaction=nonstopmode -halt-on-error -file-line-error
+
+      # Visual-polish triage: undefined refs/citations and overfull/underfull
+      # boxes don't fail a -halt-on-error build, so surface them as annotations
+      # instead. Adjust to `exit 1` here if the repo decides these should block.
+      - name: Surface LaTeX warnings
+        if: always()
+        working-directory: docs/paper
+        run: |
+          log=main.log
+          [ -f "$log" ] || { echo "no log file produced"; exit 0; }
+          grep -nE 'LaTeX Warning: (Reference|Citation)|There were undefined references' "$log" \
+            | while IFS= read -r line; do echo "::warning title=Undefined ref/citation::$line"; done || true
+          grep -nE 'Overfull \\[hv]box|Underfull \\[hv]box' "$log" \
+            | while IFS= read -r line; do echo "::warning title=Over/underfull box::$line"; done || true
+          echo "Warning triage complete (non-blocking)."
+
+      - name: Upload paper PDF
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distil-paper-pdf
+          path: docs/paper/main.pdf
+          if-no-files-found: error
+
+      # On failure, ship the .log so the break is diagnosable without a local
+      # TeX toolchain.
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distil-paper-log
+          path: docs/paper/main.log
+          if-no-files-found: warn
