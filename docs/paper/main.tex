@@ -603,6 +603,33 @@ savings here. Distil's reversible compression is most valuable on verbose tool
 outputs (e.g.\ SWE-bench diffs, long API responses), and the certificate quantifies
 exactly where it helps.
 
+\paragraph{Position confound, stress-tested (E5--E6).} The edit-localization
+construction places the gold hunk \emph{last} in the search results, which could
+flatter tail-truncation / recency baselines. We rebuilt the corpus with the gold
+hunk at a deterministic random position (seed~$=1729$, per-instance) and re-ran E5
+(\Cref{tab:e5shuf}). The confound is \emph{real but not load-bearing}: the recency
+baseline's decision-change rises from \OrigRecencyDC{} to \ShufRecencyDC{} once the
+needle is no longer pinned to the tail, yet it still certifies, and distil's
+aggressive levels still do not---byte-exact remains the only certifying distil level,
+exactly as in the gold-last E5, and the E2 certificate holds out-of-sample on the
+shuffled corpus too (\ShufCoverage{}). Two consequences we report rather than gloss:
+(i)~the reversible digest's edge over equally-aggressive truncation is itself
+position-sensitive---on the de-confounded corpus \texttt{lossless} flips
+\emph{more} than \texttt{truncate@120} (\ShufLosslessDC{} vs.\ \ShufTruncShortDC{} at
+$\approx22\%$ savings), the reverse of the gold-last ordering reported above; and
+(ii)~when we select an operating point honestly on a calibration half and evaluate
+once on a disjoint test half (\Cref{tab:e6sweep}), distil \emph{does} certify positive
+savings (\SweepPoint{}: \SweepTestSav{} test savings / \SweepTestDC{} decision-change),
+but the certified point is plain head-truncation---salience protection and the
+reversible digest do not beat truncation on this single-turn synthetic task. The
+net reading: on edit-localization, distil's contribution is the \emph{certificate}
+that selects a safe operating point and rejects the unsafe ones, not a bespoke
+compressor that dominates truncation; the reversible engine's advantage is a
+multi-turn, verbose-context phenomenon (the $\tau$-bench and corpus-gate results),
+which a real end-to-end task-success evaluation---running the agent and its test
+suite rather than the decision-equivalence proxy---would test directly, left to
+future work.
+
 \paragraph{E4 non-evidential on SWE-bench.} SWE-bench HuggingFace evaluators mark
 all submissions resolved=True by construction of the localization task, so E4 on
 SWE reports retained decision-equivalence (lossless $+$expand: 85.0\%; no-expand:
@@ -622,9 +649,11 @@ holds out-of-sample at 96.6--100\% coverage across $\alpha \in \{10\%, 12.5\%, 1
 20\%\}$ ($\delta=0.05$, real SWE-bench\_Lite, 300 instances, 500 splits). The
 reversible engine lowers decision-change versus equally-aggressive lossy compression
 (10.2\% vs.\ 11.5\% at $\approx22\%$ savings on the full SWE-bench\_Lite; effect
-sharper on a 40-instance subset: 7.5\% vs.\ 12.5\%), and the certificate correctly
-declines to certify savings on compact $\tau$-bench contexts---quantifying where
-recoverable compression helps rather than overclaiming a single headline ratio.
+sharper on a 40-instance subset: 7.5\% vs.\ 12.5\%)---though on the de-confounded,
+position-shuffled localization corpus this particular edge reverses
+(\Cref{sec:analysis}), a sensitivity we report rather than hide---and the certificate
+correctly declines to certify savings on compact $\tau$-bench contexts, quantifying
+where recoverable compression helps rather than overclaiming a single headline ratio.
 
 \paragraph{Reproducibility.} The harness, adapters, runners, and this paper are
 released at \url{https://github.com/dshakes/distil} (see \texttt{benchmarks/PROVE.md}
