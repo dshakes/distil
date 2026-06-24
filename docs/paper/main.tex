@@ -49,6 +49,14 @@
 \IfFileExists{generated/e5macros_orig.tex}{\input{generated/e5macros_orig.tex}}{}
 \IfFileExists{generated/e5macros_shuffled.tex}{\input{generated/e5macros_shuffled.tex}}{}
 
+% Phase-2 operating-point sweep (cal-selected, test-evaluated). Defaults are the
+% committed numbers; sweep_operating_point.py --latex-dir \renewcommands them.
+\newcommand{\SweepPoint}{\texttt{t@500}}
+\newcommand{\SweepCalSav}{16.3\%}
+\newcommand{\SweepTestSav}{14.0\%}
+\newcommand{\SweepTestDC}{4.0\%}
+\IfFileExists{generated/sweepmacros.tex}{\input{generated/sweepmacros.tex}}{}
+
 \definecolor{distilblue}{HTML}{2b6cb0}
 \definecolor{distilgreen}{HTML}{2f855a}
 \definecolor{distilred}{HTML}{c53030}
@@ -506,6 +514,30 @@ The generated tables below are auto-generated from \texttt{results.json} by
   contribution continues to rest on E2, whose out-of-sample coverage holds on this
   shuffled corpus too (\ShufCoverage{}, \Cref{tab:e2gen}).}
   \label{tab:e5shuf}\input{generated/headtohead_shuffled.tex}\end{table}}{}
+\IfFileExists{generated/sweep.tex}{%
+  \begin{table}[t]\centering\caption{E6 operating-point selection on the
+  shuffled-position corpus, with \textbf{no test-set tuning}. The 100 trajectories
+  are split into disjoint calibration (50) and test (50) halves; every candidate
+  operating point---distil's two anchors plus a grid of salience-\emph{protected}
+  truncations (budget $\in\{500,250,120\}$ chars $\times$ \texttt{min\_entropy}
+  $\in\{2.6,3.2,3.8\}\times$ \texttt{min\_len}$\in\{6,10\}$) and the plain
+  truncations---is graded on both halves. We \emph{select} on calibration the
+  highest-savings point whose decision-change certifies (Hoeffding--Bentkus
+  $p\le\delta$ at $\alpha$), then \emph{evaluate it once} on the held-out test half.
+  \textbf{Result:} the winner is \SweepPoint{} (\SweepCalSav{} cal savings), and it
+  certifies out-of-sample at \SweepTestSav{} test savings / \SweepTestDC{}
+  decision-change. So distil's full ladder \emph{does} contain a certified
+  positive-savings operating point on this task---the E5 \texttt{quick} ladder simply
+  omitted it. Two honest caveats the table makes plain: (i)~salience protection does
+  \emph{not} help here (\texttt{protect+t@$L$} matches plain \texttt{t@$L$} at every
+  budget), and (ii)~the reversible \texttt{lossless} digest flips \emph{more} (20\%
+  cal) than \SweepPoint{}, so the ladder's assumed risk-ordering (lossless before
+  truncation) is miscalibrated for localization---which is exactly why fixed-sequence
+  LTT on the \texttt{quick} ladder fell back to byte-exact. The certified point here
+  is plain head-truncation; distil's contribution is the certificate that
+  \emph{selects} it and rejects the aggressive rungs, not a bespoke compressor that
+  beats truncation on this corpus.}
+  \label{tab:e6sweep}\input{generated/sweep.tex}\end{table}}{}
 \IfFileExists{generated/tasksuccess.tex}{%
   \begin{table}[t]\centering
   \caption{E4 retained decision-equivalence on the full SWE-bench\_Lite ($n=300$).

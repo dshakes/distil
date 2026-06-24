@@ -116,3 +116,45 @@ def test_e5_variants_share_schema():
         d = json.loads(p.read_text())
         method_sets.append(frozenset(r["method"] for r in d["head_to_head"]))
     assert len(set(method_sets)) == 1, f"E5 variants disagree on methods: {method_sets}"
+
+
+# Phase-2 operating-point sweep reports.
+SWEEP_REPORTS = sorted(RESULTS.glob("swe_localization_sweep*.json"))
+
+
+def _assert_sweep_schema(d: dict) -> None:
+    """Validate one sweep_operating_point.py report against its locked structure."""
+    assert set(d) >= {
+        "args",
+        "n_cal",
+        "n_test",
+        "alpha",
+        "delta",
+        "grid",
+        "calibration",
+        "test",
+        "full",
+        "selected",
+    }
+    assert isinstance(d["n_cal"], int) and isinstance(d["n_test"], int)
+    for split in ("calibration", "test", "full"):
+        assert d[split], f"{split} stats must be non-empty"
+        for name, st in d[split].items():
+            assert isinstance(name, str)
+            assert isinstance(st["n"], int)
+            assert _is_number(st["decision_change"]) and _is_number(st["savings"])
+    # cal and test must cover the same operating points (apples-to-apples selection)
+    assert set(d["calibration"]) == set(d["test"]) == set(d["full"])
+    sel = d["selected"]
+    if sel is not None:
+        assert sel["operating_point"] in d["test"]
+        for k in ("cal_savings", "test_savings", "test_decision_change"):
+            assert _is_number(sel[k])
+        assert isinstance(sel["test_certifies"], bool)
+        # the disjoint-split invariant the whole experiment rests on
+        assert d["n_cal"] + d["n_test"] == d["n_trajectories"]
+
+
+@pytest.mark.parametrize("path", SWEEP_REPORTS, ids=lambda p: p.name)
+def test_sweep_report_schema(path: Path):
+    _assert_sweep_schema(json.loads(path.read_text()))
