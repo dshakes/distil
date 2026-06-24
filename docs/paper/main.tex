@@ -36,8 +36,7 @@
 
 \title{\textbf{Certified Decision-Equivalent Context Compression\\ for LLM Agents}}
 \author{%
-  Your Name\thanks{Correspondence: you@example.com. Code: \url{https://github.com/dshakes/distil}}\\
-  Your Affiliation
+  Chandra Shekhar Mudarapu\thanks{Code: \url{https://github.com/dshakes/distil}}
 }
 \date{\today}
 
@@ -459,7 +458,13 @@ The generated tables below are auto-generated from \texttt{results.json} by
   \emph{last} in the observation, so recency/tail-truncation baselines benefit from
   needle \emph{position} rather than content; we read E5 as a frontier illustration,
   not a dominance claim, and rest the contribution on E2. The real LLMLingua packages
-  are wired but require a GPU host (not run here).}\input{generated/headtohead.tex}\end{table}}{}
+  now run on Apple-silicon (MPS), not just wired: LLMLingua-2 (XLM-RoBERTa) certifies
+  at 11.6\% savings / 7.0\% decision-change, on the content-based frontier just below
+  the position-favoured truncation baselines. LongLLMLingua (Llama-2-7B, question-aware)
+  yields no net compression on these already-short volatile tails---and a subset of
+  blocks trips an upstream \texttt{transformers}/\texttt{llmlingua} incompatibility that
+  the sweep catches and falls back from---so its $0\%$ row is fall-back, not a tuned
+  operating point.}\input{generated/headtohead.tex}\end{table}}{}
 \IfFileExists{generated/tasksuccess.tex}{%
   \begin{table}[t]\centering
   \caption{E4 retained decision-equivalence on the full SWE-bench\_Lite ($n=300$).

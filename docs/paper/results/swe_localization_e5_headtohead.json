@@ -19,7 +19,7 @@
     "seed": 0,
     "limit": 100,
     "expand": true,
-    "report": "/private/tmp/claude-501/-Users-shakes-workspace/f8d99b81-8e92-45ac-b540-0cda915b11c1/scratchpad/paper/results_swe_e5.json"
+    "report": "/tmp/results_swe_e5.json"
   },
   "n_trajectories": 100,
   "n_turns": 200,
@@ -112,7 +112,21 @@
       "certifies": true
     },
     {
+      "method": "llmlingua-2",
+      "kind": "baseline",
+      "savings": 0.11588588387693166,
+      "decision_change": 0.07,
+      "certifies": true
+    },
+    {
       "method": "keep-last-3-turns",
+      "kind": "baseline",
+      "savings": 0.0,
+      "decision_change": 0.0,
+      "certifies": true
+    },
+    {
+      "method": "longllmlingua",
       "kind": "baseline",
       "savings": 0.0,
       "decision_change": 0.0,
