@@ -63,6 +63,7 @@ def macros(rep: dict) -> str:
 _E5_CITED = {
     "recency-window@500": "Recency",
     "llmlingua-2": "LLMtwo",
+    "longllmlingua": "LongLL",
     "recomp-extractive": "Recomp",
     "lossless": "Lossless",
     "truncate@120": "TruncShort",

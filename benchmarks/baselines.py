@@ -177,6 +177,25 @@ def llmlingua2(rate: float = 0.5):
     return strat
 
 
+def _strip_question(compressed_prompt: str, question: str) -> str:
+    """Recover just the compressed CONTEXT from LLMLingua's assembled prompt.
+
+    ``compress_prompt(question=...)`` returns ``compressed_prompt`` = the compressed
+    context with the (verbatim, *uncompressed*) question spliced in per
+    ``condition_in_question``. Returning that whole string as the new volatile block
+    is the bug that made LongLLMLingua a silent no-op: the question (the full
+    system/issue/history, often longer than the tail being compressed) made the
+    result *larger* than the original, so ``_map_volatile``'s reject-if-bigger guard
+    discarded it every time — a 0%-savings row that looked like "no compression" but
+    was really "compressed, then thrown away". Splicing the question back out lets the
+    block actually shrink. Robust to the question appearing before or after the
+    context; falls back to the full string if the question can't be located."""
+    idx = compressed_prompt.rfind(question)
+    if idx == -1:
+        return compressed_prompt
+    return (compressed_prompt[:idx] + compressed_prompt[idx + len(question) :]).strip()
+
+
 def longllmlingua(rate: float = 0.5):
     """LongLLMLingua (the question-aware, perplexity-based variant) via the real
     ``llmlingua`` package. Returns None if the package isn't importable (skipped)."""
@@ -201,7 +220,7 @@ def longllmlingua(rate: float = 0.5):
 
         def fn(text):
             try:
-                return comp.compress_prompt(
+                out = comp.compress_prompt(
                     [text],
                     question=question,
                     rate=rate,
@@ -209,7 +228,8 @@ def longllmlingua(rate: float = 0.5):
                     condition_in_question="after",
                     rank_method="longllmlingua",
                     dynamic_context_compression_ratio=0.3,
-                ).get("compressed_prompt", text)
+                )
+                return _strip_question(out.get("compressed_prompt", text), question)
             except Exception:  # noqa: BLE001 — never break the sweep on one block
                 return text
 

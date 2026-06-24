@@ -1,7 +1,7 @@
 {
   "args": {
     "dataset": "swe",
-    "path": "/private/tmp/claude-501/-Users-shakes-workspace/f8d99b81-8e92-45ac-b540-0cda915b11c1/scratchpad/paper/swe_loc_full.json",
+    "path": "/tmp/swe_loc_full.json",
     "runner": "anthropic",
     "samples": 3,
     "model": "claude-sonnet-4-6",
@@ -19,7 +19,7 @@
     "seed": 0,
     "limit": 100,
     "expand": true,
-    "report": "/tmp/results_swe_e5.json"
+    "report": "/tmp/results_orig_ll.json"
   },
   "n_trajectories": 100,
   "n_turns": 200,
@@ -119,14 +119,14 @@
       "certifies": true
     },
     {
-      "method": "keep-last-3-turns",
+      "method": "longllmlingua",
       "kind": "baseline",
-      "savings": 0.0,
-      "decision_change": 0.0,
+      "savings": 0.057222266145266376,
+      "decision_change": 0.035,
       "certifies": true
     },
     {
-      "method": "longllmlingua",
+      "method": "keep-last-3-turns",
       "kind": "baseline",
       "savings": 0.0,
       "decision_change": 0.0,

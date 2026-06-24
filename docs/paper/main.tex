@@ -38,6 +38,7 @@
 \newcommand{\OrigLosslessDC}{12.0\%} \newcommand{\OrigLosslessSav}{21.8\%}
 \newcommand{\OrigTruncShortDC}{13.0\%} \newcommand{\OrigTruncShortSav}{23.0\%}
 \newcommand{\OrigByteExactDC}{0.0\%} \newcommand{\OrigByteExactSav}{-0.1\%}
+\newcommand{\OrigLongLLDC}{3.5\%}    \newcommand{\OrigLongLLSav}{5.7\%}
 \newcommand{\OrigCoverage}{99.3\%}
 \newcommand{\ShufRecencyDC}{8.5\%}   \newcommand{\ShufRecencySav}{15.9\%}
 \newcommand{\ShufLLMtwoDC}{8.0\%}    \newcommand{\ShufLLMtwoSav}{11.8\%}
@@ -45,6 +46,7 @@
 \newcommand{\ShufLosslessDC}{16.0\%} \newcommand{\ShufLosslessSav}{21.7\%}
 \newcommand{\ShufTruncShortDC}{11.5\%} \newcommand{\ShufTruncShortSav}{22.8\%}
 \newcommand{\ShufByteExactDC}{0.5\%} \newcommand{\ShufByteExactSav}{-0.1\%}
+\newcommand{\ShufLongLLDC}{5.0\%}    \newcommand{\ShufLongLLSav}{5.6\%}
 \newcommand{\ShufCoverage}{100.0\%}
 \IfFileExists{generated/e5macros_orig.tex}{\input{generated/e5macros_orig.tex}}{}
 \IfFileExists{generated/e5macros_shuffled.tex}{\input{generated/e5macros_shuffled.tex}}{}
@@ -488,13 +490,16 @@ The generated tables below are auto-generated from \texttt{results.json} by
   \emph{last} in the observation, so recency/tail-truncation baselines benefit from
   needle \emph{position} rather than content; we read E5 as a frontier illustration,
   not a dominance claim, and rest the contribution on E2. The real LLMLingua packages
-  now run on Apple-silicon (MPS), not just wired: LLMLingua-2 (XLM-RoBERTa) certifies
-  at 11.6\% savings / 7.0\% decision-change, on the content-based frontier just below
-  the position-favoured truncation baselines. LongLLMLingua (Llama-2-7B, question-aware)
-  yields no net compression on these already-short volatile tails---and a subset of
-  blocks trips an upstream \texttt{transformers}/\texttt{llmlingua} incompatibility that
-  the sweep catches and falls back from---so its $0\%$ row is fall-back, not a tuned
-  operating point.}\label{tab:e5}\input{generated/headtohead.tex}\end{table}}{}
+  run on Apple-silicon (MPS), not just wired: LLMLingua-2 (XLM-RoBERTa) certifies at
+  \OrigLLMtwoSav{} savings / \OrigLLMtwoDC{} decision-change, on the content-based
+  frontier just below the position-favoured truncation baselines. LongLLMLingua
+  (Llama-2-7B, question-aware) certifies too, at \OrigLongLLSav{} / \OrigLongLLDC{}:
+  its earlier $0\%$ row was an \emph{adapter bug}, not the technique---the compressor
+  returns the compressed context with the (uncompressed) question re-appended per
+  \texttt{condition\_in\_question}, so the longer string tripped a reject-if-bigger
+  guard and every result was discarded as a no-op; splicing the question back out
+  restores the intended compression (fixed in this revision, with a regression
+  test).}\label{tab:e5}\input{generated/headtohead.tex}\end{table}}{}
 \IfFileExists{generated/headtohead_shuffled.tex}{%
   \begin{table}[t]\centering\caption{E5 \emph{shuffled-position} (gold hunk randomly
   placed). Identical to \Cref{tab:e5} except the gold hunk's position within the

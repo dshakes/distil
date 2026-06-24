@@ -636,6 +636,55 @@ def test_longllmlingua_threads_question_through(monkeypatch):
     assert any(b.text == "x" for b in out)
 
 
+def test_strip_question_recovers_compressed_context():
+    """Unit: LLMLingua assembles ``compressed_prompt`` = compressed-context + the
+    verbatim question; we must splice the question back out so the block can shrink."""
+    bl = _load_baselines_mod()
+    q = "SYSTEM POLICY\nISSUE: the bug report, quite long"
+    assert bl._strip_question("kept ctx\n\n" + q, q) == "kept ctx"  # question after
+    assert bl._strip_question(q + "\n\nkept ctx", q) == "kept ctx"  # question before
+    assert bl._strip_question("no question here", q) == "no question here"  # absent → as-is
+
+
+def test_longllmlingua_strips_question_so_block_shrinks(monkeypatch):
+    """Regression for the silent no-op: ``compress_prompt`` returns the compressed
+    context with the (uncompressed) question appended. The OLD code returned that whole
+    string as the new volatile block, which — being the long question plus context —
+    was bigger than the original, so reject-if-bigger discarded it every time (0%
+    savings that read as 'no compression'). After the fix the question is spliced out,
+    the block actually shrinks, and ``_map_volatile`` keeps it."""
+    import sys
+    import types
+
+    from distil.trajectory import Block, Kind, Stability
+
+    long_question = "SYSTEM POLICY " * 50  # non-volatile context, deliberately long
+
+    class _Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def compress_prompt(self, *a, **k):
+            # mimic real output: a SHORT compressed context + the verbatim question
+            return {"compressed_prompt": "tiny ctx\n\n" + k["question"]}
+
+    fake = types.ModuleType("llmlingua")
+    fake.PromptCompressor = _Fake
+    monkeypatch.setitem(sys.modules, "llmlingua", fake)
+
+    bl = _load_baselines_mod()
+    strat = bl.longllmlingua(rate=0.5)
+    blocks = [
+        Block("s", Kind.SYSTEM, long_question, Stability.STABLE),
+        Block("o", Kind.TOOL_OUTPUT, "X" * 400, Stability.VOLATILE),  # 400-char tail
+    ]
+    out = strat(blocks, 0)
+    vol = next(b.text for b in out if b.id == "o")
+    assert vol == "tiny ctx"  # question spliced out, compressed context kept
+    assert len(vol) < 400  # the block actually shrank (the no-op bug is gone)
+    assert long_question.strip() not in vol  # the question did not leak into the block
+
+
 def test_head_to_head_distil_certifies_aggressive_baseline_does_not():
     prove = _load_prove()
     bl = _load_baselines_mod()

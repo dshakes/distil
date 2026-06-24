@@ -19,7 +19,7 @@
     "seed": 0,
     "limit": 100,
     "expand": true,
-    "report": "/tmp/results_shuffled_full.json"
+    "report": "/tmp/results_shuffled_ll.json"
   },
   "n_trajectories": 100,
   "n_turns": 200,
@@ -119,14 +119,14 @@
       "certifies": true
     },
     {
-      "method": "keep-last-3-turns",
+      "method": "longllmlingua",
       "kind": "baseline",
-      "savings": 0.0,
-      "decision_change": 0.0,
+      "savings": 0.05622487517408725,
+      "decision_change": 0.05,
       "certifies": true
     },
     {
-      "method": "longllmlingua",
+      "method": "keep-last-3-turns",
       "kind": "baseline",
       "savings": 0.0,
       "decision_change": 0.0,
