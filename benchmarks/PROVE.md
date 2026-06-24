@@ -74,6 +74,34 @@ python benchmarks/prove.py --dataset tau --path /data/tau.json --runner claude-c
 SWE-bench: point `swe-traj` at a SWE-agent `.traj` dir, or build edit-localization
 trajectories from instances with `swe-hf` (needs `datasets` + HF reachable).
 
+### Shuffled-position E5 (removing the recency/tail confound)
+
+The default edit-localization build appends the gold hunk **last** in the code-search
+observation, so tail-truncation / recency baselines keep the needle for free. Pass
+`--shuffle-gold-seed` to place the gold hunk at a deterministic random position instead
+(seeded per-instance, so the corpus is reproducible and the placement is independent of
+which subsample `prove.py --limit` later draws). Everything else — distractors, gold
+hunk text — is byte-identical to the gold-last build; only the index changes.
+
+```bash
+# gold-last (original) and shuffled-position corpora, same instances:
+python benchmarks/fetch_real.py swe-hf --split test --out /data/swe_loc_full.json
+python benchmarks/fetch_real.py swe-hf --split test --shuffle-gold-seed 1729 \
+    --out /data/swe_loc_full_shuffled.json
+# grade the shuffled variant exactly like E5, then emit its additive table/macros:
+python benchmarks/prove.py --dataset swe --path /data/swe_loc_full_shuffled.json \
+    --runner anthropic --model claude-sonnet-4-6 --samples 3 --baselines --ladder quick \
+    --alpha 0.15 --delta 0.05 --reps 300 --workers 6 --limit 100 --expand \
+    --report docs/paper/results/swe_localization_e5_shuffled_headtohead.json
+python benchmarks/report_to_latex.py docs/paper/results/swe_localization_e5_shuffled_headtohead.json \
+    --only headtohead e5macros --suffix _shuffled --macro-prefix Shuf
+```
+
+The result (seed 1729, $n{=}100$): the confound is **real but not load-bearing** — the
+recency baseline's decision-change rises 5.5%→8.5% once the needle is no longer pinned
+to the tail, yet it still certifies, and distil's aggressive levels still do not (only
+byte-exact certifies). The E2 certificate holds out-of-sample on the shuffled corpus too.
+
 ## The real run (the publishable result)
 
 Use `--runner claude-cli` (subscription, no key) or `--runner anthropic` (key).

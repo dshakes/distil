@@ -29,6 +29,26 @@
 \newcommand{\HLrisk}{0.1\%}
 \IfFileExists{generated/macros.tex}{\input{generated/macros.tex}}{}
 
+% E5 head-to-head macros — original (gold-last) and shuffled-position (seed=1729) runs.
+% Defaults below are the committed numbers; report_to_latex.py --only e5macros
+% \renewcommands them from docs/paper/results/swe_localization_e5*headtohead.json.
+\newcommand{\OrigRecencyDC}{5.5\%}   \newcommand{\OrigRecencySav}{16.1\%}
+\newcommand{\OrigLLMtwoDC}{7.0\%}    \newcommand{\OrigLLMtwoSav}{11.6\%}
+\newcommand{\OrigRecompDC}{14.0\%}   \newcommand{\OrigRecompSav}{18.5\%}
+\newcommand{\OrigLosslessDC}{12.0\%} \newcommand{\OrigLosslessSav}{21.8\%}
+\newcommand{\OrigTruncShortDC}{13.0\%} \newcommand{\OrigTruncShortSav}{23.0\%}
+\newcommand{\OrigByteExactDC}{0.0\%} \newcommand{\OrigByteExactSav}{-0.1\%}
+\newcommand{\OrigCoverage}{99.3\%}
+\newcommand{\ShufRecencyDC}{8.5\%}   \newcommand{\ShufRecencySav}{15.9\%}
+\newcommand{\ShufLLMtwoDC}{8.0\%}    \newcommand{\ShufLLMtwoSav}{11.8\%}
+\newcommand{\ShufRecompDC}{7.5\%}    \newcommand{\ShufRecompSav}{16.8\%}
+\newcommand{\ShufLosslessDC}{16.0\%} \newcommand{\ShufLosslessSav}{21.7\%}
+\newcommand{\ShufTruncShortDC}{11.5\%} \newcommand{\ShufTruncShortSav}{22.8\%}
+\newcommand{\ShufByteExactDC}{0.5\%} \newcommand{\ShufByteExactSav}{-0.1\%}
+\newcommand{\ShufCoverage}{100.0\%}
+\IfFileExists{generated/e5macros_orig.tex}{\input{generated/e5macros_orig.tex}}{}
+\IfFileExists{generated/e5macros_shuffled.tex}{\input{generated/e5macros_shuffled.tex}}{}
+
 \definecolor{distilblue}{HTML}{2b6cb0}
 \definecolor{distilgreen}{HTML}{2f855a}
 \definecolor{distilred}{HTML}{c53030}
@@ -466,7 +486,26 @@ The generated tables below are auto-generated from \texttt{results.json} by
   yields no net compression on these already-short volatile tails---and a subset of
   blocks trips an upstream \texttt{transformers}/\texttt{llmlingua} incompatibility that
   the sweep catches and falls back from---so its $0\%$ row is fall-back, not a tuned
-  operating point.}\input{generated/headtohead.tex}\end{table}}{}
+  operating point.}\label{tab:e5}\input{generated/headtohead.tex}\end{table}}{}
+\IfFileExists{generated/headtohead_shuffled.tex}{%
+  \begin{table}[t]\centering\caption{E5 \emph{shuffled-position} (gold hunk randomly
+  placed). Identical to \Cref{tab:e5} except the gold hunk's position within the
+  code-search observation is randomly permuted (seed~$=1729$, deterministic,
+  per-instance), removing the recency/tail-truncation advantage that the gold-last
+  construction handed the baselines. Same 100-trajectory subset, grader, ladder, and
+  $\alpha/\delta$. \textbf{What the variant shows:} the confound is \emph{real but not
+  load-bearing}. Once the needle is no longer pinned to the tail, the recency-window
+  baseline's decision-change rises from \OrigRecencyDC{} to \ShufRecencyDC{}---yet it
+  still certifies, and so do the content-aware baselines (RECOMP-extractive even
+  \emph{improves}, \OrigRecompDC$\rightarrow$\ShufRecompDC, crossing into certification).
+  Distil's aggressive levels still do \emph{not} certify (lossless
+  \OrigLosslessDC$\rightarrow$\ShufLosslessDC; truncate@120
+  \OrigTruncShortDC$\rightarrow$\ShufTruncShortDC), so byte-exact remains the only
+  distil level that certifies---exactly as in \Cref{tab:e5}. Removing the position
+  confound does not rescue the aggressive ladder on this localization task; the
+  contribution continues to rest on E2, whose out-of-sample coverage holds on this
+  shuffled corpus too (\ShufCoverage{}, \Cref{tab:e2gen}).}
+  \label{tab:e5shuf}\input{generated/headtohead_shuffled.tex}\end{table}}{}
 \IfFileExists{generated/tasksuccess.tex}{%
   \begin{table}[t]\centering
   \caption{E4 retained decision-equivalence on the full SWE-bench\_Lite ($n=300$).

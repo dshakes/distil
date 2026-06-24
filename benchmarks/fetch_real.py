@@ -202,13 +202,24 @@ def _patch_hunk(patch: str, target: str, max_lines: int = 40) -> str:
     return "\n".join(keep)
 
 
-def build_swe_localization_episode(inst: dict, distractors: list[str]) -> dict | None:
+def build_swe_localization_episode(
+    inst: dict, distractors: list[str], *, gold_seed: int | None = None
+) -> dict | None:
     """One edit-localization trajectory from a SWE-bench instance.
 
     Context = issue text (stable) + a 'code search results' observation listing
     candidate files (the gold target's real hunk buried among distractor entries).
     Decision = {action: "edit", target: <gold file>}. The needle is the target's
     hunk; the model must map the issue to the right file. No directive.
+
+    Position confound: by default the gold hit is appended **last** in the search
+    results, which hands tail-truncation / recency baselines the needle for free
+    (they keep the tail, so they keep the answer). Pass ``gold_seed`` to instead
+    place the gold hit at a deterministic random position among the hits — seeded
+    per-instance (``gold_seed`` × instance-id) so the corpus is reproducible and the
+    placement is independent of which subsample is later drawn. The distractor set,
+    the gold hunk text, and every other field are byte-identical to the unshuffled
+    build; only the gold hit's index within the results changes.
     """
     patch = inst.get("patch") or inst.get("gold_patch") or ""
     targets = parse_patch_targets(patch)
@@ -219,7 +230,14 @@ def build_swe_localization_episode(inst: dict, distractors: list[str]) -> dict |
     problem = inst.get("problem_statement") or inst.get("issue") or ""
 
     hits = [f"FILE {d}\n  (no obvious relation to the issue)" for d in distractors[:6]]
-    hits.append(f"FILE {target}\n{_patch_hunk(patch, target)}")
+    gold_hit = f"FILE {target}\n{_patch_hunk(patch, target)}"
+    if gold_seed is None:
+        hits.append(gold_hit)  # original construction: gold last
+    else:
+        import random as _random
+
+        rng = _random.Random(f"{gold_seed}:{iid}")
+        hits.insert(rng.randint(0, len(hits)), gold_hit)
     obs = "code_search(issue_keywords) ->\n" + "\n\n".join(hits)
 
     return {
@@ -246,13 +264,18 @@ def cmd_swe_hf(args) -> int:
     ds = load_dataset(args.dataset, split=args.split)
     rows = list(ds)[: args.limit] if args.limit else list(ds)
     all_files = [t for r in rows for t in parse_patch_targets(r.get("patch", ""))]
+    gold_seed = getattr(args, "shuffle_gold_seed", None)
     trajs = []
     for i, r in enumerate(rows):
         distractors = [f for f in all_files if f not in parse_patch_targets(r.get("patch", ""))]
         # rotate distractors so each instance gets a different plausible set
-        ep = build_swe_localization_episode(r, distractors[i : i + 6] or distractors[:6])
+        ep = build_swe_localization_episode(
+            r, distractors[i : i + 6] or distractors[:6], gold_seed=gold_seed
+        )
         if ep:
             trajs.append(ep)
+    if gold_seed is not None:
+        print(f"gold-hunk position SHUFFLED (seed={gold_seed}) — recency/tail advantage removed")
     Path(args.out).write_text(json.dumps(trajs, indent=2))
     _report(realtrace.load_swe_bench(args.out), args.out)
     return 0
@@ -299,6 +322,14 @@ def main() -> int:
     p.add_argument("--split", default="test")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--out", required=True)
+    p.add_argument(
+        "--shuffle-gold-seed",
+        type=int,
+        default=None,
+        help="place the gold hunk at a deterministic random position within the "
+        "search results (seeded per-instance) instead of last — removes the "
+        "recency/tail-truncation advantage. Omit for the original gold-last build.",
+    )
     p.set_defaults(fn=cmd_swe_hf)
 
     args = ap.parse_args()

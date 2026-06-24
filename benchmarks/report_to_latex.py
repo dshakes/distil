@@ -57,6 +57,38 @@ def macros(rep: dict) -> str:
     return "\n".join(x for x in out if x) + "\n"
 
 
+# Methods cited by name in the paper's E5 prose -> a LaTeX-safe macro suffix. Keeping
+# this explicit (rather than auto-deriving from method names) means the paper only ever
+# materializes macros it actually uses, and the names stay readable.
+_E5_CITED = {
+    "recency-window@500": "Recency",
+    "llmlingua-2": "LLMtwo",
+    "recomp-extractive": "Recomp",
+    "lossless": "Lossless",
+    "truncate@120": "TruncShort",
+    "byte-exact": "ByteExact",
+}
+
+
+def e5_macros(rep: dict, prefix: str = "Shuf") -> str:
+    """Emit ``\\renewcommand`` macros for the head-to-head numbers the E5 prose cites,
+    namespaced by ``prefix`` (e.g. ``Shuf`` -> ``\\ShufRecencyDC``/``\\ShufRecencySav``).
+    Lets the paper compare the original and shuffled-position runs with zero hardcoded
+    numbers in the prose. Run once per report with a distinct prefix."""
+    rows = {r["method"]: r for r in rep.get("head_to_head") or []}
+    cov = rep.get("coverage") or {}
+    out = [f"% auto-generated E5 macros (prefix={prefix}) — do not edit"]
+    for method, suffix in _E5_CITED.items():
+        r = rows.get(method)
+        if not r:
+            continue
+        out.append(f"\\renewcommand{{\\{prefix}{suffix}DC}}{{{_pct(r['decision_change'])}}}")
+        out.append(f"\\renewcommand{{\\{prefix}{suffix}Sav}}{{{_pct(r['savings'])}}}")
+    if cov.get("empirical_coverage") is not None:
+        out.append(f"\\renewcommand{{\\{prefix}Coverage}}{{{_pct(cov['empirical_coverage'])}}}")
+    return "\n".join(out) + "\n"
+
+
 def frontier(rep: dict) -> str:
     rows = rep.get("frontier") or []
     alpha = (rep.get("coverage") or {}).get("alpha", 0.05)
@@ -187,6 +219,31 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("report", help="results.json from `prove.py --report`")
     ap.add_argument("--out", default=str(OUT), help="output dir for LaTeX fragments")
+    ap.add_argument(
+        "--suffix",
+        default="",
+        help="append to each fragment filename (e.g. '_shuffled' → headtohead_shuffled.tex) "
+        "so an additive variant run doesn't overwrite the headline fragments",
+    )
+    ap.add_argument(
+        "--only",
+        nargs="+",
+        choices=[
+            "macros",
+            "frontier",
+            "headtohead",
+            "coverage",
+            "tasksuccess",
+            "shift",
+            "e5macros",
+        ],
+        help="emit only these fragments (default: all except e5macros)",
+    )
+    ap.add_argument(
+        "--macro-prefix",
+        default="Shuf",
+        help="namespace prefix for e5macros (e.g. 'Shuf' -> \\ShufRecencyDC, 'Orig' -> \\OrigRecencyDC)",
+    )
     args = ap.parse_args()
 
     rep = json.loads(Path(args.report).read_text())
@@ -204,17 +261,20 @@ def main() -> int:
         )
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    files = {
-        "macros.tex": macros(rep),
-        "frontier.tex": frontier(rep),
-        "headtohead.tex": head_to_head(rep),
-        "coverage.tex": coverage(rep),
-        "tasksuccess.tex": task_success(rep),
-        "shift.tex": shift(rep),
+    builders = {
+        "macros": macros,
+        "frontier": frontier,
+        "headtohead": head_to_head,
+        "coverage": coverage,
+        "tasksuccess": task_success,
+        "shift": shift,
+        "e5macros": lambda r: e5_macros(r, prefix=args.macro_prefix),
     }
-    for name, content in files.items():
-        (out / name).write_text(content)
-    print(f"wrote {len(files)} LaTeX fragments → {out}")
+    # e5macros is opt-in (it needs a prefix), so the default "all" set excludes it.
+    selected = args.only or [k for k in builders if k != "e5macros"]
+    for name in selected:
+        (out / f"{name}{args.suffix}.tex").write_text(builders[name](rep))
+    print(f"wrote {len(selected)} LaTeX fragment(s) → {out} (suffix={args.suffix!r})")
     print("the paper picks them up automatically (\\IfFileExists). Recompile docs/paper/main.tex.")
     return 0
 

@@ -297,6 +297,94 @@ def test_swe_localization_episode_round_trips(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# shuffled-position corpus variant (removes the recency/tail-truncation confound)
+# --------------------------------------------------------------------------- #
+
+
+def _search_hits(ep):
+    """The list of 'FILE …' result blocks in the edit-step observation, in order."""
+    obs = ep["trajectory"][1]["observation"]
+    return obs.split("->\n", 1)[1].split("\n\n")
+
+
+def _gold_index(ep):
+    """Index of the gold hit (the one carrying a real hunk, not the distractor marker)
+    among the search hits, plus the total number of hits."""
+    hits = _search_hits(ep)
+    for i, h in enumerate(hits):
+        lines = h.split("\n")
+        if len(lines) < 2 or lines[1].strip() != "(no obvious relation to the issue)":
+            return i, len(hits)
+    raise AssertionError("no gold hit found")
+
+
+def _synthetic_instance(n):
+    patch = f"--- a/src/mod{n}.py\n+++ b/src/mod{n}.py\n@@ -1,2 +1,2 @@\n-bad{n}\n+good{n}"
+    return {
+        "instance_id": f"proj__bug-{n}",
+        "problem_statement": f"issue {n}",
+        "patch": patch,
+    }
+
+
+_DISTRACTORS = [f"src/d{i}.py" for i in range(6)]  # 6 distractors → 7 hits total
+
+
+def test_swe_localization_gold_last_by_default():
+    fr = _load_fetch()
+    ep = fr.build_swe_localization_episode(_synthetic_instance(0), _DISTRACTORS)
+    idx, n = _gold_index(ep)
+    assert n == 7 and idx == 6  # original construction: gold appended LAST
+
+
+def test_swe_localization_shuffle_is_deterministic():
+    fr = _load_fetch()
+    inst = _synthetic_instance(0)
+    a = fr.build_swe_localization_episode(inst, _DISTRACTORS, gold_seed=1729)
+    b = fr.build_swe_localization_episode(inst, _DISTRACTORS, gold_seed=1729)
+    assert a == b  # same seed + instance → byte-identical
+    c = fr.build_swe_localization_episode(inst, _DISTRACTORS, gold_seed=42)
+    # a different seed should generally move the needle (not a hard guarantee per
+    # instance, but the constructions must not be the same object/text by accident)
+    assert isinstance(c, dict)
+
+
+def test_swe_localization_shuffle_preserves_content():
+    """Shuffled corpus is identical to the gold-last build except the gold hit's
+    position: same hit set, same gold target, same problem statement, same action."""
+    fr = _load_fetch()
+    for n in range(20):
+        inst = _synthetic_instance(n)
+        base = fr.build_swe_localization_episode(inst, _DISTRACTORS)
+        shuf = fr.build_swe_localization_episode(inst, _DISTRACTORS, gold_seed=1729)
+        assert set(_search_hits(shuf)) == set(_search_hits(base))  # same content
+        assert shuf["trajectory"][1]["action"] == base["trajectory"][1]["action"]
+        assert shuf["problem_statement"] == base["problem_statement"]
+        assert shuf["system"] == base["system"] and shuf["info"] == base["info"]
+        assert shuf["trajectory"][0] == base["trajectory"][0]  # search step untouched
+
+
+def test_swe_localization_shuffle_position_roughly_uniform():
+    """Across many instances the gold hit's position is spread over all slots, not
+    biased toward last — the whole point of the variant. Deterministic (fixed seed)."""
+    import collections
+
+    fr = _load_fetch()
+    positions = []
+    for n in range(700):
+        ep = fr.build_swe_localization_episode(_synthetic_instance(n), _DISTRACTORS, gold_seed=1729)
+        idx, total = _gold_index(ep)
+        assert total == 7
+        positions.append(idx)
+    counts = collections.Counter(positions)
+    assert set(counts) == set(range(7))  # every slot used, including 0 (first)
+    # last slot is not the mode; distribution is broadly flat (~100 expected per slot)
+    assert counts[6] < len(positions) * 0.25
+    assert min(counts.values()) > len(positions) * 0.07
+    assert abs(sum(positions) / len(positions) - 3.0) < 0.6  # uniform mean over 0..6
+
+
+# --------------------------------------------------------------------------- #
 # expand-aware grading (the with-expand frontier)
 # --------------------------------------------------------------------------- #
 
@@ -460,7 +548,12 @@ def test_baselines_load_and_compress():
     tot0 = sum(len(b.text) for b in blocks)
 
     # volatile-only baselines: shrink the tail, leave the cacheable prefix byte-identical
-    for name in ("truncate@500", "recency-window@500", "recomp-extractive", "selective-context"):
+    for name in (
+        "truncate@500",
+        "recency-window@500",
+        "recomp-extractive",
+        "selective-context",
+    ):
         out = rungs[name](blocks, 0)
         pre_in = [b.text for b in blocks if b.stability is not Stability.VOLATILE]
         pre_out = [b.text for b in out if b.stability is not Stability.VOLATILE]
@@ -469,10 +562,16 @@ def test_baselines_load_and_compress():
 
     # keep-last-k-turns is the cache-breaking memory baseline: it rewrites HISTORY,
     # keeping only the most recent k entries (test on a synthetic long history)
-    from distil.trajectory import Block, Kind  # Stability already imported at module level
+    from distil.trajectory import (
+        Block,
+        Kind,
+    )  # Stability already imported at module level
 
     hist = Block(
-        "h", Kind.HISTORY, "\n\n".join(f"[msg{i}] turn {i}" for i in range(10)), Stability.SETTLING
+        "h",
+        Kind.HISTORY,
+        "\n\n".join(f"[msg{i}] turn {i}" for i in range(10)),
+        Stability.SETTLING,
     )
     synth = [
         Block("s", Kind.SYSTEM, "policy", Stability.STABLE),
@@ -491,7 +590,8 @@ def test_longllmlingua_threads_question_through(monkeypatch):
     the bare ``except`` would silently swallow that into a misleading no-op (0% savings)
     row. We inject a fake ``llmlingua`` so the real Llama-2 backbone never loads, then
     assert the standing (non-volatile) context reaches the call as the question. Against
-    the pre-fix code (no ``question=``) ``recorded["question"]`` is unset → this fails."""
+    the pre-fix code (no ``question=``) ``recorded["question"]`` is unset → this fails.
+    """
     import sys
     import types
 
@@ -645,6 +745,7 @@ def test_report_to_latex_fragments():
         out = fn(rep)
         assert out and "\\" in out  # produced LaTeX, didn't crash
 
+
 # --- honest-denominator + guards (added with the real-run hardening) ---------- #
 
 
@@ -678,8 +779,6 @@ def test_report_to_latex_refuses_smoke_run(tmp_path):
     rep = tmp_path / "smoke.json"
     rep.write_text(json.dumps({"args": {"runner": "smoke", "samples": 1}, "frontier": []}))
     script = Path(__file__).resolve().parent.parent / "benchmarks" / "report_to_latex.py"
-    out = subprocess.run(
-        [sys.executable, str(script), str(rep)], capture_output=True, text=True
-    )
+    out = subprocess.run([sys.executable, str(script), str(rep)], capture_output=True, text=True)
     assert out.returncode != 0
     assert "smoke" in (out.stderr + out.stdout).lower()
