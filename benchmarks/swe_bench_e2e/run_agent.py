@@ -201,7 +201,11 @@ def run_instance(
     clone = ensure_clone(inst["repo"], cache_dir)
     with _clone_lock(clone):
         wt = make_worktree(clone, inst["base_commit"], work_root)
-    httpd, state = serve(compressor=COMPRESSORS[condition])
+    # The problem statement is the task, not "file content the agent reads" — never
+    # compress it (would handicap B/C for the wrong reason). Pass it as the protected text.
+    httpd, state = serve(
+        compressor=COMPRESSORS[condition], protect=inst["problem_statement"]
+    )
     base_url = f"http://127.0.0.1:{httpd.server_address[1]}"
     try:
         meta = run_aider(wt, inst["problem_statement"], base_url, api_key, timeout)

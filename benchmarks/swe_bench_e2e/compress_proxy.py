@@ -145,30 +145,49 @@ class CompressStats:
     usage_output_tokens: int = 0
     cache_read_input_tokens: int = 0
     cache_creation_input_tokens: int = 0
+    blocks_protected: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
 
 
 def compress_body(
-    body: dict[str, Any], compressor: Compressor | None, stats: CompressStats
+    body: dict[str, Any],
+    compressor: Compressor | None,
+    stats: CompressStats,
+    protect: str | None = None,
 ) -> dict[str, Any]:
     """Return a new request body with compressible context blocks rewritten.
 
     ``compressor=None`` (condition A) leaves the body byte-identical but still tallies
     block/token stats so all conditions report comparable pre-compression context size.
+
+    ``protect`` is a substring (the SWE-bench *problem statement*) that must never be
+    compressed: it is the task definition the agent is solving, not "file content the
+    agent reads", so truncating it would handicap the compressed conditions for the
+    wrong reason. Any block whose text contains ``protect`` is passed through verbatim
+    (counted as seen+protected, never compressed) — for every condition identically.
     """
     messages = body.get("messages")
     if not isinstance(messages, list):
         return body
     stats.requests += 1
+    protect = protect or None
 
     def rewrite_text(role: str, text: str) -> str:
         stats.blocks_seen += 1
         before = len(text)
         stats.chars_before += before
         stats.tokens_before += _tokenizer.count(text)
-        if compressor is None or before < MIN_CHARS or role not in ("user", "tool"):
+        is_protected = protect is not None and protect in text
+        if is_protected:
+            stats.blocks_protected += 1
+        if (
+            compressor is None
+            or before < MIN_CHARS
+            or role not in ("user", "tool")
+            or is_protected
+        ):
             stats.chars_after += before
             stats.tokens_after += _tokenizer.count(text)
             return text
@@ -244,6 +263,9 @@ class ProxyState:
     stats: CompressStats = field(default_factory=CompressStats)
     capture_path: Path | None = None  # when set, append raw request bodies (debug only)
     accounting_path: Path | None = None
+    protect: str | None = (
+        None  # problem statement: never compressed (task, not file content)
+    )
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -265,7 +287,9 @@ def _make_handler(state: ProxyState):
                     if state.capture_path is not None:
                         with state.lock, state.capture_path.open("a") as fh:
                             fh.write(json.dumps(body) + "\n")
-                    new_body = compress_body(body, state.compressor, state.stats)
+                    new_body = compress_body(
+                        body, state.compressor, state.stats, protect=state.protect
+                    )
                     body_out = json.dumps(new_body).encode()
                 except (ValueError, TypeError):
                     body_out = raw  # malformed — forward untouched
@@ -354,16 +378,19 @@ def serve(
     compressor: Compressor | None,
     capture_path: Path | None = None,
     accounting_path: Path | None = None,
+    protect: str | None = None,
 ) -> tuple[ThreadingHTTPServer, ProxyState]:
     """Start the proxy on a background thread. Returns ``(server, state)``.
 
     Use ``port=0`` to bind an ephemeral port (read it from ``server.server_address[1]``).
-    Call ``server.shutdown()`` to stop.
+    Call ``server.shutdown()`` to stop. ``protect`` (the problem statement) is never
+    compressed.
     """
     state = ProxyState(
         compressor=compressor,
         capture_path=capture_path,
         accounting_path=accounting_path,
+        protect=protect,
     )
     httpd = ThreadingHTTPServer((host, port), _make_handler(state))
     t = threading.Thread(target=httpd.serve_forever, daemon=True)

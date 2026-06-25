@@ -143,6 +143,32 @@ def test_full_condition_is_passthrough_but_counts():
     assert stats.tokens_before == stats.tokens_after  # no compression accounted
 
 
+def test_problem_statement_is_protected_from_compression():
+    # The problem statement is the task, not file content — it must pass through verbatim
+    # even though it is a large user block, while a separate file-content block compresses.
+    problem = (
+        "ModelBackend.authenticate() should not query the DB when username is None. "
+        * 20
+    )
+    file_block = _big("source-file")
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": problem + " extra wrapping"}],
+            },
+            {"role": "user", "content": [{"type": "text", "text": file_block}]},
+        ]
+    }
+    stats = CompressStats()
+    out = compress_body(body, trunc_500, stats, protect=problem)
+    # problem statement untouched (protected), file content truncated to 500 chars
+    assert out["messages"][0]["content"][0]["text"] == problem + " extra wrapping"
+    assert out["messages"][1]["content"][0]["text"] == file_block[:500]
+    assert stats.blocks_protected == 1
+    assert stats.blocks_compressed == 1
+
+
 def test_compress_body_does_not_mutate_input():
     big = _big("file")
     body = {"messages": [{"role": "user", "content": [{"type": "text", "text": big}]}]}
