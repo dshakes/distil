@@ -68,6 +68,29 @@
 
     <hr/>
 
+    <!-- E7: SWE-bench Verified end-to-end task-success -->
+    <h2 id="e7">E7: SWE-bench Verified end-to-end task-success</h2>
+    <p><strong>Harness:</strong> <code>benchmarks/swe_bench_e2e/</code> (official <code>swebench</code> 4.1.0) &middot; <strong>Numbers:</strong> <a href="paper/results/swe_bench_verified_e2e.json"><code>docs/paper/results/swe_bench_verified_e2e.json</code></a> &middot; <strong>Source:</strong> <a href="https://github.com/dshakes/distil/pull/8" target="_blank" rel="noopener">PR #8</a></p>
+
+    <p>E1&ndash;E5 measure decision-equivalence on edit-localization &mdash; a proxy. E7 is the first non-proxy test: does the certified operating point survive real execution? A real agent (<strong>aider + <code>claude-sonnet-4-6</code></strong>, temp 0, diff edit format) is run end-to-end on <strong>SWE-bench Verified (n=50, seed 1729)</strong> and scored by the <strong>official <code>swebench</code> harness</strong>, across three conditions sharing the identical agent: <strong>(A)</strong> full context, <strong>(B)</strong> distil at its certified <code>trunc@500</code> operating point, and <strong>(C)</strong> LLMLingua-2.</p>
+
+    <table>
+      <thead><tr><th>Condition</th><th>Resolved</th><th>pass@1</th></tr></thead>
+      <tbody>
+        <tr><td>A &mdash; full context</td><td>26 / 50</td><td>52.0%</td></tr>
+        <tr><td>B &mdash; distil <code>trunc@500</code> (certified)</td><td>8 / 50</td><td>16.0%</td></tr>
+        <tr><td>C &mdash; LLMLingua-2</td><td>13 / 50</td><td>26.0%</td></tr>
+      </tbody>
+    </table>
+
+    <p>distil's certified point loses to full context by <strong>36 points (paired McNemar <code>p&lt;0.001</code>)</strong> and does not beat LLMLingua-2. At <code>trunc@500</code> it strips <strong>86%</strong> of agentic context (vs LLMLingua-2's 48%), so its lower score is partly aggression, not purely method.</p>
+
+    <div class="callout">
+      <b>The honest verdict.</b> The localization decision-equivalence certificate does <strong>not</strong> transfer to end-to-end task success once compression is aggressive &mdash; <code>trunc@500</code> was certified at 4.0% decision-change yet collapses pass@1 by 36 points. The contract (decision-equivalence) is right; the certified <em>rate</em>, not the chosen compressor, is the contribution. <strong>The certificate is the contribution, not the compressor.</strong> Total spend $33.66.
+    </div>
+
+    <hr/>
+
     <!-- Feature 1: Certified compression frontier -->
     <h2 id="frontier">Certified compression frontier</h2>
     <p><strong>Module:</strong> <code>distil/eval.py</code> &middot; <strong>Command:</strong> <code>distil eval [--corpus --runner --out]</code></p>
