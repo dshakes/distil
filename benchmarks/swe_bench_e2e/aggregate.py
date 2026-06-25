@@ -22,12 +22,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-import sys
-
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.swe_bench_e2e.stats import wilson_ci  # noqa: E402
@@ -132,6 +131,53 @@ def aggregate_condition(
     }
 
 
+def _mcnemar_exact(b: int, c: int) -> float:
+    """Two-sided exact McNemar p-value on discordant pairs (b, c)."""
+    from math import comb
+
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(comb(n, j) for j in range(0, k + 1)) / (2**n)
+    return min(1.0, 2 * tail)
+
+
+def paired_analysis(
+    conditions: list[dict[str, Any]], all_ids: list[str]
+) -> list[dict[str, Any]]:
+    """McNemar exact paired tests across conditions (same instances scored 3 ways).
+
+    More powerful than comparing independent Wilson intervals because the 50 instances
+    are common to every condition. Reports, for each ordered pair (a, b): how many a
+    resolved that b did not (``a_only``) and vice versa, and the exact two-sided p-value.
+    """
+    res = {
+        c["condition"]: {i: c["per_instance"][i]["resolved"] for i in all_ids}
+        for c in conditions
+    }
+    pairs = [
+        ("full", "distil_trunc500"),
+        ("full", "llmlingua2"),
+        ("llmlingua2", "distil_trunc500"),
+    ]
+    out = []
+    for a, b in pairs:
+        a_only = sum(1 for i in all_ids if res[a][i] and not res[b][i])
+        b_only = sum(1 for i in all_ids if not res[a][i] and res[b][i])
+        out.append(
+            {
+                "a": a,
+                "b": b,
+                "a_only": a_only,
+                "b_only": b_only,
+                "discordant": a_only + b_only,
+                "mcnemar_p": round(_mcnemar_exact(a_only, b_only), 4),
+            }
+        )
+    return out
+
+
 def write_macros(agg: dict[str, Any], path: Path) -> None:
     """Emit LaTeX macros for the paper (one set per condition + deltas)."""
     by = {c["condition"]: c for c in agg["conditions"]}
@@ -143,6 +189,7 @@ def write_macros(agg: dict[str, Any], path: Path) -> None:
         return f"{100 * x:.1f}"
 
     short = {"full": "Full", "distil_trunc500": "Distil", "llmlingua2": "Lingua"}
+    full_pass = by.get("full", {}).get("pass_at_1", 0.0)
     for cond, name in short.items():
         c = by.get(cond)
         if not c:
@@ -153,13 +200,31 @@ def write_macros(agg: dict[str, Any], path: Path) -> None:
             f"\\newcommand{{\\sweEseven{name}CIlo}}{{{pct(c['ci95_low'])}\\%}}",
             f"\\newcommand{{\\sweEseven{name}CIhi}}{{{pct(c['ci95_high'])}\\%}}",
             f"\\newcommand{{\\sweEseven{name}Cost}}{{\\${c['cost_usd']:.2f}}}",
+            f"\\newcommand{{\\sweEseven{name}CtxRed}}{{{pct(c['context_char_reduction'])}\\%}}",
         ]
+        # signed pass@1 delta vs full, in percentage points (B/C only)
+        if cond != "full":
+            delta = 100 * (c["pass_at_1"] - full_pass)
+            lines.append(f"\\newcommand{{\\sweEseven{name}Delta}}{{{delta:+.1f}\\,pp}}")
     n = by.get("full", {}).get("n", 0)
     lines += [
         f"\\newcommand{{\\sweEsevenN}}{{{n}}}",
         f"\\newcommand{{\\sweEsevenSeed}}{{{agg.get('seed', 1729)}}}",
         f"\\newcommand{{\\sweEsevenTotalCost}}{{\\${agg.get('total_cost_usd', 0):.2f}}}",
     ]
+
+    def fmtp(p: float) -> str:
+        return "<0.001" if p < 0.001 else f"{p:.3f}"
+
+    pair_macro = {
+        ("full", "distil_trunc500"): "DistilVsFullP",
+        ("full", "llmlingua2"): "LinguaVsFullP",
+        ("llmlingua2", "distil_trunc500"): "DistilVsLinguaP",
+    }
+    for pr in agg.get("paired_mcnemar", []):
+        key = pair_macro.get((pr["a"], pr["b"]))
+        if key:
+            lines.append(f"\\newcommand{{\\sweEseven{key}}}{{{fmtp(pr['mcnemar_p'])}}}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
 
@@ -200,6 +265,7 @@ def main() -> None:
         "temperature": 0.0,
         "harness": "swebench 4.1.0 (official run_evaluation, namespace=swebench, x86_64 under emulation)",
         "conditions": conditions,
+        "paired_mcnemar": paired_analysis(conditions, all_ids),
         "total_cost_usd": total_cost,
         "wall_clock_seconds": args.wall_clock_seconds,
     }

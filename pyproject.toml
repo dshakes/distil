@@ -59,3 +59,9 @@ line-length = 100
 
 [tool.ruff.lint.per-file-ignores]
 "tests/test_aproxy.py" = ["E402"]  # imports follow pytest.importorskip("aiohttp")
+
+[tool.pytest.ini_options]
+# All tests live under tests/; keep collection out of the SWE-bench E7 harness's
+# transient logs/ and image/worktree caches (which contain files named test_*.py).
+testpaths = ["tests"]
+norecursedirs = ["logs", ".e7_cache", ".venv*", "docs", "corpus", "benchmarks"]

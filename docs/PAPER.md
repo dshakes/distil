@@ -220,6 +220,37 @@ certificate's validity) and the reversible mechanism. (The real LLMLingua-2 / Lo
 packages are wired in `benchmarks/baselines.py` but require a GPU environment; they were
 not run on this CPU host.)
 
+### 6.0.3 End-to-end task-success (E7) — the certificate does **not** transfer to execution
+
+E1–E6 measure *decision-equivalence*, a proxy. E7 is the first non-proxy test: a real
+agent (**aider 0.86.2 + `claude-sonnet-4-6`**, temp 0, diff edit format) run **end-to-end**
+on **SWE-bench Verified** (50 instances, seed 1729) and scored by the **official
+`swebench` 4.1.0 harness**, across three conditions that share the identical agent and
+differ only in how the agent's *read context* (file contents + tool output, never the
+problem statement) is compressed in flight.
+
+| condition | ctx reduction | pass@1 | 95% CI (Wilson) | resolved | cost |
+|---|--:|--:|---|--:|--:|
+| **A. full context** | — | **52.0%** | [38.5%, 65.2%] | 26/50 | $17.63 |
+| **B. distil `trunc@500`** (certified op-point) | 86% | **16.0%** | [8.3%, 28.5%] | 8/50 | $4.00 |
+| **C. LLMLingua-2** (default rate) | 48% | **26.0%** | [15.9%, 39.6%] | 13/50 | $12.03 |
+
+Paired exact McNemar (same 50 instances): **distil vs. full `p<0.001`** (20 lost, 2
+gained), **LLMLingua-2 vs. full `p=0.002`**, **distil vs. LLMLingua-2 `p=0.18`** (n.s.).
+
+**Findings, reported without cherry-picking.** (1) Both compressed conditions
+**significantly** collapse pass@1 vs. full context — compression at these operating points
+does **not** survive real execution. (2) distil's certified `trunc@500` (16.0%) trails
+LLMLingua-2 (26.0%) on point estimate but **not significantly** at n=50, and it compresses
+~1.8× harder (86% vs. 48% of context removed), so its lower score is confounded with
+aggression, not established as a method gap. (3) The headline: **the localization
+certificate does not transfer to execution** — `trunc@500` was *certified* at 4.0%
+decision-change (E6) yet collapses end-to-end success by 36 points. The decision-equivalence
+contract is sound for what it measures (the calibration distribution); it is **not** a
+task-success guarantee once compression is aggressive. Harness, runners, and the full
+per-instance breakdown: `benchmarks/swe_bench_e2e/` and
+`docs/paper/results/swe_bench_verified_e2e.json`. Total API spend: $33.66.
+
 ### 6.1 Exploratory run — 8 trajectories, 67 real decision points, Haiku grader, samples=1
 
 ### 6.1 Exploratory run — 8 trajectories, 67 real decision points, Haiku grader, samples=1

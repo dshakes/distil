@@ -1,0 +1,315 @@
+{
+  "summary": {
+    "resolved": 13,
+    "n": 50,
+    "pass_at_1": 0.26,
+    "ci95_low": 0.1587,
+    "ci95_high": 0.3955,
+    "n_completed": 49,
+    "n_errored": 1,
+    "harness_seconds": 810.6,
+    "report_path": "/Users/shakes/workspace/distil/distil-e7-llmlingua2.e7_llmlingua2.json"
+  },
+  "per_instance": {
+    "astropy__astropy-13236": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-10554": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-10973": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-11066": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "django__django-11087": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-11451": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "django__django-12304": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-12713": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-13023": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-13315": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-13417": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "django__django-14170": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-14315": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-15128": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "django__django-15161": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-15278": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-15375": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-15695": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-15741": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "django__django-15930": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "django__django-16569": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "django__django-16595": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "matplotlib__matplotlib-20488": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "matplotlib__matplotlib-20676": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "matplotlib__matplotlib-23476": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "matplotlib__matplotlib-25775": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "psf__requests-2317": {
+      "resolved": false,
+      "completed": false,
+      "errored": true,
+      "unresolved": false
+    },
+    "pydata__xarray-4966": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "pydata__xarray-6744": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "pydata__xarray-7233": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "pytest-dev__pytest-5631": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "pytest-dev__pytest-7236": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "scikit-learn__scikit-learn-10908": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "scikit-learn__scikit-learn-13439": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "scikit-learn__scikit-learn-14496": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "scikit-learn__scikit-learn-25232": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "scikit-learn__scikit-learn-26194": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sphinx-doc__sphinx-7440": {
+      "resolved": true,
+      "completed": true,
+      "errored": false,
+      "unresolved": false
+    },
+    "sphinx-doc__sphinx-9591": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sphinx-doc__sphinx-9711": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-12419": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-13615": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-14248": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-14531": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-15017": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-15976": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-16450": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-17655": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-20916": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    },
+    "sympy__sympy-21596": {
+      "resolved": false,
+      "completed": true,
+      "errored": false,
+      "unresolved": true
+    }
+  }
+}

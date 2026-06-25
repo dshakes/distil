@@ -1,0 +1,302 @@
+[
+  {
+    "instance_id": "astropy__astropy-13236",
+    "ref": "swebench/sweb.eval.x86_64.astropy_1776_astropy-13236:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-10554",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-10554:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-10973",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-10973:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-11066",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-11066:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-11087",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-11087:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-11451",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-11451:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-12304",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-12304:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-12713",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-12713:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-13023",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-13023:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-13315",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-13315:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-13417",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-13417:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-14170",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-14170:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-14315",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-14315:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15128",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15128:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15161",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15161:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15278",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15278:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15375",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15375:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15695",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15695:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15741",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15741:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-15930",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-15930:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-16569",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-16569:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "django__django-16595",
+    "ref": "swebench/sweb.eval.x86_64.django_1776_django-16595:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "matplotlib__matplotlib-20488",
+    "ref": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-20488:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "matplotlib__matplotlib-20676",
+    "ref": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-20676:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "matplotlib__matplotlib-23476",
+    "ref": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23476:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "matplotlib__matplotlib-25775",
+    "ref": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25775:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "psf__requests-2317",
+    "ref": "swebench/sweb.eval.x86_64.psf_1776_requests-2317:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "pydata__xarray-4966",
+    "ref": "swebench/sweb.eval.x86_64.pydata_1776_xarray-4966:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "pydata__xarray-6744",
+    "ref": "swebench/sweb.eval.x86_64.pydata_1776_xarray-6744:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "pydata__xarray-7233",
+    "ref": "swebench/sweb.eval.x86_64.pydata_1776_xarray-7233:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "pytest-dev__pytest-5631",
+    "ref": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5631:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "pytest-dev__pytest-7236",
+    "ref": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7236:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "scikit-learn__scikit-learn-10908",
+    "ref": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-10908:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "scikit-learn__scikit-learn-13439",
+    "ref": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13439:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "scikit-learn__scikit-learn-14496",
+    "ref": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14496:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "scikit-learn__scikit-learn-25232",
+    "ref": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25232:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "scikit-learn__scikit-learn-26194",
+    "ref": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-26194:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sphinx-doc__sphinx-7440",
+    "ref": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7440:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sphinx-doc__sphinx-9591",
+    "ref": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9591:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sphinx-doc__sphinx-9711",
+    "ref": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9711:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-12419",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-12419:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-13615",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13615:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-14248",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14248:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-14531",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14531:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-15017",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-15017:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-15976",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-15976:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-16450",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-16450:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-17655",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-17655:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-20916",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20916:latest",
+    "status": "cached",
+    "seconds": 0.0
+  },
+  {
+    "instance_id": "sympy__sympy-21596",
+    "ref": "swebench/sweb.eval.x86_64.sympy_1776_sympy-21596:latest",
+    "status": "cached",
+    "seconds": 0.0
+  }
+]
