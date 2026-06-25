@@ -24,3 +24,11 @@ benchmarks/README.md
 # Local secrets — never commit
 .env
 .env.*
+
+# Phase 5 / E7 — SWE-bench end-to-end eval: local caches, images, harness artifacts
+.e7_cache/
+logs/
+*.e7_*.json
+gold.*.json
+distil-e7-*.json
+docs/paper/results/swe_e2e/sample_full.json
