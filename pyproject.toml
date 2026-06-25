@@ -2,7 +2,7 @@
 # Import package and CLI are `distil`; the PyPI distribution is `distil-llm`
 # (the bare `distil` name is already taken on PyPI).
 name = "distil-llm"
-version = "0.24.0"
+version = "0.25.1"
 description = "Compression with a quality contract — cache-aware, causally-pruned context compression for agentic runtimes, gated by a statistical non-inferiority test."
 readme = "README.md"
 requires-python = ">=3.11"

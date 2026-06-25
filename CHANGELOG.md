@@ -3,6 +3,15 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.25.1] — 2026-06-25
+
+Version bump only; same content as the v0.25.0 release notes — fixes the PyPI
+publish that failed on a duplicate filename in v0.25.0 (the package version was
+still `0.24.0`, so the wheel/sdist collided with an already-uploaded
+distribution). The v0.25.0 tag and GitHub Release are intentionally left in
+place. See the [v0.25.0 release](https://github.com/dshakes/distil/releases/tag/v0.25.0)
+for the substantive change (Phase 5 / E7 SWE-bench Verified end-to-end eval).
+
 ## [0.24.0] — Ecosystem hooks + on-motto gap-closing
 
 New surface area for agent frameworks and observability — every addition kept
