@@ -158,6 +158,12 @@ def run_aider(
         AIDER_BIN,
         "--model",
         MODEL,
+        # aider 0.86.2 doesn't recognise claude-sonnet-4-6 and would fall back to the
+        # "whole" edit format (model rewrites entire files -> 25-45k-token outputs that
+        # take 600-900s and time out on large repos). Force concise search/replace diffs:
+        # ~10-50x smaller outputs, far faster, more reliable, identical across conditions.
+        "--edit-format",
+        "diff",
         "--no-auto-commits",  # aider edits the worktree but never commits; we capture the diff
         "--no-dirty-commits",
         "--yes-always",
