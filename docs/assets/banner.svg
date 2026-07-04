@@ -20,7 +20,7 @@
   </g>
   <text x="64" y="104" font-size="68" font-weight="800" letter-spacing="-2" fill="#e7e9ee">Dist<tspan fill="url(#g)">il</tspan></text>
   <text x="66" y="146" font-size="22" fill="#8b91a1">Compression with a <tspan fill="#e7e9ee" font-weight="600">quality contract</tspan>.</text>
-  <text x="66" y="180" font-size="16" fill="#8b91a1">Cut your agent's token bill in half — and <tspan fill="#c9cdd6" font-weight="600">prove its decisions don't change.</tspan></text>
+  <text x="66" y="180" font-size="16" fill="#8b91a1">Compress your agent's context — and <tspan fill="#c9cdd6" font-weight="600">prove its decisions don't change.</tspan></text>
   <g transform="translate(66,200)">
     <rect width="336" height="26" rx="13" fill="#0f1219" stroke="#1b1f2a"/>
     <circle cx="17" cy="13" r="3.5" fill="#5ad19a"/>

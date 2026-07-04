@@ -77,3 +77,29 @@ def test_shadowed_install_warns(monkeypatch):
     # single install is fine
     monkeypatch.setattr(doctor, "_find_all_distil", lambda: ["/usr/local/bin/distil"])
     assert doctor._check_shadowed_install().status == doctor.OK
+
+
+def test_live_routing_warns_on_bypass(monkeypatch):
+    """wrap running + stale ledger → WARN 'bypassing distil'."""
+    import subprocess
+    import time as _t
+    from distil import doctor, ledger
+
+    class _P:
+        returncode = 0
+        stdout = "user 123 distil wrap --lossless-only -- claude\n"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _P())
+    monkeypatch.setattr(ledger, "latest_session", lambda: ("s1", _t.time() - 600))  # 10m stale
+    ch = doctor._check_live_routing()
+    assert ch.status == doctor.WARN and "bypassing" in ch.hint
+
+    # fresh traffic → OK
+    monkeypatch.setattr(ledger, "latest_session", lambda: ("s1", _t.time() - 60))
+    assert doctor._check_live_routing().status == doctor.OK
+
+    # no wrap running → INFO
+    class _P2:
+        returncode = 0
+        stdout = "user 123 some-other-process\n"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _P2())
+    assert doctor._check_live_routing().status == doctor.INFO

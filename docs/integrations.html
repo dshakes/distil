@@ -262,11 +262,21 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
         <tr><td><code>/distil-badge</code></td><td>Shareable badge of your measured savings</td></tr>
       </tbody>
     </table>
-    <p>Rich by default — it leads with <em>this session</em> and adds lifetime + health:
-    <code>distil · session ▼75.0K · 62% smaller · $0.31 · total ▼27.0M · ✓eq 99%</code>
-    (decision-equivalence appears only past 25 shadow samples — a rate over a handful is noise).
-    Sharing the line with git/cwd/model? Set <code>DISTIL_STATUSLINE=minimal</code> for a
-    two-fact segment: <code>distil ▼75.0K · 27.0M total</code>.</p>
+    <p>One pattern in every state: <code>distil · &lt;live&gt; · total ▼&lt;lifetime&gt;</code>.
+    The live segment aggregates recent activity (last 15&nbsp;min, all terminals), so it never
+    flickers between sessions:</p>
+    <table>
+      <thead><tr><th>State</th><th>You see</th><th>Means</th></tr></thead>
+      <tbody>
+        <tr><td><strong>saving</strong></td><td><code>distil · ▼12.0K · 40% smaller · $0.31 · total ▼27.0M · ✓eq 99%</code></td><td>compressing your recent traffic</td></tr>
+        <tr><td><strong>watching</strong></td><td><code>distil · ✓ on · waiting for a large read · total ▼27.0M</code></td><td>on, but no large content yet — savings come from big file/command output</td></tr>
+        <tr><td><strong>idle</strong></td><td><code>distil · ✓ on · total ▼27.0M</code></td><td>set up and on, no recent traffic</td></tr>
+      </tbody>
+    </table>
+    <p><code>▼</code> = tokens saved · <code>total</code> = lifetime · <code>✓eq</code> = decision-equivalence
+    (shown only past 25 shadow samples — a rate over a handful is noise). Sharing the line with
+    git/cwd/model? Set <code>DISTIL_STATUSLINE=minimal</code> for a two-fact segment:
+    <code>distil ▼75.0K · 27.0M total</code>.</p>
 
     <hr/>
 

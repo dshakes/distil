@@ -77,12 +77,12 @@ class TrajectoryRiskCertificate:
             return (
                 f"With confidence {(1 - self.delta) * 100:.0f}%, compression degrades at most "
                 f"{self.alpha * 100:.1f}% of tasks the full context would have solved "
-                f"(observed {self.empirical_risk * 100:.1f}% over {self.n} matched trajectories). "
+                f"(observed {self.empirical_risk * 100:.1f}% over {self.n} matched trajector{'y' if self.n == 1 else 'ies'}). "
                 f"Valid under: {self.assumptions}"
             )
         return (
             f"NOT CERTIFIED at α={self.alpha}: observed {self.empirical_risk * 100:.1f}% "
-            f"degradation over {self.n} matched trajectories "
+            f"degradation over {self.n} matched trajector{'y' if self.n == 1 else 'ies'} "
             f"(upper bound {self.risk_bound * 100:.1f}%). Collect more calibration "
             "trajectories or reduce compression aggressiveness."
         )

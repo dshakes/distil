@@ -82,7 +82,7 @@ a { color: inherit; text-decoration: none; }
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
   background: linear-gradient(90deg, transparent, rgba(139,123,255,.45), rgba(90,209,201,.45), transparent);
 }
-.topbar-logo { font-weight: 800; font-size: 19px; letter-spacing: -.03em; white-space: nowrap; }
+.topbar-logo { font-weight: 800; font-size: 21px; letter-spacing: -.03em; white-space: nowrap; }
 .topbar-logo b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .topbar-pill {
   font-size: 10.5px; color: var(--acc2);
@@ -466,5 +466,5 @@ pre:hover .copy-btn { opacity: 1; }
 }
 
 /* Header ref links — clickable "#" anchor, revealed on hover/focus. */
-.hanchor { margin-left: .4em; color: var(--acc); text-decoration: none; opacity: 0; font-weight: 400; transition: opacity .12s; }
-.content h2:hover .hanchor, .content h3:hover .hanchor, .hanchor:focus { opacity: 1; }
+.hanchor { margin-left: .45em; color: var(--acc2); text-decoration: none; opacity: .45; font-weight: 600; font-size: .72em; transition: opacity .12s; }
+.content h2:hover .hanchor, .content h3:hover .hanchor, .hanchor:hover, .hanchor:focus { opacity: 1; text-decoration: underline; }

@@ -137,6 +137,84 @@ def _check_ledger() -> Check:
     return Check("savings ledger", OK, detail)
 
 
+def _check_session() -> Check:
+    """Explain what the status line's 'session' segment is showing — especially
+    the 'watching' state, so a user doesn't have to wonder why ▼ is empty."""
+    import time
+
+    from . import ledger
+
+    try:
+        sid, last_ts = ledger.latest_session()
+        if not sid or (time.time() - last_ts) > 4 * 3600:
+            return Check(
+                "this session", INFO, "no recent session — start one: distil wrap -- claude"
+            )
+        s = ledger.summary(session=sid)
+    except Exception as exc:  # noqa: BLE001
+        return Check("this session", INFO, f"session slice unavailable — {exc}")
+    if not s.runs or not s.total_baseline_tokens:
+        return Check("this session", INFO, "no traffic recorded yet")
+    reqs = f"{s.runs} request{'s' if s.runs != 1 else ''}"
+    if s.total_tokens_saved > 0:
+        pct = (1 - s.total_distil_tokens / s.total_baseline_tokens) * 100
+        return Check(
+            "this session",
+            OK,
+            f"▼{s.total_tokens_saved:,} tokens saved ({pct:.0f}% smaller) over {reqs}",
+        )
+    seen = (
+        f"{s.total_baseline_tokens / 1000:.1f}K tokens"
+        if s.total_baseline_tokens >= 1000
+        else f"{s.total_baseline_tokens} token{'s' if s.total_baseline_tokens != 1 else ''}"
+    )
+    return Check(
+        "this session",
+        INFO,
+        f"watching — {reqs}, {seen} seen, 0 saved yet",
+        "normal early in a session: savings come from LARGE tool output (file reads, "
+        "logs). A small request that's mostly the system prompt has nothing to trim — "
+        "▼ climbs once your agent reads big content.",
+    )
+
+
+def _check_live_routing() -> Check:
+    """Catch the silent failure that reads as 'watching forever': a `distil
+    wrap`/`proxy` process is running, but the agent's traffic isn't reaching it
+    (terminal opened before the alias was sourced, or a raw agent), so nothing
+    gets recorded and savings never move."""
+    import re
+    import subprocess
+    import time
+
+    from . import ledger
+
+    try:
+        out = subprocess.run(["ps", "axww"], capture_output=True, text=True, timeout=3)
+    except Exception:  # noqa: BLE001 — no `ps` (e.g. Windows): can't tell, skip
+        return Check("live routing", INFO, "process check not available on this platform")
+    running = bool(re.search(r"distil\s+(wrap|proxy|gateway)\b", out.stdout))
+    if not running:
+        return Check("live routing", INFO, "no distil wrap/proxy running (nothing to route)")
+    try:
+        _sid, last_ts = ledger.latest_session()
+        age_min = (time.time() - last_ts) / 60 if last_ts else 1e9
+    except Exception:  # noqa: BLE001
+        age_min = 1e9
+    if age_min <= 5:
+        return Check(
+            "live routing", OK, f"wrapped agent live · traffic recorded {age_min:.0f}m ago"
+        )
+    return Check(
+        "live routing",
+        WARN,
+        f"a distil wrap/proxy is running but NO traffic recorded in {age_min:.0f} min",
+        "your agent is probably bypassing distil. In its terminal run "
+        "`echo $ANTHROPIC_BASE_URL` — empty means that shell was opened before the "
+        "alias; open a fresh terminal, or launch it with `distil wrap -- <agent>`.",
+    )
+
+
 def _check_shadow() -> Check:
     try:
         from .shadow import ShadowLedger
@@ -151,12 +229,16 @@ def _check_shadow() -> Check:
             "not running — no decision-equivalence samples",
             "start it in one command:  distil wrap --shadow 0.1 -- claude",
         )
+    smp = f"{led.samples} sample{'s' if led.samples != 1 else ''}"
+    if led.samples < 25:
+        # Same 25-sample floor the status line uses — a rate over a handful is noise.
+        return Check(
+            "shadow validation",
+            INFO,
+            f"collecting — {smp} (need 25 for a decision-equivalence rate)",
+        )
     eq = 100 * (1 - led.rate())
-    return Check(
-        "shadow validation",
-        OK,
-        f"{eq:.1f}% decision-equivalence over {led.samples} samples",
-    )
+    return Check("shadow validation", OK, f"{eq:.1f}% decision-equivalence over {smp}")
 
 
 def _check_proxy_selftest() -> Check:
@@ -374,6 +456,8 @@ def diagnose() -> list[Check]:
         _check_version,
         _check_shadowed_install,
         _check_ledger,
+        _check_session,
+        _check_live_routing,
         _check_shadow,
         _check_proxy_selftest,
         _check_anthropic_extra,

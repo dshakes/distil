@@ -2,7 +2,7 @@
 
 distil compress  --trajectory T            shrink a trajectory, report ratio + reversibility
 distil savings   --trajectory T --pricing  price 4 strategies in real dollars (technique #1)
-distil prune     --trajectory T            causal ablation: what is free to drop (technique #4)
+distil prune     --trajectory T            causal ablation: what is free to drop (technique #2)
 distil certify   --trajectory T --strategy non-inferiority gate (the quality contract)
 """
 
@@ -191,23 +191,36 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             f"{s.total_distil_tokens:,}  (−{trimmed * 100:.1f}%)"
         )
     print(f"total tokens saved:   {s.total_tokens_saved:,}")
-    print(f"total dollars saved:  ${s.total_dollars_saved:.5f}")
+    from .doctor import subscription_mode
+
+    if subscription_mode():
+        print("total dollars saved:  — (flat-rate subscription; dollars are notional)")
+    else:
+        print(f"total dollars saved:  ${s.total_dollars_saved:,.2f}")
     try:
         from .shadow import ShadowLedger
 
         led = ShadowLedger.load()
-        if led.samples:
+        if led.samples >= 25:
+            # Only claim a rate with evidence behind it — the same 25-sample floor
+            # the status line uses; a rate over a handful is noise.
             print(
                 f"decision-equivalence: {(1 - led.rate()) * 100:.1f}% "
-                f"({led.samples:,} shadowed requests)"
+                f"({led.samples:,} shadowed request{'s' if led.samples != 1 else ''})"
+            )
+        elif led.samples:
+            print(
+                f"decision-equivalence: collecting — {led.samples} "
+                f"sample{'s' if led.samples != 1 else ''} (need 25 for a rate)"
             )
     except Exception:  # noqa: BLE001 — shadow stats are best-effort
         pass
-    if live:
-        print(f"  of which genuine live traffic (live-proxy): ${live:.5f}")
-    print("\nby source:")
-    for tid, saved in sorted(s.by_trajectory.items(), key=lambda kv: -kv[1]):
-        print(f"  {tid:<28} ${saved:.5f}")
+    if live and not subscription_mode():
+        print(f"  of which genuine live traffic (live-proxy): ${live:,.2f}")
+    if not subscription_mode():
+        print("\nby source:")
+        for tid, saved in sorted(s.by_trajectory.items(), key=lambda kv: -kv[1]):
+            print(f"  {tid:<28} ${saved:,.2f}")
     if "heuristic" in s.tokenizers:
         print(
             "\n(token counts ≈ heuristic tokenizer — directionally accurate, "
@@ -254,7 +267,8 @@ def cmd_certify(args: argparse.Namespace) -> int:
     print(f"\ndecision-equivalence match rate: {report.match_rate * 100:.1f}%")
     print(
         f"TOST non-inferiority (margin={t.margin}, alpha={t.alpha}): "
-        f"mean diff={t.mean_diff:+.3f}, p={t.p_non_inferior:.4g}"
+        f"mean diff={t.mean_diff:+.3f}, "
+        f"p={'<0.0001' if t.p_non_inferior < 1e-4 else format(t.p_non_inferior, '.4g')}"
     )
     print(
         f"\nVERDICT: {report.verdict}  "
@@ -399,6 +413,14 @@ def cmd_holdout(args: argparse.Namespace) -> int:
     """Holdout A/B savings with a bootstrap CI (Phase 5)."""
     from .certify.holdout import run_holdout
 
+    import sys as _sys
+
+    if not 0.0 < args.control_fraction < 1.0:
+        print(
+            "distil holdout: --control-fraction must be between 0 and 1 (exclusive)",
+            file=_sys.stderr,
+        )
+        return 2
     price = pricing.get(args.pricing)
     tok = tokenizer.resolve(args.tokenizer, model=price.name)
     rep = run_holdout(load_corpus(), price, control_fraction=args.control_fraction, tok=tok)
@@ -473,6 +495,13 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
         return 0
     change = led.rate()
     print("Shadow-mode live decision-equivalence (real traffic, content-free)\n")
+    smp = f"{led.samples} shadowed request{'s' if led.samples != 1 else ''}"
+    if led.samples < 25:
+        # Same 25-sample floor as the status line / leaderboard / doctor — a rate
+        # over a handful is noise, so don't print a decision-equivalence guarantee.
+        print(f"  {smp} — collecting (need 25 for a decision-equivalence rate)")
+        print("  keep using your agent; the rate appears once there's real evidence.")
+        return 0
     print(f"  shadowed requests : {led.samples}")
     print(f"  decision changes  : {led.changes}")
     print(f"  decision-change rate (rolling): {change * 100:.2f}%")
@@ -520,24 +549,21 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     if os.environ.get("DISTIL_STATUSLINE", "").lower() in ("minimal", "lite", "compact"):
         mseg = [c("1;38;5;79", "distil")]
         if s is None or s.runs == 0:
-            mseg.append(c("90", "wrap -- <agent> to start"))
+            mseg.append(c("38;5;73", "wrap -- <agent> to start"))
         else:
-            sess_saved = 0
+            recent_saved = 0
             try:
                 import time as _time
 
-                sid, last_ts = ledger.latest_session()
-                if sid and (_time.time() - last_ts) < 4 * 3600:
-                    ss = ledger.summary(session=sid)
-                    if ss.runs:
-                        sess_saved = ss.total_tokens_saved
-            except Exception:  # noqa: BLE001 — session slice is best-effort
+                # recent activity across all terminals (15-min window), not one session
+                recent_saved = ledger.summary(since=_time.time() - 15 * 60).total_tokens_saved
+            except Exception:  # noqa: BLE001 — recent slice is best-effort
                 pass
-            if sess_saved > 0:
-                mseg.append(c("1;38;5;84", f"▼{ledger._human(sess_saved)}"))
+            if recent_saved > 0:
+                mseg.append(c("1;38;5;84", f"▼{ledger._human(recent_saved)}"))
             mseg.append(c("38;5;73", f"{ledger._human(s.total_tokens_saved)} total"))
         if model:
-            mseg.append(c("90", model))
+            mseg.append(c("38;5;73", model))
         print("  ".join(mseg))
         return 0
 
@@ -552,55 +578,35 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     # Full breakdown: distil stats / dashboard.
     parts = [c("1;38;5;79", "distil")]
     if s is None or s.runs == 0:
-        parts.append(c("90", "no savings yet · distil wrap -- <agent>"))
+        parts.append(c("38;5;73", "no savings yet · distil wrap -- <agent>"))
     else:
         from .doctor import subscription_mode
 
         metered = not subscription_mode()
-        shown_session = False
+        # ONE consistent pattern in every state:  distil · <live> · total ▼27.0M
+        #   <live> = ▼75K · 62% smaller [· $]   (recent savings)
+        #          = ✓ on · waiting for a large read   (recent traffic, nothing big yet)
+        #          = ✓ on   (set up, idle — no recent traffic)
+        # LIVE aggregates a 15-min window across ALL sessions (each terminal's
+        # `distil default` spawns its own session), so the number never flickers.
         try:
             import time as _time
 
-            sid, last_ts = ledger.latest_session()
-            if sid and (_time.time() - last_ts) < 4 * 3600:
-                sess = ledger.summary(session=sid)
-                if sess.runs and sess.total_baseline_tokens:
-                    if sess.total_tokens_saved > 0:
-                        trimmed = 1 - sess.total_distil_tokens / sess.total_baseline_tokens
-                        # The hero number pops (bold bright green); the rate rides
-                        # dim beside it, so the eye lands on what you saved.
-                        parts.append(
-                            c("1;38;5;84", f"session ▼{ledger._human(sess.total_tokens_saved)}")
-                        )
-                        parts.append(c("38;5;245", f"{trimmed * 100:.0f}% smaller"))
-                        if metered and sess.total_dollars_saved > 0:
-                            parts.append(c("1;38;5;114", f"${sess.total_dollars_saved:,.2f}"))
-                    else:
-                        # Traffic is flowing but nothing was worth trimming yet
-                        # (small/early contexts — savings grow with context).
-                        # "▼0 −0%" reads as broken; say what's actually true.
-                        parts.append(
-                            c(
-                                "90",
-                                f"session: watching · {ledger._human(sess.total_baseline_tokens)} seen",
-                            )
-                        )
-                    parts.append(c("38;5;73", f"total ▼{ledger._human(s.total_tokens_saved)}"))
-                    shown_session = True
-        except Exception:  # noqa: BLE001 — session slice is best-effort
-            pass
-        if not shown_session:
-            trimmed = (
-                1 - s.total_distil_tokens / s.total_baseline_tokens
-                if s.total_baseline_tokens
-                else 0.0
-            )
-            seg = (
-                f"total ▼{ledger._human(s.total_tokens_saved)} saved · {trimmed * 100:.0f}% smaller"
-            )
-            parts.append(c("38;5;73", seg))
-            if metered:
-                parts.append(c("1;38;5;114", f"${s.total_dollars_saved:,.2f}"))
+            recent = ledger.summary(since=_time.time() - 15 * 60)
+        except Exception:  # noqa: BLE001 — recent slice is best-effort
+            recent = ledger.LedgerSummary(0, 0.0, 0, {})
+        if recent.runs and recent.total_baseline_tokens and recent.total_tokens_saved > 0:
+            trimmed = 1 - recent.total_distil_tokens / recent.total_baseline_tokens
+            parts.append(c("1;38;5;84", f"▼{ledger._human(recent.total_tokens_saved)}"))
+            parts.append(c("38;5;80", f"{trimmed * 100:.0f}% smaller"))
+            if metered and recent.total_dollars_saved > 0:
+                parts.append(c("1;38;5;114", f"${recent.total_dollars_saved:,.2f}"))
+        elif recent.runs and recent.total_baseline_tokens:
+            parts.append(c("1;38;5;84", "✓ on") + c("38;5;80", " · waiting for a large read"))
+        else:
+            parts.append(c("1;38;5;84", "✓ on"))
+        # TOTAL (lifetime) — identical format in every state.
+        parts.append(c("38;5;73", f"total ▼{ledger._human(s.total_tokens_saved)}"))
         try:
             from .shadow import ShadowLedger
 
@@ -622,11 +628,11 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                     if eq >= 0.95
                     else ("✗", "38;5;196")
                 )
-                parts.append(c(hue, f"{glyph}eq {eq * 100:.1f}%") + c("90", f" ({n_str})"))
+                parts.append(c(hue, f"{glyph}eq {eq * 100:.1f}%") + c("38;5;73", f" ({n_str})"))
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
     if model:
-        parts.append(c("90", model))
+        parts.append(c("38;5;73", model))
     print(" · ".join(parts))
     return 0
 
@@ -979,8 +985,13 @@ def cmd_default(args: argparse.Namespace) -> int:
     st, msg = write_managed(rc, alias_body(agent, mode, shell=shell))
     glyph = {"ok": "✓", "updated": "✓", "exists": "✓"}.get(st, "⚠")
     print(f"{glyph} {msg}")
-    print(f"  `{agent}` now routes through distil (--{mode}). Reload your shell (source {rc}).")
-    print("  Undo anytime: distil default --undo")
+    print(f"  `{agent}` now routes through distil (--{mode}).")
+    print("\n  ⚠ IMPORTANT — one more step, or you'll see savings stay at zero:")
+    print(f"     1. reload this shell:   source {rc}")
+    print(f"     2. RESTART {agent}:       any {agent} already running was launched")
+    print("        before the alias, so it bypasses distil. Start a fresh one.")
+    print("     verify it's routed:     echo $ANTHROPIC_BASE_URL   (should not be empty)")
+    print("\n  Undo anytime: distil default --undo")
     return 0
 
 
@@ -1268,7 +1279,16 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
     from .ingest import ingest_file
 
+    import sys as _sys
+
     traj = ingest_file(args.input, provider=args.provider, model=args.model)
+    if not traj.turns:
+        print(
+            f"distil ingest: parsed 0 turns from {args.input} — is it newline-delimited "
+            "provider-request JSON? (nothing was written)",
+            file=_sys.stderr,
+        )
+        return 2
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     fname = f"{traj.id}.json"
@@ -1292,8 +1312,13 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 def cmd_perf(args: argparse.Namespace) -> int:
     """Report compression + adapter latency/throughput (p50/p95)."""
+    import sys as _sys
+
     from .perf import format_table, run_perf
 
+    if args.iterations < 1:
+        print("distil perf: --iterations must be >= 1", file=_sys.stderr)
+        return 2
     print(format_table(run_perf(iterations=args.iterations)))
     return 0
 
@@ -1532,6 +1557,8 @@ def cmd_online(args: argparse.Namespace) -> int:
         "self-distilling round — keep-model learns from causal labels, gated by non-inferiority\n"
     )
     for k, v in rep.items():
+        if isinstance(v, float):
+            v = f"{v:.1%}" if k in ("accuracy", "precision", "recall") else f"{v:.3f}"
         print(f"  {k}: {v}")
     if not rep.get("certified"):
         print("\nNOT promoted — the candidate failed the non-inferiority gate (never-regressing).")
@@ -1632,7 +1659,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lb.set_defaults(func=cmd_leaderboard)
 
-    pr = sub.add_parser("prune", help="causal ablation: what is free to drop (technique #4)")
+    pr = sub.add_parser("prune", help="causal ablation: what is free to drop (technique #2)")
     add_traj(pr)
     pr.set_defaults(func=cmd_prune)
 
@@ -2096,10 +2123,11 @@ def main(argv: list[str] | None = None) -> int:
         rc = args.func(args)
     except BrokenPipeError:
         rc = 0
-    except (FileNotFoundError, IsADirectoryError, PermissionError) as e:
-        # A missing/unreadable input file is a user mistake, not a distil bug —
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError, PermissionError) as e:
+        # A missing/unreadable input path is a user mistake, not a distil bug —
         # a clean message beats an 8-line pathlib traceback. Covers every
         # file-reading command at the dispatch chokepoint (no per-command patch).
+        # NotADirectoryError = a --corpus that points at a file, not a dir.
         print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
         return 2
     except json.JSONDecodeError as e:

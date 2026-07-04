@@ -60,6 +60,52 @@ All notable changes to Distil are documented here. Format loosely follows
 ### Docs
 - Lean README (~40% less prose) + live/clickable badges; 18-page site polish; every link verified; PAPER.md figures; honest banner.
 
+## [1.8.4] — 2026-07-04 — Statusline polish + landing/docs GA audit
+
+### Changed
+- **Status line** fully colored (cohesive teal→green, no gray): session number pops bold green, trim rate mid-teal, total muted teal. `N% smaller` (not a misleading `−N%`).
+- **Version single-sourced** — `__init__` reads pyproject instead of a hardcoded literal (no drift, no merge-back conflicts).
+
+### Fixed (docs, proactive audit)
+- Landing page: `Python 3.11+`→`3.9+` (factual); heading hierarchy; two "How it works"→ one is "Under the hood"; proof section now cites E14 (42.0% vs 39.2%); plain-English section linked from nav + hero; smart quotes.
+- benchmark.html cites E14; getting-started smart quotes + stale version example.
+
+## [1.8.5] — 2026-07-04 — Statusline clarity + self-diagnosing doctor
+
+### Fixed
+- **Statusline no longer flickers across terminals.** `distil default` spawns a proxy+session per terminal; the live ▼ now aggregates a 15-minute activity WINDOW across ALL sessions instead of one flickering "latest session".
+- **Zero-savings state is unmistakable:** `✓ on · waiting for a large read` (bright green, clearly active) instead of a dim, easily-misread "watching".
+- **`distil doctor` self-diagnoses the two traps:** `live routing` warns when a wrap/proxy is running but no traffic is recorded (agent bypassing distil); `this session` explains the watching state.
+
+## [1.8.6] — 2026-07-04 — GA presentation + full-surface audit
+
+Rendered every user-facing surface and fixed everything found — the engine was
+already proven solid (an evidence-based runtime audit came back clean).
+
+### Fixed — presentation & consistency
+- **Status line**: ONE pattern in every state (`distil · <live> · total ▼<lifetime>`);
+  live = 15-min window across ALL terminals (no session flicker); zero-savings
+  reads `✓ on · waiting for a large read` (never a broken-looking `▼0 −0%`);
+  all-teal palette, no gray.
+- **No tracebacks on bad input** anywhere — added `NotADirectoryError` to the
+  dispatch guard (a `--corpus` pointing at a file leaked a traceback on 6
+  commands); `perf --iterations 0` and `holdout --control-fraction` out of range
+  now give clean errors; `ingest` no longer silently 'succeeds' on garbage.
+- **decision-equivalence suppressed below 25 samples EVERYWHERE** (status line,
+  leaderboard, doctor, dashboard, shadow-stats) — no 100% guarantee off n=1.
+- Dollars 2dp (or notional on a subscription); correct singular/plural
+  (`1 request`/`1 sample`/`1 matched trajectory`); `online` shows `87.3%` not
+  16 digits; certify `p=<0.0001` not `p=0`.
+- **`distil default` now says: RESTART your agent** — the #1 onboarding trap
+  (an agent started before the alias bypasses distil → savings stay at zero).
+  `distil doctor` also flags this (`live routing`) and explains the `watching`
+  state (`this session`).
+
+### Docs
+- Statusline state table (saving / watching / idle) in README + Integrations;
+  proof-first hero everywhere (dropped the unmeasured "in half"); technique
+  numbering aligned CLI↔site.
+
 ## [Unreleased] — 1.9.0 dev
 
 ## [1.8.0] — 2026-07-04 — GA: compression that beats full context, certified

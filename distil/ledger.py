@@ -17,6 +17,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+
 def default_path() -> Path:
     """The ledger path, honoring ``DISTIL_HOME`` at call time (configurable
     deployments; isolated tests) — same contract as shadow/learn state."""
@@ -234,11 +235,14 @@ def _eq_card(change_rate: float | None, samples: int) -> str:
 def _session_card(session: "LedgerSummary | None") -> str:
     if session is None or not session.runs or not session.total_baseline_tokens:
         return ""
-    trimmed = (1 - session.total_distil_tokens / session.total_baseline_tokens) * 100
+    if session.total_tokens_saved > 0:
+        trimmed = (1 - session.total_distil_tokens / session.total_baseline_tokens) * 100
+        value, label = f"▼{_human(session.total_tokens_saved)}", f"{trimmed:.0f}% smaller"
+    else:
+        value, label = "✓ on", "waiting for a large read"
     return (
         f'<div class="card"><div class="l">This session</div>'
-        f'<div class="v">▼{_human(session.total_tokens_saved)}</div>'
-        f'<div class="l">−{trimmed:.0f}% · ${session.total_dollars_saved:,.4f}</div></div>'
+        f'<div class="v">{value}</div><div class="l">{label}</div></div>'
     )
 
 
@@ -296,14 +300,13 @@ def render_dashboard(
         return "\n".join(out)
 
     if session is not None and session.runs and session.total_baseline_tokens:
-        st = 1 - session.total_distil_tokens / session.total_baseline_tokens
-        out.append(
-            row(
-                f"{'this session':<15}"
-                + c("36", f"▼{_human(session.total_tokens_saved)} −{st * 100:.0f}%")
-                + c("90", f"  ({session.runs} flushes)")
-            )
-        )
+        if session.total_tokens_saved > 0:
+            st = 1 - session.total_distil_tokens / session.total_baseline_tokens
+            live = c("38;5;84", f"▼{_human(session.total_tokens_saved)} · {st * 100:.0f}% smaller")
+        else:
+            # match the status line — never a broken-looking "▼0 −0%"
+            live = c("38;5;84", "✓ on") + c("38;5;80", " · waiting for a large read")
+        out.append(row(f"{'this session':<15}{live}"))
     trimmed = (
         0.0 if s.total_baseline_tokens == 0 else 1 - s.total_distil_tokens / s.total_baseline_tokens
     )
@@ -323,10 +326,18 @@ def render_dashboard(
             )
         )
 
-    if samples and change_rate is not None:
+    if samples >= 25 and change_rate is not None:
+        # 25-sample floor, same as the status line — a rate over a handful is noise.
         eq = 1 - change_rate
         out.append(row(f"{'decision-equiv':<15}{c('35', _bar(eq, 18))}  {eq * 100:4.1f}%"))
         out.append(row(c("90", f"{'':<15}{samples:,} samples")))
+    elif samples and change_rate is not None:
+        out.append(
+            row(
+                f"{'decision-equiv':<15}"
+                + c("90", f"collecting — {samples} sample{'s' if samples != 1 else ''} (need 25)")
+            )
+        )
         if recent:
             # Most-recent decisions, newest on the right: ▰ same action, ▱ changed.
             marks = "".join(c("32", "▰") if v else c("31", "▱") for v in recent[-24:])
