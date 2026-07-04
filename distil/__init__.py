@@ -23,4 +23,4 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version  # 
 try:
     __version__ = _pkg_version("distil-llm")
 except PackageNotFoundError:  # source checkout / zipapp without dist-info
-    __version__ = "1.8.2"
+    __version__ = "1.9.0.dev0"
