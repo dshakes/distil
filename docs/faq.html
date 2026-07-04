@@ -230,7 +230,7 @@ distil bench   --tokenizer anthropic</pre>
 
     <h2>"Does distil break streaming?"</h2>
 
-    <p>No. SSE responses are relayed <strong>chunk-by-chunk</strong> as the upstream produces them — the proxy, the async proxy, and the gateway all route through the same relay (<code>distil/streamrelay.py</code>), so time-to-first-token is preserved through Distil the same as a direct connection. Nothing is buffered start-to-finish before it reaches the client.</p>
+    <p>No. SSE responses are relayed <strong>chunk-by-chunk</strong> as the upstream produces them — the proxy, the async proxy, and the gateway all route through the same relay (<code>distil/streamrelay.py</code>), so Distil preserves time-to-first-token like a direct connection. Nothing is buffered start-to-finish before it reaches the client.</p>
 
     <p>Content-free accounting is teed off that same stream rather than requiring a separate buffered pass: the complete body is assembled in memory as it streams by, so token-saved headers and shadow-mode decision comparison run exactly as they would on a non-streaming response. A slow or unreachable upstream is bounded by <code>DISTIL_UPSTREAM_TIMEOUT</code> (default 600s) and maps to a <code>504</code> — see <a href="deploy-security.html#streaming">Deploy &amp; Security &rarr; Streaming and upstream timeouts</a>.</p>
 

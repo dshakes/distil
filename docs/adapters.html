@@ -126,7 +126,7 @@ original = store.expand(<span class="g">"a3f92b1c"</span>)  <span class="d"># re
 
     <p>A lightweight HTTP proxy that sits between your client and the real LLM API. It intercepts <code>POST /v1/messages</code>, <code>POST /v1/chat/completions</code>, <code>POST /v1/responses</code>, and <code>POST /v1beta/models/{model}:generateContent</code> (and <code>:streamGenerateContent</code>) requests, compresses the payload, and forwards the modified request to the upstream. All other paths and methods pass through unchanged.</p>
 
-    <p>This approach works with <strong>any SDK, framework, or language</strong> — you do not need to touch your application code at all.</p>
+    <p>This approach works with <strong>any SDK, framework, or language</strong>, with zero application code changes.</p>
 
     <pre class="term"><span class="d">$ distil proxy --port 8788 --upstream https://api.anthropic.com</span>
 distil proxy listening on http://127.0.0.1:8788

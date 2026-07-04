@@ -44,6 +44,22 @@ All notable changes to Distil are documented here. Format loosely follows
 - World-class README hero (runnable terminal proof block); figures in PAPER.md;
   Homebrew tap auto-bumps on release; GHCR image + PDFs auto-rebuilt on push.
 
+## [1.8.3] — 2026-07-04 — Latest & greatest: statusline, plain-English docs, self-service
+
+### Added
+- **Redesigned status line** — rich by default (`distil · session ▼7.8K · 4% smaller · $0.31 · total ▼27.0M · ✓eq 99%`), the session number pops in bold green; `DISTIL_STATUSLINE=minimal` for crowded composite lines. Clear session/total labels, `N% smaller` (no misleading `−`), cohesive teal/green palette.
+- **`distil version`** and **`distil upgrade`** (auto-detects brew/pipx/uv/pip).
+- Landing page: a plain-English "How it works" section for non-technical readers.
+
+### Fixed
+- `distil doctor` flags shadowed installs (two `distil` on PATH) and verbatim mode.
+- `distil offboard` prints the uninstall command that actually works per installer (no bare `pip` that PEP 668 blocks).
+- No raw tracebacks on bad input; `--help` no longer lists commands that don't exist.
+- One installer-detection source of truth (`onboard.install_method`).
+
+### Docs
+- Lean README (~40% less prose) + live/clickable badges; 18-page site polish; every link verified; PAPER.md figures; honest banner.
+
 ## [Unreleased] — 1.9.0 dev
 
 ## [1.8.0] — 2026-07-04 — GA: compression that beats full context, certified

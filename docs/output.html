@@ -61,7 +61,7 @@
   <main class="content">
 
     <h1>Output <span class="g">&amp; I/O</span></h1>
-    <p class="lead">Most compressors only touch the input side; Distil compresses <strong>both sides</strong> — input context going in, and generation verbosity coming back — plus a lossless re-entry digest that keeps long outputs from re-billing as full history. This page covers all three, plus real-trace ingestion and the performance benchmark.</p>
+    <p class="lead">Most compressors only touch the input side; Distil compresses <strong>both sides</strong> — input context in, generation verbosity out — plus a lossless re-entry digest that keeps long outputs from re-billing as full history. This page covers all three, plus real-trace ingestion and the performance benchmark.</p>
 
     <img src="assets/io.svg" alt="Distil compresses both input and output tokens" class="svg-embed"/>
 
@@ -84,7 +84,7 @@
     </div>
 
     <div class="callout good">
-      <b>Combined effect:</b> for a typical agentic workload where input and output costs are roughly equal, compressing both sides cuts total API spend by 50%+ per run — with no change to application logic.
+      <b>Combined effect:</b> for a typical agentic workload where input and output costs are roughly equal, compressing both sides cuts total API spend by 50%+ per run — no application changes needed.
     </div>
 
     <hr/>
@@ -95,7 +95,7 @@
     <p>Two mechanisms work together, with different fidelity guarantees:</p>
 
     <h3>Generation-side shaping (<code>--shape-output</code>)</h3>
-    <p>Before forwarding the request, the proxy injects a verbosity-control directive instructing the model to be concise — routed the way each provider actually accepts it. The Anthropic Messages API rejects a <code>role:"system"</code> entry inside <code>messages</code> (400), so there the directive is appended to the top-level <code>system</code> field instead; the OpenAI chat shape takes an appended <code>role:"system"</code> message. Two verbosity modes:</p>
+    <p>Before forwarding the request, the proxy injects a verbosity-control directive instructing the model to be concise — routed the way each provider accepts it. The Anthropic Messages API rejects a <code>role:"system"</code> entry inside <code>messages</code> (400), so the directive is appended to the top-level <code>system</code> field there instead; the OpenAI chat shape takes an appended <code>role:"system"</code> message. Two verbosity modes:</p>
 
     <ul>
       <li><strong><code>light</code></strong> — trims preamble and padding. Typical reduction: 20–35%.</li>
@@ -113,7 +113,7 @@ distil proxy listening on http://127.0.0.1:8788
   → output shaping: <span class="g">aggressive</span></pre>
 
     <h3>Lossless re-entry digest</h3>
-    <p>When a long model response is about to be re-injected as history on the next turn, Distil compresses it using the same Tier-1 digest mechanism used for input blocks: the full output is stored in the local RestoreStore under an 8-hex handle, and only the handle travels as history. The model never re-reads the full prior output.</p>
+    <p>When a long model response is about to re-enter history on the next turn, Distil compresses it using the same Tier-1 digest mechanism used for input blocks: the full output is stored in the local RestoreStore under an 8-hex handle, and only the handle travels as history. The model never re-reads the full prior output.</p>
 
     <p>This is fully lossless and transparent to the application. The digest expands back to the original on any path that reads history — certify, replay, or export.</p>
 
@@ -136,7 +136,7 @@ output-token A/B — n=8 turns
     <h2>Real-trace ingestion</h2>
     <p><strong>Module:</strong> <code>distil/ingest.py</code> · Command: <code>distil ingest</code></p>
 
-    <p>Distil ships a bundled synthetic corpus, but your production traffic may differ. <code>distil ingest</code> converts recorded API request logs into a Distil corpus so you can measure savings on real traffic.</p>
+    <p>Distil ships a bundled synthetic corpus, but production traffic differs. <code>distil ingest</code> converts recorded API request logs into a Distil corpus so you can measure savings on real traffic.</p>
 
     <h3>Supported formats</h3>
     <p>Pass <code>--provider anthropic</code> (default) or <code>--provider openai</code> to select the input format. One input file produces one trajectory — there is no session grouping.</p>
@@ -198,7 +198,7 @@ distil performance benchmark
 
   (measured on Apple M-series, CPython 3.12, bundled sre-disk-incident trajectory)</pre>
 
-    <p>At 0.006 ms p50, the in-process adapter adds under 1% to a typical LLM round-trip (which runs in seconds). The live head-to-head benchmark confirms 0.026 ms per turn — <strong>~1,000× faster</strong> than LLMLingua-2's ~1,480 ms and ~1,000× faster than Headroom's ~26 ms. The proxy path adds a small network hop; the compression cost is identical either way.</p>
+    <p>At 0.006 ms p50, the in-process adapter adds under 1% to a typical LLM round-trip (which runs in seconds). The live head-to-head benchmark confirms 0.026 ms per turn — <strong>~1,000× faster</strong> than LLMLingua-2's ~1,480 ms and ~1,000× faster than Headroom's ~26 ms. The proxy path adds a small network hop; the compression cost is the same either way.</p>
 
     <div class="callout">
       <b>What the benchmark measures:</b> the bundled <code>sre-disk-incident</code> trajectory (4 turns, ~8,000 tokens) is compressed in a tight loop with no warm-up exclusion. The throughput reflects realistic multi-turn context, not a trivial microbenchmark. Run <code>distil perf</code> on your hardware for a machine-specific baseline.

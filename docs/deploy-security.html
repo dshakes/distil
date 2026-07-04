@@ -196,7 +196,7 @@ distil proxy --verbatim     --upstream https://api.anthropic.com</pre>
 
     <p><strong>Module:</strong> <code>distil/gateway.py</code> · <strong>Command:</strong> <code>distil gateway</code></p>
 
-    <p>The <strong>managed gateway</strong> extends the basic proxy with per-tenant token and dollar accounting, a live auto-refreshing dashboard, and a JSON stats API. It is the right deployment target when multiple teams or applications share one distil instance and you want visibility into who is saving what.</p>
+    <p>The <strong>managed gateway</strong> extends the basic proxy with per-tenant token and dollar accounting, a live auto-refreshing dashboard, and a JSON stats API. Use it when multiple teams or applications share one distil instance and need visibility into who's saving what.</p>
 
     <h3>Starting the gateway</h3>
     <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d"># Default: binds 127.0.0.1:8789 and forwards to Anthropic</span>

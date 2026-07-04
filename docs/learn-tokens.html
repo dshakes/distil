@@ -83,7 +83,7 @@
     </div>
 
     <h2>What a token actually <span class="g">is</span></h2>
-    <p>A token is not a character and not a word. It is a <strong>subword unit</strong> — the atomic chunk a model reads and predicts. Modern models build their vocabulary with <strong>Byte-Pair Encoding</strong> (BPE): start from individual bytes, then greedily merge the most frequent adjacent pair over and over until you hit a target vocabulary size. Frequent words collapse into one token; rare words fall back to a handful of subword pieces. There is no <code>&lt;unknown&gt;</code> — every possible string is representable, in any language.</p>
+    <p>A token is not a character and not a word — it's a <strong>subword unit</strong>, the atomic chunk a model reads and predicts. Modern models build their vocabulary with <strong>Byte-Pair Encoding</strong> (BPE): start from individual bytes and greedily merge the most frequent adjacent pair until you hit a target vocabulary size. Frequent words collapse into one token; rare words fall back to a handful of subword pieces. There is no <code>&lt;unknown&gt;</code> — every possible string is representable, in any language.</p>
 
     <svg class="svg-embed" viewBox="0 0 1200 360" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="Anatomy of tokenization: a string passes through a BPE tokenizer and becomes many subword tokens">
       <defs>
@@ -132,15 +132,15 @@
       <text x="814" y="302" fill="#9aa1b3" font-size="12.5">Punctuation-dense. The same bytes cost ~2× the tokens.</text>
     </svg>
 
-    <p>Three consequences fall straight out of how BPE works, and they drive the whole course:</p>
+    <p>Three consequences fall out of how BPE works, and they drive the whole course:</p>
     <ul>
       <li><strong>Structured text is expensive.</strong> Prose lands near <strong>~4 characters per token</strong>; JSON, logs and code are roughly <strong>2×</strong> denser because punctuation, indentation and <code>snake_case</code>/<code>camelCase</code> boundaries break merges into many short tokens. Agents traffic almost entirely in structured text — tool calls, file contents, stack traces — so they live in the expensive regime.</li>
-      <li><strong>Tokenizers are not interchangeable.</strong> Every model family segments differently. You cannot estimate one model's tokens with another's tokenizer — and even within a family it can shift: Anthropic's newer tokenizer (introduced with Opus 4.7) produces roughly <strong>30% more tokens</strong> than older models for the same text, and billing follows the new count. Always count with the <em>target</em> model's tokenizer.</li>
+      <li><strong>Tokenizers are not interchangeable.</strong> Every model family segments differently, and even within a family it can shift: Anthropic's newer tokenizer (introduced with Opus 4.7) produces roughly <strong>30% more tokens</strong> than older models for the same text, and billing follows the new count. Always count with the <em>target</em> model's tokenizer.</li>
       <li><strong>Tokens are the unit of both the bill and the budget.</strong> The context window is denominated in tokens; price is per-token; and <strong>output costs several times more than input</strong> (Opus 4.8: $5/M in, $25/M out — a 5× ratio). Input dominates agent bills anyway, for the reason <a href="learn-compression.html">Module 2</a> makes precise.</li>
     </ul>
 
     <h2>Where the tokens <span class="g">go</span> — anatomy of one request</h2>
-    <p>Here is where most cost surprises come from. A single agent turn is <em>not</em> "the user's question." The API is <strong>stateless</strong>, so every turn re-sends the entire working set. A typical request, before the model has read a single word of your actual task, already carries:</p>
+    <p>Here's where most cost surprises come from. A single agent turn is <em>not</em> "the user's question." The API is <strong>stateless</strong>, so every turn re-sends the entire working set. A typical request, before the model reads a word of your actual task, already carries:</p>
 
     <svg class="svg-embed" viewBox="0 0 1200 300" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="A single agent request's token budget broken into system prompt, tool schemas, message history, tool results and the actual query">
       <defs>
@@ -180,7 +180,7 @@
 
     <p>The biggest, most-overlooked sources of waste, with the hardest public numbers we have:</p>
     <ul>
-      <li><strong>Tool definitions, repeated every turn.</strong> Anthropic has reported tool definitions consuming <strong>134K tokens</strong> before optimization, and a typical five-server setup spending <strong>~55K tokens</strong> before the conversation even starts. Paid <em>on every single turn</em>.</li>
+      <li><strong>Tool definitions, repeated every turn.</strong> Anthropic has reported tool definitions consuming <strong>134K tokens</strong> before optimization, and a typical five-server setup spending <strong>~55K tokens</strong> before the conversation even starts. Paid <em>every turn</em>.</li>
       <li><strong>Tool-result bloat.</strong> Logs, JSON dumps, file contents and search results get appended to history and <strong>replayed on every subsequent turn</strong>, long after they're stale. Keeping intermediate results out of context cut one Anthropic research workload from <strong>43,588 → 27,297 tokens (−37%)</strong>.</li>
       <li><strong>History re-send.</strong> The whole transcript goes back up the wire each turn — the single largest growing cost, and the subject of Module 2.</li>
       <li><strong>Redundant retrieval.</strong> RAG often injects overlapping, low-signal chunks; context is a finite <em>attention budget</em> with diminishing returns, so more tokens can mean <em>worse</em> answers, not just costlier ones.</li>

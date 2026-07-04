@@ -83,7 +83,7 @@
     </div>
 
     <h2>Proving it didn't <span class="g">hurt</span></h2>
-    <p>Every technique in Module 2 can quietly degrade quality, and the failure is often invisible — the output still <em>looks</em> reasonable. So the load-bearing question isn't "how much did you save?" It's "<strong>how do you know the model still makes the same decision?</strong>" Three things to internalize:</p>
+    <p>Every technique in Module 2 can degrade quality invisibly — the output still <em>looks</em> reasonable. So the load-bearing question isn't "how much did you save?" It's "<strong>how do you know the model still makes the same decision?</strong>" Three things to internalize:</p>
     <ul>
       <li><strong>Decision-equivalence, not cosine similarity.</strong> Embedding similarity is invariant to exactly the small changes — a flipped negation, a changed digit, a swapped entity — that flip a discrete answer. Cosine ≈ 0.99 can still cross a decision boundary. The only sound test is whether the model's <em>downstream output</em> is the same. See <a href="concepts.html">Concepts → decision-equivalence</a>.</li>
       <li><strong>Non-inferiority, not a difference test.</strong> A standard "are they equal?" test can only <em>fail to reject</em> — absence of evidence is not evidence of absence, so it can never <em>prove</em> "as good as." The correct frame is <strong>TOST / non-inferiority</strong> (Schuirmann, 1987, imported from clinical trials): pre-declare a margin δ, and prove the compressed variant is not worse by more than δ. That yields a <em>positive</em> guarantee.</li>
@@ -92,7 +92,7 @@
     </ul>
 
     <h2>How Distil applies it — in <span class="g">tiers</span></h2>
-    <p>Distil's design choice is to apply the safe techniques aggressively, the risky ones only under proof, and to <em>refuse</em> anything it can't certify. That's the tier ladder. Each rung saves more and risks more — and a rung is only allowed to ship if it clears the gate above it.</p>
+    <p>Distil's design choice is to apply the safe techniques aggressively, the risky ones only under proof, and to <em>refuse</em> anything it can't certify. That's the tier ladder: each rung saves more and risks more, and only ships if it clears the gate above it.</p>
 
     <svg class="svg-embed" viewBox="0 0 1200 400" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="Distil's tier ladder: Tier 0 lossless, Tier 1 reversible digest, Certified causal pruning, all gated by a non-inferiority quality contract">
       <defs>

@@ -11,7 +11,7 @@ authors:
     email: chandu1221@gmail.com
 repository-code: "https://github.com/dshakes/distil"
 license: Apache-2.0
-version: 1.8.2
+version: 1.8.3
 date-released: 2026-07-04
 keywords:
   - llm

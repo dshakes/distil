@@ -60,7 +60,7 @@
   <main class="content">
 
     <h1>Distil vs <span class="g">everything else</span></h1>
-    <p class="lead">The <a href="benchmark.html">Benchmark</a> page measures savings and decision-equivalence head-to-head; this page is the other axis — what each tool actually <em>guarantees</em>, and what happens to real task success on a real harness. Competitors here are real, shipping tools that solve real problems for real teams, and the honest gap is narrower on savings than on proof.</p>
+    <p class="lead"><a href="benchmark.html">Benchmark</a> measures savings and decision-equivalence head-to-head; this page covers the other axis — what each tool actually <em>guarantees</em>, and what happens to real task success on a real harness. Competitors here are real, shipping tools, and the honest gap is narrower on savings than on proof.</p>
 
     <hr/>
 
@@ -132,7 +132,7 @@
     </table>
 
     <div class="callout">
-      <strong>What each does well.</strong> <strong>Headroom</strong> is a real, adopted compressor with a genuinely useful whole-conversation optimizer and a ModernBERT relevance scorer — and on the live head-to-head it's the <em>cheaper</em> compute path (no model in Distil's path either, but Headroom's scorer is lighter than a full digest cycle in some configurations). <strong>rtk</strong> solves a different, real problem well: stripping known boilerplate from specific wrapped CLI commands (<code>git</code>, <code>ls</code>, <code>psql</code>, <code>aws</code>…) is a good fit for shell-heavy agents, which is why it's adopted there — it just doesn't compress arbitrary agent context, so it isn't a head-to-head contender on that axis (see the note on <a href="benchmark.html#live-head-to-head">Benchmark</a>). <strong>LLMLingua-2</strong> posts genuinely high raw compression ratios and is the most-cited method in this space for a reason. <strong>Provider prompt caching</strong> is zero-risk by construction — it doesn't touch what the model reads, only what you're billed for re-sending it — and it composes cleanly with everything above, including Distil: cache-aware compression exists specifically to keep that discount intact rather than compete with it.
+      <strong>What each does well.</strong> <strong>Headroom</strong> is a real, adopted compressor with a useful whole-conversation optimizer and a ModernBERT relevance scorer — and on the live head-to-head, the <em>cheaper</em> compute path (Distil's path has no model either, but Headroom's scorer is lighter than a full digest cycle in some configs). <strong>rtk</strong> solves a different problem well: stripping known boilerplate from wrapped CLI commands (<code>git</code>, <code>ls</code>, <code>psql</code>, <code>aws</code>…) fits shell-heavy agents, which is why it's adopted there. It doesn't compress arbitrary agent context, so it isn't a head-to-head contender (see the note on <a href="benchmark.html#live-head-to-head">Benchmark</a>). <strong>LLMLingua-2</strong> posts genuinely high raw compression ratios and is the most-cited method in this space for a reason. <strong>Provider prompt caching</strong> is zero-risk by construction — it doesn't touch what the model reads, only what you pay to re-send it — and composes cleanly with everything above, including Distil, whose cache-aware compression exists to keep that discount intact rather than compete with it.
     </div>
 
     <hr/>
@@ -178,7 +178,7 @@
     <p style="font-size:12.5px;color:#5b6177;">500-instance long-horizon ReAct agent, full SWE-bench Verified, official <code>swebench</code> harness (hidden tests, per-instance Docker), paired McNemar across all six conditions. Distil's gate is the only condition statistically non-inferior to full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19) and beats Headroom with significance (+4.2&nbsp;pp, p=0.035). rtk was not run in this harness — it does not compress arbitrary agent context (see above), so it has no comparable condition. Full methodology, CIs, and the recovery-round-trip ablation: <a href="research.html#e8">Research &rarr; E8</a>.</p>
 
     <div class="callout warn">
-      <strong>Honest scope.</strong> This table is task success on one harness (SWE-bench Verified) with one agent design and one base model (<code>claude-haiku-4-5</code>). It is not a claim that Distil wins every workload — see <a href="research.html#e7">E7</a> for the negative result that motivated the trajectory-level certificate in the first place. It's a claim that when someone actually measured end-to-end outcomes instead of raw compression ratios, the guarantee-carrying compressor also led on the number that pays the bills.
+      <strong>Honest scope.</strong> This table is task success on one harness (SWE-bench Verified), one agent design, one base model (<code>claude-haiku-4-5</code>) — not a claim that Distil wins every workload (see <a href="research.html#e7">E7</a> for the negative result that motivated the trajectory-level certificate). It's a claim that when someone measured end-to-end outcomes instead of raw compression ratios, the guarantee-carrying compressor led on the number that pays the bills.
     </div>
 
     <div class="site-footer">

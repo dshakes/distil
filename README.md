@@ -6,7 +6,6 @@
   <a href="https://github.com/dshakes/distil/actions/workflows/ci.yml"><img src="https://github.com/dshakes/distil/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="https://pypi.org/project/distil-llm/"><img src="https://img.shields.io/pypi/v/distil-llm?color=5ad1c9&label=pypi" alt="PyPI version"/></a>
   <a href="https://pypi.org/project/distil-llm/"><img src="https://img.shields.io/pypi/pyversions/distil-llm?color=5ad1c9" alt="Python versions"/></a>
-  <a href="https://pypi.org/project/distil-llm/"><img src="https://img.shields.io/pypi/dm/distil-llm?color=5ad19a&label=installs" alt="PyPI downloads"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/pypi/l/distil-llm?color=8b7bff" alt="license"/></a>
   <a href="#-what-we-wont-pretend"><img src="https://img.shields.io/badge/runtime%20deps-0-5ad19a" alt="zero runtime deps"/></a>
   <a href="https://dshakes.github.io/distil/architecture.html"><img src="https://img.shields.io/badge/typed-py.typed%20%C2%B7%20mypy%20clean-8b7bff" alt="typed"/></a>
@@ -14,30 +13,22 @@
 
 <h2 align="center">Cut your agent's token bill in half.<br/>Prove its decisions don't change.</h2>
 
-<p align="center">
-<b>The only context compressor with a statistical fidelity certificate.</b><br/>
-Every other tool asks you to <i>trust</i> that dropping context won't change what your agent does.<br/>
-Distil <b>measures it, certifies it, and falls back to full context when it can't</b> — never silently lossy.
-</p>
-
-<p align="center">
-🤯 <b>The surprising part:</b> in our newest 500-task SWE-bench Verified run, compressing context ~60% let the agent solve <b>more</b> tasks than full context — <b>42.0% vs 39.2%</b> — because keeping the <i>right</i> lines (the error, the assertion, the diff) beats keeping <i>all</i> of them.
-</p>
+<p align="center"><b>The only context compressor with a statistical fidelity certificate.</b><br/>Compressed context <b>solved more</b> than full context — <b>42.0% vs 39.2%</b> on 500 SWE-bench Verified tasks.</p>
 
 ```console
-$ uvx --from distil-llm distil bench        # runs on your machine, ~10s, no API key
-GATE: PASS — every trajectory certified non-inferior; aggressive rejected on all.
+$ uvx --from distil-llm distil bench     # ~10s, no API key
+GATE: PASS — every trajectory certified non-inferior; aggressive rejected.
 
-$ distil wrap -- claude                     # route Claude Code through distil, zero config
-distil · ▼75.0K −62% · $0.31 · Σ27.0M · ✓eq 99.5%   ← live in your status line
+$ distil wrap -- claude                  # route Claude Code, zero config
+distil · session ▼75.0K · 62% smaller · $0.31 · total ▼27.0M · ✓eq 99.5%
 ```
 
 <table align="center"><tr>
-<td align="center"><b>⚡ Just want the savings?</b><br/><sub>2 minutes, no config change</sub><br/><br/><code>pipx install distil-llm</code><br/><code>distil onboard</code></td>
-<td align="center"><b>🔬 Want the proof first?</b><br/><sub>real harness, real numbers</sub><br/><br/><a href="#-the-proof"><b>the benchmark ↓</b></a><br/><a href="docs/PAPER.md">the paper</a> · <a href="https://dshakes.github.io/distil/compare.html">vs the others</a></td>
+<td align="center"><b>⚡ Get the savings</b><br/><sub>2 min, no config</sub><br/><br/><code>pipx install distil-llm</code><br/><code>distil onboard</code></td>
+<td align="center"><b>🔬 See the proof</b><br/><sub>real harness</sub><br/><br/><a href="#-the-proof"><b>benchmark ↓</b></a> · <a href="docs/PAPER.md">paper</a><br/><a href="https://dshakes.github.io/distil/compare.html">vs the others</a></td>
 </tr></table>
 
-<p align="center"><sub><b>Honest scope:</b> the +2.8pp win is a point estimate (paired CI −0.6..+6.2pp — <b>non-inferiority certified, superiority not yet significant</b>). The per-request certificate is a proxy (next-action equivalence, <a href="#-the-proof">E7</a>); end-to-end task cost is certified separately by <a href="#-the-trajectory-level-certificate"><code>distil certify-trajectories</code></a>. Distil calibrates per deployment and fails safe. We publish what doesn't transfer, too.</sub></p>
+<p align="center"><sub>Honest scope: +2.8pp is a point estimate (CI −0.6..+6.2pp — <b>non-inferiority certified, superiority not yet</b>). <a href="#-the-proof">Details, incl. what doesn't transfer →</a></sub></p>
 
 <p align="center">
   <a href="#-use-it-now">Use it</a> ·
@@ -75,7 +66,7 @@ pipx install distil-llm
 distil onboard      # detects your agent + billing, wires the status line, prints a guided tour
 ```
 
-`distil onboard` figures out your environment (Claude Code · Codex · Gemini CLI; metered vs subscription) and hands you the exact commands for your setup. Or go straight to wrapping your agent — **no config, no code change:**
+It detects your environment (Claude Code · Codex · Gemini CLI; metered vs subscription) and hands you the exact commands. Or wrap your agent directly — **no config, no code change:**
 
 ```bash
 # Claude Code on a metered API key — saves real $$:
@@ -113,30 +104,30 @@ distil leaderboard          # cumulative tokens + $ saved, from the local ledger
 distil dashboard            # live terminal TUI — token-trim + decision-equiv bars, Ctrl-C to exit
 ```
 
-**Validate it preserved your outcomes.** Compression is only safe if your agent makes the *same decision* it would on full context. `--shadow` proves it on your live traffic: it samples a fraction of requests, runs each one twice (compressed **and** full prompt), and compares the agent's **chosen next action** — the tool call it decides to make, not the prose:
+**Validate it on your traffic.** `--shadow` runs a fraction of requests twice (compressed **and** full) and compares the agent's chosen next action:
 
 ```bash
-distil wrap --shadow 0.1 -- claude   # one command: wraps your agent + shadows 10% of requests
-distil shadow-stats                  # live decision-equivalence rate (or /distil-shadow)
+distil wrap --shadow 0.1 -- claude   # wrap + shadow 10% of requests
+distil shadow-stats                  # live decision-equivalence rate
 ```
 
-Honest scope: this is **next-action equivalence — a proxy**, not end-to-end task success ([E7](#-the-proof) shows it doesn't fully transfer under aggressive *lossy* compression). Watch the rate, keep the gate conservative; Distil fails safe to full context.
+Honest scope: that's next-action equivalence — a **proxy**, not task success ([E7](#-the-proof) shows it doesn't fully transfer under aggressive *lossy* compression). Distil fails safe to full context.
 
-> **Will it actually save me money?** Only on **metered / pay-as-you-go** billing (an API key): fewer tokens → fewer dollars. On a **subscription** you're flat-rate, so there's no per-token bill to cut — Distil still trims context and latency. **Honest about coding agents:** on short sessions the win is *modest* (~7% — the agent re-expands most of what it edits, [E7](#-the-proof)); the real savings land on **long, many-turn sessions** with large context the model never re-reads. Want an in-process hook or an org-wide proxy instead? See [Works with every SDK](#-works-with-every-sdk).
+> **Will it save money?** Only on **metered** billing (API key) — fewer tokens, fewer dollars. On a flat-rate **subscription** it trims context + latency, not the bill. Coding agents: short sessions ~7%, big wins on **long, many-turn** sessions the model never re-reads.
 
 ---
 
 ## 💡 Why Distil is different
 
-**You don't need byte-equivalence — you need decision-equivalence.** An agent only has to take the *same actions* whether or not its context was compressed — and *that* is measurable, certifiable, and compatible with aggressive compression. (Honest caveat we measured ourselves: it's a **proxy**; under aggressive *lossy* compression it doesn't fully transfer to task success — [E7](#-the-proof).)
+You don't need byte-equivalence — you need **decision-equivalence**: your agent taking the *same actions* with compressed context. That's measurable and certifiable.
 
-- **Certified, not estimated.** A strategy ships only if a non-inferiority test certifies the next action is unchanged — savings and accuracy on the *same runs*, gated in CI. When it can't certify, it falls back to full context.
-- **Certified at the level that matters, too.** `distil certify-trajectories` bounds **end-to-end task degradation** over matched full/compressed runs (Conformal Risk Control — the certificate target our own E7 experiment showed per-step metrics can't stand in for). No other compressor certifies either level.
-- **Reversible, not lossy.** Every other compressor *destroys* detail. Distil digests behind a content handle, keeps the original locally, and hands the agent a `distil_expand` tool to pull back exactly what it needs — so you can compress fearlessly.
-- **It compounds — on outcomes.** Every expansion is a label that content mattered, and every matched trajectory outcome teaches the policy which content classes break tasks when digested (never content, only signatures). Both flywheels only ever make compression *more* conservative.
-- **Streams like it isn't there.** SSE responses relay chunk-by-chunk — time-to-first-token is preserved through the proxy, async proxy, and gateway.
+- **Certified, not estimated** — a strategy ships only if a non-inferiority test passes; can't certify → full context.
+- **Certified end-to-end, too** — `distil certify-trajectories` bounds how many solvable tasks compression can cost (no other compressor certifies either level).
+- **Reversible, not lossy** — digests behind a handle, keeps the original, hands the agent a `distil_expand` tool. Compress fearlessly.
+- **Compounds on outcomes** — expansions and matched failures teach the policy what to protect (signatures only, never content) — always *more* conservative.
+- **Streams like it isn't there** — SSE relays chunk-by-chunk; TTFT preserved.
 
-> **Three fidelity tiers:** **lossless** (byte-identical in-context, `--verbatim`) · **reversible** (digested but byte-recoverable on demand — the default) · **lossy** (gone — every other tool). All three Distil modes are certified decision-equivalent; only Distil offers, and certifies, the reversible tier.
+> **Fidelity tiers:** lossless (`--verbatim`) · reversible (byte-recoverable on demand — default) · lossy (every other tool). Only Distil offers and certifies the reversible tier.
 
 ---
 
@@ -177,28 +168,26 @@ GATE: PASS — every trajectory certified non-inferior; aggressive rejected on a
 
 ## 📊 The proof
 
-Benchmarks & the research — three results, all reproducible, all published with their caveats:
+Three results, all reproducible, all published with caveats:
 
-- **Live head-to-head** vs the real `llmlingua` and `headroom-ai` packages (graded by `claude-opus-4-8`): Distil certifies **83.2% savings at a 0% decision-change rate**, ~1,000× faster — the only method that's the most aggressive, fully decision-equivalent, *and* lowest-latency. → [BENCHMARKS.md](BENCHMARKS.md) · [benchmark.html](https://dshakes.github.io/distil/benchmark.html)
-- **End-to-end honesty (E7, SWE-bench Verified):** aggressive *lossy* compression **craters** real task success (52% → 16%) — a single-turn certificate does **not** transfer to multi-turn coding. We publish it because it's true. The **reversible** tier survives (56% vs 52%, equal to full). → [research E7](https://dshakes.github.io/distil/research.html#e7)
-- **Long-horizon (E8, 500-instance ReAct agent):** the relevance-gated reversible tier is the **only compressor non-inferior to full context** (36.8% vs 39.2%) and beats every lossy tool. The guarantee lifts to whole runs (E10), generalizes across **5 models / 3 vendors** (E11), auto-calibrates per deployment, and ships an anytime-valid drift monitor (E13). → [research E8–E13](https://dshakes.github.io/distil/research.html#e8)
+- **Live head-to-head** vs real `llmlingua` / `headroom-ai` (graded by `claude-opus-4-8`): **83.2% savings at 0% decision-change**, ~1,000× faster. → [benchmark](https://dshakes.github.io/distil/benchmark.html)
+- **E7 (SWE-bench Verified):** aggressive *lossy* compression **craters** task success (52% → 16%) — a per-step certificate doesn't transfer to multi-turn. The **reversible** tier survives (56% vs 52%). We publish it because it's true. → [E7](https://dshakes.github.io/distil/research.html#e7)
+- **E8–E14 (500-instance agent):** the reversible tier is the **only compressor non-inferior to full context**, generalizes across 5 models / 3 vendors, and the newest digest lands *above* full (42.0% vs 39.2%). → [E8–E14](https://dshakes.github.io/distil/research.html#e8)
 
-**Full methodology, per-instance data, McNemar tests, and the certificate-non-transfer analysis:** [`docs/PAPER.md`](docs/PAPER.md) · [compiled paper (PDF)](docs/paper/main.pdf) · production status: [`docs/GA_READINESS.md`](docs/GA_READINESS.md).
-
-> **What these numbers are:** the headline savings are **decision-equivalence on a trajectory-corpus proxy** — real and reproducible, but *not* end-to-end task success, which under aggressive *lossy* compression doesn't fully transfer (E7). That's why Distil calibrates per deployment and falls back to full context when it can't certify.
+Full methodology, McNemar tests, per-instance data: [`docs/PAPER.md`](docs/PAPER.md) · [PDF](docs/paper/main.pdf).
 
 ---
 
 ## 📡 See it working
 
-Savings you can see — measured on **your** traffic, never estimated, nothing leaves your machine:
+Measured on **your** traffic, never estimated, nothing leaves your machine:
 
-- **Per request:** `x-distil-*` response headers (`tokens-saved`, `compressed`, `cache-prefix-msgs`, `expanded`).
-- **Per machine:** `distil leaderboard` rolls up the local savings ledger (`--html` for a page).
-- **Live decision-equivalence (shadow mode):** `distil proxy --shadow 0.05` runs 5% of traffic uncompressed in the background and reports the rolling decision-change rate — streaming-aware, so it works on real Claude Code / Codex / Gemini sessions.
-- **Org-wide:** run `distil proxy` as a sidecar, set `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` once — every client routes through it, zero per-dev change.
+- **Per request:** `x-distil-*` response headers (`tokens-saved`, `mode`, `compressible-tokens`, `expanded`).
+- **Per machine:** `distil leaderboard` (`--html` for a page).
+- **Shadow mode:** `distil proxy --shadow 0.05` reports the live decision-change rate — streaming-aware.
+- **Org-wide:** `distil proxy` sidecar + set `ANTHROPIC_BASE_URL` once; every client routes through it.
 
-The live dashboard, status-line plugin, and privacy-preserving federated leaderboard: [Deploy & observability](https://dshakes.github.io/distil/deploy-security.html).
+Dashboard, status-line plugin, federated leaderboard: [Deploy & observability](https://dshakes.github.io/distil/deploy-security.html).
 
 ## 🔌 Works with every SDK
 
@@ -284,16 +273,14 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 | Make distil the default (no per-session `wrap`) | `distil default` · undo: `distil default --undo` |
 | Remove distil's footprint (before uninstalling) | `distil offboard` · also clear data: `distil offboard --purge` |
 | Diagnose your setup (ledger, shadow, proxy self-test, wiring) | `distil doctor` |
-| Wire the savings status line into Claude Code | `distil setup` |
+| Wire the savings status line into Claude Code | `distil setup` (compact segment: `DISTIL_STATUSLINE=minimal`) |
 | Watch genuine savings accumulate | `distil leaderboard` · live TUI: `distil dashboard` |
 | Live decision-equivalence on real traffic | `distil wrap --shadow 0.1 -- claude` → `distil shadow-stats` |
 | Certify on *your* domain | `distil ingest --input prod.jsonl --out ./mycorpus` → `distil conformal --corpus ./mycorpus` |
 | Recover digested detail from any agent (MCP) | `distil mcp` |
 | Self-improving keep policy | `distil learn` / `distil online` |
 
-> On a flat-rate **Claude subscription** the dollar figures are notional — the status line and
-> `distil dashboard` auto-detect it and show the token reduction only (override with
-> `DISTIL_SUBSCRIPTION=0/1`).
+> **Status line:** rich by default — `distil · session ▼7.8K · 4% smaller · total ▼27.0M · ✓eq 99%` (this run + lifetime + health). Sharing the line with git/cwd/model? `DISTIL_STATUSLINE=minimal` gives a two-fact segment: `distil ▼7.8K · 27M total`. On a flat-rate **Claude subscription** dollars are notional and auto-hidden (override: `DISTIL_SUBSCRIPTION=0/1`).
 
 Rule of thumb: **subscription/interactive → `--lossless-only` (+`--verbatim`)** · **PAYG/autonomous → default digest (+`--expand`)** · **coding re-reads → add `--session-delta`**.
 
@@ -368,23 +355,22 @@ See [Deploy & security](https://dshakes.github.io/distil/deploy-security.html) f
 
 ## ✅ What we won't pretend
 
-- **Default tokenizer is an offline heuristic** (zero deps); ratios are robust, dollars are approximate. Use `--tokenizer anthropic` for billing-grade counts (the correct Claude tokenizer — tiktoken undercounts Claude).
-- **The default runner is a deterministic stand-in** so the gate runs offline with ground truth. For a *non-circular* evaluation, the **proof harness** (`benchmarks/prove.py`) grades **real agent traces** (τ-bench / SWE-bench) with a **real model** — see [Reproducible evaluation & the paper](#-reproducible-evaluation--the-paper).
-- **What the real-trace runs taught us (and we now enforce):** measuring decision-equivalence credibly requires (1) **majority-vote grading** (a single sample lets grader noise masquerade as a decision change), (2) a **faithful grader** (same model family as the trace), and (3) grading the **reversible tier *with* its `distil_expand` recovery loop** — without recovery the digest is only a conservative lower bound. The aggressive headline savings are realized *with* recovery active; the harness measures both bounds.
-- The learned keep-model is a real trained **logistic** classifier (96.4%/0.98 on held-out lines). The **transformer** path ships a real ONNX adapter + training pipeline; a **demo checkpoint** (96.3%/0.98, trained on the bundled corpus) is on the v0.1.0 release, and you retrain on your own traces for production (`distil train-transformer`). We don't fabricate weights to claim "done."
-- Numbers here are reproducible from the bundled corpus with the heuristic tokenizer. No vanity metrics.
+- **Default tokenizer is an offline heuristic** — ratios robust, dollars approximate. `--tokenizer anthropic` for billing-grade counts.
+- **Default runner is a deterministic stand-in** (offline gate with ground truth). Non-circular eval grades **real agent traces with a real model** — [proof harness](#-reproducible-evaluation--the-paper).
+- **Credible grading, enforced:** majority-vote (single samples let grader noise look like a decision change), a same-family grader, and grading the reversible tier *with* its `distil_expand` recovery loop.
+- **No fabricated weights** — the keep-model is a real logistic classifier (96.4%); the transformer ships a demo checkpoint you retrain on your traces.
 
 ### Deliberately *not* a platform
 
-Distil is a **compression engine with a correctness gate**, not a context-management suite. Some adjacent products bundle a memory/knowledge-graph store, a hosted semantic cache, and editor-auth plumbing. We've looked at each and **declined the ones that can't be put under the certificate** — bundling them would dilute the one promise that matters (decision-equivalence) and add state we can't prove safe:
+Distil is a **compression engine with a correctness gate**, not a context suite. We declined what can't go under the certificate:
 
 | Adjacent feature | Our stance |
 |---|---|
-| Persistent memory / knowledge graph | **Out of scope.** A lossy store of "what mattered" is the opposite of byte-reversible. Use a real memory tool; Distil compresses what you *do* send. |
-| Hosted semantic cache | **Out of scope as a service.** We make the *provider's* prompt cache pay off (cache-monotonic prefixes); we don't add a second, lossy, similarity-keyed cache that can return a near-but-wrong hit. |
-| Editor/Copilot auth | **Out of scope.** Distil sits on the wire (proxy) or in-process (hooks); it never brokers your credentials. |
+| Persistent memory / knowledge graph | **Out of scope** — a lossy store is the opposite of byte-reversible. |
+| Hosted semantic cache | **Out of scope** — we make the *provider's* prompt cache pay off, not a second lossy one. |
+| Editor/Copilot auth | **Out of scope** — Distil sits on the wire or in-process; never brokers credentials. |
 
-What we **did** adopt from that space — because it survives the gate — is on-motto: a **pluggable salience scorer** seam (`salient_tokens(scorer=…)`) so you can bolt on a semantic/NER model to *protect* entities, never to drop them; **cache-prefix observability** (`x-distil-cache-prefix-msgs`) exposing exactly how many leading messages stayed byte-stable; and **first-class framework hooks** (LiteLLM/LangChain/LangGraph). The seam adds *coverage*; the certificate still owns the *guarantee*.
+What we *did* adopt (it survives the gate): a pluggable salience scorer to *protect* entities, cache-prefix observability, and framework hooks.
 
 ---
 

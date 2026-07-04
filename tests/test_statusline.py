@@ -55,9 +55,9 @@ def test_populated_ledger(monkeypatch, capsys):
     )
     rc, out = _run(monkeypatch, capsys, s)
     assert rc == 0
-    # compact composite-statusline grammar: lifetime = one Σ figure + trim + $
-    assert "Σ21.6K saved" in out
-    assert "−43%" in out  # percent trimmed, the glanceable number
+    # compact grammar: lifetime = one total ▼ figure + trim + $
+    assert "total ▼21.6K saved" in out
+    assert "43% smaller" in out  # trim rate, the glanceable number
     assert "$0.04" in out
     assert "runs" not in out  # run counts live in `distil stats`, not the line
 
@@ -78,7 +78,7 @@ def test_subscription_hides_notional_dollars(monkeypatch, capsys):
     )
     rc, out = _run(monkeypatch, capsys, s)
     assert rc == 0
-    assert "Σ21.6K saved" in out
+    assert "total ▼21.6K saved" in out
     assert "$" not in out
 
 
@@ -269,8 +269,8 @@ def test_session_first_when_live_session(monkeypatch, capsys, tmp_path):
     rc = cmd_statusline(argparse.Namespace(no_color=True))
     out = capsys.readouterr().out.strip()
     assert rc == 0
-    assert "▼60.0K −60%" in out  # THIS session's saved tokens + trim
-    assert "Σ180.0K" in out  # lifetime, one figure
+    assert "session ▼60.0K · 60% smaller" in out  # THIS session
+    assert "total ▼180.0K" in out  # lifetime
     assert "$0.30" in out  # session dollars, not lifetime
 
 
@@ -293,8 +293,8 @@ def test_lifetime_fallback_when_session_stale(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
     cmd_statusline(argparse.Namespace(no_color=True))
     out = capsys.readouterr().out.strip()
-    assert "Σ25.0K saved −50%" in out
-    assert "▼" not in out  # no live-session segment
+    assert "total ▼25.0K saved · 50% smaller" in out
+    assert "session ▼" not in out  # no live-session segment
 
 
 def test_eq_suppressed_below_min_samples(monkeypatch, capsys):
@@ -329,7 +329,7 @@ def test_zero_savings_session_says_watching(monkeypatch, capsys, tmp_path):
     cmd_statusline(argparse.Namespace(no_color=True))
     out = capsys.readouterr().out.strip()
     assert "watching · 12.0K seen" in out
-    assert "▼0" not in out and "−0%" not in out
+    assert "session ▼" not in out and "smaller" not in out.split("total")[0]
 
 
 def test_flush_skips_zero_baseline_records(tmp_path):

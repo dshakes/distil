@@ -515,15 +515,42 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001 — a status line must never error out
         s = None
 
+    # MINIMAL is opt-in (DISTIL_STATUSLINE=minimal|lite|compact) — a two-fact
+    # segment for crowded composite lines: this session's saving + lifetime.
+    if os.environ.get("DISTIL_STATUSLINE", "").lower() in ("minimal", "lite", "compact"):
+        mseg = [c("1;38;5;79", "distil")]
+        if s is None or s.runs == 0:
+            mseg.append(c("90", "wrap -- <agent> to start"))
+        else:
+            sess_saved = 0
+            try:
+                import time as _time
+
+                sid, last_ts = ledger.latest_session()
+                if sid and (_time.time() - last_ts) < 4 * 3600:
+                    ss = ledger.summary(session=sid)
+                    if ss.runs:
+                        sess_saved = ss.total_tokens_saved
+            except Exception:  # noqa: BLE001 — session slice is best-effort
+                pass
+            if sess_saved > 0:
+                mseg.append(c("1;38;5;84", f"▼{ledger._human(sess_saved)}"))
+            mseg.append(c("38;5;73", f"{ledger._human(s.total_tokens_saved)} total"))
+        if model:
+            mseg.append(c("90", model))
+        print("  ".join(mseg))
+        return 0
+
+    # RICH by default: the full picture, visually laid out.
     # Built for COMPOSITE statuslines (users append this segment to their own):
     # every character earns its place. Grammar:
-    #   live session:  distil · ▼75.0K −62% [$0.31] · Σ27.0M
-    #   idle:          distil · Σ27.0M saved −50% [$96.10]
-    # ▼/−% = tokens saved and trim rate of the ACTIVE scope; Σ = lifetime saved.
+    #   live session:  distil · session ▼75.0K · 62% smaller [$0.31] · total ▼27.0M
+    #   idle:          distil · total ▼27.0M saved · 50% smaller [$96.10]
+    # ▼ = tokens saved; "session" = this run, "total" = lifetime.
     # Dropped by design: orig→compressed pair (derivable), run counts, and any
     # eq% under 25 shadow samples — "eq 100.0% (1)" is noise wearing a number.
     # Full breakdown: distil stats / dashboard.
-    parts = [c("38;5;79", "distil")]
+    parts = [c("1;38;5;79", "distil")]
     if s is None or s.runs == 0:
         parts.append(c("90", "no savings yet · distil wrap -- <agent>"))
     else:
@@ -540,18 +567,25 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                 if sess.runs and sess.total_baseline_tokens:
                     if sess.total_tokens_saved > 0:
                         trimmed = 1 - sess.total_distil_tokens / sess.total_baseline_tokens
-                        seg = f"▼{ledger._human(sess.total_tokens_saved)} −{trimmed * 100:.0f}%"
-                        parts.append(c("38;5;80", seg))
+                        # The hero number pops (bold bright green); the rate rides
+                        # dim beside it, so the eye lands on what you saved.
+                        parts.append(
+                            c("1;38;5;84", f"session ▼{ledger._human(sess.total_tokens_saved)}")
+                        )
+                        parts.append(c("38;5;245", f"{trimmed * 100:.0f}% smaller"))
                         if metered and sess.total_dollars_saved > 0:
-                            parts.append(c("38;5;114", f"${sess.total_dollars_saved:,.2f}"))
+                            parts.append(c("1;38;5;114", f"${sess.total_dollars_saved:,.2f}"))
                     else:
                         # Traffic is flowing but nothing was worth trimming yet
                         # (small/early contexts — savings grow with context).
                         # "▼0 −0%" reads as broken; say what's actually true.
                         parts.append(
-                            c("90", f"watching · {ledger._human(sess.total_baseline_tokens)} seen")
+                            c(
+                                "90",
+                                f"session: watching · {ledger._human(sess.total_baseline_tokens)} seen",
+                            )
                         )
-                    parts.append(c("90", f"Σ{ledger._human(s.total_tokens_saved)}"))
+                    parts.append(c("38;5;73", f"total ▼{ledger._human(s.total_tokens_saved)}"))
                     shown_session = True
         except Exception:  # noqa: BLE001 — session slice is best-effort
             pass
@@ -561,10 +595,12 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                 if s.total_baseline_tokens
                 else 0.0
             )
-            seg = f"Σ{ledger._human(s.total_tokens_saved)} saved −{trimmed * 100:.0f}%"
-            parts.append(c("38;5;80", seg))
+            seg = (
+                f"total ▼{ledger._human(s.total_tokens_saved)} saved · {trimmed * 100:.0f}% smaller"
+            )
+            parts.append(c("38;5;73", seg))
             if metered:
-                parts.append(c("38;5;114", f"${s.total_dollars_saved:,.2f}"))
+                parts.append(c("1;38;5;114", f"${s.total_dollars_saved:,.2f}"))
         try:
             from .shadow import ShadowLedger
 

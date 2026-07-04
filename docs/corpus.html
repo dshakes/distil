@@ -72,7 +72,7 @@
     <p>A compression strategy is not trustworthy because it works on one example. It needs to hold across the full breadth of what agents actually do: incident response, code debugging, customer support, research synthesis, data analysis, infrastructure work, and financial reconciliation.</p>
 
     <div class="callout">
-      <b>The rule:</b> a strategy that fails the TOST non-inferiority gate on <em>any</em> trajectory does not ship — not just the easy ones. <code>distil bench</code> runs this check as a full CI gate, and exits non-zero on any failure.
+      <b>The rule:</b> a strategy that fails the TOST non-inferiority gate on <em>any</em> trajectory does not ship. <code>distil bench</code> runs this as a CI gate and exits non-zero on failure.
     </div>
 
     <hr/>
@@ -163,12 +163,12 @@
 
     <h2>Trajectory structure</h2>
 
-    <p>The bundled trajectories are 4-turn headless agent loops; the structural minimum enforced by <code>corpus.validate()</code> is ≥3 turns. Three structural components:</p>
+    <p>The bundled trajectories are 4-turn headless agent loops (the structural minimum, enforced by <code>corpus.validate()</code>, is ≥3 turns). Three structural components:</p>
 
     <ul>
-      <li><strong>Cacheable stable prefix</strong> — system instructions, tool definitions, and other content that does not change between turns. This is what the cache-aware engine keeps byte-stable to maximize cache hits.</li>
-      <li><strong>Decision-driving volatile tool outputs</strong> — the tool results that carry the information the agent actually needs to make its next decision. These are the blocks that show up as <em>keep</em> in ablation.</li>
-      <li><strong>Causally-inert noise</strong> — speculative retrievals, stale observations, context blocks that were present but never cited by any decision. These are the blocks ablation marks as <em>PRUNE</em>.</li>
+      <li><strong>Cacheable stable prefix</strong> — system instructions, tool definitions, and other content that never changes between turns. The cache-aware engine keeps this byte-stable to maximize cache hits.</li>
+      <li><strong>Decision-driving volatile tool outputs</strong> — tool results the agent needs to make its next decision. These show up as <em>keep</em> in ablation.</li>
+      <li><strong>Causally-inert noise</strong> — speculative retrievals, stale observations, context that was present but never cited by any decision. Ablation marks these <em>PRUNE</em>.</li>
     </ul>
 
     <p>Trajectories are stored as JSON files in <code>corpus/</code>. The manifest is at <code>corpus/manifest.json</code>. The loader (<code>distil/corpus.py</code>) resolves the corpus path from the wheel, the repo, or a <code>$DISTIL_CORPUS</code> environment variable.</p>
@@ -177,7 +177,7 @@
 
     <h2><code>distil bench</code> — the CI gate</h2>
 
-    <p><code>distil bench</code> is the intended CI gate for new compression strategies. It runs the full corpus measurement loop and exits non-zero if any of the following occur:</p>
+    <p><code>distil bench</code> is the CI gate for new compression strategies: it runs the full corpus measurement loop and exits non-zero if any of the following occur:</p>
 
     <ul>
       <li>A trajectory fails structural validation (<code>corpus.validate()</code>)</li>
@@ -197,7 +197,7 @@ GATE: <span class="w">FAIL</span> (1 issue(s))
 
     <h3>The rule in one sentence</h3>
     <div class="callout good">
-      <b>A new compression strategy must pass <code>make gate</code></b> (non-inferior on every domain, byte-reversible). No green gate, no merge. That's the whole philosophy in one sentence.
+      <b>A new compression strategy must pass <code>make gate</code></b> (non-inferior on every domain, byte-reversible). No green gate, no merge.
     </div>
 
     <hr/>

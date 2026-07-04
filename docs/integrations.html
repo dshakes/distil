@@ -185,7 +185,7 @@ response = litellm.completion(
 )</pre>
 
     <h4 style="margin:14px 0 6px;font-size:14px;color:#9aa1b3;">Running the standalone LiteLLM Proxy instead?</h4>
-    <p>Same mechanism, one YAML field: point each model's <code>api_base</code> at <code>distil proxy</code> and every request routed through the LiteLLM Proxy is compressed transparently, with no change to callers.</p>
+    <p>Same mechanism, one YAML field: point each model's <code>api_base</code> at <code>distil proxy</code>, and every request routed through the LiteLLM Proxy is compressed transparently.</p>
     <pre class="term"><span class="d"># Terminal 1 — distil sits in front of the real upstream</span>
 distil proxy --port 8788 --upstream https://api.anthropic.com
 
@@ -262,9 +262,11 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
         <tr><td><code>/distil-badge</code></td><td>Shareable badge of your measured savings</td></tr>
       </tbody>
     </table>
-    <p>The status line leads with <em>this session</em> (<code>▼75.0K −62% $0.31 · Σ27.0M</code>)
-    and shows decision-equivalence only once 25+ shadow samples exist — a rate over a handful
-    of samples is noise, and distil doesn't print noise.</p>
+    <p>Rich by default — it leads with <em>this session</em> and adds lifetime + health:
+    <code>distil · session ▼75.0K · 62% smaller · $0.31 · total ▼27.0M · ✓eq 99%</code>
+    (decision-equivalence appears only past 25 shadow samples — a rate over a handful is noise).
+    Sharing the line with git/cwd/model? Set <code>DISTIL_STATUSLINE=minimal</code> for a
+    two-fact segment: <code>distil ▼75.0K · 27.0M total</code>.</p>
 
     <hr/>
 

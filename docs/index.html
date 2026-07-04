@@ -52,8 +52,10 @@
   /* hero terminal proof card */
   .heroterm{max-width:640px;margin-top:22px;background:#070810;border:1px solid var(--line);
     border-radius:14px;overflow:hidden}
-  .heroterm .bar{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .heroterm{box-shadow:0 24px 60px -20px rgba(0,0,0,.7),0 0 0 1px rgba(139,123,255,.06)}
+  .heroterm .bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
   .heroterm .bar i{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .heroterm .bartitle{margin-left:auto;margin-right:auto;padding-right:44px;font-size:11.5px;color:#5b6173;letter-spacing:.02em}
   .heroterm pre{margin:0;border:0;border-radius:0;background:transparent;padding:14px 18px;
     font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-x:auto}
   .heroterm .cap{padding:8px 18px 12px;color:var(--dim);font-size:12px}
@@ -164,7 +166,7 @@
 
 <header><div class="wrap">
   <div class="eyebrow">The certified context layer for agents</div>
-  <h1>Compress what your agent reads.<br><b class="g">Certify</b> <b>its next action doesn't change.</b></h1>
+  <h1>Cut your agent's token bill in half.<br><b class="g">Prove</b> <b>its decisions don't change.</b></h1>
   <p class="sub"><b>The most tokens you can save without losing outcomes — and the only compressor that can prove the second half.</b></p>
   <p class="sub" style="font-size:17px">In our newest test (<a href="compare.html">E14</a>, n=500, official harness),
     the compressed agent solved <b>more tasks than the uncompressed one — 42.0% vs 39.2%</b>
@@ -182,12 +184,12 @@
   </div>
 
   <div class="heroterm">
-    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
-    <pre class="term"><span class="d">$</span> uvx --from distil-llm distil bench
-<span class="g">GATE: PASS — every trajectory certified non-inferior; aggressive rejected on all.</span>
-<span class="d">$</span> distil wrap -- claude
-<span class="c">distil</span> · <span class="c">▼75.0K −62%</span> · <span class="g">$0.31</span> · <span class="d">Σ27.0M</span> · <span style="color:#5ad19a">✓eq 99.5%</span> <span class="d">(1.2k)</span></pre>
-    <div class="cap">Real output — runs on your machine in ~10 seconds, no API key.</div>
+    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="bartitle">~/your-project — distil</span></div>
+    <pre class="term"><span class="d">$</span> uvx --from distil-llm distil bench   <span class="d"># ~10s, no API key</span>
+<span class="g">GATE: PASS</span> <span class="d">— every trajectory certified non-inferior; aggressive rejected.</span>
+<span class="d">$</span> distil wrap -- claude   <span class="d"># route your agent, zero config</span>
+<span style="color:#8b91a1">distil</span> · <span style="color:#5ad19a;font-weight:600">session ▼75.0K</span> · <span class="d">62% smaller</span> · <span class="g">$0.31</span> · <span style="color:#5ad1c9">total ▼27.0M</span> · <span style="color:#5ad19a">✓eq 99.5%</span></pre>
+    <div class="cap">Real, reproducible output — you run the exact same commands.</div>
   </div>
 
   <p class="sub" style="font-size:13px;opacity:.85;margin-top:26px">Honest scope: the certificate covers
@@ -229,6 +231,26 @@
     reproducible — and honest about its caveats. No vanity metrics.
   </p>
 </div></header>
+
+<section id="plain"><div class="wrap">
+  <h2>How it works <span class="g">— in plain English</span></h2>
+  <p class="lead">No jargon. Here's the whole idea in three pictures.</p>
+  <div class="tiers">
+    <div class="card">
+      <h3>🗂️ Don't re-send what's already remembered</h3>
+      <p style="color:var(--mut)">Every turn, your agent re-sends the <em>entire</em> conversation — and you pay for all of it, again. The model can cheaply "remember" the parts that haven't changed, so Distil keeps those parts perfectly stable and only touches the new bits. <b>Like not re-reading someone the whole book to add one sentence.</b></p>
+    </div>
+    <div class="card">
+      <h3>✂️ Drop only what doesn't matter</h3>
+      <p style="color:var(--mut)">Most of that context never changes what the agent decides to do next. Distil finds those dead-weight parts with a simple test — <em>remove it, replay, did the decision change?</em> If no, it was safe to cut. <b>Keep the clues, drop the filler.</b></p>
+    </div>
+    <div class="card">
+      <h3>🧾 Prove it — don't just trust it</h3>
+      <p style="color:var(--mut)">Here's the part nobody else does: Distil <em>measures</em> that your agent still makes the same choice on the shrunk context. If it can't prove that, it sends everything, untouched. <b>A warranty on the compression, not a promise.</b></p>
+    </div>
+  </div>
+  <p style="color:var(--mut);margin-top:18px">And nothing is truly thrown away — trimmed detail is filed nearby, and the agent can pull back the exact original the moment it needs it. That's why Distil can compress hard <em>and</em> stay safe. <a href="token-economics.html">The gentle, longer walkthrough →</a></p>
+</div></section>
 
 <section id="how"><div class="wrap">
   <h2>How it works <span class="g">— a cost-optimized cache hierarchy with a contract</span></h2>
