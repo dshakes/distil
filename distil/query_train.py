@@ -39,10 +39,14 @@ from distil.compress.query_relevance import (
 _SELECTIVE_IDX = len(FEATURE_NAMES) + 1
 
 
-def _split(samples: list[tuple[list[float], float]], test_fraction: float) -> tuple[list, list]:
+_Sample = tuple[list[float], float]
+
+
+def _split(samples: list[_Sample], test_fraction: float) -> tuple[list[_Sample], list[_Sample]]:
     """Deterministic train/test split, hashing the feature vector (reproducible without a
     seed, same idea as online.retrain hashing the raw line)."""
-    train_set, test_set = [], []
+    train_set: list[_Sample] = []
+    test_set: list[_Sample] = []
     for x, y in samples:
         digest = hashlib.sha256(json.dumps(x, sort_keys=True).encode()).hexdigest()
         bucket = int(digest[:8], 16) / 0xFFFF_FFFF
