@@ -537,7 +537,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
     <tr><td>Trajectory-level certificate</td><td>Task-level: <code>distil certify-trajectories</code> bounds end-to-end degradation on matched full/compressed runs</td><td><span class="new">the differentiator</span></td></tr>
     <tr><td>Savings ledger + leaderboard</td><td>Local-first, privacy-preserving cumulative savings</td><td>opt-in</td></tr>
     <tr><td>Content-type keep policy</td><td>Pins each kind's load-bearing lines — a log's pass/fail verdict, a traceback's frames, a diff's hunk headers</td><td><span class="new">1.15</span></td></tr>
-    <tr><td>Query-aware salience</td><td>Sees the agent's intent in the same request and pins the exact line it's asking about (a grep hit, a SHA, a config value)</td><td><span class="new">1.15</span></td></tr>
+    <tr><td>Query-aware salience</td><td>Sees the agent's intent in the same request and pins the line it's asking about — lexically (a grep hit, a SHA), and now <em>semantically</em>: a learned model keeps the line that <em>answers</em> the query with no shared word ("retry limit" → <code>max_attempts = 5</code>)</td><td><span class="new">1.16</span></td></tr>
     <tr><td>Columnar fold</td><td>Re-encodes JSON record arrays into a compact self-describing table — real token savings even on a flat-rate plan</td><td>lossless</td></tr>
     <tr><td>Session dissect</td><td><code>distil dissect</code> — per-session deep-dive with an anomaly list that catches silent failures automatically</td><td><span class="new">1.15</span></td></tr>
   </table>

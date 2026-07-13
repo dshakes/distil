@@ -3,6 +3,33 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.16.0] — query-aware salience, phase 2 (learned semantic relevance)
+
+Phase 1 (1.15.0) pins tool-output lines that **lexically** match the agent's intent — a grep
+hit, a config key, a SHA. Phase 2 adds the **semantic** case a fixed lexical rule can't reach:
+ask "what's the retry limit?" and the answer line `max_attempts = 5` shares no token with the
+query, so phase 1 folds it (recoverable, but a round-trip). Phase 2 pins it inline.
+
+### Added
+- **Learned query-relevance scorer** (`distil/compress/query_relevance.py`) — an embedding-free,
+  stdlib-only logistic model over query-conditioned features (lexical overlap, selectivity,
+  proximity to a lexical hit). It's layered **additively** over phase 1: its kept lines are
+  unioned in, so it can only ever *widen* the keep set — reversibility and the decision-
+  equivalence certificate are untouched. Gated on promoted weights: with none, behavior is
+  **exactly phase 1**, so shipping it is behavior-neutral.
+- **Content-free expand flywheel** (`distil/query_flywheel.py`) — the model's training labels
+  come from distil's own traffic: which digested block the agent expanded, paired with the query
+  live at digest time. Records only **numeric feature vectors + the expand outcome** — never a
+  raw prompt, response, tool result, or query term. Off by default; the live proxy enables it
+  under `--expand`. Sampled and fail-open.
+- **Train + certify** (`distil/query_train.py`, `distil query-relevance`) — trains on the flywheel
+  labels (reusing the keep-model's logistic trainer, generalized to any feature width) and
+  promotes weights only if held-out recall **beats the phase-1 lexical baseline** at a precision
+  floor. Additive-only makes it decision-safe by construction; the gate guards compression waste.
+
+Validated: recall 1.0 vs a 0.0 lexical baseline on the semantic case; a `claude -p`-confirmed
+answer line that phase 1 folds is recovered by phase 2; `distil bench` + `distil verify` PASS.
+
 ## [1.15.4] — GA hardening: structured-audit fixes
 
 A three-front structured audit (proxy request path, compression correctness, policy/telemetry
