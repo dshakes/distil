@@ -2009,6 +2009,29 @@ def cmd_online(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_query_relevance(args: argparse.Namespace) -> int:
+    """Phase-2 query-aware salience: train + certify a query-relevance model from the
+    content-free expand flywheel; promote only past the phase-1 lexical baseline."""
+    from .query_flywheel import load_labels
+    from .query_train import certify_and_promote
+
+    labels = load_labels()
+    print(
+        "query-aware salience (phase 2) — learn semantic line↔query relevance from the expand\n"
+        "flywheel; promote only if it beats the phase-1 lexical baseline (additive-only, safe)\n"
+    )
+    if not labels:
+        print("  no flywheel labels yet — run agents under `distil wrap --expand` to collect them")
+        print("  (content-free: only numeric query-features + expand outcomes are stored).")
+        return 0
+    rep = certify_and_promote(labels, min_samples=args.min_samples)
+    for k, v in rep.items():
+        print(f"  {k}: {v:.3f}" if isinstance(v, float) else f"  {k}: {v}")
+    if not rep.get("promoted"):
+        print("\nNOT promoted — still collecting or below the quality bar; behavior stays phase 1.")
+    return 0
+
+
 def cmd_federated(args: argparse.Namespace) -> int:
     """Build a verifiable federated savings leaderboard from signed submissions."""
     import json as _json
@@ -2541,6 +2564,15 @@ def build_parser() -> argparse.ArgumentParser:
     on.add_argument("--corpus", help="corpus dir of traffic to learn from (default: bundled)")
     on.add_argument("--promote-to", help="persist retrained weights here if it passes the gate")
     on.set_defaults(func=cmd_online)
+
+    qr = sub.add_parser(
+        "query-relevance",
+        help="phase-2 query-aware salience: train + certify from the expand flywheel",
+    )
+    qr.add_argument(
+        "--min-samples", type=int, default=200, help="minimum flywheel labels before promoting"
+    )
+    qr.set_defaults(func=cmd_query_relevance)
 
     fl = sub.add_parser(
         "federated-leaderboard",

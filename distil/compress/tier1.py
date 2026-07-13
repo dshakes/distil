@@ -23,6 +23,7 @@ import re
 
 from ..trajectory import Block, Kind
 from .base import CompressResult
+from . import query_relevance as _query_relevance
 from .intent import relevant_lines
 from .keep_policy import ContentKind, classify, must_keep
 from .keep_policy import _SUMMARY_RE  # re-exported: keep_model imports it from here (1.14.1 compat)
@@ -111,7 +112,14 @@ def digest(
     kind = classify(text)
     keep_idx = set(range(head)) | set(range(len(lines) - tail, len(lines)))
     if intent:
-        keep_idx |= relevant_lines(lines, intent)  # additive: query-relevant answers
+        keep_idx |= relevant_lines(lines, intent)  # phase 1: additive lexical query keeps
+        # phase 2 (query-aware salience): a learned model pins *semantically* relevant lines
+        # a fixed lexical rule can't ("retry limit" ↔ `max_attempts = 5`). Additive union —
+        # only ever widens the keep set. Returns None (→ exactly phase 1) until a certified
+        # model is promoted; loaded once, so this is a dot-product per line when active.
+        _qmodel = _query_relevance.get_model()
+        if _qmodel is not None:
+            keep_idx |= _qmodel.relevant_lines(lines, intent, kind)
     shape_seen: dict[str, int] = {}
     for i, ln in enumerate(lines):
         if "DECISION:" in ln or _SUMMARY_RE.search(ln) is not None:
@@ -121,6 +129,16 @@ def digest(
             shape_seen[s] = shape_seen.get(s, 0) + 1
             if shape_seen[s] <= max_repeats:
                 keep_idx.add(i)
+
+    # Phase-2 dark collection: record the *dropped* lines' numeric query-features so a future
+    # retrain can learn semantic relevance from real expands. Content-free, gated + sampled,
+    # fail-open — a no-op unless the live proxy enabled it (offline/cert/tests untouched).
+    if intent:
+        _dropped = set(range(len(lines))) - keep_idx
+        if _dropped:
+            from distil import query_flywheel
+
+            query_flywheel.maybe_record(_handle(text), intent, lines, kind, _dropped)
 
     out: list[str] = []
     dropped = 0

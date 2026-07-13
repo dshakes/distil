@@ -148,7 +148,10 @@ def train(
     if not samples:
         raise ValueError("Cannot train on empty sample set.")
 
-    n_feat = len(FEATURE_NAMES)
+    # Infer the feature width from the data, not the base FEATURE_NAMES — so the same
+    # trainer serves both the 9-feature keep-model and the 13-feature query-relevance
+    # model (phase 2). Base samples are 9-wide, so this is identical for the keep-model.
+    n_feat = len(samples[0][0])
     # Initialise weights to zero (deterministic).
     w: list[float] = [0.0] * n_feat
     rng = random.Random(seed)

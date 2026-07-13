@@ -1,6 +1,10 @@
 # Spec: Query-Aware Salience — Phase 2 (learned relevance scorer)
 
-**Status:** proposed
+**Status:** implemented (1.16.0) — `distil/compress/query_relevance.py` (model + features + gated
+plug), `distil/query_flywheel.py` (content-free dark collection), `distil/query_train.py` (train +
+promotion gate), `distil query-relevance` (CLI). Additive-only over phase 1; inert until a
+retrain promotes weights, so shipping is behavior-neutral. Validated end-to-end (a `claude -p`-
+confirmed semantic answer that phase 1 folds is recovered by phase 2), full gate + bench + verify PASS.
 **Author:** distil core (assisted)
 **Date:** 2026-07-12
 **Builds on:** `specs/query-aware-salience.md` (phase 1, shipped 1.15.0)

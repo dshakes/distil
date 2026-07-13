@@ -306,10 +306,15 @@ def build_handler(
     _learn_stats = None
     _expand_keep = None
     if expand:
+        from . import query_flywheel
         from .learn import ExpandStats, keep_predicate
 
         _learn_stats = ExpandStats.load()
         _expand_keep = keep_predicate(_learn_stats)
+        # Phase-2 dark collection: pair each digested block's dropped-line query-features with
+        # whether it was later expanded (content-free, sampled). Only under --expand, where
+        # handles are recoverable and expands produce the labels a retrain learns from.
+        query_flywheel.enable()
 
     # Outcome-guided policy (always on — never-regressing by construction):
     # content classes whose digestion co-occurred with END-TO-END task
