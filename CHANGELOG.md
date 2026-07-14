@@ -3,6 +3,18 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.18.2] — calibration robustness (capture-miss immunity)
+
+### Fixed
+- **Calibration is now immune to token-usage capture misses.** On real Claude Code traffic some
+  requests logged the new (uncached) input but not the cached prefix, giving `billed ≪ est` and a
+  ~0.001 ratio that polluted the store. Now `record()` filters any pair outside the plausible
+  band `[0.5, 3.0]`, and `factor()` computes the **median of only in-band ratios** — so it is
+  robust to garbage already written by an older or concurrent producer. A public headline can
+  never be multiplied by a capture artifact. Measured correction on real traffic is ~1.03–1.05
+  (the heuristic is accurate because the large cached system prompt dominates and is well
+  estimated) — smaller than the 15–20% feared.
+
 ## [1.18.1] — calibration: prompt-cache correctness + sanity bounds
 
 ### Fixed
