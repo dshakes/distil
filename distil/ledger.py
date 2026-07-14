@@ -376,6 +376,11 @@ def render_html(
     else:
         tok_v, dol_v = "v", "v g"
         dol_label, dol_note, hero, col_hdr = "Dollars saved", "", "", "$ saved"
+    # A+C: calibrate the headline token figure to billed usage (identity until calibrated).
+    from . import calibration as _calib
+
+    _cal_f = _calib.factor()[0]
+    _tok_saved_disp = round(s.total_tokens_saved * _cal_f)
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <link rel="icon" type="image/svg+xml" href="https://dshakes.github.io/distil/assets/logo.svg"/>
@@ -400,7 +405,7 @@ td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}} .muted{
 <p class="sub">Genuine, local-first — measured from your own runs and proxy traffic. No content leaves your machine.</p>
 {hero}
 <div class="tot">
- <div class="card"><div class="l">Tokens saved</div><div class="{tok_v}">{s.total_tokens_saved:,}</div></div>
+ <div class="card"><div class="l">Tokens saved</div><div class="{tok_v}">{_tok_saved_disp:,}</div></div>
  <div class="card"><div class="l">{dol_label}</div><div class="{dol_v}">${s.total_dollars_saved:,.2f}</div>{dol_note}</div>
  <div class="card"><div class="l">Runs</div><div class="v">{s.runs:,}</div></div>
  {_eq_card(change_rate, samples)}{_session_card(session)}

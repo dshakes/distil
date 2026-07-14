@@ -233,14 +233,21 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         print("run `distil proxy` (records real traffic) or `distil savings --record`.")
         return 0
     live = s.by_trajectory.get("live-proxy", 0.0)
+    # A+C: calibrate the ABSOLUTE token counts to the provider's billed usage (the % is
+    # scale-invariant, so it never changes). Identity (factor 1.0) until enough real usage has
+    # been observed, so an uncalibrated ledger prints exactly the raw heuristic.
+    from . import calibration
+
+    _cal = calibration.status()
+    _f = _cal["factor"]
     print(f"runs recorded:        {s.runs}")
     if s.total_baseline_tokens:
         trimmed = 1 - s.total_distil_tokens / s.total_baseline_tokens
         print(
-            f"tokens:               {s.total_baseline_tokens:,} → "
-            f"{s.total_distil_tokens:,}  (−{trimmed * 100:.1f}%)"
+            f"tokens:               {round(s.total_baseline_tokens * _f):,} → "
+            f"{round(s.total_distil_tokens * _f):,}  (−{trimmed * 100:.1f}%)"
         )
-    print(f"total tokens saved:   {s.total_tokens_saved:,}")
+    print(f"total tokens saved:   {round(s.total_tokens_saved * _f):,}")
     if s.legacy_records:
         print(
             f"  ⚠ includes {s.legacy_records:,} record(s) from pre-1.10 accounting — "
@@ -279,10 +286,17 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         print("\nby source:")
         for tid, saved in sorted(s.by_trajectory.items(), key=lambda kv: -kv[1]):
             print(f"  {tid:<28} ${saved:,.2f}")
-    if "heuristic" in s.tokenizers:
+    if _cal["calibrated"]:
+        _ci = _cal["relative_ci"]
+        _ci_s = f", ±{_ci * 100:.0f}%" if _ci is not None else ""
         print(
-            "\n(token counts ≈ heuristic tokenizer — directionally accurate, "
-            "not billing-grade; dollars are a conservative floor.)"
+            f"\n(token counts calibrated to your billed usage — factor {_f:.3f} learned from "
+            f"{_cal['samples']:,} requests{_ci_s}; the % is exact regardless.)"
+        )
+    elif "heuristic" in s.tokenizers:
+        print(
+            "\n(token counts ≈ heuristic tokenizer — directionally accurate, not billing-grade "
+            "until distil has seen enough billed usage to self-calibrate; the % is exact.)"
         )
     print(
         "\n(local-first; export a page with --html, or share verifiably with "

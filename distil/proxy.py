@@ -854,6 +854,19 @@ def build_handler(
                             continue
                     tool_costs.sort(key=lambda t: -t["tokens"])
                 overhead = system_tok + tools_tok
+                # A+C: feed the (heuristic estimate, billed) pairing into the token calibrator so
+                # reported counts converge to the real tokenizer for this model. est mirrors
+                # dissect.calibration(); billed is the API's own usage. Content-free, fail-open.
+                _billed = (usage or {}).get("input_tokens")
+                if _billed:
+                    _est = overhead + max(
+                        0,
+                        int(extras.get("x-distil-compressible-tokens", 0) or 0)
+                        - int(extras.get("x-distil-tokens-saved", 0) or 0),
+                    )
+                    from . import calibration
+
+                    calibration.record(str(model or "unknown"), _est, int(_billed))
                 rec = {
                     "ts": time.time(),
                     "model": model,
