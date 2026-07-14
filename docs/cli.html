@@ -726,6 +726,26 @@ self-distilling round — keep-model learns from causal labels, gated by non-inf
 
     <hr/>
 
+    <!-- query-relevance -->
+    <h2 id="query-relevance">distil query-relevance</h2>
+    <p><strong>Query-aware salience, phase 2.</strong> Trains and certifies the learned semantic-relevance model from distil&rsquo;s own <em>expand flywheel</em> — the content-free record of which digested block the agent pulled back, paired with the query live at digest time. It pins lines that <em>answer</em> the query without sharing a word with it (&ldquo;what&rsquo;s the retry limit?&rdquo; &rarr; <code>max_attempts&nbsp;=&nbsp;5</code>), on top of the phase-1 lexical keeps.</p>
+    <p>The model is <strong>additive-only</strong> (it can only widen the keep set, so reversibility and the decision-equivalence certificate are untouched) and <strong>gated</strong>: weights are promoted only if held-out recall beats the phase-1 lexical baseline at a precision floor. With no promoted weights, behavior is exactly phase&nbsp;1. Collection runs automatically under <code>distil wrap --expand</code>; it stores only numeric feature vectors and expand outcomes — never a prompt, a line, or a query term.</p>
+    <h3>Flags</h3>
+    <table>
+      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>--min-samples</code></td><td>200</td><td>Minimum accumulated flywheel labels before a candidate is eligible for promotion.</td></tr>
+      </tbody>
+    </table>
+    <pre class="term"><span class="d">$ distil query-relevance</span>
+query-aware salience (phase 2) — learn semantic line&harr;query relevance from the expand
+flywheel; promote only if it beats the phase-1 lexical baseline (additive-only, safe)
+
+  promoted: true
+  recall: 0.910   baseline_recall: 0.520   precision: 0.880</pre>
+
+    <hr/>
+
     <!-- federated-leaderboard -->
     <h2 id="federated-leaderboard">distil federated-leaderboard</h2>
     <p>Build a <strong>verifiable federated savings leaderboard</strong> from HMAC-signed, content-free savings aggregates. Verifies each submission's signature and counts only certified savings toward headline totals — savings you can verify. No prompt or response text ever leaves the contributing instance.</p>
