@@ -95,10 +95,43 @@ class AnthropicTokenizer:
 DEFAULT: Tokenizer = HeuristicTokenizer()
 
 
+class SubwordHeuristicTokenizer:
+    """A closer offline BPE approximation than ``piece × 1.33`` — still zero-dependency.
+
+    Byte-pair encoding splits *longer / rarer* words into more sub-tokens, so a single flat
+    factor over word-pieces systematically mis-estimates: it over-counts short common words and
+    under-counts long identifiers. This estimates tokens per alphanumeric piece from its length
+    (~one BPE token per ~4 characters, the well-known rule of thumb), counts each punctuation
+    symbol as one, and adds a small surcharge for non-ASCII (which BPE encodes as multiple byte
+    tokens). Pair it with self-calibration (`distil.calibration`) for near-billing-grade counts
+    with no network. Base for `--tokenizer subword`.
+    """
+
+    def __init__(self, chars_per_token: float = 4.0) -> None:
+        self.chars_per_token = chars_per_token
+
+    def count(self, text: str) -> int:
+        if not text:
+            return 0
+        toks = 0.0
+        for piece in _PIECE.findall(text):
+            if piece[:1].isalnum():
+                toks += max(1.0, len(piece) / self.chars_per_token)
+                # non-ASCII bytes cost extra BPE tokens (UTF-8 multi-byte → multiple byte tokens)
+                non_ascii = sum(1 for ch in piece if ord(ch) > 127)
+                toks += non_ascii * 0.5
+            else:
+                toks += 1.0  # a punctuation / symbol piece ≈ one token
+        return max(1, round(toks))
+
+
 def resolve(name: str = "heuristic", *, model: str = "claude-opus-4-8") -> Tokenizer:
-    """Factory: 'heuristic' (offline, default) or 'anthropic' (billing-grade)."""
+    """Factory: 'heuristic' (flat, default), 'subword' (length-aware offline, closer to BPE),
+    or 'anthropic' (billing-grade, needs the SDK + a network call per string)."""
     if name == "heuristic":
         return HeuristicTokenizer()
+    if name == "subword":
+        return SubwordHeuristicTokenizer()
     if name == "anthropic":
         return AnthropicTokenizer(model=model)
-    raise ValueError(f"unknown tokenizer {name!r}; choose 'heuristic' or 'anthropic'")
+    raise ValueError(f"unknown tokenizer {name!r}; choose 'heuristic', 'subword', or 'anthropic'")

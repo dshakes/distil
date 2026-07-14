@@ -3,6 +3,31 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.18.0] — self-calibrating token counts (billing-grade, no network)
+
+The offline heuristic is ~15–20% off the real BPE (40%+ on dense code — measured). But distil is
+a proxy: it sees the provider's real `usage.*` on every response. It now **learns the correction
+from that pairing** and reports token counts that converge to the real tokenizer — with no
+per-string network call. The compression **percentage was always exact** (numerator and
+denominator use the same estimator); this fixes the *absolute* counts the leaderboard shows.
+
+### Added
+- **Self-calibrating token counts** (`distil/calibration.py`, mechanisms A + C + D). A per-model
+  store of `(heuristic estimate, billed)` pairs — **integers only, never text** — recorded by the
+  proxy from `usage.input_tokens`. `factor()` returns the correction (aggregate ratio blended with
+  the per-request median, robust to outliers) and is **identity (1.0) until 20 observations**, so
+  an uncalibrated install reports exactly today's numbers — no regression, no early skew. The
+  leaderboard (text + HTML) applies it to the absolute totals and prints "calibrated to your billed
+  usage (N requests, ±X%)"; the percentage is unchanged (scale-invariant).
+- **`--tokenizer subword`** (mechanism B) — a length-aware offline BPE approximation, still
+  zero-dependency: it charges longer identifiers more (as BPE does) and adds a surcharge for
+  multi-byte characters. Measured closer to the real count than the flat heuristic (33% vs 41%
+  error on a code sample); a better *base* for calibration to correct the rest of.
+
+Validated: 13 unit tests (convergence, identity-until-proven, content-free, per-model + pooled,
+CI, bounded reservoir, corrupt-store-safe, subword properties); a live Anthropic `count_tokens`
+comparison; mypy clean; full gate + `distil bench` + `distil verify` PASS.
+
 ## [1.17.0] — semantic bridge (always-on query↔answer matching, zero-dep)
 
 Phase 2 (1.16.0) pinned semantically-relevant lines only near a lexical hit and only once a

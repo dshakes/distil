@@ -197,7 +197,7 @@ distil offboard             <span class="d"># later: remove distil's footprint (
     <hr/>
 
     <h3>Billing-grade tokenizer (optional)</h3>
-    <p>The default tokenizer is an offline heuristic — compression <em>ratios</em> are robust, but absolute dollar figures are approximate. For billing-grade token counts and live-model certification, install the <code>live</code> extra:</p>
+    <p>The default tokenizer is an offline heuristic — compression <em>ratios</em> are exact, and the absolute counts <strong>self-calibrate</strong> to your provider's billed <code>usage.*</code> as traffic flows (content-free, no network), so the leaderboard converges to billing-grade on its own. For per-string exactness or live-model certification, install the <code>live</code> extra:</p>
     <pre class="term"><span class="d"># with pipx (isolated):</span>
 pipx install 'distil-llm[live]'
 <span class="d"># or one-off with uvx:  uvx --from 'distil-llm[live]' distil certify --runner anthropic</span>

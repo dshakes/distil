@@ -139,11 +139,11 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <ul>
       <li><strong>Compression ratios are robust.</strong> The numerator and denominator of the ratio use the same heuristic, so the ratio is a good estimate regardless of the absolute count.</li>
-      <li><strong>Absolute dollar figures are approximate.</strong> The heuristic is not calibrated to Claude's BPE tokenizer. Dollar amounts are directional, not billing-grade.</li>
-      <li><strong>tiktoken undercounts Claude.</strong> If you use OpenAI's tiktoken to count tokens for Claude pricing, you will systematically undercount — Claude's vocabulary differs. Use <code>--tokenizer anthropic</code> for accurate counts.</li>
+      <li><strong>Absolute counts self-calibrate.</strong> distil is a proxy, so it sees the provider's real <code>usage.*</code> on every response. It learns the systematic correction between the heuristic and the real BPE — content-free, no network — and calibrates the <em>absolute</em> token figures to your model + content mix automatically. The leaderboard prints "calibrated to your billed usage (N requests, ±X%)" once enough traffic has flowed; below that threshold the factor is identity, so an uncalibrated ledger reports exactly the raw heuristic (no skew).</li>
+      <li><strong>tiktoken undercounts Claude.</strong> If you use OpenAI's tiktoken to count tokens for Claude pricing, you will systematically undercount — Claude's vocabulary differs. The self-calibration above corrects for this from real usage; <code>--tokenizer anthropic</code> gives per-string exactness.</li>
     </ul>
 
-    <p>To get billing-grade token counts:</p>
+    <p>Three offline choices, all zero-dependency except the last: <code>--tokenizer heuristic</code> (flat, the default), <code>--tokenizer subword</code> (length-aware — a closer BPE approximation, better as a pre-calibration base), and <code>--tokenizer anthropic</code> for per-string billing-grade counts on demand (e.g. offline benchmarking with no traffic to calibrate from):</p>
     <pre class="term">pip install 'distil-llm[live]'
 <span class="d">export ANTHROPIC_API_KEY=sk-ant-…</span>
 distil savings --tokenizer anthropic

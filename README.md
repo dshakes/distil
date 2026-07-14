@@ -402,7 +402,7 @@ See [Deploy & security](https://dshakes.github.io/distil/deploy-security.html) f
 
 ## ✅ What we won't pretend
 
-- **Default tokenizer is an offline heuristic** — ratios robust, dollars approximate. `--tokenizer anthropic` for billing-grade counts.
+- **Self-calibrating token counts** — the offline heuristic is directionally accurate; the compression **ratio** is exact regardless. distil is a proxy, so it sees the provider's real `usage.*` on every response — it learns the systematic correction from that (content-free, no network) and calibrates the *absolute* counts to your model + content mix automatically. The leaderboard shows "calibrated to your billed usage (N requests, ±X%)" once enough traffic has flowed; until then it's the raw heuristic (identity, so no skew). For per-string exactness there's still `--tokenizer anthropic`.
 - **Default runner is a deterministic stand-in** (offline gate with ground truth). Non-circular eval grades **real agent traces with a real model** — [proof harness](#-reproducible-evaluation--the-paper).
 - **Credible grading, enforced:** majority-vote (single samples let grader noise look like a decision change), a same-family grader, and grading the reversible tier *with* its `distil_expand` recovery loop.
 - **No fabricated weights** — the keep-model is a real logistic classifier (96.4%); the transformer ships a demo checkpoint you retrain on your traces.
