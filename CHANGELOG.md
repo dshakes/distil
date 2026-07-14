@@ -3,6 +3,33 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.17.0] — semantic bridge (always-on query↔answer matching, zero-dep)
+
+Phase 2 (1.16.0) pinned semantically-relevant lines only near a lexical hit and only once a
+model was trained. This closes that gap: an **always-on, zero-dependency semantic bridge** lets
+a query term match an answer term that shares no spelling — with no model and no embeddings.
+
+### Added
+- **Semantic bridge** (`compress/lexicon.py`) — four composable, pure-Python mechanisms unioned
+  into the query-relevant keep set, all **additive** (they only ever widen keeps, so a wrong
+  match wastes a little compression, never drops an answer):
+  - ① a suffix-stripping **stemmer** + a curated **technical synonym map** (retry↔attempt,
+    limit↔max/cap/threshold, timeout↔deadline/ttl…), with compound-identifier splitting so
+    `max_attempts` → {max, attempts} bridges to {limit, retry};
+  - ③ **char-trigram** Jaccard for typos / near-morphology (config↔configs);
+  - ④ optional **distributional vectors** — pure-Python cosine over a bundled table, *no
+    torch/numpy at runtime*; inert (no-op) until a table is provided, so the zero-dependency
+    posture is preserved.
+- **Flywheel-learned associations** (`query_assoc.py`) — the moat: distil learns *your*
+  vocabulary (tenant↔org, max_tries↔retry) from real expands, by expand-conditioned
+  co-occurrence. **Content-free** — only **hashed** term pairs are stored, joined to the existing
+  content-free expand log. Rebuilt by `distil query-relevance`.
+
+The bridge is on by default in the digest (phase 1 + bridge); the phase-2 learned model adds
+proximity on top. Validated: 13 unit tests (each mechanism + additive-safety + content-free);
+a `claude -p`-confirmed answer (timeout→`deadline_ms`) recovered by the bridge that lexical
+misses; `distil bench` (verdict-retention) + `distil verify` (byte-fidelity) PASS.
+
 ## [1.16.0] — query-aware salience, phase 2 (learned semantic relevance)
 
 Phase 1 (1.15.0) pins tool-output lines that **lexically** match the agent's intent — a grep
