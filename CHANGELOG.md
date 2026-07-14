@@ -3,6 +3,17 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.18.1] — calibration: prompt-cache correctness + sanity bounds
+
+### Fixed
+- **Calibration now accounts for prompt caching.** `usage.input_tokens` counts only the *uncached*
+  tokens; the cached prefix is billed under `cache_read`/`cache_creation`. Comparing the heuristic's
+  full-request estimate to `input_tokens` alone made the factor collapse (~0.001 on real cached
+  traffic). `scan_usage` now captures the cache fields and calibration uses the full billed input
+  (`input + cache_read + cache_creation`). `dissect.calibration()` had the same bug — also fixed.
+- **Sanity-bounded factor.** A correction outside `[0.5, 3.0]` is a data problem, not a tokenizer
+  difference — the factor falls back to identity, so bad data can never poison a public headline.
+
 ## [1.18.0] — self-calibrating token counts (billing-grade, no network)
 
 The offline heuristic is ~15–20% off the real BPE (40%+ on dense code — measured). But distil is
