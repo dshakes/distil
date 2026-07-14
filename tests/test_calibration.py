@@ -74,7 +74,8 @@ def test_reservoir_bounded(store):
     ratios = json.loads(store.read_text())["models"]["m"]["ratios"]
     assert len(ratios) == calibration._RESERVOIR  # bounded — most-recent kept
     f, n = calibration.factor("m", path=store)
-    assert n == calibration._RESERVOIR + 120 and 1.15 <= f <= 1.30  # count still accumulates
+    # factor's n is the count of IN-BAND ratios, bounded by the reservoir.
+    assert n == calibration._RESERVOIR and 1.15 <= f <= 1.30
 
 
 def test_corrupt_store_is_safe(store):
@@ -84,19 +85,42 @@ def test_corrupt_store_is_safe(store):
     assert json.loads(store.read_text())["models"]["m"]["n"] == 1
 
 
-def test_sanity_gate_rejects_implausible_factor(store):
-    # the prompt-cache bug produced ratios ~0.001 (est counted cached tokens, billed didn't).
-    # A factor that low is not a tokenizer difference — the gate must fall back to identity so a
-    # public headline can never be multiplied by garbage.
+def test_record_filters_implausible_pairs(store):
+    # the prompt-cache miss produced ratios ~0.001 (est counted cached tokens, billed didn't).
+    # That is not a tokenizer difference — it's filtered at record time, so it never enters the
+    # store. Both a too-low and an absurdly-high ratio are rejected.
     for _ in range(30):
-        calibration.record("m", 200_000, 200, path=store)  # ratio 0.001
-    f, n = calibration.factor("m", path=store)
-    assert f == 1.0 and n == 30
+        calibration.record("m", 200_000, 200, path=store)  # ratio 0.001 — rejected
+        calibration.record("m", 100, 900, path=store)  # ratio 9.0 — rejected
+    assert not store.exists() or json.loads(store.read_text())["models"] == {}
+    assert calibration.factor("m", path=store) == (1.0, 0)
     assert calibration.status("m", path=store)["calibrated"] is False
-    # and an absurdly HIGH ratio is gated too
-    for _ in range(30):
-        calibration.record("hi", 100, 900, path=store)  # ratio 9.0
-    assert calibration.factor("hi", path=store)[0] == 1.0
+
+
+def test_factor_ignores_garbage_already_in_store(store):
+    # Robustness: even if garbage was written by an older or concurrent producer that lacks the
+    # record-time filter, factor() computes from ONLY the in-band ratios — a public headline can
+    # never be poisoned by a capture miss sitting in the store.
+    good = [1.03] * 22
+    garbage = [0.0, 0.001, 0.0] * 40
+    store.write_text(
+        json.dumps(
+            {
+                "v": calibration._STORE_VERSION,
+                "models": {
+                    "m": {
+                        "est_sum": 0,
+                        "billed_sum": 0,
+                        "n": len(good) + len(garbage),
+                        "ratios": good + garbage,
+                    }
+                },
+            }
+        )
+    )
+    f, n = calibration.factor("m", path=store)
+    assert n == 22 and 1.0 < f < 1.06  # uses the 22 good, ignores the 120 garbage
+    assert calibration.status("m", path=store)["calibrated"] is True
 
 
 def test_scan_usage_captures_cache_tokens():

@@ -52,9 +52,18 @@ def _load(path: Path | None = None) -> dict:
 
 def record(model: str, est_tokens: int, billed_tokens: int, *, path: Path | None = None) -> None:
     """Record one (heuristic estimate, billed) pairing for *model*. Content-free, fail-open —
-    the calibration signal must never slow or break a request. Skips non-positive counts."""
+    the calibration signal must never slow or break a request.
+
+    Skips non-positive counts, and — critically — skips any pair whose ratio is outside the
+    plausible tokenizer band ``[_MIN_FACTOR, _MAX_FACTOR]``. Such a pair is not a tokenizer
+    signal: it means the billed side was mis-captured (e.g. a request whose cached prefix wasn't
+    recorded, giving billed ≪ est). Filtering per-sample at the source keeps the store clean, so
+    the factor stays trustworthy even when some requests fail to capture usage."""
     if est_tokens <= 0 or billed_tokens <= 0:
         return
+    ratio = billed_tokens / est_tokens
+    if not (_MIN_FACTOR <= ratio <= _MAX_FACTOR):
+        return  # implausible → a capture/accounting artifact, not a tokenizer difference
     try:
         p = path or _path()
         data = _load(p)
@@ -85,46 +94,42 @@ def _median(xs: list[float]) -> float:
     return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2.0
 
 
-def factor(model: str | None = None, *, path: Path | None = None) -> tuple[float, int]:
-    """Return ``(calibration_factor, n_samples)``. The factor multiplies a heuristic token count
-    to estimate the billed count. Robust (aggregate ratio, cross-checked by the median). Returns
-    ``(1.0, n)`` until at least ``MIN_SAMPLES`` observations — identity, so no early skew.
-
-    With no *model* (or an unseen one) the pooled all-models aggregate is used."""
-    data = _load(path)
+def _inband_ratios(model: str | None, data: dict) -> list[float]:
+    """The per-request ratios within the plausible tokenizer band. Computing the factor from
+    ONLY these makes it immune to garbage already in the store — a capture miss (billed ≪ est,
+    ratio ~0) written by any producer, old or concurrent, simply isn't counted. This is the
+    key robustness property: correctness does not depend on every writer being up to date."""
     models = data.get("models", {})
     if model and model in models:
-        m = models[model]
-        est, billed, n, ratios = m["est_sum"], m["billed_sum"], m["n"], m.get("ratios", [])
-    else:  # pool across models
-        est = sum(v["est_sum"] for v in models.values())
-        billed = sum(v["billed_sum"] for v in models.values())
-        n = sum(v["n"] for v in models.values())
-        ratios = [r for v in models.values() for r in v.get("ratios", [])]
-    if n < MIN_SAMPLES or est <= 0:
+        raw = models[model].get("ratios", [])
+    else:
+        raw = [r for v in models.values() for r in v.get("ratios", [])]
+    return [r for r in raw if _MIN_FACTOR <= r <= _MAX_FACTOR]
+
+
+def factor(model: str | None = None, *, path: Path | None = None) -> tuple[float, int]:
+    """Return ``(calibration_factor, n_valid)``. The factor multiplies a heuristic token count to
+    estimate the billed count. Computed as the **median of in-band per-request ratios** — robust
+    to outliers AND to any garbage already in the store (see :func:`_inband_ratios`). Returns
+    ``(1.0, n_valid)`` until at least ``MIN_SAMPLES`` *valid* observations — identity, no skew.
+
+    With no *model* (or an unseen one) the pooled all-models ratios are used."""
+    good = _inband_ratios(model, _load(path))
+    n = len(good)
+    if n < MIN_SAMPLES:
         return 1.0, n
-    aggregate = billed / est
-    # Guard against a pathological aggregate (a few giant requests skewing the sum) by blending
-    # with the median of per-request ratios; both agree in the common case.
-    med = _median(ratios) if ratios else aggregate
-    f = round((aggregate + med) / 2.0, 4)
-    # Sanity gate: a plausible tokenizer correction lives in [_MIN_FACTOR, _MAX_FACTOR]. Anything
-    # outside is a data problem, not a tokenizer difference — return identity so it can never
-    # poison the headline.
+    f = round(_median(good), 4)
+    # Defense in depth: the median of in-band ratios is by construction in-band, but clamp-check
+    # anyway so the factor is never outside the plausible tokenizer window.
     if not (_MIN_FACTOR <= f <= _MAX_FACTOR):
         return 1.0, n
     return f, n
 
 
 def relative_ci(model: str | None = None, *, path: Path | None = None) -> float | None:
-    """Relative half-width of the calibration (IQR/median over the ratio reservoir), or None when
-    uncalibrated. A small number means the correction is precise for your traffic."""
-    data = _load(path)
-    models = data.get("models", {})
-    if model and model in models:
-        ratios = models[model].get("ratios", [])
-    else:
-        ratios = [r for v in models.values() for r in v.get("ratios", [])]
+    """Relative half-width of the calibration (IQR/median over the *in-band* ratios), or None
+    when uncalibrated. A small number means the correction is precise for your traffic."""
+    ratios = _inband_ratios(model, _load(path))
     if len(ratios) < MIN_SAMPLES:
         return None
     s = sorted(ratios)
