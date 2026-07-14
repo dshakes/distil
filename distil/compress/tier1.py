@@ -112,7 +112,9 @@ def digest(
     kind = classify(text)
     keep_idx = set(range(head)) | set(range(len(lines) - tail, len(lines)))
     if intent:
-        keep_idx |= relevant_lines(lines, intent)  # phase 1: additive lexical query keeps
+        # phase 1 + semantic bridge: lexical keeps, widened by morphology / synonyms / fuzzy /
+        # vectors so answer lines with no shared word are pinned too. Additive — only widens.
+        keep_idx |= relevant_lines(lines, intent, bridge=True)
         # phase 2 (query-aware salience): a learned model pins *semantically* relevant lines
         # a fixed lexical rule can't ("retry limit" ↔ `max_attempts = 5`). Additive union —
         # only ever widens the keep set. Returns None (→ exactly phase 1) until a certified

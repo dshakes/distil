@@ -2029,6 +2029,15 @@ def cmd_query_relevance(args: argparse.Namespace) -> int:
         print(f"  {k}: {v:.3f}" if isinstance(v, float) else f"  {k}: {v}")
     if not rep.get("promoted"):
         print("\nNOT promoted — still collecting or below the quality bar; behavior stays phase 1.")
+
+    # ② also (re)build the learned association table from the content-free co-occurrence log —
+    # the domain-specific synonym bridge distil learns from real expands.
+    from .query_assoc import build_associations, reset_cache
+
+    table = build_associations(min_count=max(3, args.min_samples // 20))
+    reset_cache()
+    n_assoc = sum(len(v) for v in table.values())
+    print(f"\n  learned associations: {n_assoc} query→output bridges (content-free, from expands)")
     return 0
 
 

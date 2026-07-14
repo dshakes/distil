@@ -75,16 +75,19 @@ def test_digest_widens_keep_with_promoted_model(monkeypatch):
 
     # A block where the semantic answer ('max_attempts = 5') sits next to the lexical hit
     # ('retry') but shares no term with the query — phase 1 folds it, phase 2 pins it.
+    # A domain term the curated bridge can't reach ("frobnicate_level" is no synonym of
+    # "widget"), sitting next to a lexical hit ("widget"). The always-on bridge misses it;
+    # the learned proximity model catches it — the marginal value phase 2 adds over the bridge.
     lines = (
         ["preamble noise line"] * 4
-        + ["retry policy section", "  max_attempts = 5", "  backoff = exp"]
+        + ["widget policy section", "  frobnicate_level = 7", "  other setting"]
         + ["trailing noise line"] * 6
     )
     text = "\n".join(lines)
-    q = frozenset({"retry", "limit"})
+    q = frozenset({"widget"})
 
     monkeypatch.setattr(qr, "get_model", lambda: None)
-    phase1, _ = tier1.digest(text, intent=q)
+    phase1, _ = tier1.digest(text, intent=q)  # phase 1 + bridge, no learned model
 
     # proximity-keyed model: fire on lines near a lexical hit (low q_dist_to_hit). bias +1
     # clears threshold for the hit's neighbor (dist≈0.08) but not far lines (dist≈1).
@@ -93,8 +96,8 @@ def test_digest_widens_keep_with_promoted_model(monkeypatch):
     monkeypatch.setattr(qr, "get_model", lambda: QueryRelevanceModel(w))
     phase2, _ = tier1.digest(text, intent=q)
 
-    assert "max_attempts = 5" in phase2, "phase 2 should pin the semantic answer line"
-    assert "max_attempts = 5" not in phase1, "phase 1 (lexical) folds it — the gap phase 2 closes"
+    assert "frobnicate_level = 7" in phase2, "phase 2 should pin the proximate answer line"
+    assert "frobnicate_level = 7" not in phase1, "the curated bridge can't reach it — phase 2's gap"
 
 
 # --- content-free flywheel ----------------------------------------------------------

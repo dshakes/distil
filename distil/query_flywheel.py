@@ -115,6 +115,18 @@ def maybe_record(
         p.parent.mkdir(parents=True, exist_ok=True)
         with p.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"h": handle, "rows": rows, "ts": time.time()}) + "\n")
+        # ② also record the hashed query×output-subtoken co-occurrence (content-free) so the
+        # flywheel can learn domain-specific associations. See distil.query_assoc.
+        from distil import query_assoc
+        from distil.compress.lexicon import subtokens
+
+        out_subs: set[str] = set()
+        for i in sorted(dropped_indices):
+            if 0 <= i < n:
+                for t in line_terms[i]:
+                    out_subs.add(t)
+                    out_subs |= subtokens(t)
+        query_assoc.record_cooccurrence(handle, intent, out_subs)
     except Exception:  # noqa: BLE001 — the moat signal must never break the request path
         pass
 

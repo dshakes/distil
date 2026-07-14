@@ -124,9 +124,16 @@ def extract_intent(messages: list[dict[str, Any]]) -> frozenset[str]:
     return frozenset(terms)
 
 
-def relevant_lines(lines: list[str], intent: frozenset[str]) -> set[int]:
+def relevant_lines(lines: list[str], intent: frozenset[str], *, bridge: bool = False) -> set[int]:
     """Indices of lines relevant to *intent*, after dropping non-selective terms.
-    A line is relevant if it shares a salient token with the discriminating intent set."""
+    A line is relevant if it shares a salient token with the discriminating intent set.
+
+    With ``bridge=True`` the match is widened by the semantic bridge (`compress.lexicon`):
+    morphology, curated technical synonyms, char-trigram fuzz, and distributional vectors —
+    so an answer line like ``max_attempts = 5`` is pinned for the query "the retry limit?"
+    even with no shared word. The bridge is strictly *additive* (it only ever adds indices),
+    so reversibility and the decision-equivalence certificate are untouched — a false bridge
+    can only keep an extra line (a little wasted compression), never drop a needed one."""
     if not intent:
         return set()
     line_terms = [terms_of(ln) for ln in lines]
@@ -137,4 +144,13 @@ def relevant_lines(lines: list[str], intent: frozenset[str]) -> set[int]:
     keep_terms = frozenset(t for t in intent if freq[t] <= cap)
     if not keep_terms:
         return set()
-    return {i for i, lt in enumerate(line_terms) if lt & keep_terms}
+    out = {i for i, lt in enumerate(line_terms) if lt & keep_terms}
+    if bridge:
+        from .lexicon import bridge_line_terms
+
+        out |= {
+            i
+            for i, lt in enumerate(line_terms)
+            if i not in out and bridge_line_terms(lt, keep_terms)
+        }
+    return out
