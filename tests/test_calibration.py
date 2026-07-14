@@ -82,3 +82,34 @@ def test_corrupt_store_is_safe(store):
     assert calibration.factor("m", path=store) == (1.0, 0)  # falls back to identity
     calibration.record("m", 100, 120, path=store)  # and can recover
     assert json.loads(store.read_text())["models"]["m"]["n"] == 1
+
+
+def test_sanity_gate_rejects_implausible_factor(store):
+    # the prompt-cache bug produced ratios ~0.001 (est counted cached tokens, billed didn't).
+    # A factor that low is not a tokenizer difference — the gate must fall back to identity so a
+    # public headline can never be multiplied by garbage.
+    for _ in range(30):
+        calibration.record("m", 200_000, 200, path=store)  # ratio 0.001
+    f, n = calibration.factor("m", path=store)
+    assert f == 1.0 and n == 30
+    assert calibration.status("m", path=store)["calibrated"] is False
+    # and an absurdly HIGH ratio is gated too
+    for _ in range(30):
+        calibration.record("hi", 100, 900, path=store)  # ratio 9.0
+    assert calibration.factor("hi", path=store)[0] == 1.0
+
+
+def test_scan_usage_captures_cache_tokens():
+    from distil.streamrelay import scan_usage
+
+    blob = (
+        b'{"usage":{"input_tokens":50,"cache_read_input_tokens":8000,'
+        b'"cache_creation_input_tokens":1000,"output_tokens":20}}'
+    )
+    u = scan_usage(blob)
+    # true billed input = 50 + 8000 + 1000 = 9050, not just the 50 uncached tokens
+    assert u["input_tokens"] == 50
+    assert u["cache_read_input_tokens"] == 8000 and u["cache_creation_input_tokens"] == 1000
+    assert (
+        u["input_tokens"] + u["cache_read_input_tokens"] + u["cache_creation_input_tokens"] == 9050
+    )

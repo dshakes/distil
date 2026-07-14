@@ -24,19 +24,33 @@ _CHUNK = 8192
 # cumulative so the LAST occurrence (final message_delta) is the total.
 _USAGE_IN = re.compile(rb'"input_tokens"\s*:\s*(\d+)')
 _USAGE_OUT = re.compile(rb'"output_tokens"\s*:\s*(\d+)')
+# Prompt-caching: input_tokens counts ONLY the uncached tokens. The cached prefix is billed
+# separately as cache_read / cache_creation. The *full* input the heuristic estimates is the
+# sum of all three — without these, token accounting (and calibration) is wrong on cached traffic.
+_CACHE_READ = re.compile(rb'"cache_read_input_tokens"\s*:\s*(\d+)')
+_CACHE_CREATE = re.compile(rb'"cache_creation_input_tokens"\s*:\s*(\d+)')
 _USAGE_SCAN_CAP = 16384  # head/tail window — usage lives at the edges of a stream
 
 
 def scan_usage(blob: bytes) -> dict[str, int]:
     """Best-effort billed-token extraction from a response body (JSON or SSE).
 
-    Returns any of ``{"input_tokens": n, "output_tokens": m}`` found — empty
-    dict when the body carries no usage (error payloads, non-messages routes).
+    Returns any of ``{"input_tokens", "output_tokens", "cache_read_input_tokens",
+    "cache_creation_input_tokens"}`` found — empty dict when the body carries no usage. The
+    cache fields matter: on cached traffic ``input_tokens`` is only the uncached remainder, so
+    the true billed input is ``input_tokens + cache_read + cache_creation``.
     """
     out: dict[str, int] = {}
     m = _USAGE_IN.search(blob)
     if m:
         out["input_tokens"] = int(m.group(1))
+    for key, rx in (
+        ("cache_read_input_tokens", _CACHE_READ),
+        ("cache_creation_input_tokens", _CACHE_CREATE),
+    ):
+        cm = rx.search(blob)
+        if cm:
+            out[key] = int(cm.group(1))
     last = None
     for last in _USAGE_OUT.finditer(blob):  # noqa: B007 — want the final (cumulative) one
         pass

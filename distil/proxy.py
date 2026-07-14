@@ -854,11 +854,18 @@ def build_handler(
                             continue
                     tool_costs.sort(key=lambda t: -t["tokens"])
                 overhead = system_tok + tools_tok
-                # A+C: feed the (heuristic estimate, billed) pairing into the token calibrator so
-                # reported counts converge to the real tokenizer for this model. est mirrors
-                # dissect.calibration(); billed is the API's own usage. Content-free, fail-open.
-                _billed = (usage or {}).get("input_tokens")
-                if _billed:
+                # Full billed input = uncached + cached prefix. Prompt caching bills the cached
+                # prefix under cache_read/cache_creation, NOT input_tokens — so the true input
+                # the heuristic estimates is the sum. Comparing est to input_tokens alone (as the
+                # old dissect.calibration did) is apples-to-oranges on cached traffic.
+                _u = usage or {}
+                _cache = int(_u.get("cache_read_input_tokens", 0) or 0) + int(
+                    _u.get("cache_creation_input_tokens", 0) or 0
+                )
+                _billed_full = int(_u.get("input_tokens") or 0) + _cache
+                # A+C: feed the (heuristic estimate, full billed) pairing into the token calibrator
+                # so reported counts converge to the real tokenizer. Content-free, fail-open.
+                if _billed_full > 0:
                     _est = overhead + max(
                         0,
                         int(extras.get("x-distil-compressible-tokens", 0) or 0)
@@ -866,7 +873,7 @@ def build_handler(
                     )
                     from . import calibration
 
-                    calibration.record(str(model or "unknown"), _est, int(_billed))
+                    calibration.record(str(model or "unknown"), _est, _billed_full)
                 rec = {
                     "ts": time.time(),
                     "model": model,
@@ -877,6 +884,7 @@ def build_handler(
                     "duration_ms": duration_ms,
                     "usage_input_tokens": (usage or {}).get("input_tokens"),
                     "usage_output_tokens": (usage or {}).get("output_tokens"),
+                    "usage_cache_tokens": _cache or None,
                     "expanded_handles": expanded_handles or [],
                     "mode": extras.get("x-distil-mode", "verbatim"),
                     "compressible_tokens": int(extras.get("x-distil-compressible-tokens", 0) or 0),

@@ -268,8 +268,7 @@ class Dissection:
     def churn_tokens(self) -> int:
         """Tokens re-folded after first sight — resent content the client keeps sending."""
         return sum(
-            int(i.get("tokens") or 0) * (int(i.get("folds") or 1) - 1)
-            for i in self.blocks.values()
+            int(i.get("tokens") or 0) * (int(i.get("folds") or 1) - 1) for i in self.blocks.values()
         )
 
     @property
@@ -304,7 +303,10 @@ class Dissection:
             est += int(r.get("overhead_tokens") or 0) + max(
                 0, int(r.get("compressible_tokens") or 0) - int(r.get("tokens_saved") or 0)
             )
-            billed += int(u)
+            # Full billed input = uncached + cached prefix. input_tokens alone omits the cached
+            # portion (billed under cache_read/creation), which would make est >> billed and the
+            # calibration meaningless on prompt-cached traffic.
+            billed += int(u) + int(r.get("usage_cache_tokens") or 0)
         return (est, billed) if billed else None
 
     @property
@@ -315,9 +317,7 @@ class Dissection:
     @property
     def forced_buffered(self) -> int:
         """Client asked to stream but the expand loop forced full buffering (TTFT tax)."""
-        return sum(
-            1 for r in self.requests if r.get("client_stream") and not r.get("stream")
-        )
+        return sum(1 for r in self.requests if r.get("client_stream") and not r.get("stream"))
 
     def latency_by_path(self) -> list[tuple[str, int, int]]:
         """[(path, requests, avg_ms)] — streamed / buffered (forced) / buffered."""
@@ -441,9 +441,7 @@ class Dissection:
                 m = per.setdefault(name, [0, 0])
                 m[0] = max(m[0], int(t.get("tokens") or 0))
                 m[1] += 1
-        return sorted(
-            ((name, v[0], v[0] * v[1]) for name, v in per.items()), key=lambda t: -t[2]
-        )
+        return sorted(((name, v[0], v[0] * v[1]) for name, v in per.items()), key=lambda t: -t[2])
 
     def headlines(self) -> list[tuple[str, str]]:
         """The layman's story of the session: [(headline, detail)] in plain
@@ -513,8 +511,10 @@ class Dissection:
                     f"counted above). {shaping_note}",
                 )
             )
-        if self.churn_tokens and self.tokens_saved_total and (
-            self.churn_tokens >= 0.25 * self.tokens_saved_total
+        if (
+            self.churn_tokens
+            and self.tokens_saved_total
+            and (self.churn_tokens >= 0.25 * self.tokens_saved_total)
         ):
             out.append(
                 (
@@ -666,12 +666,19 @@ def render_sessions_text(sessions: list[SessionOverview], *, color: bool = True)
     )
     out.append(c("2", hdr))
     for i, o in enumerate(sessions, 1):
-        pct = 100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens if o.baseline_tokens else 0.0
+        pct = (
+            100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens
+            if o.baseline_tokens
+            else 0.0
+        )
         out.append(
             f"{i:>3}  {o.sid:<22} {(o.tool or '?'):<10} {_when(o.started):<17} "
             f"{_when(o.last_ts):<17} {o.requests:>5} {pct:>6.1f}%  {o.status}"
         )
-    out += ["", "dissect one:  distil dissect <session>   (a number above, a unique prefix, or `latest`)"]
+    out += [
+        "",
+        "dissect one:  distil dissect <session>   (a number above, a unique prefix, or `latest`)",
+    ]
     return "\n".join(out)
 
 
@@ -716,7 +723,9 @@ def render_text(
     if d.exit_note:
         out.append(f"  exit     {d.exit_note}")
     elif d.marker == "0":
-        out.append(c("33", "  status   marker=0 — wrapped but NO traffic went through distil (bypass?)"))
+        out.append(
+            c("33", "  status   marker=0 — wrapped but NO traffic went through distil (bypass?)")
+        )
     elif d.marker == "1":
         out.append(f"  status   live (heartbeat: {d.heartbeat or '—'})")
 
@@ -748,13 +757,17 @@ def render_text(
         )
         for model, reqs, bt, dt in d.per_model():
             pct = 100.0 * (bt - dt) / bt if bt else 0.0
-            out.append(f"    {model:<34} {reqs:>4} req  {_human(bt):>8} → {_human(dt):>8}  {pct:>5.1f}%")
+            out.append(
+                f"    {model:<34} {reqs:>4} req  {_human(bt):>8} → {_human(dt):>8}  {pct:>5.1f}%"
+            )
 
     # Request detail
     out.append("")
     out.append(c("1", "request detail"))
     if not d.detail_available:
-        out.append("  not recorded — per-request detail needs a wrap from this distil version or newer")
+        out.append(
+            "  not recorded — per-request detail needs a wrap from this distil version or newer"
+        )
     else:
         n = len(d.requests)
         out.append(
@@ -798,7 +811,9 @@ def render_text(
                 f"  billed usage (from API responses): {_human(d.usage_input_total)} in / "
                 f"{_human(d.usage_output_total)} out over {d.usage_requests} requests; "
                 f"heuristic estimate {_human(est)} vs billed {_human(billed)} "
-                f"(x{est / billed:.2f})" if billed else ""
+                f"(x{est / billed:.2f})"
+                if billed
+                else ""
             )
         else:
             out.append("  billed usage: not captured (older records or non-usage responses)")
@@ -810,8 +825,7 @@ def render_text(
         lat = d.latency_by_path()
         if lat:
             out.append(
-                "  latency: "
-                + ", ".join(f"{k} {n} req @ {ms / 1000:.1f}s avg" for k, n, ms in lat)
+                "  latency: " + ", ".join(f"{k} {n} req @ {ms / 1000:.1f}s avg" for k, n, ms in lat)
             )
             if d.forced_buffered:
                 out.append(
@@ -828,13 +842,17 @@ def render_text(
             out.append("  largest folds:")
             for h, sig, toks, folds, rec in d.top_blocks(5):
                 mark = "✓" if rec else "expired"
-                out.append(f"    {h}  {sig:<12} {_human(toks):>8} tokens  ×{folds} requests  [{mark}]")
+                out.append(
+                    f"    {h}  {sig:<12} {_human(toks):>8} tokens  ×{folds} requests  [{mark}]"
+                )
 
     # Quality loops
     out.append("")
     out.append(c("1", "quality loops"))
     if d.detail_available:
-        out.append(f"  expand: {d.expand_resolved} requests had distil_expand calls resolved in-proxy")
+        out.append(
+            f"  expand: {d.expand_resolved} requests had distil_expand calls resolved in-proxy"
+        )
         for sig, exp, total in d.expansion_regret():
             out.append(
                 f"    regret: {sig} blocks pulled back {exp}/{total} — folding this kind "
@@ -851,7 +869,12 @@ def render_text(
 
     if corr is not None:
         out.append("")
-        out.append(c("1", f"conversation correlation ({corr.agent} transcript: {corr.label or 'untitled'})"))
+        out.append(
+            c(
+                "1",
+                f"conversation correlation ({corr.agent} transcript: {corr.label or 'untitled'})",
+            )
+        )
         if corr.fold_sources:
             out.append("  largest folds, named:")
             for s in corr.fold_sources[:5]:
@@ -859,7 +882,9 @@ def render_text(
                 turn = f' (turn {s.turn}: "{s.turn_text[:40]}…")' if s.turn_text else ""
                 out.append(f"    {_human(s.tokens):>8} ×{s.folds}  {who} output{turn}")
         if corr.unnamed_blocks:
-            out.append(f"  {corr.unnamed_blocks} blocks unattributed (restore blob expired or content transformed)")
+            out.append(
+                f"  {corr.unnamed_blocks} blocks unattributed (restore blob expired or content transformed)"
+            )
         if corr.unused_tools:
             out.append(
                 f"  unused tools ({len(corr.unused_tools)}/{corr.tools_defined} defined, "
@@ -869,28 +894,48 @@ def render_text(
             )
         for s in corr.refetched[:3]:
             out.append(
-                c("33", f"  ⚠ re-fetched after fold: {s.tool or '?'} output ({_human(s.tokens)} tokens) "
-                        f"appeared in {s.refetches} separate results — the digest may have dropped "
-                        "something the agent needed")
+                c(
+                    "33",
+                    f"  ⚠ re-fetched after fold: {s.tool or '?'} output ({_human(s.tokens)} tokens) "
+                    f"appeared in {s.refetches} separate results — the digest may have dropped "
+                    "something the agent needed",
+                )
             )
         if corr.turns:
             out.append("  costliest turns:")
             for t in corr.turns[:3]:
-                label = t.text[:46] + ("…" if len(t.text) > 46 else "") if t.text else "(session start)"
+                label = (
+                    t.text[:46] + ("…" if len(t.text) > 46 else "") if t.text else "(session start)"
+                )
                 out.append(
                     f'    turn {t.index}: "{label}" — {t.requests} req, '
                     f"{_human(t.baseline_tokens)} baseline, {_human(t.saved_tokens)} saved"
                 )
 
     out.append("")
-    out.append(c("2", "terms: fold = bulky content replaced by a summary + recovery handle · cache-delta ="))
-    out.append(c("2", "resent content replaced by a reference · verbatim = passed through untouched ·"))
+    out.append(
+        c(
+            "2",
+            "terms: fold = bulky content replaced by a summary + recovery handle · cache-delta =",
+        )
+    )
+    out.append(
+        c("2", "resent content replaced by a reference · verbatim = passed through untouched ·")
+    )
     out.append(c("2", "unbooked = upstream failed/retried, not counted as savings"))
     out.append("")
     out.append(
-        c("2", "sources: savings.jsonl, sessions/<sid>{.json,.requests.jsonl,.hb,.exit}, restore/, shadow.jsonl")
+        c(
+            "2",
+            "sources: savings.jsonl, sessions/<sid>{.json,.requests.jsonl,.hb,.exit}, restore/, shadow.jsonl",
+        )
     )
-    out.append(c("2", "retention: session detail follows the sessions/ TTL sweep; restore blobs are pruned separately"))
+    out.append(
+        c(
+            "2",
+            "retention: session detail follows the sessions/ TTL sweep; restore blobs are pruned separately",
+        )
+    )
     return "\n".join(out)
 
 
@@ -908,8 +953,15 @@ def to_json(
             "label": corr.label,
             "transcript": corr.path,
             "fold_sources": [
-                {"handle": s.handle, "sig": s.sig, "tokens": s.tokens, "folds": s.folds,
-                 "tool": s.tool, "turn": s.turn, "refetches": s.refetches}
+                {
+                    "handle": s.handle,
+                    "sig": s.sig,
+                    "tokens": s.tokens,
+                    "folds": s.folds,
+                    "tool": s.tool,
+                    "turn": s.turn,
+                    "refetches": s.refetches,
+                }
                 for s in corr.fold_sources
             ],
             "unnamed_blocks": corr.unnamed_blocks,
@@ -923,8 +975,13 @@ def to_json(
                 for s in corr.refetched
             ],
             "turns": [
-                {"index": t.index, "text": t.text, "requests": t.requests,
-                 "baseline_tokens": t.baseline_tokens, "saved_tokens": t.saved_tokens}
+                {
+                    "index": t.index,
+                    "text": t.text,
+                    "requests": t.requests,
+                    "baseline_tokens": t.baseline_tokens,
+                    "saved_tokens": t.saved_tokens,
+                }
                 for t in corr.turns
             ],
         }
@@ -989,9 +1046,7 @@ def to_json(
             "overhead_tokens_avg": d.overhead_tokens_avg,
         },
         "blocks": {
-            "by_kind": [
-                {"sig": s, "unique": u, "tokens": t} for s, u, t in d.blocks_by_kind()
-            ],
+            "by_kind": [{"sig": s, "unique": u, "tokens": t} for s, u, t in d.blocks_by_kind()],
             "recoverable": sum(1 for i in d.blocks.values() if i.get("recoverable")),
             "unique": len(d.blocks),
             "top": [
@@ -1209,11 +1264,14 @@ def render_html(
     e = _html.escape
     dol_note = " (notional — flat-rate plan)" if subscription else ""
 
-    model_rows = "".join(
-        f"<tr><td>{e(m)}</td><td class='r'>{r}</td><td class='r'>{_human(b)}</td>"
-        f"<td class='r'>{_human(t)}</td><td class='r'>{100.0 * (b - t) / b if b else 0.0:.1f}%</td></tr>"
-        for m, r, b, t in d.per_model()
-    ) or "<tr><td class='muted' colspan='5'>no booked requests</td></tr>"
+    model_rows = (
+        "".join(
+            f"<tr><td>{e(m)}</td><td class='r'>{r}</td><td class='r'>{_human(b)}</td>"
+            f"<td class='r'>{_human(t)}</td><td class='r'>{100.0 * (b - t) / b if b else 0.0:.1f}%</td></tr>"
+            for m, r, b, t in d.per_model()
+        )
+        or "<tr><td class='muted' colspan='5'>no booked requests</td></tr>"
+    )
     kind_rows = "".join(
         f"<tr><td>{e(s)}</td><td class='r'>{u}</td><td class='r'>{_human(t)}</td></tr>"
         for s, u, t in d.blocks_by_kind()
@@ -1611,15 +1669,18 @@ shadow.jsonl on this machine. Content-free — handles and kind:size signatures 
 def render_sessions_html(sessions: list[SessionOverview]) -> str:
     """The portal index: the session picker as a clickable page."""
     e = _html.escape
-    rows = "".join(
-        f'<tr onclick="location=\'/session/{e(o.sid)}\'">'
-        f"<td><code>{e(o.sid)}</code></td><td>{e(o.tool or '?')}</td>"
-        f"<td>{e(_when(o.started))}</td><td>{e(_when(o.last_ts))}</td>"
-        f"<td class='r'>{o.requests}</td>"
-        f"<td class='r'>{100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens if o.baseline_tokens else 0.0:.1f}%</td>"
-        f"<td>{e(o.status)}</td></tr>"
-        for o in sessions
-    ) or "<tr><td class='muted' colspan='7'>no sessions recorded yet — run a wrap first</td></tr>"
+    rows = (
+        "".join(
+            f"<tr onclick=\"location='/session/{e(o.sid)}'\">"
+            f"<td><code>{e(o.sid)}</code></td><td>{e(o.tool or '?')}</td>"
+            f"<td>{e(_when(o.started))}</td><td>{e(_when(o.last_ts))}</td>"
+            f"<td class='r'>{o.requests}</td>"
+            f"<td class='r'>{100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens if o.baseline_tokens else 0.0:.1f}%</td>"
+            f"<td>{e(o.status)}</td></tr>"
+            for o in sessions
+        )
+        or "<tr><td class='muted' colspan='7'>no sessions recorded yet — run a wrap first</td></tr>"
+    )
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta http-equiv="refresh" content="15"/>
@@ -1646,9 +1707,7 @@ JSON at /json/&lt;session&gt;.</p>
 </div></body></html>"""
 
 
-def make_server(
-    host: str = "127.0.0.1", port: int = 8790, transcript: str | None = None
-) -> Any:
+def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | None = None) -> Any:
     """Build (don't start) the dissect portal server — stdlib only, like the
     gateway. Routes: ``/`` index, ``/session/<sid>`` report, ``/json/<sid>``.
 
@@ -1683,7 +1742,7 @@ def make_server(
             query = self.path.partition("?")[2]
             for prefix, as_json in (("/session/", False), ("/json/", True)):
                 if path.startswith(prefix):
-                    sid = resolve_sid(path[len(prefix):])
+                    sid = resolve_sid(path[len(prefix) :])
                     if sid is None:
                         self._send(404, "<h1>unknown session</h1>")
                         return
@@ -1691,9 +1750,7 @@ def make_server(
                     peers = list_sessions()
                     corr = None
                     params = query.split("&")
-                    want_corr = (
-                        "t=1" in params or (transcript is not None and "t=0" not in params)
-                    )
+                    want_corr = "t=1" in params or (transcript is not None and "t=0" not in params)
                     if want_corr:
                         try:
                             from .correlate import correlate

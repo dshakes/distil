@@ -26,6 +26,12 @@ from pathlib import Path
 
 MIN_SAMPLES = 20  # below this, don't trust the factor — report the raw heuristic (identity)
 _RESERVOIR = 500  # bounded per-model ratio history for a robust median + CI
+# Plausibility bounds for a *tokenizer* correction. Real heuristics are off by ~0.7-1.7x; a
+# factor outside this window means the data is unreliable (mis-recorded usage, prompt-cache
+# accounting error, test noise), not a genuine tokenizer difference — fall back to identity so
+# a bad signal can never poison a public-facing headline.
+_MIN_FACTOR = 0.5
+_MAX_FACTOR = 3.0
 _STORE_VERSION = 1
 
 
@@ -101,7 +107,13 @@ def factor(model: str | None = None, *, path: Path | None = None) -> tuple[float
     # Guard against a pathological aggregate (a few giant requests skewing the sum) by blending
     # with the median of per-request ratios; both agree in the common case.
     med = _median(ratios) if ratios else aggregate
-    return round((aggregate + med) / 2.0, 4), n
+    f = round((aggregate + med) / 2.0, 4)
+    # Sanity gate: a plausible tokenizer correction lives in [_MIN_FACTOR, _MAX_FACTOR]. Anything
+    # outside is a data problem, not a tokenizer difference — return identity so it can never
+    # poison the headline.
+    if not (_MIN_FACTOR <= f <= _MAX_FACTOR):
+        return 1.0, n
+    return f, n
 
 
 def relative_ci(model: str | None = None, *, path: Path | None = None) -> float | None:
@@ -130,11 +142,14 @@ def calibrate(count: int, model: str | None = None, *, path: Path | None = None)
 def status(model: str | None = None, *, path: Path | None = None) -> dict:
     """A small report dict for the leaderboard/dashboard: factor, samples, CI, calibrated flag."""
     f, n = factor(model, path=path)
+    # "calibrated" means a *real* correction is being applied. A factor of exactly 1.0 — whether
+    # genuinely (heuristic already matches) or because the sanity gate rejected bad data — means
+    # the displayed number IS the raw heuristic, so we don't claim calibration.
     return {
         "factor": f,
         "samples": n,
         "relative_ci": relative_ci(model, path=path),
-        "calibrated": n >= MIN_SAMPLES,
+        "calibrated": n >= MIN_SAMPLES and f != 1.0,
     }
 
 
