@@ -532,6 +532,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
     <tr><td>Volatile-field extraction</td><td>Lifts dates/UUIDs/JWTs out of the cached prefix so it stops churning</td><td>lossless · reversible</td></tr>
     <tr><td>Reversible digest + handles</td><td>Originals stay local and re-expand on demand</td><td>reversible</td></tr>
     <tr><td>Reject-if-bigger invariant</td><td>Never emits a block larger than its original</td><td>safety</td></tr>
+    <tr><td>Adversarial validation gate</td><td><code>distil validate</code> — drives the real compressor against hostile inputs and asserts reversibility, recency-exactness, fail-open, and content-free telemetry hold</td><td><span class="new">CI gate</span></td></tr>
     <tr><td>Causal / counterfactual pruning</td><td>Ablation discovers context that never changes a decision</td><td><span class="new">certified</span></td></tr>
     <tr><td>TOST non-inferiority gate (DERC)</td><td>Per-step: a strategy ships only if it passes the quality contract</td><td><span class="new">the moat</span></td></tr>
     <tr><td>Trajectory-level certificate</td><td>Task-level: <code>distil certify-trajectories</code> bounds end-to-end degradation on matched full/compressed runs</td><td><span class="new">the differentiator</span></td></tr>
