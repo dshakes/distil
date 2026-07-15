@@ -3,6 +3,21 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.19.0] — `distil validate`: adversarial real-path gate
+
+### Added
+- **`distil validate`** — a validation harness that drives the real compressor against a battery
+  of diverse and hostile inputs (huge / unicode / deeply-nested / malformed tool output,
+  marker-injection that mimics distil's own `<< handle >>` stubs, secret-looking strings) and
+  asserts the load-bearing guarantees on every one: **reversibility** (every handle recovers its
+  exact bytes), **reject-if-bigger**, **recency-exact** (latest tool output byte-identical),
+  **fail-open** (no input makes the compressor raise), and **content-free** (content reaches only
+  the local restore store, never a telemetry file — proven with a unique marker). Runs in CI on
+  every push alongside `bench` and `verify`; exits non-zero on any violation.
+
+This is the adversarial layer between "green unit suite" and "GA-ready" — it exists because a
+passing suite kept coexisting with real-traffic bugs in code paths the corpus never exercised.
+
 ## [1.18.2] — calibration robustness (capture-miss immunity)
 
 ### Fixed
