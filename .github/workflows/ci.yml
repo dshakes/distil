@@ -60,6 +60,8 @@ jobs:
         run: uv run distil bench
       - name: Byte-fidelity gate (reversible + append-only)
         run: uv run distil verify
+      - name: Adversarial real-path gate (invariants on hostile inputs)
+        run: uv run distil validate
 
   rust:
     runs-on: ubuntu-latest

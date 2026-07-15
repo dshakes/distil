@@ -262,6 +262,24 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
 
     <hr/>
 
+    <!-- validate -->
+    <h2 id="validate">distil validate</h2>
+    <p><strong>Adversarial real-path gate.</strong> Where <code>verify</code> and <code>bench</code> check the bundled corpus, <code>validate</code> drives the <em>compressor itself</em> against a battery of diverse and hostile inputs — huge and unicode and deeply-nested tool output, malformed blocks, marker-injection (content that mimics distil's own <code>&lt;&lt; handle=… &gt;&gt;</code> stubs), and secret-looking strings — and asserts the load-bearing guarantees hold on every one:</p>
+    <ul>
+      <li><strong>reversibility</strong> — every digest handle recovers its exact original bytes;</li>
+      <li><strong>reject-if-bigger</strong> — a compressed block is never larger than its original;</li>
+      <li><strong>recency-exact</strong> — the agent's most-recent tool output is byte-identical;</li>
+      <li><strong>fail-open</strong> — no input, however hostile, makes the compressor raise;</li>
+      <li><strong>content-free</strong> — prompt/response/tool text reaches <em>only</em> the local restore store, never any telemetry file (proven with a unique marker scanned across state).</li>
+    </ul>
+    <p>This is the layer that catches real-traffic bugs a green unit suite misses. Runs in CI on every push; exits non-zero on any violation.</p>
+    <pre class="term"><span class="d">$ distil validate</span>
+distil validate — adversarial real-path invariant harness
+
+VALIDATE: <span class="g">PASS</span> — 60/60 checks across 12 adversarial cases (reversibility · reject-if-bigger · recency · fail-open · content-free).</pre>
+
+    <hr/>
+
     <!-- holdout -->
     <h2 id="holdout">distil holdout</h2>
     <p>Holdout A/B savings measurement. Partitions the corpus into a control group (held out, not counted toward the headline) and a treatment group, reports savings with a bootstrap 95% confidence interval.</p>

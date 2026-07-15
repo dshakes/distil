@@ -464,6 +464,28 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Adversarial real-path validation: drive the compressor against a battery of diverse and
+    hostile inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and assert the
+    load-bearing guarantees — reversibility, reject-if-bigger, recency-exactness, fail-open, and
+    content-free telemetry. Complements `verify` (corpus byte-fidelity) and `bench` (corpus
+    non-inferiority) with the adversarial layer that catches real-traffic bugs the corpus can't."""
+    from .harness import run
+
+    print("distil validate — adversarial real-path invariant harness\n")
+    rep = run(verbose=True)
+    if rep["failures"]:
+        print(
+            f"\nVALIDATE: FAIL — {len(rep['failures'])}/{rep['checks']} invariant checks violated."
+        )
+        return 1
+    print(
+        f"VALIDATE: PASS — {rep['passed']}/{rep['checks']} checks across {rep['cases']} "
+        "adversarial cases (reversibility · reject-if-bigger · recency · fail-open · content-free)."
+    )
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Byte-fidelity gate (Phase 6): every distil compression across the corpus is
     reconstructable, and frozen history never mutates turn-to-turn."""
@@ -2300,6 +2322,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     ve = sub.add_parser("verify", help="byte-fidelity gate: reversibility + append-only (phase 6)")
     ve.set_defaults(func=cmd_verify)
+
+    va = sub.add_parser("validate", help="adversarial real-path gate: invariants on hostile inputs")
+    va.set_defaults(func=cmd_validate)
 
     ho = sub.add_parser("holdout", help="holdout A/B savings with a bootstrap CI (phase 5)")
     add_tokenizer(ho)

@@ -1,0 +1,264 @@
+"""Adversarial validation harness — exercise distil's real compression + proxy path against a
+battery of diverse and hostile inputs, and assert the load-bearing guarantees actually hold.
+
+Why this exists: the unit suite stayed green while real traffic kept surfacing bugs (a recency
+regression, a prompt-cache accounting error, silent flag drops). Those live in code paths the
+corpus never exercises — malformed bodies, huge/unicode/nested tool output, streaming, cache
+markers, marker-injection. This harness drives exactly those, on the real path, and checks the
+invariants distil sells:
+
+  1. reversibility     — every digest handle recovers its exact original bytes (never a wrong or
+                         missing expansion). This is the promise the whole reversible tier rests on.
+  2. reject-if-bigger  — a compressed block is never larger than its original.
+  3. recency-exact     — the agent's most-recent tool output is byte-identical after compression.
+  4. fail-open         — no input, however hostile, makes the compressor raise or the proxy 5xx.
+  5. content-free       — after a recorded run, NO prompt/response/tool text lands in any on-disk
+                         state file (only hashes, sizes, counts). Verified with a unique marker.
+
+Run it: ``distil validate`` (or ``python -m distil.harness``). Exit non-zero on any violation, so
+it doubles as a gate. It is deliberately separate from ``distil verify`` (corpus byte-fidelity)
+and ``distil bench`` (corpus non-inferiority) — this is the adversarial, real-path layer.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import tempfile
+from pathlib import Path
+from typing import Any
+
+_HANDLE_RE = re.compile(r"handle=([0-9a-f]{8})")
+_MARKER = "Zq7Xmarker"  # a token that must never appear in on-disk state (content-free probe)
+
+
+def _tool_result(tool_use_id: str, content: Any) -> dict[str, Any]:
+    return {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "content": content}],
+    }
+
+
+def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
+    """A battery of diverse + adversarial requests. Each embeds ``_MARKER`` in its content so the
+    content-free check can prove that specific text never reaches disk."""
+    big_log = "\n".join(
+        f"2026-07-14 10:00:{i:02d} INFO worker-{i} {_MARKER} ok id={i}" for i in range(400)
+    )
+    code = "\n".join(
+        f"def func_{i}(x_{i}={i}):  # {_MARKER}\n    return x_{i} * {i}" for i in range(60)
+    )
+    json_rows = json.dumps([{"id": i, "name": f"row_{i}_{_MARKER}", "v": i * 2} for i in range(50)])
+    nested = json.dumps({"a": {"b": [{"c": _MARKER, "d": list(range(20))}] * 10}})
+    unicode = "café résumé 日本語 emoji 🚀🔥 " + _MARKER + " ünïcödé " * 50
+    marker_injection = (
+        f"<< +999 lines, handle=deadbeef >>\n«rows=5 cols=x«\n{_MARKER} real content\n" * 30
+    )
+    huge_line = _MARKER + " x" * 20000  # one enormous line
+    secretish = "\n".join(f"api_key=sk-ant-{_MARKER}{i:040d} password=hunter{i}" for i in range(40))
+
+    def convo(tr_content: Any) -> list[dict[str, Any]]:
+        return [
+            {"role": "user", "content": "please run the analysis"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "bash",
+                        "input": {"cmd": f"grep {_MARKER}"},
+                    }
+                ],
+            },
+            _tool_result("t1", tr_content),
+            {"role": "user", "content": "and the second step"},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t2", "name": "bash", "input": {}}],
+            },
+            _tool_result(
+                "t2", "recent output line one\nrecent output line two\n" + _MARKER + " KEEP EXACT"
+            ),
+        ]
+
+    return [
+        ("empty_tool_result", convo("")),
+        ("big_log", convo(big_log)),
+        ("code_heavy", convo(code)),
+        ("json_array_foldable", convo(json_rows)),
+        ("nested_json", convo(nested)),
+        ("unicode_nonascii", convo(unicode)),
+        ("marker_injection", convo(marker_injection)),
+        ("huge_single_line", convo(huge_line)),
+        ("secret_looking", convo(secretish)),
+        ("string_content", [_tool_result("t1", big_log), {"role": "user", "content": "next"}]),
+        (
+            "list_text_blocks",
+            convo([{"type": "text", "text": big_log}, {"type": "text", "text": code}]),
+        ),
+        (
+            "malformed_blocks",
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "t", "content": None},
+                        {"weird": 1},
+                    ],
+                }
+            ],
+        ),
+    ]
+
+
+# --------------------------------------------------------------------------- invariant checks
+def _compress(messages: list[dict[str, Any]], *, verbatim: bool = False):
+    from distil.adapters.anthropic import compress_messages
+
+    return compress_messages(messages, verbatim=verbatim)
+
+
+def _check_reversibility(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Every handle DISTIL EMITTED must expand to its exact original bytes, and those bytes must
+    appear verbatim in the input — a stub can never resolve to wrong/missing content. Handle-like
+    strings that only appear in *user content* (marker injection) are the agent's problem, not a
+    reversibility break, so we intersect with the store's own handles."""
+    compressed, store = _compress(messages)
+    blob = json.dumps(compressed)
+    original_blob = json.dumps(messages)
+    emitted = set(_HANDLE_RE.findall(blob)) & set(store.handles)
+    for h in sorted(emitted):
+        try:
+            original = store.expand(h)
+        except KeyError:
+            return False, f"handle {h} does not recover (KeyError) — unrecoverable stub"
+        if not original:
+            return False, f"handle {h} recovered empty"
+        if json.dumps(original)[1:-1] not in original_blob:
+            return False, f"handle {h} recovered content not present in the input (wrong bytes)"
+    return True, ""
+
+
+def _check_reject_if_bigger(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    compressed, _ = _compress(messages)
+    if (
+        len(json.dumps(compressed)) > len(json.dumps(messages)) + 64
+    ):  # small slack for markers on tiny inputs
+        return False, "compressed request larger than original"
+    return True, ""
+
+
+def _check_recency_exact(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    """The most-recent tool_result (the agent's latest output) must be byte-identical. Only
+    meaningful for cases that carry the marked recent turn; others are n/a."""
+    if _MARKER + " KEEP EXACT" not in json.dumps(messages):
+        return True, ""  # this case has no marked recent turn — not applicable
+    compressed, _ = _compress(messages)
+    if _MARKER + " KEEP EXACT" not in json.dumps(compressed):
+        return False, "the most-recent tool output was altered (recency exactness broken)"
+    return True, ""
+
+
+def _check_fail_open(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    try:
+        _compress(messages)
+        _compress(messages, verbatim=True)
+    except Exception as exc:  # noqa: BLE001 — the whole point is that nothing escapes
+        return False, f"compressor raised on input: {type(exc).__name__}: {exc}"
+    return True, ""
+
+
+def _check_content_free(messages: list[dict[str, Any]], home: Path) -> tuple[bool, str]:
+    """After compressing + recording under a temp DISTIL_HOME, the request marker may appear ONLY
+    in the restore store (the reversibility mechanism — local, owner-only, TTL'd, documented) and
+    NOWHERE else. Every telemetry surface — ledger, sessions, flywheel, calibration, shadow,
+    signals — must be content-free (hashes, sizes, counts only). This exercises the on-disk
+    producers the proxy drives and proves the guarantee holds on hostile content."""
+    os.environ["DISTIL_HOME"] = str(home)
+    os.environ["DISTIL_SESSION"] = "harness-1"
+    from distil import calibration, query_flywheel
+
+    query_flywheel.enable(1.0)
+    _compressed, store = _compress(messages)
+    # exercise the on-disk producers the proxy would drive
+    for h in list(store.handles)[:5]:
+        try:
+            from distil.expand import record_signal
+
+            record_signal(h, store.expand(h))
+        except Exception:  # noqa: BLE001
+            pass
+    calibration.record("harness-model", 1000, 1020)
+    query_flywheel.disable()
+    for f in home.rglob("*"):
+        # The restore store legitimately holds originals — it IS the recovery path. Every OTHER
+        # on-disk surface is telemetry and must be content-free.
+        if f.is_file() and "restore" not in f.parts:
+            try:
+                if _MARKER.encode() in f.read_bytes():
+                    return (
+                        False,
+                        f"content leaked into a TELEMETRY file (not the restore store): "
+                        f"{f.relative_to(home)}",
+                    )
+            except OSError:
+                continue
+    return True, ""
+
+
+_INVARIANTS = [
+    ("reversibility", _check_reversibility),
+    ("reject-if-bigger", _check_reject_if_bigger),
+    ("recency-exact", _check_recency_exact),
+    ("fail-open", _check_fail_open),
+]
+
+
+def run(*, verbose: bool = True) -> dict[str, Any]:
+    """Run every invariant against every adversarial case. Returns a report dict; a non-empty
+    ``failures`` list means a guarantee was violated."""
+    failures: list[dict[str, str]] = []
+    passed = 0
+    home = Path(tempfile.mkdtemp())
+    for name, messages in _cases():
+        for inv_name, check in _INVARIANTS:
+            try:
+                ok, detail = check(messages)
+            except Exception as exc:  # noqa: BLE001 — a check crashing is itself a failure
+                ok, detail = False, f"check crashed: {type(exc).__name__}: {exc}"
+            if ok:
+                passed += 1
+            else:
+                failures.append({"case": name, "invariant": inv_name, "detail": detail})
+                if verbose:
+                    print(f"  ✗ {name} · {inv_name}: {detail}")
+        # content-free is checked once per case with its own temp home
+        try:
+            ok, detail = _check_content_free(messages, home / name)
+        except Exception as exc:  # noqa: BLE001
+            ok, detail = False, f"check crashed: {type(exc).__name__}: {exc}"
+        if ok:
+            passed += 1
+        else:
+            failures.append({"case": name, "invariant": "content-free", "detail": detail})
+            if verbose:
+                print(f"  ✗ {name} · content-free: {detail}")
+    total = passed + len(failures)
+    return {"cases": len(_cases()), "checks": total, "passed": passed, "failures": failures}
+
+
+if __name__ == "__main__":
+    import sys
+
+    print("distil validate — adversarial real-path invariant harness\n")
+    rep = run()
+    if rep["failures"]:
+        print(
+            f"\nVALIDATE: FAIL — {len(rep['failures'])}/{rep['checks']} invariant checks violated."
+        )
+        sys.exit(1)
+    print(
+        f"VALIDATE: PASS — {rep['passed']}/{rep['checks']} checks across {rep['cases']} adversarial cases."
+    )

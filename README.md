@@ -138,8 +138,12 @@ You don't need byte-equivalence — you need **decision-equivalence**: your agen
 Don't take the table above on faith. `distil bench` re-certifies savings *and* decision-equivalence on a bundled 7-domain corpus, offline, in seconds — the same gate that runs in CI. How we evaluate — and why a compression ratio without a task-success delta is meaningless — is written up in [docs/EVALUATION.md](docs/EVALUATION.md), including our own negative result:
 
 ```bash
-uvx --from distil-llm distil bench   # certify savings + quality across 7 domains, in seconds
+uvx --from distil-llm distil bench      # certify savings + quality across 7 domains, in seconds
+distil verify                           # byte-fidelity: every compression is exactly reversible
+distil validate                         # adversarial real-path gate: invariants on hostile inputs
 ```
+
+Three gates, all in CI: **`bench`** (non-inferiority on the corpus), **`verify`** (byte-fidelity), and **`validate`** — which drives the compressor against *adversarial* inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and asserts reversibility, reject-if-bigger, recency-exactness, fail-open, and content-free telemetry hold on every one. That last gate exists because a green unit suite kept coexisting with real-traffic bugs; `validate` is the adversarial layer that catches them.
 
 ```
 domain            trajectory                $ saved   distil   aggr  pruned
