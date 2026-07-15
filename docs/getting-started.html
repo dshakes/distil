@@ -232,7 +232,7 @@ distil shadow-stats                  <span class="d"># live decision-equivalence
     <p>Three commands cover the core workflow. All run against the bundled multi-domain corpus — no API key required. Run them in order the first time: <code>bench</code> to confirm savings and the gate pass, <code>certify</code> to inspect a single strategy, <code>prune</code> to see what's actually free to drop.</p>
 
     <h3>1. Benchmark savings across 7 domains</h3>
-    <p><code>distil bench</code> is the corpus-wide CI gate. It prices four strategies, certifies Distil is non-inferior on every trajectory, and confirms the gate rejects the aggressive lossy strategy. Run this in CI to catch any regression.</p>
+    <p><code>distil bench</code> is the corpus-wide CI gate. It prices four strategies, certifies Distil is non-inferior on every trajectory, and confirms the gate rejects the aggressive lossy strategy. Run this in CI to catch any regression. Two more gates run alongside it: <code>distil verify</code> (byte-fidelity — every compression exactly reversible) and <code>distil validate</code> (the adversarial real-path gate — invariants on hostile inputs the corpus can't reach).</p>
     <pre class="term"><span class="d">$ distil bench</span>
 corpus gate — 7 trajectories | model claude-opus-4-8 | tokenizer=heuristic
 

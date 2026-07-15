@@ -129,7 +129,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
       </tbody>
     </table>
 
-    <p>The byte-fidelity gate (<code>distil verify</code>) confirms that every Tier-0 and Tier-1 operation across the corpus is byte-reversible and that frozen history never mutates between turns.</p>
+    <p>The byte-fidelity gate (<code>distil verify</code>) confirms that every Tier-0 and Tier-1 operation across the corpus is byte-reversible and that frozen history never mutates between turns. The <strong>adversarial gate</strong> (<code>distil validate</code>) goes further — it drives the compressor against hostile inputs (huge/unicode/nested/malformed tool output, content that mimics distil's own <code>&lt;&lt; handle &gt;&gt;</code> stubs, secret-looking strings) and asserts reversibility, reject-if-bigger, recency-exactness, fail-open, and content-free telemetry on every one. Both run in CI on every push.</p>
 
     <hr/>
 
@@ -164,6 +164,7 @@ distil bench   --tokenizer anthropic</pre>
         <tr><td>Auth-mode gating</td><td><span class="badge-pass">Done</span> — <code>distil/policy.py</code></td></tr>
         <tr><td>Holdout A/B with confidence intervals</td><td><span class="badge-pass">Done</span> — <code>distil holdout</code></td></tr>
         <tr><td>Byte-fidelity invariants</td><td><span class="badge-pass">Done</span> — <code>distil verify</code></td></tr>
+        <tr><td>Adversarial real-path invariants (hostile inputs)</td><td><span class="badge-pass">Done</span> — <code>distil validate</code></td></tr>
         <tr><td>BM25 partial retrieval · delta context · keep-model codec · gist caching</td><td><span class="badge-pass">Done</span> — all wired, real implementations</td></tr>
         <tr><td>Provider proxy + managed gateway</td><td><span class="badge-pass">Done</span> — <code>distil proxy</code> / <code>distil gateway</code> (live per-tenant dashboard)</td></tr>
         <tr><td>Google Gemini adapter (request compression + decision-equivalence)</td><td><span class="badge-pass">Done</span> — <code>distil/adapters/gemini.py</code>; proxy with <code>--upstream https://generativelanguage.googleapis.com</code>. Gaps: <code>--expand</code>, <code>--shape-output</code>, context caching not yet wired.</td></tr>

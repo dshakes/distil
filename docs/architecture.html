@@ -309,9 +309,9 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
     <hr/>
 
     <h2 id="byte-fidelity">Byte-fidelity invariants</h2>
-    <p><strong>Module:</strong> <code>distil/fidelity.py</code> · Gate: <code>distil verify</code></p>
+    <p><strong>Module:</strong> <code>distil/fidelity.py</code> · <code>distil/harness.py</code> · Gates: <code>distil verify</code> (corpus) + <code>distil validate</code> (adversarial)</p>
 
-    <p>Two structural invariants are enforced across the entire corpus by the verify gate:</p>
+    <p>Two structural invariants are enforced across the entire corpus by the verify gate. A second gate, <code>distil validate</code>, re-asserts them (plus reject-if-bigger, recency-exactness, fail-open, and content-free telemetry) against <em>hostile</em> inputs the corpus never contains — huge/unicode/nested/malformed tool output, content that mimics distil's own <code>&lt;&lt; handle &gt;&gt;</code> stubs, secret-looking strings — because that is where real-traffic bugs hide. Both run in CI on every push.</p>
 
     <h3>Reversibility</h3>
     <p>Every original block is recoverable — either because the compressed text is byte-identical to the original, or because the original lives in the local restore table (keyed by block ID for Tier-0, by content handle for Tier-1). Recovery is confirmed via SHA-256 equality: auditable and machine-checkable.</p>
