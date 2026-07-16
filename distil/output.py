@@ -48,25 +48,44 @@ OUTPUT_DIRECTIVES: dict[str, str] = {
 def shape_request(
     body: dict, *, level: str = "light", allow: bool = True, shape: str = "auto"
 ) -> dict:
-    """Return a copy of an Anthropic/OpenAI request body with a verbosity-control
+    """Return a copy of an Anthropic/OpenAI/Gemini request body with a verbosity-control
     directive injected the way each provider actually accepts it. No-op when
     `level == "off"` or `allow` is False (auth-mode gating). Never mutates input.
 
     The Anthropic Messages API rejects ``role:"system"`` entries inside
     ``messages`` (400) — there the directive goes into the top-level ``system``
-    field. The OpenAI chat shape takes an appended system message. ``shape`` is
-    ``"anthropic"``/``"openai"`` when the caller knows the request path, or
-    ``"auto"`` to sniff (top-level ``system`` or an Anthropic model id).
+    field. The OpenAI chat shape takes an appended system message. Gemini uses
+    ``systemInstruction: {"parts": [{"text": "..."}]}``. ``shape`` is
+    ``"anthropic"``/``"openai"``/``"gemini"`` when the caller knows the request
+    path, or ``"auto"`` to sniff (``contents`` key → Gemini; top-level ``system``
+    or an Anthropic model id → Anthropic; otherwise OpenAI).
     """
     if level == "off" or not allow:
         return body
     directive = OUTPUT_DIRECTIVES.get(level)
     if not directive:
         raise ValueError(f"unknown output level {level!r}; choose {sorted(OUTPUT_DIRECTIVES)}")
-    if shape == "auto":
-        anthropic = "system" in body or str(body.get("model", "")).startswith("claude")
+    if shape == "gemini":
+        gemini, anthropic = True, False
+    elif shape == "auto":
+        # Gemini bodies have ``contents`` and no ``messages`` or ``system``.
+        gemini = "contents" in body and "messages" not in body and "system" not in body
+        anthropic = not gemini and (
+            "system" in body or str(body.get("model", "")).startswith("claude")
+        )
     else:
+        gemini = False
         anthropic = shape == "anthropic"
+    if gemini:
+        # Inject into systemInstruction; create it if absent.
+        sys_instr = body.get("systemInstruction")
+        if isinstance(sys_instr, dict):
+            existing = list(sys_instr.get("parts") or [])
+            return {
+                **body,
+                "systemInstruction": {**sys_instr, "parts": [*existing, {"text": directive}]},
+            }
+        return {**body, "systemInstruction": {"parts": [{"text": directive}]}}
     if anthropic:
         sys_prompt = body.get("system")
         if isinstance(sys_prompt, list):

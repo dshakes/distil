@@ -22,13 +22,37 @@ Passed through untouched (the decision-bearing or non-textual parts):
 ``systemInstruction`` is left byte-exact, matching how the proxy treats the
 Anthropic ``system`` field.
 
-Faithful by reuse: the tier logic, the ``RestoreStore``, and the learned
+Faithful by reuse: the tier logic, the ``RestoreStore``, the recency carve-out
+(``RECENCY_KEEP_TURNS``), query-aware intent (``_intent_tls``), and the learned
 keep-byte-exact policy all come from the Anthropic adapter — only the *shape*
 walking is new here, so Gemini gets the exact same compression guarantees.
 
-Not yet wired for Gemini (messages-format-only today, documented gaps):
-expand-tool injection, output verbosity shaping, and Gemini context caching.
-Shadow-mode live decision-equivalence *does* work for Gemini (see
+Parity with the Anthropic/OpenAI adapters (all now wired):
+
+* **Recency carve-out** — the last ``RECENCY_KEEP_TURNS`` role:"user" turns stay
+  verbatim; Gemini puts both human text and ``functionResponse`` (tool results)
+  under role:"user", so this preserves the agent's freshest tool outputs
+  byte-exact.
+* **Query-aware intent** — ``_intent_tls`` is seeded from the latest user text
+  parts + every ``functionCall`` name/args; the tier-1 digester uses it to pin
+  lines relevant to the agent's query.
+* **Output verbosity shaping** — ``distil.output.shape_request`` now accepts
+  ``shape="gemini"`` and injects a conciseness directive into ``systemInstruction``
+  (PAYG-only, gated identically to the Anthropic/OpenAI paths). Wired in
+  ``proxy.py`` under the ``shape_output != "off" and _lossy_ok`` guard.
+
+Deliberate seams (documented, not yet implemented):
+
+* **Expand-tool injection** — the Gemini tool-declaration format
+  (``functionDeclarations`` under a ``tools`` list element, with ``parameters``
+  instead of ``input_schema``) and the response format (``candidates[0].content.
+  parts[*].functionCall``) differ enough from the Anthropic expand-loop contract
+  in ``distil.expand`` that adapting it cleanly is a separate pass. Leave as a
+  seam: no ``distil_expand`` tool is injected on Gemini requests.
+* **Gemini context caching** — the ``cachedContent`` field is a separate concern
+  and out of scope for this pass.
+
+Shadow-mode live decision-equivalence works for Gemini (see
 ``distil.shadow.decision_signature``).
 """
 
@@ -38,12 +62,14 @@ import json
 import re
 from typing import Any
 
+from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..httpguard import strip_query
 from ..tokenizer import DEFAULT as _tokenizer
 from .anthropic import (
     RestoreStore,
     _compress_text_content,
     _compress_tool_result_text,
+    _intent_tls,
     _keep_tls,
 )
 
@@ -57,27 +83,100 @@ def is_gemini_path(path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Intent extraction (Gemini shape)
+# ---------------------------------------------------------------------------
+
+
+def _extract_gemini_intent(contents: list[Any]) -> frozenset[str]:
+    """Intent terms for a Gemini ``contents`` array.
+
+    Mirrors ``extract_intent`` (``compress.intent``) for the Gemini parts/contents
+    shape: the latest role:"user" text parts name what the agent is asking for,
+    and every ``functionCall`` name + args name what it looked up. Used to seed
+    ``_intent_tls`` so the tier-1 digester can pin query-relevant lines.
+
+    Degrades gracefully (empty frozenset) on any unexpected shape.
+    """
+    from ..compress.intent import terms_of  # local: avoid load-time cycle
+
+    terms: set[str] = set()
+    # Latest user text turn's parts name the needle.
+    for content in reversed(contents):
+        if not isinstance(content, dict) or content.get("role") != "user":
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+        found = False
+        for part in parts:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                terms |= terms_of(part["text"])
+                found = True
+        if found:
+            break
+    # Every functionCall's name + args also name what was looked up.
+    for content in contents:
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            fc = part.get("functionCall")
+            if isinstance(fc, dict):
+                terms |= terms_of(str(fc.get("name", "")))
+                args = fc.get("args")
+                if args is not None:
+                    terms |= terms_of(json.dumps(args, default=str))
+    return frozenset(terms)
+
+
+# ---------------------------------------------------------------------------
+# Recency carve-out (Gemini shape)
+# ---------------------------------------------------------------------------
+
+
+def _recent_gemini_verbatim_indices(contents: list[Any], k: int) -> set[int]:
+    """Indices of the last *k* role:"user" turns in a Gemini ``contents`` list.
+
+    Gemini places both human text and ``functionResponse`` (tool results) in
+    role:"user" turns, so keeping the last K user turns verbatim ensures the
+    agent always sees its freshest tool outputs byte-exact — the same guarantee
+    as ``_recent_verbatim_indices`` in the Anthropic adapter.
+    """
+    if k <= 0:
+        return set()
+    idxs = [i for i, c in enumerate(contents) if isinstance(c, dict) and c.get("role") == "user"]
+    return set(idxs[-k:])
+
+
+# ---------------------------------------------------------------------------
 # Compression
 # ---------------------------------------------------------------------------
 
 
-def _compress_json_value(val: Any, store: RestoreStore, verbatim: bool) -> Any:
+def _compress_json_value(
+    val: Any, store: RestoreStore, verbatim: bool, is_recent: bool = False
+) -> Any:
     """Recursively compress string values inside a ``functionResponse.response``.
 
     Strings are digested (large) or Tier-0 transformed (small) via the shared
     tool-result path; structure (dicts/lists) is walked but preserved, so the
     object the Gemini API requires stays intact and the request remains valid.
     Returns the *same object* when nothing changed, so callers can use identity
-    to detect a no-op. ``verbatim`` restricts to in-context-lossless Tier-0.
+    to detect a no-op. ``verbatim`` restricts to in-context-lossless Tier-0;
+    ``is_recent`` additionally blocks the lossless fold so recent bytes stay exact.
     """
     if isinstance(val, str):
-        new = _compress_tool_result_text(val, store, verbatim)
+        new = _compress_tool_result_text(val, store, verbatim, is_recent)
         return new if new != val else val
     if isinstance(val, dict):
         out: dict[str, Any] = {}
         changed = False
         for k, v in val.items():
-            nv = _compress_json_value(v, store, verbatim)
+            nv = _compress_json_value(v, store, verbatim, is_recent)
             out[k] = nv
             if nv is not v:
                 changed = True
@@ -86,7 +185,7 @@ def _compress_json_value(val: Any, store: RestoreStore, verbatim: bool) -> Any:
         out_list: list[Any] = []
         changed = False
         for v in val:
-            nv = _compress_json_value(v, store, verbatim)
+            nv = _compress_json_value(v, store, verbatim, is_recent)
             out_list.append(nv)
             if nv is not v:
                 changed = True
@@ -94,7 +193,9 @@ def _compress_json_value(val: Any, store: RestoreStore, verbatim: bool) -> Any:
     return val
 
 
-def _compress_part(part: Any, store: RestoreStore, role: str, verbatim: bool) -> Any:
+def _compress_part(
+    part: Any, store: RestoreStore, role: str, verbatim: bool, is_recent: bool = False
+) -> Any:
     """Compress a single Gemini ``part``; returns the same object when unchanged."""
     if not isinstance(part, dict):
         return part
@@ -109,7 +210,7 @@ def _compress_part(part: Any, store: RestoreStore, role: str, verbatim: bool) ->
     fr = part.get("functionResponse")
     if isinstance(fr, dict) and "response" in fr:
         resp = fr.get("response")
-        new_resp = _compress_json_value(resp, store, verbatim)
+        new_resp = _compress_json_value(resp, store, verbatim, is_recent)
         if new_resp is resp:
             return part
         return {**part, "functionResponse": {**fr, "response": new_resp}}
@@ -130,17 +231,30 @@ def compress_generate_request(
     Returns ``(new_body, store)``; ``new_body`` is a shallow copy with a
     compressed ``contents`` list, ``store`` maps every digest handle back to the
     original text via ``store.expand(handle)``.
+
+    Recency carve-out: the last ``RECENCY_KEEP_TURNS`` role:"user" turns are kept
+    verbatim so the agent always sees its freshest tool outputs byte-exact.
+
+    Query-aware intent: ``_intent_tls`` is seeded once per call from the latest
+    user text parts + every ``functionCall`` name/args, then read by the tier-1
+    digester to pin lines the agent is actively looking for.
     """
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
+    contents = body.get("contents")
+    _intent_tls.terms = (
+        frozenset()
+        if verbatim or not isinstance(contents, list)
+        else _extract_gemini_intent(contents)
+    )
     try:
         store = RestoreStore()
-        contents = body.get("contents")
         if not isinstance(contents, list):
             return body, store
 
+        recent = _recent_gemini_verbatim_indices(contents, _RECENCY_KEEP_TURNS)
         new_contents: list[Any] = []
         changed = False
-        for content in contents:
+        for idx, content in enumerate(contents):
             if not isinstance(content, dict):
                 new_contents.append(content)
                 continue
@@ -149,7 +263,9 @@ def compress_generate_request(
                 new_contents.append(content)
                 continue
             role = content.get("role", "")
-            new_parts = [_compress_part(p, store, role, verbatim) for p in parts]
+            is_recent = idx in recent
+            content_verbatim = verbatim or is_recent
+            new_parts = [_compress_part(p, store, role, content_verbatim, is_recent) for p in parts]
             if any(np is not p for np, p in zip(new_parts, parts)):
                 new_contents.append({**content, "parts": new_parts})
                 changed = True
@@ -161,6 +277,7 @@ def compress_generate_request(
         return {**body, "contents": new_contents}, store
     finally:
         _keep_tls.fn = None
+        _intent_tls.terms = frozenset()
 
 
 # ---------------------------------------------------------------------------

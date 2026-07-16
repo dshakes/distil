@@ -1291,7 +1291,7 @@ def test_compress_json_value_list_item_changed(monkeypatch):
     monkeypatch.setattr(
         _gemini,
         "_compress_tool_result_text",
-        lambda t, s, v: compressed if len(t) > 100 else t,
+        lambda t, s, v, r=False: compressed if len(t) > 100 else t,
     )
 
     store = RestoreStore()
