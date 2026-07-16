@@ -30,21 +30,33 @@ The body's ``input`` field is an array of heterogeneous typed items::
 
 The top-level ``instructions`` field (the system prompt) passes through unchanged.
 
-Expand-tool injection seam
---------------------------
-The ``distil_expand`` tool for Chat Completions is already handled by the proxy's
-existing ``inject_expand_tool`` path (it fires on ``body["messages"]`` stubs, which
-are present for Chat Completions). For the Responses API the tool shape differs
-(``"tools": [{"type": "function", ...}]`` vs the assistant-turn injected body used
-in the Anthropic expand loop); the scaffolding exists but injection is not yet wired.
-A future pass can hook ``inject_expand_tool`` into ``body["tools"]`` for Responses.
+All three seams are now wired end-to-end in the proxy:
+
+* **Expand-tool injection**: ``inject_expand_tool_responses`` injects the
+  ``distil_expand`` tool using the flat Responses function-tool schema
+  (``{"type":"function","name":...,"parameters":...}``), which differs from the
+  Chat Completions nested ``{"type":"function","function":{...}}`` form.  The
+  proxy's ``_expand_should_intercept`` guard and ``run_expand_loop_responses``
+  intercept loop mirror the messages-path semantics exactly — same caps, same
+  fail-open behaviour, same PAYG/--expand gating.
+
+* **Output shaping**: ``shape_request(body, shape="responses")`` appends the
+  verbosity-control directive to the top-level ``instructions`` field (append,
+  never replace), wired under the same ``shape_output != "off" and _lossy_ok``
+  guard as the other paths.
+
+* **Intent extraction**: ``_extract_responses_intent`` pulls salient terms from
+  the latest user ``input_text`` parts and any ``function_call`` argument values,
+  feeding the same ``_intent_tls`` mechanism as the messages path so query-aware
+  salience works for Responses requests.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from ..compress.intent import extract_intent
+from ..compress.intent import extract_intent, terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from .anthropic import (
     RestoreStore,
@@ -53,6 +65,39 @@ from .anthropic import (
     _intent_tls,
     _keep_tls,
 )
+
+
+def _extract_responses_intent(items: list[dict[str, Any]]) -> frozenset[str]:
+    """Intent terms for a Responses API ``input`` array.
+
+    Mirrors ``extract_intent`` for the messages path: the latest user message's
+    ``input_text`` parts provide the query; ``function_call`` argument values name
+    the needle. Content-free — only token names are extracted, never content itself.
+    """
+    intent: set[str] = set()
+    # Latest user message — stop at the first found when working backwards.
+    for item in reversed(items):
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "message" and item.get("role") == "user":
+            content = item.get("content") or []
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "input_text":
+                        intent |= terms_of(str(part.get("text") or ""))
+            break
+    # function_call items — model's prior calls name the needle.
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "function_call":
+            intent |= terms_of(str(item.get("name") or ""))
+            try:
+                args = json.loads(item.get("arguments") or "{}")
+            except (ValueError, TypeError):
+                args = {}
+            intent |= terms_of(json.dumps(args))
+    return frozenset(intent)
 
 
 # ---------------------------------------------------------------------------
@@ -289,11 +334,9 @@ def compress_responses_input(
     Recency carve-out: the last ``RECENCY_KEEP_TURNS`` ``function_call_output`` items
     stay byte-exact, same guarantee as the Chat Completions and Anthropic adapters.
 
-    Query-aware salience is intentionally not extracted for the Responses API shape
-    (the ``input`` items do not map cleanly to ``extract_intent``'s messages list
-    contract). The effect is a slightly wider keep-set — structurally-important lines
-    (head/tail, DECISION markers) are still kept — but no query-specific pin. A future
-    pass can extend ``extract_intent`` to understand ``input_text`` / function items.
+    Query-aware salience: ``_extract_responses_intent`` extracts terms from the latest
+    user ``input_text`` parts and any ``function_call`` argument values, feeding the
+    same ``_intent_tls`` mechanism used by the messages path.
 
     Parameters
     ----------
@@ -311,9 +354,7 @@ def compress_responses_input(
         ``store`` maps handles back to originals for RestoreStore round-trips.
     """
     _keep_tls.fn = keep
-    # No intent extraction for Responses API yet — degrades gracefully to structural
-    # keeps (head/tail, DECISION lines, error/test patterns). See docstring.
-    _intent_tls.terms = frozenset()
+    _intent_tls.terms = frozenset() if verbatim else _extract_responses_intent(items)
     try:
         store = RestoreStore()
         new_items: list[dict[str, Any]] = []

@@ -41,16 +41,23 @@ Parity with the Anthropic/OpenAI adapters (all now wired):
   (PAYG-only, gated identically to the Anthropic/OpenAI paths). Wired in
   ``proxy.py`` under the ``shape_output != "off" and _lossy_ok`` guard.
 
-Deliberate seams (documented, not yet implemented):
+Expand-tool (closed seam):
 
-* **Expand-tool injection** — the Gemini tool-declaration format
-  (``functionDeclarations`` under a ``tools`` list element, with ``parameters``
-  instead of ``input_schema``) and the response format (``candidates[0].content.
-  parts[*].functionCall``) differ enough from the Anthropic expand-loop contract
-  in ``distil.expand`` that adapting it cleanly is a separate pass. Leave as a
-  seam: no ``distil_expand`` tool is injected on Gemini requests.
-* **Gemini context caching** — the ``cachedContent`` field is a separate concern
-  and out of scope for this pass.
+* ``distil_expand`` is now wired for Gemini: :func:`distil.expand.inject_expand_tool_gemini`
+  injects it as a ``functionDeclarations`` entry (``type:"OBJECT"``/``"STRING"`` —
+  Gemini's uppercase enum strings) and :func:`distil.expand.run_expand_loop_gemini`
+  intercepts ``candidates[0].content.parts[*].functionCall`` responses, resolves the
+  handle, and re-queries with the ``role:"user"`` ``functionResponse`` appended to
+  ``contents`` — same round cap, same fail-open, same PAYG/``--expand`` gating as the
+  messages path. See ``distil.proxy`` (Gemini branch) for the wiring.
+
+Gemini context caching (``cachedContent``):
+
+* When present, ``cachedContent`` is a server-side resource name; the early turns are
+  NOT in ``contents`` — only the new incremental turns are. So neither compression nor
+  the expand loop ever touches the cached region (it is simply not there). Appending new
+  ``functionResponse`` turns to ``contents`` for the expand loop is always valid
+  regardless of ``cachedContent``. No guard needed.
 
 Shadow-mode live decision-equivalence works for Gemini (see
 ``distil.shadow.decision_signature``).

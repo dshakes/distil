@@ -113,6 +113,83 @@ def test_run_expand_loop_is_bounded(tmp_path):
     assert final is expand_resp
 
 
+def test_inject_expand_tool_gemini_idempotent():
+    from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool_gemini
+
+    body = inject_expand_tool_gemini({"contents": []})
+    tools = body["tools"]
+    names = [fd["name"] for t in tools for fd in t.get("functionDeclarations", [])]
+    assert EXPAND_TOOL_NAME in names
+    # idempotent — second inject doesn't duplicate
+    again = inject_expand_tool_gemini(body)
+    names2 = [fd["name"] for t in again["tools"] for fd in t.get("functionDeclarations", [])]
+    assert names2.count(EXPAND_TOOL_NAME) == 1
+    # preserves an existing functionDeclaration group
+    existing = {"functionDeclarations": [{"name": "search_web", "parameters": {}}]}
+    with_tool = inject_expand_tool_gemini({"contents": [], "tools": [existing]})
+    all_names = [fd["name"] for t in with_tool["tools"] for fd in t.get("functionDeclarations", [])]
+    assert "search_web" in all_names and EXPAND_TOOL_NAME in all_names
+
+
+def test_run_expand_loop_gemini_recovers():
+    from distil.expand import EXPAND_TOOL_NAME, run_expand_loop_gemini
+
+    store = _Store({"deadbeef": "root cause: missing tenant_id on line 42"})
+    calls = {"n": 0}
+
+    def post(body):
+        calls["n"] += 1
+        last_user = body["contents"][-1]
+        # After recovery, the functionResponse carries the original text.
+        assert last_user["role"] == "user"
+        got = last_user["parts"][0]["functionResponse"]["response"]["content"]
+        assert "tenant_id" in got
+        return {"candidates": [{"content": {"role": "model", "parts": [{"text": "fixed"}]}}]}
+
+    first = {
+        "candidates": [
+            {
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"functionCall": {"name": EXPAND_TOOL_NAME, "args": {"handle": "deadbeef"}}}
+                    ],
+                }
+            }
+        ]
+    }
+    body = {"contents": [{"role": "user", "parts": [{"text": "debug"}]}]}
+    final = run_expand_loop_gemini(body, first, store, post, on_signal=None)
+    assert final["candidates"][0]["content"]["parts"][0]["text"] == "fixed"
+    assert calls["n"] == 1
+
+
+def test_run_expand_loop_gemini_bounded():
+    from distil.expand import EXPAND_TOOL_NAME, run_expand_loop_gemini
+
+    store = _Store({"h": "x"})
+    spin = {
+        "candidates": [
+            {
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"functionCall": {"name": EXPAND_TOOL_NAME, "args": {"handle": "h"}}}
+                    ],
+                }
+            }
+        ]
+    }
+    n = {"c": 0}
+
+    def post(body):
+        n["c"] += 1
+        return spin
+
+    run_expand_loop_gemini({"contents": []}, spin, store, post, max_iters=3, on_signal=None)
+    assert n["c"] == 3
+
+
 def test_signal_log_is_content_free(tmp_path):
     from distil.expand import record_signal
 

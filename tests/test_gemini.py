@@ -1,8 +1,9 @@
 """Gemini generateContent adapter — path detection, compression, recovery, tokens.
 
-Locks in Phase 2+3: distil compresses Google's generateContent shape
+Locks in Phase 2+3+4: distil compresses Google's generateContent shape
 (contents/parts/functionResponse) reversibly, with recency carve-out, query-aware
-intent, and output shaping — parity with the Anthropic/OpenAI adapters.
+intent, output shaping, and expand-tool injection/intercept — parity with the
+Anthropic/OpenAI adapters.
 """
 
 from __future__ import annotations
@@ -341,3 +342,293 @@ def test_decision_signature_gemini_text_and_none():
     assert decision_signature(text_resp) == "text"
     assert decision_signature({"candidates": []}) == "none"
     assert decision_signature({}) == "none"
+
+
+# ---------------------------------------------------------------------------
+# Expand-tool injection (Gemini functionDeclarations shape)
+# ---------------------------------------------------------------------------
+
+
+def test_inject_expand_tool_gemini_no_existing_tools():
+    """With no tools in the body, inject a single functionDeclarations entry."""
+    from distil.expand import EXPAND_TOOL_GEMINI, EXPAND_TOOL_NAME, inject_expand_tool_gemini
+
+    body: dict = {"contents": []}
+    out = inject_expand_tool_gemini(body)
+    assert out is not body  # new dict
+    tools = out["tools"]
+    assert isinstance(tools, list) and len(tools) == 1
+    fds = tools[0]["functionDeclarations"]
+    assert any(fd["name"] == EXPAND_TOOL_NAME for fd in fds)
+    # Verify Gemini-specific schema: uppercase types required by the API.
+    fd = next(fd for fd in fds if fd["name"] == EXPAND_TOOL_NAME)
+    assert fd["parameters"]["type"] == "OBJECT"
+    assert fd["parameters"]["properties"]["handle"]["type"] == "STRING"
+    assert fd is EXPAND_TOOL_GEMINI["functionDeclarations"][0]
+
+
+def test_inject_expand_tool_gemini_appends_to_existing_tools():
+    """Existing functionDeclarations entries are preserved; distil_expand is added."""
+    from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool_gemini
+
+    existing = {"functionDeclarations": [{"name": "my_tool", "description": "does stuff"}]}
+    body: dict = {"contents": [], "tools": [existing]}
+    out = inject_expand_tool_gemini(body)
+    assert len(out["tools"]) == 2
+    all_names = [fd["name"] for t in out["tools"] for fd in (t.get("functionDeclarations") or [])]
+    assert "my_tool" in all_names
+    assert EXPAND_TOOL_NAME in all_names
+
+
+def test_inject_expand_tool_gemini_idempotent():
+    """Calling inject twice does not duplicate the declaration."""
+    from distil.expand import inject_expand_tool_gemini
+
+    body: dict = {"contents": []}
+    once = inject_expand_tool_gemini(body)
+    twice = inject_expand_tool_gemini(once)
+    assert twice is once  # second call is identity
+
+
+# ---------------------------------------------------------------------------
+# _expand_calls_gemini — extract functionCall from response candidates
+# ---------------------------------------------------------------------------
+
+
+def _make_gemini_fc_response(handle: str) -> dict:
+    """Fake Gemini response with a distil_expand functionCall."""
+    from distil.expand import EXPAND_TOOL_NAME
+
+    return {
+        "candidates": [
+            {
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"functionCall": {"name": EXPAND_TOOL_NAME, "args": {"handle": handle}}}
+                    ],
+                }
+            }
+        ]
+    }
+
+
+def test_expand_calls_gemini_extracts_distil_expand():
+    from distil.expand import _expand_calls_gemini
+
+    resp = _make_gemini_fc_response("aabbccdd")
+    calls = _expand_calls_gemini(resp)
+    assert len(calls) == 1
+    assert calls[0]["name"] == "distil_expand"
+    assert calls[0]["args"]["handle"] == "aabbccdd"
+
+
+def test_expand_calls_gemini_ignores_other_function_calls():
+    from distil.expand import _expand_calls_gemini
+
+    resp = {
+        "candidates": [
+            {
+                "content": {
+                    "role": "model",
+                    "parts": [{"functionCall": {"name": "other_tool", "args": {}}}],
+                }
+            }
+        ]
+    }
+    assert _expand_calls_gemini(resp) == []
+
+
+def test_expand_calls_gemini_returns_empty_on_malformed():
+    from distil.expand import _expand_calls_gemini
+
+    for bad in [{}, {"candidates": []}, {"candidates": [{}]}, {"candidates": [None]}]:
+        assert _expand_calls_gemini(bad) == []
+
+
+# ---------------------------------------------------------------------------
+# resolve_expands_gemini — handle resolution + functionResponse parts
+# ---------------------------------------------------------------------------
+
+
+def _fake_store(handles_map: dict) -> object:
+    """Minimal store stub: expand(handle) -> value or raises KeyError."""
+
+    class _Store:
+        def expand(self, handle: str) -> str:
+            if handle not in handles_map:
+                raise KeyError(handle)
+            return handles_map[handle]
+
+    return _Store()
+
+
+def test_resolve_expands_gemini_resolves_known_handle():
+    from distil.expand import EXPAND_TOOL_NAME, resolve_expands_gemini
+
+    resp = _make_gemini_fc_response("deadbeef")
+    store = _fake_store({"deadbeef": "the original content"})
+    parts = resolve_expands_gemini(resp, store, on_signal=None)
+    assert parts is not None and len(parts) == 1
+    fr = parts[0]["functionResponse"]
+    assert fr["name"] == EXPAND_TOOL_NAME
+    assert fr["response"]["content"] == "the original content"
+
+
+def test_resolve_expands_gemini_returns_none_when_no_expand_call():
+    from distil.expand import resolve_expands_gemini
+
+    resp = {"candidates": [{"content": {"role": "model", "parts": [{"text": "done"}]}}]}
+    assert resolve_expands_gemini(resp, _fake_store({}), on_signal=None) is None
+
+
+def test_resolve_expands_gemini_fail_open_on_bad_handle():
+    """Unknown handle produces an error message, never raises."""
+    from distil.expand import resolve_expands_gemini
+
+    resp = _make_gemini_fc_response("00000000")
+    store = _fake_store({})  # handle not present
+    parts = resolve_expands_gemini(resp, store, on_signal=None)
+    assert parts is not None
+    content = parts[0]["functionResponse"]["response"]["content"]
+    assert "no original found" in content
+
+
+def test_resolve_expands_gemini_fires_on_signal():
+    from distil.expand import resolve_expands_gemini
+
+    fired: list[tuple[str, str]] = []
+    resp = _make_gemini_fc_response("cafebabe")
+    store = _fake_store({"cafebabe": "recovered"})
+    resolve_expands_gemini(resp, store, on_signal=lambda h, o: fired.append((h, o)))
+    assert fired == [("cafebabe", "recovered")]
+
+
+# ---------------------------------------------------------------------------
+# run_expand_loop_gemini — full round-trip with a fake upstream
+# ---------------------------------------------------------------------------
+
+
+def test_run_expand_loop_gemini_single_round_trip():
+    """Fake upstream: first call returns distil_expand, second returns text."""
+    from distil.expand import EXPAND_TOOL_NAME, run_expand_loop_gemini
+
+    call_count = [0]
+    handle = "12345678"
+    store = _fake_store({handle: "the full content"})
+
+    def fake_post(b: dict) -> dict:
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # Second upstream call (after resolve): return normal text response.
+            return {"candidates": [{"content": {"role": "model", "parts": [{"text": "done"}]}}]}
+        return {"candidates": []}
+
+    first_resp = _make_gemini_fc_response(handle)
+    body: dict = {
+        "contents": [{"role": "user", "parts": [{"text": "q"}]}],
+        "tools": [{"functionDeclarations": [{"name": EXPAND_TOOL_NAME}]}],
+    }
+    final = run_expand_loop_gemini(body, first_resp, store, fake_post, on_signal=None)
+    assert call_count[0] == 1
+    assert final["candidates"][0]["content"]["parts"][0]["text"] == "done"
+
+
+def test_run_expand_loop_gemini_appends_model_and_user_turns():
+    """Verify contents grows by model-turn + user-turn on each expand round."""
+    from distil.expand import run_expand_loop_gemini
+
+    handle = "aabbccdd"
+    store = _fake_store({handle: "expanded"})
+    seen_contents: list[list] = []
+
+    def fake_post(b: dict) -> dict:
+        seen_contents.append(list(b["contents"]))
+        return {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}}]}
+
+    first_resp = _make_gemini_fc_response(handle)
+    body: dict = {"contents": [{"role": "user", "parts": [{"text": "go"}]}]}
+    run_expand_loop_gemini(body, first_resp, store, fake_post, on_signal=None)
+    assert len(seen_contents) == 1
+    contents_sent = seen_contents[0]
+    # Original user turn + model functionCall turn + user functionResponse turn.
+    assert len(contents_sent) == 3
+    assert contents_sent[1]["role"] == "model"
+    assert contents_sent[2]["role"] == "user"
+    fr = contents_sent[2]["parts"][0]["functionResponse"]
+    assert fr["response"]["content"] == "expanded"
+
+
+def test_run_expand_loop_gemini_no_expand_call_returns_immediately():
+    """When first response has no expand call, post is never called."""
+    from distil.expand import run_expand_loop_gemini
+
+    called = [False]
+
+    def fake_post(b: dict) -> dict:
+        called[0] = True
+        return {}
+
+    resp = {"candidates": [{"content": {"role": "model", "parts": [{"text": "fine"}]}}]}
+    final = run_expand_loop_gemini(
+        {"contents": []}, resp, _fake_store({}), fake_post, on_signal=None
+    )
+    assert not called[0]
+    assert final is resp
+
+
+def test_run_expand_loop_gemini_respects_max_iters():
+    """A model that always returns distil_expand is cut off at max_iters."""
+    from distil.expand import run_expand_loop_gemini
+
+    handle = "ffffffff"
+    store = _fake_store({handle: "x"})
+    call_count = [0]
+
+    def always_expand(b: dict) -> dict:
+        call_count[0] += 1
+        return _make_gemini_fc_response(handle)
+
+    first_resp = _make_gemini_fc_response(handle)
+    run_expand_loop_gemini(
+        {"contents": []}, first_resp, store, always_expand, max_iters=3, on_signal=None
+    )
+    assert call_count[0] == 3  # hit the cap, not infinite
+
+
+# ---------------------------------------------------------------------------
+# Gating: expand-tool injection is off when expand=False (proxy handler level)
+# The unit test verifies inject_expand_tool_gemini is NOT called when the
+# handler decides not to intercept — modelled by checking _expand_should_intercept.
+# ---------------------------------------------------------------------------
+
+
+def test_expand_should_intercept_false_when_expand_off():
+    """_expand_should_intercept returns False when expand flag is off."""
+    from distil.proxy import _expand_should_intercept
+
+    # A body with a handle stub in contents — but expand=False means no intercept.
+    body = {"contents": [{"role": "user", "parts": [{"text": "<< +5 lines, handle=aabbccdd >>"}]}]}
+    assert not _expand_should_intercept(False, None, body)
+
+
+def test_expand_should_intercept_true_when_contents_has_stub():
+    """_expand_should_intercept returns True for a Gemini body with a handle in contents."""
+    from distil.proxy import _expand_should_intercept
+
+    body = {"contents": [{"role": "user", "parts": [{"text": "<< +5 lines, handle=aabbccdd >>"}]}]}
+
+    class _FakeStore:
+        handles: list = []
+
+    assert _expand_should_intercept(True, _FakeStore(), body)
+
+
+def test_expand_should_intercept_true_when_store_has_handles():
+    """_expand_should_intercept returns True when the store itself has handles."""
+    from distil.proxy import _expand_should_intercept
+
+    class _FakeStore:
+        handles = ["aabbccdd"]
+
+    assert _expand_should_intercept(True, _FakeStore(), {"contents": []})

@@ -32,21 +32,33 @@ from typing import Any, Callable
 
 EXPAND_TOOL_NAME = "distil_expand"
 
+_EXPAND_DESCRIPTION = (
+    "Recover the full original content of a context block that Distil digested to "
+    "save tokens. A digested block carries a marker containing 'handle=XXXXXXXX' — "
+    "e.g. '<< +N lines, handle=XXXXXXXX >>', a «… handle=XXXXXXXX» columnar/template "
+    "marker, or '<<distil elided, handle=XXXXXXXX>>' for a skeletonized block. Call "
+    "this with that handle whenever you need detail that was elided to decide."
+)
+
+_EXPAND_PARAMS: dict[str, Any] = {
+    "type": "object",
+    "properties": {"handle": {"type": "string", "description": "the 8-char content handle"}},
+    "required": ["handle"],
+}
+
 # Anthropic Messages API tool spec. The proxy injects this so the model can recover.
 EXPAND_TOOL: dict[str, Any] = {
     "name": EXPAND_TOOL_NAME,
-    "description": (
-        "Recover the full original content of a context block that Distil digested to "
-        "save tokens. A digested block carries a marker containing 'handle=XXXXXXXX' — "
-        "e.g. '<< +N lines, handle=XXXXXXXX >>', a «… handle=XXXXXXXX» columnar/template "
-        "marker, or '<<distil elided, handle=XXXXXXXX>>' for a skeletonized block. Call "
-        "this with that handle whenever you need detail that was elided to decide."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {"handle": {"type": "string", "description": "the 8-char content handle"}},
-        "required": ["handle"],
-    },
+    "description": _EXPAND_DESCRIPTION,
+    "input_schema": _EXPAND_PARAMS,
+}
+
+# OpenAI Responses API tool spec (``/v1/responses``).  Same semantics, different schema.
+EXPAND_TOOL_RESPONSES: dict[str, Any] = {
+    "type": "function",
+    "name": EXPAND_TOOL_NAME,
+    "description": _EXPAND_DESCRIPTION,
+    "parameters": _EXPAND_PARAMS,
 }
 
 # Where expand events are logged — the learning signal / moat data. Content-free by
@@ -63,14 +75,28 @@ def _default_signal_path() -> Path:
     )
 
 
+def _has_expand_tool(tools: list[Any]) -> bool:
+    return any(isinstance(t, dict) and t.get("name") == EXPAND_TOOL_NAME for t in tools)
+
+
 def inject_expand_tool(body: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of the request body with the distil_expand tool available."""
+    """Return a copy of the request body with the distil_expand tool available (Anthropic format)."""
     tools = body.get("tools")
     if isinstance(tools, list):
-        if any(isinstance(t, dict) and t.get("name") == EXPAND_TOOL_NAME for t in tools):
+        if _has_expand_tool(tools):
             return body
         return {**body, "tools": [*tools, EXPAND_TOOL]}
     return {**body, "tools": [EXPAND_TOOL]}
+
+
+def inject_expand_tool_responses(body: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the Responses API request body with distil_expand available."""
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        if _has_expand_tool(tools):
+            return body
+        return {**body, "tools": [*tools, EXPAND_TOOL_RESPONSES]}
+    return {**body, "tools": [EXPAND_TOOL_RESPONSES]}
 
 
 def _expand_calls(resp: dict[str, Any]) -> list[dict[str, Any]]:
@@ -148,4 +174,191 @@ def run_expand_loop(
             {"role": "user", "content": results},
         ]
         resp = post({**body, "messages": messages})
+    return resp
+
+
+def run_expand_loop_responses(
+    body: dict[str, Any],
+    first_response: dict[str, Any],
+    store: Any,
+    post: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    max_iters: int = 4,
+    on_signal: Callable[[str, str], None] | None = record_signal,
+) -> dict[str, Any]:
+    """Server-side recovery loop for the OpenAI Responses API (``/v1/responses``).
+
+    When the model calls ``distil_expand`` as a ``function_call`` in its ``output``,
+    resolves the handle from the local store and re-queries with the recovered content
+    appended to ``input`` as a ``function_call_output`` item — transparently to the
+    agent. Mirrors ``run_expand_loop`` but walks the Responses shape::
+
+        response.output → look for type:"function_call" name:"distil_expand"
+        resolved  → append function_call + function_call_output to input, re-POST
+    """
+    resp = first_response
+    input_items = list(body.get("input") or [])
+    for _ in range(max_iters):
+        calls = [
+            item
+            for item in (resp.get("output") or [])
+            if isinstance(item, dict)
+            and item.get("type") == "function_call"
+            and item.get("name") == EXPAND_TOOL_NAME
+        ]
+        if not calls:
+            return resp
+        for call in calls:
+            # The function_call item itself becomes conversation history.
+            input_items.append(call)
+            call_id = call.get("call_id") or call.get("id", "")
+            handle = ""
+            try:
+                args = json.loads(call.get("arguments") or "{}")
+                handle = str(args.get("handle", "")).strip()
+            except (ValueError, KeyError):
+                handle = ""
+            try:
+                original = store.expand(handle)
+            except Exception:  # noqa: BLE001 — unknown handle must not 500 the agent
+                original = f"[distil: no original found for handle {handle!r}]"
+            if on_signal is not None:
+                on_signal(handle, original)
+            input_items.append(
+                {"type": "function_call_output", "call_id": call_id, "output": original}
+            )
+        resp = post({**body, "input": input_items})
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Gemini generateContent expand helpers
+# ---------------------------------------------------------------------------
+
+# Gemini function declaration format.
+# Source: https://ai.google.dev/api/generate-content#v1beta.Tool
+# Schema: tools:[{functionDeclarations:[{name,description,parameters:{type:"OBJECT",...}}]}]
+# Types are uppercase enum strings ("OBJECT", "STRING") per the Gemini Schema proto.
+# Role "user" for functionResponse per https://ai.google.dev/api/generate-content#v1beta.Content
+EXPAND_TOOL_GEMINI: dict[str, Any] = {
+    "functionDeclarations": [
+        {
+            "name": EXPAND_TOOL_NAME,
+            "description": EXPAND_TOOL["description"],
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "handle": {
+                        "type": "STRING",
+                        "description": "the 8-char content handle",
+                    }
+                },
+                "required": ["handle"],
+            },
+        }
+    ]
+}
+
+
+def inject_expand_tool_gemini(body: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the Gemini request body with ``distil_expand`` in ``tools``.
+
+    Injects ``EXPAND_TOOL_GEMINI`` as a ``functionDeclarations`` entry under
+    ``body["tools"]``, mirroring :func:`inject_expand_tool` for the Gemini shape.
+    Idempotent: returns ``body`` unchanged if ``distil_expand`` is already declared.
+    """
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        for t in tools:
+            if isinstance(t, dict):
+                for fd in t.get("functionDeclarations") or []:
+                    if isinstance(fd, dict) and fd.get("name") == EXPAND_TOOL_NAME:
+                        return body
+        return {**body, "tools": [*tools, EXPAND_TOOL_GEMINI]}
+    return {**body, "tools": [EXPAND_TOOL_GEMINI]}
+
+
+def _expand_calls_gemini(resp: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract ``distil_expand`` functionCall dicts from a Gemini response."""
+    try:
+        parts = resp["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError):
+        return []
+    return [
+        p["functionCall"]
+        for p in (parts or [])
+        if isinstance(p, dict)
+        and isinstance(p.get("functionCall"), dict)
+        and p["functionCall"].get("name") == EXPAND_TOOL_NAME
+    ]
+
+
+def resolve_expands_gemini(
+    resp: dict[str, Any],
+    store: Any,
+    *,
+    on_signal: Callable[[str, str], None] | None = record_signal,
+) -> list[dict[str, Any]] | None:
+    """If *resp* contains ``distil_expand`` functionCalls, resolve each handle.
+
+    Returns a list of ``functionResponse`` parts to place in a ``role:"user"``
+    turn, or ``None`` when there are no expand calls. Mirrors
+    :func:`resolve_expands` for the Gemini parts/contents shape.
+    """
+    calls = _expand_calls_gemini(resp)
+    if not calls:
+        return None
+    fr_parts: list[dict[str, Any]] = []
+    for fc in calls:
+        handle = str((fc.get("args") or {}).get("handle", "")).strip()
+        try:
+            original = store.expand(handle)
+        except Exception:  # noqa: BLE001 — unknown/expired handle must not 500 the agent
+            original = f"[distil: no original found for handle {handle!r}]"
+        if on_signal is not None:
+            on_signal(handle, original)
+        fr_parts.append(
+            {
+                "functionResponse": {
+                    "name": EXPAND_TOOL_NAME,
+                    "response": {"content": original},
+                }
+            }
+        )
+    return fr_parts
+
+
+def run_expand_loop_gemini(
+    body: dict[str, Any],
+    first_response: dict[str, Any],
+    store: Any,
+    post: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    max_iters: int = 4,
+    on_signal: Callable[[str, str], None] | None = record_signal,
+) -> dict[str, Any]:
+    """Server-side Gemini recovery loop. Mirrors :func:`run_expand_loop` for the
+    ``contents``/``parts`` shape.
+
+    While the model emits a ``distil_expand`` functionCall, resolves the handle,
+    appends the model's content turn and a ``role:"user"`` functionResponse turn
+    to ``contents``, and re-queries ``post`` — invisibly to the agent. Bounded by
+    ``max_iters``; returns as-is after the cap (fail-open).
+    """
+    resp = first_response
+    contents = list(body.get("contents") or [])
+    for _ in range(max_iters):
+        fr_parts = resolve_expands_gemini(resp, store, on_signal=on_signal)
+        if fr_parts is None:
+            return resp
+        try:
+            model_content = resp["candidates"][0]["content"]
+        except (KeyError, IndexError, TypeError):
+            return resp  # malformed response — return as-is (fail-open)
+        contents = [
+            *contents,
+            model_content,
+            {"role": "user", "parts": fr_parts},
+        ]
+        resp = post({**body, "contents": contents})
     return resp

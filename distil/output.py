@@ -65,6 +65,11 @@ def shape_request(
     directive = OUTPUT_DIRECTIVES.get(level)
     if not directive:
         raise ValueError(f"unknown output level {level!r}; choose {sorted(OUTPUT_DIRECTIVES)}")
+    # OpenAI Responses API: directive goes into top-level ``instructions`` (the system prompt).
+    if shape == "responses":
+        instr = body.get("instructions")
+        new_instr = (instr + "\n\n" + directive) if isinstance(instr, str) and instr else directive
+        return {**body, "instructions": new_instr}
     if shape == "gemini":
         gemini, anthropic = True, False
     elif shape == "auto":

@@ -890,3 +890,329 @@ class TestCountResponsesTokensEdgeCases:
         items = [{"type": "function_call_output", "output": {"key": "value"}}]
         count = count_responses_tokens(items)
         assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# Intent extraction for Responses API
+# ---------------------------------------------------------------------------
+
+
+class TestExtractResponsesIntent:
+    """_extract_responses_intent pulls terms from latest user text + function_call args."""
+
+    def test_extracts_from_user_input_text(self) -> None:
+        from distil.adapters.openai import _extract_responses_intent
+
+        items = [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "find the authentication token"}],
+            }
+        ]
+        terms = _extract_responses_intent(items)
+        assert "authentication" in terms or "token" in terms
+
+    def test_extracts_from_function_call_args(self) -> None:
+        from distil.adapters.openai import _extract_responses_intent
+
+        items = [
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "name": "bash",
+                "arguments": '{"cmd": "grep tenant_id /var/log/app.log"}',
+            }
+        ]
+        terms = _extract_responses_intent(items)
+        assert "bash" in terms or "tenant_id" in terms
+
+    def test_uses_latest_user_message_only(self) -> None:
+        from distil.adapters.openai import _extract_responses_intent
+
+        items = [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "find alpha_needle_xyz"}],
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "find beta_needle_xyz"}],
+            },
+        ]
+        terms = _extract_responses_intent(items)
+        # Second user message is the latest; its terms must be present
+        assert "beta_needle_xyz" in terms
+
+    def test_empty_items_returns_empty(self) -> None:
+        from distil.adapters.openai import _extract_responses_intent
+
+        assert _extract_responses_intent([]) == frozenset()
+
+    def test_malformed_function_call_args_fail_open(self) -> None:
+        from distil.adapters.openai import _extract_responses_intent
+
+        items = [{"type": "function_call", "name": "bash", "arguments": "not-valid-json{{{"}]
+        # Must not raise; terms from name still extracted
+        terms = _extract_responses_intent(items)
+        assert "bash" in terms
+
+    def test_non_dict_items_skipped(self) -> None:
+        from distil.adapters.openai import _extract_responses_intent
+
+        items: list[Any] = ["not-a-dict", 42, None]
+        terms = _extract_responses_intent(items)
+        assert terms == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# Responses API expand-tool injection
+# ---------------------------------------------------------------------------
+
+
+class TestInjectExpandToolResponses:
+    """inject_expand_tool_responses uses the flat Responses function-tool schema."""
+
+    def test_injects_into_body_with_no_tools(self) -> None:
+        from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool_responses
+
+        body: dict[str, Any] = {"input": [], "model": "gpt-4o"}
+        out = inject_expand_tool_responses(body)
+        assert isinstance(out["tools"], list)
+        names = [t.get("name") for t in out["tools"] if isinstance(t, dict)]
+        assert EXPAND_TOOL_NAME in names
+
+    def test_flat_schema_no_nested_function_key(self) -> None:
+        """Responses schema is flat — no 'function' wrapper key like Chat Completions."""
+        from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool_responses
+
+        out = inject_expand_tool_responses({})
+        tool = next(
+            t for t in out["tools"] if isinstance(t, dict) and t.get("name") == EXPAND_TOOL_NAME
+        )
+        # Flat: name/description/parameters at top level, NOT nested under "function"
+        assert "name" in tool
+        assert "parameters" in tool
+        assert "function" not in tool
+
+    def test_idempotent(self) -> None:
+        from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool_responses
+
+        body: dict[str, Any] = {}
+        once = inject_expand_tool_responses(body)
+        twice = inject_expand_tool_responses(once)
+        count = sum(
+            1 for t in twice["tools"] if isinstance(t, dict) and t.get("name") == EXPAND_TOOL_NAME
+        )
+        assert count == 1
+
+    def test_preserves_existing_tools(self) -> None:
+        from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool_responses
+
+        existing = {"type": "function", "name": "get_logs", "parameters": {}}
+        out = inject_expand_tool_responses({"tools": [existing]})
+        names = {t["name"] for t in out["tools"] if isinstance(t, dict)}
+        assert names == {"get_logs", EXPAND_TOOL_NAME}
+
+
+# ---------------------------------------------------------------------------
+# Output shaping: shape="responses"
+# ---------------------------------------------------------------------------
+
+
+class TestShapeRequestResponses:
+    """shape_request with shape='responses' appends directive to instructions."""
+
+    def test_appends_to_existing_instructions(self) -> None:
+        from distil.output import shape_request
+
+        body = {"instructions": "You are a helpful assistant.", "input": []}
+        out = shape_request(body, level="light", allow=True, shape="responses")
+        assert out["instructions"].startswith("You are a helpful assistant.")
+        assert "concise" in out["instructions"].lower()
+
+    def test_creates_instructions_when_absent(self) -> None:
+        from distil.output import shape_request
+
+        body: dict[str, Any] = {"input": []}
+        out = shape_request(body, level="light", allow=True, shape="responses")
+        assert "concise" in out["instructions"].lower()
+
+    def test_noop_when_off(self) -> None:
+        from distil.output import shape_request
+
+        body: dict[str, Any] = {"input": []}
+        assert shape_request(body, level="off", allow=True, shape="responses") is body
+
+    def test_noop_when_disallowed(self) -> None:
+        from distil.output import shape_request
+
+        body: dict[str, Any] = {"input": []}
+        assert shape_request(body, level="light", allow=False, shape="responses") is body
+
+    def test_aggressive_level(self) -> None:
+        from distil.output import shape_request
+
+        body: dict[str, Any] = {"input": []}
+        out = shape_request(body, level="aggressive", allow=True, shape="responses")
+        assert "concise" in out["instructions"].lower()
+
+    def test_does_not_mutate_input(self) -> None:
+        from distil.output import shape_request
+
+        body: dict[str, Any] = {"instructions": "sys", "input": []}
+        shape_request(body, level="light", allow=True, shape="responses")
+        assert body["instructions"] == "sys"
+
+
+# ---------------------------------------------------------------------------
+# Proxy integration: Responses expand loop end-to-end
+# ---------------------------------------------------------------------------
+
+
+class TestProxyResponsesExpandLoop:
+    """Full path: proxy digests a function_call_output → fake upstream returns
+    distil_expand function_call → proxy resolves and re-queries → final answer."""
+
+    def test_expand_loop_responses_end_to_end(self, tmp_path: Any) -> None:
+        import re
+        import threading
+        import urllib.request
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        from distil.proxy import build_handler
+
+        call_count: list[int] = [0]
+
+        class _Upstream(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802
+                n = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(n))
+                call_count[0] += 1
+                input_items = body.get("input", [])
+                # After the first call: if input contains a function_call_output,
+                # the proxy resolved our expand request — return the final answer.
+                has_fco = any(
+                    isinstance(i, dict)
+                    and i.get("type") == "function_call_output"
+                    and "load-bearing" in (i.get("output") or "")
+                    for i in input_items
+                )
+                if has_fco:
+                    resp = {"output": [{"type": "output_text", "text": "done with detail"}]}
+                else:
+                    # First call: find the handle in the input and ask to expand it
+                    m = re.search(r"handle=([0-9a-f]{8})", json.dumps(input_items))
+                    handle = m.group(1) if m else "00000000"
+                    resp = {
+                        "output": [
+                            {
+                                "type": "function_call",
+                                "id": "fc_1",
+                                "call_id": "call_1",
+                                "name": "distil_expand",
+                                "arguments": json.dumps({"handle": handle}),
+                            }
+                        ]
+                    }
+                out = json.dumps(resp).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *a: object) -> None:
+                pass
+
+        import os
+
+        os.environ.setdefault("DISTIL_HOME", str(tmp_path))
+
+        up = ThreadingHTTPServer(("127.0.0.1", 0), _Upstream)
+        threading.Thread(target=up.serve_forever, daemon=True).start()
+        handler = build_handler(f"http://127.0.0.1:{up.server_address[1]}", expand=True)
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        try:
+            big = "\n".join(
+                ("load-bearing line 5" if i == 5 else f"verbose log line {i}") for i in range(40)
+            )
+            payload = json.dumps(
+                {
+                    "model": "gpt-4o",
+                    "input": [
+                        {"type": "function_call_output", "call_id": "c0", "output": big},
+                        # Two more to push c0 outside the recency window so it digests.
+                        {
+                            "type": "function_call_output",
+                            "call_id": "c1",
+                            "output": _big_tool_output("c1"),
+                        },
+                        {
+                            "type": "function_call_output",
+                            "call_id": "c2",
+                            "output": _big_tool_output("c2"),
+                        },
+                    ],
+                }
+            ).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{proxy.server_address[1]}/v1/responses",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                assert r.headers.get("x-distil-expanded") == "1"
+                final = json.loads(r.read())
+            assert final["output"][0]["text"] == "done with detail"
+            assert call_count[0] == 2  # initial + one recovery round-trip
+        finally:
+            proxy.shutdown()
+            up.shutdown()
+
+
+class TestProxyResponsesOutputShaping:
+    """Proxy wires output shaping into the /v1/responses branch."""
+
+    def test_shaping_appends_instructions(self) -> None:
+        from http.server import HTTPServer
+
+        from distil.proxy import build_handler
+
+        echo_server, echo_port = _make_echo_server()
+        try:
+            handler = build_handler(
+                f"http://127.0.0.1:{echo_port}",
+                lossless_only=False,
+                shape_output="light",
+            )
+            proxy = HTTPServer(("127.0.0.1", 0), handler)
+            proxy_port = proxy.server_address[1]
+            t = threading.Thread(target=proxy.serve_forever, daemon=True)
+            t.start()
+            try:
+                body = {
+                    "model": "gpt-4o",
+                    "instructions": "You are helpful.",
+                    "input": [
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "hello"}],
+                        }
+                    ],
+                }
+                status, echoed = _post_to_proxy(proxy_port, "/v1/responses", body)
+                assert status == 200
+                instructions = echoed.get("instructions", "")
+                assert "concise" in instructions.lower(), (
+                    f"Expected shaping directive in instructions, got: {instructions!r}"
+                )
+            finally:
+                proxy.shutdown()
+        finally:
+            echo_server.shutdown()
