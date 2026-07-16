@@ -616,3 +616,31 @@ class TestCmdOutputSavings:
         out = capsys.readouterr().out
         assert rc == 0
         assert "output compression" in out
+
+
+class TestCmdCertifyPooled:
+    """-t <dir> pools every trajectory into ONE TOST (the live-gate unit)."""
+
+    def _ns(self, trajectory: str) -> argparse.Namespace:
+        return _ns(
+            trajectory=trajectory,
+            strategy="distil",
+            runner="deterministic",
+            margin=0.02,
+            alpha=0.05,
+        )
+
+    def test_directory_pools_all_trajectories(self, capsys):
+        rc = cmd_certify(self._ns("corpus"))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "trajectories" in out and "turns pooled" in out
+        # divergence lines are trajectory-qualified in pooled mode
+        assert "coding-bugfix turn" in out
+        assert "PASS" in out
+
+    def test_empty_directory_is_a_clean_error(self, tmp_path, capsys):
+        rc = cmd_certify(self._ns(str(tmp_path)))
+        out = capsys.readouterr().out
+        assert rc == 2
+        assert "no trajectory JSON files" in out

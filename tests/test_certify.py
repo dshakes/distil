@@ -40,3 +40,74 @@ def test_ablation_finds_the_speculative_docs_prunable():
     assert "system" not in prunable_ids
     assert "tools" not in prunable_ids
     assert report.tokens_freed > 0
+
+
+# ---------------------------------------------------------------------------
+# A/A control + pooled certify (the live-gate methodology, tested offline)
+# ---------------------------------------------------------------------------
+
+class _UniqueRunner:
+    """Stochastic stand-in with a 0% self-agreement floor: every draw is a new
+    decision. Under the A/A control such a model cannot indict compression —
+    every A/B mismatch is cancelled by an A/A mismatch."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def decide(self, blocks):
+        self.calls += 1
+        return f"decision-{self.calls}"
+
+
+def test_aa_control_is_noop_for_deterministic_runner():
+    """With a deterministic runner the second A draw is identical, the floor is
+    exactly 1.0, and the report reduces to the plain gate — per-commit CI
+    semantics are provably unchanged by the control."""
+    from distil.certify.gate import certify
+    from distil.trajectory import Trajectory
+
+    traj = Trajectory.load(CORPUS)
+    plain = certify(traj, "distil")
+    controlled = certify(traj, "distil", aa_control=True)
+    assert plain.aa_match_rate is None
+    assert controlled.aa_match_rate == 1.0
+    assert controlled.tost.mean_diff == plain.tost.mean_diff
+    assert controlled.verdict == plain.verdict
+
+
+def test_aa_control_absorbs_model_self_disagreement():
+    """A model that never agrees with itself must not indict compression: the
+    paired diff is (A/B match) - (A/A match) = 0 - 0 on every turn."""
+    from distil.certify.gate import certify
+    from distil.trajectory import Trajectory
+
+    traj = Trajectory.load(CORPUS)
+    report = certify(traj, "none", runner=_UniqueRunner(), aa_control=True, margin=0.1)
+    assert report.aa_match_rate == 0.0  # total self-disagreement
+    assert report.match_rate == 0.0  # A/B also never matches
+    assert report.tost.mean_diff == 0.0  # ...and the control cancels it exactly
+    assert report.tost.non_inferior  # no divergence beyond the floor -> PASS
+
+
+def test_without_aa_control_the_same_runner_fails():
+    """The raw gate on the same self-disagreeing model FAILS — proving the
+    control is what separates model variance from compression divergence."""
+    from distil.certify.gate import certify
+    from distil.trajectory import Trajectory
+
+    traj = Trajectory.load(CORPUS)
+    report = certify(traj, "none", runner=_UniqueRunner(), aa_control=False, margin=0.1)
+    assert report.tost.mean_diff == -1.0
+    assert not report.tost.non_inferior
+
+
+def test_certify_pooled_pools_turns_across_trajectories():
+    from distil.certify.gate import certify, certify_pooled
+    from distil.trajectory import Trajectory
+
+    t1 = Trajectory.load(CORPUS)
+    single = certify(t1, "distil")
+    pooled = certify_pooled([t1, t1], "distil")
+    assert len(pooled.divergences) == 2 * len(single.divergences)
+    assert all(d.traj_id == t1.id for d in pooled.divergences)
+    assert pooled.verdict == "PASS"

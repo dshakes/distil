@@ -21,7 +21,7 @@ from .compress.tier1 import digest as _tier1_digest
 from .compress.strategies import REGISTRY, distil as distil_strategy
 from .corpus import load_corpus, validate
 from .replay.ablation import discover
-from .certify.gate import certify
+from .certify.gate import certify, certify_pooled
 from .trajectory import Trajectory
 
 from .corpus import CORPUS_DIR  # env-aware corpus dir (wheel / repo / $DISTIL_CORPUS)
@@ -323,7 +323,23 @@ def cmd_prune(args: argparse.Namespace) -> int:
 
 
 def cmd_certify(args: argparse.Namespace) -> int:
-    traj = _load(args.trajectory)
+    # A directory pools every trajectory inside it into ONE TOST — the honest
+    # unit for a live (stochastic) grader, where per-trajectory n is far too
+    # small to separate compression divergence from the model's own variance.
+    traj_path = Path(args.trajectory) if args.trajectory else None
+    pooled_trajs: list[Trajectory] | None = None
+    if traj_path is not None and traj_path.is_dir():
+        pooled_trajs = [
+            Trajectory.load(p)
+            for p in sorted(traj_path.glob("*.json"))
+            if p.name not in ("manifest.json",)
+        ]
+        if not pooled_trajs:
+            print(f"distil certify: no trajectory JSON files in {traj_path}")
+            return 2
+        traj = pooled_trajs[0]  # model source for the live runner
+    else:
+        traj = _load(args.trajectory)
     runner = None
     if args.runner == "anthropic":
         from .replay.anthropic_runner import AnthropicRunner
@@ -331,12 +347,42 @@ def cmd_certify(args: argparse.Namespace) -> int:
         runner = AnthropicRunner(
             model=args.model or traj.model,
             max_calls=args.max_live_calls,
+            samples=args.samples,
         )
-    report = certify(traj, args.strategy, runner=runner, margin=args.margin, alpha=args.alpha)
-    print(f"certifying strategy {args.strategy!r} on {traj.id!r} (runner={args.runner})\n")
+    # A/A control defaults ON for live runners (a live model's self-disagreement on
+    # ambiguous turns must not indict compression); it is a provable no-op for the
+    # deterministic runner, so per-commit gate semantics never change.
+    aa_control = (args.runner == "anthropic") and not args.no_aa_control
+    if pooled_trajs is not None:
+        report = certify_pooled(
+            pooled_trajs,
+            args.strategy,
+            runner=runner,
+            margin=args.margin,
+            alpha=args.alpha,
+            aa_control=aa_control,
+        )
+        pooled_label = f"{len(pooled_trajs)} trajectories, {len(report.divergences)} turns pooled"
+        print(f"certifying strategy {args.strategy!r} on {pooled_label} (runner={args.runner})\n")
+    else:
+        report = certify(
+            traj,
+            args.strategy,
+            runner=runner,
+            margin=args.margin,
+            alpha=args.alpha,
+            aa_control=aa_control,
+        )
+        print(f"certifying strategy {args.strategy!r} on {traj.id!r} (runner={args.runner})\n")
+    if report.aa_match_rate is not None:
+        print(
+            f"A/A self-agreement floor: {report.aa_match_rate * 100:.1f}% "
+            "(gate = compression adds no divergence beyond this floor)"
+        )
     for d in report.divergences:
         flag = "ok" if d.matched else "DIVERGED"
-        print(f"  turn {d.turn}: {flag}")
+        label = f"{d.traj_id} turn {d.turn}" if d.traj_id else f"turn {d.turn}"
+        print(f"  {label}: {flag}")
         if not d.matched:
             print(f"      baseline:   {d.baseline_decision}")
             print(f"      compressed: {d.compressed_decision}")
@@ -2319,6 +2365,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="hard ceiling on live API calls for --runner anthropic; the run fails "
         "loudly when hit instead of spending silently (for unattended/CI runs)",
+    )
+    ce.add_argument(
+        "--samples",
+        type=int,
+        default=1,
+        help="majority-vote samples per live decision (--runner anthropic). Newer "
+        "models can't pin temperature to 0, so a single sample confounds the "
+        "model's own run-to-run variance with compression-induced divergence — "
+        "the same failure mode the shadow signature v2->v3 fix addressed. Use 3 "
+        "for unattended gates.",
+    )
+    ce.add_argument(
+        "--no-aa-control",
+        action="store_true",
+        help="live runs only: disable the A/A self-agreement control and grade "
+        "strictly against 1.0 (raw mode — expect false positives on ambiguous "
+        "turns; the control is a no-op for the deterministic runner)",
     )
     ce.set_defaults(func=cmd_certify)
 

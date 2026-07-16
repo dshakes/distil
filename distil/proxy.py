@@ -68,9 +68,15 @@ _HANDLE_STUB_RE = re.compile(r"handle=[0-9a-fA-F]{6,}")
 
 
 def _has_recoverable_stub(body: dict) -> bool:
-    """True if the outgoing conversation still carries any distil digest handle."""
+    """True if the outgoing conversation still carries any distil digest handle.
+
+    Checks ``messages`` (Anthropic/OpenAI Chat), ``contents`` (Gemini), and
+    ``input`` (OpenAI Responses API) so cross-turn handle detection works for
+    all request shapes.
+    """
     try:
-        blob = json.dumps(body.get("messages") or [])
+        msgs = body.get("messages") or body.get("contents") or body.get("input") or []
+        blob = json.dumps(msgs)
     except (TypeError, ValueError):
         return False
     return _HANDLE_STUB_RE.search(blob) is not None
@@ -573,8 +579,18 @@ def build_handler(
                 }
                 if savings is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
-                # Output shaping for Responses API is not yet wired (the
-                # ``instructions`` field differs from the messages-path shape).
+                # Recoverable compression: inject distil_expand so the model can pull
+                # back any digested block by handle — same gating as the messages path.
+                if _expand_should_intercept(expand, store, body):
+                    from .expand import inject_expand_tool_responses
+
+                    body = inject_expand_tool_responses(body)
+                # Output shaping: append verbosity directive to top-level ``instructions``.
+                if shape_output != "off" and _lossy_ok:
+                    from .output import shape_request
+
+                    body = shape_request(body, level=shape_output, allow=True, shape="responses")
+                    extras["x-distil-output-shaping"] = shape_output
 
             elif "messages" in body and isinstance(body["messages"], list):
                 original: list[dict[str, Any]] = body["messages"]
@@ -666,8 +682,7 @@ def build_handler(
                     extras["x-distil-output-shaping"] = shape_output
 
             elif "contents" in body and isinstance(body["contents"], list):
-                # Gemini generateContent shape. Content compression + output shaping;
-                # expand-tool injection is a seam (see distil/adapters/gemini.py docstring).
+                # Gemini generateContent shape. Content compression + output shaping.
                 before_tok = count_tokens(body)
                 try:
                     body, store = compress_generate_request(
@@ -701,6 +716,14 @@ def build_handler(
 
                     body = shape_request(body, level=shape_output, allow=True, shape="gemini")
                     extras["x-distil-output-shaping"] = shape_output
+                # Expand-tool injection (Gemini): offer distil_expand under functionDeclarations
+                # so the model can recover any digested block by handle.  Same PAYG/--expand
+                # gating as the messages path — _expand_should_intercept checks store.handles
+                # (this request) and contents stubs (cross-turn persistence).
+                if _expand_should_intercept(expand, store, body):
+                    from .expand import inject_expand_tool_gemini
+
+                    body = inject_expand_tool_gemini(body)
 
             new_raw = json.dumps(body).encode()
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
@@ -790,6 +813,8 @@ def build_handler(
 
             # Transparent expand loop: resolve any distil_expand tool calls against
             # the local store and re-query, invisibly, before returning to the agent.
+            # Dispatches to the Gemini loop (contents/functionCall shape) or the
+            # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
             _expanded_handles: list[str] = []
             if _expand_should_intercept(expand, store, body):
                 try:
@@ -797,7 +822,12 @@ def build_handler(
                 except (ValueError, TypeError):
                     resp_json = None
                 if isinstance(resp_json, dict):
-                    from .expand import record_signal, run_expand_loop
+                    from .expand import (
+                        record_signal,
+                        run_expand_loop,
+                        run_expand_loop_gemini,
+                        run_expand_loop_responses,
+                    )
 
                     def _post(b: dict[str, Any]) -> dict[str, Any]:
                         _s, _h, rb = self._post_upstream(self.path, json.dumps(b).encode(), headers)
@@ -811,7 +841,16 @@ def build_handler(
 
                             _learn_stats.record_expand(signature(original))
 
-                    final = run_expand_loop(body, resp_json, store, _post, on_signal=_on_signal)
+                    if "contents" in body and isinstance(body.get("contents"), list):
+                        final = run_expand_loop_gemini(
+                            body, resp_json, store, _post, on_signal=_on_signal
+                        )
+                    elif "input" in body and isinstance(body.get("input"), list):
+                        final = run_expand_loop_responses(
+                            body, resp_json, store, _post, on_signal=_on_signal
+                        )
+                    else:
+                        final = run_expand_loop(body, resp_json, store, _post, on_signal=_on_signal)
                     if final is not resp_json:
                         rbody = json.dumps(final).encode()
                         extras["x-distil-expanded"] = "1"
