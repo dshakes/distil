@@ -13,6 +13,7 @@
     <style>
       @keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
       .dbar{transform-box:fill-box;transform-origin:left center;animation:grow .85s cubic-bezier(.2,.75,.25,1) both}
+      .dr1{animation-delay:0s}.dr2{animation-delay:.08s}.dr3{animation-delay:.16s}.dr4{animation-delay:.24s}.dr5{animation-delay:.32s}.dr6{animation-delay:.40s}.dr7{animation-delay:.48s}
       @media(prefers-reduced-motion:reduce){.dbar{animation:none}}
     </style>
   </defs>
@@ -41,8 +42,8 @@
 
     <!-- ops/sre 33.1 615 -->
     <g transform="translate(0,38)">
-      <rect class="dbar" x="160" y="-9" width="360" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="360" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr1" x="160" y="-9" width="360" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr1" x="160" y="-9" width="360" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">ops/sre</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">33.1%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -55,8 +56,8 @@
 
     <!-- coding 28.7 736 -->
     <g transform="translate(0,76)">
-      <rect class="dbar" x="160" y="-9" width="312" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="312" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr2" x="160" y="-9" width="312" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr2" x="160" y="-9" width="312" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">coding</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">28.7%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -69,8 +70,8 @@
 
     <!-- support 32.6 765 -->
     <g transform="translate(0,114)">
-      <rect class="dbar" x="160" y="-9" width="355" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="355" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr3" x="160" y="-9" width="355" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr3" x="160" y="-9" width="355" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">support</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">32.6%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -83,8 +84,8 @@
 
     <!-- research 25.7 809 -->
     <g transform="translate(0,152)">
-      <rect class="dbar" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr4" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr4" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">research</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">25.7%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -97,8 +98,8 @@
 
     <!-- data-analysis 18.1 965 -->
     <g transform="translate(0,190)">
-      <rect class="dbar" x="160" y="-9" width="197" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="197" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr5" x="160" y="-9" width="197" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr5" x="160" y="-9" width="197" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">data-analysis</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">18.1%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -111,8 +112,8 @@
 
     <!-- devops 25.0 857 -->
     <g transform="translate(0,228)">
-      <rect class="dbar" x="160" y="-9" width="272" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="272" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr6" x="160" y="-9" width="272" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr6" x="160" y="-9" width="272" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">devops</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">25.0%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -125,8 +126,8 @@
 
     <!-- finance 29.1 1014 -->
     <g transform="translate(0,266)">
-      <rect class="dbar" x="160" y="-9" width="317" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar" x="160" y="-9" width="317" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr7" x="160" y="-9" width="317" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr7" x="160" y="-9" width="317" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">finance</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">29.1%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
