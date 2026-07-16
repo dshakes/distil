@@ -22,6 +22,30 @@ from .doctor import subscription_mode
 _AGENTS = [("claude", "Claude Code"), ("codex", "Codex"), ("gemini", "Gemini CLI")]
 _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 
+# Per-agent proxy presets for `distil wrap`.  Maps argv[0] basename → (env_var,
+# upstream, label).  Sourced from each agent's published SDK/env-var contract:
+#   claude       — Anthropic SDK honours ANTHROPIC_BASE_URL (Anthropic SDK docs).
+#   codex        — OpenAI Codex CLI uses the OpenAI SDK which reads OPENAI_BASE_URL;
+#                  the SDK appends /v1 itself so no suffix needed here (OpenAI SDK docs).
+#   gemini       — Gemini CLI honours GOOGLE_GEMINI_BASE_URL (verified: distil statusline
+#                  already checks this var, and Gemini CLI changelog confirms it).
+#   aider        — defaults to OpenAI mode; OPENAI_BASE_URL is the primary override
+#                  (aider docs: --openai-api-base / OPENAI_BASE_URL).  Users routing
+#                  Claude models should pass --env-var ANTHROPIC_BASE_URL explicitly.
+#   cursor-agent — env var not publicly documented; left out rather than guessing.
+#                  Use --env-var to configure manually.
+AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
+    # cmd_name: (env_var, upstream_base_url, human_label)
+    "claude": ("ANTHROPIC_BASE_URL", "https://api.anthropic.com", "Claude Code"),
+    "codex": ("OPENAI_BASE_URL", "https://api.openai.com", "Codex CLI"),
+    "gemini": (
+        "GOOGLE_GEMINI_BASE_URL",
+        "https://generativelanguage.googleapis.com",
+        "Gemini CLI",
+    ),
+    "aider": ("OPENAI_BASE_URL", "https://api.openai.com", "aider"),
+}
+
 
 @dataclass
 class Env:

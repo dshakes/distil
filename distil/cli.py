@@ -1641,25 +1641,52 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 
 def cmd_wrap(args: argparse.Namespace) -> int:
     """Transparently wrap a command: spawn the proxy, point its env at it, run it."""
+    import os as _os
+
     command = list(args.command)
     if command and command[0] == "--":  # argparse REMAINDER keeps the separator
         command = command[1:]
     if not command:
         print("distil wrap: nothing to run — usage: distil wrap [opts] -- <command> [args...]")
         return 2
+
+    # Per-agent preset: key off argv[0] basename so `distil wrap -- claude` just works.
+    # Explicit --env-var / --upstream always win; preset only fires when they are absent
+    # (None = not given on the CLI, as opposed to the parser's old hardcoded defaults).
+    from .onboard import AGENT_PRESETS
+
+    cmd_name = _os.path.basename(command[0])
+    preset = AGENT_PRESETS.get(cmd_name)
+
+    env_var: str = args.env_var or ""
+    upstream: str = args.upstream or ""
+
+    if preset is not None:
+        preset_env_var, preset_upstream, preset_label = preset
+        if not env_var:
+            env_var = preset_env_var
+            print(f"  preset: {preset_label} detected → {env_var}")
+        if not upstream:
+            upstream = preset_upstream
+
+    if not env_var:
+        env_var = "ANTHROPIC_BASE_URL"
+    if not upstream:
+        upstream = "https://api.anthropic.com"
+
     _apply_subscription_safe_default(args)
     from .proxy import wrap_run
 
     return wrap_run(
         command,
         host=args.host,
-        upstream=args.upstream,
+        upstream=upstream,
         lossless_only=args.lossless_only,
         verbatim=args.verbatim,
         shape_output=args.shape_output,
         record=not args.no_record,
         pricing_model=args.pricing,
-        env_var=args.env_var,
+        env_var=env_var,
         expand=args.expand,
         session_delta=args.session_delta,
         shadow_rate=args.shadow,
@@ -2558,12 +2585,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     wr.add_argument("--host", default="127.0.0.1", help="bind address (default: localhost only)")
     wr.add_argument(
-        "--upstream", default="https://api.anthropic.com", help="upstream provider base URL"
+        "--upstream",
+        default=None,
+        help="upstream provider base URL (default: auto-selected per agent, or https://api.anthropic.com)",
     )
     wr.add_argument(
         "--env-var",
-        default="ANTHROPIC_BASE_URL",
-        help="environment variable to point at the proxy (default: ANTHROPIC_BASE_URL)",
+        default=None,
+        help="environment variable to inject (default: auto-selected per agent, or ANTHROPIC_BASE_URL); "
+        "explicit value always overrides the per-agent preset",
     )
     wr.add_argument(
         "--lossless-only",
