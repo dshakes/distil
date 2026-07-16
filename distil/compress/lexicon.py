@@ -7,8 +7,9 @@ Four composable mechanisms, unioned (`bridges`):
   ① Morphology — a suffix-stripping stemmer, so ``retries``/``retrying`` match ``retry``.
   ① Curated synonyms — a small hand-built technical alias map (retry↔attempt, limit↔max/cap…).
   ③ Char-trigram overlap — Jaccard over character trigrams, for typos + near-morphology.
-  ④ Distributional vectors — a small **bundled** vector table (pure-Python cosine; no torch /
-     numpy at runtime), seeded from the synonym groups and growable from corpus co-occurrence.
+  ④ Distributional vectors — an **optional** vector table (pure-Python cosine; no torch /
+     numpy at runtime) loaded from ``semantic_vectors.json`` when present. None ships — a
+     fresh install runs bridges ①–③ only, and a missing table scores 0.0 (never an error).
   ② Flywheel-learned associations live in :mod:`distil.query_assoc` (they need the hashed
      co-occurrence table) and are consulted by the caller, not here.
 

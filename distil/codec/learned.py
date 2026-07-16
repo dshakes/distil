@@ -341,17 +341,22 @@ def train_from_corpus(*, test_fraction: float = 0.2) -> dict[str, object]:
     # Evaluate on held-out test set.
     metrics = _evaluate(test_set, w)
 
-    # Persist.
+    # Persist weights + the metrics that back the README's headline number, so the
+    # claim is always regenerable from `python -m distil.codec.learned` (seed-pinned).
     model = LogisticKeepModel(w)
     model.save(DEFAULT_WEIGHTS_PATH)
 
-    return {
+    result = {
         "train_size": len(train_set),
         "test_size": len(test_set),
         "initial_bce": initial_bce,
         "final_train_bce": final_train_bce,
         **metrics,
     }
+    DEFAULT_WEIGHTS_PATH.with_name("metrics.json").write_text(
+        json.dumps(result, indent=2) + "\n", encoding="utf-8"
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
