@@ -346,7 +346,7 @@ def train_from_corpus(*, test_fraction: float = 0.2) -> dict[str, object]:
     model = LogisticKeepModel(w)
     model.save(DEFAULT_WEIGHTS_PATH)
 
-    result = {
+    result: dict[str, object] = {
         "train_size": len(train_set),
         "test_size": len(test_set),
         "initial_bce": initial_bce,
