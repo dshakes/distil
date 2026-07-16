@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import time
 from typing import Any
 from pathlib import Path
 
@@ -1677,7 +1679,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     _apply_subscription_safe_default(args)
     from .proxy import wrap_run
 
-    return wrap_run(
+    code = wrap_run(
         command,
         host=args.host,
         upstream=upstream,
@@ -1691,6 +1693,26 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         session_delta=args.session_delta,
         shadow_rate=args.shadow,
     )
+    # Upstream-contract tripwire: distil's interception of a known agent rests on
+    # that agent honoring `env_var` (undocumented upstream — an agent update can
+    # silently stop). A preset session that ends with ZERO proxied requests is the
+    # loud local signal for exactly that; say so instead of failing silently.
+    # (Fail-open: never affect the child's exit code.)
+    if preset is not None:
+        try:
+            from .proof_ledger import build_ledger_text
+
+            session = _os.environ.get("DISTIL_SESSION", "")
+            if session and build_ledger_text(session, time.time()) is None:
+                print(
+                    f"  warning: no requests flowed through distil this session — "
+                    f"{cmd_name} may have stopped honoring {env_var} "
+                    f"(agent update?). Run `distil doctor` to check.",
+                    file=sys.stderr,
+                )
+        except Exception:  # noqa: BLE001 — a tripwire must never break the wrap exit
+            pass
+    return code
 
 
 def cmd_certify_trajectories(args: argparse.Namespace) -> int:

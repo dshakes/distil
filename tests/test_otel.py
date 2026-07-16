@@ -80,6 +80,7 @@ def test_request_span_records_attrs_with_sdk(monkeypatch):
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     monkeypatch.setattr(otel, "_ENABLED", True)
     monkeypatch.setattr(otel, "_tracer", provider.get_tracer("test"))
+    monkeypatch.setenv("DISTIL_SESSION", "s123-42")
 
     with otel.request_span("claude-opus-4-8", "/v1/messages") as span:
         otel.set_result_attrs(
@@ -104,6 +105,8 @@ def test_request_span_records_attrs_with_sdk(monkeypatch):
     assert finished.attributes["distil.compression.applied"] is True
     assert finished.attributes["distil.compression.ratio"] == 0.6
     assert finished.attributes["distil.shadow.sampled"] is False
+    # the same id the ledger/proof-ledger key on — cross-signal correlation
+    assert finished.attributes["distil.session.id"] == "s123-42"
 
 
 def test_proxy_round_trip_emits_span_with_sdk(monkeypatch):

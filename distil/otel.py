@@ -8,6 +8,7 @@ the ``otel`` extra to get real spans.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -53,6 +54,11 @@ def request_span(model: str, path: str) -> Iterator[Any]:
         span.set_attribute("gen_ai.system", _provider_from_path(path))
         span.set_attribute("gen_ai.provider.name", _provider_from_path(path))
         span.set_attribute("gen_ai.request.model", model)
+        # The identifier the rest of distil already keys on (ledger, proof ledger,
+        # shadow) — lets a backend correlate every span of one wrap session.
+        session = os.environ.get("DISTIL_SESSION", "")
+        if session:
+            span.set_attribute("distil.session.id", session)
     except Exception:  # noqa: BLE001 — observability must never break the request path
         pass
     try:
