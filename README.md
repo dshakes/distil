@@ -145,6 +145,8 @@ distil validate                         # adversarial real-path gate: invariants
 
 Three gates, all in CI: **`bench`** (non-inferiority on the corpus), **`verify`** (byte-fidelity), and **`validate`** — which drives the compressor against *adversarial* inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and asserts reversibility, reject-if-bigger, recency-exactness, fail-open, and content-free telemetry hold on every one. That last gate exists because a green unit suite kept coexisting with real-traffic bugs; `validate` is the adversarial layer that catches them.
 
+To be precise about what each layer proves: the **per-commit** gates grade decision-equivalence with an offline deterministic oracle over the committed corpus (fast, free, runs on every push — but synthetic). A **nightly** [`live-cert`](.github/workflows/live-cert.yml) job re-certifies the same trajectories against a *real* model (`distil certify --runner anthropic`), budget-capped with a hard `--max-live-calls` ceiling so an unattended run can never spend silently. The empirical results above (SWE-bench n=500, live head-to-head n=200) were graded by real models; the per-commit badge alone doesn't claim that.
+
 ```
 domain            trajectory                $ saved   distil   aggr  pruned
 ---------------------------------------------------------------------------

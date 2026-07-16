@@ -326,7 +326,10 @@ def cmd_certify(args: argparse.Namespace) -> int:
     if args.runner == "anthropic":
         from .replay.anthropic_runner import AnthropicRunner
 
-        runner = AnthropicRunner(model=traj.model)
+        runner = AnthropicRunner(
+            model=args.model or traj.model,
+            max_calls=args.max_live_calls,
+        )
     report = certify(traj, args.strategy, runner=runner, margin=args.margin, alpha=args.alpha)
     print(f"certifying strategy {args.strategy!r} on {traj.id!r} (runner={args.runner})\n")
     for d in report.divergences:
@@ -2195,6 +2198,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ce.add_argument("--margin", type=float, default=0.02)
     ce.add_argument("--alpha", type=float, default=0.05)
+    ce.add_argument(
+        "--model",
+        default=None,
+        help="override the trajectory's model for --runner anthropic (e.g. a cheap "
+        "model for the nightly budget-capped gate)",
+    )
+    ce.add_argument(
+        "--max-live-calls",
+        type=int,
+        default=None,
+        help="hard ceiling on live API calls for --runner anthropic; the run fails "
+        "loudly when hit instead of spending silently (for unattended/CI runs)",
+    )
     ce.set_defaults(func=cmd_certify)
 
     be = sub.add_parser("bench", help="corpus-wide CI gate across every domain")

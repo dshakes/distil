@@ -520,6 +520,32 @@ def test_anthropic_runner_returns_canonical():
     assert runner.decide(blocks) == canonical("searchflights", "x")  # normalized, not raw
 
 
+def test_anthropic_runner_live_call_budget():
+    """--max-live-calls is a hard ceiling: the run dies loudly, never spends past it."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from distil.replay.anthropic_runner import AnthropicRunner
+
+    class _FakeMessages:
+        def create(self, **kw):
+            blk = SimpleNamespace(type="tool_use", input={"action": "a", "target": "t"})
+            return SimpleNamespace(content=[blk])
+
+    client = SimpleNamespace(messages=_FakeMessages())
+    runner = AnthropicRunner(client=client, max_calls=2)
+    entries = realtrace.load_tau_bench(FIX / "tau_bench_sample.json")
+    blocks = entries[0].trajectory.turns[-1].blocks
+
+    runner.decide(blocks)
+    runner.decide(blocks)
+    assert runner.calls_made == 2
+    with pytest.raises(SystemExit, match="budget exhausted"):
+        runner.decide(blocks)
+    assert runner.calls_made == 2  # the over-budget call was never made
+
+
 # --------------------------------------------------------------------------- #
 # competitor / structural baselines (head-to-head)
 # --------------------------------------------------------------------------- #

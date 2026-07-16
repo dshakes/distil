@@ -35,10 +35,15 @@ class AnthropicRunner:
         client: object | None = None,
         max_tokens: int = 4096,
         samples: int = 1,
+        max_calls: int | None = None,
     ) -> None:
         self.model = model
         self._client = client
         self.max_tokens = max_tokens
+        # Hard ceiling on live API calls for unattended runs (nightly CI): the
+        # run fails loudly when the budget is hit instead of spending silently.
+        self.max_calls = max_calls
+        self.calls_made = 0
         # Newer models deprecate `temperature`, so we can't pin sampling to 0.
         # Instead, take the MAJORITY decision over `samples` calls — the stable
         # "most-likely action" — which removes the model's own run-to-run variance
@@ -69,6 +74,12 @@ class AnthropicRunner:
         """Make a Messages API call, turning any failure (missing key, network,
         rate-limit) into a clean message instead of a raw traceback. SystemExit
         from _ensure_client (no package / no client) passes straight through."""
+        if self.max_calls is not None and self.calls_made >= self.max_calls:
+            raise SystemExit(
+                f"distil: live-call budget exhausted ({self.calls_made}/{self.max_calls} "
+                "API calls) — raise --max-live-calls or shrink the trajectory set."
+            )
+        self.calls_made += 1
         try:
             return self._ensure_client().messages.create(**kw)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit

@@ -1,0 +1,81 @@
+# Nightly LIVE decision-equivalence gate.
+#
+# The per-commit CI gates (`distil bench` / `verify` / `validate`) grade against the
+# offline DeterministicRunner — a synthetic oracle over the committed corpus. This job
+# closes the honesty gap: it re-certifies the same corpus trajectories against a REAL
+# model (`--runner anthropic`), budget-capped so an unattended run can never spend
+# silently. Per-commit = synthetic, nightly = live; both are labeled as such in the
+# README's certification section.
+#
+# Cost envelope: 7 trajectories x ~2 live calls per turn on a cheap model with a hard
+# --max-live-calls ceiling of 60 per trajectory (the run FAILS at the ceiling rather
+# than continuing to spend).
+
+name: live-cert
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-certify:
+    runs-on: ubuntu-latest
+    # Secrets are unavailable on forks; keep the job out of fork CI noise.
+    if: github.repository == 'dshakes/distil'
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      LIVE_CERT_MODEL: claude-haiku-4-5-20251001
+      MAX_LIVE_CALLS_PER_TRAJECTORY: "60"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Guard — skip cleanly when no API key is configured
+        id: key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANTHROPIC_API_KEY not configured — live gate skipped (synthetic per-commit gates still cover main)."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Live certify every corpus trajectory (budget-capped)
+        if: steps.key.outputs.present == 'true'
+        run: |
+          set -o pipefail
+          status=0
+          mkdir -p live-cert-reports
+          for traj in corpus/coding-bugfix.json corpus/data-analysis-sql.json \
+                      corpus/devops-rollback.json corpus/finance-reconcile.json \
+                      corpus/research-synthesis.json corpus/support-refund.json \
+                      corpus/sample_trajectory.json; do
+            name="$(basename "$traj" .json)"
+            echo "::group::live certify $name"
+            if uv run --with anthropic distil certify -t "$traj" \
+                 --runner anthropic \
+                 --model "$LIVE_CERT_MODEL" \
+                 --max-live-calls "$MAX_LIVE_CALLS_PER_TRAJECTORY" \
+                 | tee "live-cert-reports/$name.txt"; then
+              echo "$name: PASS" >> live-cert-reports/summary.txt
+            else
+              echo "$name: FAIL" >> live-cert-reports/summary.txt
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          echo "## Nightly live decision-equivalence gate ($LIVE_CERT_MODEL)" >> "$GITHUB_STEP_SUMMARY"
+          sed 's/^/- /' live-cert-reports/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Upload reports
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-cert-reports
+          path: live-cert-reports/
+          retention-days: 30
