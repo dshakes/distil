@@ -415,6 +415,9 @@ def test_cmd_gateway_calls_serve_gateway(monkeypatch) -> None:
             verbatim=False,
             admin_token=None,
             trust_tenant_header=False,
+            require_keys=False,
+            tenant_rpm=0,
+            tenant_daily_tokens=0,
         )
     )
     assert rc == 0

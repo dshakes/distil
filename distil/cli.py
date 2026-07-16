@@ -1766,7 +1766,67 @@ def cmd_gateway(args: argparse.Namespace) -> int:
         verbatim=args.verbatim,
         admin_token=args.admin_token,
         trust_tenant_header=args.trust_tenant_header,
+        require_keys=args.require_keys,
+        tenant_rpm=args.tenant_rpm,
+        tenant_daily_tokens=args.tenant_daily_tokens,
     )
+    return 0
+
+
+def cmd_gateway_keys_issue(args: argparse.Namespace) -> int:
+    """Issue a new dsk- bearer key for a tenant."""
+    from .gateway_keys import GatewayKeyStore
+
+    store = GatewayKeyStore()
+    raw_key, rec = store.issue(
+        tenant=args.tenant,
+        rpm=args.rpm,
+        daily_tokens=args.daily_tokens,
+    )
+    print(f"Key issued:\n  id:      {rec.id}\n  tenant:  {rec.tenant}")
+    if rec.rpm is not None:
+        print(f"  rpm:     {rec.rpm}")
+    if rec.daily_tokens is not None:
+        print(f"  daily-tokens: {rec.daily_tokens:,}")
+    print(f"  key:     {raw_key}")
+    print("\n  (Save this key — it will not be shown again.)")
+    return 0
+
+
+def cmd_gateway_keys_list(args: argparse.Namespace) -> int:
+    """List issued gateway keys (IDs and metadata — no raw tokens)."""
+    import sys
+    from .gateway_keys import GatewayKeyStore
+
+    store = GatewayKeyStore()
+    keys = store.list_keys()
+    if not keys:
+        print("No gateway keys issued yet.  Run: distil gateway keys issue --tenant <name>")
+        return 0
+    fmt = "{:<12} {:<20} {:<22} {:>6} {:>14}  {}"
+    print(fmt.format("ID", "TENANT", "CREATED", "RPM", "DAILY-TOKENS", "STATUS"))
+    print("-" * 82)
+    import time as _time
+
+    for rec in sorted(keys, key=lambda r: r.created):
+        created = _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(rec.created))
+        rpm = str(rec.rpm) if rec.rpm is not None else "∞"
+        daily = f"{rec.daily_tokens:,}" if rec.daily_tokens is not None else "∞"
+        status = "revoked" if not rec.is_active else "active"
+        print(fmt.format(rec.id, rec.tenant, created, rpm, daily, status), file=sys.stdout)
+    return 0
+
+
+def cmd_gateway_keys_revoke(args: argparse.Namespace) -> int:
+    """Revoke a gateway key by its ID."""
+    from .gateway_keys import GatewayKeyStore
+
+    store = GatewayKeyStore()
+    rec = store.revoke(args.key_id)
+    if rec is None:
+        print(f"No key with id {args.key_id!r} found.")
+        return 1
+    print(f"Key {rec.id} (tenant: {rec.tenant}) revoked.")
     return 0
 
 
@@ -2735,7 +2795,63 @@ def build_parser() -> argparse.ArgumentParser:
         help="honor client-supplied x-distil-tenant for accounting (default: "
         "tenant is derived from the credential, never a client header)",
     )
+    gw.add_argument(
+        "--require-keys",
+        action="store_true",
+        help="require a dsk- gateway key on every request, even before any keys "
+        "are issued.  Auth activates automatically once keys exist; this flag "
+        "lets you lock down the gateway first.  "
+        "Note: tenants share one process; no memory isolation. "
+        "The restore store (digest originals) is per-gateway, not per-tenant — "
+        "see THREAT_MODEL.md for the full shared-gateway security model.",
+    )
+    gw.add_argument(
+        "--tenant-rpm",
+        type=int,
+        default=0,
+        metavar="N",
+        help="gateway-wide requests-per-minute cap per tenant (0 = unlimited; "
+        "per-key overrides set at issue time win when present)",
+    )
+    gw.add_argument(
+        "--tenant-daily-tokens",
+        type=int,
+        default=0,
+        metavar="N",
+        help="gateway-wide per-tenant daily input-token quota (0 = unlimited; "
+        "resets at UTC midnight; a gateway restart also resets in-memory counters)",
+    )
     gw.set_defaults(func=cmd_gateway)
+
+    # keys sub-subcommand: distil gateway keys {issue,list,revoke}
+    gw_sub = gw.add_subparsers(dest="gw_sub_cmd")
+    gw_keys = gw_sub.add_parser("keys", help="manage dsk- gateway bearer keys")
+    gw_keys_sub = gw_keys.add_subparsers(dest="keys_cmd")
+
+    gk_issue = gw_keys_sub.add_parser("issue", help="issue a new gateway key for a tenant")
+    gk_issue.add_argument("--tenant", required=True, help="tenant label (accounting name)")
+    gk_issue.add_argument(
+        "--rpm",
+        type=int,
+        default=None,
+        metavar="N",
+        help="per-minute request cap (default: gateway default)",
+    )
+    gk_issue.add_argument(
+        "--daily-tokens",
+        type=int,
+        default=None,
+        metavar="N",
+        help="per-day token quota override (default: gateway default)",
+    )
+    gk_issue.set_defaults(func=cmd_gateway_keys_issue)
+
+    gk_list = gw_keys_sub.add_parser("list", help="list issued gateway keys")
+    gk_list.set_defaults(func=cmd_gateway_keys_list)
+
+    gk_revoke = gw_keys_sub.add_parser("revoke", help="revoke a gateway key by ID")
+    gk_revoke.add_argument("key_id", help="key ID (gk_... shown at issue time)")
+    gk_revoke.set_defaults(func=cmd_gateway_keys_revoke)
 
     tt = sub.add_parser(
         "train-transformer", help="train the transformer keep-model (needs distil-llm[train])"
