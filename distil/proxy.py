@@ -536,7 +536,47 @@ def build_handler(
                 self._relay(status, rhdrs, rbody)
                 return
 
-            if "messages" in body and isinstance(body["messages"], list):
+            # Path-based dispatch: route to the right adapter per endpoint.
+            # /v1/messages    → Anthropic adapter (compress_messages, below)
+            # /v1/chat/completions → OpenAI Chat Completions adapter
+            # /v1/responses   → OpenAI Responses API adapter (handled here first)
+            # Gemini paths    → Gemini adapter (contents branch, below)
+            _path = strip_query(self.path)
+
+            if _path == "/v1/responses" and "input" in body and isinstance(body["input"], list):
+                # OpenAI Responses API: compress ``function_call_output`` items
+                # (Tier-1 reversible digest) and user ``message`` items (Tier-0).
+                # Expand-tool injection for Responses API is not yet wired —
+                # the tool schema differs from the assistant-turn inject used in
+                # the messages path; see distil.adapters.openai module docstring.
+                from .adapters.openai import compress_responses_input, count_responses_tokens
+
+                _orig_input: list[dict[str, Any]] = body["input"]
+                before_tok = count_responses_tokens(_orig_input)
+                try:
+                    _compressed_input, store = compress_responses_input(
+                        _orig_input, verbatim=verbatim, keep=_learn_keep
+                    )
+                except Exception:  # noqa: BLE001 — compression must never break a request
+                    log.debug(
+                        "compress_responses_input failed; forwarding uncompressed", exc_info=True
+                    )
+                    _compressed_input, store = _orig_input, None
+                after_tok = count_responses_tokens(_compressed_input)
+                saved = max(0, before_tok - after_tok)
+                body = {**body, "input": _compressed_input}
+                extras = {
+                    "x-distil-compressed": "1",
+                    "x-distil-tokens-saved": str(saved),
+                    "x-distil-mode": _mode_label,
+                    "x-distil-compressible-tokens": str(before_tok),
+                }
+                if savings is not None:
+                    _pending_savings = (before_tok, after_tok, body.get("model"))
+                # Output shaping for Responses API is not yet wired (the
+                # ``instructions`` field differs from the messages-path shape).
+
+            elif "messages" in body and isinstance(body["messages"], list):
                 original: list[dict[str, Any]] = body["messages"]
                 # Cache-delta coding (opt-in): cross-turn dedup + cross-version delta,
                 # applied to the ORIGINALS before compression so re-reads match across
@@ -553,8 +593,18 @@ def build_handler(
                     except Exception:  # noqa: BLE001 — never break a request
                         log.debug("cache-delta encode failed", exc_info=True)
                         pre, _dstore, _dstats = original, None, None
+                # Dispatch to the right compressor: OpenAI Chat Completions needs
+                # a dedicated adapter (role:"tool" list content is Tier-1; the
+                # Anthropic adapter applies Tier-0 to generic list text items).
+                # /v1/messages stays on the Anthropic adapter.
+                if _path == "/v1/chat/completions":
+                    from .adapters.openai import compress_chat_completions
+
+                    _compress_fn = compress_chat_completions
+                else:
+                    _compress_fn = compress_messages
                 try:
-                    compressed, store = compress_messages(pre, verbatim=verbatim, keep=_learn_keep)
+                    compressed, store = _compress_fn(pre, verbatim=verbatim, keep=_learn_keep)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                     compressed, store = pre, None
@@ -611,7 +661,7 @@ def build_handler(
                 if shape_output != "off" and _lossy_ok:
                     from .output import shape_request
 
-                    _shape = "anthropic" if strip_query(self.path) == "/v1/messages" else "openai"
+                    _shape = "anthropic" if _path == "/v1/messages" else "openai"
                     body = shape_request(body, level=shape_output, allow=True, shape=_shape)
                     extras["x-distil-output-shaping"] = shape_output
 
