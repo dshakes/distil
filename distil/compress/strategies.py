@@ -39,7 +39,14 @@ def _no_bigger(originals: list[Block], compressed: list[Block]) -> list[Block]:
 def distil(blocks: list[Block], turn: int) -> list[Block]:
     """Lossless pipeline: stabilize the cacheable prefix (lift volatile fields so
     it stays byte-identical across turns), then Tier-1/0 the VOLATILE tail only.
-    Stable prefix is otherwise untouched; reject-if-bigger guards every block."""
+    Stable prefix is otherwise untouched; reject-if-bigger guards every block.
+
+    DELIBERATELY HARSHER than serving: this digests every volatile block including
+    the turn's freshest tool output, which the live adapter exempts under the
+    recency rule (`compress.recency`). Certifying non-inferiority under the harsher
+    compression and serving the strictly gentler one is the safe transfer
+    direction — the invariant (served digest-set is a SUBSET of the certified
+    digest-set) is pinned by tests/test_live_certified_equivalence.py."""
     blocks = stabilize_blocks(blocks)
     stable = [b for b in blocks if b.stability is not Stability.VOLATILE]
     volatile = [b for b in blocks if b.stability is Stability.VOLATILE]

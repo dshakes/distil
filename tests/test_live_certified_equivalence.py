@@ -1,27 +1,28 @@
-"""Live (adapter) vs certified (strategy) equivalence — make drift visible (F9).
+"""Live (adapter) vs certified (strategy) equivalence — conservative transfer, pinned (F9).
 
 The empirical decision-equivalence certificate is computed over the block-level
-``distil`` strategy in :mod:`distil.compress.strategies`, but live serving compresses
-message dicts through :func:`distil.adapters.anthropic.compress_messages`. These are
-two *different* code paths, so a certificate proven on one is only meaningful for the
-other insofar as they make the same keep/digest decisions and produce recoverable
-handles with the same identity. This test pins that relationship so any divergence
-becomes a visible, reviewed change rather than silent drift between "what we certify"
-and "what we ship".
+``distil`` strategy in :mod:`distil.compress.strategies`, while live serving compresses
+message dicts through :func:`distil.adapters.anthropic.compress_messages`. They are two
+code paths with ONE deliberate difference, and this test pins both the agreement and the
+direction of the difference:
 
-Both paths anchor recovery on the same handle: ``sha256(original_text)[:8]``. The test
-asserts the two agree on that anchor wherever they both digest, and documents the ONE
-intentional difference below.
+  * The certified strategy digests EVERY volatile tool output — including the freshest
+    one. Certification is deliberately *harsher* than serving.
+  * The live adapter additionally keeps the last ``RECENCY_KEEP_TURNS`` tool-bearing
+    turns byte-exact (an agent must see its freshest tool output verbatim to choose its
+    next action, and the in-context path may not be able to expand a stub there).
 
-Documented intentional delta (reviewed, not a bug):
-  * The live adapter keeps the last ``_RECENCY_KEEP_TURNS`` user/tool turns byte-exact
-    (an agent must see its freshest tool output verbatim to choose its next action, and
-    the in-context path may not be able to expand a stub there). The certified strategy
-    has no recency carve-out — it digests every volatile tool-output block. So the set
-    of blocks the live path digests equals the certified set MINUS the recency tail.
+So the SUBSET INVARIANT holds: the set of blocks serving digests is a strict subset of
+the set certification digests. Non-inferiority proven under the harsher compression
+transfers a-fortiori to the strictly gentler served path. The shared constant lives in
+:mod:`distil.compress.recency` so the rule is reviewed in one place.
 
-If either the digest algorithm or the recency rule changes, this test breaks — which is
-the point: convergence (or a deliberate new delta) must be re-reviewed here.
+Both paths anchor recovery on the same handle: ``sha256(original_text)[:8]`` — a
+certificate about the digest's recoverability names the same object on both paths.
+
+If the digest algorithm or the recency rule changes on either side, this test breaks —
+which is the point: divergence must be a visible, reviewed change, never silent drift
+between "what we certify" and "what we ship".
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import hashlib
 import re
 
 from distil.adapters.anthropic import _RECENCY_KEEP_TURNS, compress_messages
+from distil.compress.recency import RECENCY_KEEP_TURNS
 from distil.compress.strategies import REGISTRY
 from distil.trajectory import Block, Kind, Stability
 
@@ -55,9 +57,14 @@ def _handles_in(text: str) -> set[str]:
     return set(_HANDLE.findall(text))
 
 
-def test_live_and_certified_agree_except_recency_tail() -> None:
+def test_adapter_uses_the_shared_recency_constant() -> None:
+    """The adapter's carve-out is the one reviewed constant in compress.recency."""
+    assert _RECENCY_KEEP_TURNS == RECENCY_KEEP_TURNS
+
+
+def test_served_digests_are_a_subset_of_certified_digests() -> None:
     originals = [_tool_output(n) for n in ("alpha", "beta", "gamma", "delta")]
-    assert len(originals) > _RECENCY_KEEP_TURNS  # need older blocks AND a recency tail
+    assert len(originals) > RECENCY_KEEP_TURNS  # need older blocks AND a recency tail
 
     # --- certified path: the block-level `distil` strategy the certificate is proven on
     blocks = [
@@ -74,19 +81,20 @@ def test_live_and_certified_agree_except_recency_tail() -> None:
     live_by_orig = {originals[i]: m["content"][0]["content"] for i, m in enumerate(new_messages)}
     live_digested = {o for o, t in live_by_orig.items() if t != o}
 
-    # 1) The certified strategy digests every volatile tool-output block.
+    # 1) Certification is the harsher compression: it digests every volatile tool output.
     assert cert_digested == set(originals)
 
-    # 2) The live adapter digests the same blocks EXCEPT the recency-exempt tail, which
-    #    it keeps byte-exact. This is the sole documented, reviewed divergence.
-    recency_tail = set(originals[-_RECENCY_KEEP_TURNS:])
+    # 2) SUBSET INVARIANT (the safe transfer direction): serving digests exactly the
+    #    certified set MINUS the recency tail — never anything certification didn't.
+    recency_tail = set(originals[-RECENCY_KEEP_TURNS:])
     assert live_digested == cert_digested - recency_tail
+    assert live_digested < cert_digested  # strict subset, by construction
     for o in recency_tail:
         assert live_by_orig[o] == o  # verbatim-recency semantics: byte-exact
 
     # 3) Wherever BOTH paths digest, they emit the SAME recovery handle == sha256(orig)[:8],
     #    and the live store resolves it back to the byte-exact original. Same anchor ->
-    #    a certificate about the digest's recoverability transfers to the live path.
+    #    a certificate about the digest's recoverability names the same object live.
     for o in live_digested:
         want = _sha8(o)
         assert _handles_in(live_by_orig[o]) == {want}

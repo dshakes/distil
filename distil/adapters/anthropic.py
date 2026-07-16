@@ -43,12 +43,9 @@ _MIN_LINES = 6
 # Recency exemption: tool_result blocks in the last K user/tool turns are NEVER
 # digested — an agent must always see its most recent tool outputs byte-exact to
 # choose its next action, and a Tier-1 stub it may not be able to expand there
-# would break that. Digesting only OLDER turns is also strictly cache-safe here:
-# place_cache_control never puts message history in the cached prefix, and
-# compress_messages already re-digests the whole history every call, so exempting
-# recent turns only ever *reduces* what we rewrite — it never mutates bytes a
-# previous call already sent.
-_RECENCY_KEEP_TURNS = 2
+# would break that. The rule itself lives in compress.recency and is shared with
+# the certified strategy, so both paths make the same keep/digest decisions.
+from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS  # noqa: E402
 
 # Thread-local learned "keep byte-exact" predicate, scoped per compress_messages call
 # (ThreadingHTTPServer handles requests on separate threads, so this must be per-thread).
