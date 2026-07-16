@@ -701,6 +701,10 @@ def build_gateway_handler(
             if auth is off.  On failure, sends the 401 and returns the sentinel
             ``("", "")`` — callers check ``result is None`` vs ``result[0] == ""``.
             """
+            # Reset per-request key state (handler instances serve sequential
+            # keep-alive requests — a stale per-key limit must not carry over).
+            self._key_daily_tokens = None
+
             if not self._auth_required():
                 return None  # auth off — no key needed
 
@@ -733,6 +737,11 @@ def build_gateway_handler(
                 body = json.dumps({"error": "rate limit exceeded"}).encode()
                 self._relay(429, {"Content-Type": "application/json"}, body, {"Retry-After": "60"})
                 return ("", "")
+
+            # Per-key daily quota override, resolved HERE (the only place with the
+            # KeyRecord) and read by _handle_compressible — it wins over the
+            # gateway default, same precedence as the per-key rpm above.
+            self._key_daily_tokens = rec.daily_tokens
 
             return rec.tenant, strip_hdr
 
@@ -872,6 +881,17 @@ def build_gateway_handler(
                 self.headers, trust_tenant_header=trust_tenant_header
             )
 
+            # RPM without key auth: when keys are off, the auth path never ran, so
+            # enforce --tenant-rpm here against the credential-derived tenant —
+            # otherwise the startup banner advertises a limit nothing enforces.
+            # (With key auth on, _check_inbound_auth already charged this request.)
+            if tenant_override is None and default_rpm and not _rl.check_rpm(tenant, default_rpm):
+                body_err = json.dumps({"error": "rate limit exceeded"}).encode()
+                self._relay(
+                    429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"}
+                )
+                return
+
             try:
                 body: dict[str, Any] = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
@@ -902,14 +922,11 @@ def build_gateway_handler(
                 tokens_saved = max(0, baseline_tokens - compressed_tokens)
 
                 # Daily token quota: checked against the baseline (pre-compression)
-                # token count so the quota reflects actual input volume.
-                daily_limit = default_daily_tokens
-                if _key_store is not None and tenant_override is not None:
-                    # Per-key override: re-look up the record's daily_tokens
-                    # (key_store.lookup not available here without the raw key, so
-                    # the per-key daily_tokens limit must be resolved in _check_inbound_auth
-                    # and threaded through; for now the gateway default applies).
-                    pass  # ponytail: per-key daily_tokens would need a second param
+                # token count so the quota reflects actual input volume. The per-key
+                # override (resolved in _check_inbound_auth, the only place holding
+                # the KeyRecord) wins over the gateway default.
+                _key_daily = getattr(self, "_key_daily_tokens", None)
+                daily_limit = _key_daily if _key_daily is not None else default_daily_tokens
                 if daily_limit and not _rl.check_daily_tokens(tenant, daily_limit, baseline_tokens):
                     body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
                     self._relay(
@@ -926,10 +943,13 @@ def build_gateway_handler(
                 extras["x-distil-tokens-saved"] = str(tokens_saved)
 
             elif "contents" in body and isinstance(body["contents"], list):
-                # Gemini generateContent shape.
+                # Gemini generateContent shape. Same per-key-over-default quota
+                # precedence as the messages branch above.
                 baseline_tokens = _gemini_count(body)
-                if default_daily_tokens and not _rl.check_daily_tokens(
-                    tenant, default_daily_tokens, baseline_tokens
+                _key_daily = getattr(self, "_key_daily_tokens", None)
+                _daily_limit = _key_daily if _key_daily is not None else default_daily_tokens
+                if _daily_limit and not _rl.check_daily_tokens(
+                    tenant, _daily_limit, baseline_tokens
                 ):
                     body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
                     self._relay(
@@ -1036,7 +1056,18 @@ def build_gateway_handler(
             skip = _HOP_BY_HOP
             if also_strip:
                 skip = skip | {also_strip.lower()}
-            return {k: v for k, v in self.headers.items() if k.lower() not in skip}
+            # Defense in depth: a distil gateway key must NEVER reach the provider,
+            # whichever carrier it rode in on — a client sending BOTH an
+            # `Authorization: Bearer dsk-…` AND an `x-distil-key` would otherwise
+            # leak the second carrier upstream (only one name arrives via
+            # *also_strip*). dsk- keys are only meaningful to this gateway, so
+            # stripping unconditionally can't break provider auth.
+            skip = skip | {"x-distil-key"}
+            out = {k: v for k, v in self.headers.items() if k.lower() not in skip}
+            for k in list(out):
+                if k.lower() == "authorization" and out[k].startswith("Bearer dsk-"):
+                    del out[k]
+            return out
 
         def _relay(
             self,

@@ -523,3 +523,74 @@ def test_health_unauthenticated_when_keys_active(gw_with_keys: Any) -> None:
     status, _, data = _req("GET", port, "/distil/health")
     assert status == 200
     assert json.loads(data) == {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# security-review fixes: advertised controls must actually enforce
+# ---------------------------------------------------------------------------
+
+
+def test_rpm_enforced_without_key_auth(echo_upstream: Any) -> None:
+    """--tenant-rpm must bind even with key auth OFF (the startup banner
+    advertises it) — enforced against the credential-derived tenant on the
+    compressible path. Previously silently inert without keys."""
+    srv, _ = _make_gateway(echo_upstream.server_address[1], default_rpm=1)
+    try:
+        port = srv.server_address[1]
+        creds = {"x-api-key": "sk-same-credential"}
+        status1, _, _ = _post_messages(port, creds)
+        status2, _, data = _post_messages(port, creds)
+        assert status1 == 200
+        assert status2 == 429
+        assert "rate limit" in json.loads(data)["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_per_key_daily_tokens_enforced(echo_upstream: Any, tmp_path: Path) -> None:
+    """A per-key --daily-tokens cap must actually bind — `keys list` shows it,
+    so silently applying only the gateway default would be an advertised-but-
+    inert control (the exact overclaim class this repo guards against)."""
+    key_store = GatewayKeyStore(tmp_path / "gateway_keys.json")
+    raw, _ = key_store.issue("lowtrust", daily_tokens=1)  # ~any request exceeds
+    srv, _ = _make_gateway(echo_upstream.server_address[1], key_store=key_store)
+    try:
+        port = srv.server_address[1]
+        status1, _, _ = _post_messages(port, {"Authorization": f"Bearer {raw}"})
+        status2, _, data = _post_messages(port, {"Authorization": f"Bearer {raw}"})
+        assert status1 == 200  # first request records usage
+        assert status2 == 429  # cap of 1 token is now exceeded
+        assert "quota" in json.loads(data)["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_both_key_carriers_stripped_before_upstream(gw_with_keys: Any) -> None:
+    """A client sending the dsk- key on BOTH carriers must leak on neither —
+    x-distil-key is stripped unconditionally, Authorization only when it
+    carries a dsk- bearer."""
+    port, _, _, raw = gw_with_keys
+    payload = json.dumps(
+        {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "hi"}]}
+    ).encode()
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+    conn.request(
+        "POST",
+        "/v1/messages",
+        body=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(payload)),
+            "Authorization": f"Bearer {raw}",
+            "x-distil-key": raw,
+            "x-api-key": "sk-provider-key",
+        },
+    )
+    resp = conn.getresponse()
+    resp.read()
+    echoed_auth = resp.getheader("x-echo-authorization")
+    echoed_xdk = resp.getheader("x-echo-x-distil-key")
+    conn.close()
+    assert resp.status == 200
+    assert echoed_auth is None or "dsk-" not in echoed_auth
+    assert echoed_xdk is None or "dsk-" not in echoed_xdk

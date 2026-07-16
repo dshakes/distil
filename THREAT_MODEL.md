@@ -109,6 +109,14 @@ When at least one `dsk-` key has been issued (or `--require-keys` is set),
 every inbound request must carry the key as `Authorization: Bearer dsk-…` or
 `x-distil-key: dsk-…`.  Missing or revoked keys → 401.  Rate limits
 (`--tenant-rpm`, `--tenant-daily-tokens`) → 429 with `Retry-After: 60`.
+With key auth **off**, both limits still bind on the compressible request
+paths against the credential-derived tenant; per-key `--rpm`/`--daily-tokens`
+overrides (set at issue time) win over the gateway defaults.
+
+Revoke keys with `distil gateway keys revoke` — deleting
+`gateway_keys.json` outright does **not** clear the in-memory key cache until
+the next restart (the auth gate itself stays locked either way; it never
+reopens to unauthenticated traffic).
 
 Keys are stored **hashed** (sha256) in `~/.distil/gateway_keys.json`
 (chmod 0600).  The raw token is shown once at `distil gateway keys issue` time
