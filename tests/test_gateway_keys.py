@@ -594,3 +594,159 @@ def test_both_key_carriers_stripped_before_upstream(gw_with_keys: Any) -> None:
     assert resp.status == 200
     assert echoed_auth is None or "dsk-" not in echoed_auth
     assert echoed_xdk is None or "dsk-" not in echoed_xdk
+
+
+# ---------------------------------------------------------------------------
+# GatewayKeyStore: _keys_path() default (lines 49-50)
+# ---------------------------------------------------------------------------
+
+
+def test_keys_path_uses_distil_home(tmp_path: Path, monkeypatch: Any) -> None:
+    """_keys_path() resolves against DISTIL_HOME, not hardcoded home dir."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.gateway_keys import _keys_path
+
+    p = _keys_path()
+    assert p.parent == tmp_path
+    assert p.name == "gateway_keys.json"
+
+
+# ---------------------------------------------------------------------------
+# GatewayKeyStore: corrupt / unreadable JSON in key file (lines 114-115)
+# ---------------------------------------------------------------------------
+
+
+def test_load_from_corrupt_json_file(tmp_path: Path) -> None:
+    """A key file with invalid JSON is silently ignored — store stays empty."""
+    path = tmp_path / "gateway_keys.json"
+    path.write_text("{not-valid-json!!!", encoding="utf-8")
+    store = GatewayKeyStore(path)
+    store._last_load = 0.0  # type: ignore[attr-defined]
+    # Should not raise; corrupt file treated as empty
+    keys = store.list_keys()
+    assert keys == []
+
+
+# ---------------------------------------------------------------------------
+# GatewayKeyStore: corrupt key record in valid JSON (lines 129-130 area)
+# ---------------------------------------------------------------------------
+
+
+def test_load_skips_corrupt_key_records(tmp_path: Path) -> None:
+    """A key record missing required fields is skipped; valid records still load."""
+    import json as _json
+
+    path = tmp_path / "gateway_keys.json"
+    # One valid record, one corrupt (missing 'tenant')
+    data = {
+        "version": 1,
+        "keys": {
+            "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899": {
+                "id": "gk_good",
+                "tenant": "acme",
+                "created": 1234567890.0,
+                "revoked": None,
+                "rpm": None,
+                "daily_tokens": None,
+            },
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff": {
+                # Missing required 'id', 'tenant', 'created' → KeyError → skipped
+                "rpm": None,
+            },
+        },
+    }
+    path.write_text(_json.dumps(data), encoding="utf-8")
+    store = GatewayKeyStore(path)
+    store._last_load = 0.0  # type: ignore[attr-defined]
+    keys = store.list_keys()
+    assert len(keys) == 1
+    assert keys[0].tenant == "acme"
+
+
+# ---------------------------------------------------------------------------
+# Gateway: dsk- Authorization header stripped even when auth is OFF (line 1069)
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_strips_dsk_authorization_when_no_key_auth(echo_upstream: Any) -> None:
+    """Defense-in-depth: a dsk- Bearer token in Authorization is stripped even when
+    key auth is not enforced, so the provider never sees a gateway key by accident."""
+    # Gateway with NO key_store (auth off)
+    srv, _ = _make_gateway(echo_upstream.server_address[1])
+    port = srv.server_address[1]
+    try:
+        payload = json.dumps(
+            {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "hi"}]}
+        ).encode()
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+        conn.request(
+            "POST",
+            "/v1/messages",
+            body=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(len(payload)),
+                # A dsk- key sent to an auth-off gateway — must NOT reach the upstream
+                "Authorization": "Bearer dsk-should-be-stripped",
+                "x-api-key": "sk-real-provider-key",
+            },
+        )
+        resp = conn.getresponse()
+        resp.read()
+        echoed_auth = resp.getheader("x-echo-authorization")
+        conn.close()
+        assert resp.status == 200
+        assert echoed_auth is None or "dsk-" not in echoed_auth, (
+            f"dsk- key must never reach provider; echoed: {echoed_auth!r}"
+        )
+    finally:
+        srv.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Gateway: HTTP verbs with auth rejection (lines 811, 817, 823, 829, 835)
+# ---------------------------------------------------------------------------
+
+
+def _req_method(method: str, port: int, path: str = "/v1/models") -> int:
+    """Send *method* to *port*/*path* with no auth headers; return status code."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+    conn.request(method, path, headers={})
+    status = conn.getresponse().status
+    conn.close()
+    return status
+
+
+@pytest.fixture()
+def gw_auth_required(echo_upstream: Any, tmp_path: Path) -> Any:
+    """Gateway with a key store (auth required); yields port."""
+    key_store = GatewayKeyStore(tmp_path / "gk.json")
+    key_store.issue("test-tenant")  # issuing a key makes auth required
+    srv, _ = _make_gateway(echo_upstream.server_address[1], key_store=key_store)
+    yield srv.server_address[1]
+    srv.shutdown()
+
+
+def test_gateway_put_without_auth_returns_401(gw_auth_required: Any) -> None:
+    assert _req_method("PUT", gw_auth_required) == 401
+
+
+def test_gateway_delete_without_auth_returns_401(gw_auth_required: Any) -> None:
+    assert _req_method("DELETE", gw_auth_required) == 401
+
+
+def test_gateway_patch_without_auth_returns_401(gw_auth_required: Any) -> None:
+    assert _req_method("PATCH", gw_auth_required) == 401
+
+
+def test_gateway_head_without_auth_returns_401(gw_auth_required: Any) -> None:
+    assert _req_method("HEAD", gw_auth_required) == 401
+
+
+def test_gateway_options_without_auth_returns_401(gw_auth_required: Any) -> None:
+    assert _req_method("OPTIONS", gw_auth_required) == 401
+
+
+def test_gateway_get_non_special_path_without_auth_returns_401(gw_auth_required: Any) -> None:
+    """GET on a non-/distil/* path with auth required and no key → 401."""
+    assert _req_method("GET", gw_auth_required, "/v1/models") == 401

@@ -403,3 +403,175 @@ def test_wrap_run_exit_code_preserved_when_ledger_crashes(tmp_path, monkeypatch)
         assert code == 7
     finally:
         _pl.print_proof_ledger = original
+
+
+# ---------------------------------------------------------------------------
+# _dur: hour-range branch (lines 28-29)
+# ---------------------------------------------------------------------------
+
+
+def test_dur_hours_and_minutes() -> None:
+    """_dur with >= 3600s and leftover minutes → 'Xh Ym' format."""
+    from distil.proof_ledger import _dur
+
+    assert _dur(7380) == "2h3m"  # 2h 3m = 7380s
+
+
+def test_dur_hours_exact() -> None:
+    """_dur with exactly N hours and no leftover minutes → 'Xh' (no trailing 'm')."""
+    from distil.proof_ledger import _dur
+
+    assert _dur(7200) == "2h"  # exactly 2 hours, no minutes
+
+
+# ---------------------------------------------------------------------------
+# _session_digest_stats: n==0 branch (line 64)
+# ---------------------------------------------------------------------------
+
+
+def test_session_digest_stats_no_block_handles(tmp_path, monkeypatch):
+    """Requests file exists but records carry no block handles → n=0 → 100% recoverable."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-no-handles"
+    _write_ledger_row(tmp_path, sid)
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    req = sessions_dir / (sid + ".requests.jsonl")
+    # Record with no 'blocks' key → session_handles stays empty → n=0
+    req.write_text(json.dumps({"ts": time.time(), "tokens": 500}) + "\n", encoding="utf-8")
+
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 30)
+    assert text is not None
+    assert "0 digests" in text
+    assert "100% recoverable" in text
+
+
+# ---------------------------------------------------------------------------
+# _session_digest_stats: expired / missing restore files (lines 73-74, 160)
+# ---------------------------------------------------------------------------
+
+
+def test_session_expired_handles_not_in_restore(tmp_path, monkeypatch):
+    """Block handles referenced in the session file but absent from restore → not all live."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-expired"
+    _write_ledger_row(tmp_path, sid)
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    req = sessions_dir / (sid + ".requests.jsonl")
+    rec = {"ts": time.time(), "blocks": [{"h": "dead1234", "sig": "abc", "tokens": 100}]}
+    req.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    # Create the restore directory but NOT the handle file — handle is "missing"
+    (tmp_path / "restore").mkdir(parents=True, exist_ok=True)
+
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 30)
+    assert text is not None
+    assert "some handles expired" in text
+
+
+# ---------------------------------------------------------------------------
+# _session_digest_stats: invalid JSON lines (lines 57-58)
+# ---------------------------------------------------------------------------
+
+
+def test_session_requests_file_invalid_json_lines(tmp_path, monkeypatch):
+    """Corrupt lines in the session requests file are skipped (fail-open)."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-badjson"
+    _write_ledger_row(tmp_path, sid)
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    req = sessions_dir / (sid + ".requests.jsonl")
+    # Mix of bad JSON, valid JSON with no blocks, and a partially valid record
+    content = (
+        "not-json-at-all\n"
+        + json.dumps({"ts": time.time()})
+        + "\n"
+        + "{broken_json\n"
+        + "null\n"  # valid JSON but not a dict → AttributeError caught
+    )
+    req.write_text(content, encoding="utf-8")
+
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 30)
+    assert text is not None  # fail-open: bad lines skipped gracefully
+
+
+# ---------------------------------------------------------------------------
+# _session_digest_stats: OSError on file read (lines 59-60)
+# ---------------------------------------------------------------------------
+
+
+def test_session_requests_oserror(tmp_path, monkeypatch):
+    """OSError reading the session requests file → fail-open returns (0, True)."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-oserr"
+    _write_ledger_row(tmp_path, sid)
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    req = sessions_dir / (sid + ".requests.jsonl")
+    req.write_text("{}\n", encoding="utf-8")
+    req.chmod(0o000)
+
+    try:
+        from distil.proof_ledger import build_ledger_text
+
+        text = build_ledger_text(sid, time.time() - 30)
+        assert text is not None  # fail-open: 0 digests, all handles "live"
+    finally:
+        req.chmod(0o644)
+
+
+# ---------------------------------------------------------------------------
+# _calib_note: calibrated with factor == 1.0 (line 97)
+# ---------------------------------------------------------------------------
+
+
+def test_calib_factor_unity_label(tmp_path, monkeypatch):
+    """n >= MIN_SAMPLES with factor=1.0 (estimated==actual) → 'calibrated (n=N, factor≈1.0)'."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-cal-unity"
+    _write_ledger_row(tmp_path, sid)
+    cal_path = tmp_path / "calibration.json"
+    # Record MIN_SAMPLES+5 samples where estimated == actual → factor = 1.0
+    for i in range(25):
+        _calib.record("claude-opus-4-8", 1000 + i, 1000 + i, path=cal_path)
+
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 30)
+    assert text is not None
+    assert "factor≈1.0" in text
+
+
+# ---------------------------------------------------------------------------
+# build_ledger_text: singular 'digest' label (line 156 area)
+# ---------------------------------------------------------------------------
+
+
+def test_session_single_digest_label(tmp_path, monkeypatch):
+    """n_digests=1 → singular 'digest', not 'digests'."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-single-digest"
+    _write_ledger_row(tmp_path, sid)
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    req = sessions_dir / (sid + ".requests.jsonl")
+    rec = {"ts": time.time(), "blocks": [{"h": "abc12345", "sig": "x", "tokens": 50}]}
+    req.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    restore_dir = tmp_path / "restore"
+    restore_dir.mkdir(parents=True, exist_ok=True)
+    (restore_dir / "abc12345").write_text("content", encoding="utf-8")
+
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 30)
+    assert text is not None
+    # Singular form when exactly 1 digest
+    assert "1 digest," in text or "1 digest " in text
+    assert "1 digests" not in text

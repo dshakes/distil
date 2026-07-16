@@ -357,3 +357,131 @@ def test_management_endpoints_gated_off_loopback() -> None:
 
     for srv in (s1, s2, upstream_server):
         srv.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# TenantStats.pct_saved() with zero baseline (line 100)
+# ---------------------------------------------------------------------------
+
+
+def test_tenant_stats_pct_saved_zero_baseline() -> None:
+    """pct_saved() returns 0.0 when tokens_baseline is 0 (avoids ZeroDivisionError)."""
+    from distil.gateway import TenantStats
+
+    s = TenantStats()
+    assert s.pct_saved() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# GatewayState.save() OSError (lines 231-232)
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_state_save_oserror(tmp_path: Any) -> None:
+    """A failed save is silently ignored — never raises (crash-safety guarantee)."""
+
+    price = pricing_get("claude-opus-4-8")
+    state = GatewayState(price)
+    state.record("tenant-a", 1000, 600)
+
+    # Make path.parent an existing FILE so mkdir() raises (FileExistsError → OSError)
+    blocker = tmp_path / "notadir"
+    blocker.write_text("I am a file, not a directory", encoding="utf-8")
+    bad_path = blocker / "state.json"
+    state.save(path=bad_path)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _count_tokens: nested list content (lines 346-356)
+# ---------------------------------------------------------------------------
+
+
+def test_count_tokens_nested_list_content() -> None:
+    """_count_tokens handles non-dict blocks (line 346) and nested list values (lines 352-356)."""
+    from distil.gateway import _count_tokens
+
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                "not-a-dict",  # non-dict block → continue (line 346)
+                {
+                    # block with 'content' key that is a list of sub-dicts
+                    "type": "tool_result",
+                    "content": [{"type": "text", "text": "line one\nline two"}],
+                },
+            ],
+        }
+    ]
+    count = _count_tokens(msgs)
+    assert count > 0
+
+
+# ---------------------------------------------------------------------------
+# Gateway: Gemini daily-token quota exceeded (lines 954-961)
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_gemini_daily_quota_exceeded() -> None:
+    """POST to a Gemini path that exceeds the per-day token cap → 429 quota error."""
+    upstream_server = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
+    threading.Thread(target=upstream_server.serve_forever, daemon=True).start()
+    upstream_url = f"http://127.0.0.1:{upstream_server.server_address[1]}"
+    price = pricing_get("claude-opus-4-8")
+    state = GatewayState(price)
+    # daily_tokens=1 so any request with > 1 token triggers the quota on first hit
+    handler = build_gateway_handler(upstream_url, state, price, default_daily_tokens=1)
+    gw = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=gw.serve_forever, daemon=True).start()
+    port = gw.server_address[1]
+
+    gemini_path = "/v1beta/models/gemini-1.5-pro:generateContent"
+    body = json.dumps(
+        {"contents": [{"role": "user", "parts": [{"text": "hello world this is a test prompt"}]}]}
+    ).encode()
+
+    statuses = []
+    for _ in range(2):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}{gemini_path}",
+            data=body,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                statuses.append(resp.status)
+        except urllib.error.HTTPError as exc:
+            statuses.append(exc.code)
+
+    gw.shutdown()
+    upstream_server.shutdown()
+    assert 429 in statuses, f"expected a 429 from daily quota gate, got {statuses}"
+
+
+# ---------------------------------------------------------------------------
+# GatewayState.load: cap oversized state file at _MAX_TENANTS (line 254)
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_state_load_caps_at_max_tenants(tmp_path: Any) -> None:
+    """load() enforces _MAX_TENANTS even when the persisted file has more entries."""
+    from distil.gateway import _MAX_TENANTS
+
+    price = pricing_get("claude-opus-4-8")
+    state = GatewayState(price)
+
+    # Write a state file with _MAX_TENANTS + 5 tenants
+    excess = 5
+    data = {
+        "tenants": {
+            f"t{i}": {"requests": 1, "tokens_baseline": 100, "tokens_compressed": 80}
+            for i in range(_MAX_TENANTS + excess)
+        }
+    }
+    state_file = tmp_path / "gateway_state.json"
+    state_file.write_text(json.dumps(data), encoding="utf-8")
+    state.load(path=state_file)
+
+    snap = state.snapshot()
+    assert len(snap["tenants"]) == _MAX_TENANTS

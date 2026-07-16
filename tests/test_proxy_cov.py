@@ -523,3 +523,57 @@ def test_streamrelay_connection_refused_502() -> None:
         assert b"upstream" in data.lower()
     finally:
         proxy.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _count_messages non-dict block (line 151) + nested list (156-161)
+# _tokens_saved (line 167)
+# ---------------------------------------------------------------------------
+
+
+def test_count_messages_non_dict_block_in_content() -> None:
+    """A non-dict element in a list-content message is skipped without error (line 151)."""
+    from distil.proxy import _count_messages
+
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                "string-not-a-dict",  # non-dict → skip (line 151)
+                {"type": "text", "text": "actual text here"},
+            ],
+        }
+    ]
+    count = _count_messages(msgs)
+    assert count > 0  # the dict block's text is counted
+
+
+def test_count_messages_nested_list_content() -> None:
+    """A block whose 'content' or 'text' key is a list of sub-dicts (lines 156-161)."""
+    from distil.proxy import _count_messages
+
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    # 'content' value is a list → nested list branch
+                    "content": [{"text": "nested tool output line one"}],
+                }
+            ],
+        }
+    ]
+    count = _count_messages(msgs)
+    assert count > 0
+
+
+def test_tokens_saved_returns_nonnegative() -> None:
+    """_tokens_saved(before, after) returns max(0, delta) (line 167)."""
+    from distil.proxy import _tokens_saved
+
+    before = [{"role": "user", "content": "word " * 50}]
+    after = [{"role": "user", "content": "word " * 20}]
+    assert _tokens_saved(before, after) > 0
+    # After > before → clamp to 0
+    assert _tokens_saved(after, before) == 0

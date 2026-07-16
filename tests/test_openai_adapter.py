@@ -753,3 +753,140 @@ class TestProxyDispatch:
                 proxy.shutdown()
         finally:
             raw_server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# _compress_openai_message: list content with non-dict parts (lines 105-106)
+# ---------------------------------------------------------------------------
+
+
+class TestChatCompletionsListContentNonDictPart:
+    """A non-dict element inside list content must be passed through unchanged."""
+
+    def test_user_list_content_non_dict_part_passthrough(self) -> None:
+        # An integer inside the content list — not a dict, so pass through
+        msgs: list[Any] = [
+            {"role": "user", "content": [42, {"type": "text", "text": "actual text"}]}
+        ]
+        compressed, store = compress_chat_completions(msgs)
+        # The integer part passed through; the text part may be compressed
+        assert compressed[0]["content"][0] == 42
+
+    def test_tool_list_content_non_dict_part_passthrough(self) -> None:
+        msgs: list[Any] = [
+            {
+                "role": "tool",
+                "tool_call_id": "c1",
+                "content": ["string-not-dict", {"type": "text", "text": _big_tool_output()}],
+            },
+            {"role": "user", "content": "next 1"},
+            {"role": "user", "content": "next 2"},
+        ]
+        compressed, _ = compress_chat_completions(msgs)
+        assert compressed[0]["content"][0] == "string-not-dict"
+
+
+# ---------------------------------------------------------------------------
+# _compress_openai_message: user role with list content (line 113)
+# ---------------------------------------------------------------------------
+
+
+class TestChatCompletionsUserListContent:
+    """role:'user' with list content — text parts get Tier-0 (not Tier-1)."""
+
+    def test_user_list_text_part_not_digested(self) -> None:
+        # User content uses _compress_text_content (Tier-0), never a digest handle
+        big_text = _big_tool_output("user-list")
+        msgs = [{"role": "user", "content": [{"type": "text", "text": big_text}]}]
+        compressed, store = compress_chat_completions(msgs)
+        # Tier-0 only — no Tier-1 digest handle
+        assert not _has_handle(compressed[0]["content"][0]["text"])
+        assert not store.handles
+
+
+# ---------------------------------------------------------------------------
+# _recent_chat_verbatim_indices with k=0 (line 134)
+# _recent_response_verbatim_indices with k=0 (line 208)
+# ---------------------------------------------------------------------------
+
+
+def test_recent_chat_verbatim_k_zero() -> None:
+    """k=0 means no recency carve-out — returns empty set immediately."""
+    from distil.adapters.openai import _recent_chat_verbatim_indices
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        {"role": "tool", "content": "result"},
+    ]
+    assert _recent_chat_verbatim_indices(msgs, 0) == set()
+
+
+def test_recent_response_verbatim_k_zero() -> None:
+    """k=0 means no recency carve-out for Responses items."""
+    from distil.adapters.openai import _recent_response_verbatim_indices
+
+    items = [
+        {"type": "function_call_output", "call_id": "c1", "output": "data"},
+    ]
+    assert _recent_response_verbatim_indices(items, 0) == set()
+
+
+# ---------------------------------------------------------------------------
+# _compress_response_item: message with non-list content (line 249)
+# ---------------------------------------------------------------------------
+
+
+def test_compress_response_message_non_list_content_passthrough() -> None:
+    """A 'message' item with a string (not list) content field passes through unchanged."""
+    item = {"type": "message", "role": "user", "content": "plain string content"}
+    items = [item]
+    compressed, store = compress_responses_input(items)
+    assert compressed[0] == item
+    assert not store.handles
+
+
+# ---------------------------------------------------------------------------
+# _compress_response_item: user message list with non-dict parts (lines 258-259)
+# ---------------------------------------------------------------------------
+
+
+def test_compress_response_user_message_non_dict_part_passthrough() -> None:
+    """Non-dict elements in a user message content list pass through unchanged."""
+    items: list[Any] = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [
+                42,  # not a dict
+                {"type": "input_text", "text": "valid text part"},
+            ],
+        }
+    ]
+    compressed, _ = compress_responses_input(items)
+    assert compressed[0]["content"][0] == 42  # non-dict passed through
+
+
+# ---------------------------------------------------------------------------
+# count_responses_tokens: edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestCountResponsesTokensEdgeCases:
+    def test_non_dict_item_skipped(self) -> None:
+        """Non-dict items in the list are skipped without error."""
+        items: list[Any] = ["not-a-dict", {"type": "function_call_output", "output": "hello"}]
+        count = count_responses_tokens(items)
+        # Only the dict item counted
+        assert count > 0
+
+    def test_message_non_list_content_not_counted(self) -> None:
+        """User message with string content (not list) → 0 tokens counted (schema mismatch)."""
+        items = [{"type": "message", "role": "user", "content": "plain string"}]
+        count = count_responses_tokens(items)
+        assert count == 0
+
+    def test_function_call_output_non_string_output_not_counted(self) -> None:
+        """function_call_output with non-string output → 0 tokens counted."""
+        items = [{"type": "function_call_output", "output": {"key": "value"}}]
+        count = count_responses_tokens(items)
+        assert count == 0
