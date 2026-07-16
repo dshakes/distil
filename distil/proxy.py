@@ -666,8 +666,8 @@ def build_handler(
                     extras["x-distil-output-shaping"] = shape_output
 
             elif "contents" in body and isinstance(body["contents"], list):
-                # Gemini generateContent shape. Reversible content compression only;
-                # expand-tool / output-shaping are messages-format-only today.
+                # Gemini generateContent shape. Content compression + output shaping;
+                # expand-tool injection is a seam (see distil/adapters/gemini.py docstring).
                 before_tok = count_tokens(body)
                 try:
                     body, store = compress_generate_request(
@@ -689,10 +689,18 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
+                    "x-distil-mode": _mode_label,
+                    "x-distil-compressible-tokens": str(before_tok),
                 }
                 if savings is not None:
                     # Gemini requests carry the model in the URL path, not the body.
                     _pending_savings = (before_tok, after_tok, _model_from_path(self.path))
+                # Output shaping: inject systemInstruction directive (PAYG only).
+                if shape_output != "off" and _lossy_ok:
+                    from .output import shape_request
+
+                    body = shape_request(body, level=shape_output, allow=True, shape="gemini")
+                    extras["x-distil-output-shaping"] = shape_output
 
             new_raw = json.dumps(body).encode()
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
@@ -1265,11 +1273,14 @@ def wrap_run(
     import sys
     import time
 
+    # Capture session start time before any setup so proof-ledger duration is accurate.
+    _start_ts = time.time()
+
     # One stable id for THIS wrap invocation, exported so BOTH the in-process
     # proxy (which tags every ledger record) and the wrapped agent — plus the
     # status line the agent spawns — see the same value and can attribute
     # savings to this exact session. Each terminal's wrap gets its own.
-    os.environ.setdefault("DISTIL_SESSION", f"s{int(time.time())}-{os.getpid()}")
+    os.environ.setdefault("DISTIL_SESSION", f"s{int(_start_ts)}-{os.getpid()}")
 
     # Statusline bypass detection: marker starts at "0" (wrapped, no request has
     # reached the proxy yet); the first proxied POST flips it to "1". One file
@@ -1533,6 +1544,13 @@ def wrap_run(
                     f"child {desc} at {time.strftime('%Y-%m-%d %H:%M:%S')} | {memory_evidence()}\n"
                 )
     except OSError:
+        pass
+    # Proof Ledger — printed on clean exit and Ctrl-C; fail-open (must not alter exit code).
+    try:
+        from .proof_ledger import print_proof_ledger as _print_proof_ledger
+
+        _print_proof_ledger(os.environ.get("DISTIL_SESSION", ""), _start_ts)
+    except Exception:  # noqa: BLE001 — ledger print must never affect exit code
         pass
     return code
 
