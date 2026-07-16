@@ -1,0 +1,89 @@
+{
+  "cases": 12,
+  "compressors": [
+    {
+      "name": "distil",
+      "grades": {
+        "reversibility": "PASS",
+        "reject-if-bigger": "PASS",
+        "recency-exact": "PASS",
+        "fail-open": "PASS",
+        "content-free": "PASS"
+      }
+    },
+    {
+      "name": "truncate@500",
+      "grades": {
+        "reversibility": "FAIL",
+        "reject-if-bigger": "PASS",
+        "recency-exact": "PASS",
+        "fail-open": "PASS",
+        "content-free": "n/a"
+      }
+    },
+    {
+      "name": "recency-w@500",
+      "grades": {
+        "reversibility": "FAIL",
+        "reject-if-bigger": "PASS",
+        "recency-exact": "PASS",
+        "fail-open": "PASS",
+        "content-free": "n/a"
+      }
+    },
+    {
+      "name": "keep-last-3",
+      "grades": {
+        "reversibility": "PASS",
+        "reject-if-bigger": "PASS",
+        "recency-exact": "PASS",
+        "fail-open": "PASS",
+        "content-free": "n/a"
+      }
+    },
+    {
+      "name": "recomp-extr",
+      "grades": {
+        "reversibility": "FAIL",
+        "reject-if-bigger": "PASS",
+        "recency-exact": "PASS",
+        "fail-open": "PASS",
+        "content-free": "n/a"
+      }
+    },
+    {
+      "name": "sel-context",
+      "grades": {
+        "reversibility": "FAIL",
+        "reject-if-bigger": "PASS",
+        "recency-exact": "FAIL",
+        "fail-open": "PASS",
+        "content-free": "n/a"
+      }
+    },
+    {
+      "name": "headroom",
+      "grades": {
+        "reversibility": "skip",
+        "reject-if-bigger": "skip",
+        "recency-exact": "skip",
+        "fail-open": "skip",
+        "content-free": "skip"
+      }
+    },
+    {
+      "name": "llmlingua-2",
+      "grades": {
+        "reversibility": "skip",
+        "reject-if-bigger": "skip",
+        "recency-exact": "skip",
+        "fail-open": "skip",
+        "content-free": "skip"
+      }
+    }
+  ],
+  "notes": [
+    "headroom: not installed \u2014 skipped (pip install headroom-ai)",
+    "llmlingua-2: not installed \u2014 skipped (pip install llmlingua)"
+  ]
+}

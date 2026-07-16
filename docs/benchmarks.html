@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Reproduce the Numbers — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Reproduce the Numbers — Distil"/>
+<meta property="og:description" content="Every headline number has a command. Three CI gates, real-model grading, the invariant scorecard, and the E7 negative result — all reproducible step by step."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/benchmarks.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Reproduce the Numbers — Distil"/>
+<meta name="twitter:description" content="Every headline number has a command. Three CI gates, real-model grading, the invariant scorecard, and the E7 negative result — all reproducible."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+</head>
+<body>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">&#9776;</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub &rarr;</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-section">Getting started</div>
+    <a href="getting-started.html">Install &amp; Quickstart</a>
+
+    <div class="sidebar-section">Learn</div>
+    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+    <a href="concepts.html">Concepts</a>
+    <a href="techniques.html">Techniques</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="research.html">Research &amp; Frontier</a>
+
+    <a href="benchmark.html">Benchmark</a>
+    <a href="compare.html">Compare</a>
+
+    <div class="sidebar-section">Reference</div>
+    <a href="cli.html">CLI Reference</a>
+    <a href="adapters.html">Adapters</a>
+    <a href="corpus.html">Corpus</a>
+    <a href="output.html">Output &amp; I/O</a>
+
+    <div class="sidebar-section">More</div>
+    <a href="faq.html">FAQ</a>
+    <a href="integrations.html">Integrations</a>
+    <a href="deploy-security.html">Deploy &amp; Security</a>
+    <a href="index.html">&larr; Landing page</a>
+  </aside>
+
+  <main class="content">
+
+    <h1>Reproduce the <span class="g">Numbers</span></h1>
+    <p class="lead">Every headline number has a command. This page shows exactly how each one is produced — what is synthetic, what is live, and what we ran but chose not to ship as the default (E7). None of it requires you to trust our word; it requires you to run the script.</p>
+
+    <div class="callout">
+      <strong>Short version.</strong> Three gates run in CI on every push: <code>distil bench</code> (offline decision-equivalence), <code>distil verify</code> (byte-fidelity), and <code>distil validate</code> (adversarial real-path). Real-model grading uses <code>benchmarks/prove.py</code>. The head-to-head comparison is <code>benchmarks/derc_live_compare.py</code>. A cross-compressor invariant scorecard is <code>python benchmarks/scorecard.py</code>. Full methodology in <a href="EVALUATION.md">docs/EVALUATION.md</a>.
+    </div>
+
+    <hr/>
+
+    <h2 id="ci-gates">The three CI gates</h2>
+    <p>Every push to <code>main</code> must pass all three gates before merging. They run in ~2 min combined, no API key.</p>
+
+    <h3>Gate 1 &mdash; <code>distil bench</code> (offline decision-equivalence)</h3>
+    <p>Runs the bundled 7-domain trajectory corpus through the decision-equivalence gate using the deterministic (structural) runner. The gate certifies that compression does not change the agent&rsquo;s next action on any trajectory. This is the primary correctness gate.</p>
+    <pre class="term"><span class="d"># reproduce exactly — no key, no internet, ~5 s</span>
+distil bench
+
+<span class="d"># or against the full 64-trajectory varied corpus (requires a clone)</span>
+python benchmarks/gen_corpus.py      <span class="d"># writes benchmarks/corpus_xl/ (seeded, deterministic)</span>
+distil bench --corpus benchmarks/corpus_xl</pre>
+
+    <p>The deterministic runner is a structural stand-in: it checks whether the &ldquo;decision-bearing&rdquo; token sequence survives (not a live model call). This makes it reproducible by anyone in ~5 seconds. It is <strong>not</strong> a substitute for real-model grading — see Gate 3 and <code>prove.py</code> below for that.</p>
+
+    <h3>Gate 2 &mdash; <code>distil verify</code> (byte-fidelity)</h3>
+    <p>Checks that every Tier-0 and Tier-1 operation in the corpus is byte-reversible: compression followed by decompression returns the exact input bytes, and frozen history never mutates between turns. A failure here means a lossless claim is false.</p>
+    <pre class="term"><span class="d"># verify byte-fidelity across the bundled corpus</span>
+distil verify
+
+<span class="d"># against a custom corpus</span>
+distil verify --corpus benchmarks/corpus_xl</pre>
+
+    <h3>Gate 3 &mdash; <code>distil validate</code> (adversarial real-path)</h3>
+    <p>Drives the actual compression + proxy path against 12 hostile inputs (huge log blocks, unicode surrogates, deeply nested JSON, handle-injection strings, secret-looking content, malformed/None tool results, empty blocks) and asserts five load-bearing invariants on each:</p>
+
+    <table>
+      <thead><tr><th>Invariant</th><th>What it checks</th></tr></thead>
+      <tbody>
+        <tr><td><strong>reversibility</strong></td><td>Every digest handle recovers its exact original bytes from the local RestoreStore.</td></tr>
+        <tr><td><strong>reject-if-bigger</strong></td><td>A compressed block is never larger than its original (plus a 64-byte slack for stub metadata).</td></tr>
+        <tr><td><strong>recency-exact</strong></td><td>The most-recent tool result — the agent&rsquo;s freshest output — is byte-identical after compression.</td></tr>
+        <tr><td><strong>fail-open</strong></td><td>No input, however hostile, makes the compressor raise an exception or the proxy return 5xx.</td></tr>
+        <tr><td><strong>content-free</strong></td><td>After a run, no prompt/response/tool text appears in any on-disk telemetry file (only hashes, sizes, counts).</td></tr>
+      </tbody>
+    </table>
+
+    <p>12 cases &times; 5 invariants = 60 checks. All 60 must pass.</p>
+    <pre class="term"><span class="d"># run the adversarial gate</span>
+distil validate</pre>
+    <p>Source: <code>distil/harness.py</code>. The gate is separate from <code>distil verify</code> (corpus byte-fidelity) and <code>distil bench</code> (non-inferiority): it exercises the code paths a corpus never hits &mdash; hostile inputs, streaming, marker injection.</p>
+
+    <hr/>
+
+    <h2 id="prove">Real-model grading &mdash; <code>prove.py</code></h2>
+    <p><code>benchmarks/prove.py</code> removes the circularity of the deterministic runner by grading real agent traces with a real model. It runs four experiments (E1&ndash;E4) against actual trajectories:</p>
+
+    <table>
+      <thead><tr><th>Experiment</th><th>What it measures</th></tr></thead>
+      <tbody>
+        <tr><td><strong>E1</strong> Frontier</td><td>Token savings vs. decision-change rate per compression level.</td></tr>
+        <tr><td><strong>E2</strong> Certification coverage</td><td>Certify at &alpha; on a calibration split, then measure the realized decision-change rate on a disjoint held-out split over many random splits. The certificate is sound iff empirical P(realized &le; &alpha;) &ge; 1&minus;&delta;.</td></tr>
+        <tr><td><strong>E3</strong> Distribution shift</td><td>Leave-one-domain-out: calibrate on all domains but one, test on the held-out domain (the exchangeability stress test).</td></tr>
+        <tr><td><strong>E4</strong> Downstream task success</td><td>Converts per-turn equivalence into actual outcome: a trajectory keeps its result iff every decision is unchanged. Requires outcome labels (τ-bench reward / SWE-bench resolved).</td></tr>
+      </tbody>
+    </table>
+
+    <p>Four grading backends are supported:</p>
+
+    <table>
+      <thead><tr><th><code>--runner</code></th><th>What it uses</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td><code>smoke</code></td><td>Offline heuristic &mdash; <strong>non-evidential</strong></td><td>Plumbing / CI, no key. Not evidence about real agents.</td></tr>
+        <tr><td><code>claude-cli</code></td><td>The <code>claude&nbsp;-p</code> CLI &mdash; your Claude Code subscription</td><td>No API key needed if you already use Claude Code.</td></tr>
+        <tr><td><code>openai</code></td><td>Any OpenAI-compatible endpoint (vLLM / Ollama / LM Studio)</td><td>Free at scale with a local open model.</td></tr>
+        <tr><td><code>anthropic</code></td><td>The Anthropic API (<code>ANTHROPIC_API_KEY</code>)</td><td>Billing-grade reference for published numbers.</td></tr>
+      </tbody>
+    </table>
+
+    <pre class="term"><span class="d"># offline plumbing check only — no key, no download</span>
+python benchmarks/fixtures/make_fixtures.py
+python benchmarks/prove.py --dataset fixtures --runner smoke --alpha 0.2
+
+<span class="d"># real-model grading via your Claude Code subscription (no API key)</span>
+python benchmarks/prove.py --dataset tau --path runs.json \
+    --runner claude-cli --model claude-haiku-4-5-20251001 --samples 3
+
+<span class="d"># local open model via vLLM (zero per-call cost)</span>
+<span class="d"># vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000</span>
+python benchmarks/prove.py --dataset swe --path swe_trajs/ \
+    --runner openai --base-url http://localhost:8000/v1 \
+    --model meta-llama/Llama-3.1-8B-Instruct</pre>
+
+    <p>The smoke runner is a non-evidential stand-in for plumbing checks. It is not evidence about real agents. See <code>benchmarks/PROVE.md</code> for the full runner table and what each backend actually proves.</p>
+
+    <hr/>
+
+    <h2 id="corpus">The head-to-head corpus</h2>
+    <p>The head-to-head runs on <strong>64 trajectories across 8 families</strong>, generated deterministically with a fixed seed so the numbers reproduce exactly. The corpus spans both regimes deliberately so no tool gets a home-turf advantage:</p>
+
+    <ul>
+      <li><strong>Structured / repetitive</strong>: JSON record arrays, SQL rows, metrics logs &mdash; where structural compaction pays off.</li>
+      <li><strong>Diagnostic / prose</strong>: Kubernetes incidents, stack traces, RAG chunks, support transcripts &mdash; where conservative tools protect content and lossy methods mangle it.</li>
+    </ul>
+
+    <p>Decisions are buried inside large tool outputs, as in real agents, so naive head/tail truncation drops them. A large reference document is re-read every turn (the recurring tool output prompt caching can&rsquo;t reach), which distil&rsquo;s cross-turn dedup collapses.</p>
+
+    <pre class="term"><span class="d"># generate the corpus (idempotent, seeded at 42)</span>
+python benchmarks/gen_corpus.py      <span class="d"># writes benchmarks/corpus_xl/</span>
+
+<span class="d"># run the head-to-head — distil + structural baselines, deterministic runner</span>
+distil bench --corpus benchmarks/corpus_xl
+
+<span class="d"># add a real external compressor (list[str] -&gt; list[str] over block texts)</span>
+PYTHONPATH=. distil bench --corpus benchmarks/corpus_xl \
+  --external benchmarks.headroom_adapter:compress:Headroom
+
+<span class="d"># live model grading</span>
+export ANTHROPIC_API_KEY=sk-ant-...
+distil bench --corpus benchmarks/corpus_xl --runner anthropic --tokenizer anthropic</pre>
+
+    <p>The full live head-to-head (distil vs. llmlingua 0.2.2 vs. headroom-ai 0.27.0, graded by <code>claude-opus-4-8</code> majority-of-3) ran on 2026-07-05 and its raw output is committed at <code>docs/paper/results/derc_live_compare.2026-07-05.log</code>. Reproduce it:</p>
+    <pre class="term">pip install headroom-ai llmlingua
+python benchmarks/derc_live_compare.py</pre>
+
+    <hr/>
+
+    <h2 id="scorecard">The invariant scorecard</h2>
+    <p>The same five invariants distil enforces on itself (<code>distil validate</code>) can be run against any compressor adapter. <code>benchmarks/scorecard.py</code> does this and produces a side-by-side table. It runs offline with no extra installs; headroom and llmlingua columns appear automatically if the packages are installed.</p>
+
+    <pre class="term">python benchmarks/scorecard.py      <span class="d"># prints table, writes benchmarks/scorecard.json</span></pre>
+
+    <p>What the current run produces (distil + structural baselines; external adapters skipped when not installed):</p>
+
+    <pre class="term">                    distil  truncate@500  recency-w@500  keep-last-3  recomp-extr  sel-context
+  ----------------  ------  ------------  -------------  -----------  -----------  -----------
+  reversibility     PASS    FAIL          FAIL           PASS         FAIL         FAIL
+  reject-if-bigger  PASS    PASS          PASS           PASS         PASS         PASS
+  recency-exact     PASS    PASS          PASS           PASS         PASS         FAIL
+  fail-open         PASS    PASS          PASS           PASS         PASS         PASS
+  content-free      PASS    n/a           n/a            n/a          n/a          n/a</pre>
+
+    <p>Fairness semantics used per cell:</p>
+    <ul>
+      <li><strong>reversibility</strong> &mdash; Behavioral: does the compressor provide a recovery path? Distil stores originals in a local RestoreStore keyed by 8-hex handles embedded in the output; the harness confirms every handle recovers its exact bytes. Structural baselines are observably irrecoverable (truncated bytes are gone) &rarr; FAIL. <code>keep-last-3-turns</code> targets HISTORY blocks, not TOOL_OUTPUT; it is a no-op on the tool-result content used here &rarr; trivially PASS (no bytes changed).</li>
+      <li><strong>content-free</strong> &mdash; Architectural: the invariant tests whether on-disk telemetry holds zero prompt/tool text. Structural baselines and library-only adapters have no on-disk state at all; the invariant is inapplicable, not failing &rarr; <code>n/a</code>. This follows the rule: grade observable behavior only; an invariant a compressor never claimed (because it has no telemetry to check) is not scored as FAIL.</li>
+      <li><strong>sel-context recency-exact FAIL</strong> &mdash; Honest finding: the selective-context token-level pruner drops the recency sentinel when scoring salient tokens. This is the exact failure mode distil&rsquo;s recency carve-out exists to prevent.</li>
+    </ul>
+
+    <hr/>
+
+    <h2 id="e7">The negative result: E7</h2>
+    <p>E7 is an internal SWE-bench Verified end-to-end experiment (<code>benchmarks/swe_bench_e2e/</code>) that ran the full agent loop &mdash; not a single-step proxy &mdash; under distil&rsquo;s aggressive lossy compression tier. The result: <strong>52% &rarr; 16% task resolution</strong>. The reversible tier held (56% vs. 52% full-context baseline). Per-step decision-equivalence had passed; end-to-end task success still cratered under the aggressive tier.</p>
+
+    <p>We publish E7 as evidence, not confession. It is the concrete reason the shipped default is the conservative/reversible tier rather than the tier that scores best on a raw compression-ratio leaderboard. The trajectory-risk certificate and the fail-safe gate exist because of E7.</p>
+
+    <pre class="term"><span class="d"># E7 harness (requires SWE-bench Verified setup)</span>
+bash benchmarks/swe_bench_e2e/run_all_agents.sh
+bash benchmarks/swe_bench_e2e/run_all_scores.sh
+python benchmarks/swe_bench_e2e/aggregate.py</pre>
+
+    <p>Full methodology, the A/A nondeterminism baseline, trajectory-risk certificates, and what distil&rsquo;s numbers do and don&rsquo;t prove: <a href="EVALUATION.md"><strong>docs/EVALUATION.md</strong></a>.</p>
+
+    <hr/>
+
+    <h2 id="honest-framing">Synthetic vs. live: what each number actually is</h2>
+
+    <table>
+      <thead><tr><th>Number</th><th>How produced</th><th>What it proves</th><th>What it doesn&rsquo;t</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>83.2% savings / 0% decision-change</strong> (live head-to-head)</td>
+          <td>Real packages, real model (<code>claude-opus-4-8</code> majority-of-3), 120-turn corpus</td>
+          <td>On this corpus, distil preserves agent decisions at that compression level</td>
+          <td>End-to-end task success on a different workload; E7 is the cautionary data point</td>
+        </tr>
+        <tr>
+          <td><strong>80.5% certified savings</strong> (offline standings)</td>
+          <td>Deterministic structural runner, 64-trajectory varied corpus</td>
+          <td>Decision-bearing token sequences survive at this compression level, reproducible by anyone</td>
+          <td>Live model agreement; uses a proxy for the model&rsquo;s decision, not the real model</td>
+        </tr>
+        <tr>
+          <td><strong>60/60 validate checks</strong></td>
+          <td>Real compression path, 12 adversarial inputs, 5 invariants</td>
+          <td>The five guarantee properties hold on hostile inputs distil&rsquo;s unit suite never exercises</td>
+          <td>Compression ratio; orthogonal to the savings numbers</td>
+        </tr>
+        <tr>
+          <td><strong>E8: 36.8% / 42.0% pass@1</strong> (SWE-bench Verified)</td>
+          <td>500-instance long-horizon ReAct agent, 6 compression conditions, official SWE-bench harness</td>
+          <td>End-to-end task success under real agent conditions; non-inferiority to full context certified</td>
+          <td>Extrapolation to other workloads; always re-certify on your own traffic</td>
+        </tr>
+        <tr>
+          <td><strong>E7: 52% &rarr; 16%</strong> (aggressive tier)</td>
+          <td>Same SWE-bench Verified setup, aggressive lossy tier</td>
+          <td>Aggressive compression with a passing per-step certificate still cratered end-to-end</td>
+          <td>Anything about the reversible / gated tier: that one held at 56%</td>
+        </tr>
+      </tbody>
+    </table>
+
+  </main>
+</div>
+
+<script src="site.js"></script>
+</body>
+</html>
