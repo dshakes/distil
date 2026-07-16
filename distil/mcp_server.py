@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import atrest
 from .compress.tier1 import _handle, digest
 from .tokenizer import DEFAULT as _tokenizer
 
@@ -80,8 +81,12 @@ def _store_add(handle: str, text: str) -> None:
 def _load_store() -> dict[str, str]:
     p = _store_path()
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError):
+        raw = p.read_bytes()
+        decrypted = atrest.decrypt_bytes(raw)
+        if decrypted is None:
+            return {}  # auth failure — treat as missing (fail-open)
+        return json.loads(decrypted.decode())
+    except (OSError, json.JSONDecodeError, ValueError, UnicodeDecodeError):
         return {}
 
 
@@ -98,8 +103,9 @@ def _save_store(store: dict[str, str]) -> None:
         while len(store) > _MAX_STORE_ENTRIES:
             store.pop(next(iter(store)))
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(store), encoding="utf-8")
-        p.chmod(0o600)  # plaintext content at rest — owner-only
+        raw = json.dumps(store).encode()
+        p.write_bytes(atrest.encrypt_bytes(raw))
+        p.chmod(0o600)  # encrypted content at rest — owner-only
     except OSError:
         pass  # best-effort; never crash a tool call
 
@@ -118,6 +124,26 @@ def _restore_dir() -> Path:
     return _store_path().parent / "restore"
 
 
+def _read_restore_text(p: Path) -> str | None:
+    """Read a restore file (encrypted or legacy plaintext).
+
+    Returns the plaintext string, or None on I/O error or authentication
+    failure. Handles both the new DSTL1 format and pre-encryption legacy files
+    (which atrest.decrypt_bytes passes through unchanged).
+    """
+    try:
+        raw = p.read_bytes()
+    except OSError:
+        return None
+    decrypted = atrest.decrypt_bytes(raw)
+    if decrypted is None:
+        return None  # authentication failure — treat as missing
+    try:
+        return decrypted.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def record_restore(handle: str, original: str) -> None:
     """Persist a digest original to disk so handles survive proxy restarts/upgrades
     and can be expanded from other processes (e.g. this MCP server)."""
@@ -130,16 +156,16 @@ def record_restore(handle: str, original: str) -> None:
         # Collision guard, mirroring RestoreStore._record's in-memory check: if this
         # handle already maps to *different* bytes on disk, a 32-bit handle collided
         # across sessions. Do NOT clobber the earlier block — its stub would then expand
-        # to the wrong content. Keep the first writer; skip the second (idempotent when
-        # the bytes match, which also refreshes mtime for the TTL sweep).
+        # to the wrong content. Keep the first writer; skip the second.
+        # When existing content matches, fall through and rewrite — this refreshes mtime
+        # for the TTL sweep AND upgrades legacy plaintext files to encrypted format.
         if p.exists():
-            try:
-                if p.read_text(encoding="utf-8") != original:
-                    return
-            except OSError:
-                pass  # unreadable → fall through and rewrite
-        p.write_text(original, encoding="utf-8")
-        p.chmod(0o600)  # plaintext content at rest — owner-only
+            existing = _read_restore_text(p)
+            if existing is not None and existing != original:
+                return  # genuine collision — keep first writer
+            # existing is None (auth failure/corrupt) or same content → rewrite
+        p.write_bytes(atrest.encrypt_bytes(original.encode("utf-8")))
+        p.chmod(0o600)  # encrypted content at rest — owner-only
         stale = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[:-_RESTORE_CAP]
         if _RESTORE_TTL_DAYS > 0:
             cutoff = time.time() - _RESTORE_TTL_DAYS * 86400
@@ -155,10 +181,7 @@ def load_restore(handle: str) -> str | None:
     """Return the persisted original for *handle*, or None."""
     if not _HANDLE_RE.fullmatch(handle):  # untrusted MCP arg — no path traversal
         return None
-    try:
-        return (_restore_dir() / handle).read_text(encoding="utf-8")
-    except OSError:
-        return None
+    return _read_restore_text(_restore_dir() / handle)
 
 
 # ---------------------------------------------------------------------------
