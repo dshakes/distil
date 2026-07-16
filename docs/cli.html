@@ -400,19 +400,27 @@ response = litellm.completion(api_base=<span class="g">"http://localhost:8788"</
 
     <!-- wrap -->
     <h2 id="wrap">distil wrap</h2>
-    <p>The zero-config way to route an existing agent or CLI through Distil. <code>distil wrap</code> starts the proxy on an ephemeral local port, injects <code>ANTHROPIC_BASE_URL</code> into the child process's environment, runs your command to completion, then tears the proxy down — flushing genuine savings to your ledger. No code change, no manual env wiring, no leftover server.</p>
+    <p>The zero-config way to route an existing agent or CLI through Distil. <code>distil wrap</code> starts the proxy on an ephemeral local port, injects the right env var into the child process's environment, runs your command to completion, then tears the proxy down — flushing genuine savings to your ledger and printing the <strong>Proof Ledger</strong> on exit. No code change, no manual env wiring, no leftover server.</p>
 
-    <pre class="term"><span class="d"># Run any base-url-honoring agent with compression transparently applied</span>
+    <p><strong>Per-agent presets</strong> — when the command name is <code>claude</code>, <code>codex</code>, <code>gemini</code>, or <code>aider</code>, distil auto-selects the env var and upstream endpoint for that agent. A <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> line confirms the selection at startup. Explicit <code>--env-var</code> and <code>--upstream</code> always override the preset. <code>cursor-agent</code> is deliberately omitted — its env var is undocumented upstream; use <code>--env-var</code> to configure it manually.</p>
+
+    <pre class="term"><span class="d"># claude → ANTHROPIC_BASE_URL auto-set</span>
 $ distil <span class="c">wrap</span> -- claude -p <span class="g">"summarize this repo"</span>
 distil wrap → proxy http://127.0.0.1:54xxx (upstream https://api.anthropic.com)
+  preset: Claude Code detected → ANTHROPIC_BASE_URL
   → ANTHROPIC_BASE_URL=http://127.0.0.1:54xxx
-  → recording genuine savings → distil leaderboard
-<span class="d"># ... your command runs, every request compressed ...</span>
 
-<span class="d"># Lossless-only policy mode (Tier-0 verbatim only, no tool injection, no Tier-1 stubs — for subscription / OAuth)</span>
-$ distil <span class="c">wrap</span> --lossless-only -- my-agent --task build</pre>
+<span class="d"># codex → OPENAI_BASE_URL auto-set; gemini → GOOGLE_GEMINI_BASE_URL</span>
+$ distil <span class="c">wrap</span> --expand -- codex
+$ distil <span class="c">wrap</span> --expand -- gemini
 
-    <p>Everything after <code>--</code> is the command and its arguments, run verbatim. The child's exit code is propagated. Use <code>--env-var</code> to point a different variable at the proxy (e.g. an OpenAI-compatible tool), and the same <code>--upstream</code>, <code>--lossless-only</code>, <code>--verbatim</code>, <code>--shape-output</code>, <code>--pricing</code> and <code>--no-record</code> flags as <a href="#proxy">distil proxy</a>.</p>
+<span class="d"># Lossless-only policy mode (subscription / OAuth)</span>
+$ distil <span class="c">wrap</span> --lossless-only -- my-agent --task build
+
+<span class="d"># Any other agent — specify the env var explicitly</span>
+$ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://api.example.com -- my-agent</pre>
+
+    <p>Everything after <code>--</code> is the command and its arguments, run verbatim. The child's exit code is propagated. Use <code>--env-var</code> to point a different variable at the proxy (e.g. an OpenAI-compatible tool), and the same <code>--upstream</code>, <code>--lossless-only</code>, <code>--verbatim</code>, <code>--shape-output</code>, <code>--pricing</code> and <code>--no-record</code> flags as <a href="#proxy">distil proxy</a>. On clean exit (and Ctrl-C), the <a href="#proof-ledger">Proof Ledger</a> is printed to stderr.</p>
 
     <h3>Flags</h3>
     <table>
@@ -431,6 +439,20 @@ $ distil <span class="c">wrap</span> --lossless-only -- my-agent --task build</p
         <tr><td><code>--session-delta</code></td><td>off</td><td>Enable cross-turn cache-delta encoding</td></tr>
       </tbody>
     </table>
+
+    <!-- proof-ledger -->
+    <h2 id="proof-ledger">Proof Ledger (automatic on wrap exit)</h2>
+    <p>The Proof Ledger is printed automatically to <code>stderr</code> at the end of every <code>distil wrap</code> session (clean exit or Ctrl-C). It is silent when no requests were proxied. Opt out with <code>DISTIL_NO_LEDGER=1</code>.</p>
+
+    <pre class="term">  distil proof ledger — session 47m
+    tokens   84,213 → 62,440   (25.9% smaller)
+    cost     $0.42 → $0.31        calibrated to your billed usage (n=58, ±2.1%)
+    shadow   0 decision changes    (n=12 A/B, 8 A/A — below verdict threshold, gathering)
+    restore  100% recoverable    (3 digests, all handles live, TTL 14d)</pre>
+
+    <p>All numbers come from the same on-disk sources as the leaderboard — no new estimators. The <strong>shadow line</strong> respects the verdict-threshold gates (<code>VERDICT_MIN_AB=50</code>, <code>VERDICT_MIN_AA=30</code>): below threshold it shows sample counts with a "gathering" label rather than claiming equivalence over thin evidence. The <strong>cost line</strong> shows "calibrated to your billed usage (n=N, ±X%)" once enough proxy traffic has accumulated to correct the heuristic; "estimated · calibrating (N/20 samples)" until then. The <strong>restore line</strong> checks that every handle written this session is still live (not expired past <code>DISTIL_RESTORE_TTL_DAYS</code>).</p>
+
+    <hr/>
 
     <!-- output-savings -->
     <h2 id="output-savings">distil output-savings</h2>
@@ -553,6 +575,41 @@ distil gateway listening on http://127.0.0.1:8789
 }</pre>
 
     <p>See <a href="deploy-security.html#gateway">Deploy &amp; Security → Managed gateway</a> for the full deployment guide including multi-tenant setup and security model.</p>
+
+    <h3 id="gateway-keys">distil gateway keys</h3>
+    <p>Issue, list, and revoke <strong>dsk- gateway keys</strong> for inbound auth. Keys are stored hashed (SHA-256) — the gateway never keeps the raw secret. Auth fails closed: a bad or missing key returns 401. The upstream (Anthropic / OpenAI key) is never exposed to callers.</p>
+
+    <p>Key auth is active when at least one key has been issued, or when the gateway starts with <code>--require-keys</code>. Without keys and without <code>--require-keys</code>, the default anonymous hash-based tenant IDs still work.</p>
+
+    <pre class="term"><span class="d"># Issue a key for a tenant (prints the dsk- secret once — store it)</span>
+$ distil gateway keys issue --tenant team-search
+Issued key for team-search:
+  dsk-a3f9c2e18b4d7a...  (shown once — copy it now)
+
+<span class="d"># List all issued keys (shows tenant, key prefix, created, last-used)</span>
+$ distil gateway keys list
+
+<span class="d"># Revoke a key by its dsk- prefix</span>
+$ distil gateway keys revoke dsk-a3f9c2e1
+
+<span class="d"># Start gateway requiring a key on every request</span>
+$ distil gateway --require-keys --upstream https://api.anthropic.com
+
+<span class="d"># Per-tenant rate and quota limits (gateway-wide defaults)</span>
+$ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
+    --upstream https://api.anthropic.com</pre>
+
+    <h4>gateway keys flags</h4>
+    <table>
+      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>gateway --require-keys</code></td><td>off</td><td>Force key auth even before any keys are issued.</td></tr>
+        <tr><td><code>gateway --tenant-rpm</code></td><td>0 (unlimited)</td><td>Gateway-wide requests-per-minute cap per tenant.</td></tr>
+        <tr><td><code>gateway --tenant-daily-tokens</code></td><td>0 (unlimited)</td><td>Gateway-wide daily input-token cap per tenant.</td></tr>
+        <tr><td><code>keys issue --tenant &lt;name&gt;</code></td><td>required</td><td>Tenant label to associate with the new key.</td></tr>
+        <tr><td><code>keys revoke &lt;prefix&gt;</code></td><td>required</td><td>First hex characters of the key to revoke (as shown by <code>keys list</code>).</td></tr>
+      </tbody>
+    </table>
 
     <hr/>
 

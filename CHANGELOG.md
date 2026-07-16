@@ -3,6 +3,30 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.20.0] — proof surfaces: live gate, OpenAI/Gemini parity, gateway keys, encrypt-at-rest
+
+### Certification & honesty
+- **Nightly live gate** (`.github/workflows/live-cert.yml`) — re-certifies every corpus trajectory against a real model (`distil certify --runner anthropic --model claude-haiku-4-5-20251001`) on a nightly cron, budget-capped with `--max-live-calls 60` per trajectory so an unattended run can never spend silently. Per-commit gates remain the synthetic offline oracle; both layers are now labeled precisely.
+
+### Adapters
+- **First-class OpenAI adapter** (`distil/adapters/openai.py`) — Chat Completions and Responses API shapes, recency carve-out, and the same Tier-0/1 machinery as the Anthropic adapter. Documented seams: expand-tool injection and output shaping for the Responses shape.
+- **Gemini parity** (`distil/adapters/gemini.py`) — recency carve-out for recent `functionResponse` turns, query-aware intent extracted from `functionCall` args, and output shaping via `shape="gemini"`. Documented seams: expand-tool injection and `cachedContent`.
+
+### UX
+- **Per-agent wrap presets** (`distil/onboard.py:AGENT_PRESETS`) — `distil wrap -- claude|codex|gemini|aider` auto-selects the correct env var (`ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GOOGLE_GEMINI_BASE_URL`) and upstream; cursor-agent omitted (env var undocumented). Explicit `--env-var`/`--upstream` always win. Prints `preset: <label> detected → <VAR>`.
+- **Proof Ledger** (`distil/proof_ledger.py`) — end-of-session printout on `distil wrap` exit: calibrated tokens/cost, shadow verdict with honest suppression labels, restorability. Silent on zero requests. Opt-out: `DISTIL_NO_LEDGER=1`.
+- **Zero-traffic tripwire** — `distil wrap` warns when a known-agent session ends with 0 proxied requests (upstream env-var contract broken, likely agent update). Tests pinned in `tests/test_upstream_contracts.py`.
+
+### Security
+- **Encrypt digest originals at rest** (`distil/atrest.py`) — HMAC-SHA256-CTR + encrypt-then-MAC, `DSTL1` magic header, `restore.key` at `chmod 0600`. Protects against backup/sync leakage and cross-user reads on shared filesystems. Does not protect against same-UID attackers (documented in `THREAT_MODEL.md`). Legacy plaintext files still load transparently. Opt-out: `DISTIL_NO_ENCRYPT_AT_REST=1`.
+
+### Gateway
+- **Gateway keys** (`distil/gateway_keys.py`, `distil gateway keys issue|list|revoke`) — issued `dsk-` keys hashed at rest (SHA-256); auth fails closed; upstream never sees the distil key. `--require-keys` forces key auth even before any keys are issued. `--tenant-rpm` and `--tenant-daily-tokens` enforce per-tenant rate and quota limits. Default path unchanged (anonymous hash-based tenant IDs still work without keys).
+
+### Benchmarks
+- **OTel session correlation** (`distil/otel.py`) — `distil.session.id` span attribute on every proxied request, enabling per-session trace correlation in any OTel backend.
+- **Referee scorecard** (`benchmarks/scorecard.py`) — grades any compressor on distil's five invariants; used by the head-to-head harness and linkable from `docs/benchmarks.html`.
+
 ## [1.19.0] — `distil validate`: adversarial real-path gate
 
 ### Added

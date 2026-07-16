@@ -305,9 +305,12 @@ distil proxy listening on http://127.0.0.1:8788
     <h3>Shadow-mode decision-equivalence</h3>
     <p>Shadow-mode live decision-equivalence works for Gemini. It reads the chosen action from <code>candidates[0].content.parts[].functionCall</code> in the response.</p>
 
-    <h3>Not yet wired for Gemini</h3>
-    <div class="callout warn">
-      <b>The following features are messages-format-only today and are not yet wired for Gemini:</b> expand-tool injection (<code>--expand</code>), output verbosity shaping (<code>--shape-output</code>), and Gemini context caching. These gaps are documented honestly here rather than papered over.
+    <h3>Output verbosity shaping</h3>
+    <p>Pass <code>--shape-output</code> to the proxy and it will inject a conciseness directive into <code>systemInstruction</code> using the Gemini-specific shaping path (<code>shape="gemini"</code> internally). The same <code>--lossless-only</code> guard that blocks shaping on subscription sessions applies here too.</p>
+
+    <h3>Documented seams (not yet wired)</h3>
+    <div class="callout">
+      <b>Expand-tool injection</b> (<code>--expand</code>) is not yet wired for the Gemini tool shape — the scaffolding exists but the <code>distil_expand</code> tool is not injected into Gemini requests. <b>Gemini context caching</b> (<code>cachedContent</code>) is also not yet wired. These gaps are documented honestly here rather than papered over.
     </div>
 
     <h3>Verbatim and lossless-only modes</h3>

@@ -104,6 +104,12 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <hr/>
 
+    <h2>"Is the per-commit CI gate the same as the live benchmark?"</h2>
+
+    <p>No — they are complementary, and the README labels them as such. The <strong>per-commit</strong> gates (<code>distil bench</code> / <code>distil verify</code> / <code>distil validate</code>) grade decision-equivalence against an offline deterministic oracle over the committed corpus — fast, free, runs on every push, but synthetic. A <strong>nightly</strong> job (<a href="https://github.com/dshakes/distil/blob/main/.github/workflows/live-cert.yml" target="_blank" rel="noopener"><code>.github/workflows/live-cert.yml</code></a>) re-certifies the same trajectories against a <em>real</em> model (<code>distil certify --runner anthropic --model claude-haiku-4-5-20251001</code>), with a hard <code>--max-live-calls 60</code> ceiling per trajectory so an unattended run can never spend silently (the job fails at the ceiling rather than continuing to bill). The empirical head-to-head results in the README were graded by real models; the per-commit badge alone does not claim that.</p>
+
+    <hr/>
+
     <h2>"Is the compression lossless?"</h2>
 
     <p>Depends on the tier — the answer is precise:</p>
@@ -167,7 +173,7 @@ distil bench   --tokenizer anthropic</pre>
         <tr><td>Adversarial real-path invariants (hostile inputs)</td><td><span class="badge-pass">Done</span> — <code>distil validate</code></td></tr>
         <tr><td>BM25 partial retrieval · delta context · keep-model codec · gist caching</td><td><span class="badge-pass">Done</span> — all wired, real implementations</td></tr>
         <tr><td>Provider proxy + managed gateway</td><td><span class="badge-pass">Done</span> — <code>distil proxy</code> / <code>distil gateway</code> (live per-tenant dashboard)</td></tr>
-        <tr><td>Google Gemini adapter (request compression + decision-equivalence)</td><td><span class="badge-pass">Done</span> — <code>distil/adapters/gemini.py</code>; proxy with <code>--upstream https://generativelanguage.googleapis.com</code>. Gaps: <code>--expand</code>, <code>--shape-output</code>, context caching not yet wired.</td></tr>
+        <tr><td>Google Gemini adapter (request compression + decision-equivalence + output shaping)</td><td><span class="badge-pass">Done</span> — <code>distil/adapters/gemini.py</code>; recency carve-out, query-aware intent, <code>--shape-output</code> via <code>shape="gemini"</code>. Documented seams: expand-tool injection (<code>--expand</code>), <code>cachedContent</code> caching.</td></tr>
         <tr><td>Output compression (input <em>and</em> output)</td><td><span class="badge-pass">Done</span> — gated shaping + lossless re-entry digest, <code>distil output-savings</code></td></tr>
         <tr><td>Learned keep-model (logistic + transformer)</td><td><span class="badge-pass">Done</span> — logistic ships built-in (96.4%/0.98 on held-out lines, labels from the heuristic); transformer adapter + training pipeline + demo checkpoint</td></tr>
         <tr><td>Certified compression frontier (proof pack)</td><td><span class="badge-pass">Done</span> — <code>distil eval</code></td></tr>
@@ -191,20 +197,23 @@ distil bench   --tokenizer anthropic</pre>
 
     <ul>
       <li>The proxy intercepts <code>/v1/chat/completions</code> and <code>/v1/responses</code> in addition to <code>/v1/messages</code>, making it compatible with OpenAI-format APIs.</li>
+      <li>A first-class <strong>OpenAI adapter</strong> (<code>distil/adapters/openai.py</code>) handles both Chat Completions and the Responses API. The same Tier-0/1 machinery and recency carve-out apply; the only difference is the shape-walking for OpenAI's <code>role:"tool"</code> content (bare string or list-of-parts) and the Responses API's <code>input</code> array. Documented seams: expand-tool injection and output shaping for the Responses shape are not yet wired.</li>
       <li>Token counts and dollar figures use Anthropic pricing by default; other models can be added to the pricing catalog.</li>
       <li>The TOST gate and causal ablation are purely statistical and format-independent.</li>
     </ul>
 
     <h3>Google Gemini</h3>
-    <p>Phase 2 ships a dedicated Gemini adapter (<code>distil/adapters/gemini.py</code>). Run the proxy with <code>--upstream https://generativelanguage.googleapis.com</code> and it automatically intercepts <code>generateContent</code> and <code>streamGenerateContent</code> requests. What works today:</p>
+    <p>The Gemini adapter (<code>distil/adapters/gemini.py</code>) intercepts <code>generateContent</code> and <code>streamGenerateContent</code> requests when the proxy runs with <code>--upstream https://generativelanguage.googleapis.com</code>. What works today:</p>
     <ul>
-      <li><strong>Request compression:</strong> <code>text</code> parts from non-model turns — Tier-0 lossless (minify + duplicate-run collapse). <code>functionResponse</code> payloads — Tier-1 reversible digest (original kept in the local <code>RestoreStore</code>, never sent, zero tokens). <code>functionCall</code>, <code>inlineData</code>, <code>fileData</code>, model-authored text, and <code>systemInstruction</code> pass through untouched.</li>
+      <li><strong>Request compression:</strong> <code>text</code> parts from non-model turns — Tier-0 lossless. <code>functionResponse</code> payloads — Tier-1 reversible digest. <code>functionCall</code>, <code>inlineData</code>, <code>fileData</code>, model-authored text, and <code>systemInstruction</code> pass through untouched.</li>
+      <li><strong>Recency carve-out:</strong> the most recent <code>functionResponse</code> turns are kept byte-exact (same as the Anthropic/OpenAI adapters), so the agent always sees its freshest tool output uncompressed.</li>
+      <li><strong>Query-aware intent:</strong> the agent's intent is extracted from the most recent <code>functionCall</code> arguments and used to pin relevant lines in large tool outputs — the same additive mechanism as the other adapters.</li>
+      <li><strong>Output shaping:</strong> pass <code>shape="gemini"</code> in the wrap/proxy flags to enable generation-side verbosity shaping tuned for Gemini's output structure.</li>
       <li><strong>Savings reporting:</strong> <code>x-distil-tokens-saved</code> response header + savings ledger, same as all other adapters.</li>
       <li><strong>Shadow-mode decision-equivalence:</strong> reads the chosen action from <code>candidates[0].content.parts[].functionCall</code>.</li>
-      <li><strong><code>--verbatim</code> mode:</strong> Tier-0-only transforms — the Tier-1 digest is skipped entirely so the model sees message content essentially verbatim. No digest stubs. Applies to all adapters including Gemini. Use for interactive sessions or where recovery (<code>distil_expand</code>) is unavailable. Lower savings.</li>
-      <li><strong><code>--lossless-only</code> mode:</strong> Policy mode — restricts the proxy to Tier-0 verbatim (no lossy output-shaping, no tool injection, no Tier-1 digest stubs). Folds directly into verbatim; no separate <code>--verbatim</code> needed. Use for subscription or OAuth-gated sessions.</li>
+      <li><strong><code>--verbatim</code> / <code>--lossless-only</code> modes:</strong> work identically to the Anthropic adapter.</li>
     </ul>
-    <p><strong>Not yet wired for Gemini</strong> (messages-format-only today): expand-tool injection (<code>--expand</code>), output verbosity shaping (<code>--shape-output</code>), and Gemini context caching.</p>
+    <p><strong>Documented seams</strong> (not yet wired): expand-tool injection (<code>--expand</code>) for the Gemini tool shape, and <code>cachedContent</code> prefix caching. Output shaping via <code>--shape-output</code> is shipped and wired (uses <code>shape="gemini"</code> internally).</p>
 
     <hr/>
 
@@ -269,6 +278,24 @@ distil shadow-stats                  <span class="d"># check the de rate</span>
     <p>Apache-2.0. See <a href="https://github.com/dshakes/distil/blob/main/LICENSE" target="_blank" rel="noopener"><code>LICENSE</code></a> in the repository.</p>
 
     <p>You can use it commercially, modify it, distribute it, and sublicense it. The only requirements are attribution and preservation of the license notice. No patent traps beyond the standard Apache-2.0 patent grant.</p>
+
+    <hr/>
+
+    <h2>"distil wrap ran but I see no savings — what went wrong?"</h2>
+
+    <p>When <code>distil wrap</code> ends a session with <strong>zero proxied requests</strong> and the agent is one of the recognized presets (<code>claude</code> / <code>codex</code> / <code>gemini</code> / <code>aider</code>), it prints a warning:</p>
+
+    <pre class="term">  warning: no requests flowed through distil this session —
+  claude may have stopped honoring ANTHROPIC_BASE_URL (agent update?).
+  Run `distil doctor` to check.</pre>
+
+    <p>This is the <em>upstream-contract tripwire</em>: distil's interception relies on the agent honoring the injected env var (<code>ANTHROPIC_BASE_URL</code> etc.), which is not a documented stable API. An agent update can silently stop honoring it. Common causes:</p>
+    <ul>
+      <li><strong>Agent updated</strong> and now pins its own endpoint regardless of the env var. Restart the wrap and watch for the env var line at startup (<code>→ ANTHROPIC_BASE_URL=http://127.0.0.1:…</code>).</li>
+      <li><strong>OAuth / subscription login overrides the base URL.</strong> Claude Code on a Pro/Max subscription occasionally ignores the env var for that session. Restart the wrap — the next session usually picks it up.</li>
+      <li><strong>Wrong agent name.</strong> The preset only fires when <code>argv[0]</code> exactly matches <code>claude</code>, <code>codex</code>, <code>gemini</code>, or <code>aider</code>. If you aliased the command, pass <code>--env-var ANTHROPIC_BASE_URL</code> explicitly.</li>
+    </ul>
+    <p>Run <code>distil doctor</code> for a wiring self-test, or <code>DISTIL_DEBUG=1 distil wrap -- &lt;agent&gt;</code> to see the full proxy log.</p>
 
     <hr/>
 

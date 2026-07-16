@@ -159,8 +159,12 @@ pip install distil-llm</pre>
 distil wrap --expand -- claude
 <span class="d"># Pro/Max subscription — lossless-only mode (subscription auto-default):</span>
 distil wrap --lossless-only -- claude
-<span class="d"># Codex, Gemini CLI, or any agent — same pattern:</span>
-distil wrap --expand -- codex</pre>
+<span class="d"># Codex, Gemini CLI, aider — env var auto-selected per agent:</span>
+distil wrap --expand -- codex     <span class="d"># → OPENAI_BASE_URL auto-set</span>
+distil wrap --expand -- gemini    <span class="d"># → GOOGLE_GEMINI_BASE_URL auto-set</span>
+distil wrap --expand -- aider     <span class="d"># → OPENAI_BASE_URL auto-set</span></pre>
+
+    <p>When you use a recognized agent name (<code>claude</code> / <code>codex</code> / <code>gemini</code> / <code>aider</code>), distil auto-selects the correct env var and upstream endpoint — no <code>--env-var</code> or <code>--upstream</code> flag needed. It prints <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> on start so you can confirm. Explicit <code>--env-var</code> or <code>--upstream</code> always win over the preset.</p>
 
     <p><strong>You usually don't need to pick a mode</strong> — <code>distil onboard</code> detects your billing and writes the right one into your setup automatically. Here's what each mode means in plain terms:</p>
     <ul>
@@ -179,6 +183,13 @@ distil wrap --expand -- codex</pre>
         <tr><td><code>--verbatim</code></td><td>Whitespace + JSON normalization only</td><td>Minimal</td><td>Most conservative</td><td>Debugging / auditing</td></tr>
       </tbody>
     </table>
+    <p>At the end of each <code>distil wrap</code> session, a <strong>Proof Ledger</strong> is printed automatically to stderr — calibrated tokens saved, dollar cost before and after, the shadow decision-equivalence verdict (with an honest "below threshold, gathering" label while evidence accumulates), and how many digest handles are still live and recoverable. Opt out with <code>DISTIL_NO_LEDGER=1</code>. It looks like:</p>
+    <pre class="term">  distil proof ledger — session 47m
+    tokens   84,213 → 62,440   (25.9% smaller)
+    cost     $0.42 → $0.31        calibrated to your billed usage (n=58, ±2.1%)
+    shadow   0 decision changes    (n=12 A/B, 8 A/A — below verdict threshold, gathering)
+    restore  100% recoverable    (3 digests, all handles live, TTL 14d)</pre>
+
     <p>Then watch genuine, measured savings from <em>your</em> traffic (not estimates):</p>
     <pre class="term">distil leaderboard          <span class="d"># cumulative tokens + $ saved, from the local ledger (alias: distil stats)</span>
 distil dashboard            <span class="d"># live terminal TUI — token-trim + decision-equiv bars, Ctrl-C to exit</span>

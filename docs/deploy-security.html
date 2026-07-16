@@ -187,8 +187,29 @@ distil proxy --verbatim     --upstream https://api.anthropic.com</pre>
 
     <p>If your Anthropic contract includes Zero Data Retention (ZDR), the compressed payload forwarded by the proxy is covered by the same ZDR terms as a direct call. The local restore store is outside the ZDR perimeter: for strict ZDR deployments, point <code>DISTIL_HOME</code> at an ephemeral path (e.g. a <code>tmpfs</code> mount) or clear <code>~/.distil/restore/</code> between sessions.</p>
 
+    <h3 id="encrypt-at-rest">Encrypt at rest</h3>
+    <p><strong>Module:</strong> <code>distil/atrest.py</code></p>
+
+    <p>Digest originals in <code>~/.distil/restore/</code> are encrypted with <strong>HMAC-SHA256-CTR + encrypt-then-MAC</strong> — a stdlib-only authenticated encryption construction (no <code>cryptography</code> package required). On-disk format: a <code>DSTL1</code> magic header, 16-byte random nonce, ciphertext (same length as plaintext), and a 32-byte HMAC-SHA256 tag. Total overhead: 53 bytes per file.</p>
+
+    <p>The master key (32 random bytes) lives at <code>${DISTIL_HOME:-~/.distil}/restore.key</code>, created on first use with <code>chmod 0600</code>.</p>
+
+    <div class="callout good">
+      <b>What this protects:</b>
+      <ul style="margin:.4em 0 0">
+        <li><strong>Backup / sync leakage</strong> — cloud backup of <code>~/.distil/</code> leaks ciphertexts, not content.</li>
+        <li><strong>Cross-user reads</strong> — multi-user NAS, world-readable backup snapshots: data files are unreadable without the key file.</li>
+      </ul>
+    </div>
+
     <div class="callout">
-      <b>RestoreStore persists to disk.</b> The Tier-1 reversible digest stores original text in <code>~/.distil/restore/</code> (under <code>DISTIL_HOME</code>) so that handles survive proxy restarts — <code>distil expand &lt;handle&gt;</code> works even after a restart. Originals are never sent to the model or to the upstream API.
+      <b>What this does NOT protect against:</b> a local attacker with the same UID who can read both the data files and the key file. Distil is not a privilege boundary. This is documented explicitly in <a href="https://github.com/dshakes/distil/blob/main/THREAT_MODEL.md" target="_blank" rel="noopener"><code>THREAT_MODEL.md</code></a>.
+    </div>
+
+    <p>Legacy plaintext files (written before encryption was introduced) load transparently — no migration required. Rotating the key makes existing encrypted files unreadable (treated as expired). <strong>Opt-out:</strong> <code>DISTIL_NO_ENCRYPT_AT_REST=1</code> skips encryption on write; reading still decrypts when the magic header is present, so a mixed fleet degrades gracefully.</p>
+
+    <div class="callout">
+      <b>RestoreStore persists to disk, now encrypted.</b> The Tier-1 reversible digest stores original text in <code>~/.distil/restore/</code> (under <code>DISTIL_HOME</code>), encrypted at rest, so that handles survive proxy restarts — <code>distil expand &lt;handle&gt;</code> works even after a restart. Originals are never sent to the model or to the upstream API.
     </div>
 
     <hr/>
@@ -313,6 +334,33 @@ distil gateway listening on http://0.0.0.0:8789
       <b>All other paths pass through unchanged.</b> The gateway adds management endpoints at <code>/distil/*</code> and compresses <code>POST /v1/messages</code>-family paths. Every other path and HTTP method is forwarded to the upstream transparently, with the same hop-by-hop header stripping and SSRF protection as the basic proxy.
     </div>
 
+    <h3 id="gateway-keys">Issued gateway keys (inbound auth)</h3>
+    <p><strong>Module:</strong> <code>distil/gateway_keys.py</code> · <strong>Commands:</strong> <code>distil gateway keys issue|list|revoke</code></p>
+
+    <p>For shared-gateway deployments where you want to authenticate callers separately from their upstream API key, distil can issue <strong>dsk- gateway keys</strong>. Callers pass their key as <code>Authorization: Bearer dsk-…</code>; the gateway strips it before forwarding to the upstream (the upstream never sees the distil key).</p>
+
+    <p>Keys are stored hashed (SHA-256); the raw secret is shown exactly once at issuance. Auth <strong>fails closed</strong>: a missing or revoked key returns 401 without reaching the upstream. Key auth becomes active automatically once any key is issued, or immediately when <code>--require-keys</code> is passed at startup.</p>
+
+    <pre class="term"><span class="d"># Issue a key for tenant "team-search" (secret shown once — copy it now)</span>
+$ distil gateway keys issue --tenant team-search
+
+<span class="d"># List all active keys (prefix, tenant, created, last-used)</span>
+$ distil gateway keys list
+
+<span class="d"># Revoke by key prefix</span>
+$ distil gateway keys revoke dsk-a3f9c2e1
+
+<span class="d"># Start gateway requiring key auth even before any keys are issued</span>
+$ distil gateway --require-keys --upstream https://api.anthropic.com
+
+<span class="d"># Per-tenant rate and daily token quotas (rejects with 429 when exceeded)</span>
+$ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
+    --upstream https://api.anthropic.com</pre>
+
+    <div class="callout good">
+      <b>Default path unchanged.</b> The anonymous credential-hash tenant IDs still work without any keys configured — <code>distil gateway keys</code> is additive, not a breaking change. See <a href="../THREAT_MODEL.md" target="_blank" rel="noopener"><code>THREAT_MODEL.md</code></a> for what the key mechanism does and does not protect against.
+    </div>
+
     <hr/>
 
     <h2 id="streaming">Streaming and upstream timeouts</h2>
@@ -343,7 +391,7 @@ distil gateway listening on http://0.0.0.0:8789
 
     <p><strong>Upgrades apply to live sessions (hot-swap).</strong> <code>distil wrap</code> runs the proxy as a supervised subprocess on a wrap-owned listener socket. When a new distil version lands on disk (<code>pipx upgrade</code>), the wrap spawns a fresh worker — new code, <em>same port</em> — health-checks it, then drains the old worker so in-flight streams finish. The agent session never restarts. A replacement worker that fails its health check is discarded (the old one keeps serving), and a worker that dies mid-session is respawned. POSIX only; force with <code>kill&nbsp;-USR1&nbsp;&lt;wrap&nbsp;pid&gt;</code>, opt out with <code>DISTIL_HOT_SWAP=0</code>. Windows keeps the in-thread proxy and the version-skew warning.</p>
 
-    <p><strong>OpenTelemetry GenAI spans (opt-in).</strong> <code>pip install 'distil-llm[otel]'</code> and every proxied request emits an <a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/" target="_blank" rel="noopener">GenAI semantic-convention</a> span — <code>gen_ai.request.model</code>, <code>gen_ai.usage.input_tokens</code> — plus what compression did to the request: <code>distil.tokens.original</code> vs <code>distil.tokens.compressed</code>, <code>distil.compression.ratio</code>, <code>distil.shadow.sampled</code>. Without the extra it is a single boolean check; an OTel failure can never break the request path. There is deliberately <em>no</em> metrics endpoint — the unauthenticated-<code>/metrics</code> data-leak class is structurally absent.</p>
+    <p><strong>OpenTelemetry GenAI spans (opt-in).</strong> <code>pip install 'distil-llm[otel]'</code> and every proxied request emits an <a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/" target="_blank" rel="noopener">GenAI semantic-convention</a> span — <code>gen_ai.request.model</code>, <code>gen_ai.usage.input_tokens</code> — plus what compression did to the request: <code>distil.tokens.original</code> vs <code>distil.tokens.compressed</code>, <code>distil.compression.ratio</code>, <code>distil.shadow.sampled</code>, and <code>distil.session.id</code> for per-session trace correlation across multiple requests in the same <code>distil wrap</code> session. Without the extra it is a single boolean check; an OTel failure can never break the request path. There is deliberately <em>no</em> metrics endpoint — the unauthenticated-<code>/metrics</code> data-leak class is structurally absent.</p>
 
     <p><strong>Supply chain.</strong> PyPI releases carry <a href="https://peps.python.org/pep-0740/" target="_blank" rel="noopener">PEP 740 Sigstore attestations</a> (trusted publishing) and a CycloneDX SBOM is attached to every GitHub release; <a href="https://github.com/ossf/scorecard" target="_blank" rel="noopener">OpenSSF Scorecard</a> runs weekly against <code>main</code>.</p>
 

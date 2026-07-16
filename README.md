@@ -72,9 +72,13 @@ distil wrap --expand -- claude
 # Claude Code on a Pro/Max subscription — flat-rate, ToS-safe (trims context, not $):
 distil wrap --lossless-only -- claude
 
-# Codex, Gemini CLI, or any agent — same pattern:
-distil wrap --expand -- codex
+# Codex, Gemini CLI, aider — same pattern; env var auto-selected per agent:
+distil wrap --expand -- codex     # → OPENAI_BASE_URL
+distil wrap --expand -- gemini    # → GOOGLE_GEMINI_BASE_URL
+distil wrap --expand -- aider     # → OPENAI_BASE_URL
 ```
+
+Each recognized agent (`claude` / `codex` / `gemini` / `aider`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
 
 <details>
 <summary><b>Make it the default</b> — never type <code>distil wrap</code> again</summary>
@@ -223,6 +227,8 @@ from distil.adapters.anthropic import wrap
 client = wrap(anthropic.Anthropic())   # compresses the request, keeps the cache warm
 ```
 
+(OpenAI — Chat Completions *and* Responses API — and Gemini route through the proxy: `distil wrap -- codex`, or point `OPENAI_BASE_URL` at it. An in-process client wrap exists for the Anthropic SDK only.)
+
 **Framework hooks (no proxy, no network hop)** — for agent frameworks that own the message list, compress it where it lives:
 
 | Framework | Hook | Example |
@@ -283,6 +289,7 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 | Diagnose your setup (ledger, shadow, proxy self-test, wiring) | `distil doctor` |
 | Wire the savings status line into Claude Code | `distil setup` (compact segment: `DISTIL_STATUSLINE=minimal`) |
 | Watch genuine savings accumulate | `distil leaderboard` · live TUI: `distil dashboard` |
+| Session summary on exit (tokens, cost, shadow, restorability) | printed automatically by `distil wrap` — opt out with `DISTIL_NO_LEDGER=1` |
 | Deep-dive one session (savings, anomalies) | `distil dissect` (`--html` / `--serve`) |
 | Live decision-equivalence on real traffic | `distil wrap --shadow 0.1 -- claude` → `distil shadow-stats` |
 | Certify on *your* domain | `distil ingest --input prod.jsonl --out ./mycorpus` → `distil conformal --corpus ./mycorpus` |
@@ -387,7 +394,7 @@ It refuses to certify on small samples, states its exchangeability assumptions i
 
 ## 🧩 What's inside
 
-40+ shipped capabilities, all real (no stubs): the cache-aware cost engine, causal pruning, the TOST gate + conformal certificate, the proxy + Anthropic/OpenAI/Gemini adapters, an MCP server, LiteLLM/LangChain/LangGraph hooks, learned keep-models, output compression, and an optional Rust hot-path core (build-from-source via `maturin`; published wheels run the pure-Python engine, same API) — with **zero runtime dependencies** in the core.
+40+ shipped capabilities, all real (no stubs): the cache-aware cost engine, causal pruning, the TOST gate + conformal certificate, the proxy + Anthropic/OpenAI/Gemini first-class adapters (Chat Completions, Responses API, and Gemini generateContent), an MCP server, LiteLLM/LangChain/LangGraph hooks, per-agent wrap presets, the Proof Ledger end-of-session printout, the multi-tenant gateway with issued keys and rate limits, encrypt-at-rest for the restore store, learned keep-models, output compression, and an optional Rust hot-path core (build-from-source via `maturin`; published wheels run the pure-Python engine, same API) — with **zero runtime dependencies** in the core.
 
 Full module-by-module map: [Architecture](https://dshakes.github.io/distil/architecture.html) · [Techniques](https://dshakes.github.io/distil/techniques.html) · [CLI reference](https://dshakes.github.io/distil/cli.html).
 
@@ -396,10 +403,10 @@ Full module-by-module map: [Architecture](https://dshakes.github.io/distil/archi
 - **Localhost-only by default** — the proxy binds `127.0.0.1` and forwards only to the single configured upstream (no SSRF).
 - **No secret/body logging** — request bodies and credentials are never logged.
 - **Auth-mode gating** — a detected subscription/OAuth session **auto-selects `--lossless-only`** (Tier-0 verbatim: no Tier-1 digest stubs, no tool injection — provider-ToS-safe); `distil wrap -- claude` is safe by default, no flag needed. An explicit `--expand` opts into the recoverable digest even there (you authorized the recovery tool, so nothing is irreversibly lost — issue #28). Without an injected expand tool the agent cannot recover a stub, so `--lossless-only` folds directly into verbatim.
-- **Minimal local persistence** — digest originals are written to `~/.distil/restore/` (respects `DISTIL_HOME`) so handles survive proxy restarts, and age out after `DISTIL_RESTORE_TTL_DAYS` (default 14). For strict ZDR deployments, point `DISTIL_HOME` at an ephemeral path or clear that directory between sessions. No data is forwarded upstream.
+- **Encrypted at rest** — digest originals in `~/.distil/restore/` are encrypted with HMAC-SHA256-CTR (encrypt-then-MAC, `DSTL1` header, key at `chmod 0600`), protecting against backup/sync leakage and cross-user reads on shared filesystems. A same-UID attacker who can read both the data files and the key file is explicitly out of scope (see [`THREAT_MODEL.md`](THREAT_MODEL.md)). Legacy plaintext files load transparently. `DISTIL_NO_ENCRYPT_AT_REST=1` opts out; handles age out after `DISTIL_RESTORE_TTL_DAYS` (default 14). No data is forwarded upstream.
 - **Ops-ready** — unauthenticated `GET /distil/health` liveness probe on every entry point (never touches the billed upstream); gateway accounting checkpoints to disk every 30 s (crash-safe, not just on graceful shutdown); `DISTIL_DEBUG=1` surfaces everything the fail-open compression path swallows.
 - **Upgrades apply to live sessions** — `distil wrap` supervises its proxy as a subprocess on a wrap-owned socket; when a new version lands on disk (pipx/pip upgrade) the wrap hot-swaps in a fresh worker — same port, in-flight streams finish on the old one, the agent never restarts. Health-checked with automatic rollback: a broken upgrade keeps the old worker serving. POSIX; `kill -USR1 <wrap pid>` forces it, `DISTIL_HOT_SWAP=0` opts out. On Windows the wrap keeps the historical in-thread proxy (no seamless swap) and warns on version skew instead — upgrades there apply on the next session.
-- **OpenTelemetry GenAI spans (opt-in)** — `pip install 'distil-llm[otel]'` and every proxied call emits a [GenAI semantic-convention](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) span (`gen_ai.request.model`, `gen_ai.usage.input_tokens`) plus distil's own story: `distil.tokens.original` vs `distil.tokens.compressed`, `distil.compression.ratio`, `distil.shadow.sampled` — your existing OTel backend sees exactly what compression did to each request. Without the extra installed it's a single boolean check, zero overhead, and an OTel failure can never break the request path. No metrics endpoint exists — the [LiteLLM unauthenticated-`/metrics` leak](https://github.com/BerriAI/litellm/issues/13644) class of bug is structurally absent.
+- **OpenTelemetry GenAI spans (opt-in)** — `pip install 'distil-llm[otel]'` and every proxied call emits a [GenAI semantic-convention](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) span (`gen_ai.request.model`, `gen_ai.usage.input_tokens`) plus distil's own story: `distil.tokens.original` vs `distil.tokens.compressed`, `distil.compression.ratio`, `distil.shadow.sampled`, and `distil.session.id` for per-session trace correlation — your existing OTel backend sees exactly what compression did to each request. Without the extra installed it's a single boolean check, zero overhead, and an OTel failure can never break the request path. No metrics endpoint exists — the [LiteLLM unauthenticated-`/metrics` leak](https://github.com/BerriAI/litellm/issues/13644) class of bug is structurally absent.
 - **Supply-chain hardening** — releases carry [PEP 740 Sigstore attestations](https://peps.python.org/pep-0740/) (via PyPI trusted publishing) and a CycloneDX SBOM attached to every GitHub release; [OpenSSF Scorecard](https://github.com/ossf/scorecard) runs weekly on `main`. Don't take our word for it — verify a release yourself: `uvx pypi-attestations verify pypi --repository https://github.com/dshakes/distil pypi:distil_llm-1.19.0-py3-none-any.whl` (or inspect the raw bundle at `https://pypi.org/integrity/distil-llm/<version>/<filename>/provenance`).
 
 See [Deploy & security](https://dshakes.github.io/distil/deploy-security.html) for topologies (local sidecar, container sidecar, shared gateway) and the threat model.
@@ -433,7 +440,7 @@ Distil compresses **input/context** (comprehensive) **and output** — generatio
 
 ## 🔬 Reproducible evaluation & the paper
 
-Every number reproduces from the bundled corpus (`distil bench`, no key). The non-circular proof harness grades **real agent traces with a real model** (τ-bench / SWE-bench): [`benchmarks/PROVE.md`](benchmarks/PROVE.md). Compiled paper, LaTeX source, and all committed results: [`docs/PAPER.md`](docs/PAPER.md) · [`docs/paper/`](docs/paper/) · [paper PDF](docs/paper/main.pdf).
+Every number reproduces from the bundled corpus (`distil bench`, no key). The non-circular proof harness grades **real agent traces with a real model** (τ-bench / SWE-bench): [`benchmarks/PROVE.md`](benchmarks/PROVE.md). Compiled paper, LaTeX source, and all committed results: [`docs/PAPER.md`](docs/PAPER.md) · [`docs/paper/`](docs/paper/) · [paper PDF](docs/paper/main.pdf). **Step-by-step: [Reproduce the Numbers →](https://dshakes.github.io/distil/benchmarks.html)**
 
 <h3 align="center">Stop paying to re-send context your agent never reads.</h3>
 

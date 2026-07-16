@@ -151,9 +151,10 @@
     <img src="assets/observability.svg" alt="observability at four widening scopes: per-request headers, per-session shadow stats, per-machine lifetime ledger, and the verifiable community leaderboard" class="svg-embed"/>
     <ul>
       <li><strong>Per request</strong> — response headers (<code>x-distil-tokens-saved</code>, <code>x-distil-cache-prefix-msgs</code>, …).</li>
-      <li><strong>Per session</strong> — <code>distil shadow-stats</code> (live decision-change rate) and the <code>distil gateway</code> dashboard.</li>
+      <li><strong>Per session</strong> — <code>distil shadow-stats</code> (live decision-change rate), the <code>distil gateway</code> dashboard, and the <strong>Proof Ledger</strong> (<code>distil/proof_ledger.py</code>) — a compact end-of-session printout on <code>distil wrap</code> exit showing calibrated tokens/cost, shadow verdict with honest suppression labels, and restorability. Opt out with <code>DISTIL_NO_LEDGER=1</code>.</li>
       <li><strong>Per machine, lifetime</strong> — <code>distil leaderboard</code> rolls up the local savings ledger (<code>~/.distil/savings.jsonl</code>); <code>--html</code> exports a page.</li>
       <li><strong>Community, verifiable</strong> — <code>distil federated-leaderboard</code> aggregates HMAC-signed, content-free, tamper-evident savings across instances; only certified submissions count, and sharing is opt-in (no telemetry by default).</li>
+      <li><strong>OTel traces (opt-in)</strong> — <code>pip install 'distil-llm[otel]'</code> emits GenAI semantic-convention spans plus <code>distil.tokens.original</code>, <code>distil.tokens.compressed</code>, <code>distil.compression.ratio</code>, <code>distil.shadow.sampled</code>, and <code>distil.session.id</code> for per-session trace correlation. Module: <code>distil/otel.py</code>.</li>
     </ul>
 
     <hr/>
@@ -313,6 +314,8 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
 
     <p>Two structural invariants are enforced across the entire corpus by the verify gate. A second gate, <code>distil validate</code>, re-asserts them (plus reject-if-bigger, recency-exactness, fail-open, and content-free telemetry) against <em>hostile</em> inputs the corpus never contains — huge/unicode/nested/malformed tool output, content that mimics distil's own <code>&lt;&lt; handle &gt;&gt;</code> stubs, secret-looking strings — because that is where real-traffic bugs hide. Both run in CI on every push.</p>
 
+    <p>A third gate closes the synthetic-vs-live gap: a <strong>nightly</strong> job (<a href="https://github.com/dshakes/distil/blob/main/.github/workflows/live-cert.yml" target="_blank" rel="noopener"><code>live-cert.yml</code></a>) re-certifies every corpus trajectory against a real model via <code>distil certify --runner anthropic</code>, budget-capped with <code>--max-live-calls 60</code> per trajectory so an unattended run cannot spend silently. Per-commit gates = synthetic oracle; nightly gate = live model; both are labeled as such.</p>
+
     <h3>Reversibility</h3>
     <p>Every original block is recoverable — either because the compressed text is byte-identical to the original, or because the original lives in the local restore table (keyed by block ID for Tier-0, by content handle for Tier-1). Recovery is confirmed via SHA-256 equality: auditable and machine-checkable.</p>
 
@@ -425,7 +428,13 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         <tr><td><code>native.py</code></td><td>Rust hot-path bridge with pure-Python fallback (<code>rust/distil-core</code>)</td></tr>
         <tr><td><code>corpus.py</code></td><td>Multi-domain corpus loader + structural validation</td></tr>
         <tr><td><code>adapters/anthropic.py</code></td><td>In-process drop-in adapter (wrap + cache-control)</td></tr>
+        <tr><td><code>adapters/openai.py</code></td><td>First-class OpenAI adapter — Chat Completions and Responses API shapes; same Tier-0/1 machinery as the Anthropic adapter</td></tr>
+        <tr><td><code>adapters/gemini.py</code></td><td>Gemini adapter — generateContent / streamGenerateContent; recency carve-out, query-aware intent from functionCall args, output shaping via shape="gemini"</td></tr>
         <tr><td><code>proxy.py</code></td><td>HTTP proxy for framework-agnostic adoption</td></tr>
+        <tr><td><code>proof_ledger.py</code></td><td>End-of-session Proof Ledger — calibrated tokens/cost, shadow verdict, restorability; printed by <code>distil wrap</code> on exit</td></tr>
+        <tr><td><code>atrest.py</code></td><td>Authenticated encryption at rest (HMAC-SHA256-CTR + encrypt-then-MAC, DSTL1 header) for the restore store</td></tr>
+        <tr><td><code>gateway_keys.py</code></td><td>Gateway key store — issued dsk- keys hashed at rest; <code>distil gateway keys issue|list|revoke</code></td></tr>
+        <tr><td><code>otel.py</code></td><td>OpenTelemetry GenAI span emission (opt-in, zero overhead when absent) including <code>distil.session.id</code></td></tr>
         <tr><td><code>streamrelay.py</code></td><td>Chunk-by-chunk SSE relay (TTFT-preserving) shared by the proxy, async proxy, and gateway</td></tr>
         <tr><td><code>codec/learned.py</code></td><td>Logistic-regression keep classifier (zero deps, ships in wheel)</td></tr>
         <tr><td><code>codec/keep_model.py</code></td><td>SalienceKeepModel — deterministic heuristic baseline</td></tr>

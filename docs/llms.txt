@@ -1,0 +1,60 @@
+# Distil — compression with a quality contract
+
+Distil is a cache-aware, causally-pruned context compressor for LLM agentic
+runtimes. It compresses input and output context, certifies that the agent's
+decisions are statistically unchanged (non-inferiority test), and is the only
+compressor that proves its guarantees rather than assuming them. Zero runtime
+dependencies. Works as an HTTP proxy for Anthropic, OpenAI (Chat Completions +
+Responses API), and Google Gemini; in-process client wrap for the Anthropic
+SDK; framework hooks for LiteLLM/LangChain/LangGraph. Graded on SWE-bench Verified: 42.0% task success
+vs 39.2% full context (paired non-inferiority certified; superiority not
+significant). 83.2% savings at 0% decision-change rate on a live head-to-head.
+
+## Key sources
+
+README (canonical overview, install, head-to-head table, security):
+https://github.com/dshakes/distil/blob/main/README.md
+
+CHANGELOG (per-version feature list):
+https://github.com/dshakes/distil/blob/main/CHANGELOG.md
+
+THREAT_MODEL.md (what distil protects against and explicitly does not):
+https://github.com/dshakes/distil/blob/main/THREAT_MODEL.md
+
+docs/EVALUATION.md (evaluation methodology, what the numbers mean):
+https://dshakes.github.io/distil/EVALUATION.md
+
+benchmarks/README.md (reproducible head-to-head harness):
+https://github.com/dshakes/distil/blob/main/benchmarks/README.md
+
+## Site pages
+
+Getting started (install, quickstart, wrap presets, proof ledger):
+https://dshakes.github.io/distil/getting-started.html
+
+Architecture (module map, tier model, cert loop, OTel, Proof Ledger):
+https://dshakes.github.io/distil/architecture.html
+
+CLI reference (every subcommand, flags, sample output):
+https://dshakes.github.io/distil/cli.html
+
+Deploy & Security (topologies, encrypt-at-rest, gateway keys, OTel session id):
+https://dshakes.github.io/distil/deploy-security.html
+
+FAQ (decision-equivalence, nightly gate, OpenAI/Gemini adapters, troubleshooting):
+https://dshakes.github.io/distil/faq.html
+
+Benchmark (certified compression frontier, live head-to-head):
+https://dshakes.github.io/distil/benchmark.html
+
+Reproduce the numbers (all CI gates, real-model grading, scorecard):
+https://dshakes.github.io/distil/benchmarks.html
+
+Compare (distil vs LLMLingua-2 vs Headroom):
+https://dshakes.github.io/distil/compare.html
+
+Techniques (tiers, causal pruning, query-aware salience, learned keep-model):
+https://dshakes.github.io/distil/techniques.html
+
+Concepts (DERC certificate, conformal risk control, trajectory certificate):
+https://dshakes.github.io/distil/concepts.html
