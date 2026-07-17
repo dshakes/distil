@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.3.2
       - name: ruff check
         run: uvx ruff check distil tests
       - name: mypy (the package ships py.typed — keep it actually typed)
@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.3.2
         with:
           python-version: "3.12"
       # aiohttp + pytest-asyncio so the async proxy (distil/aproxy.py, the
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.3.2
         with:
           python-version: ${{ matrix.python }}
       - name: Tests
