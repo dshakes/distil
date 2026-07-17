@@ -36,11 +36,10 @@
 name: live-cert
 
 on:
-  # Cron PAUSED 2026-07-16: gate repointed at serving semantics via prove.py
-  # (corpus+harsher-strategy diverged beyond the A/A floor; see header comment).
-  # Gate repoint landed 2026-07-16; re-enable after one green workflow_dispatch.
-  # schedule:
-  #   - cron: "43 3 * * *"
+  # Cron re-enabled 2026-07-17 after the repointed gate's first green
+  # workflow_dispatch (run 29548074605: GATE PASS on real-model grading).
+  schedule:
+    - cron: "43 3 * * *"
   workflow_dispatch:
 
 permissions:
