@@ -89,6 +89,13 @@ strategy digests and serving keeps verbatim (it is the turn's freshest
 output). That residual is a property of the deliberately harsher certification
 condition, not of production behavior.
 
+One measurement gap remains open (tracked, stated rather than papered over):
+`benchmarks/prove.py`'s per-turn rates carry the grader's full variance term —
+its byte-exact rung reads 0% only because it shares the baseline's decision
+cache key (a structural artifact, not a measured self-agreement floor), so its
+all-turns-conjunction metrics (E4) overstate live divergence for multi-turn
+trajectories. The A/A control above needs porting into that harness.
+
 ## 3. Live decision-equivalence: shadow mode
 
 The trajectory certificate (below) is offline, run against a fixed corpus.

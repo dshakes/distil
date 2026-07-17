@@ -17,8 +17,8 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8
         with:
           python-version: "3.12"
       - name: Resolve version from pyproject
@@ -71,7 +71,7 @@ jobs:
         run: |
           mkdir -p pypi-dist
           cp dist/*.whl dist/*.tar.gz pypi-dist/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pypi-dist
           path: pypi-dist/
@@ -88,7 +88,7 @@ jobs:
     permissions:
       id-token: write   # OIDC — trusted publishing, no API token/secret needed
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: pypi-dist
           path: dist
@@ -122,7 +122,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:

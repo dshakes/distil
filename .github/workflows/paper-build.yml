@@ -24,7 +24,7 @@ jobs:
   build-paper:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # TeX Live full ships every package main.tex needs (tikz, pgfplots,
       # algorithm2e, cleveref, microtype...). The paper has no external images
@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload paper PDF
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: distil-paper-pdf
           path: docs/paper/main.pdf
@@ -89,7 +89,7 @@ jobs:
       # TeX toolchain.
       - name: Upload build log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: distil-paper-log
           path: docs/paper/main.log

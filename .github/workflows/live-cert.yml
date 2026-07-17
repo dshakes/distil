@@ -21,8 +21,11 @@
 #   * --samples 3 majority vote per decision: absorbs grader run-to-run variance so
 #     the decision-change rate reflects compression divergence, not model noise.
 #   * Disk-cached decisions (benchmarks/.cache/): after the first live run the E2
-#     result is deterministic — re-running replays from cache. No A/A control needed
-#     as a separate step; the LTT conformal guarantee absorbs stochasticity by design.
+#     result is deterministic — re-running replays from cache. The GATE (E2) is
+#     stable by construction; note honestly that the report's E1/E4 per-turn rates
+#     still carry the grader's variance term (byte-exact reads 0% via cache-key
+#     sharing, not as a measured self-agreement floor) — porting the certify-gate
+#     A/A control into prove.py is tracked follow-up (docs/EVALUATION.md 2.1).
 #   * --ladder quick (4 rungs): cuts live calls from ~1 000 (full ladder) to 396
 #     (132 unique context pairs × 3 samples, cold cache). Subsequent runs: 0 new calls.
 #   * --gate exits non-zero when E2 violates: certified_frac=0, coverage<1-δ, or
@@ -57,9 +60,9 @@ jobs:
       # quick ladder, 18 fixture trajectories). Warm runs cost nothing (all cached).
       MAX_LIVE_CALLS: "450"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           python-version: "3.12"
       - name: Guard — skip cleanly when no API key is configured
@@ -98,7 +101,7 @@ jobs:
           exit $status
       - name: Upload reports
         if: always() && steps.key.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: live-cert-reports
           path: live-cert-reports/
