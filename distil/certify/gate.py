@@ -8,6 +8,7 @@ A strategy ships only if it is certified non-inferior.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from ..compress.strategies import REGISTRY, Strategy
@@ -22,9 +23,16 @@ class TurnDivergence:
     baseline_decision: str
     compressed_decision: str
     traj_id: str = ""  # set by certify_pooled so grouped output stays readable
+    # "full" = strict fingerprint grading; "action" = the A/A probe found the
+    # baseline's own two draws disagree on the target (free-text targets are
+    # near-coin-flips), so the turn is only measurable at action granularity.
+    granularity: str = "full"
+    graded_match: bool | None = None  # set by the A/A-controlled path
 
     @property
     def matched(self) -> bool:
+        if self.graded_match is not None:
+            return self.graded_match
         return self.baseline_decision == self.compressed_decision
 
 
@@ -116,6 +124,16 @@ def certify_pooled(
     return CertReport(name, divergences, tost(diffs, margin=margin, alpha=alpha), aa_rate)
 
 
+def _action_of(fingerprint: str) -> str:
+    """The action field of a canonical fingerprint, or the whole string when it
+    isn't the canonical JSON shape (e.g. ``<no-decision>``)."""
+    try:
+        parsed = json.loads(fingerprint)
+        return str(parsed["action"])
+    except (ValueError, TypeError, KeyError):
+        return fingerprint
+
+
 def _turn_outcomes(
     traj: Trajectory,
     fn: Strategy,
@@ -128,13 +146,29 @@ def _turn_outcomes(
     for turn in traj.turns:
         base = runner.decide(turn.blocks)
         comp = runner.decide(fn(turn.blocks, turn.index))
-        divergences.append(TurnDivergence(turn.index, base, comp))
+        d = TurnDivergence(turn.index, base, comp)
+        divergences.append(d)
         if aa_control:
-            aa = base == runner.decide(turn.blocks)  # independent second draw
+            base2 = runner.decide(turn.blocks)  # independent second draw
+            # The second baseline draw doubles as a MEASURABILITY probe: when the
+            # baseline disagrees with itself on the target (free-text targets are
+            # near-coin-flips run to run), the target carries no signal for this
+            # turn and grading it strictly only injects variance — observed live
+            # as verdicts flipping between identical pooled runs. Such turns are
+            # graded at action granularity instead. The choice is made from the
+            # two BASELINE draws alone (never from the compressed arm), so it
+            # cannot bias for or against compression.
+            if base == base2:
+                aa, ab = True, base == comp
+            else:
+                d.granularity = "action"
+                aa = _action_of(base) == _action_of(base2)
+                ab = _action_of(base) == _action_of(comp)
+            d.graded_match = ab
             aa_matches.append(aa)
             # (A/B) − (A/A): 0 when compression tracks the self-agreement floor,
             # negative only when compression diverges where the model is stable.
-            diffs.append((1.0 if base == comp else 0.0) - (1.0 if aa else 0.0))
+            diffs.append((1.0 if ab else 0.0) - (1.0 if aa else 0.0))
         else:
             # compressed_score - baseline_score; baseline scores 1.0 against
             # itself, compressed scores 1.0 only if its decision matches.

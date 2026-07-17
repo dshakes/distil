@@ -111,3 +111,58 @@ def test_certify_pooled_pools_turns_across_trajectories():
     assert len(pooled.divergences) == 2 * len(single.divergences)
     assert all(d.traj_id == t1.id for d in pooled.divergences)
     assert pooled.verdict == "PASS"
+
+
+class _ProseTargetRunner:
+    """Stable ACTION, free-text TARGET that never repeats — models the live
+    failure mode (annotateticket with a paragraph-long target) that made pooled
+    verdicts flip between identical runs."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def decide(self, blocks):
+        self.calls += 1
+        return f'{{"action":"annotateticket","target":"prose variant {self.calls}"}}'
+
+
+def test_aa_probe_downgrades_unmeasurable_targets_to_action_grading():
+    """When the baseline's own two draws disagree on the target, the turn is
+    graded action-only — a stable action then matches on both arms, so a
+    prose-target model contributes zero diff (and zero variance) instead of a
+    coin flip per turn."""
+    from distil.certify.gate import certify
+    from distil.trajectory import Trajectory
+
+    traj = Trajectory.load(CORPUS)
+    report = certify(traj, "none", runner=_ProseTargetRunner(), aa_control=True, margin=0.1)
+    assert all(d.granularity == "action" for d in report.divergences)
+    assert all(d.matched for d in report.divergences)  # action stable -> graded ok
+    assert report.aa_match_rate == 1.0  # at the granularity the turn supports
+    assert report.tost.mean_diff == 0.0
+    assert report.tost.non_inferior
+
+
+def test_aa_probe_still_catches_real_action_changes():
+    """The downgrade must never mask a genuine action change: a runner whose
+    compressed arm picks a DIFFERENT action stays a divergence."""
+    from distil.certify.gate import certify
+    from distil.trajectory import Trajectory
+
+    class _ActionFlipRunner:
+        def __init__(self):
+            self.calls = 0
+
+        def decide(self, blocks):
+            self.calls += 1
+            # call order per turn: base, comp, base2 — comp gets a different action
+            phase = (self.calls - 1) % 3
+            action = "readfile" if phase == 1 else "runtests"
+            return f'{{"action":"{action}","target":"prose variant {self.calls}"}}'
+
+    traj = Trajectory.load(CORPUS)
+    report = certify(traj, "none", runner=_ActionFlipRunner(), aa_control=True, margin=0.1)
+    assert all(d.granularity == "action" for d in report.divergences)
+    assert not any(d.matched for d in report.divergences)  # action change caught
+    assert report.tost.mean_diff == -1.0
+    assert not report.tost.non_inferior

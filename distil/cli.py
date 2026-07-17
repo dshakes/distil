@@ -381,6 +381,8 @@ def cmd_certify(args: argparse.Namespace) -> int:
         )
     for d in report.divergences:
         flag = "ok" if d.matched else "DIVERGED"
+        if d.granularity == "action":
+            flag += "  (action-only: baseline target unstable across draws)"
         label = f"{d.traj_id} turn {d.turn}" if d.traj_id else f"turn {d.turn}"
         print(f"  {label}: {flag}")
         if not d.matched:
