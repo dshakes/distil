@@ -53,10 +53,13 @@ Characterizing every divergence taught us three things:
    tool's `action` is now constrained to the tool menu actually declared in
    context, so the grader picks from the same menu the agent would.
 2. **Three were real** — and all three were the model losing detail from the
-   *freshest tool output being digested*: a dropped URL turned a direct
-   `fetchurl` into a `websearch` detour; dropped success-evidence made the
-   model re-execute a completed runbook; a digested policy check let it skip a
-   verification step before issuing a refund. This is precisely the condition
+   *freshest tool output being digested*: digesting a page excerpt cost the
+   model the prose evidence from which it had constructed a direct `fetchurl`
+   (the URL itself was never in context — tracing this precisely took a
+   follow-up debug session; the first write-up wrongly called it "a dropped
+   URL"), so it fell back to a `websearch` detour; dropped success-evidence
+   made the model re-execute a completed runbook; a digested policy check let
+   it skip a verification step before issuing a refund. This is precisely the condition
    the **serving path never exhibits** — production keeps the last
    `RECENCY_KEEP_TURNS` tool outputs byte-exact and offers `distil_expand` —
    and the certified strategy deliberately omits both protections to be
@@ -74,11 +77,17 @@ serving-semantics grading. Two fixes shipped from the characterization and one
 was validated live the same day: constraining the grader's action menu removed
 both paraphrase artifacts on the next opus run (third replication: mean diff
 −0.179 — the divergence *rate* is stable across runs even as individual turns
-churn). URLs also joined SHAs and paths in the salience keep-patterns — note
-precisely where that applies: the salience wrapper protects the conformal
-ladder's `+salience` rungs (what prove.py grades), not the plain block-level
-strategy, whose keep decisions live in tier1 — extending identifier-shaped
-line retention into tier1 itself is tracked follow-up work.
+churn). URLs also joined SHAs and paths as load-bearing artifacts at BOTH layers: the
+salience keep-patterns (protecting the conformal ladder's `+salience` rungs)
+and `keep_policy`'s generic net, which tier1's digest consults for every
+content kind — so an in-context URL now survives digestion on the plain
+strategy too (URL-spam logs still fold via the per-shape repeat cap). Note the
+honest limit found by live A/B: the `fetchurl` divergence above is NOT fixed
+by URL retention, because that URL was never in context — the model built it
+from world knowledge off a prose excerpt that the harsher-than-serving
+strategy digests and serving keeps verbatim (it is the turn's freshest
+output). That residual is a property of the deliberately harsher certification
+condition, not of production behavior.
 
 ## 3. Live decision-equivalence: shadow mode
 

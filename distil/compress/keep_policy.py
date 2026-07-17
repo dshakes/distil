@@ -23,6 +23,14 @@ class ContentKind(str, Enum):
 # Generic salience net — every content kind inherits this.
 _GENERIC_RE = re.compile(r"error|exception|traceback|fail|warn|panic|fatal", re.IGNORECASE)
 
+# URLs are decision-relevant artifacts like SHAs and paths: live opus grading
+# (docs/EVALUATION.md §2.1) caught a digested report URL turning a direct
+# `fetchurl` into a `websearch` detour. URL-bearing lines route through
+# must_keep, so tier1's per-shape repeat cap still bounds URL-spam logs
+# (ponytail: same-shape distinct URLs beyond the cap fold; per-URL keeps if
+# that ever bites a real trace).
+_URL_RE = re.compile(r"https?://")
+
 # Result/verdict line net — pins the outcome line of a command (test run, build,
 # script). Superset of tier1's shipped _SUMMARY_RE + PR additions:
 #   - "errored" count variant (added)
@@ -77,7 +85,7 @@ def must_keep(line: str, kind: ContentKind) -> bool:
     Additional load-bearing lines are pinned per kind: LOG pins result-summary
     lines, TRACEBACK pins stack frames, DIFF pins file and hunk headers.
     """
-    if "DECISION:" in line or _GENERIC_RE.search(line):
+    if "DECISION:" in line or _GENERIC_RE.search(line) or _URL_RE.search(line):
         return True
     if kind is ContentKind.LOG:
         return _SUMMARY_RE.search(line) is not None

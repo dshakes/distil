@@ -193,3 +193,34 @@ def test_log_verdict_survives_digest():
     assert changed
     assert "1955 passed" in d, "verdict dropped"
     assert "188 passed" in d, "file verdict dropped"
+
+
+def test_url_lines_survive_digestion_every_kind():
+    """URL-bearing lines are load-bearing for every content kind — live opus
+    grading caught a digested report URL turning fetchurl into a websearch
+    detour (EVALUATION.md 2.1)."""
+    from distil.compress.keep_policy import ContentKind, must_keep
+    from distil.compress.tier1 import digest
+
+    line = "full report: https://www.ncei.noaa.gov/access/monitoring/monthly-report/global/202313"
+    for kind in ContentKind:
+        assert must_keep(line, kind), kind
+
+    filler = [f"row {i}: ordinary unremarkable output line" for i in range(20)]
+    text = "\n".join(filler[:10] + [line] + filler[10:])
+    out, changed = digest(text)
+    assert changed
+    assert "https://www.ncei.noaa.gov" in out  # the URL survived the fold
+
+
+def test_url_spam_is_still_bounded_by_shape_dedup():
+    """A log spamming same-shape URLs must not defeat compression — must_keep
+    routes URLs through tier1's per-shape repeat cap."""
+    from distil.compress.tier1 import digest
+
+    spam = "\n".join(
+        f"GET https://health.internal/check/{i:04d} 200 OK in 3ms" for i in range(60)
+    )
+    out, changed = digest(spam)
+    assert changed
+    assert len(out) < len(spam) / 2  # spam still folds
