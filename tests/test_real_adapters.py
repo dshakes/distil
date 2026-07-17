@@ -871,6 +871,66 @@ def test_frontier_reports_effective_and_trivial_fields():
     assert rows["byte-exact"]["effective_n"] == 0
 
 
+def test_aa_control_floor_is_zero_for_deterministic_grader():
+    """--aa-control is a provable no-op under a deterministic grader: the second
+    base draw is identical, so the A/A floor is 0 and each level's excess equals
+    its raw decision_change (mirrors the shipped certify-gate control)."""
+    prove = _load_prove()
+    entries = realtrace.load_tau_bench(FIX / "tau_bench_sample.json")
+    gold = realtrace.gold_actions(entries)
+    ladder = default_ladder()
+
+    class _DetCache:  # deterministic: same answer regardless of the aa variant
+        def __init__(self):
+            self.r = SmokeRunner()
+
+        def decide(self, blocks, restore=None, variant=""):
+            return self.r.decide(blocks)
+
+        def prefetch(self, requests, workers=1):
+            pass
+
+    matrix = prove.build_matrix(entries, _DetCache(), ladder, gold, aa_control=True)
+    assert all("aa_loss" in tr for rec in matrix.values() for tr in rec["turns"])
+    rows = prove.e1_frontier(matrix, ladder)
+    assert all(r["aa_floor"] == 0.0 for r in rows)
+    assert all(r["decision_change_vs_floor"] == r["decision_change"] for r in rows)
+
+
+def test_aa_control_subtracts_a_real_self_disagreement_floor():
+    """When the grader disagrees with ITSELF, that floor is subtracted from every
+    level's decision_change — excess is clamped at 0, so a level that only tracks
+    the grader's own noise reads 0% attributable to compression."""
+    prove = _load_prove()
+    entries = realtrace.load_tau_bench(FIX / "tau_bench_sample.json")
+    gold = realtrace.gold_actions(entries)
+    ladder = default_ladder()
+
+    class _StochCache:
+        # base and every compression grade to "a"; the aa variant flips to "b"
+        # on every turn → a 100% self-disagreement floor. No level can then show
+        # excess divergence (they all match base), so every vs-floor is 0.
+        def decide(self, blocks, restore=None, variant=""):
+            return "b" if variant == "aa" else "a"
+
+        def prefetch(self, requests, workers=1):
+            pass
+
+    matrix = prove.build_matrix(entries, _StochCache(), ladder, gold, aa_control=True)
+    rows = prove.e1_frontier(matrix, ladder)
+    assert all(r["aa_floor"] == 1.0 for r in rows)  # total self-disagreement
+    assert all(r["decision_change"] == 0.0 for r in rows)  # every level matches base
+    assert all(r["decision_change_vs_floor"] == 0.0 for r in rows)  # clamped, no excess
+
+
+def test_aa_control_absent_by_default():
+    """Without aa_control the matrix and frontier carry no A/A fields — default
+    behavior and cost are unchanged."""
+    prove, matrix, ladder = _matrix()
+    assert all("aa_loss" not in tr for rec in matrix.values() for tr in rec["turns"])
+    assert all("aa_floor" not in r for r in prove.e1_frontier(matrix, ladder))
+
+
 def test_e4_flags_nonevidential_degenerate_outcomes():
     prove, matrix, ladder = _matrix()
     # force a degenerate outcome label set (all True) — mirrors swe-hf resolved=True

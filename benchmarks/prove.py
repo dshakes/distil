@@ -66,11 +66,13 @@ class DecisionCache:
             h.update(f"{b.kind.value}|{b.stability.value}|{b.text}\x00".encode())
         return h.hexdigest()
 
-    def _compose_key(self, blocks, restore) -> str:
+    def _compose_key(self, blocks, restore, variant: str = "") -> str:
         k = self._key(blocks)
         if restore:  # expand-aware decisions depend on what's recoverable
             rk = hashlib.sha1("".join(sorted(restore)).encode()).hexdigest()[:8]
             k = f"{k}:{rk}"
+        if variant:  # a distinct cache slot forcing an INDEPENDENT second draw of the
+            k = f"{k}:v={variant}"  # SAME context — the A/A self-agreement control.
         return k
 
     def _call(self, blocks, restore) -> str:
@@ -80,8 +82,8 @@ class DecisionCache:
             else self.runner.decide(blocks)
         )
 
-    def decide(self, blocks, restore=None) -> str:
-        k = self._compose_key(blocks, restore)
+    def decide(self, blocks, restore=None, variant: str = "") -> str:
+        k = self._compose_key(blocks, restore, variant)
         if k in self.store:
             self.hits += 1
             return self.store[k]
@@ -98,8 +100,10 @@ class DecisionCache:
         full-corpus API run taking minutes vs. hours (runner calls run in threads;
         results are consumed serially, so the cache/flush stay single-threaded)."""
         todo: dict[str, tuple] = {}
-        for blocks, restore in requests:
-            k = self._compose_key(blocks, restore)
+        for req in requests:
+            blocks, restore = req[0], req[1]
+            variant = req[2] if len(req) > 2 else ""
+            k = self._compose_key(blocks, restore, variant)
             if k not in self.store and k not in todo:
                 todo[k] = (blocks, restore)
         if not todo:
@@ -144,6 +148,7 @@ def build_matrix(
     expand: bool = False,
     baselines=None,
     workers: int = 1,
+    aa_control: bool = False,
 ) -> dict:
     from distil.replay.expand_runner import build_restore
 
@@ -164,6 +169,8 @@ def build_matrix(
                 {("baseline", n): strat(turn.blocks, turn.index) for n, strat in baselines}
             )
             requests.append((turn.blocks, restore))
+            if aa_control:  # an independent second draw of the SAME base context
+                requests.append((turn.blocks, restore, "aa"))
             for c in comps.values():
                 requests.append((c, restore))
             g = gold.get((tid, turn.index))
@@ -187,6 +194,13 @@ def build_matrix(
                 "levels": {},
                 "baselines": {},
             }
+            if aa_control:
+                # A/A self-agreement: the model re-graded on the IDENTICAL base
+                # context. A live grader disagrees with itself on ambiguous turns;
+                # that floor is the noise every level's decision_change also carries
+                # and cannot be attributed to compression.
+                base_aa = cache.decide(base_blocks, restore, variant="aa")
+                tr["aa_loss"] = 0.0 if base_aa == base else 1.0
             for (kind, name), comp in comps.items():
                 dec = cache.decide(comp, restore)
                 bucket = "levels" if kind == "level" else "baselines"
@@ -208,6 +222,13 @@ def build_matrix(
 
 
 def e1_frontier(matrix, ladder) -> list[dict]:
+    # A/A self-agreement floor (present only when build_matrix ran with aa_control):
+    # the mean rate at which the grader disagrees with ITSELF on the identical base
+    # context. Every level's raw decision_change carries this same grader noise, so
+    # the honest per-turn signal attributable to compression is the excess above it.
+    aa = [tr["aa_loss"] for rec in matrix.values() for tr in rec["turns"] if "aa_loss" in tr]
+    aa_floor = (sum(aa) / len(aa)) if aa else None
+
     rows = []
     for name, _ in ladder:
         losses, base_t, comp_t = [], 0, 0
@@ -221,19 +242,24 @@ def e1_frontier(matrix, ladder) -> list[dict]:
                 base_t += tr["base_tok"]
                 comp_t += tr["levels"][name]["comp_tok"]
         n, m = len(losses), len(eff_losses)
-        rows.append(
-            {
-                "level": name,
-                "n": n,
-                "decision_change": (sum(losses) / n) if n else 0.0,
-                # honest denominator: rate over turns the level actually compressed,
-                # and the fraction of turns it left byte-identical (trivially safe).
-                "effective_n": m,
-                "decision_change_effective": (sum(eff_losses) / m) if m else 0.0,
-                "trivial_frac": ((n - m) / n) if n else 0.0,
-                "savings": (1.0 - comp_t / base_t) if base_t else 0.0,
-            }
-        )
+        dc = (sum(losses) / n) if n else 0.0
+        row = {
+            "level": name,
+            "n": n,
+            "decision_change": dc,
+            # honest denominator: rate over turns the level actually compressed,
+            # and the fraction of turns it left byte-identical (trivially safe).
+            "effective_n": m,
+            "decision_change_effective": (sum(eff_losses) / m) if m else 0.0,
+            "trivial_frac": ((n - m) / n) if n else 0.0,
+            "savings": (1.0 - comp_t / base_t) if base_t else 0.0,
+        }
+        if aa_floor is not None:
+            row["aa_floor"] = aa_floor
+            # excess divergence beyond the model's own self-disagreement (clamped
+            # at 0 — a level below the floor is indistinguishable from grader noise).
+            row["decision_change_vs_floor"] = max(0.0, dc - aa_floor)
+        rows.append(row)
     return rows
 
 
@@ -564,6 +590,13 @@ def main() -> int:
         "(local/vLLM/Ollama via --base-url), claude-cli (your Claude Code subscription)",
     )
     ap.add_argument("--samples", type=int, default=1, help="majority-of-k votes per decision")
+    ap.add_argument(
+        "--aa-control",
+        action="store_true",
+        help="measure the grader's A/A self-agreement floor (a second independent draw "
+        "per base context) and report E1 decision-change as excess above it — the "
+        "honest per-turn signal on a stochastic grader. Costs one extra draw per turn.",
+    )
     ap.add_argument("--model", default="claude-opus-4-8", help="grader model id")
     ap.add_argument(
         "--base-url",
@@ -745,7 +778,14 @@ def main() -> int:
 
     cache = DecisionCache(runner, ns)
     matrix = build_matrix(
-        entries, cache, ladder, gold, expand=args.expand, baselines=baselines, workers=args.workers
+        entries,
+        cache,
+        ladder,
+        gold,
+        expand=args.expand,
+        baselines=baselines,
+        workers=args.workers,
+        aa_control=args.aa_control,
     )
     cache.flush()
     print(f"decisions: {cache.hits} cached / {cache.misses} computed (workers={args.workers})")
@@ -764,14 +804,24 @@ def main() -> int:
     print("-" * 73)
     f_rows = e1_frontier(matrix, ladder)
     for r in f_rows:
-        print(
+        line = (
             f"{r['level']:<24}{r['savings'] * 100:>8.1f}%{r['decision_change'] * 100:>11.1f}%{r['n']:>7}"
             f"{r['decision_change_effective'] * 100:>11.1f}%{r['trivial_frac'] * 100:>8.0f}%"
         )
+        if "decision_change_vs_floor" in r:
+            line += f"  (vs A/A floor: {r['decision_change_vs_floor'] * 100:.1f}%)"
+        print(line)
     print(
         "  on-changed = decision-change over only the turns this level actually compressed\n"
         "  (effective n); trivial = % of turns left byte-identical (trivially safe, dilutes the rate)."
     )
+    if f_rows and "aa_floor" in f_rows[0]:
+        print(
+            f"  A/A self-agreement floor: {f_rows[0]['aa_floor'] * 100:.1f}% — the grader's own "
+            "run-to-run disagreement on the identical context. 'vs A/A floor' is the excess\n"
+            "  decision-change attributable to compression (byte-exact reads ~0% here because "
+            "it shares the base cache key — the floor is what actually quantifies grader noise)."
+        )
 
     # ---- head-to-head vs baselines ----------------------------------------
     h2h = []
