@@ -22,10 +22,11 @@
 #     the decision-change rate reflects compression divergence, not model noise.
 #   * Disk-cached decisions (benchmarks/.cache/): after the first live run the E2
 #     result is deterministic — re-running replays from cache. The GATE (E2) is
-#     stable by construction; note honestly that the report's E1/E4 per-turn rates
-#     still carry the grader's variance term (byte-exact reads 0% via cache-key
-#     sharing, not as a measured self-agreement floor) — porting the certify-gate
-#     A/A control into prove.py is tracked follow-up (docs/EVALUATION.md 2.1).
+#     stable by construction. The report's raw E1/E4 per-turn rates carry the
+#     grader's variance term (byte-exact reads 0% via cache-key sharing, not as a
+#     measured floor); add `--aa-control` to report each level's excess above the
+#     grader's A/A self-agreement floor (off here to stay within the call budget;
+#     see docs/EVALUATION.md 2.1).
 #   * --ladder quick (4 rungs): cuts live calls from ~1 000 (full ladder) to 396
 #     (132 unique context pairs × 3 samples, cold cache). Subsequent runs: 0 new calls.
 #   * --gate exits non-zero when E2 violates: certified_frac=0, coverage<1-δ, or

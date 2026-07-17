@@ -89,12 +89,15 @@ strategy digests and serving keeps verbatim (it is the turn's freshest
 output). That residual is a property of the deliberately harsher certification
 condition, not of production behavior.
 
-One measurement gap remains open (tracked, stated rather than papered over):
-`benchmarks/prove.py`'s per-turn rates carry the grader's full variance term —
-its byte-exact rung reads 0% only because it shares the baseline's decision
-cache key (a structural artifact, not a measured self-agreement floor), so its
-all-turns-conjunction metrics (E4) overstate live divergence for multi-turn
-trajectories. The A/A control above needs porting into that harness.
+This same control is now available in the offline harness too:
+`benchmarks/prove.py --aa-control` adds an independent second draw of each base
+context (cache-busted, so it's a genuine fresh grade) and reports each E1
+level's decision-change as the excess above the measured A/A floor. It exists
+because prove.py's raw per-turn rates carry the grader's full variance term —
+and its byte-exact rung reads 0% only because it shares the baseline's decision
+cache key (a structural artifact, not a measured floor). The flag is off by
+default (it costs one extra draw per turn); the E2 conformal gate the nightly
+enforces is unaffected either way.
 
 ## 3. Live decision-equivalence: shadow mode
 
