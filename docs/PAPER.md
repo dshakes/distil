@@ -586,6 +586,20 @@ Decision-equivalence is the right contract for agent context compression, and it
 carry a distribution-free guarantee validated on real traces. The reversible engine
 sits safely inside the certified frontier.
 
+## Recent additions (July 2026)
+
+**§ "Live validation of the synthetic-corpus gate"** (new subsection, Analysis section,
+after E14): documents the July 2026 live-certification methodology work. Introduces the
+A/A self-agreement control (paired statistic subtracts the grader's own sampling floor from
+the A/B divergence rate), the measurability probe (second baseline draw decides per-turn
+action-only vs.\ full-fingerprint grading), and the grader action-menu constraint (forces
+\texttt{action} to the declared tool menu). Reports the empirical finding that, under a
+deliberately harsher-than-serving condition, the reference model diverges on 11--21% of turns
+beyond its own A/A floor (replicated 3×), with every real divergence tracing to fresh-output
+digestion---the condition the serving-path recency carve-out prevents. Includes the
+\texttt{fetchurl} misdiagnosis correction: the URL was never in context; the model
+constructed it from a digested prose excerpt.
+
 ## Reproducing
 
 ```bash

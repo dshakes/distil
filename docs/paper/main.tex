@@ -1294,6 +1294,102 @@ statement with the same statistics. Honest scope: E$'$ and E8's conditions were 
 independent sweeps over the same instance set (matched by instance, not seed), and this is
 one model/agent pairing; the certificate quantifies exactly what was measured, nothing more.
 
+\subsection{Live validation of the synthetic-corpus gate: grading methodology and a negative
+  result}
+\label{sec:livecert}
+
+The per-commit CI gate certifies decision-equivalence on a bundled synthetic corpus with a
+deterministic oracle; no real model is involved. In July 2026 we pointed a real grader
+(\texttt{claude-opus-4-8}, majority-of-3, with an A/A self-agreement control) at the same
+corpus under the same certified strategy---and it failed the live margin, twice, reproducibly:
+\textbf{5--6 of 28 turns diverged beyond the A/A self-agreement floor}. Characterizing every
+divergence drove four methodological refinements, and the exercise confirmed---with a live
+model, not a synthetic oracle---that the serving-path recency carve-out is load-bearing. We
+publish this as evidence, not confession, in the same register as E7.
+
+\paragraph{A/A self-agreement control for live decision-equivalence grading.}
+Grading a stochastic model against a deterministic oracle conflates two distinguishable
+effects: true compression-induced divergence and the grader's own run-to-run sampling
+variance. To separate them we draw a \emph{second uncompressed baseline} per turn and make the
+paired statistic $(A/B\text{ match}) - (A/A\text{ match})$: compression is measured relative
+to the model's self-agreement floor, not against impossible determinism. This is provably a
+no-op under a deterministic oracle (the $A/A$ draw is identical, the subtracted quantity is
+$0$), so the offline per-commit gate semantics are unchanged
+(\texttt{distil/certify/gate.py}, \texttt{tests/test\_certify.py}). On live
+runs, A/A floors varied from \textbf{75\% to 100\% per trajectory} with majority-of-3
+sampling---meaning a raw $A/B$ rate in the mid-70s on one trajectory is not a compression
+failure, it is the model disagreeing with itself. Without the control, that variance would be
+attributed entirely to compression. Published work that evaluates decision-equivalence without
+this subtraction~\cite{acon,contextcodec,damc} conflates the two effects; a fraction of the
+harm they attribute to compression is sampling nondeterminism.
+
+\paragraph{The measurability probe: A/A as a per-turn granularity filter.}
+The second baseline draw doubles as a per-turn \emph{measurability decision}: if the two
+uncompressed baseline draws disagree on the free-text $\langle\textsf{target}\rangle$ field,
+the target carries no signal for that turn and both arms are graded on \textsf{action} only;
+if the baseline is self-consistent, strict full-fingerprint grading applies. The key property
+is that the granularity choice is made entirely from the two baseline draws and cannot bias
+the comparison in either direction. The observed effect was immediate: on the trajectory where
+the A/A floor had been 75\%, adding the probe raised it to \textbf{82.1\%}, and per-trajectory
+verdicts stopped flipping between identical pooled runs---the instability was target-string
+noise, not a compression signal. After the probe, the A/A floor stabilized at
+\textbf{93--100\%} per trajectory.
+
+\paragraph{Grader action-menu constraint.}
+The grader's decision tool \texttt{action} field is now constrained to the tool menu actually
+declared in the context's \texttt{TOOLS} blocks (parsed from \texttt{-~name(args):} lines,
+fail-open to a free string when none parse). This removes false divergences from
+paraphrase-typed action names---e.g.\ \texttt{summarizeandshare}
+vs.\ \texttt{summarizefindingsandsharechart}---without loosening fingerprint equality on
+genuine divergences; a real agent picks from its real tool menu and the grader now does the
+same. This fix eliminated two of the five to six observed divergences (the metric artifacts).
+
+\paragraph{Statistical power: per-trajectory $n$ is too small; pooling is the honest unit.}
+Per-trajectory turn counts on this corpus are 4--6---hopelessly underpowered for a live TOST
+verdict: one trajectory produced mean diff $+0.5$ yet failed at $p=0.085$, the verdict itself
+a coin flip. The honest unit is to pool all turns across trajectories into a single test. The
+pooled corpus (28 turns, A/A-controlled, majority-of-3, \texttt{claude-opus-4-8}, serving
+semantics with recency carve-out and \texttt{distil\_expand}) yielded mean diff $-0.036$,
+$p=0.041$, \textsc{pass}.
+
+\paragraph{Empirical finding: the recency carve-out is load-bearing.}
+Under the deliberately harsher-than-serving condition---freshest tool output digested, no
+\texttt{distil\_expand} affordance---the reference model diverged on \textbf{11--21\% of
+turns beyond its own A/A floor, replicated three times}. Characterizing every divergence
+revealed two classes:
+
+\begin{enumerate}
+  \item \textbf{Metric artifacts (2 of 5--6 divergences).} A free-typed action paraphrase and
+    a one-token target paraphrase, neither flagged by the deterministic oracle. Fixed by the
+    action-menu constraint above. The divergence \emph{rate} is stable across replications
+    even as individual artifact turns churn (third replication after the action-menu fix:
+    mean diff $-0.179$, i.e.\ $\approx17.9\%$ compression-attributable divergence
+    remains).
+
+  \item \textbf{Real divergences (3 of 5--6).} Every real divergence traced to the model
+    losing detail from the \emph{freshest tool output being digested}. The three cases:
+    (i)~digesting a page excerpt cost the model the prose from which it had constructed a
+    direct \texttt{fetchurl} call; notably, the URL itself was \emph{never in context}---the
+    model derived it from world knowledge off the prose excerpt, so it fell back to a
+    \texttt{websearch} detour when that excerpt was digested (the initial write-up called
+    this ``a dropped URL,'' a misdiagnosis; tracing it precisely required a follow-up debug
+    session, and URL-retention alone does not fix it); (ii)~dropped success-evidence made the
+    model re-execute a completed runbook; (iii)~a digested policy check let it skip a
+    required verification step before issuing a refund.
+\end{enumerate}
+
+All three real cases arise from a condition the \emph{serving path never exhibits}: production
+keeps the last \texttt{RECENCY\_KEEP\_TURNS} tool outputs byte-exact and offers
+\texttt{distil\_expand}, neither of which the harsher certification strategy exercises by
+design. The nightly live gate consequently moved to \texttt{benchmarks/prove.py}'s real-trace,
+serving-semantics grading, which does not exercise the harsher condition. As a product fix,
+URL-bearing lines joined SHAs and paths as load-bearing artifacts in the salience
+keep-patterns and the \texttt{keep\_policy} generic net, so in-context URLs now survive
+digestion on the plain strategy too---a real product gap, even though it does not address the
+\texttt{fetchurl} divergence above (whose URL was never in context). That residual is a
+property of the harsher certification condition, not of production behavior, and the recency
+carve-out is its structural remedy.
+
 \section{Conclusion}
 Decision-equivalence is the right contract for agent context compression, and it can
 carry a distribution-free guarantee validated on real traces. The certificate
@@ -1363,6 +1459,8 @@ by betting.} J.~R.~Stat.~Soc.~B, 2023. arXiv:2010.09686.
 \bibitem{silverbullet} C.~Deng et al. \emph{A Silver Bullet or a Compromise for Full
 Attention? A Comprehensive Study of Gist Token-based Context Compression.} ACL, 2025.
 arXiv:2412.17483.
+\bibitem{contextcodec} \emph{Context Codec.} arXiv:2605.17304, 2026.
+\bibitem{damc} \emph{Decision-Aware Memory Cards.} arXiv:2606.08151, 2026.
 \end{thebibliography}
 
 \end{document}
