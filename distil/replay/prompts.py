@@ -124,6 +124,29 @@ DECISION_PARAMS = {
 }
 DECISION_TOOL_DESC = "Record the single next action the agent will take given the context."
 
+# Tool declarations in context look like "- tool_name(args): description".
+_TOOL_DECL = re.compile(r"^\s*-\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE)
+
+
+def available_actions(blocks) -> list[str]:
+    """Tool names declared in the context's TOOLS blocks, in order, deduped.
+
+    Used to constrain the decision tool's ``action`` field to the actions the
+    agent could actually take. Without the constraint the grader model free-
+    types action names and invents paraphrases ("summarize_and_share" vs
+    "summarize_findings_and_share_chart" — observed live), which registers as
+    a decision change when the decision is identical. Constraining to the real
+    tool menu removes that noise WITHOUT loosening fingerprint equality — a
+    real agent picks from its real tools too. Returns [] when no declarations
+    parse (the schema then stays a free string — fail-open)."""
+    from ..trajectory import Kind
+
+    names: list[str] = []
+    for b in blocks:
+        if getattr(b, "kind", None) is Kind.TOOLS:
+            names.extend(_TOOL_DECL.findall(b.text))
+    return list(dict.fromkeys(names))
+
 
 def fingerprint_from_args(args) -> str:
     """Canonical fingerprint from a tool/function call's parsed arguments (dict or

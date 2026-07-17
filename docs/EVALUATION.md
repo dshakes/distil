@@ -38,6 +38,41 @@ the conservative/reversible tier rather than the tier that scores best on a
 compression-ratio leaderboard. If you turn off the safety machinery, E7 is
 what you get back.
 
+## 2.1 Live grading of the synthetic-corpus gate (2026-07)
+
+The per-commit CI gate certifies decision-equivalence on a bundled synthetic
+corpus with a deterministic oracle. In July 2026 we pointed a **real** grader
+(claude-opus-4-8, majority-of-3, with an A/A self-agreement control) at the
+same corpus under the same certified strategy — and it failed the live margin,
+twice, reproducibly: 5–6 of 28 turns diverged beyond a 93–100% A/A floor.
+
+Characterizing every divergence taught us three things:
+
+1. **Two were metric artifacts** — the grader free-typing paraphrased action
+   names, and a one-token target paraphrase. Fixed at the root: the decision
+   tool's `action` is now constrained to the tool menu actually declared in
+   context, so the grader picks from the same menu the agent would.
+2. **Three were real** — and all three were the model losing detail from the
+   *freshest tool output being digested*: a dropped URL turned a direct
+   `fetchurl` into a `websearch` detour; dropped success-evidence made the
+   model re-execute a completed runbook; a digested policy check let it skip a
+   verification step before issuing a refund. This is precisely the condition
+   the **serving path never exhibits** — production keeps the last
+   `RECENCY_KEEP_TURNS` tool outputs byte-exact and offers `distil_expand` —
+   and the certified strategy deliberately omits both protections to be
+   harsher than serving.
+3. **The deterministic oracle cannot see any of this.** It passes the same
+   inputs at 100%.
+
+So the live run measured, with a real model, exactly why the recency carve-out
+is load-bearing: without it, even the reversible digest changes the reference
+model's next action on ~1 turn in 9 on this corpus. Like E7, we publish this
+as evidence, not confession — it moved the nightly live gate off the
+synthetic-corpus/harsher-strategy configuration (which measures a condition
+production never runs) and onto `benchmarks/prove.py`'s real-trace,
+serving-semantics grading. The dropped-URL case also shipped a product fix:
+URLs now join SHAs and paths in the salience keep-patterns.
+
 ## 3. Live decision-equivalence: shadow mode
 
 The trajectory certificate (below) is offline, run against a fixed corpus.

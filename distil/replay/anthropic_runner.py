@@ -110,11 +110,26 @@ class AnthropicRunner:
         ]
         user = "\n\n".join(f"[{b.kind.value}] {b.text}" for b in rest)
 
+        # Constrain `action` to the tools the context actually declares — the
+        # grader must pick from the same menu the agent would (kills free-typed
+        # action paraphrases that register as false decision changes). Falls
+        # back to the free-string schema when no declarations parse.
+        decision_tool = _DECISION_TOOL
+        actions = prompts.available_actions(blocks)
+        if actions:
+            import copy
+
+            from typing import cast
+
+            decision_tool = copy.deepcopy(_DECISION_TOOL)
+            schema = cast("dict[str, Any]", decision_tool["input_schema"])
+            schema["properties"]["action"]["enum"] = actions
+
         resp = self._create(
             model=self.model,
             max_tokens=self.max_tokens,
             system="\n\n".join(system_parts) or "You are an autonomous agent.",
-            tools=[_DECISION_TOOL],
+            tools=[decision_tool],
             tool_choice={"type": "tool", "name": "record_decision"},
             messages=[
                 {

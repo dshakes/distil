@@ -25,6 +25,15 @@ def test_pattern_signal_catches_identifier_shapes():
     assert "a@b.com" in toks
 
 
+def test_pattern_signal_catches_urls():
+    """Live-grading find (2026-07-16): a digested URL made the reference model
+    fall back from fetchurl to a websearch detour — URLs are decision-relevant
+    artifacts exactly like SHAs and paths."""
+    t = "monthly report at https://www.ncei.noaa.gov/access/monitoring/monthly-report/global/202313 per NOAA"
+    toks = salient_tokens(t)
+    assert any(t.startswith("https://www.ncei.noaa.gov") for t in toks)
+
+
 def test_entropy_signal_catches_novel_ids_no_regex_anticipates():
     # a random-looking key no fixed pattern would match
     toks = salient_tokens("token=x7Qm9Zk2Lp4Rt8Wv the rest is ordinary prose words here")

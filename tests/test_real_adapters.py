@@ -891,3 +891,51 @@ def test_report_to_latex_refuses_smoke_run(tmp_path):
     out = subprocess.run([sys.executable, str(script), str(rep)], capture_output=True, text=True)
     assert out.returncode != 0
     assert "smoke" in (out.stderr + out.stdout).lower()
+
+
+def test_available_actions_parses_tool_declarations():
+    """The decision tool's action enum comes from the context's real tool menu."""
+    from distil.replay.prompts import available_actions
+    from distil.trajectory import Block, Kind, Stability
+
+    tools = Block(
+        "tools",
+        Kind.TOOLS,
+        "AVAILABLE TOOLS (json schema, abbreviated):\n"
+        "- lookup_order(order_id): returns order status.\n"
+        "- kb_search(query): searches the KB.\n"
+        "- issue_refund(order_id, amount, method): posts a refund.\n"
+        "- kb_search(query): duplicate declaration.\n",
+        Stability.STABLE,
+    )
+    prose = Block("sys", Kind.SYSTEM, "- not_a_tool(x): wrong kind", Stability.STABLE)
+    assert available_actions([tools, prose]) == ["lookup_order", "kb_search", "issue_refund"]
+    assert available_actions([prose]) == []  # no TOOLS block -> free-string fallback
+
+
+def test_anthropic_runner_constrains_action_to_available_tools():
+    """The runner passes the parsed tool menu as the action enum; the module
+    constant is never mutated (deepcopy)."""
+    from types import SimpleNamespace
+
+    from distil.replay import anthropic_runner as ar
+    from distil.trajectory import Block, Kind, Stability
+
+    seen = {}
+
+    class _FakeMessages:
+        def create(self, **kw):
+            seen.update(kw)
+            blk = SimpleNamespace(type="tool_use", input={"action": "kb_search", "target": "t"})
+            return SimpleNamespace(content=[blk])
+
+    client = SimpleNamespace(messages=_FakeMessages())
+    runner = ar.AnthropicRunner(client=client)
+    blocks = [
+        Block("tools", Kind.TOOLS, "- kb_search(q): x\n- issue_refund(o): y", Stability.STABLE),
+        Block("obs", Kind.TOOL_OUTPUT, "output", Stability.VOLATILE),
+    ]
+    runner.decide(blocks)
+    enum = seen["tools"][0]["input_schema"]["properties"]["action"].get("enum")
+    assert enum == ["kb_search", "issue_refund"]
+    assert "enum" not in ar._DECISION_TOOL["input_schema"]["properties"]["action"]

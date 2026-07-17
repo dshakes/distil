@@ -50,6 +50,9 @@ _PATTERNS = re.compile(
       | \b[\w.+-]+@[\w-]+\.[\w.-]+\b                                # email
       | \b(?:\d{1,3}\.){3}\d{1,3}\b                                 # IPv4
       | \bv?\d+\.\d+\.\d+(?:-[\w.]+)?\b                             # semver
+      | \bhttps?://[^\s<>"')\]]+                                    # URL (live-grading find: a
+                                                                    # digested URL turned fetchurl
+                                                                    # into a websearch detour)
       | (?:~|\.{1,2})?/?(?:[\w.\-]+/){2,}[\w.\-]+                   # file path (>=2 separators)
     )""",
     re.VERBOSE,
