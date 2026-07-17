@@ -539,6 +539,18 @@ def gate_check(cov: dict, alpha: float, delta: float) -> tuple[bool, str]:
 
 
 def main() -> int:
+    # The report prints α/≤/✔/· — Windows cp1252 consoles crash on those
+    # (UnicodeEncodeError killed the CI gate subprocess). Force UTF-8 with
+    # replacement so the gate's exit code is always about the RESULT, never
+    # the console encoding. hasattr guard: exotic/captured streams may not
+    # expose reconfigure.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001 — cosmetics must never break the gate
+                pass
+
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
