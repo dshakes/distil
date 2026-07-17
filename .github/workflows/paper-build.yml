@@ -36,7 +36,10 @@ jobs:
           working_directory: docs/paper
           root_file: main.tex
           latexmk_use_xelatex: false
-          args: -pdf -interaction=nonstopmode -halt-on-error -file-line-error
+          # -g forces processing: CI checkouts give sources and committed PDFs
+          # identical mtimes, so plain latexmk declares 'up-to-date' and skips
+          # the build (observed: a dispatch run shipped a stale PDF silently).
+          args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
 
       - name: Compile NeurIPS variant
         uses: xu-cheng/latex-action@v3
@@ -44,12 +47,15 @@ jobs:
           working_directory: docs/paper
           root_file: main_neurips.tex
           latexmk_use_xelatex: false
-          args: -pdf -interaction=nonstopmode -halt-on-error -file-line-error
+          # -g forces processing: CI checkouts give sources and committed PDFs
+          # identical mtimes, so plain latexmk declares 'up-to-date' and skips
+          # the build (observed: a dispatch run shipped a stale PDF silently).
+          args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
 
       # Close the staleness loop: on push to main, commit the rebuilt PDFs so the
       # tracked artifacts can never drift from the source again. (PRs only verify.)
       - name: Commit rebuilt PDFs
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: |
           cd docs/paper
           if ! git diff --quiet -- main.pdf main_neurips.pdf; then
@@ -57,6 +63,8 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add main.pdf main_neurips.pdf
             git commit -m "paper: rebuild PDFs from source [skip ci]"
+            # a concurrent push to main must not fail the build; integrate first
+            git pull --rebase origin main
             git push
           else
             echo "PDFs already match source."
