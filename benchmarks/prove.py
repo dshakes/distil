@@ -480,6 +480,64 @@ def gold_agreement(matrix) -> tuple[int, int]:
     return matched, total
 
 
+# --------------------------------------------------------------------------- #
+# Gate — CI exit-code check on E2 results
+# --------------------------------------------------------------------------- #
+
+
+def gate_check(cov: dict, alpha: float, delta: float) -> tuple[bool, str]:
+    """Return (pass, human-readable verdict) for a CI gate over E2 coverage results.
+
+    Gate rationale (three checks in strictness order):
+    1. certified_frac > 0  — at least one calib/test split produced a certified level.
+       Zero means the dataset is too small or distil's compression is fundamentally
+       broken (no level passes the LTT/CRC bound). Either way the certificate is void.
+    2. empirical_coverage ≥ 1−δ  — the fraction of splits where the realized
+       decision-change rate stayed ≤ α. This is the LTT guarantee: P(realized ≤ α) ≥ 1−δ.
+       Failure means the certificate doesn't hold out-of-sample — i.e. the compressor
+       is changing more decisions on unseen data than the α budget.
+    3. mean_realized_risk ≤ α  — the average realized risk across certified splits.
+       A second-order check: even if *empirical_coverage* just barely passes, a large mean
+       risk signals the bound is too tight for this data size. Conservative but cheap to add.
+
+    Stability: with --samples 3 (majority vote) and disk caching, the E2 result is
+    deterministic after the first live run — re-running prove.py replays from cache and
+    produces identical coverage numbers. No A/A control is needed as a separate step;
+    the LTT/CRC conformal framework absorbs stochasticity by design (its guarantee holds
+    in expectation over the random data split, not per call).
+    """
+    if cov["certified_frac"] == 0.0:
+        return (
+            False,
+            f"GATE FAIL — certified_frac=0.0: no split certified at α={alpha}; "
+            "corpus too small or compression fundamentally broken",
+        )
+    target = 1.0 - delta
+    if cov["empirical_coverage"] < target - 1e-9:
+        return (
+            False,
+            f"GATE FAIL — empirical_coverage={cov['empirical_coverage']:.3f} < {target:.2f} "
+            f"(1−δ); certificate does not hold out-of-sample",
+        )
+    if cov["mean_realized_risk"] > alpha + 1e-9:
+        return (
+            False,
+            f"GATE FAIL — mean_realized_risk={cov['mean_realized_risk']:.3f} > α={alpha}; "
+            "mean held-out risk exceeds budget",
+        )
+    return (
+        True,
+        f"GATE PASS — certified_frac={cov['certified_frac']:.1%}  "
+        f"coverage={cov['empirical_coverage']:.1%}≥{target:.0%}  "
+        f"realized_risk={cov['mean_realized_risk'] * 100:.2f}%≤{alpha * 100:.1f}%",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -545,6 +603,22 @@ def main() -> int:
         "default conservative no-expand lower bound",
     )
     ap.add_argument("--report", help="write full JSON report here")
+    ap.add_argument(
+        "--gate",
+        action="store_true",
+        help="CI gate mode: exit non-zero when E2 results violate thresholds "
+        "(certified_frac>0, empirical_coverage≥1−δ, mean_realized_risk≤α). "
+        "With disk caching the result is deterministic after the first live run.",
+    )
+    ap.add_argument(
+        "--max-live-calls",
+        type=int,
+        default=None,
+        metavar="N",
+        help="hard ceiling on live API calls for the anthropic runner (the run fails loudly "
+        "at N instead of spending silently); ignored for smoke/openai/claude-cli runners "
+        "which don't count calls the same way",
+    )
     args = ap.parse_args()
 
     # ---- load traces -------------------------------------------------------
@@ -602,7 +676,9 @@ def main() -> int:
     elif args.runner == "anthropic":
         from distil.replay.anthropic_runner import AnthropicRunner
 
-        runner = AnthropicRunner(model=args.model, samples=args.samples)
+        runner = AnthropicRunner(
+            model=args.model, samples=args.samples, max_calls=args.max_live_calls
+        )
         ns = f"anthropic_{args.model}_s{args.samples}"
     elif args.runner == "openai":
         from distil.replay.openai_runner import OpenAIRunner
@@ -792,7 +868,14 @@ def main() -> int:
             )
         )
         print(f"\nreport → {args.report}")
-    return 0
+
+    rc = 0
+    if args.gate:
+        ok, verdict = gate_check(cov, alpha=args.alpha, delta=args.delta)
+        print(f"\n{verdict}")
+        if not ok:
+            rc = 1
+    return rc
 
 
 if __name__ == "__main__":

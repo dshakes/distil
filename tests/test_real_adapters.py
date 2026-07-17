@@ -913,6 +913,123 @@ def test_available_actions_parses_tool_declarations():
     assert available_actions([prose]) == []  # no TOOLS block -> free-string fallback
 
 
+# --------------------------------------------------------------------------- #
+# gate_check — pure-function unit tests (no network)
+# --------------------------------------------------------------------------- #
+
+
+def test_gate_check_passes():
+    prove = _load_prove()
+    cov = {
+        "certified_frac": 0.8,
+        "empirical_coverage": 0.96,
+        "mean_realized_risk": 0.05,
+    }
+    ok, msg = prove.gate_check(cov, alpha=0.2, delta=0.05)
+    assert ok
+    assert "GATE PASS" in msg
+
+
+def test_gate_check_fails_no_certification():
+    prove = _load_prove()
+    cov = {"certified_frac": 0.0, "empirical_coverage": 0.0, "mean_realized_risk": 1.0}
+    ok, msg = prove.gate_check(cov, alpha=0.2, delta=0.05)
+    assert not ok
+    assert "certified_frac=0.0" in msg
+
+
+def test_gate_check_fails_undercoverage():
+    prove = _load_prove()
+    cov = {
+        "certified_frac": 0.8,
+        "empirical_coverage": 0.80,
+        "mean_realized_risk": 0.05,
+    }
+    ok, msg = prove.gate_check(cov, alpha=0.2, delta=0.05)
+    assert not ok
+    assert "empirical_coverage" in msg
+
+
+def test_gate_check_fails_realized_risk():
+    prove = _load_prove()
+    cov = {
+        "certified_frac": 0.8,
+        "empirical_coverage": 0.97,
+        "mean_realized_risk": 0.25,  # above alpha=0.20
+    }
+    ok, msg = prove.gate_check(cov, alpha=0.2, delta=0.05)
+    assert not ok
+    assert "mean_realized_risk" in msg
+
+
+def test_gate_check_boundary_exactly_at_threshold():
+    prove = _load_prove()
+    # exactly at threshold (floating-point tolerance in gate_check)
+    cov = {"certified_frac": 0.5, "empirical_coverage": 0.95, "mean_realized_risk": 0.20}
+    ok, _ = prove.gate_check(cov, alpha=0.2, delta=0.05)
+    assert ok  # at boundary should pass
+
+
+def test_gate_mode_exits_zero_on_passing_smoke_run():
+    """End-to-end: smoke runner at α=0.20 should satisfy the gate (fixture dataset)."""
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parent.parent / "benchmarks" / "prove.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--dataset",
+            "fixtures",
+            "--runner",
+            "smoke",
+            "--alpha",
+            "0.20",
+            "--delta",
+            "0.05",
+            "--reps",
+            "50",
+            "--gate",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"expected 0, got {result.returncode}\n{result.stdout}\n{result.stderr}"
+    )
+    assert "GATE PASS" in result.stdout
+
+
+def test_gate_mode_exits_nonzero_on_impossible_threshold():
+    """End-to-end: α=0.0 is impossible on a finite dataset → gate must fail."""
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parent.parent / "benchmarks" / "prove.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--dataset",
+            "fixtures",
+            "--runner",
+            "smoke",
+            "--alpha",
+            "0.0",
+            "--delta",
+            "0.05",
+            "--reps",
+            "20",
+            "--gate",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, f"expected non-zero exit\n{result.stdout}\n{result.stderr}"
+    assert "GATE FAIL" in result.stdout
+
+
 def test_anthropic_runner_constrains_action_to_available_tools():
     """The runner passes the parsed tool menu as the action enum; the module
     constant is never mutated (deepcopy)."""
