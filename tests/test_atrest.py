@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import stat
 
+import sys
+
 import pytest
 
 import distil.atrest as atrest
@@ -85,6 +87,7 @@ def test_nonce_uniqueness_across_writes():
     assert atrest.decrypt_bytes(blob2) == data
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod 0600 is a no-op on Windows (mode reads back 0o666); the owner-only guarantee is POSIX-only")
 def test_key_file_created_with_0600(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     atrest._load_key()

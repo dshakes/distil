@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import sys
+
 import pytest
 
 from distil.gateway import GatewayState, _RateLimiter, build_gateway_handler
@@ -221,6 +223,7 @@ def test_key_store_cross_process_reload(tmp_path: Path) -> None:
     assert store2.lookup(raw) is not None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod 0600 is a no-op on Windows (mode reads back 0o666); the owner-only guarantee is POSIX-only")
 def test_key_store_file_chmod(tmp_path: Path) -> None:
     """Key file must be chmod 0600 (owner-only)."""
     store = GatewayKeyStore(tmp_path / "gateway_keys.json")
