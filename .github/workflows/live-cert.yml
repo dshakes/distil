@@ -28,8 +28,12 @@
 name: live-cert
 
 on:
-  schedule:
-    - cron: "43 3 * * *"
+  # Cron PAUSED 2026-07-16 while the gate is repointed at serving semantics:
+  # live opus grading showed the corpus+harsher-strategy condition diverges
+  # beyond the live margin (replicated; see docs/EVALUATION.md "Live grading
+  # of the synthetic-corpus gate"). Re-enable with the prove.py-based gate.
+  # schedule:
+  #   - cron: "43 3 * * *"
   workflow_dispatch:
 
 permissions:
