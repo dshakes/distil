@@ -468,6 +468,8 @@ show alongside it. That badge + this repo are the whole marketing department.
 
 PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The one rule that matters: **a new compression strategy must pass `make gate`** (non-inferior on every domain, byte-reversible). No green gate, no merge. That's the whole philosophy in one sentence.
 
+**Beta program** — want early access to v1.20.0 and to help close the GA gate? See [docs/BETA.md](docs/BETA.md).
+
 ## License
 
 [Apache-2.0](LICENSE) · *“Same potency, less volume.”*
