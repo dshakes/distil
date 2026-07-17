@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.dshakes/distil -->
 <p align="center">
   <img src="docs/assets/banner.svg" alt="Distil — compression with a quality contract" width="100%"/>
 </p>

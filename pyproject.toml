@@ -48,6 +48,11 @@ otel = ["opentelemetry-api>=1.20"]                    # GenAI semantic-conventio
 
 [project.scripts]
 distil = "distil.cli:main"
+# Unambiguous MCP launch target for registry/client configs: `uvx --from
+# distil-llm distil-mcp` — the console script is otherwise `distil` while the
+# distribution is `distil-llm`, and MCP server.json launch specs don't cover
+# the `script subcommand` form cleanly.
+distil-mcp = "distil.mcp_server:serve"
 
 [build-system]
 requires = ["hatchling"]
