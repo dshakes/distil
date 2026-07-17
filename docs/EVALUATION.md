@@ -70,8 +70,15 @@ model's next action on ~1 turn in 9 on this corpus. Like E7, we publish this
 as evidence, not confession — it moved the nightly live gate off the
 synthetic-corpus/harsher-strategy configuration (which measures a condition
 production never runs) and onto `benchmarks/prove.py`'s real-trace,
-serving-semantics grading. The dropped-URL case also shipped a product fix:
-URLs now join SHAs and paths in the salience keep-patterns.
+serving-semantics grading. Two fixes shipped from the characterization and one
+was validated live the same day: constraining the grader's action menu removed
+both paraphrase artifacts on the next opus run (third replication: mean diff
+−0.179 — the divergence *rate* is stable across runs even as individual turns
+churn). URLs also joined SHAs and paths in the salience keep-patterns — note
+precisely where that applies: the salience wrapper protects the conformal
+ladder's `+salience` rungs (what prove.py grades), not the plain block-level
+strategy, whose keep decisions live in tier1 — extending identifier-shaped
+line retention into tier1 itself is tracked follow-up work.
 
 ## 3. Live decision-equivalence: shadow mode
 
