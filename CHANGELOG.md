@@ -3,6 +3,11 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.20.1] — proxy worker survives broken client writes
+
+### Fixed
+- **`proxy worker died (exit=-13)` on long sessions.** `main()` restores SIGPIPE to `SIG_DFL` (correct for CLI filters piped to `head`), but the proxy worker and the in-thread proxy are long-lived network servers: a write to a client/upstream socket that had hung up killed the whole worker with signal 13 instead of raising a catchable `BrokenPipeError`, dropping in-flight state on each `respawning`. Both serving paths now reinstate the server-safe `SIG_IGN` (`distil/hotswap.py`, `distil/proxy.py`), next to where they already override SIGINT for the same "server, not a filter" reason — a broken client now aborts only that one request. Regression test asserts a worker survives 30 abrupt RST disconnects and still serves (`tests/test_hotswap.py`), verified to fail without the fix.
+
 ## [1.20.0] — proof surfaces: live gate, OpenAI/Gemini parity, gateway keys, encrypt-at-rest
 
 ### Certification & honesty
