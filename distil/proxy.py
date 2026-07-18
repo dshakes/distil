@@ -1505,6 +1505,13 @@ def wrap_run(
         signal.signal(signal.SIGINT, lambda *_: None)
     except ValueError:
         pass  # not the main thread (embedded use) — finally-block still covers teardown
+    # main() set SIGPIPE to SIG_DFL (right for CLI filters). The in-thread proxy
+    # server runs in THIS process; a write to a client socket that hung up must
+    # raise a catchable BrokenPipeError, not kill the whole wrap with exit=-13.
+    try:
+        signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    except (ValueError, AttributeError):
+        pass  # not main thread, or no SIGPIPE (Windows) — harmless to skip
     if supervisor is not None:
         try:
             # Manual hot-swap: `kill -USR1 <wrap pid>` — handler only sets an

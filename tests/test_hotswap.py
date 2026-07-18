@@ -161,6 +161,48 @@ def test_worker_serves_on_inherited_fd_and_drains_clean(tmp_path):
     assert proc.wait(timeout=30) == 0
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGPIPE"), reason="no SIGPIPE on this platform")
+def test_worker_survives_abrupt_client_disconnect(tmp_path):
+    """Regression for `proxy worker died (exit=-13)` on long sessions.
+
+    main() restores SIGPIPE to SIG_DFL (right for CLI filters piped to head).
+    A write to a client socket that hung up would then kill the whole worker
+    with signal 13 instead of raising a catchable BrokenPipeError. The worker
+    must reinstate SIG_IGN so a broken client only aborts that one request.
+    """
+    import struct
+
+    upstream = _start_upstream()
+    proc, port, _listener = _spawn_worker(tmp_path, upstream.server_address[1], record=False)
+    payload = _payload()
+    req = (
+        b"POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        b"Content-Type: application/json\r\nContent-Length: "
+        + str(len(payload)).encode()
+        + b"\r\nConnection: close\r\n\r\n"
+        + payload
+    )
+    try:
+        # Send a valid request, then slam the socket shut with an RST (SO_LINGER 0)
+        # before reading the response — so the worker's reply lands on a dead peer.
+        # Without the fix, one of these delivers SIGPIPE and kills the worker.
+        for _ in range(30):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(("127.0.0.1", port))
+            s.sendall(req)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            s.close()  # RST: peer is gone before the worker writes its response
+        # The worker must still be alive and serving a normal request.
+        assert proc.poll() is None, f"worker died (exit={proc.poll()}) on abrupt client disconnect"
+        r = _post(port, payload)
+        assert r.status == 200
+        assert b'"text":"ok"' in r.read()
+    finally:
+        proc.terminate()
+        upstream.shutdown()
+    assert proc.wait(timeout=30) == 0
+
+
 def test_worker_drain_completes_inflight_stream(tmp_path):
     """The seamless property: a SIGTERM mid-stream must NOT cut the response.
     Non-daemon handler threads mean the draining worker finishes the stream,

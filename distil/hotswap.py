@@ -214,6 +214,14 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
     # The wrap's foreground group gets the terminal's Ctrl+C; the agent owns
     # that gesture, the worker must ignore it (same rule as the in-thread proxy).
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # main() restored SIGPIPE to SIG_DFL (right for CLI filters piped to head).
+    # A long-lived server must NOT die on it: a write to a client/upstream socket
+    # that hung up should raise a catchable BrokenPipeError, not kill the worker
+    # with exit=-13 mid-session. Restore the interpreter's server-safe default.
+    try:
+        signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    except (ValueError, AttributeError):
+        pass  # not main thread, or no SIGPIPE (Windows) — harmless to skip
 
     from . import __version__ as running_version
 
