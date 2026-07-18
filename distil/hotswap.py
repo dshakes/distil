@@ -433,10 +433,13 @@ class ProxySupervisor:
             if mp is None:
                 return
             mp.parent.mkdir(parents=True, exist_ok=True)
-            mp.with_name(mp.name + ".hb").write_text(
+            hb = mp.with_name(mp.name + ".hb")
+            tmp = hb.with_name(hb.name + ".tmp")
+            tmp.write_text(
                 f"alive {time.strftime('%Y-%m-%d %H:%M:%S')} {memory_evidence()}\n",
                 encoding="utf-8",
             )
+            os.replace(tmp, hb)
         except Exception:  # noqa: BLE001 — a heartbeat must never hurt the session
             pass
 
