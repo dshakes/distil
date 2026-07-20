@@ -203,6 +203,7 @@ Measured on **your** traffic, never estimated, nothing leaves your machine:
 - **Per machine:** `distil leaderboard` (`--html` for a page).
 - **Shadow mode:** `distil proxy --shadow 0.05` reports the live decision-change rate — streaming-aware.
 - **Org-wide:** `distil proxy` sidecar + set `ANTHROPIC_BASE_URL` once; every client routes through it.
+- **Community:** an **opt-in** census (`distil census on`) shares your numbers-only totals — preview the exact payload with `distil census show` before consenting; [`TELEMETRY.md`](TELEMETRY.md) has the frozen schema. Default remains: nothing is sent.
 
 Dashboard, status-line plugin, federated leaderboard: [Deploy & observability](https://dshakes.github.io/distil/deploy-security.html).
 

@@ -87,6 +87,12 @@ longer expand degrade exactly like expired ones.
 ### Other persisted state
 
 - The savings ledger / shadow ledger / learn stats: numbers only, no content.
+- The adoption census (`distil/census.py`): **opt-in only, off by default** —
+  when (and only when) consented, sends a schema-frozen JSON of platform
+  strings and ledger totals, never content (see `TELEMETRY.md`; schema pinned
+  by `tests/test_census.py`). `DO_NOT_TRACK=1` / `DISTIL_NO_TELEMETRY=1`
+  override a stored opt-in. The anonymous install id is a random UUID with no
+  machine derivation, deleted on `distil census off`.
 
 ## Out of scope (explicitly not defended)
 

@@ -1129,6 +1129,34 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_census(args: argparse.Namespace) -> int:
+    """Opt-in adoption census: on / off / status / show.
+
+    `show` prints the exact payload that WOULD be sent and sends nothing —
+    read it before you opt in. Full schema: TELEMETRY.md."""
+    import json as _json
+
+    from . import census
+
+    action = args.action
+    if action == "on":
+        iid = census.opt_in()
+        print(f"census: ON — anonymous install id {iid}")
+        print("  sends at most one content-free JSON per day (see TELEMETRY.md).")
+        print("  preview anytime: distil census show   ·   revoke: distil census off")
+        if census.hard_disabled():
+            print("  note: DO_NOT_TRACK/DISTIL_NO_TELEMETRY is set — nothing will send.")
+    elif action == "off":
+        census.opt_out()
+        print("census: OFF — install id deleted (nothing identifies this machine anymore).")
+    elif action == "show":
+        print(_json.dumps(census.build_payload(), indent=2))
+        print("(preview only — nothing was sent)", file=sys.stderr)
+    else:
+        print(_json.dumps(census.status(), indent=2))
+    return 0
+
+
 def _warn_running_proxies() -> None:
     """Warn if a distil proxy/wrap/gateway is running before an in-place upgrade.
 
@@ -1405,6 +1433,28 @@ def cmd_onboard(args: argparse.Namespace) -> int:
             )
         )
         print()
+
+    # Adoption census — asked once, opt-in only, never assumed: an explicit yes
+    # HERE is the only consent path (`--yes` deliberately does not consent, and
+    # declining is recorded so we never ask again).
+    from . import census as _census
+
+    if interactive and _census.consent() is None and not _census.hard_disabled():
+        print(c("90", "Optional: a content-free adoption census — numbers only (version, OS,"))
+        print(c("90", "tokens/$ saved), max one JSON/day. Preview: distil census show"))
+        try:
+            census_yes = input(
+                c("1", "Share the anonymous census?") + c("90", " [y/N] ")
+            ).strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            census_yes = False
+        if census_yes:
+            _census.opt_in()
+            print(c("90", "  census on — TELEMETRY.md documents exactly what's sent") + "\n")
+        else:
+            _census.opt_out()
+            print(c("90", "  census off — re-enable anytime: distil census on") + "\n")
 
     # Or just route the agent once, right now.
     if env.agents:
@@ -2282,6 +2332,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     vs = sub.add_parser("version", help="print the installed version")
     vs.set_defaults(func=cmd_version)
+
+    ce = sub.add_parser("census", help="opt-in adoption census (content-free; see TELEMETRY.md)")
+    ce.add_argument(
+        "action",
+        nargs="?",
+        default="status",
+        choices=["on", "off", "status", "show"],
+        help="on/off = consent; show = print the exact payload, send nothing",
+    )
+    ce.set_defaults(func=cmd_census)
 
     up = sub.add_parser("upgrade", help="upgrade distil (auto-detects brew/pipx/uv/pip)")
     up.add_argument("--dry-run", action="store_true", help="print the command, don't run it")
