@@ -1,0 +1,43 @@
+# Passive adoption snapshot — registry-side numbers, zero user telemetry.
+#
+# Nightly append of scripts/adoption_snapshot.py output to data/adoption.jsonl
+# on the `metrics` branch (kept off main so history stays clean). GitHub's
+# traffic API only retains a rolling 14-day window — this cron is what turns
+# it into history. See specs/adoption-telemetry.md phase 0.
+name: adoption-stats
+
+on:
+  schedule:
+    - cron: "43 2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch or create metrics branch
+        run: |
+          git config user.name "adoption-stats[bot]"
+          git config user.email "actions@users.noreply.github.com"
+          if git fetch origin metrics 2>/dev/null; then
+            git worktree add ../metrics origin/metrics
+          else
+            git worktree add --orphan -b metrics ../metrics
+          fi
+      - name: Append snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ../metrics/data
+          python3 scripts/adoption_snapshot.py >> ../metrics/data/adoption.jsonl
+          tail -1 ../metrics/data/adoption.jsonl
+      - name: Push
+        run: |
+          cd ../metrics
+          git add data/adoption.jsonl
+          git commit -m "adoption snapshot $(date -u +%F)"
+          git push origin HEAD:metrics
