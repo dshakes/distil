@@ -1,0 +1,21 @@
+{
+  "generated_ts": 1784518100,
+  "installs": {
+    "census_total": 0,
+    "active_7d": 0,
+    "active_30d": 0,
+    "by_version": {}
+  },
+  "savings": {
+    "tokens": 0,
+    "dollars": 0,
+    "instances": 0
+  },
+  "channels": {
+    "pypi_downloads_month": null,
+    "pypi_downloads_week": null,
+    "github_stars": 5,
+    "clones_uniques_14d": null,
+    "docker_pulls": null
+  }
+}
