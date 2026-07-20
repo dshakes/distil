@@ -3,6 +3,17 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.21.0] — adoption picture: opt-in census, passive registry pipeline, live badges
+
+### Adoption & community savings (ADR 0002, TELEMETRY.md)
+- **Opt-in content-free census** (`distil census on|off|status|show`) — the answer to "how many active installs, which versions, how much is the community saving" that keeps "nothing leaves your machine" honest: OFF until explicit consent (`--yes` never consents; onboard asks exactly once), random install id deleted on revoke, `DO_NOT_TRACK`/`DISTIL_NO_TELEMETRY` beat stored consent, ≤1 numbers-only JSON per 24h from the proxy-exit flush, fail-open. Schema frozen by test — widening it must edit `TELEMETRY.md` and the test together.
+- **Auditable ingest pipeline, live** — zero-dep worker at `distil-census.vercel.app` (strict validation, 1 KB cap, numeric skew ceilings, stores nothing, no IPs) → `repository_dispatch` → CI re-validates (defense in depth) → appends to the public `metrics` branch → nightly rollup dedupes latest-per-install-id into `aggregates.json` + shields badges. The datastore is a git branch anyone can read.
+- **Passive registry snapshot** (`scripts/adoption_snapshot.py`, nightly) — PyPI downloads, GitHub stars/clones/views (the 14-day rolling traffic window becomes history), Docker pulls; per-source degradation; real UA + retry for shared-runner IPs; optional `TRAFFIC_TOKEN` (fine-grained PAT, Administration: read) for the traffic API.
+- **Live displays** — README badges (PyPI downloads, community tokens saved, active installs 30d) and a live adoption strip on the docs site, both fed by the metrics branch.
+
+### UX
+- **Once-a-day update notice** on `distil wrap`/`distil proxy` (`distil/updatecheck.py`): background PyPI check, one stderr line when behind, `DISTIL_NO_UPDATE_CHECK=1` opts out, disclosed in TELEMETRY.md.
+
 ## [1.20.2] — bypass tripwire trusts the traffic marker; headless-agent examples
 
 ### Fixed

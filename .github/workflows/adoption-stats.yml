@@ -36,9 +36,9 @@ jobs:
         env:
           # Traffic (clones/views) needs a fine-grained PAT with
           # "Administration: read" — the built-in Actions token 403s there.
-          # Optional TRAFFIC_TOKEN secret lights it up (TAP_TOKEN accepted as
-          # a legacy alias); everything else works with the default token.
-          GITHUB_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.TAP_TOKEN || secrets.GITHUB_TOKEN }}
+          # Optional TRAFFIC_TOKEN secret lights it up; everything else works
+          # with the default token.
+          GITHUB_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p ../metrics/data
           python3 scripts/adoption_snapshot.py >> ../metrics/data/adoption.jsonl
