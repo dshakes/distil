@@ -3,6 +3,18 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.24.0] — census schema 4: the trust number, session modes, next-gen live board
+
+### The metric that drives belief — decision-equivalence, as a community number
+- **`equivalence` {pct, shadowed}** (`distil/census.py`): the noise-adjusted live decision-equivalence from the shadow ledger — *compression provably didn't change the agent's next action*, distil's core claim. `pct` is `None` until an A/A self-agreement baseline exists (never a verdict on sampling nondeterminism). The rollup aggregates it as a shadowed-count-weighted mean and the adoption page renders it as a glowing trust ring.
+- **`modes` {interactive, headless, sdk}**: session kind from the *shape* of the wrapped command — an agent binary (interactive) vs `-p`/`--print` (headless) vs a non-agent argv0 driving the Agent SDK (sdk). Flag presence only; the prompt/args are never read. Answers "Claude Code TUI vs `claude -p` vs Agent SDK" content-free.
+- **API keys remain untracked, by design** — `billing` is the only cohort split; keys are never persisted, hashed, or derived from.
+
+### Real derived metrics + next-gen live adoption page
+- Rollup now emits **measured** `savings.rate_per_sec` (Δtokens/Δt between consecutive censuses, resets dropped), `as_of_ts`, `total_runs`, `avg_per_run`, and a `history[]` community-total time series — all measured, none estimated.
+- `docs/adoption.html` rebuilt: a **live odometer** ticking at the measured savings rate (labeled projection, exact anchor, snaps on each new census), the decision-equivalence trust ring, a savings-rate readout, a tokens sparkline, a session-mode panel, and auto-refresh every 45s. Audit trail intact — every number traces to `census.jsonl`.
+- Both validators accept schemas 1–4 (all-or-nothing keys, prior-schema rules still enforced). Live-verified end to end: real payload `equivalence {100%, 582}`, `modes {interactive: 28, sdk: 1}`; the worker rejects out-of-range pct and unknown modes.
+
 ## [1.23.0] — census schema 3: integration attribution (SDK / headless surfaces)
 
 ### Are SDKs & headless clients actually used? — now answered, content-free
