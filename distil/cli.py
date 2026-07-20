@@ -630,6 +630,9 @@ def cmd_proxy(args: argparse.Namespace) -> int:
     """Drop-in provider proxy: point any base_url-honoring client at it."""
     import sys as _sys
 
+    from .updatecheck import maybe_notify as _update_notify
+
+    _update_notify()  # ≤1/day, background thread, DISTIL_NO_UPDATE_CHECK opts out
     _apply_subscription_safe_default(args)
     if args.use_async:
         from .aproxy import serve as aserve  # high-concurrency (needs distil-llm[async])
@@ -1742,6 +1745,9 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     """Transparently wrap a command: spawn the proxy, point its env at it, run it."""
     import os as _os
 
+    from .updatecheck import maybe_notify as _update_notify
+
+    _update_notify()  # ≤1/day, background thread, DISTIL_NO_UPDATE_CHECK opts out
     command = list(args.command)
     if command and command[0] == "--":  # argparse REMAINDER keeps the separator
         command = command[1:]
