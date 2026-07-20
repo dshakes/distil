@@ -3,6 +3,13 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.23.0] — census schema 3: integration attribution (SDK / headless surfaces)
+
+### Are SDKs & headless clients actually used? — now answered, content-free
+- **Integration-surface + API-shape counters** (`distil/surfaces.py`): the proxy counts each compressible request by the door it came through (`wrap` / `proxy` / `gateway`, from `DISTIL_SURFACE` set by the launching CLI command) and by API wire format (`anthropic` / `openai-chat` / `openai-responses` / `gemini`, from the request path). In-memory, flock-merged snapshot in `~/.distil/surfaces.json`, flushed in `serve()`'s teardown before the census reads it. No key-, token-, or identity-derived data — allowlisted keys only, fail-open by contract.
+- **Census schema 3** adds `surfaces` and `shapes` (request-count maps). Both validators (worker JS + CI Python) accept schemas 1–3 with all-or-nothing keys and prior-schema rules still enforced; the rollup publishes `usage.surfaces` / `usage.shapes`; the adoption page gains an **Integration surface · API shape** panel. Deliberately NOT tracked: API keys — never persisted, hashed, or derived from (the `billing` field is the closest cohort split, by design).
+- Live-verified end to end: standalone proxy records both shapes, a genuine wrapped `claude -p` records `{wrap:1, anthropic:1}`, the v3 census flows client → worker → CI → metrics branch → rollup → live panel; hostile keys (`surfaces:{botnet:1}`) rejected at the worker.
+
 ## [1.22.0] — census schema 2: usage dimensions, honest downloads, live adoption dashboard
 
 ### Census (schema 2 — TELEMETRY.md updated in lockstep with the frozen-schema tests)
