@@ -17,7 +17,10 @@ is the datastore, so ingest, history, and rollup are all publicly auditable.
 
 1. Create a **fine-grained PAT** (github.com → Settings → Developer settings)
    scoped to the **single repo** `dshakes/distil` with **Contents: Read and
-   write** only. That is the entire blast radius of a leaked token.
+   write** — that is the entire blast radius of a leaked token. Tip: also
+   grant **Administration: Read** and save the same PAT as the repo Actions
+   secret `TRAFFIC_TOKEN`, which lights up the clones/views columns in the
+   adoption snapshot (the built-in Actions token can't read the traffic API).
 2. ```sh
    cd packaging/census-worker
    vercel deploy --prod

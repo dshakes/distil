@@ -32,9 +32,20 @@ DOCKER_IMAGE = os.environ.get("DISTIL_DOCKER", "")  # e.g. "dshakes/distil"
 
 
 def _get(url: str, headers: dict | None = None) -> dict:
-    req = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.load(resp)
+    # Real UA (pypistats blocks the default urllib one) + 3 tries with backoff
+    # (shared Actions runner IPs hit 429s).
+    hdrs = {"User-Agent": "distil-adoption-snapshot (github.com/dshakes/distil)"}
+    hdrs.update(headers or {})
+    last: Exception = RuntimeError("unreachable")
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=hdrs)
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.load(resp)
+        except Exception as exc:  # noqa: BLE001 — retried, then surfaced per-source
+            last = exc
+            time.sleep(3 * (attempt + 1))
+    raise last
 
 
 def _source(fn):
