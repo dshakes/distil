@@ -4,6 +4,7 @@ cross-process merge, allowlist filtering, fail-open."""
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -93,6 +94,7 @@ def test_corrupt_store_is_fail_open():
     assert surfaces.snapshot()["shapes"] == {"anthropic": 1}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl module does not exist on Windows")
 def test_flush_without_flock(monkeypatch):
     """flock unavailable (e.g. Windows) → lossy merge still writes."""
     import fcntl
