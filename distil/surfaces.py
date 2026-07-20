@@ -123,7 +123,7 @@ def snapshot() -> dict:
                 disk = {}
             out: dict[str, dict[str, int]] = {}
             for group, allow in (("surfaces", SURFACES), ("shapes", SHAPES)):
-                merged = {}
+                merged: dict[str, int] = {}
                 for src in (disk.get(group) or {}, _pending[group]):
                     for k, v in src.items():
                         if k in allow and isinstance(v, (int, float)) and v >= 0:
