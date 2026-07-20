@@ -1,19 +1,18 @@
 {
-  "generated_ts": 1784522489,
+  "generated_ts": 1784523290,
   "installs": {
-    "census_total": 4,
-    "active_7d": 4,
-    "active_30d": 4,
+    "census_total": 1,
+    "active_7d": 1,
+    "active_30d": 1,
     "by_version": {
-      "1.20.1": 2,
-      "1.21.0": 2
+      "1.20.1": 1
     }
   },
   "savings": {
     "tokens": 1391585051,
-    "dollars": 0.0,
+    "dollars": 0,
     "dollars_notional": 5794.8,
-    "instances": 4
+    "instances": 1
   },
   "usage": {
     "by_model": {
@@ -21,16 +20,14 @@
       "claude-sonnet-4-6": 528782832,
       "claude-sonnet-5": 218683551,
       "claude-fable-5": 66361262,
-      "claude-haiku-4-5-20251001": 22,
-      "claude-haiku-4-5": 0
+      "claude-haiku-4-5-20251001": 22
     },
     "billing": {
-      "metered": 1,
       "subscription": 1
     },
     "agents": {
-      "other": 2,
-      "claude": 1
+      "claude": 1,
+      "other": 1
     }
   },
   "channels": {
