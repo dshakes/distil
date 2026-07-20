@@ -188,3 +188,16 @@ def test_rollup_aggregates_usage(tmp_path):
     assert agg["usage"]["by_model"]["claude-opus-4-8"] == 700
     assert agg["usage"]["billing"] == {"metered": 1, "subscription": 1}
     assert agg["usage"]["agents"]["claude"] == 2
+
+
+def test_rollup_buckets_dollars_by_billing(tmp_path):
+    """Metered $ = real; subscription $ = notional; v1 rows (no billing) = notional."""
+    now = int(time.time())
+    rows = [
+        _row2(install_id="a" * 32, ts=now, billing="metered", dollars_saved=10.0),
+        _row2(install_id="b" * 32, ts=now, billing="subscription", dollars_saved=99.0),
+        _row(install_id="c" * 32, ts=now, dollars_saved=5.0),  # v1: no billing
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["savings"]["dollars"] == 10.0
+    assert agg["savings"]["dollars_notional"] == 104.0

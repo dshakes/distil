@@ -139,11 +139,14 @@ def test_install_id_is_stable_and_random():
     assert c != a  # re-consent mints a fresh identity
 
 
-def test_subscription_dollars_are_zeroed(monkeypatch):
-    """Flat-rate subscription: tokens are real, dollars are notional → 0."""
+def test_subscription_reports_dollars_and_billing(monkeypatch):
+    """Subscription installs are NOT excluded: dollars are reported and the
+    billing field lets the rollup bucket them as notional (never real $)."""
     census.opt_in()
     monkeypatch.setattr("distil.doctor.subscription_mode", lambda: True)
-    assert census.build_payload()["dollars_saved"] == 0.0
+    p = census.build_payload()
+    assert p["billing"] == "subscription"
+    assert p["dollars_saved"] >= 0.0  # present, bucketed server-side
 
 
 def test_calibration_factor_applied(monkeypatch, tmp_path):

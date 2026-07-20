@@ -16,32 +16,89 @@
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <style>
-  /* Stat tiles (match index.html's .stats look, local to this page) */
-  .astats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0}
-  .astat{background:linear-gradient(180deg,var(--panel2,#14141f),var(--panel,#101018));border:1px solid var(--line,#23233a);border-radius:14px;padding:18px 18px 14px}
-  .astat .n{font-size:34px;font-weight:800;letter-spacing:-.02em}
-  .astat .l{color:var(--mut,#9a9ab0);font-size:13px;margin-top:4px}
-  .astat .foot{color:var(--dim,#62627a);font-size:11px;margin-top:8px}
-  .astat.hl{border-color:#2a2550;box-shadow:0 0 0 1px #2a2550}
-  @media(max-width:900px){.astats{grid-template-columns:1fr 1fr}}
-  /* Bar lists — thin marks, rounded data end, direct labels, recessive track */
-  .bars{margin:10px 0 26px}
-  .bar-row{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;padding:5px 0}
-  .bar-row .bl{font-size:13px;color:var(--txt,#e8e8f2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .bar-row .bv{font-size:12.5px;color:var(--mut,#9a9ab0);text-align:right;font-variant-numeric:tabular-nums}
-  .bar-track{height:10px;background:var(--panel2,#14141f);border-radius:5px;overflow:hidden}
-  .bar-fill{height:100%;border-radius:0 4px 4px 0;min-width:2px;background:#5ad1c9}
-  .bar-fill.alt{background:#8b7bff}
-  .bar-fill.dim{background:#3a3a52}
-  .bar-fill.good{background:#5ad19a}
-  /* Pipeline diagram */
-  .pipe{border:1px solid var(--line,#23233a);border-radius:14px;background:var(--panel,#101018);padding:14px;overflow-x:auto;margin:14px 0 8px}
-  .pipe svg{display:block;min-width:820px;width:100%;height:auto}
-  .chipset{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 22px}
-  .chip{border:1px solid var(--line,#23233a);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--mut,#9a9ab0)}
-  .chip b{color:var(--txt,#e8e8f2)}
-  .empty-note{color:var(--mut,#9a9ab0);font-size:13px;border:1px dashed var(--line,#23233a);border-radius:10px;padding:10px 14px;margin:8px 0 22px}
-  .updated{color:var(--dim,#62627a);font-size:12px}
+  /* ── next-gen adoption page: index.html DNA (eyebrows · glow tiles · motion) ── */
+  .seyebrow{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);
+    font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut);margin:34px 0 14px}
+  .seyebrow::before{content:"";width:7px;height:7px;border-radius:50%;
+    background:var(--acc2);box-shadow:0 0 12px 1px rgba(90,209,201,.7);flex:0 0 auto}
+  .seyebrow.p::before{background:var(--acc);box-shadow:0 0 12px 1px rgba(139,123,255,.7)}
+  .seyebrow.gr::before{background:var(--good);box-shadow:0 0 12px 1px rgba(90,209,154,.7)}
+  .seyebrow.live::before{animation:apulse 1.6s ease-in-out infinite}
+  @keyframes apulse{50%{opacity:.35}}
+
+  .astats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0 8px}
+  .astat{position:relative;background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--line);border-radius:16px;padding:20px 20px 16px;
+    transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+  .astat:hover{transform:translateY(-3px);border-color:#2a2550;
+    box-shadow:0 18px 50px -24px rgba(139,123,255,.45)}
+  .astat .n{font-size:38px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .astat .n s{font-size:17px;color:var(--mut);text-decoration:none;font-weight:600}
+  .astat .l{color:var(--ink);font-size:13.5px;margin-top:5px;font-weight:600}
+  .astat .foot{color:var(--dim);font-size:11.5px;margin-top:9px;line-height:1.45}
+  .astat.hl{border-color:#1f3a2c;background:linear-gradient(180deg,rgba(90,209,154,.06),var(--panel))}
+  .astat.hl .n{color:var(--good)}
+  .astat.pu{border-color:#2a2550;background:linear-gradient(180deg,rgba(139,123,255,.06),var(--panel))}
+  .astat.pu .n{color:var(--acc)}
+  @media(max-width:920px){.astats{grid-template-columns:1fr 1fr}}
+
+  /* honest split band — one bar, two segments, 2px surface gap */
+  .split{display:flex;gap:2px;height:16px;border-radius:8px;overflow:hidden;margin:16px 0 10px}
+  .split .seg{height:100%;min-width:6px;transition:flex-grow 1s cubic-bezier(.2,.8,.2,1)}
+  .split .real{background:linear-gradient(90deg,#3fae83,var(--good));border-radius:8px 0 0 8px}
+  .split .bots{background:#2c2c42;border-radius:0 8px 8px 0}
+  .legendrow{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 6px}
+  .lg{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut)}
+  .lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .lg b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+  /* bar lists — thin marks, rounded data end, direct labels, recessive track */
+  .bars{margin:12px 0 8px}
+  .bar-row{display:grid;grid-template-columns:170px 1fr 84px;gap:12px;align-items:center;padding:6px 0}
+  .bar-row .bl{font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono)}
+  .bar-row .bv{font-size:12.5px;color:var(--mut);text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+  .bar-track{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:0 4px 4px 0;min-width:2px;width:0;
+    transition:width 1s cubic-bezier(.2,.8,.2,1);background:linear-gradient(90deg,#3d9e97,var(--acc2))}
+  .bar-fill.alt{background:linear-gradient(90deg,#6e5fd6,var(--acc))}
+  .bar-fill.good{background:linear-gradient(90deg,#3fae83,var(--good))}
+  @media(max-width:640px){.bar-row{grid-template-columns:110px 1fr 70px}}
+
+  .gridtwo{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+  @media(max-width:920px){.gridtwo{grid-template-columns:1fr}}
+
+  .chipset{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:12.5px;
+    color:var(--mut);background:linear-gradient(180deg,var(--panel2),var(--panel));font-family:var(--mono)}
+  .chip b{color:var(--ink)}
+
+  .empty-note{color:var(--mut);font-size:13px;border:1px dashed var(--line);border-radius:12px;
+    padding:12px 16px;margin:10px 0 6px;line-height:1.55}
+  .empty-note code{color:var(--acc2)}
+  .updated{color:var(--dim);font-size:12px;font-family:var(--mono)}
+
+  /* pipeline diagram — animated flow (index droplet DNA) */
+  .pipe{border:1px solid var(--line);border-radius:16px;background:
+    radial-gradient(90% 120% at 50% -20%,rgba(139,123,255,.07),transparent),
+    linear-gradient(180deg,var(--panel2),var(--panel));padding:16px;overflow-x:auto;margin:16px 0 8px}
+  .pipe svg{display:block;min-width:840px;width:100%;height:auto}
+  .pipe .ln{stroke:#3d3d5c;stroke-width:1.6;fill:none;marker-end:url(#arr)}
+  .pipe .flow{stroke-dasharray:5 6;animation:aflow 1.6s linear infinite}
+  @keyframes aflow{to{stroke-dashoffset:-22}}
+  .pipe .bx{fill:#14141f;stroke:#23233a}
+  .pipe .bx.hl{stroke:#2a2550}
+  .pipe .bx.gr{stroke:#1f3a2c}
+  .pipe .breathe{animation:abreathe 2.6s ease-in-out infinite}
+  @keyframes abreathe{0%,100%{opacity:.65}50%{opacity:1}}
+  .pipe .tt{fill:var(--ink);font:600 13px var(--mono)}
+  .pipe .ss{fill:var(--mut);font:11px var(--mono)}
+  .pipe .cnt{fill:var(--good);font:700 11px var(--mono)}
+  .pipe .tag{fill:var(--acc2);font:600 10.5px var(--mono);letter-spacing:.12em}
+  .pipe .tag2{fill:var(--acc);font:600 10.5px var(--mono);letter-spacing:.12em}
+  @media (prefers-reduced-motion:reduce){
+    .pipe .flow,.seyebrow.live::before,.pipe .breathe{animation:none}
+    .bar-fill,.split .seg{transition:none}
+  }
 </style>
 </head>
 <body>
@@ -87,104 +144,108 @@
 
   <main class="content">
 
+    <div class="seyebrow live gr" style="margin-top:0">Live telemetry &middot; auditable end-to-end</div>
     <h1>Adoption &amp; <span class="g">Community Savings</span></h1>
-    <p class="lead">Live, honest numbers. Downloads are <b>bot-filtered</b> (a public PyPI package receives constant scanner traffic — we show it, then subtract it). Usage and savings come from the <b>opt-in census</b>: numbers only, never content, anonymous by construction. Every figure on this page is computed by public code from a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a> — audit it end to end.</p>
-    <p class="updated" id="updated">loading live data…</p>
+    <p class="lead">Most projects show you raw download counts and hope you don't ask questions. We ask them for you: downloads are <b>bot-filtered</b>, savings come from an <b>opt-in census</b> that starts at zero and can't be inflated, and every number below is computed by public code from a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>.</p>
+    <p class="updated" id="updated">connecting to the metrics branch&hellip;</p>
 
-    <div class="astats" id="tiles">
-      <div class="astat hl"><div class="n" id="t-active">–</div><div class="l">Active installs, 30d</div><div class="foot">opt-in census · bot-proof</div></div>
-      <div class="astat hl"><div class="n" id="t-tokens">–</div><div class="l">Community tokens saved</div><div class="foot">Σ opted-in ledgers · calibration-corrected</div></div>
-      <div class="astat"><div class="n" id="t-dollars">–</div><div class="l">Community $ saved</div><div class="foot">metered traffic only — subscription $ is notional and excluded</div></div>
-      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered (clients reporting a real OS)</div></div>
+    <div class="astats">
+      <div class="astat pu"><div class="n" id="t-active">–</div><div class="l">Active installs &middot; 30d</div><div class="foot">opt-in census &middot; one per machine &middot; bot-proof by construction</div></div>
+      <div class="astat hl"><div class="n" id="t-tokens">–</div><div class="l">Community tokens saved</div><div class="foot">&Sigma; opted-in ledgers &middot; calibration-corrected, never estimated</div></div>
+      <div class="astat"><div class="n" id="t-dollars">–</div><div class="l">Real $ saved &middot; metered</div><div class="foot">plus <b id="t-notional">–</b> notional API-rate value from flat-rate subscriptions</div></div>
+      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered — clients that report a real OS</div></div>
     </div>
 
-    <hr/>
+    <div class="seyebrow gr">Downloads &middot; honestly</div>
+    <h2 style="margin-top:0">The number everyone shows <span class="g">vs. the one that's true</span></h2>
+    <p>A public PyPI package receives constant traffic from security scanners and package-intel crawlers. They report no operating system; humans running <code>pip</code> do. So we split:</p>
+    <div class="split" id="splitband" aria-label="real vs bot download split">
+      <div class="seg real" id="seg-real" style="flex-grow:1"></div>
+      <div class="seg bots" id="seg-bots" style="flex-grow:1"></div>
+    </div>
+    <div class="legendrow">
+      <span class="lg"><i style="background:var(--good)"></i>real clients (OS reported) &middot; <b id="lg-real">–</b>/mo</span>
+      <span class="lg"><i style="background:#2c2c42"></i>bots &amp; scanners (no OS) &middot; <b id="lg-bots">–</b>/mo</span>
+    </div>
 
-    <h2 id="downloads">Downloads, honestly</h2>
-    <p>Registry traffic vs. what's plausibly a human with <code>pip</code>. Downloads with no reported OS are security scanners, package-intel crawlers, and bots — the background radiation every public package receives.</p>
-    <div class="bars" id="realsplit"></div>
+    <div class="gridtwo">
+      <div>
+        <div class="seyebrow" style="margin-top:22px">By operating system &middot; real clients, 30d</div>
+        <div class="bars" id="bysystem"></div>
+      </div>
+      <div>
+        <div class="seyebrow" style="margin-top:22px">By Python version &middot; real clients, 30d</div>
+        <div class="bars" id="bypython"></div>
+      </div>
+    </div>
 
-    <h3>By operating system <span class="updated">(real clients, 30d)</span></h3>
-    <div class="bars" id="bysystem"></div>
+    <div class="seyebrow p">Usage &middot; from the opt-in census</div>
+    <h2 style="margin-top:0">Who actually <span class="g">runs</span> it — and what it saves them</h2>
+    <p>Machines that consented (<code>distil census on</code>). Anonymous install ids, schema frozen by test, <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">fully disclosed</a> — preview your own payload anytime with <code>distil census show</code>.</p>
 
-    <h3>By Python version <span class="updated">(real clients, 30d)</span></h3>
-    <div class="bars" id="bypython"></div>
+    <div class="gridtwo">
+      <div>
+        <div class="seyebrow p" style="margin-top:12px">Distil versions in the wild</div>
+        <div class="bars" id="byversion"></div>
+      </div>
+      <div>
+        <div class="seyebrow p" style="margin-top:12px">Tokens saved by model</div>
+        <div class="bars" id="bymodel"></div>
+      </div>
+    </div>
 
-    <hr/>
-
-    <h2 id="usage">Usage — from the opt-in census</h2>
-    <p>Machines that ran distil and consented to the census (<code>distil census on</code>). Anonymous install ids, schema-frozen payloads, <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">fully disclosed</a>.</p>
-
-    <h3>Distil versions in the wild</h3>
-    <div class="bars" id="byversion"></div>
-
-    <h3>Tokens saved by model</h3>
-    <div class="bars" id="bymodel"></div>
-
-    <h3>Billing mix &amp; wrapped agents</h3>
+    <div class="seyebrow p" style="margin-top:22px">Billing mix &middot; wrapped agents &middot; channels</div>
     <div class="chipset" id="chips"></div>
 
-    <hr/>
-
-    <h2 id="how">How this is measured — the pipeline</h2>
-    <p>Two independent paths, both auditable: passive registry stats (no client code at all) and the opt-in census (strict validation at three layers). The datastore is a git branch — ingest history, rollup code, and every number here are public.</p>
+    <div class="seyebrow">How it's measured</div>
+    <h2 style="margin-top:0">Two paths, <span class="g">three validation layers</span>, one public datastore</h2>
+    <p>Passive registry stats involve zero code on anyone's machine. The census is validated at the worker, re-validated in CI, and capped again at rollup — then stored in a git branch anyone can read.</p>
 
     <div class="pipe">
-      <svg viewBox="0 0 980 300" role="img" aria-label="Adoption pipeline: census path from client through worker and CI validation to the metrics branch; passive path from registries; nightly rollup to badges and this page">
+      <svg viewBox="0 0 980 310" role="img" aria-label="Adoption pipeline: census path from client through worker and CI validation to the metrics branch; passive path from registries; rollup to badges and this page">
         <defs>
           <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#3d3d5c"/></marker>
         </defs>
-        <style>
-          .bx{fill:#14141f;stroke:#23233a;rx:10}
-          .bx.hl{stroke:#2a2550}
-          .tt{fill:#e8e8f2;font:600 13px system-ui,-apple-system,sans-serif}
-          .ss{fill:#9a9ab0;font:11px system-ui,-apple-system,sans-serif}
-          .tag{fill:#5ad1c9;font:600 10px system-ui,-apple-system,sans-serif}
-          .tag2{fill:#8b7bff;font:600 10px system-ui,-apple-system,sans-serif}
-          .ln{stroke:#3d3d5c;stroke-width:1.6;fill:none;marker-end:url(#arr)}
-        </style>
-        <!-- census path -->
-        <text x="16" y="28" class="tag2">OPT-IN CENSUS · near-real-time</text>
-        <rect class="bx hl" x="16" y="40" width="170" height="64" rx="10"/>
-        <text x="30" y="66" class="tt">Your machine</text>
-        <text x="30" y="84" class="ss">distil census on · ≤1 JSON/day</text>
-        <rect class="bx hl" x="236" y="40" width="170" height="64" rx="10"/>
-        <text x="250" y="66" class="tt">Ingest worker</text>
-        <text x="250" y="84" class="ss">validate · 2KB cap · no IPs</text>
-        <rect class="bx hl" x="456" y="40" width="170" height="64" rx="10"/>
-        <text x="470" y="66" class="tt">CI re-validation</text>
-        <text x="470" y="84" class="ss">defense in depth · allowlists</text>
-        <rect class="bx hl" x="676" y="40" width="170" height="64" rx="10"/>
-        <text x="690" y="66" class="tt">metrics branch</text>
-        <text x="690" y="84" class="ss">public git = the database</text>
-        <path class="ln" d="M186 72 H232"/><path class="ln" d="M406 72 H452"/><path class="ln" d="M626 72 H672"/>
-        <!-- passive path -->
-        <text x="16" y="152" class="tag">PASSIVE · zero client code · nightly</text>
-        <rect class="bx" x="16" y="164" width="170" height="64" rx="10"/>
-        <text x="30" y="190" class="tt">Registries</text>
-        <text x="30" y="208" class="ss">PyPI · GitHub · Docker</text>
-        <rect class="bx" x="236" y="164" width="170" height="64" rx="10"/>
-        <text x="250" y="190" class="tt">Nightly snapshot</text>
-        <text x="250" y="208" class="ss">bot split · OS · Python</text>
-        <path class="ln" d="M186 196 H232"/>
-        <path class="ln" d="M406 196 C 560 196, 640 130, 736 108"/>
-        <!-- rollup + outputs -->
-        <rect class="bx" x="676" y="164" width="170" height="64" rx="10"/>
-        <text x="690" y="190" class="tt">Rollup</text>
-        <text x="690" y="208" class="ss">dedupe · skew caps · Σ</text>
-        <path class="ln" d="M761 108 V160"/>
-        <rect class="bx" x="566" y="252" width="130" height="36" rx="10"/>
-        <text x="580" y="275" class="ss">README badges</text>
-        <rect class="bx" x="716" y="252" width="130" height="36" rx="10"/>
-        <text x="730" y="275" class="ss">this page</text>
-        <path class="ln" d="M745 228 C 720 240, 690 244, 660 252"/>
-        <path class="ln" d="M775 228 V248"/>
+        <text x="16" y="26" class="tag2">OPT-IN CENSUS · RE-ROLLS WITHIN ~1 MIN OF A PING</text>
+        <rect class="bx hl" x="16" y="38" width="180" height="66" rx="12"/>
+        <text x="31" y="64" class="tt">Your machine</text>
+        <text x="31" y="82" class="ss">census on · &le;1 JSON/day</text>
+        <rect class="bx hl" x="246" y="38" width="180" height="66" rx="12"/>
+        <text x="261" y="64" class="tt">Ingest worker</text>
+        <text x="261" y="82" class="ss">validate · 2&nbsp;KB cap · no IPs</text>
+        <rect class="bx hl" x="476" y="38" width="180" height="66" rx="12"/>
+        <text x="491" y="64" class="tt">CI re-validation</text>
+        <text x="491" y="82" class="ss">defense in depth · allowlists</text>
+        <rect class="bx gr breathe" x="706" y="38" width="180" height="66" rx="12"/>
+        <text x="721" y="64" class="tt">metrics branch</text>
+        <text x="721" y="82" class="ss">public git = the database</text>
+        <text x="721" y="97" class="cnt" id="svg-rows"></text>
+        <path class="ln flow" d="M196 71 H242"/><path class="ln flow" d="M426 71 H472"/><path class="ln flow" d="M656 71 H702"/>
+        <text x="16" y="158" class="tag">PASSIVE · ZERO CLIENT CODE · NIGHTLY</text>
+        <rect class="bx" x="16" y="170" width="180" height="66" rx="12"/>
+        <text x="31" y="196" class="tt">Registries</text>
+        <text x="31" y="214" class="ss">PyPI · GitHub · Docker</text>
+        <rect class="bx" x="246" y="170" width="180" height="66" rx="12"/>
+        <text x="261" y="196" class="tt">Nightly snapshot</text>
+        <text x="261" y="214" class="ss">bot split · OS · Python</text>
+        <path class="ln flow" d="M196 203 H242"/>
+        <path class="ln" d="M426 203 C 580 203, 660 132, 762 108"/>
+        <rect class="bx" x="706" y="170" width="180" height="66" rx="12"/>
+        <text x="721" y="196" class="tt">Rollup</text>
+        <text x="721" y="214" class="ss">dedupe · skew caps · &Sigma;</text>
+        <path class="ln flow" d="M796 108 V166"/>
+        <rect class="bx" x="586" y="258" width="140" height="38" rx="12"/>
+        <text x="601" y="282" class="ss">README badges</text>
+        <rect class="bx" x="746" y="258" width="140" height="38" rx="12"/>
+        <text x="761" y="282" class="ss">this page</text>
+        <path class="ln flow" d="M776 236 C 750 246, 712 250, 682 258"/>
+        <path class="ln flow" d="M806 236 V254"/>
       </svg>
     </div>
-    <p class="updated">Freshness: census numbers re-roll within ~1 minute of any ping; registry numbers refresh nightly (PyPI publishes daily); badges re-poll every 5 minutes; this page fetches on load.</p>
+    <p class="updated">Freshness &middot; census re-rolls within ~1 min of any ping &middot; registry stats nightly (PyPI publishes daily) &middot; badges re-poll every 5 min &middot; this page fetches on load</p>
 
-    <div class="callout" style="margin-top:18px">
-      <strong>Why trust these numbers?</strong> They start honest (the savings counters began at zero — no estimates, no seeded totals), they can't be inflated (schema allowlists + hard numeric ceilings at the worker, in CI, and again at rollup; one census per machine, latest wins), and subscription users' notional dollars are excluded from the $ total. Full schema and kill switches: <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">TELEMETRY.md</a>.
+    <div class="callout" style="margin-top:22px">
+      <strong>Why these numbers survive scrutiny.</strong> They started at zero (no estimates, no seeding). They can't be inflated: schema allowlists and hard numeric ceilings are enforced at the worker, again in CI, and again at rollup; one census per machine, latest wins. Subscription users' dollar savings are shown as <em>notional</em>, never mixed into real $. And if you don't like any of it: <code>DO_NOT_TRACK=1</code> wins over everything — see <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">TELEMETRY.md</a>.
     </div>
 
   </main>
@@ -195,13 +256,29 @@
 (function () {
   "use strict";
   var AGG = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json";
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   function human(n) {
     if (n == null) return null;
     var u = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]];
     for (var i = 0; i < u.length; i++) if (n >= u[i][0]) return (n / u[i][0]).toFixed(1) + u[i][1];
     return String(Math.round(n));
   }
-  function set(id, v) { if (v != null) document.getElementById(id).textContent = v; }
+  function countUp(id, n, prefix) {
+    var el = document.getElementById(id);
+    if (n == null) return;
+    prefix = prefix || "";
+    if (reduced || n < 10) { el.textContent = prefix + human(n); return; }
+    var t0 = null, dur = 900;
+    function step(t) {
+      if (!t0) t0 = t;
+      var k = Math.min(1, (t - t0) / dur);
+      k = 1 - Math.pow(1 - k, 3);
+      el.textContent = prefix + human(n * k);
+      if (k < 1) requestAnimationFrame(step); else el.textContent = prefix + human(n);
+    }
+    requestAnimationFrame(step);
+  }
   function bars(id, entries, cls, emptyMsg) {
     var el = document.getElementById(id);
     if (!entries || !entries.length) {
@@ -211,24 +288,31 @@
     var max = Math.max.apply(null, entries.map(function (e) { return e[1]; }));
     el.innerHTML = entries.map(function (e) {
       var pct = max ? Math.max(2, (e[1] / max) * 100) : 2;
-      var c = typeof e[2] === "string" ? e[2] : cls;
-      return '<div class="bar-row"><div class="bl">' + e[0] +
-        '</div><div class="bar-track"><div class="bar-fill ' + c + '" style="width:' + pct + '%"></div></div>' +
+      return '<div class="bar-row"><div class="bl" title="' + e[0] + '">' + e[0] +
+        '</div><div class="bar-track"><div class="bar-fill ' + cls + '" data-w="' + pct + '"></div></div>' +
         '<div class="bv">' + human(e[1]) + "</div></div>";
     }).join("");
+    requestAnimationFrame(function () {
+      el.querySelectorAll(".bar-fill").forEach(function (f) { f.style.width = f.dataset.w + "%"; });
+    });
   }
   fetch(AGG).then(function (r) { return r.ok ? r.json() : null; }).then(function (a) {
-    if (!a) { set("updated", "live data unavailable — metrics branch not reachable"); return; }
-    set("updated", "updated " + new Date(a.generated_ts * 1000).toUTCString() + " · source: metrics branch");
-    set("t-active", human(a.installs.active_30d));
-    set("t-tokens", human(a.savings.tokens));
-    set("t-dollars", a.savings.dollars != null ? "$" + human(a.savings.dollars) : "–");
+    if (!a) { document.getElementById("updated").textContent = "live data unavailable — metrics branch not reachable"; return; }
+    document.getElementById("updated").textContent =
+      "updated " + new Date(a.generated_ts * 1000).toUTCString().replace(":00 GMT", " UTC") + " · source: metrics branch · refreshes on load";
+    countUp("t-active", a.installs.active_30d);
+    countUp("t-tokens", a.savings.tokens);
+    countUp("t-dollars", a.savings.dollars, "$");
+    var notional = a.savings.dollars_notional;
+    if (notional != null) document.getElementById("t-notional").textContent = "$" + human(notional);
     var pd = a.pypi_detail || {};
-    set("t-real", human(pd.real_os_30d));
-    bars("realsplit", [
-      ["real clients (OS reported)", pd.real_os_30d || 0, "good"],
-      ["bots / scanners (no OS)", pd.bots_30d || 0, "dim"]
-    ], "good", "pypi split not captured yet — next nightly snapshot fills this in");
+    countUp("t-real", pd.real_os_30d);
+    if (pd.real_os_30d != null && pd.bots_30d != null) {
+      document.getElementById("seg-real").style.flexGrow = Math.max(1, pd.real_os_30d);
+      document.getElementById("seg-bots").style.flexGrow = Math.max(1, pd.bots_30d);
+      document.getElementById("lg-real").textContent = human(pd.real_os_30d);
+      document.getElementById("lg-bots").textContent = human(pd.bots_30d);
+    }
     bars("bysystem",
       Object.entries(pd.by_system_30d || {}).filter(function (e) { return e[0] !== "null"; }).sort(function (x, y) { return y[1] - x[1]; }),
       "", "per-OS split arrives with the next nightly snapshot");
@@ -238,24 +322,25 @@
     bars("byversion",
       Object.entries(a.installs.by_version || {}).sort(function (x, y) { return y[1] - x[1]; }),
       "alt", "no census participants yet — be the first: <code>distil census on</code>");
-    var um = (a.usage || {}).by_model || {};
     bars("bymodel",
-      Object.entries(um).sort(function (x, y) { return y[1] - x[1]; }),
-      "alt", "model split appears once schema-2 censuses arrive (v1.22+ clients)");
+      Object.entries((a.usage || {}).by_model || {}).sort(function (x, y) { return y[1] - x[1]; }),
+      "alt", "model split appears as v1.22+ clients opt in");
+    var rows = a.installs.census_total;
+    if (rows) document.getElementById("svg-rows").textContent = rows + " install" + (rows === 1 ? "" : "s") + " recorded";
     var chips = [];
     var bill = (a.usage || {}).billing || {};
     Object.keys(bill).forEach(function (k) { chips.push("<b>" + bill[k] + "</b>&nbsp;" + k); });
     var ag = (a.usage || {}).agents || {};
-    Object.keys(ag).forEach(function (k) { chips.push("<b>" + ag[k] + "</b>&nbsp;wrap:&nbsp;" + k); });
+    Object.keys(ag).forEach(function (k) { chips.push("<b>" + ag[k] + "</b>&nbsp;wrap:" + k); });
     if (a.channels) {
       if (a.channels.github_stars != null) chips.push("<b>" + a.channels.github_stars + "</b>&nbsp;GitHub&nbsp;★");
       if (a.channels.clones_uniques_14d != null) chips.push("<b>" + a.channels.clones_uniques_14d + "</b>&nbsp;unique&nbsp;cloners/14d");
-      if (a.channels.pypi_downloads_month != null) chips.push("<b>" + human(a.channels.pypi_downloads_month) + "</b>&nbsp;raw&nbsp;downloads/mo&nbsp;(incl.&nbsp;bots)");
+      if (a.channels.pypi_downloads_month != null) chips.push("<b>" + human(a.channels.pypi_downloads_month) + "</b>&nbsp;raw&nbsp;dl/mo&nbsp;(incl.&nbsp;bots)");
     }
     document.getElementById("chips").innerHTML = chips.length
       ? chips.map(function (c) { return '<span class="chip">' + c + "</span>"; }).join("")
-      : '<div class="empty-note">billing & agent mix appears once schema-2 censuses arrive</div>';
-  }).catch(function () { set("updated", "live data unavailable"); });
+      : '<div class="empty-note">billing &amp; agent mix appears as v1.22+ clients opt in</div>';
+  }).catch(function () { document.getElementById("updated").textContent = "live data unavailable"; });
 })();
 </script>
 </body>

@@ -69,7 +69,17 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
 
     versions = Counter(r["version"] for r in latest.values())
     tokens = sum(int(r["tokens_saved"]) for r in latest.values())
-    dollars = round(sum(float(r["dollars_saved"]) for r in latest.values()), 2)
+    # Dollars are bucketed by billing: metered = real savings; subscription =
+    # notional API-rate value (shown and labeled, never mixed into real $).
+    # Schema-1 rows carry no billing → conservatively counted as notional.
+    dollars_real = round(
+        sum(float(r["dollars_saved"]) for r in latest.values() if r.get("billing") == "metered"),
+        2,
+    )
+    dollars_notional = round(
+        sum(float(r["dollars_saved"]) for r in latest.values() if r.get("billing") != "metered"),
+        2,
+    )
 
     # Usage dimensions (schema-2 rows; schema-1 rows simply don't contribute).
     by_model: Counter = Counter()
@@ -100,7 +110,12 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             "active_30d": active(30),
             "by_version": dict(versions.most_common()),
         },
-        "savings": {"tokens": tokens, "dollars": dollars, "instances": len(latest)},
+        "savings": {
+            "tokens": tokens,
+            "dollars": dollars_real,
+            "dollars_notional": dollars_notional,
+            "instances": len(latest),
+        },
         "usage": {
             "by_model": dict(by_model.most_common()),
             "billing": dict(billing.most_common()),
@@ -145,7 +160,9 @@ def badges(agg: dict) -> dict[str, dict]:
         "savings-tokens": badge(
             "community tokens saved", _humanize(agg["savings"]["tokens"]) or "0"
         ),
-        "savings-dollars": badge("community $ saved", f"${_humanize(agg['savings']['dollars'])}"),
+        "savings-dollars": badge(
+            "community $ saved · metered", f"${_humanize(agg['savings']['dollars'])}"
+        ),
         "active-installs": badge("active installs (30d)", str(agg["installs"]["active_30d"])),
         "downloads-month": badge(
             "pypi downloads/month", _humanize(pypi_month) if pypi_month else "n/a"

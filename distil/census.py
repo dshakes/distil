@@ -142,8 +142,10 @@ def build_payload() -> dict:
     - token/dollar counts get the same calibration factor the proof ledger
       applies (heuristic counts → billed-count estimate; identity until enough
       samples), so the census never reports more than the provider would bill;
-    - a flat-rate subscription saves REAL tokens but only NOTIONAL dollars —
-      those report dollars_saved=0 rather than inflating the community $ sum.
+    - dollars are always reported, but the `billing` field lets the rollup
+      bucket them honestly: metered dollars are real savings, subscription
+      dollars are the NOTIONAL API-rate value (shown, labeled, never mixed
+      into the real-$ total).
     """
     from . import __version__, ledger
 
@@ -156,13 +158,6 @@ def build_payload() -> dict:
         f = 1.0
     tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
     dollars = max(0.0, s.total_baseline_dollars - s.total_distil_dollars)
-    try:
-        from .doctor import subscription_mode
-
-        if subscription_mode():
-            dollars = 0.0  # flat-rate: dollar savings are notional, don't report them
-    except Exception:  # noqa: BLE001 — detection failure must not block the census
-        pass
     payload = {
         "schema": 2,
         "install_id": install_id(),
