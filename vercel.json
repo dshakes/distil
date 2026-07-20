@@ -1,0 +1,4 @@
+{
+  "$comment": "The distil-census Vercel project is deployed EXPLICITLY from packaging/census-worker/ (see its README). This repo-root file exists only to stop git-integration pushes from clobbering that production deployment with a function-less repo-root build.",
+  "git": { "deploymentEnabled": false }
+}
