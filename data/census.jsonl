@@ -1,2 +1,3 @@
 {"arch": "arm64", "dollars_saved": 0, "install_id": "3f36ea9bca404cbba29fec1261b1f51a", "os": "Darwin", "python": "3.12.13", "runs": 0, "schema": 1, "tokens_saved": 0, "ts": 1784519233, "version": "1.20.1"}
 {"agents": ["other"], "arch": "x86_64", "billing": "metered", "by_model": {"claude-haiku-4-5": 0}, "dollars_saved": 0, "install_id": "e2e0000000000000000000000000feed", "os": "Linux", "python": "3.12.1", "runs": 1, "schema": 2, "tokens_saved": 0, "ts": 1784522024, "version": "1.21.0"}
+{"arch": "x86_64", "dollars_saved": 0, "install_id": "e2e0000000000000000000000000f00d", "os": "Linux", "python": "3.12.1", "runs": 1, "schema": 1, "tokens_saved": 0, "ts": 1784522025, "version": "1.21.0"}

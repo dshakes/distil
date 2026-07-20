@@ -1,19 +1,19 @@
 {
-  "generated_ts": 1784522032,
+  "generated_ts": 1784522041,
   "installs": {
-    "census_total": 2,
-    "active_7d": 2,
-    "active_30d": 2,
+    "census_total": 3,
+    "active_7d": 3,
+    "active_30d": 3,
     "by_version": {
-      "1.20.1": 1,
-      "1.21.0": 1
+      "1.21.0": 2,
+      "1.20.1": 1
     }
   },
   "savings": {
     "tokens": 0,
     "dollars": 0.0,
     "dollars_notional": 0.0,
-    "instances": 2
+    "instances": 3
   },
   "usage": {
     "by_model": {
