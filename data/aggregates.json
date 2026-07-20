@@ -1,25 +1,25 @@
 {
-  "generated_ts": 1784523290,
+  "generated_ts": 1784523337,
   "installs": {
     "census_total": 1,
     "active_7d": 1,
     "active_30d": 1,
     "by_version": {
-      "1.20.1": 1
+      "1.22.0": 1
     }
   },
   "savings": {
-    "tokens": 1391585051,
+    "tokens": 1402178299,
     "dollars": 0,
-    "dollars_notional": 5794.8,
+    "dollars_notional": 5838.94,
     "instances": 1
   },
   "usage": {
     "by_model": {
-      "claude-opus-4-8": 577757383,
-      "claude-sonnet-4-6": 528782832,
-      "claude-sonnet-5": 218683551,
-      "claude-fable-5": 66361262,
+      "claude-opus-4-8": 582139490,
+      "claude-sonnet-4-6": 532822004,
+      "claude-sonnet-5": 220342197,
+      "claude-fable-5": 66874587,
       "claude-haiku-4-5-20251001": 22
     },
     "billing": {
