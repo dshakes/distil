@@ -385,6 +385,55 @@
       <div class="foot">stdlib-only · 700+ tests · pip · docker · pyz</div>
     </div>
   </div>
+
+  <!-- Live adoption strip — hydrated from the metrics branch (nightly rollup of
+       registry stats + the opt-in census; see TELEMETRY.md). Hidden until the
+       fetch succeeds, so a missing/empty metrics branch costs nothing. -->
+  <div class="stats" id="adoption-live" hidden>
+    <div class="stat">
+      <div class="n" id="al-downloads">–</div>
+      <div class="l">PyPI downloads / month</div>
+      <div class="foot">registry-side — no client telemetry</div>
+    </div>
+    <div class="stat">
+      <div class="n" id="al-installs">–</div>
+      <div class="l">Active installs, 30d</div>
+      <div class="foot">opt-in census · <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">what's sent</a></div>
+    </div>
+    <div class="stat hl">
+      <div class="n" id="al-tokens">–</div>
+      <div class="l">Community tokens saved</div>
+      <div class="foot">Σ of opted-in ledgers · numbers only, never content</div>
+    </div>
+    <div class="stat hl">
+      <div class="n" id="al-dollars">–</div>
+      <div class="l">Community $ saved</div>
+      <div class="foot">same census · updated nightly</div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    "use strict";
+    var human = function (n) {
+      if (n == null) return null;
+      var u = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]];
+      for (var i = 0; i < u.length; i++) if (n >= u[i][0]) return (n / u[i][0]).toFixed(1) + u[i][1];
+      return String(Math.round(n));
+    };
+    fetch("https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (a) {
+        if (!a) return;
+        var set = function (id, v) { if (v != null) document.getElementById(id).textContent = v; };
+        set("al-downloads", human(a.channels && a.channels.pypi_downloads_month));
+        set("al-installs", human(a.installs && a.installs.active_30d));
+        set("al-tokens", human(a.savings && a.savings.tokens));
+        set("al-dollars", a.savings && a.savings.dollars != null ? "$" + human(a.savings.dollars) : null);
+        document.getElementById("adoption-live").hidden = false;
+      })
+      .catch(function () { /* metrics branch absent — strip stays hidden */ });
+  })();
+  </script>
 </div></header>
 
 <section id="why"><div class="wrap">
