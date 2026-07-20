@@ -81,10 +81,12 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
         2,
     )
 
-    # Usage dimensions (schema-2 rows; schema-1 rows simply don't contribute).
+    # Usage dimensions (schema-2+ rows; schema-1 rows simply don't contribute).
     by_model: Counter = Counter()
     billing: Counter = Counter()
     agents: Counter = Counter()
+    surfaces: Counter = Counter()
+    shapes: Counter = Counter()
     for r in latest.values():
         for m, v in (r.get("by_model") or {}).items():
             by_model[m] += int(v)
@@ -92,6 +94,11 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             billing[r["billing"]] += 1
         for a in r.get("agents") or []:
             agents[a] += 1
+        # Schema-3 integration attribution: request counts per surface/shape.
+        for k, v in (r.get("surfaces") or {}).items():
+            surfaces[k] += int(v)
+        for k, v in (r.get("shapes") or {}).items():
+            shapes[k] += int(v)
 
     # The newest passive row that actually carries pypi data (a partially
     # degraded night must not blank the dashboard).
@@ -120,6 +127,8 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             "by_model": dict(by_model.most_common()),
             "billing": dict(billing.most_common()),
             "agents": dict(agents.most_common()),
+            "surfaces": dict(surfaces.most_common()),
+            "shapes": dict(shapes.most_common()),
         },
         "channels": {
             "pypi_downloads_month": pypi.get("month"),

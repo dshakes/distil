@@ -44,6 +44,8 @@ reviewed change to this file and that test:
 | `billing` | `"metered"` | `"subscription"` or `"metered"` — nothing else valid |
 | `by_model` | `{"claude-opus-4-8": 91_000}` | calibrated tokens saved per model id, **top 5 only**, key length-capped |
 | `agents` | `["claude"]` | wrapped agents seen, **allowlist-only** (`claude`/`codex`/`gemini`/`aider`) — anything else becomes `"other"`, so an exotic command line can never leak |
+| `surfaces` | `{"wrap": 5100, "proxy": 320}` | request counts per integration door — `wrap` / `proxy` / `gateway` (allowlist-only keys) |
+| `shapes` | `{"anthropic": 5000, "openai-chat": 400}` | request counts per API wire format — `anthropic` / `openai-chat` / `openai-responses` / `gemini` — the "are SDKs used?" answer, with no key- or identity-derived data |
 | `ts` | `1784500000` | send time |
 
 Never sent, opted in or not: prompt/response content, message digests, file

@@ -194,6 +194,17 @@
       </div>
     </div>
 
+    <div class="gridtwo">
+      <div>
+        <div class="seyebrow p" style="margin-top:22px">Integration surface &middot; requests</div>
+        <div class="bars" id="bysurface"></div>
+      </div>
+      <div>
+        <div class="seyebrow p" style="margin-top:22px">API shape &middot; SDK wire formats</div>
+        <div class="bars" id="byshape"></div>
+      </div>
+    </div>
+
     <div class="seyebrow p" style="margin-top:22px">Billing mix &middot; wrapped agents &middot; channels</div>
     <div class="chipset" id="chips"></div>
 
@@ -337,6 +348,14 @@
     bars("bymodel",
       Object.entries((a.usage || {}).by_model || {}).sort(function (x, y) { return y[1] - x[1]; }),
       "alt", "model split appears as v1.22+ clients opt in");
+    var surfLabels = { wrap: "wrap · agents (claude, codex…)", proxy: "proxy · SDKs & headless", gateway: "gateway · multi-tenant" };
+    bars("bysurface",
+      Object.entries((a.usage || {}).surfaces || {}).sort(function (x, y) { return y[1] - x[1]; })
+        .map(function (e) { return [surfLabels[e[0]] || e[0], e[1]]; }),
+      "alt", "integration split appears as v1.23+ clients opt in");
+    bars("byshape",
+      Object.entries((a.usage || {}).shapes || {}).sort(function (x, y) { return y[1] - x[1]; }),
+      "", "API-shape split appears as v1.23+ clients opt in");
     var rows = a.installs.census_total;
     if (rows) document.getElementById("svg-rows").textContent = rows + " install" + (rows === 1 ? "" : "s") + " recorded";
     var chips = [];

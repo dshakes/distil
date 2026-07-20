@@ -387,6 +387,13 @@ def build_handler(
             _warn_if_version_skew(_version_state)
             p = strip_query(self.path)
             if p in _COMPRESSIBLE_PATHS or is_gemini_path(p):
+                # Content-free integration-surface counter (census schema 3).
+                try:
+                    from . import surfaces as _surfaces
+
+                    _surfaces.bump(p)
+                except Exception:  # noqa: BLE001 — counting must never affect a request
+                    pass
                 self._handle_compressible()
             else:
                 self._passthrough()
@@ -1597,6 +1604,13 @@ def wrap_run(
 
         _print_proof_ledger(os.environ.get("DISTIL_SESSION", ""), _start_ts)
     except Exception:  # noqa: BLE001 — ledger print must never affect exit code
+        pass
+    # Persist any pending integration-surface counts before the census reads them.
+    try:
+        from . import surfaces as _surfaces
+
+        _surfaces.flush()
+    except Exception:  # noqa: BLE001 — counters must never affect exit code
         pass
     # Adoption census — opt-in only, ≤1/day, content-free; fail-open like the
     # ledger print (see distil/census.py and TELEMETRY.md).

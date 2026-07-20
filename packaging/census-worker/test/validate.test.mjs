@@ -80,3 +80,22 @@ test("rejects bad v2 fields", () => {
   delete missing.agents;
   assert.equal(validateCensus(missing).ok, false);
 });
+
+const goodV3 = () => ({
+  ...goodV2(),
+  schema: 3,
+  surfaces: { wrap: 100, proxy: 20 },
+  shapes: { anthropic: 90, "openai-chat": 30 },
+});
+
+test("accepts schema 3 and rejects bad v3 fields", () => {
+  assert.equal(validateCensus(goodV3()).ok, true);
+  assert.equal(validateCensus({ ...goodV3(), surfaces: { botnet: 1 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV3(), shapes: { anthropic: -1 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV3(), shapes: { anthropic: 2e9 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV3(), surfaces: "wrap" }).ok, false);
+  const missing = goodV3();
+  delete missing.shapes;
+  assert.equal(validateCensus(missing).ok, false);
+  assert.equal(validateCensus({ ...goodV3(), agents: ["evil"] }).ok, false); // v2 rules still apply
+});

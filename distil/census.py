@@ -37,6 +37,7 @@ MIN_INTERVAL_S = 24 * 3600
 # The frozen payload contract — tests/test_census.py refuses any new key, so
 # widening the census is a deliberate, reviewed act (and a TELEMETRY.md edit).
 # Schema 2 added the usage dimensions: billing, by_model, agents.
+# Schema 3 added the integration dimensions: surfaces, shapes.
 PAYLOAD_KEYS = frozenset(
     {
         "schema",
@@ -51,6 +52,8 @@ PAYLOAD_KEYS = frozenset(
         "billing",
         "by_model",
         "agents",
+        "surfaces",
+        "shapes",
         "ts",
     }
 )
@@ -158,8 +161,11 @@ def build_payload() -> dict:
         f = 1.0
     tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
     dollars = max(0.0, s.total_baseline_dollars - s.total_distil_dollars)
+    from . import surfaces as _surfaces
+
+    integ = _surfaces.snapshot()
     payload = {
-        "schema": 2,
+        "schema": 3,
         "install_id": install_id(),
         "version": __version__,
         "os": platform.system(),
@@ -171,6 +177,8 @@ def build_payload() -> dict:
         "billing": _billing(),
         "by_model": _by_model(f),
         "agents": _agents(),
+        "surfaces": integ["surfaces"],
+        "shapes": integ["shapes"],
         "ts": int(time.time()),
     }
     assert set(payload) == PAYLOAD_KEYS  # contract, enforced in prod too

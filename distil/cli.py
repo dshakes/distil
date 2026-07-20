@@ -633,6 +633,10 @@ def cmd_proxy(args: argparse.Namespace) -> int:
     from .updatecheck import maybe_notify as _update_notify
 
     _update_notify()  # ≤1/day, background thread, DISTIL_NO_UPDATE_CHECK opts out
+    # Surface label for the census's integration counters (worker inherits it).
+    import os as _os_mod
+
+    _os_mod.environ.setdefault("DISTIL_SURFACE", "proxy")
     _apply_subscription_safe_default(args)
     if args.use_async:
         from .aproxy import serve as aserve  # high-concurrency (needs distil-llm[async])
@@ -1752,6 +1756,10 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     from .updatecheck import maybe_notify as _update_notify
 
     _update_notify()  # ≤1/day, background thread, DISTIL_NO_UPDATE_CHECK opts out
+    # Surface label for the census's integration counters; the spawned proxy
+    # (and hot-swap worker) inherit it, so wrapped-agent traffic counts as
+    # "wrap" while a standalone proxy counts as "proxy".
+    _os.environ["DISTIL_SURFACE"] = "wrap"
     command = list(args.command)
     if command and command[0] == "--":  # argparse REMAINDER keeps the separator
         command = command[1:]
@@ -1863,8 +1871,11 @@ def cmd_certify_trajectories(args: argparse.Namespace) -> int:
 
 def cmd_gateway(args: argparse.Namespace) -> int:
     """Managed multi-tenant gateway with a live per-tenant savings dashboard."""
+    import os as _os_mod
+
     from .gateway import serve_gateway
 
+    _os_mod.environ.setdefault("DISTIL_SURFACE", "gateway")
     serve_gateway(
         host=args.host,
         port=args.port,

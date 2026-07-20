@@ -201,3 +201,53 @@ def test_rollup_buckets_dollars_by_billing(tmp_path):
     agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
     assert agg["savings"]["dollars"] == 10.0
     assert agg["savings"]["dollars_notional"] == 104.0
+
+
+# ---------------------------------------------------------------------------
+# Schema 3 (integration attribution)
+# ---------------------------------------------------------------------------
+
+
+def _row3(**kw) -> dict:
+    base = _row2(
+        surfaces={"wrap": 100, "proxy": 20},
+        shapes={"anthropic": 90, "openai-chat": 30},
+    )
+    base["schema"] = 3
+    base.update(kw)
+    return base
+
+
+def test_validator_accepts_all_three_schemas():
+    assert census_validate.validate(_row()) is None
+    assert census_validate.validate(_row2()) is None
+    assert census_validate.validate(_row3()) is None
+
+
+def test_validator_rejects_bad_v3_fields():
+    assert census_validate.validate(_row3(surfaces={"botnet": 1})) is not None
+    assert census_validate.validate(_row3(shapes={"anthropic": -1})) is not None
+    assert census_validate.validate(_row3(shapes={"anthropic": 1e10})) is not None
+    assert census_validate.validate(_row3(surfaces="wrap")) is not None
+    bad = _row3()
+    del bad["shapes"]
+    assert census_validate.validate(bad) is not None  # v3 keys all-or-nothing
+    # v2 rules still enforced on a v3 payload
+    assert census_validate.validate(_row3(agents=["evil"])) is not None
+
+
+def test_rollup_aggregates_surfaces_and_shapes(tmp_path):
+    now = int(time.time())
+    rows = [
+        _row3(install_id="a" * 32, ts=now),
+        _row3(
+            install_id="b" * 32,
+            ts=now,
+            surfaces={"gateway": 5},
+            shapes={"gemini": 7, "anthropic": 10},
+        ),
+        _row2(install_id="c" * 32, ts=now),  # v2 row: counted, no v3 contribution
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["usage"]["surfaces"] == {"wrap": 100, "proxy": 20, "gateway": 5}
+    assert agg["usage"]["shapes"] == {"anthropic": 100, "openai-chat": 30, "gemini": 7}
