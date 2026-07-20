@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1784523337,
+  "generated_ts": 1784528355,
   "installs": {
     "census_total": 1,
     "active_7d": 1,
@@ -9,17 +9,17 @@
     }
   },
   "savings": {
-    "tokens": 1402178299,
+    "tokens": 1430804087,
     "dollars": 0,
-    "dollars_notional": 5838.94,
+    "dollars_notional": 5958.34,
     "instances": 1
   },
   "usage": {
     "by_model": {
-      "claude-opus-4-8": 582139490,
-      "claude-sonnet-4-6": 532822004,
-      "claude-sonnet-5": 220342197,
-      "claude-fable-5": 66874587,
+      "claude-opus-4-8": 594009469,
+      "claude-sonnet-4-6": 543686386,
+      "claude-sonnet-5": 224835033,
+      "claude-fable-5": 68273178,
       "claude-haiku-4-5-20251001": 22
     },
     "billing": {
@@ -28,6 +28,12 @@
     "agents": {
       "claude": 1,
       "other": 1
+    },
+    "surfaces": {
+      "wrap": 1
+    },
+    "shapes": {
+      "anthropic": 1
     }
   },
   "channels": {
