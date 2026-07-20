@@ -1,15 +1,17 @@
 {
-  "generated_ts": 1784518312,
+  "generated_ts": 1784519309,
   "installs": {
-    "census_total": 0,
-    "active_7d": 0,
-    "active_30d": 0,
-    "by_version": {}
+    "census_total": 1,
+    "active_7d": 1,
+    "active_30d": 1,
+    "by_version": {
+      "1.20.1": 1
+    }
   },
   "savings": {
     "tokens": 0,
-    "dollars": 0,
-    "instances": 0
+    "dollars": 0.0,
+    "instances": 1
   },
   "channels": {
     "pypi_downloads_month": 11943,
