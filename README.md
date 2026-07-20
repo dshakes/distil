@@ -10,6 +10,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/pypi/l/distil-llm?color=8b7bff" alt="license"/></a>
   <a href="#-what-we-wont-pretend"><img src="https://img.shields.io/badge/runtime%20deps-0-5ad19a" alt="zero runtime deps"/></a>
   <a href="https://dshakes.github.io/distil/architecture.html"><img src="https://img.shields.io/badge/typed-py.typed%20%C2%B7%20mypy%20clean-8b7bff" alt="typed"/></a>
+  <a href="https://pypi.org/project/distil-llm/"><img src="https://img.shields.io/pypi/dm/distil-llm?color=5ad19a&label=downloads" alt="PyPI downloads/month"/></a>
+  <a href="TELEMETRY.md"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Fsavings-tokens.json" alt="community tokens saved (opt-in census)"/></a>
+  <a href="TELEMETRY.md"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Factive-installs.json" alt="active installs, 30d (opt-in census)"/></a>
 </p>
 
 <h2 align="center">Compress your agent's context.<br/>Prove its decisions don't change.</h2>

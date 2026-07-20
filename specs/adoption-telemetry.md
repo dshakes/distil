@@ -44,23 +44,28 @@ set, (2) DNT beats stored consent, (3) payload contains only allowed keys —
 schema-frozen test, (4) `off` deletes install-id, (5) throttle honored,
 (6) send failure never raises. Full suite + gates PASS.
 
-**Phase 2 — ingest + public aggregates (needs a deploy decision).**
-Tiny ingest service (Cloudflare Worker or equivalent, code in
-`packaging/census-worker/`): validates schema, rate-limits, discards IPs,
-upserts by install id, publishes rolled-up JSON (installs by version, actives
-by week, Σ tokens/$ saved) to a public URL. Docs site "adoption" panel reads
-it. Deploy is a human step (infra creds); until then census sends fail open.
+**Phase 2 — ingest + public aggregates. IMPLEMENTED (deploy = human step).**
+`packaging/census-worker/` (Vercel function, zero-dep): strict validation
+(1 KB cap, key allowlist, numeric ceilings), stores nothing, forwards to
+`repository_dispatch("census")`. `census-ingest.yml` RE-validates
+(`scripts/census_validate.py`, defense in depth) and appends to
+`data/census.jsonl` on the `metrics` branch — the datastore is a public git
+branch, so the whole pipeline is auditable. `scripts/census_rollup.py`
+(nightly, inside adoption-stats.yml) dedupes latest-per-install-id, drops
+out-of-ceiling rows, emits `data/aggregates.json` + shields endpoint badges.
+Remaining human step: mint the fine-grained PAT + `vercel deploy` + DNS
+(runbook: packaging/census-worker/README.md). Until then, sends fail open.
 
-**Phase 3 — community savings board.**
-Wire the existing signed `SavingsAggregate` (`distil/telemetry.py`) through
-the same endpoint (`distil federated-leaderboard --submit`), render the
-Headroom-style fleet counter ("N tokens saved across M instances") on the
-site — opt-in only.
+**Phase 3 — community savings board. IMPLEMENTED via the census.**
+Community Σ tokens/$ ride the census rollup (latest ledger totals per
+install id) — README endpoint badges + the live adoption strip on
+docs/index.html render them. The HMAC-signed `SavingsAggregate` federation
+(`distil/telemetry.py`) remains the org-internal path (file-based, unchanged).
 
-**Phase 4 — later.**
-Version-check update notifier on CLI start (24h throttle, benefit-first,
-`DISTIL_NO_UPDATE_CHECK`), doubling as census transport for opted-in users;
-OTel exporter for enterprise fleets.
+**Phase 4 — update notifier. IMPLEMENTED.**
+`distil/updatecheck.py`: wrap/proxy check PyPI ≤1/24h in a daemon thread,
+one stderr line when behind, `DISTIL_NO_UPDATE_CHECK=1` opts out, disclosed
+in TELEMETRY.md. (OTel exporter for enterprise fleets stays future work.)
 
 ## Non-goals
 
