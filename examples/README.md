@@ -11,10 +11,39 @@ distil proxy --port 8788 --upstream https://api.anthropic.com
 | Example file | SDK / framework | Key setting | Value |
 |---|---|---|---|
 | `python_anthropic.py` | Anthropic Python SDK | `base_url` | `http://127.0.0.1:8788` |
+| `js_anthropic.ts` | Anthropic TypeScript SDK | `baseURL` in `new Anthropic({…})` | `http://127.0.0.1:8788` |
 | `python_openai.py` | OpenAI Python SDK | `base_url` | `http://127.0.0.1:8788/v1` |
 | `python_litellm.py` | LiteLLM | `api_base` | `http://127.0.0.1:8788` |
+| `python_gemini.py` | Google Gemini (REST) | proxy `--upstream` | `https://generativelanguage.googleapis.com` |
 | `js_vercel_ai_sdk.ts` | Vercel AI SDK (`@ai-sdk/anthropic`) | `baseURL` in `createAnthropic({…})` | `http://127.0.0.1:8788` |
 | `js_langchain.ts` | LangChain.js (`@langchain/anthropic`) | `anthropicApiUrl` in `ChatAnthropic({…})` | `http://127.0.0.1:8788` |
+
+## Headless agents (Agent SDK, `claude -p`, CI)
+
+Headless agents honor `ANTHROPIC_BASE_URL`, so `distil wrap` covers them with
+zero code changes — it starts the proxy, injects the env var, and tears down
+on exit:
+
+```sh
+# Claude Code in print mode (scripts, cron, CI)
+distil wrap -- claude -p "summarise this diff"
+
+# Claude Agent SDK (Python or TS) — wraps the script that drives the agent
+pip install claude-agent-sdk
+distil wrap -- python examples/python_claude_agent_sdk.py
+```
+
+For a standing deployment (e.g. one proxy per CI runner), skip `wrap` and set
+the env var against a long-running proxy instead:
+
+```sh
+distil proxy --port 8788 --upstream https://api.anthropic.com &
+ANTHROPIC_BASE_URL=http://127.0.0.1:8788 claude -p "…"
+```
+
+| Example file | Client | Routing |
+|---|---|---|
+| `python_claude_agent_sdk.py` | Claude Agent SDK (drives the Claude Code CLI) | `distil wrap -- python …` or `ANTHROPIC_BASE_URL` |
 
 ### In-process (no proxy)
 
@@ -38,6 +67,7 @@ ANTHROPIC_API_KEY=sk-ant-… python examples/python_langgraph.py
 pip install anthropic           # for python_anthropic.py
 pip install openai              # for python_openai.py
 pip install litellm             # for python_litellm.py
+pip install claude-agent-sdk    # for python_claude_agent_sdk.py
 
 # Start the proxy (in a separate terminal)
 distil proxy --port 8788 --upstream https://api.anthropic.com
@@ -50,6 +80,7 @@ ANTHROPIC_API_KEY=sk-ant-… python examples/python_anthropic.py
 
 ```sh
 # Install dependencies
+npm install @anthropic-ai/sdk             # for js_anthropic.ts
 npm install @ai-sdk/anthropic ai          # for js_vercel_ai_sdk.ts
 npm install @langchain/anthropic          # for js_langchain.ts
 npm install -D tsx                        # TypeScript runner

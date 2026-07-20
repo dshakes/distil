@@ -77,6 +77,10 @@ distil wrap --lossless-only -- claude
 distil wrap --expand -- codex     # → OPENAI_BASE_URL
 distil wrap --expand -- gemini    # → GOOGLE_GEMINI_BASE_URL
 distil wrap --expand -- aider     # → OPENAI_BASE_URL
+
+# Headless too — print mode, CI, and Agent SDK scripts route the same way:
+distil wrap -- claude -p "summarise this diff"
+distil wrap -- python my_agent_sdk_script.py
 ```
 
 Each recognized agent (`claude` / `codex` / `gemini` / `aider`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
@@ -214,7 +218,8 @@ distil proxy --upstream https://api.anthropic.com   # localhost:8788
 
 | SDK / framework | Change | Example |
 |---|---|---|
-| Anthropic SDK (Py/TS) | `base_url="http://127.0.0.1:8788"` | [`examples/python_anthropic.py`](examples/python_anthropic.py) |
+| Anthropic SDK (Py/TS) | `base_url="http://127.0.0.1:8788"` | [`examples/python_anthropic.py`](examples/python_anthropic.py) · [`examples/js_anthropic.ts`](examples/js_anthropic.ts) |
+| Claude Agent SDK / `claude -p` (headless) | `distil wrap -- <cmd>` or `ANTHROPIC_BASE_URL` | [`examples/python_claude_agent_sdk.py`](examples/python_claude_agent_sdk.py) |
 | OpenAI SDK | `base_url="http://127.0.0.1:8788/v1"` | [`examples/python_openai.py`](examples/python_openai.py) |
 | Vercel AI SDK | `createAnthropic({ baseURL: '…:8788' })` | [`examples/js_vercel_ai_sdk.ts`](examples/js_vercel_ai_sdk.ts) |
 | LangChain (py/js) | `anthropicApiUrl` / base URL | [`examples/js_langchain.ts`](examples/js_langchain.ts) |
