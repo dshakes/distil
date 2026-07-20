@@ -198,3 +198,44 @@ def test_preset_env_visible_to_child(tmp_path, monkeypatch):
         assert code == 0, "child did not see OPENAI_BASE_URL in its environment"
     finally:
         server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Bypass tripwire (post-run "no requests flowed" warning)
+# ---------------------------------------------------------------------------
+
+
+def _run_tripwire(tmp_path, monkeypatch, capsys, marker: str | None) -> str:
+    """Run cmd_wrap for a preset agent with the session traffic marker preset
+    to `marker` (None = no marker file) and return captured stderr."""
+    from distil.cli import cmd_wrap
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_SESSION", "s123-1")
+    if marker is not None:
+        sessions = tmp_path / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        (sessions / "s123-1").write_text(marker, encoding="utf-8")
+    _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["claude", "-p", "hi"]))
+    assert rc == 0
+    return capsys.readouterr().err
+
+
+def test_tripwire_warns_on_bypass(tmp_path, monkeypatch, capsys):
+    """Marker still "0" after the session → the agent bypassed the proxy → warn."""
+    err = _run_tripwire(tmp_path, monkeypatch, capsys, "0")
+    assert "no requests flowed" in err
+
+
+def test_tripwire_silent_when_traffic_flowed(tmp_path, monkeypatch, capsys):
+    """Marker "1" (traffic reached the proxy) → no warning, even with an empty
+    savings ledger — a short zero-savings session must not cry wolf."""
+    err = _run_tripwire(tmp_path, monkeypatch, capsys, "1")
+    assert "no requests flowed" not in err
+
+
+def test_tripwire_silent_without_marker(tmp_path, monkeypatch, capsys):
+    """No marker file (wrap_run never created one) → can't tell → stay silent."""
+    err = _run_tripwire(tmp_path, monkeypatch, capsys, None)
+    assert "no requests flowed" not in err

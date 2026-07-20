@@ -1608,7 +1608,6 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     pipes/redirects cleanly)."""
     import os
     import sys
-    import time
 
     from .doctor import subscription_mode
     from .shadow import ShadowLedger
@@ -1743,15 +1742,16 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     )
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can
-    # silently stop). A preset session that ends with ZERO proxied requests is the
-    # loud local signal for exactly that; say so instead of failing silently.
-    # (Fail-open: never affect the child's exit code.)
+    # silently stop). The session traffic marker (written "0" at wrap start,
+    # flipped to "1" by the first proxied request) is the authoritative signal —
+    # the savings ledger is NOT: a short session that saves 0 tokens books no
+    # ledger rows and would cry wolf. (Fail-open: never affect the child's exit.)
     if preset is not None:
         try:
-            from .proof_ledger import build_ledger_text
+            from .ledger import session_marker_path
 
-            session = _os.environ.get("DISTIL_SESSION", "")
-            if session and build_ledger_text(session, time.time()) is None:
+            mp = session_marker_path()
+            if mp is not None and mp.exists() and mp.read_text(encoding="utf-8").strip() == "0":
                 print(
                     f"  warning: no requests flowed through distil this session — "
                     f"{cmd_name} may have stopped honoring {env_var} "
@@ -1965,7 +1965,6 @@ def cmd_perf(args: argparse.Namespace) -> int:
 
 def cmd_benchmark(args: argparse.Namespace) -> int:
     """Head-to-head: every compression technique through the same gate + cost model."""
-    import time
 
     from . import benchmark as bm
 
@@ -2169,7 +2168,6 @@ def cmd_frontier(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     """The certified compression frontier (savings vs decision-equivalence)."""
-    import time
 
     from .eval import format_frontier, frontier, write_raw
 
