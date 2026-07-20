@@ -1289,6 +1289,12 @@ def serve(
         _drain_shadow(handler)
         if savings is not None:
             savings.flush()  # persist remaining genuine savings on shutdown
+        try:
+            from . import surfaces as _surfaces
+
+            _surfaces.flush()  # persist integration-surface counts (census schema 3)
+        except Exception:  # noqa: BLE001 — counters must never affect shutdown
+            pass
         server.server_close()
 
 
