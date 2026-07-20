@@ -3,6 +3,17 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.22.0] — census schema 2: usage dimensions, honest downloads, live adoption dashboard
+
+### Census (schema 2 — TELEMETRY.md updated in lockstep with the frozen-schema tests)
+- **Usage dimensions**: `by_model` (calibrated tokens saved per model id, top 5), `billing` (`subscription`|`metered`), `agents` (allowlist-only — `claude`/`codex`/`gemini`/`aider`, anything else collapses to `"other"` so an exotic argv can never leak). Both validators (worker JS + CI Python) accept schema 1 and 2, all-or-nothing keys, live-verified accept/reject including skew and injection attempts.
+- **Honest dollars, nobody excluded**: totals are calibration-corrected (never more than billed), and the rollup buckets dollars by billing — metered = real community $, subscription = notional API-rate value, published separately and labeled. Validated on a real ledger: 1.02B tokens / 5,743 runs rolled up with subscription $ correctly bucketed notional.
+
+### Adoption surfaces
+- **Bot-filtered downloads**: no-OS PyPI downloads are scanners/crawlers; the snapshot now records the real-vs-bot split plus per-OS and per-Python breakdowns (real-OS ≈ 1.9k/mo vs ≈ 10k bot traffic at ship time). New `downloads-real` badge replaces the raw count in the README.
+- **Live adoption dashboard** (`docs/adoption.html`): stat tiles with count-up, real-vs-bot split band, OS/Python/version/model bars, billing+agent chips, animated pipeline architecture diagram with live install count; linked from every sidebar, the landing strip, and the README badges. Near-real-time: census ingest re-rolls aggregates+badges on every ping; badges re-poll in 5 min.
+- **Ops fix**: a Vercel git-integration connected to this repo was clobbering the census worker's production deployment with function-less repo-root builds (the `/v1/ping` 404 outage); a root `vercel.json` disables git deployments — the worker deploys explicitly from `packaging/census-worker/` (which gains a `package.json` the zero-config build needs).
+
 ## [1.21.0] — adoption picture: opt-in census, passive registry pipeline, live badges
 
 ### Adoption & community savings (ADR 0002, TELEMETRY.md)

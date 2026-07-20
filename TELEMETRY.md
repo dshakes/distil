@@ -63,7 +63,7 @@ in [THREAT_MODEL.md](THREAT_MODEL.md).
 Every stage of the pipeline is public code in this repo:
 
 1. **Ingest** ([`packaging/census-worker/`](packaging/census-worker/)): a
-   stateless function that validates the schema (1 KB cap, strict allowlist,
+   stateless function that validates the schema (2 KB cap, strict allowlist,
    hard numeric ceilings) and forwards to a GitHub `repository_dispatch`. It
    stores nothing — no database, no IP addresses.
 2. **Append** ([`.github/workflows/census-ingest.yml`](.github/workflows/census-ingest.yml)):
