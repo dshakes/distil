@@ -30,7 +30,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-DEFAULT_ENDPOINT = "https://census.distil.dev/v1/ping"
+DEFAULT_ENDPOINT = "https://distil-census.vercel.app/v1/ping"
 SEND_TIMEOUT_S = 1.5
 MIN_INTERVAL_S = 24 * 3600
 
