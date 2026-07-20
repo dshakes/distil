@@ -87,11 +87,15 @@ def test_payload_schema_frozen():
         "agents",
         "surfaces",
         "shapes",
+        "equivalence",
+        "modes",
         "ts",
     }
-    assert payload["schema"] == 3
+    assert payload["schema"] == 4
     assert set(payload["surfaces"]) <= {"wrap", "proxy", "gateway"}
     assert set(payload["shapes"]) <= {"anthropic", "openai-chat", "openai-responses", "gemini"}
+    assert set(payload["equivalence"]) == {"pct", "shadowed"}
+    assert set(payload["modes"]) <= {"interactive", "headless", "sdk"}
     assert payload["billing"] in ("subscription", "metered")
     assert isinstance(payload["by_model"], dict) and len(payload["by_model"]) <= 5
     assert all(a in ("claude", "codex", "gemini", "aider", "other") for a in payload["agents"])
@@ -109,7 +113,7 @@ def test_opt_in_sends_and_throttles(monkeypatch):
     census.opt_in()
     assert census.maybe_ping() is True
     assert len(calls) == 1
-    assert calls[0]["schema"] == 3
+    assert calls[0]["schema"] == 4
     # Second call inside 24h: throttled, no second request.
     assert census.maybe_ping() is False
     assert len(calls) == 1

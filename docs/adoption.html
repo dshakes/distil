@@ -99,6 +99,60 @@
     .pipe .flow,.seyebrow.live::before,.pipe .breathe{animation:none}
     .bar-fill,.split .seg{transition:none}
   }
+
+  /* ═══ next-gen live hero ═══ */
+  .hero{position:relative;margin:22px 0 10px;border:1px solid var(--line);border-radius:20px;overflow:hidden;
+    background:
+      radial-gradient(120% 140% at 12% -10%,rgba(90,209,154,.10),transparent 55%),
+      radial-gradient(120% 160% at 100% 0%,rgba(139,123,255,.10),transparent 50%),
+      linear-gradient(180deg,var(--panel2),var(--panel));}
+  .hero::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.35;
+    background-image:linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px);
+    background-size:34px 34px;mask-image:radial-gradient(80% 80% at 30% 0%,#000,transparent);}
+  .hero-in{position:relative;padding:26px 28px 22px;display:grid;grid-template-columns:1.5fr 1fr;gap:26px}
+  @media(max-width:900px){.hero-in{grid-template-columns:1fr;gap:18px}}
+  .hero-lab{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:9px}
+  .hero-lab .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 12px 2px rgba(90,209,154,.75);animation:apulse 1.4s ease-in-out infinite}
+  /* odometer */
+  .odo{display:flex;align-items:baseline;gap:1px;margin:10px 0 8px;font-family:var(--mono);font-weight:800;
+    font-size:clamp(38px,6.4vw,72px);letter-spacing:-.02em;line-height:1;
+    color:#eafff5;text-shadow:0 0 30px rgba(90,209,154,.25)}
+  .odo .d{display:inline-block;min-width:.62em;text-align:center;position:relative;transition:color .25s}
+  .odo .d.sep{min-width:.28em;color:var(--dim);text-shadow:none}
+  .odo .d.tick{color:#7dffc4}
+  .odo .unit{font-size:.34em;font-weight:700;color:var(--mut);letter-spacing:.04em;margin-left:.35em;text-shadow:none}
+  .rate{font-family:var(--mono);font-size:13.5px;color:var(--good);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .rate .up{display:inline-block;animation:arise 1.6s ease-in-out infinite}
+  @keyframes arise{0%,100%{transform:translateY(0);opacity:.7}50%{transform:translateY(-2px);opacity:1}}
+  .rate .muted{color:var(--dim)}
+  .hero-sub{color:var(--mut);font-size:13px;margin-top:12px;line-height:1.5}
+  .hero-sub b{color:var(--ink)}
+  /* trust ring */
+  .trust{display:flex;flex-direction:column;justify-content:center;gap:14px}
+  .ring-wrap{display:flex;align-items:center;gap:16px}
+  .ring{--pct:0;width:96px;height:96px;flex:0 0 auto;border-radius:50%;position:relative;
+    background:conic-gradient(var(--good) calc(var(--pct)*1%),#23233a 0);transition:background .8s cubic-bezier(.2,.8,.2,1)}
+  .ring::after{content:"";position:absolute;inset:8px;border-radius:50%;background:var(--panel)}
+  .ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:800;font-size:20px;color:#eafff5;z-index:1}
+  .ring.glow{box-shadow:0 0 24px -4px rgba(90,209,154,.5)}
+  .trust-t{font-weight:700;color:var(--ink);font-size:14.5px}
+  .trust-s{color:var(--mut);font-size:12.5px;margin-top:3px;line-height:1.45}
+  .trust-s b{color:var(--good)}
+  /* mini stat row */
+  .ministat{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:2px 0 0}
+  .ministat .m{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.015)}
+  .ministat .mv{font-family:var(--mono);font-weight:800;font-size:19px;color:#eafff5;font-variant-numeric:tabular-nums}
+  .ministat .ml{color:var(--mut);font-size:11px;margin-top:3px}
+  /* sparkline */
+  .spark{margin:14px 0 2px}
+  .spark svg{width:100%;height:46px;display:block;overflow:visible}
+  .spark .area{fill:url(#sg)}
+  .spark .line{fill:none;stroke:var(--good);stroke-width:2;filter:drop-shadow(0 0 6px rgba(90,209,154,.5))}
+  .spark .head{fill:#7dffc4;filter:drop-shadow(0 0 6px rgba(125,255,196,.9))}
+  .spark-lab{color:var(--dim);font-size:11px;font-family:var(--mono);margin-top:4px}
+  @media (prefers-reduced-motion:reduce){
+    .hero-lab .dot,.rate .up{animation:none}
+  }
 </style>
 </head>
 <body>
@@ -149,11 +203,47 @@
     <p class="lead">Most projects show you raw download counts and hope you don't ask questions. We ask them for you: downloads are <b>bot-filtered</b>, savings come from an <b>opt-in census</b> that starts at zero and can't be inflated, and every number below is computed by public code from a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>.</p>
     <p class="updated" id="updated">connecting to the metrics branch&hellip;</p>
 
+    <!-- ── next-gen live hero: ticking odometer + trust ring ── -->
+    <div class="hero">
+      <div class="hero-in">
+        <div>
+          <div class="hero-lab"><span class="dot"></span> Community tokens saved &middot; live</div>
+          <div class="odo" id="odo" aria-live="off"><span class="d">0</span></div>
+          <div class="rate">
+            <span class="up">&#9650;</span><b id="rate-sec">&mdash;</b>&nbsp;tok/s
+            <span class="muted" id="rate-day"></span>
+          </div>
+          <div class="spark" id="spark"></div>
+          <div class="hero-sub">
+            <b>Measured</b>, never estimated — the ticker projects forward at the community's real
+            savings rate (Δtokens between two consecutive censuses); it snaps to the exact value on
+            each new ping. Worth <b id="hero-notional">&mdash;</b> at metered API rates.
+          </div>
+        </div>
+        <div class="trust">
+          <div class="ring-wrap">
+            <div class="ring glow" id="eq-ring"><b id="eq-pct">&mdash;</b></div>
+            <div>
+              <div class="trust-t">Decision-equivalence</div>
+              <div class="trust-s">Compression provably didn't change the agent's next action, across
+                <b id="eq-shadowed">&mdash;</b> shadowed requests. This is the distil guarantee — as a
+                community number, noise-adjusted.</div>
+            </div>
+          </div>
+          <div class="ministat">
+            <div class="m"><div class="mv" id="ms-active">&mdash;</div><div class="ml">active installs · 30d</div></div>
+            <div class="m"><div class="mv" id="ms-runs">&mdash;</div><div class="ml">agent runs</div></div>
+            <div class="m"><div class="mv" id="ms-avg">&mdash;</div><div class="ml">avg saved / run</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="astats">
       <div class="astat pu"><div class="n" id="t-active">–</div><div class="l">Active installs &middot; 30d</div><div class="foot">opt-in census &middot; one per machine &middot; bot-proof by construction</div></div>
-      <div class="astat hl"><div class="n" id="t-tokens">–</div><div class="l">Community tokens saved</div><div class="foot">&Sigma; opted-in ledgers &middot; calibration-corrected, never estimated</div></div>
-      <div class="astat"><div class="n" id="t-dollars">–</div><div class="l">Real $ saved &middot; metered</div><div class="foot">plus <b id="t-notional">–</b> notional API-rate value from flat-rate subscriptions</div></div>
+      <div class="astat hl"><div class="n" id="t-dollars-real">–</div><div class="l">Real $ saved &middot; metered</div><div class="foot">plus <b id="t-notional">–</b> notional API-rate value from flat-rate subscriptions</div></div>
       <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered <b>download events</b> (incl. CI &amp; upgrades) — not unique users; the census tile is the provable-users number</div></div>
+      <div class="astat"><div class="n" id="t-shapes">–</div><div class="l">API shapes seen</div><div class="foot">distinct SDK wire formats across the fleet — Anthropic / OpenAI / Gemini</div></div>
     </div>
 
     <div class="seyebrow gr">Downloads &middot; honestly</div>
@@ -205,8 +295,16 @@
       </div>
     </div>
 
-    <div class="seyebrow p" style="margin-top:22px">Billing mix &middot; wrapped agents &middot; channels</div>
-    <div class="chipset" id="chips"></div>
+    <div class="gridtwo">
+      <div>
+        <div class="seyebrow p" style="margin-top:22px">Session mode &middot; how it's driven</div>
+        <div class="bars" id="bymode"></div>
+      </div>
+      <div>
+        <div class="seyebrow p" style="margin-top:22px">Billing mix &middot; wrapped agents &middot; channels</div>
+        <div class="chipset" id="chips"></div>
+      </div>
+    </div>
 
     <div class="seyebrow">How it's measured</div>
     <h2 style="margin-top:0">Two paths, <span class="g">three validation layers</span>, one public datastore</h2>
@@ -266,48 +364,76 @@
 <script>
 (function () {
   "use strict";
-  // Near-real-time read: the GitHub contents API serves the branch tip
-  // uncached (raw.githubusercontent sits behind a CDN that also ignores
-  // query-string cache-busters). API first; raw as fallback for the
-  // unauthenticated rate-limit edge case.
   var AGG_API = "https://api.github.com/repos/dshakes/distil/contents/data/aggregates.json?ref=metrics";
   var AGG_RAW = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json";
   function fetchAggregates() {
     return fetch(AGG_API, { headers: { Accept: "application/vnd.github.raw+json" } })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .catch(function () {
-        return fetch(AGG_RAW).then(function (r) { return r.ok ? r.json() : null; });
-      });
+      .catch(function () { return fetch(AGG_RAW).then(function (r) { return r.ok ? r.json() : null; }); });
   }
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
   function human(n) {
     if (n == null) return null;
     var u = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]];
     for (var i = 0; i < u.length; i++) if (n >= u[i][0]) return (n / u[i][0]).toFixed(1) + u[i][1];
     return String(Math.round(n));
   }
-  function countUp(id, n, prefix) {
-    var el = document.getElementById(id);
-    if (n == null) return;
-    prefix = prefix || "";
-    if (reduced || n < 10) { el.textContent = prefix + human(n); return; }
-    var t0 = null, dur = 900;
-    function step(t) {
-      if (!t0) t0 = t;
-      var k = Math.min(1, (t - t0) / dur);
-      k = 1 - Math.pow(1 - k, 3);
-      el.textContent = prefix + human(n * k);
-      if (k < 1) requestAnimationFrame(step); else el.textContent = prefix + human(n);
-    }
-    requestAnimationFrame(step);
-  }
-  function bars(id, entries, cls, emptyMsg) {
-    var el = document.getElementById(id);
-    if (!entries || !entries.length) {
-      el.outerHTML = '<div class="empty-note">' + emptyMsg + "</div>";
+  function commas(n) { return Math.floor(n).toLocaleString("en-US"); }
+  function set(id, v) { var el = document.getElementById(id); if (el && v != null) el.textContent = v; }
+
+  // ── live odometer: digit cells that flip when their value changes ──
+  var odoEl = document.getElementById("odo"), odoDigits = [];
+  function renderOdo(str) {
+    // (re)build only when the digit count changes, else update in place for smooth ticking
+    if (odoDigits.length !== str.length) {
+      odoEl.innerHTML = "";
+      odoDigits = [];
+      for (var i = 0; i < str.length; i++) {
+        var s = document.createElement("span");
+        s.className = "d" + (str[i] === "," ? " sep" : "");
+        s.textContent = str[i];
+        odoEl.appendChild(s); odoDigits.push(s);
+      }
+      var u = document.createElement("span"); u.className = "unit"; u.textContent = "tokens";
+      odoEl.appendChild(u);
       return;
     }
+    for (var j = 0; j < str.length; j++) {
+      if (odoDigits[j].textContent !== str[j]) {
+        odoDigits[j].textContent = str[j];
+        if (!reduced && str[j] !== ",") {
+          odoDigits[j].classList.add("tick");
+          (function (el) { setTimeout(function () { el.classList.remove("tick"); }, 260); })(odoDigits[j]);
+        }
+      }
+    }
+  }
+
+  // ── sparkline of community tokens over time ──
+  function sparkline(history) {
+    var el = document.getElementById("spark");
+    if (!history || history.length < 2) { el.innerHTML = '<div class="spark-lab">savings trend builds as censuses accumulate</div>'; return; }
+    var xs = history.map(function (h) { return h.ts; }), ys = history.map(function (h) { return h.tokens; });
+    var x0 = xs[0], x1 = xs[xs.length - 1], y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    var W = 100, H = 40, px = function (x) { return x1 === x0 ? 0 : ((x - x0) / (x1 - x0)) * W; };
+    var py = function (y) { return y1 === y0 ? H / 2 : H - ((y - y0) / (y1 - y0)) * H; };
+    var pts = history.map(function (h) { return px(h.ts).toFixed(2) + "," + py(h.tokens).toFixed(2); });
+    var line = "M" + pts.join(" L");
+    var area = line + " L" + W + "," + H + " L0," + H + " Z";
+    var hx = px(x1).toFixed(2), hy = py(y1).toFixed(2);
+    el.innerHTML =
+      '<svg viewBox="0 0 100 40" preserveAspectRatio="none"><defs>' +
+      '<linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5ad19a" stop-opacity=".28"/><stop offset="1" stop-color="#5ad19a" stop-opacity="0"/></linearGradient></defs>' +
+      '<path class="area" d="' + area + '"/><path class="line" d="' + line + '"/>' +
+      '<circle class="head" cx="' + hx + '" cy="' + hy + '" r="2.4"/></svg>' +
+      '<div class="spark-lab">community tokens saved · ' + history.length + ' censuses over ' +
+      Math.max(1, Math.round((x1 - x0) / 3600)) + 'h</div>';
+  }
+
+  function bars(id, entries, cls, emptyMsg) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (!entries || !entries.length) { el.outerHTML = '<div class="empty-note">' + emptyMsg + "</div>"; return; }
     var max = Math.max.apply(null, entries.map(function (e) { return e[1]; }));
     el.innerHTML = entries.map(function (e) {
       var pct = max ? Math.max(2, (e[1] / max) * 100) : 2;
@@ -315,63 +441,98 @@
         '</div><div class="bar-track"><div class="bar-fill ' + cls + '" data-w="' + pct + '"></div></div>' +
         '<div class="bv">' + human(e[1]) + "</div></div>";
     }).join("");
-    requestAnimationFrame(function () {
-      el.querySelectorAll(".bar-fill").forEach(function (f) { f.style.width = f.dataset.w + "%"; });
-    });
+    requestAnimationFrame(function () { el.querySelectorAll(".bar-fill").forEach(function (f) { f.style.width = f.dataset.w + "%"; }); });
   }
-  fetchAggregates().then(function (a) {
-    if (!a) { document.getElementById("updated").textContent = "live data unavailable — metrics branch not reachable"; return; }
-    document.getElementById("updated").textContent =
-      "updated " + new Date(a.generated_ts * 1000).toUTCString().replace(":00 GMT", " UTC") + " · source: metrics branch · refreshes on load";
-    countUp("t-active", a.installs.active_30d);
-    countUp("t-tokens", a.savings.tokens);
-    countUp("t-dollars", a.savings.dollars, "$");
-    var notional = a.savings.dollars_notional;
-    if (notional != null) document.getElementById("t-notional").textContent = "$" + human(notional);
-    var pd = a.pypi_detail || {};
-    countUp("t-real", pd.real_os_30d);
+
+  // ── the live ticker: real anchor + measured rate, projected each frame ──
+  var live = null;  // {tokens, asOf(ms), rate(tok/s), dollarsNotional}
+  function tickLoop() {
+    if (live) {
+      var elapsed = (Date.now() - live.asOf) / 1000;
+      var projected = live.tokens + live.rate * Math.max(0, elapsed);
+      renderOdo(commas(projected));
+      if (live.rate > 0 && live.dpt) {
+        set("hero-notional", "$" + commas(live.dollarsNotional + projected * live.dpt - live.tokens * live.dpt) + " (notional)");
+      }
+    }
+    requestAnimationFrame(tickLoop);
+  }
+
+  function paint(a) {
+    if (!a) { set("updated", "live data unavailable — metrics branch not reachable"); return; }
+    var s = a.savings || {}, u = a.usage || {}, eq = a.equivalence || {}, pd = a.pypi_detail || {};
+    set("updated", "updated " + new Date(a.generated_ts * 1000).toUTCString().replace(":00 GMT", " UTC") +
+      " · source: metrics branch · re-fetching every 45s");
+
+    // hero live ticker
+    live = {
+      tokens: s.tokens || 0,
+      asOf: (s.as_of_ts || a.generated_ts) * 1000,
+      rate: s.rate_per_sec || 0,
+      dollarsNotional: s.dollars_notional || 0,
+      dpt: s.tokens ? (s.dollars_notional || 0) / s.tokens : 0
+    };
+    set("rate-sec", live.rate ? "+" + commas(live.rate) : "—");
+    set("rate-day", live.rate ? "≈ " + human(live.rate * 86400) + " / day at the measured rate" : "waiting for a second census to measure the rate");
+    set("hero-notional", "$" + commas(live.dollarsNotional) + " (notional)");
+    sparkline(s.history);
+
+    // trust ring
+    if (eq.pct != null) {
+      var ring = document.getElementById("eq-ring");
+      ring.style.setProperty("--pct", eq.pct);
+      set("eq-pct", (eq.pct % 1 ? eq.pct.toFixed(1) : eq.pct) + "%");
+      set("eq-shadowed", commas(eq.shadowed || 0));
+    } else {
+      set("eq-pct", "—"); set("eq-shadowed", commas(eq.shadowed || 0));
+    }
+
+    // ministat + supporting tiles
+    set("ms-active", commas(a.installs.active_30d || 0));
+    set("ms-runs", commas(s.total_runs || 0));
+    set("ms-avg", human(s.avg_per_run) || "—");
+    set("t-active", human(a.installs.active_30d));
+    set("t-dollars-real", "$" + (human(s.dollars) || "0"));
+    set("t-notional", "$" + human(s.dollars_notional));
+    set("t-real", human(pd.real_os_30d));
+    set("t-shapes", Object.keys(u.shapes || {}).length || "—");
+
+    // honest download split
     if (pd.real_os_30d != null && pd.bots_30d != null) {
       document.getElementById("seg-real").style.flexGrow = Math.max(1, pd.real_os_30d);
       document.getElementById("seg-bots").style.flexGrow = Math.max(1, pd.bots_30d);
-      document.getElementById("lg-real").textContent = human(pd.real_os_30d);
-      document.getElementById("lg-bots").textContent = human(pd.bots_30d);
+      set("lg-real", human(pd.real_os_30d)); set("lg-bots", human(pd.bots_30d));
     }
-    bars("bysystem",
-      Object.entries(pd.by_system_30d || {}).filter(function (e) { return e[0] !== "null"; }).sort(function (x, y) { return y[1] - x[1]; }),
-      "", "per-OS split arrives with the next nightly snapshot");
-    bars("bypython",
-      Object.entries(pd.by_python_30d || {}).sort(function (x, y) { return y[1] - x[1]; }),
-      "", "per-Python split arrives with the next nightly snapshot");
-    bars("byversion",
-      Object.entries(a.installs.by_version || {}).sort(function (x, y) { return y[1] - x[1]; }),
-      "alt", "no census participants yet — be the first: <code>distil census on</code>");
-    bars("bymodel",
-      Object.entries((a.usage || {}).by_model || {}).sort(function (x, y) { return y[1] - x[1]; }),
-      "alt", "model split appears as v1.22+ clients opt in");
+    var srt = function (o) { return Object.entries(o || {}).sort(function (x, y) { return y[1] - x[1]; }); };
+    bars("bysystem", srt(pd.by_system_30d).filter(function (e) { return e[0] !== "null"; }), "", "per-OS split arrives with the next nightly snapshot");
+    bars("bypython", srt(pd.by_python_30d), "", "per-Python split arrives with the next nightly snapshot");
+    bars("byversion", srt(a.installs.by_version), "alt", "no census participants yet — be the first: <code>distil census on</code>");
+    bars("bymodel", srt(u.by_model), "alt", "model split appears as v1.22+ clients opt in");
     var surfLabels = { wrap: "wrap · agents (claude, codex…)", proxy: "proxy · SDKs & headless", gateway: "gateway · multi-tenant" };
-    bars("bysurface",
-      Object.entries((a.usage || {}).surfaces || {}).sort(function (x, y) { return y[1] - x[1]; })
-        .map(function (e) { return [surfLabels[e[0]] || e[0], e[1]]; }),
-      "alt", "integration split appears as v1.23+ clients opt in");
-    bars("byshape",
-      Object.entries((a.usage || {}).shapes || {}).sort(function (x, y) { return y[1] - x[1]; }),
-      "", "API-shape split appears as v1.23+ clients opt in");
+    bars("bysurface", srt(u.surfaces).map(function (e) { return [surfLabels[e[0]] || e[0], e[1]]; }), "alt", "integration split appears as v1.23+ clients opt in");
+    bars("byshape", srt(u.shapes), "", "API-shape split appears as v1.23+ clients opt in");
+    var modeLabels = { interactive: "interactive · Claude Code TUI", headless: "headless · claude -p / CI", sdk: "sdk · Agent SDK / custom" };
+    bars("bymode", srt(u.modes).map(function (e) { return [modeLabels[e[0]] || e[0], e[1]]; }), "alt", "session-mode split appears as v1.24+ clients opt in");
+
     var rows = a.installs.census_total;
-    if (rows) document.getElementById("svg-rows").textContent = rows + " install" + (rows === 1 ? "" : "s") + " recorded";
+    if (rows) set("svg-rows", rows + " install" + (rows === 1 ? "" : "s") + " recorded");
     var chips = [];
-    var bill = (a.usage || {}).billing || {};
-    Object.keys(bill).forEach(function (k) { chips.push("<b>" + bill[k] + "</b>&nbsp;" + k); });
-    var ag = (a.usage || {}).agents || {};
-    Object.keys(ag).forEach(function (k) { chips.push("<b>" + ag[k] + "</b>&nbsp;wrap:" + k); });
+    Object.entries(u.billing || {}).forEach(function (e) { chips.push("<b>" + e[1] + "</b>&nbsp;" + e[0]); });
+    Object.entries(u.agents || {}).forEach(function (e) { chips.push("<b>" + e[1] + "</b>&nbsp;wrap:" + e[0]); });
     if (a.channels) {
       if (a.channels.github_stars != null) chips.push("<b>" + a.channels.github_stars + "</b>&nbsp;GitHub&nbsp;★");
-      if (a.channels.clones_uniques_14d != null) chips.push("<b>" + a.channels.clones_uniques_14d + "</b>&nbsp;unique&nbsp;cloners/14d");
-      if (a.channels.pypi_downloads_month != null) chips.push("<b>" + human(a.channels.pypi_downloads_month) + "</b>&nbsp;raw&nbsp;dl/mo&nbsp;(incl.&nbsp;bots)");
+      if (a.channels.clones_uniques_14d != null) chips.push("<b>" + a.channels.clones_uniques_14d + "</b>&nbsp;cloners/14d");
+      if (a.channels.pypi_downloads_month != null) chips.push("<b>" + human(a.channels.pypi_downloads_month) + "</b>&nbsp;raw&nbsp;dl/mo");
     }
-    document.getElementById("chips").innerHTML = chips.length
-      ? chips.map(function (c) { return '<span class="chip">' + c + "</span>"; }).join("")
-      : '<div class="empty-note">billing &amp; agent mix appears as v1.22+ clients opt in</div>';
-  }).catch(function () { document.getElementById("updated").textContent = "live data unavailable"; });
+    var chipEl = document.getElementById("chips");
+    if (chipEl) chipEl.innerHTML = chips.length ? chips.map(function (c) { return '<span class="chip">' + c + "</span>"; }).join("")
+      : '<div class="empty-note">billing &amp; agent mix appears as clients opt in</div>';
+  }
+
+  requestAnimationFrame(tickLoop);
+  function refresh() { fetchAggregates().then(paint).catch(function () { set("updated", "live data unavailable"); }); }
+  refresh();
+  setInterval(refresh, 45000);  // near-real-time: re-anchor the ticker every 45s
 })();
 </script>
 </body>

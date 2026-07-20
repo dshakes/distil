@@ -251,3 +251,74 @@ def test_rollup_aggregates_surfaces_and_shapes(tmp_path):
     agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
     assert agg["usage"]["surfaces"] == {"wrap": 100, "proxy": 20, "gateway": 5}
     assert agg["usage"]["shapes"] == {"anthropic": 100, "openai-chat": 30, "gemini": 7}
+
+
+# ---------------------------------------------------------------------------
+# Schema 4 (equivalence trust metric + session modes + live-rate rollup)
+# ---------------------------------------------------------------------------
+
+
+def _row4(**kw) -> dict:
+    base = _row3(
+        equivalence={"pct": 100.0, "shadowed": 500},
+        modes={"interactive": 20, "headless": 5, "sdk": 1},
+    )
+    base["schema"] = 4
+    base.update(kw)
+    return base
+
+
+def test_validator_accepts_all_four_schemas():
+    for r in (_row(), _row2(), _row3(), _row4()):
+        assert census_validate.validate(r) is None
+
+
+def test_validator_rejects_bad_v4_fields():
+    assert census_validate.validate(_row4(equivalence={"pct": 101, "shadowed": 1})) is not None
+    assert census_validate.validate(_row4(equivalence={"pct": 50})) is not None  # missing key
+    assert census_validate.validate(_row4(equivalence={"pct": None, "shadowed": -1})) is not None
+    assert census_validate.validate(_row4(modes={"evil": 1})) is not None
+    assert census_validate.validate(_row4(modes={"headless": -1})) is not None
+    # null pct is valid (no A/A baseline yet)
+    assert census_validate.validate(_row4(equivalence={"pct": None, "shadowed": 3})) is None
+    bad = _row4()
+    del bad["modes"]
+    assert census_validate.validate(bad) is not None  # v4 keys all-or-nothing
+
+
+def test_rollup_equivalence_weighted_by_shadowed(tmp_path):
+    now = int(time.time())
+    rows = [
+        _row4(install_id="a" * 32, ts=now, equivalence={"pct": 100.0, "shadowed": 900}),
+        _row4(install_id="b" * 32, ts=now, equivalence={"pct": 90.0, "shadowed": 100}),
+        _row4(install_id="c" * 32, ts=now, equivalence={"pct": None, "shadowed": 0}),  # no baseline
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    # (100*900 + 90*100) / 1000 = 99.0 ; c contributes 0 shadowed, no pct
+    assert agg["equivalence"]["pct"] == 99.0
+    assert agg["equivalence"]["shadowed"] == 1000
+    assert agg["usage"]["modes"]["interactive"] == 60  # 20*3
+
+
+def test_rollup_measured_rate_and_history(tmp_path):
+    now = int(time.time())
+    rows = [
+        _row4(install_id="a" * 32, ts=now - 1000, tokens_saved=1000),
+        _row4(install_id="a" * 32, ts=now, tokens_saved=3000),  # +2000 over 1000s = 2 tok/s
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    s = agg["savings"]
+    assert s["rate_per_sec"] == 2.0
+    assert s["as_of_ts"] == now
+    assert s["tokens"] == 3000  # latest wins
+    assert len(s["history"]) == 2 and s["history"][-1]["tokens"] == 3000
+
+
+def test_rollup_rate_ignores_resets(tmp_path):
+    now = int(time.time())
+    rows = [
+        _row4(install_id="a" * 32, ts=now - 100, tokens_saved=5000),
+        _row4(install_id="a" * 32, ts=now, tokens_saved=10),  # ledger reset → negative delta dropped
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["savings"]["rate_per_sec"] == 0.0

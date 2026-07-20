@@ -67,6 +67,56 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     def active(days: int) -> int:
         return sum(1 for r in latest.values() if now - r["ts"] <= days * 86400)
 
+    # MEASURED community savings rate: for each install with >=2 pings, the
+    # token delta over the time delta between its two most recent censuses
+    # (dropping resets where tokens went backwards), summed across installs.
+    # This is measured from real pings, not estimated — it's what lets the
+    # page tick a live projection between daily censuses honestly.
+    per_install: dict[str, list[dict]] = {}
+    for row in census:
+        per_install.setdefault(row["install_id"], []).append(row)
+    rate_per_sec = 0.0
+    for rs in per_install.values():
+        rs.sort(key=lambda r: r["ts"])
+        if len(rs) >= 2:
+            a, b = rs[-2], rs[-1]
+            dt = b["ts"] - a["ts"]
+            dtok = int(b["tokens_saved"]) - int(a["tokens_saved"])
+            if dt > 0 and dtok >= 0:
+                rate_per_sec += dtok / dt
+
+    # Community-total token trajectory over time (real points, for a sparkline):
+    # walk censuses ascending, keep each install's latest-known tokens, emit the
+    # running community sum at each timestamp. Capped to the last 60 points.
+    history: list[dict] = []
+    seen_tokens: dict[str, int] = {}
+    for row in sorted(census, key=lambda r: r["ts"]):
+        seen_tokens[row["install_id"]] = int(row["tokens_saved"])
+        history.append({"ts": row["ts"], "tokens": sum(seen_tokens.values())})
+    history = history[-60:]
+
+    as_of_ts = max((int(r["ts"]) for r in latest.values()), default=int(now))
+    total_runs = sum(int(r.get("runs", 0)) for r in latest.values())
+
+    # Decision-equivalence (schema 4): the trust number — compression provably
+    # didn't change the agent's next action. Aggregate as a shadowed-count
+    # weighted mean across installs that reported a real (non-null) pct.
+    eq_shadowed = 0
+    eq_weighted = 0.0
+    eq_weight = 0
+    for r in latest.values():
+        eq = r.get("equivalence") or {}
+        sh = int(eq.get("shadowed") or 0)
+        eq_shadowed += sh
+        pct = eq.get("pct")
+        if pct is not None and sh > 0:
+            eq_weighted += float(pct) * sh
+            eq_weight += sh
+    equivalence = {
+        "pct": round(eq_weighted / eq_weight, 2) if eq_weight else None,
+        "shadowed": eq_shadowed,
+    }
+
     versions = Counter(r["version"] for r in latest.values())
     tokens = sum(int(r["tokens_saved"]) for r in latest.values())
     # Dollars are bucketed by billing: metered = real savings; subscription =
@@ -87,6 +137,7 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     agents: Counter = Counter()
     surfaces: Counter = Counter()
     shapes: Counter = Counter()
+    modes: Counter = Counter()
     for r in latest.values():
         for m, v in (r.get("by_model") or {}).items():
             by_model[m] += int(v)
@@ -99,6 +150,9 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             surfaces[k] += int(v)
         for k, v in (r.get("shapes") or {}).items():
             shapes[k] += int(v)
+        # Schema-4 session kinds: interactive / headless / sdk.
+        for k, v in (r.get("modes") or {}).items():
+            modes[k] += int(v)
 
     # The newest passive row that actually carries pypi data (a partially
     # degraded night must not blank the dashboard).
@@ -122,13 +176,21 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             "dollars": dollars_real,
             "dollars_notional": dollars_notional,
             "instances": len(latest),
+            # Live-projection inputs — all measured, none estimated:
+            "as_of_ts": as_of_ts,  # the token total is exact as of this ts
+            "rate_per_sec": round(rate_per_sec, 2),  # measured Δtokens/Δt
+            "total_runs": total_runs,
+            "avg_per_run": round(tokens / total_runs) if total_runs else 0,
+            "history": history,  # community total tokens over time (sparkline)
         },
+        "equivalence": equivalence,  # {pct, shadowed} — the trust number
         "usage": {
             "by_model": dict(by_model.most_common()),
             "billing": dict(billing.most_common()),
             "agents": dict(agents.most_common()),
             "surfaces": dict(surfaces.most_common()),
             "shapes": dict(shapes.most_common()),
+            "modes": dict(modes.most_common()),
         },
         "channels": {
             "pypi_downloads_month": pypi.get("month"),

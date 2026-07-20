@@ -31,6 +31,8 @@ KEYS_V1 = {
 }
 KEYS_V2 = KEYS_V1 | {"billing", "by_model", "agents"}
 KEYS_V3 = KEYS_V2 | {"surfaces", "shapes"}
+KEYS_V4 = KEYS_V3 | {"equivalence", "modes"}
+MODES = {"interactive", "headless", "sdk"}
 NUM_CAPS = {"runs": 1e9, "tokens_saved": 1e13, "dollars_saved": 1e8, "ts": 4102444800}
 AGENTS = {"claude", "codex", "gemini", "aider", "other"}
 SURFACES = {"wrap", "proxy", "gateway"}
@@ -45,9 +47,9 @@ def validate(p: object) -> str | None:
     if not isinstance(p, dict):
         return "not an object"
     schema = p.get("schema")
-    if schema not in (1, 2, 3):
+    if schema not in (1, 2, 3, 4):
         return "unknown schema version"
-    if set(p) != {1: KEYS_V1, 2: KEYS_V2, 3: KEYS_V3}[schema]:
+    if set(p) != {1: KEYS_V1, 2: KEYS_V2, 3: KEYS_V3, 4: KEYS_V4}[schema]:
         return "schema keys mismatch"
     if not re.fullmatch(r"[0-9a-f]{32}", str(p["install_id"])):
         return "install_id must be 32 hex chars"
@@ -83,6 +85,24 @@ def validate(p: object) -> str | None:
             for v in d.values():
                 if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1e9:
                     return f"bad {field} value"
+    if schema >= 4:
+        eq = p["equivalence"]
+        if not isinstance(eq, dict) or set(eq) != {"pct", "shadowed"}:
+            return "bad equivalence"
+        pct = eq["pct"]
+        if pct is not None and (
+            isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 0 <= pct <= 100
+        ):
+            return "bad equivalence pct"
+        sh = eq["shadowed"]
+        if isinstance(sh, bool) or not isinstance(sh, int) or not 0 <= sh <= 1e9:
+            return "bad equivalence shadowed"
+        modes = p["modes"]
+        if not isinstance(modes, dict) or set(modes) - MODES:
+            return "bad modes"
+        for v in modes.values():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1e9:
+                return "bad modes value"
     return None
 
 

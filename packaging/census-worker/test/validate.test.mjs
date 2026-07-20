@@ -99,3 +99,23 @@ test("accepts schema 3 and rejects bad v3 fields", () => {
   assert.equal(validateCensus(missing).ok, false);
   assert.equal(validateCensus({ ...goodV3(), agents: ["evil"] }).ok, false); // v2 rules still apply
 });
+
+const goodV4 = () => ({
+  ...goodV3(),
+  schema: 4,
+  equivalence: { pct: 100, shadowed: 500 },
+  modes: { interactive: 20, headless: 5, sdk: 1 },
+});
+
+test("accepts schema 4 and rejects bad v4 fields", () => {
+  assert.equal(validateCensus(goodV4()).ok, true);
+  assert.equal(validateCensus({ ...goodV4(), equivalence: { pct: null, shadowed: 3 } }).ok, true);
+  assert.equal(validateCensus({ ...goodV4(), equivalence: { pct: 101, shadowed: 1 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV4(), equivalence: { pct: 50 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV4(), equivalence: { pct: 100, shadowed: -1 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV4(), modes: { evil: 1 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV4(), modes: { headless: -1 } }).ok, false);
+  const missing = goodV4();
+  delete missing.modes;
+  assert.equal(validateCensus(missing).ok, false);
+});

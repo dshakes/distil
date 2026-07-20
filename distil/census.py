@@ -38,6 +38,9 @@ MIN_INTERVAL_S = 24 * 3600
 # widening the census is a deliberate, reviewed act (and a TELEMETRY.md edit).
 # Schema 2 added the usage dimensions: billing, by_model, agents.
 # Schema 3 added the integration dimensions: surfaces, shapes.
+# Schema 4 added the trust dimension: equivalence (the proof that compression
+# didn't change the agent's decision — distil's core claim, as a number) and
+# modes (session kind: interactive / headless / sdk).
 PAYLOAD_KEYS = frozenset(
     {
         "schema",
@@ -54,9 +57,13 @@ PAYLOAD_KEYS = frozenset(
         "agents",
         "surfaces",
         "shapes",
+        "equivalence",
+        "modes",
         "ts",
     }
 )
+
+MODES = frozenset({"interactive", "headless", "sdk"})
 
 # Agent names travel ONLY through this allowlist — anything else becomes
 # "other", so an exotic argv can never leak into the census.
@@ -165,7 +172,7 @@ def build_payload() -> dict:
 
     integ = _surfaces.snapshot()
     payload = {
-        "schema": 3,
+        "schema": 4,
         "install_id": install_id(),
         "version": __version__,
         "os": platform.system(),
@@ -179,10 +186,62 @@ def build_payload() -> dict:
         "agents": _agents(),
         "surfaces": integ["surfaces"],
         "shapes": integ["shapes"],
+        "equivalence": _equivalence(),
+        "modes": _modes(),
         "ts": int(time.time()),
     }
     assert set(payload) == PAYLOAD_KEYS  # contract, enforced in prod too
     return payload
+
+
+def _modes() -> dict:
+    """Session kinds, content-free: classify each wrap session by the SHAPE of
+    its command, never its content —
+      interactive : an agent binary (claude/codex/…) with no print flag
+      headless    : an agent binary invoked with -p / --print (e.g. `claude -p`)
+      sdk         : a non-agent argv[0] (python/node/…) — Agent SDK or custom driver
+    Only the presence of allowlisted flags is inspected; the prompt/args are
+    never read or stored."""
+    counts: dict[str, int] = {}
+    try:
+        for mf in (_home() / "sessions").glob("*.json"):
+            try:
+                argv = json.loads(mf.read_text(encoding="utf-8")).get("argv") or []
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not argv:
+                continue
+            name = os.path.basename(str(argv[0]))
+            if name not in AGENT_ALLOWLIST:
+                mode = "sdk"
+            elif any(a in ("-p", "--print") for a in argv):
+                mode = "headless"
+            else:
+                mode = "interactive"
+            counts[mode] = counts.get(mode, 0) + 1
+    except OSError:
+        pass
+    return counts
+
+
+def _equivalence() -> dict:
+    """Live decision-equivalence: {pct, shadowed}. ``pct`` is the noise-adjusted
+    equivalence percentage (compression didn't change the agent's next action),
+    but ONLY when an A/A self-agreement baseline exists — otherwise the number
+    conflates sampling nondeterminism with real harm, so we send ``pct: None``
+    and just the shadowed count. Content-free (booleans behind the scenes)."""
+    try:
+        from .shadow import ShadowLedger
+
+        led = ShadowLedger.load(current_only=True)
+        shadowed = int(led.samples)
+        if shadowed > 0 and led.aa_agreement() is not None:
+            pct = round((1.0 - led.adjusted_rate()) * 100.0, 2)
+        else:
+            pct = None
+        return {"pct": pct, "shadowed": shadowed}
+    except Exception:  # noqa: BLE001 — trust metric is best-effort, never blocks
+        return {"pct": None, "shadowed": 0}
 
 
 def _billing() -> str:

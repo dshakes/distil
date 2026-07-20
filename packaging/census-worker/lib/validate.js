@@ -22,6 +22,8 @@ const KEYS_V1 = [
 ];
 const KEYS_V2 = [...KEYS_V1, "billing", "by_model", "agents"];
 const KEYS_V3 = [...KEYS_V2, "surfaces", "shapes"];
+const KEYS_V4 = [...KEYS_V3, "equivalence", "modes"];
+const MODES = new Set(["interactive", "headless", "sdk"]);
 const AGENTS = new Set(["claude", "codex", "gemini", "aider", "other"]);
 const SURFACES = new Set(["wrap", "proxy", "gateway"]);
 const SHAPES = new Set(["anthropic", "openai-chat", "openai-responses", "gemini"]);
@@ -42,10 +44,10 @@ function validateCensus(p) {
   if (typeof p !== "object" || p === null || Array.isArray(p)) {
     return { ok: false, error: "not an object" };
   }
-  if (p.schema !== 1 && p.schema !== 2 && p.schema !== 3) {
+  if (![1, 2, 3, 4].includes(p.schema)) {
     return { ok: false, error: "unknown schema version" };
   }
-  const expect = p.schema === 1 ? KEYS_V1 : p.schema === 2 ? KEYS_V2 : KEYS_V3;
+  const expect = { 1: KEYS_V1, 2: KEYS_V2, 3: KEYS_V3, 4: KEYS_V4 }[p.schema];
   const keys = Object.keys(p).sort();
   if (keys.join(",") !== [...expect].sort().join(",")) {
     return { ok: false, error: "schema keys mismatch" };
@@ -106,6 +108,32 @@ function validateCensus(p) {
         if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e9) {
           return { ok: false, error: `bad ${field} value` };
         }
+      }
+    }
+  }
+  if (p.schema >= 4) {
+    const eq = p.equivalence;
+    if (typeof eq !== "object" || eq === null || Array.isArray(eq)) {
+      return { ok: false, error: "bad equivalence" };
+    }
+    const keys = Object.keys(eq).sort().join(",");
+    if (keys !== "pct,shadowed") return { ok: false, error: "bad equivalence" };
+    if (eq.pct !== null) {
+      if (typeof eq.pct !== "number" || !Number.isFinite(eq.pct) || eq.pct < 0 || eq.pct > 100) {
+        return { ok: false, error: "bad equivalence pct" };
+      }
+    }
+    if (typeof eq.shadowed !== "number" || !Number.isInteger(eq.shadowed) || eq.shadowed < 0 || eq.shadowed > 1e9) {
+      return { ok: false, error: "bad equivalence shadowed" };
+    }
+    const modes = p.modes;
+    if (typeof modes !== "object" || modes === null || Array.isArray(modes)) {
+      return { ok: false, error: "bad modes" };
+    }
+    for (const [k, v] of Object.entries(modes)) {
+      if (!MODES.has(k)) return { ok: false, error: "bad modes" };
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e9) {
+        return { ok: false, error: "bad modes value" };
       }
     }
   }
