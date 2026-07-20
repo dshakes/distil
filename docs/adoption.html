@@ -255,7 +255,9 @@
 <script>
 (function () {
   "use strict";
-  var AGG = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json";
+  // Cache-buster: raw.githubusercontent's CDN holds a ~5-min copy; a unique
+  // query key makes every page load fetch the current metrics-branch data.
+  var AGG = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json?t=" + Date.now();
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function human(n) {

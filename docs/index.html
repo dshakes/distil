@@ -420,7 +420,7 @@
       for (var i = 0; i < u.length; i++) if (n >= u[i][0]) return (n / u[i][0]).toFixed(1) + u[i][1];
       return String(Math.round(n));
     };
-    fetch("https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json")
+    fetch("https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json?t=" + Date.now())
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (a) {
         if (!a) return;
