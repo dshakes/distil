@@ -1598,6 +1598,14 @@ def wrap_run(
         _print_proof_ledger(os.environ.get("DISTIL_SESSION", ""), _start_ts)
     except Exception:  # noqa: BLE001 — ledger print must never affect exit code
         pass
+    # Adoption census — opt-in only, ≤1/day, content-free; fail-open like the
+    # ledger print (see distil/census.py and TELEMETRY.md).
+    try:
+        from . import census as _census
+
+        _census.maybe_ping()
+    except Exception:  # noqa: BLE001 — census must never affect exit code
+        pass
     return code
 
 
