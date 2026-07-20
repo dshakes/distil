@@ -392,13 +392,13 @@
   <div class="stats" id="adoption-live" hidden>
     <div class="stat">
       <div class="n" id="al-downloads">–</div>
-      <div class="l">PyPI downloads / month</div>
-      <div class="foot">registry-side — no client telemetry</div>
+      <div class="l">PyPI installs / month</div>
+      <div class="foot">bot-filtered · <a href="adoption.html">full breakdown &rarr;</a></div>
     </div>
     <div class="stat">
       <div class="n" id="al-installs">–</div>
       <div class="l">Active installs, 30d</div>
-      <div class="foot">opt-in census · <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">what's sent</a></div>
+      <div class="foot">opt-in census · <a href="adoption.html">live adoption page &rarr;</a></div>
     </div>
     <div class="stat hl">
       <div class="n" id="al-tokens">–</div>
@@ -425,7 +425,7 @@
       .then(function (a) {
         if (!a) return;
         var set = function (id, v) { if (v != null) document.getElementById(id).textContent = v; };
-        set("al-downloads", human(a.channels && a.channels.pypi_downloads_month));
+        set("al-downloads", human((a.pypi_detail && a.pypi_detail.real_os_30d) || (a.channels && a.channels.pypi_downloads_month)));
         set("al-installs", human(a.installs && a.installs.active_30d));
         set("al-tokens", human(a.savings && a.savings.tokens));
         set("al-dollars", a.savings && a.savings.dollars != null ? "$" + human(a.savings.dollars) : null);

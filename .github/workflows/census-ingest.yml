@@ -39,9 +39,13 @@ jobs:
           fi
           mkdir -p ../metrics/data
           cat /tmp/census-row.json >> ../metrics/data/census.jsonl
+          # Near-real-time: re-roll aggregates + badges on every ping, so the
+          # badges and site strip track the community within minutes (badge
+          # cacheSeconds=300 is the only remaining lag).
+          python3 scripts/census_rollup.py ../metrics
           cd ../metrics
-          git add data/census.jsonl
-          git commit -m "census ping"
+          git add data
+          git commit -m "census ping + rollup"
           # One retry on push race — the concurrency group serializes runs, but
           # adoption-stats can still land in between.
           git push origin HEAD:metrics || { git pull --rebase origin metrics && git push origin HEAD:metrics; }

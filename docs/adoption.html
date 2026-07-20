@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Adoption &amp; Community Savings — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Adoption &amp; Community Savings — Distil"/>
+<meta property="og:description" content="Live, honest adoption metrics: bot-filtered PyPI installs, opt-in census actives, community tokens and dollars saved — every number auditable from a public git branch."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/adoption.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Adoption &amp; Community Savings — Distil"/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<style>
+  /* Stat tiles (match index.html's .stats look, local to this page) */
+  .astats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0}
+  .astat{background:linear-gradient(180deg,var(--panel2,#14141f),var(--panel,#101018));border:1px solid var(--line,#23233a);border-radius:14px;padding:18px 18px 14px}
+  .astat .n{font-size:34px;font-weight:800;letter-spacing:-.02em}
+  .astat .l{color:var(--mut,#9a9ab0);font-size:13px;margin-top:4px}
+  .astat .foot{color:var(--dim,#62627a);font-size:11px;margin-top:8px}
+  .astat.hl{border-color:#2a2550;box-shadow:0 0 0 1px #2a2550}
+  @media(max-width:900px){.astats{grid-template-columns:1fr 1fr}}
+  /* Bar lists — thin marks, rounded data end, direct labels, recessive track */
+  .bars{margin:10px 0 26px}
+  .bar-row{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;padding:5px 0}
+  .bar-row .bl{font-size:13px;color:var(--txt,#e8e8f2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-row .bv{font-size:12.5px;color:var(--mut,#9a9ab0);text-align:right;font-variant-numeric:tabular-nums}
+  .bar-track{height:10px;background:var(--panel2,#14141f);border-radius:5px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:0 4px 4px 0;min-width:2px;background:#5ad1c9}
+  .bar-fill.alt{background:#8b7bff}
+  .bar-fill.dim{background:#3a3a52}
+  .bar-fill.good{background:#5ad19a}
+  /* Pipeline diagram */
+  .pipe{border:1px solid var(--line,#23233a);border-radius:14px;background:var(--panel,#101018);padding:14px;overflow-x:auto;margin:14px 0 8px}
+  .pipe svg{display:block;min-width:820px;width:100%;height:auto}
+  .chipset{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 22px}
+  .chip{border:1px solid var(--line,#23233a);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--mut,#9a9ab0)}
+  .chip b{color:var(--txt,#e8e8f2)}
+  .empty-note{color:var(--mut,#9a9ab0);font-size:13px;border:1px dashed var(--line,#23233a);border-radius:10px;padding:10px 14px;margin:8px 0 22px}
+  .updated{color:var(--dim,#62627a);font-size:12px}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">&#9776;</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub &rarr;</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-section">Getting started</div>
+    <a href="getting-started.html">Install &amp; Quickstart</a>
+
+    <div class="sidebar-section">Learn</div>
+    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+    <a href="concepts.html">Concepts</a>
+    <a href="techniques.html">Techniques</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="research.html">Research &amp; Frontier</a>
+
+    <a href="benchmark.html">Benchmark</a>
+    <a href="compare.html">Compare</a>
+    <a href="adoption.html" class="active">Adoption <span class="nav-badge">Live</span></a>
+
+    <div class="sidebar-section">Reference</div>
+    <a href="cli.html">CLI Reference</a>
+    <a href="adapters.html">Adapters</a>
+    <a href="corpus.html">Corpus</a>
+    <a href="output.html">Output &amp; I/O</a>
+
+    <div class="sidebar-section">More</div>
+    <a href="faq.html">FAQ</a>
+    <a href="integrations.html">Integrations</a>
+    <a href="deploy-security.html">Deploy &amp; Security</a>
+    <a href="index.html">&larr; Landing page</a>
+  </aside>
+
+  <main class="content">
+
+    <h1>Adoption &amp; <span class="g">Community Savings</span></h1>
+    <p class="lead">Live, honest numbers. Downloads are <b>bot-filtered</b> (a public PyPI package receives constant scanner traffic — we show it, then subtract it). Usage and savings come from the <b>opt-in census</b>: numbers only, never content, anonymous by construction. Every figure on this page is computed by public code from a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a> — audit it end to end.</p>
+    <p class="updated" id="updated">loading live data…</p>
+
+    <div class="astats" id="tiles">
+      <div class="astat hl"><div class="n" id="t-active">–</div><div class="l">Active installs, 30d</div><div class="foot">opt-in census · bot-proof</div></div>
+      <div class="astat hl"><div class="n" id="t-tokens">–</div><div class="l">Community tokens saved</div><div class="foot">Σ opted-in ledgers · calibration-corrected</div></div>
+      <div class="astat"><div class="n" id="t-dollars">–</div><div class="l">Community $ saved</div><div class="foot">metered traffic only — subscription $ is notional and excluded</div></div>
+      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered (clients reporting a real OS)</div></div>
+    </div>
+
+    <hr/>
+
+    <h2 id="downloads">Downloads, honestly</h2>
+    <p>Registry traffic vs. what's plausibly a human with <code>pip</code>. Downloads with no reported OS are security scanners, package-intel crawlers, and bots — the background radiation every public package receives.</p>
+    <div class="bars" id="realsplit"></div>
+
+    <h3>By operating system <span class="updated">(real clients, 30d)</span></h3>
+    <div class="bars" id="bysystem"></div>
+
+    <h3>By Python version <span class="updated">(real clients, 30d)</span></h3>
+    <div class="bars" id="bypython"></div>
+
+    <hr/>
+
+    <h2 id="usage">Usage — from the opt-in census</h2>
+    <p>Machines that ran distil and consented to the census (<code>distil census on</code>). Anonymous install ids, schema-frozen payloads, <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">fully disclosed</a>.</p>
+
+    <h3>Distil versions in the wild</h3>
+    <div class="bars" id="byversion"></div>
+
+    <h3>Tokens saved by model</h3>
+    <div class="bars" id="bymodel"></div>
+
+    <h3>Billing mix &amp; wrapped agents</h3>
+    <div class="chipset" id="chips"></div>
+
+    <hr/>
+
+    <h2 id="how">How this is measured — the pipeline</h2>
+    <p>Two independent paths, both auditable: passive registry stats (no client code at all) and the opt-in census (strict validation at three layers). The datastore is a git branch — ingest history, rollup code, and every number here are public.</p>
+
+    <div class="pipe">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Adoption pipeline: census path from client through worker and CI validation to the metrics branch; passive path from registries; nightly rollup to badges and this page">
+        <defs>
+          <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#3d3d5c"/></marker>
+        </defs>
+        <style>
+          .bx{fill:#14141f;stroke:#23233a;rx:10}
+          .bx.hl{stroke:#2a2550}
+          .tt{fill:#e8e8f2;font:600 13px system-ui,-apple-system,sans-serif}
+          .ss{fill:#9a9ab0;font:11px system-ui,-apple-system,sans-serif}
+          .tag{fill:#5ad1c9;font:600 10px system-ui,-apple-system,sans-serif}
+          .tag2{fill:#8b7bff;font:600 10px system-ui,-apple-system,sans-serif}
+          .ln{stroke:#3d3d5c;stroke-width:1.6;fill:none;marker-end:url(#arr)}
+        </style>
+        <!-- census path -->
+        <text x="16" y="28" class="tag2">OPT-IN CENSUS · near-real-time</text>
+        <rect class="bx hl" x="16" y="40" width="170" height="64" rx="10"/>
+        <text x="30" y="66" class="tt">Your machine</text>
+        <text x="30" y="84" class="ss">distil census on · ≤1 JSON/day</text>
+        <rect class="bx hl" x="236" y="40" width="170" height="64" rx="10"/>
+        <text x="250" y="66" class="tt">Ingest worker</text>
+        <text x="250" y="84" class="ss">validate · 2KB cap · no IPs</text>
+        <rect class="bx hl" x="456" y="40" width="170" height="64" rx="10"/>
+        <text x="470" y="66" class="tt">CI re-validation</text>
+        <text x="470" y="84" class="ss">defense in depth · allowlists</text>
+        <rect class="bx hl" x="676" y="40" width="170" height="64" rx="10"/>
+        <text x="690" y="66" class="tt">metrics branch</text>
+        <text x="690" y="84" class="ss">public git = the database</text>
+        <path class="ln" d="M186 72 H232"/><path class="ln" d="M406 72 H452"/><path class="ln" d="M626 72 H672"/>
+        <!-- passive path -->
+        <text x="16" y="152" class="tag">PASSIVE · zero client code · nightly</text>
+        <rect class="bx" x="16" y="164" width="170" height="64" rx="10"/>
+        <text x="30" y="190" class="tt">Registries</text>
+        <text x="30" y="208" class="ss">PyPI · GitHub · Docker</text>
+        <rect class="bx" x="236" y="164" width="170" height="64" rx="10"/>
+        <text x="250" y="190" class="tt">Nightly snapshot</text>
+        <text x="250" y="208" class="ss">bot split · OS · Python</text>
+        <path class="ln" d="M186 196 H232"/>
+        <path class="ln" d="M406 196 C 560 196, 640 130, 736 108"/>
+        <!-- rollup + outputs -->
+        <rect class="bx" x="676" y="164" width="170" height="64" rx="10"/>
+        <text x="690" y="190" class="tt">Rollup</text>
+        <text x="690" y="208" class="ss">dedupe · skew caps · Σ</text>
+        <path class="ln" d="M761 108 V160"/>
+        <rect class="bx" x="566" y="252" width="130" height="36" rx="10"/>
+        <text x="580" y="275" class="ss">README badges</text>
+        <rect class="bx" x="716" y="252" width="130" height="36" rx="10"/>
+        <text x="730" y="275" class="ss">this page</text>
+        <path class="ln" d="M745 228 C 720 240, 690 244, 660 252"/>
+        <path class="ln" d="M775 228 V248"/>
+      </svg>
+    </div>
+    <p class="updated">Freshness: census numbers re-roll within ~1 minute of any ping; registry numbers refresh nightly (PyPI publishes daily); badges re-poll every 5 minutes; this page fetches on load.</p>
+
+    <div class="callout" style="margin-top:18px">
+      <strong>Why trust these numbers?</strong> They start honest (the savings counters began at zero — no estimates, no seeded totals), they can't be inflated (schema allowlists + hard numeric ceilings at the worker, in CI, and again at rollup; one census per machine, latest wins), and subscription users' notional dollars are excluded from the $ total. Full schema and kill switches: <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">TELEMETRY.md</a>.
+    </div>
+
+  </main>
+</div>
+
+<script src="site.js"></script>
+<script>
+(function () {
+  "use strict";
+  var AGG = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json";
+  function human(n) {
+    if (n == null) return null;
+    var u = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]];
+    for (var i = 0; i < u.length; i++) if (n >= u[i][0]) return (n / u[i][0]).toFixed(1) + u[i][1];
+    return String(Math.round(n));
+  }
+  function set(id, v) { if (v != null) document.getElementById(id).textContent = v; }
+  function bars(id, entries, cls, emptyMsg) {
+    var el = document.getElementById(id);
+    if (!entries || !entries.length) {
+      el.outerHTML = '<div class="empty-note">' + emptyMsg + "</div>";
+      return;
+    }
+    var max = Math.max.apply(null, entries.map(function (e) { return e[1]; }));
+    el.innerHTML = entries.map(function (e) {
+      var pct = max ? Math.max(2, (e[1] / max) * 100) : 2;
+      var c = typeof e[2] === "string" ? e[2] : cls;
+      return '<div class="bar-row"><div class="bl">' + e[0] +
+        '</div><div class="bar-track"><div class="bar-fill ' + c + '" style="width:' + pct + '%"></div></div>' +
+        '<div class="bv">' + human(e[1]) + "</div></div>";
+    }).join("");
+  }
+  fetch(AGG).then(function (r) { return r.ok ? r.json() : null; }).then(function (a) {
+    if (!a) { set("updated", "live data unavailable — metrics branch not reachable"); return; }
+    set("updated", "updated " + new Date(a.generated_ts * 1000).toUTCString() + " · source: metrics branch");
+    set("t-active", human(a.installs.active_30d));
+    set("t-tokens", human(a.savings.tokens));
+    set("t-dollars", a.savings.dollars != null ? "$" + human(a.savings.dollars) : "–");
+    var pd = a.pypi_detail || {};
+    set("t-real", human(pd.real_os_30d));
+    bars("realsplit", [
+      ["real clients (OS reported)", pd.real_os_30d || 0, "good"],
+      ["bots / scanners (no OS)", pd.bots_30d || 0, "dim"]
+    ], "good", "pypi split not captured yet — next nightly snapshot fills this in");
+    bars("bysystem",
+      Object.entries(pd.by_system_30d || {}).filter(function (e) { return e[0] !== "null"; }).sort(function (x, y) { return y[1] - x[1]; }),
+      "", "per-OS split arrives with the next nightly snapshot");
+    bars("bypython",
+      Object.entries(pd.by_python_30d || {}).sort(function (x, y) { return y[1] - x[1]; }),
+      "", "per-Python split arrives with the next nightly snapshot");
+    bars("byversion",
+      Object.entries(a.installs.by_version || {}).sort(function (x, y) { return y[1] - x[1]; }),
+      "alt", "no census participants yet — be the first: <code>distil census on</code>");
+    var um = (a.usage || {}).by_model || {};
+    bars("bymodel",
+      Object.entries(um).sort(function (x, y) { return y[1] - x[1]; }),
+      "alt", "model split appears once schema-2 censuses arrive (v1.22+ clients)");
+    var chips = [];
+    var bill = (a.usage || {}).billing || {};
+    Object.keys(bill).forEach(function (k) { chips.push("<b>" + bill[k] + "</b>&nbsp;" + k); });
+    var ag = (a.usage || {}).agents || {};
+    Object.keys(ag).forEach(function (k) { chips.push("<b>" + ag[k] + "</b>&nbsp;wrap:&nbsp;" + k); });
+    if (a.channels) {
+      if (a.channels.github_stars != null) chips.push("<b>" + a.channels.github_stars + "</b>&nbsp;GitHub&nbsp;★");
+      if (a.channels.clones_uniques_14d != null) chips.push("<b>" + a.channels.clones_uniques_14d + "</b>&nbsp;unique&nbsp;cloners/14d");
+      if (a.channels.pypi_downloads_month != null) chips.push("<b>" + human(a.channels.pypi_downloads_month) + "</b>&nbsp;raw&nbsp;downloads/mo&nbsp;(incl.&nbsp;bots)");
+    }
+    document.getElementById("chips").innerHTML = chips.length
+      ? chips.map(function (c) { return '<span class="chip">' + c + "</span>"; }).join("")
+      : '<div class="empty-note">billing & agent mix appears once schema-2 censuses arrive</div>';
+  }).catch(function () { set("updated", "live data unavailable"); });
+})();
+</script>
+</body>
+</html>

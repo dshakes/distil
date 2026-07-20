@@ -82,11 +82,18 @@ def test_payload_schema_frozen():
         "runs",
         "tokens_saved",
         "dollars_saved",
+        "billing",
+        "by_model",
+        "agents",
         "ts",
     }
+    assert payload["schema"] == 2
+    assert payload["billing"] in ("subscription", "metered")
+    assert isinstance(payload["by_model"], dict) and len(payload["by_model"]) <= 5
+    assert all(a in ("claude", "codex", "gemini", "aider", "other") for a in payload["agents"])
     # Numbers and short platform strings only — nothing that can carry content.
     for key, value in payload.items():
-        assert isinstance(value, (int, float, str)), key
+        assert isinstance(value, (int, float, str, dict, list)), key
         if isinstance(value, str):
             assert len(value) < 128, key
             assert "/" not in value or key == "version", key  # no paths
@@ -98,7 +105,7 @@ def test_opt_in_sends_and_throttles(monkeypatch):
     census.opt_in()
     assert census.maybe_ping() is True
     assert len(calls) == 1
-    assert calls[0]["schema"] == 1
+    assert calls[0]["schema"] == 2
     # Second call inside 24h: throttled, no second request.
     assert census.maybe_ping() is False
     assert len(calls) == 1
@@ -130,3 +137,33 @@ def test_install_id_is_stable_and_random():
     census.opt_out()
     c = census.opt_in()
     assert c != a  # re-consent mints a fresh identity
+
+
+def test_subscription_dollars_are_zeroed(monkeypatch):
+    """Flat-rate subscription: tokens are real, dollars are notional → 0."""
+    census.opt_in()
+    monkeypatch.setattr("distil.doctor.subscription_mode", lambda: True)
+    assert census.build_payload()["dollars_saved"] == 0.0
+
+
+def test_calibration_factor_applied(monkeypatch, tmp_path):
+    """Census totals wear the same heuristic→billed correction as the proof ledger."""
+    census.opt_in()
+    from distil.ledger import LedgerSummary
+
+    fake = LedgerSummary(
+        runs=1,
+        total_dollars_saved=10.0,
+        total_tokens_saved=1000,
+        by_trajectory={},
+        total_baseline_tokens=2000,
+        total_distil_tokens=1000,
+        total_baseline_dollars=20.0,
+        total_distil_dollars=10.0,
+    )
+    monkeypatch.setattr("distil.ledger.summary", lambda: fake)
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (0.8, 99))
+    monkeypatch.setattr("distil.doctor.subscription_mode", lambda: False)
+    p = census.build_payload()
+    assert p["tokens_saved"] == 800  # 1000 * 0.8 — never more than billed
+    assert p["dollars_saved"] == 8.0

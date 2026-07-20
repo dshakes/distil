@@ -55,3 +55,28 @@ test("rejects wrong schema version and non-objects", () => {
   assert.equal(validateCensus(null).ok, false);
   assert.equal(validateCensus([1]).ok, false);
 });
+
+const goodV2 = () => ({
+  ...good(),
+  schema: 2,
+  billing: "metered",
+  by_model: { "claude-opus-4-8": 500 },
+  agents: ["claude"],
+});
+
+test("accepts schema 2 and still accepts schema 1", () => {
+  assert.equal(validateCensus(good()).ok, true);
+  assert.equal(validateCensus(goodV2()).ok, true);
+});
+
+test("rejects bad v2 fields", () => {
+  assert.equal(validateCensus({ ...goodV2(), billing: "free" }).ok, false);
+  assert.equal(validateCensus({ ...goodV2(), agents: ["evil"] }).ok, false);
+  assert.equal(validateCensus({ ...goodV2(), by_model: { "a/b": 1 } }).ok, false);
+  assert.equal(validateCensus({ ...goodV2(), by_model: { m: 1e14 } }).ok, false);
+  const nine = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`m${i}`, 1]));
+  assert.equal(validateCensus({ ...goodV2(), by_model: nine }).ok, false);
+  const missing = goodV2();
+  delete missing.agents;
+  assert.equal(validateCensus(missing).ok, false);
+});

@@ -71,8 +71,27 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     tokens = sum(int(r["tokens_saved"]) for r in latest.values())
     dollars = round(sum(float(r["dollars_saved"]) for r in latest.values()), 2)
 
+    # Usage dimensions (schema-2 rows; schema-1 rows simply don't contribute).
+    by_model: Counter = Counter()
+    billing: Counter = Counter()
+    agents: Counter = Counter()
+    for r in latest.values():
+        for m, v in (r.get("by_model") or {}).items():
+            by_model[m] += int(v)
+        if r.get("billing"):
+            billing[r["billing"]] += 1
+        for a in r.get("agents") or []:
+            agents[a] += 1
+
+    # The newest passive row that actually carries pypi data (a partially
+    # degraded night must not blank the dashboard).
     last_passive = adoption[-1] if adoption else {}
-    pypi = last_passive.get("pypi_downloads", {})
+    pypi: dict = {}
+    for row in reversed(adoption):
+        cand = row.get("pypi_downloads", {})
+        if isinstance(cand, dict) and "month" in cand:
+            pypi = cand
+            break
     return {
         "generated_ts": int(now),
         "installs": {
@@ -82,12 +101,26 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             "by_version": dict(versions.most_common()),
         },
         "savings": {"tokens": tokens, "dollars": dollars, "instances": len(latest)},
+        "usage": {
+            "by_model": dict(by_model.most_common()),
+            "billing": dict(billing.most_common()),
+            "agents": dict(agents.most_common()),
+        },
         "channels": {
             "pypi_downloads_month": pypi.get("month"),
             "pypi_downloads_week": pypi.get("week"),
             "github_stars": last_passive.get("github", {}).get("stars"),
             "clones_uniques_14d": last_passive.get("clones", {}).get("uniques_14d"),
             "docker_pulls": last_passive.get("docker", {}).get("pulls"),
+        },
+        # Bot-filtered detail for the adoption page: downloads with no reported
+        # OS are scanners/crawlers, so "real" = pip on an actual machine.
+        "pypi_detail": {
+            "real_os_30d": pypi.get("real_os_30d"),
+            "real_os_7d": pypi.get("real_os_7d"),
+            "bots_30d": pypi.get("bots_30d"),
+            "by_system_30d": pypi.get("by_system_30d", {}),
+            "by_python_30d": pypi.get("by_python_30d", {}),
         },
     }
 
@@ -96,9 +129,18 @@ def badges(agg: dict) -> dict[str, dict]:
     """shields.io endpoint-schema documents, one per badge."""
 
     def badge(label: str, message: str, color: str = "6e56cf") -> dict:
-        return {"schemaVersion": 1, "label": label, "message": message, "color": color}
+        # cacheSeconds: ask shields to re-poll every 5 min (its minimum) so the
+        # badges track the metrics branch near-real-time.
+        return {
+            "schemaVersion": 1,
+            "label": label,
+            "message": message,
+            "color": color,
+            "cacheSeconds": 300,
+        }
 
     pypi_month = agg["channels"]["pypi_downloads_month"]
+    real30 = agg.get("pypi_detail", {}).get("real_os_30d")
     return {
         "savings-tokens": badge(
             "community tokens saved", _humanize(agg["savings"]["tokens"]) or "0"
@@ -107,6 +149,9 @@ def badges(agg: dict) -> dict[str, dict]:
         "active-installs": badge("active installs (30d)", str(agg["installs"]["active_30d"])),
         "downloads-month": badge(
             "pypi downloads/month", _humanize(pypi_month) if pypi_month else "n/a"
+        ),
+        "downloads-real": badge(
+            "pypi installs/mo · bot-filtered", _humanize(real30) if real30 else "n/a", "5ad19a"
         ),
     }
 

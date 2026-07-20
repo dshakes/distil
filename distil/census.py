@@ -36,6 +36,7 @@ MIN_INTERVAL_S = 24 * 3600
 
 # The frozen payload contract — tests/test_census.py refuses any new key, so
 # widening the census is a deliberate, reviewed act (and a TELEMETRY.md edit).
+# Schema 2 added the usage dimensions: billing, by_model, agents.
 PAYLOAD_KEYS = frozenset(
     {
         "schema",
@@ -47,9 +48,17 @@ PAYLOAD_KEYS = frozenset(
         "runs",
         "tokens_saved",
         "dollars_saved",
+        "billing",
+        "by_model",
+        "agents",
         "ts",
     }
 )
+
+# Agent names travel ONLY through this allowlist — anything else becomes
+# "other", so an exotic argv can never leak into the census.
+AGENT_ALLOWLIST = frozenset({"claude", "codex", "gemini", "aider"})
+MAX_MODELS = 5
 
 
 def _home() -> Path:
@@ -127,24 +136,100 @@ def install_id() -> str:
 
 def build_payload() -> dict:
     """The census, exactly as it would be sent. Numbers and platform strings
-    only — never content, paths, hashes-of-content, or key material."""
+    only — never content, paths, hashes-of-content, or key material.
+
+    Anti-bloat rules (the community totals must survive scrutiny):
+    - token/dollar counts get the same calibration factor the proof ledger
+      applies (heuristic counts → billed-count estimate; identity until enough
+      samples), so the census never reports more than the provider would bill;
+    - a flat-rate subscription saves REAL tokens but only NOTIONAL dollars —
+      those report dollars_saved=0 rather than inflating the community $ sum.
+    """
     from . import __version__, ledger
 
     s = ledger.summary()
+    try:
+        from .calibration import factor as _calib_factor
+
+        f, _ = _calib_factor()
+    except Exception:  # noqa: BLE001 — calibration is a correction, never a blocker
+        f = 1.0
+    tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
+    dollars = max(0.0, s.total_baseline_dollars - s.total_distil_dollars)
+    try:
+        from .doctor import subscription_mode
+
+        if subscription_mode():
+            dollars = 0.0  # flat-rate: dollar savings are notional, don't report them
+    except Exception:  # noqa: BLE001 — detection failure must not block the census
+        pass
     payload = {
-        "schema": 1,
+        "schema": 2,
         "install_id": install_id(),
         "version": __version__,
         "os": platform.system(),
         "arch": platform.machine(),
         "python": platform.python_version(),
         "runs": s.runs,
-        "tokens_saved": max(0, s.total_baseline_tokens - s.total_distil_tokens),
-        "dollars_saved": round(max(0.0, s.total_baseline_dollars - s.total_distil_dollars), 4),
+        "tokens_saved": round(tokens * f),
+        "dollars_saved": round(dollars * f, 4),
+        "billing": _billing(),
+        "by_model": _by_model(f),
+        "agents": _agents(),
         "ts": int(time.time()),
     }
     assert set(payload) == PAYLOAD_KEYS  # contract, enforced in prod too
     return payload
+
+
+def _billing() -> str:
+    try:
+        from .doctor import subscription_mode
+
+        return "subscription" if subscription_mode() else "metered"
+    except Exception:  # noqa: BLE001
+        return "metered"
+
+
+def _by_model(f: float) -> dict:
+    """Top models by calibrated tokens saved — model ids only (claude-*, gpt-*…),
+    keys length-capped, at most MAX_MODELS entries."""
+    from . import ledger
+
+    sums: dict[str, int] = {}
+    try:
+        for line in ledger.default_path().read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            model = str(r.get("model", ""))[:64]
+            saved = int(r.get("baseline_input_tokens", 0)) - int(r.get("distil_input_tokens", 0))
+            if model and saved > 0:
+                sums[model] = sums.get(model, 0) + saved
+    except OSError:
+        return {}
+    top = sorted(sums.items(), key=lambda kv: -kv[1])[:MAX_MODELS]
+    return {m: round(v * f) for m, v in top}
+
+
+def _agents() -> list:
+    """Distinct wrapped agents seen in session manifests — allowlisted names
+    only; anything unrecognized collapses to "other"."""
+    seen: set[str] = set()
+    try:
+        for mf in (_home() / "sessions").glob("*.json"):
+            try:
+                argv = json.loads(mf.read_text(encoding="utf-8")).get("argv") or []
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not argv:
+                continue
+            name = os.path.basename(str(argv[0]))
+            seen.add(name if name in AGENT_ALLOWLIST else "other")
+    except OSError:
+        pass
+    return sorted(seen)
 
 
 def status() -> dict:

@@ -39,8 +39,11 @@ reviewed change to this file and that test:
 | `version` | `"1.20.2"` | distil version |
 | `os` / `arch` / `python` | `"Darwin"` / `"arm64"` / `"3.12.13"` | platform triple |
 | `runs` | `412` | ledger run count |
-| `tokens_saved` | `183_220` | lifetime baseline − distil input tokens |
-| `dollars_saved` | `12.41` | same, in dollars (0 for unpriced models) |
+| `tokens_saved` | `183_220` | lifetime baseline − distil input tokens, **calibration-corrected** (the same heuristic→billed factor the proof ledger applies) |
+| `dollars_saved` | `12.41` | same, in dollars — **0 for unpriced models and for flat-rate subscriptions** (their dollar savings are notional and would bloat the community total) |
+| `billing` | `"metered"` | `"subscription"` or `"metered"` — nothing else valid |
+| `by_model` | `{"claude-opus-4-8": 91_000}` | calibrated tokens saved per model id, **top 5 only**, key length-capped |
+| `agents` | `["claude"]` | wrapped agents seen, **allowlist-only** (`claude`/`codex`/`gemini`/`aider`) — anything else becomes `"other"`, so an exotic command line can never leak |
 | `ts` | `1784500000` | send time |
 
 Never sent, opted in or not: prompt/response content, message digests, file

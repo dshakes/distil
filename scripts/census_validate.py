@@ -17,7 +17,7 @@ import json
 import re
 import sys
 
-KEYS = {
+KEYS_V1 = {
     "schema",
     "install_id",
     "version",
@@ -29,17 +29,22 @@ KEYS = {
     "dollars_saved",
     "ts",
 }
+KEYS_V2 = KEYS_V1 | {"billing", "by_model", "agents"}
 NUM_CAPS = {"runs": 1e9, "tokens_saved": 1e13, "dollars_saved": 1e8, "ts": 4102444800}
+AGENTS = {"claude", "codex", "gemini", "aider", "other"}
+MAX_MODELS = 8
 
 
 def validate(p: object) -> str | None:
-    """Return None if valid, else the reason."""
+    """Return None if valid, else the reason. Accepts schema 1 and 2 (schema 1
+    clients are already in the wild; schema 2 added billing/by_model/agents)."""
     if not isinstance(p, dict):
         return "not an object"
-    if set(p) != KEYS:
-        return "schema keys mismatch"
-    if p["schema"] != 1:
+    schema = p.get("schema")
+    if schema not in (1, 2):
         return "unknown schema version"
+    if set(p) != (KEYS_V1 if schema == 1 else KEYS_V2):
+        return "schema keys mismatch"
     if not re.fullmatch(r"[0-9a-f]{32}", str(p["install_id"])):
         return "install_id must be 32 hex chars"
     for k in ("version", "os", "arch", "python"):
@@ -52,6 +57,20 @@ def validate(p: object) -> str | None:
         v = p[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= cap:
             return f"bad {k}"
+    if schema == 2:
+        if p["billing"] not in ("subscription", "metered"):
+            return "bad billing"
+        bm = p["by_model"]
+        if not isinstance(bm, dict) or len(bm) > MAX_MODELS:
+            return "bad by_model"
+        for m, v in bm.items():
+            if not isinstance(m, str) or not 0 < len(m) <= 64 or "/" in m or "\\" in m:
+                return "bad by_model key"
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1e13:
+                return "bad by_model value"
+        ag = p["agents"]
+        if not isinstance(ag, list) or len(ag) > 6 or any(a not in AGENTS for a in ag):
+            return "bad agents"
     return None
 
 

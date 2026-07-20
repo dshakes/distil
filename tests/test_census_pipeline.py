@@ -136,3 +136,55 @@ def test_rollup_merges_passive_channels_and_badges(tmp_path):
     assert badges["savings-tokens"]["message"] == "1.5B"
     assert badges["downloads-month"]["message"] == "11.9k"
     assert all(b["schemaVersion"] == 1 for b in badges.values())
+
+
+# ---------------------------------------------------------------------------
+# Schema 2 (usage dimensions)
+# ---------------------------------------------------------------------------
+
+
+def _row2(**kw) -> dict:
+    base = _row(
+        billing="metered",
+        by_model={"claude-opus-4-8": 500, "claude-haiku-4-5": 100},
+        agents=["claude"],
+    )
+    base["schema"] = 2
+    base.update(kw)
+    return base
+
+
+def test_validator_accepts_both_schemas():
+    assert census_validate.validate(_row()) is None  # v1 clients stay valid
+    assert census_validate.validate(_row2()) is None
+
+
+def test_validator_rejects_bad_v2_fields():
+    assert census_validate.validate(_row2(billing="free")) is not None
+    assert census_validate.validate(_row2(agents=["hacker-tool"])) is not None
+    assert census_validate.validate(_row2(by_model={"m/../etc": 1})) is not None
+    assert census_validate.validate(_row2(by_model={f"m{i}": 1 for i in range(9)})) is not None
+    assert census_validate.validate(_row2(by_model={"claude": 1e14})) is not None
+    bad = _row2()
+    del bad["agents"]
+    assert census_validate.validate(bad) is not None  # v2 keys are all-or-nothing
+
+
+def test_rollup_aggregates_usage(tmp_path):
+    now = int(time.time())
+    rows = [
+        _row2(install_id="a" * 32, ts=now, billing="metered", agents=["claude", "other"]),
+        _row2(
+            install_id="b" * 32,
+            ts=now,
+            billing="subscription",
+            by_model={"claude-opus-4-8": 200},
+            agents=["claude"],
+        ),
+        _row(install_id="c" * 32, ts=now),  # v1 row: counted, no usage contribution
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["installs"]["census_total"] == 3
+    assert agg["usage"]["by_model"]["claude-opus-4-8"] == 700
+    assert agg["usage"]["billing"] == {"metered": 1, "subscription": 1}
+    assert agg["usage"]["agents"]["claude"] == 2

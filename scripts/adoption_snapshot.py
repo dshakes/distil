@@ -62,7 +62,37 @@ def snapshot() -> dict:
 
     def pypi() -> dict:
         data = _get(f"https://pypistats.org/api/packages/{PYPI_PACKAGE}/recent")["data"]
-        return {"day": data["last_day"], "week": data["last_week"], "month": data["last_month"]}
+        out = {"day": data["last_day"], "week": data["last_week"], "month": data["last_month"]}
+        # Bot filter: downloads with no reported OS are scanners/crawlers, not
+        # pip on a real machine — the "real" split is the honest install signal.
+        # Sub-fetches are best-effort: their absence never loses the totals.
+        try:
+            import datetime as _dt
+
+            cut30 = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+            cut7 = (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+            by_sys: dict[str, int] = {}
+            real7 = 0
+            for r in _get(f"https://pypistats.org/api/packages/{PYPI_PACKAGE}/system")["data"]:
+                cat = r["category"] or "null"
+                if r["date"] >= cut30:
+                    by_sys[cat] = by_sys.get(cat, 0) + r["downloads"]
+                if r["date"] >= cut7 and cat != "null":
+                    real7 += r["downloads"]
+            out["by_system_30d"] = by_sys
+            out["real_os_30d"] = sum(v for k, v in by_sys.items() if k != "null")
+            out["real_os_7d"] = real7
+            out["bots_30d"] = by_sys.get("null", 0)
+            by_py: dict[str, int] = {}
+            for r in _get(f"https://pypistats.org/api/packages/{PYPI_PACKAGE}/python_minor")[
+                "data"
+            ]:
+                if r["date"] >= cut30 and r["category"] and r["category"] != "null":
+                    by_py[r["category"]] = by_py.get(r["category"], 0) + r["downloads"]
+            out["by_python_30d"] = by_py
+        except Exception as exc:  # noqa: BLE001 — detail is additive, totals still land
+            out["detail_error"] = f"{type(exc).__name__}: {exc}"[:120]
+        return out
 
     def github() -> dict:
         d = _get(f"https://api.github.com/repos/{REPO}", gh_headers)
