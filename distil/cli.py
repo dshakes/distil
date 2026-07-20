@@ -1149,6 +1149,10 @@ def cmd_census(args: argparse.Namespace) -> int:
         print("  preview anytime: distil census show   ·   revoke: distil census off")
         if census.hard_disabled():
             print("  note: DO_NOT_TRACK/DISTIL_NO_TELEMETRY is set — nothing will send.")
+        elif census.maybe_ping():
+            # Consent is the natural send moment — don't make the user wait for
+            # their next session exit to appear on the community board.
+            print("  first census sent — the adoption board picks it up within ~5 min.")
     elif action == "off":
         census.opt_out()
         print("census: OFF — install id deleted (nothing identifies this machine anymore).")
