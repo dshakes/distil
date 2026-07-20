@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: metrics-branch-writes
+  cancel-in-progress: false
+
 jobs:
   snapshot:
     runs-on: ubuntu-latest
@@ -35,9 +39,11 @@ jobs:
           mkdir -p ../metrics/data
           python3 scripts/adoption_snapshot.py >> ../metrics/data/adoption.jsonl
           tail -1 ../metrics/data/adoption.jsonl
+      - name: Roll up aggregates + badges
+        run: python3 scripts/census_rollup.py ../metrics
       - name: Push
         run: |
           cd ../metrics
-          git add data/adoption.jsonl
-          git commit -m "adoption snapshot $(date -u +%F)"
-          git push origin HEAD:metrics
+          git add data
+          git commit -m "adoption snapshot + rollup $(date -u +%F)"
+          git push origin HEAD:metrics || { git pull --rebase origin metrics && git push origin HEAD:metrics; }

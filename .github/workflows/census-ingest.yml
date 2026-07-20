@@ -1,0 +1,47 @@
+# Census ingest — repository_dispatch("census") → metrics branch.
+#
+# The census worker (packaging/census-worker/) forwards each opted-in ping as
+# a dispatch event; this workflow RE-VALIDATES it (defense in depth — the
+# dispatch payload is untrusted input even though our worker validated once)
+# and appends it to data/census.jsonl on the `metrics` branch. Serialized via
+# a concurrency group so concurrent pings can't race the push.
+name: census-ingest
+
+on:
+  repository_dispatch:
+    types: [census]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: metrics-branch-writes
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate payload (defense in depth)
+        env:
+          CENSUS: ${{ toJSON(github.event.client_payload.census) }}
+        run: |
+          printf '%s' "$CENSUS" | python3 scripts/census_validate.py > /tmp/census-row.json
+      - name: Append to metrics branch
+        run: |
+          git config user.name "census-ingest[bot]"
+          git config user.email "actions@users.noreply.github.com"
+          if git fetch origin metrics 2>/dev/null; then
+            git worktree add ../metrics origin/metrics
+          else
+            git worktree add --orphan -b metrics ../metrics
+          fi
+          mkdir -p ../metrics/data
+          cat /tmp/census-row.json >> ../metrics/data/census.jsonl
+          cd ../metrics
+          git add data/census.jsonl
+          git commit -m "census ping"
+          # One retry on push race — the concurrency group serializes runs, but
+          # adoption-stats can still land in between.
+          git push origin HEAD:metrics || { git pull --rebase origin metrics && git push origin HEAD:metrics; }
