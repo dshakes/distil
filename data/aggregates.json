@@ -1,22 +1,23 @@
 {
-  "generated_ts": 1784544895,
+  "generated_ts": 1784544903,
   "installs": {
-    "census_total": 1,
-    "active_7d": 1,
-    "active_30d": 1,
+    "census_total": 2,
+    "active_7d": 2,
+    "active_30d": 2,
     "by_version": {
-      "1.22.0": 1
+      "1.22.0": 1,
+      "1": 1
     }
   },
   "savings": {
     "tokens": 1430967621,
-    "dollars": 0,
+    "dollars": 0.0,
     "dollars_notional": 5959.08,
-    "instances": 1,
+    "instances": 2,
     "as_of_ts": 1784544887,
     "rate_per_sec": 9.89,
-    "total_runs": 5954,
-    "avg_per_run": 240337,
+    "total_runs": 5955,
+    "avg_per_run": 240297,
     "history": [
       {
         "ts": 1784522481,
@@ -29,6 +30,10 @@
       {
         "ts": 1784528347,
         "tokens": 1430804087
+      },
+      {
+        "ts": 1784544887,
+        "tokens": 1430967621
       },
       {
         "ts": 1784544887,
@@ -49,7 +54,8 @@
       "claude-haiku-4-5-20251001": 22
     },
     "billing": {
-      "subscription": 1
+      "subscription": 1,
+      "metered": 1
     },
     "agents": {
       "claude": 1,
