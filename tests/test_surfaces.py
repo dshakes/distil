@@ -91,3 +91,15 @@ def test_corrupt_store_is_fail_open():
     surfaces.bump("/v1/messages")
     surfaces.flush()  # must not raise; rewrites cleanly
     assert surfaces.snapshot()["shapes"] == {"anthropic": 1}
+
+
+def test_flush_without_flock(monkeypatch):
+    """flock unavailable (e.g. Windows) → lossy merge still writes."""
+    import fcntl
+
+    monkeypatch.setattr(fcntl, "flock", lambda *a: (_ for _ in ()).throw(OSError("no flock")))
+    surfaces.bump("/v1/messages")
+    surfaces.flush()
+    import json
+
+    assert json.loads(surfaces.store_path().read_text())["shapes"]["anthropic"] == 1

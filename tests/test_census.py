@@ -178,3 +178,154 @@ def test_calibration_factor_applied(monkeypatch, tmp_path):
     p = census.build_payload()
     assert p["tokens_saved"] == 800  # 1000 * 0.8 — never more than billed
     assert p["dollars_saved"] == 8.0
+
+
+def _seed_ledger(tmp_path, rows):
+    """Write a savings.jsonl the census helpers read via ledger.default_path()."""
+    import json as _json
+
+    (tmp_path / "savings.jsonl").write_text(
+        "".join(_json.dumps(r) + "\n" for r in rows), encoding="utf-8"
+    )
+
+
+def _seed_sessions(tmp_path, argvs):
+    import json as _json
+
+    sd = tmp_path / "sessions"
+    sd.mkdir(parents=True, exist_ok=True)
+    for i, argv in enumerate(argvs):
+        (sd / f"s{i}.json").write_text(_json.dumps({"argv": argv}), encoding="utf-8")
+
+
+def test_by_model_top5_and_calibrated(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (2.0, 99))
+    census.opt_in()
+    _seed_ledger(
+        tmp_path,
+        [
+            {"model": f"m{i}", "baseline_input_tokens": (i + 1) * 100, "distil_input_tokens": 0}
+            for i in range(7)
+        ],
+    )
+    bm = census.build_payload()["by_model"]
+    assert len(bm) == 5  # top-5 only
+    assert bm["m6"] == 1400  # 700 * factor 2.0 — calibrated
+    assert "m0" not in bm and "m1" not in bm  # smallest two dropped
+
+
+def test_agents_and_modes_from_sessions(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    _seed_sessions(
+        tmp_path,
+        [
+            ["claude"],  # interactive
+            ["claude", "-p", "hi"],  # headless
+            ["/usr/bin/python", "agent.py"],  # sdk
+            ["weird-tool", "--x"],  # non-agent → agents:other, mode sdk
+        ],
+    )
+    p = census.build_payload()
+    assert set(p["agents"]) == {"claude", "other"}
+    assert p["modes"]["interactive"] == 1
+    assert p["modes"]["headless"] == 1
+    assert p["modes"]["sdk"] == 2  # python + weird-tool
+
+
+def test_equivalence_from_shadow(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+
+    class _Led:
+        samples = 500
+
+        def aa_agreement(self):
+            return 1.0
+
+        def adjusted_rate(self):
+            return 0.0
+
+    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: _Led()))
+    assert census.build_payload()["equivalence"] == {"pct": 100.0, "shadowed": 500}
+
+
+def test_equivalence_null_without_baseline(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+
+    class _Led:
+        samples = 4
+
+        def aa_agreement(self):
+            return None  # too few A/A samples
+
+        def adjusted_rate(self):
+            return 0.0
+
+    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: _Led()))
+    eq = census.build_payload()["equivalence"]
+    assert eq == {"pct": None, "shadowed": 4}  # count sent, no fabricated pct
+
+
+def test_helpers_fail_open_on_bad_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    # corrupt + argv-less session manifests exercise the skip branches
+    sd = tmp_path / "sessions"
+    sd.mkdir(parents=True, exist_ok=True)
+    (sd / "bad.json").write_text("{not json", encoding="utf-8")
+    (sd / "empty.json").write_text("{}", encoding="utf-8")  # no argv
+    # calibration blowing up must not break the payload (identity factor)
+    monkeypatch.setattr(
+        "distil.calibration.factor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError())
+    )
+    monkeypatch.setattr(
+        "distil.doctor.subscription_mode", lambda: (_ for _ in ()).throw(RuntimeError())
+    )
+    p = census.build_payload()
+    assert p["agents"] == [] and p["modes"] == {}  # bad manifests skipped
+    assert p["billing"] == "metered"  # _billing except → default
+
+
+def test_by_model_survives_corrupt_ledger_line(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    (tmp_path / "savings.jsonl").write_text(
+        '{"model":"m","baseline_input_tokens":100,"distil_input_tokens":0}\n{bad\n',
+        encoding="utf-8",
+    )
+    assert census.build_payload()["by_model"].get("m") == 100
+
+
+def test_cmd_census_handler(tmp_path, monkeypatch, capsys):
+    """The `distil census on|off|status|show` CLI handler end to end."""
+    import argparse
+    from distil.cli import cmd_census
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr("distil.census.maybe_ping", lambda: False)  # no network in test
+
+    assert cmd_census(argparse.Namespace(action="status")) == 0
+    assert '"consent": null' in capsys.readouterr().out
+
+    assert cmd_census(argparse.Namespace(action="on")) == 0
+    assert "census: ON" in capsys.readouterr().out
+
+    assert cmd_census(argparse.Namespace(action="show")) == 0
+    out = capsys.readouterr()
+    assert '"schema": 4' in out.out and "preview only" in out.err
+
+    assert cmd_census(argparse.Namespace(action="off")) == 0
+    assert "census: OFF" in capsys.readouterr().out
+
+
+def test_cmd_census_on_notes_do_not_track(tmp_path, monkeypatch, capsys):
+    import argparse
+    from distil.cli import cmd_census
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    assert cmd_census(argparse.Namespace(action="on")) == 0
+    assert "nothing will send" in capsys.readouterr().out
