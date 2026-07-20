@@ -420,8 +420,13 @@
       for (var i = 0; i < u.length; i++) if (n >= u[i][0]) return (n / u[i][0]).toFixed(1) + u[i][1];
       return String(Math.round(n));
     };
-    fetch("https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json?t=" + Date.now())
-      .then(function (r) { return r.ok ? r.json() : null; })
+    fetch("https://api.github.com/repos/dshakes/distil/contents/data/aggregates.json?ref=metrics",
+        { headers: { Accept: "application/vnd.github.raw+json" } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .catch(function () {
+        return fetch("https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json")
+          .then(function (r) { return r.ok ? r.json() : null; });
+      })
       .then(function (a) {
         if (!a) return;
         var set = function (id, v) { if (v != null) document.getElementById(id).textContent = v; };

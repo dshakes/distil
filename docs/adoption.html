@@ -255,9 +255,19 @@
 <script>
 (function () {
   "use strict";
-  // Cache-buster: raw.githubusercontent's CDN holds a ~5-min copy; a unique
-  // query key makes every page load fetch the current metrics-branch data.
-  var AGG = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json?t=" + Date.now();
+  // Near-real-time read: the GitHub contents API serves the branch tip
+  // uncached (raw.githubusercontent sits behind a CDN that also ignores
+  // query-string cache-busters). API first; raw as fallback for the
+  // unauthenticated rate-limit edge case.
+  var AGG_API = "https://api.github.com/repos/dshakes/distil/contents/data/aggregates.json?ref=metrics";
+  var AGG_RAW = "https://raw.githubusercontent.com/dshakes/distil/metrics/data/aggregates.json";
+  function fetchAggregates() {
+    return fetch(AGG_API, { headers: { Accept: "application/vnd.github.raw+json" } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .catch(function () {
+        return fetch(AGG_RAW).then(function (r) { return r.ok ? r.json() : null; });
+      });
+  }
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function human(n) {
@@ -298,7 +308,7 @@
       el.querySelectorAll(".bar-fill").forEach(function (f) { f.style.width = f.dataset.w + "%"; });
     });
   }
-  fetch(AGG).then(function (r) { return r.ok ? r.json() : null; }).then(function (a) {
+  fetchAggregates().then(function (a) {
     if (!a) { document.getElementById("updated").textContent = "live data unavailable — metrics branch not reachable"; return; }
     document.getElementById("updated").textContent =
       "updated " + new Date(a.generated_ts * 1000).toUTCString().replace(":00 GMT", " UTC") + " · source: metrics branch · refreshes on load";
