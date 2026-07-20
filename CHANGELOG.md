@@ -3,6 +3,14 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.20.2] — bypass tripwire trusts the traffic marker; headless-agent examples
+
+### Fixed
+- **False "no requests flowed through distil" warning on short wrap sessions.** The post-run bypass tripwire checked the savings ledger, which books no rows for a session that saves 0 tokens — so a quick `distil wrap -- claude -p "…"` warned that the agent "may have stopped honoring ANTHROPIC_BASE_URL" even when its traffic demonstrably flowed through the proxy. The tripwire now reads the session traffic marker (written `0` at wrap start, flipped to `1` by the first proxied request — the signal built for bypass detection); it still fires on genuine bypass and stays silent when no marker exists (`distil/cli.py`, tests in `tests/test_wrap_presets.py`). Verified live: headless `claude -p` and the Claude Agent SDK both route through wrap with no false warning, and Claude Code 2.1.215 honors `ANTHROPIC_BASE_URL` on both API-key and OAuth auth (captured `HEAD /` preflight + `POST /v1/messages?beta=true`).
+
+### Docs & examples
+- **Headless-agent coverage, all live-verified:** new `examples/python_claude_agent_sdk.py` (Claude Agent SDK → bundled CLI → `ANTHROPIC_BASE_URL`) and `examples/js_anthropic.ts` (Anthropic TypeScript SDK `baseURL`); a "Headless agents (Agent SDK, `claude -p`, CI)" section in `examples/README.md`; headless + TS rows in the README integration table and `docs/integrations.html`; the previously unlisted Gemini example added to the examples table.
+
 ## [1.20.1] — proxy worker survives broken client writes
 
 ### Fixed
