@@ -24,6 +24,15 @@
 </p>
 <p align="center"><sub><code>uvx --from distil-llm distil bench</code> — runs the certificate gate in ~10s, no API key · <code>distil wrap -- claude</code> routes your agent, zero config.</sub></p>
 
+<!-- ═══ LIVE community counter — fed by the opt-in census, re-polls every 5 min ═══ -->
+<p align="center"><sub>◉ &nbsp;<b>LIVE</b> · measured from the opt-in census on a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>, never estimated</sub></p>
+<p align="center">
+  <a href="https://dshakes.github.io/distil/adoption.html"><img src="https://img.shields.io/endpoint?style=for-the-badge&url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Fsavings-tokens.json" alt="community tokens saved"/></a>
+  <a href="https://dshakes.github.io/distil/adoption.html"><img src="https://img.shields.io/endpoint?style=for-the-badge&url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Fequivalence.json" alt="decision-equivalence"/></a>
+  <a href="https://dshakes.github.io/distil/adoption.html"><img src="https://img.shields.io/endpoint?style=for-the-badge&url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Factive-installs.json" alt="active installs, 30d"/></a>
+</p>
+<p align="center"><b><a href="https://dshakes.github.io/distil/adoption.html">▶ &nbsp;Watch the counter tick live &amp; audit every number →</a></b></p>
+
 <table align="center"><tr>
 <td align="center"><b>⚡ Get the savings</b><br/><sub>2 min, no config</sub><br/><br/><code>pipx install distil-llm</code><br/><code>distil onboard</code></td>
 <td align="center"><b>🔬 See the proof</b><br/><sub>real harness</sub><br/><br/><a href="#-the-proof"><b>benchmark ↓</b></a> · <a href="docs/PAPER.md">paper</a><br/><a href="https://dshakes.github.io/distil/compare.html">vs the others</a></td>

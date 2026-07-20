@@ -136,6 +136,21 @@ def test_rollup_merges_passive_channels_and_badges(tmp_path):
     assert badges["savings-tokens"]["message"] == "1.5B"
     assert badges["downloads-month"]["message"] == "11.9k"
     assert all(b["schemaVersion"] == 1 for b in badges.values())
+    assert all(b.get("cacheSeconds") == 300 for b in badges.values())
+
+
+def test_badges_equivalence(tmp_path):
+    now = int(time.time())
+    rows = [_row4(install_id="a" * 32, ts=now, equivalence={"pct": 100.0, "shadowed": 582})]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    b = census_rollup.badges(agg)["equivalence"]
+    assert b["message"] == "100% · 582 shadowed"
+    # null pct → n/a, never a fabricated number
+    sub = tmp_path / "b"
+    sub.mkdir()
+    rows2 = [_row4(install_id="a" * 32, ts=now, equivalence={"pct": None, "shadowed": 3})]
+    agg2 = census_rollup.rollup(_write_metrics(sub, rows2, []), now=now)
+    assert census_rollup.badges(agg2)["equivalence"]["message"] == "n/a"
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +333,9 @@ def test_rollup_rate_ignores_resets(tmp_path):
     now = int(time.time())
     rows = [
         _row4(install_id="a" * 32, ts=now - 100, tokens_saved=5000),
-        _row4(install_id="a" * 32, ts=now, tokens_saved=10),  # ledger reset → negative delta dropped
+        _row4(
+            install_id="a" * 32, ts=now, tokens_saved=10
+        ),  # ledger reset → negative delta dropped
     ]
     agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
     assert agg["savings"]["rate_per_sec"] == 0.0

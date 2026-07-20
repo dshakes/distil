@@ -227,14 +227,25 @@ def badges(agg: dict) -> dict[str, dict]:
 
     pypi_month = agg["channels"]["pypi_downloads_month"]
     real30 = agg.get("pypi_detail", {}).get("real_os_30d")
+    eq = agg.get("equivalence") or {}
+    eq_pct = eq.get("pct")
     return {
         "savings-tokens": badge(
-            "community tokens saved", _humanize(agg["savings"]["tokens"]) or "0"
+            "community tokens saved", _humanize(agg["savings"]["tokens"]) or "0", "5ad19a"
         ),
         "savings-dollars": badge(
             "community $ saved · metered", f"${_humanize(agg['savings']['dollars'])}"
         ),
         "active-installs": badge("active installs (30d)", str(agg["installs"]["active_30d"])),
+        "equivalence": badge(
+            "decision-equivalence",
+            (
+                f"{eq_pct:g}% · {_humanize(eq.get('shadowed') or 0)} shadowed"
+                if eq_pct is not None
+                else "n/a"
+            ),
+            "5ad19a",
+        ),
         "downloads-month": badge(
             "pypi downloads/month", _humanize(pypi_month) if pypi_month else "n/a"
         ),
