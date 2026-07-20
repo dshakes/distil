@@ -311,9 +311,17 @@ savings ledger archived → ~/.distil/savings.jsonl.reset-20260705-213313Z
   651 runs, 114,079,320 tokens saved (643 pre-1.10 records) — kept for audit, no longer counted
 fresh start: all new records use post-1.10 accounting (booked only after upstream 2xx).</pre>
 
+    <!-- census -->
+    <h2 id="census">distil census</h2>
+    <p>Opt-in adoption census — the only thing distil can ever send to a distil-controlled host, and it is <b>off until you say yes</b>. Numbers only (version, platform, calibrated tokens/$ saved, top models, billing mode, allowlisted agent names), anonymous random install id, at most one small JSON per day from the wrap/proxy exit path, fail-open. <code>DO_NOT_TRACK=1</code> / <code>DISTIL_NO_TELEMETRY=1</code> beat a stored opt-in. Feeds the <a href="adoption.html">live adoption board</a>; schema frozen by test and disclosed in <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">TELEMETRY.md</a>.</p>
+    <pre class="term"><span class="d">$ distil census show</span>   <span class="d"># print the EXACT payload — nothing is sent</span>
+<span class="d">$ distil census on</span>     <span class="d"># consent (mints the anonymous id)</span>
+<span class="d">$ distil census off</span>    <span class="d"># revoke — deletes the id</span>
+<span class="d">$ distil census</span>        <span class="d"># status (consent · kill switches · endpoint)</span></pre>
+
     <!-- leaderboard -->
     <h2 id="leaderboard">distil leaderboard</h2>
-    <p>Shows cumulative savings from all runs recorded via <code>--record</code> flags on <code>savings</code> and <code>bench</code>, plus genuine traffic recorded by <code>distil proxy</code>/<code>wrap</code>. Local-first; no data leaves the machine unless you opt in to community sharing (not currently enabled). Aliased as <code>distil stats</code> — both names run the identical command. If the ledger contains pre-1.10 records (booked before upstream success — savings may be overstated), the output says so and points to <a href="#reset"><code>distil reset</code></a>.</p>
+    <p>Shows cumulative savings from all runs recorded via <code>--record</code> flags on <code>savings</code> and <code>bench</code>, plus genuine traffic recorded by <code>distil proxy</code>/<code>wrap</code>. Local-first; no data leaves the machine unless you opt in to the community census (<a href="#census"><code>distil census on</code></a>). Aliased as <code>distil stats</code> — both names run the identical command. If the ledger contains pre-1.10 records (booked before upstream success — savings may be overstated), the output says so and points to <a href="#reset"><code>distil reset</code></a>.</p>
 
     <h3>Flags</h3>
     <table>

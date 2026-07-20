@@ -367,6 +367,21 @@ distil_litellm.completion(model=<span class="g">"claude-opus-4-8"</span>, messag
 
     <hr/>
 
+    <h2 id="census">Join the community count <span class="g">— opt-in census</span></h2>
+    <p>Distil sends <b>nothing</b> by default. If you want your install and savings counted on the <a href="adoption.html">live adoption board</a> (numbers only, never content — anonymous random id, revocable):</p>
+    <pre class="term"><span class="d"># see the EXACT payload first — nothing is sent</span>
+distil census show
+
+<span class="d"># opt in (or answer yes once during `distil onboard`)</span>
+distil census on
+
+<span class="d"># status · revoke anytime (deletes the anonymous id)</span>
+distil census
+distil census off</pre>
+    <p>What's sent (schema frozen by test): distil version, OS/arch/Python, run count, calibrated tokens/$ saved, top models, billing mode, and which wrapped agents (allowlist-only). At most one small JSON per day, fail-open. <code>DO_NOT_TRACK=1</code> or <code>DISTIL_NO_TELEMETRY=1</code> beat a stored opt-in, always. Full disclosure: <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">TELEMETRY.md</a>.</p>
+
+    <hr/>
+
     <h2>What to read next</h2>
     <ul>
       <li><a href="concepts.html"><strong>Concepts</strong></a> — why decision-equivalence beats byte-equivalence, how the certificate works, and why cache misses (not token size) dominate cost.</li>
