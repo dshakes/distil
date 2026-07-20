@@ -153,12 +153,12 @@
       <div class="astat pu"><div class="n" id="t-active">–</div><div class="l">Active installs &middot; 30d</div><div class="foot">opt-in census &middot; one per machine &middot; bot-proof by construction</div></div>
       <div class="astat hl"><div class="n" id="t-tokens">–</div><div class="l">Community tokens saved</div><div class="foot">&Sigma; opted-in ledgers &middot; calibration-corrected, never estimated</div></div>
       <div class="astat"><div class="n" id="t-dollars">–</div><div class="l">Real $ saved &middot; metered</div><div class="foot">plus <b id="t-notional">–</b> notional API-rate value from flat-rate subscriptions</div></div>
-      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered — clients that report a real OS</div></div>
+      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered <b>download events</b> (incl. CI &amp; upgrades) — not unique users; the census tile is the provable-users number</div></div>
     </div>
 
     <div class="seyebrow gr">Downloads &middot; honestly</div>
     <h2 style="margin-top:0">The number everyone shows <span class="g">vs. the one that's true</span></h2>
-    <p>A public PyPI package receives constant traffic from security scanners and package-intel crawlers. They report no operating system; humans running <code>pip</code> do. So we split:</p>
+    <p>A public PyPI package receives constant traffic from supply-chain scanners (Snyk/Socket-class), package-intel crawlers (deps.dev, libraries.io), and malware sandboxes — every new release triggers fleet-wide sweeps. They report no operating system; <code>pip</code> on a real machine does. Even the filtered number counts <em>events</em> (CI reinstalls, upgrades), not people — provable people are the census tile. So we split:</p>
     <div class="split" id="splitband" aria-label="real vs bot download split">
       <div class="seg real" id="seg-real" style="flex-grow:1"></div>
       <div class="seg bots" id="seg-bots" style="flex-grow:1"></div>
