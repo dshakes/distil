@@ -479,9 +479,15 @@
   var LIVE_ENDPOINT = "https://distil-census.vercel.app/v1/live";
   function pollLive() {
     fetch(LIVE_ENDPOINT, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.available && typeof d.total === "number") {
-        if (liveBase && d.total > liveBase.total) flashHero();
-        liveBase = { total: d.total, rate: d.rate || 0, asOf: Date.now() };
+      // Use the heartbeat store ONLY when it actually holds data (installs > 0).
+      // An empty store (available but no heartbeats yet) must NOT show 0 — fall
+      // back to the census archive. And never regress below that archive: the
+      // daily census is the authoritative cumulative total, so anchor to
+      // max(live, census) and let the live rate tick it forward.
+      if (d && d.available && (d.installs || 0) > 0 && typeof d.total === "number") {
+        var anchor = Math.max(d.total, targetTokens || 0);
+        if (liveBase && anchor > liveBase.total) flashHero();
+        liveBase = { total: anchor, rate: d.rate || 0, asOf: Date.now() };
         set("rate-sec", d.rate ? human(Math.round(d.rate * 86400)) + " / day" : "—");
         set("rate-day", (d.active || 0) > 0
           ? d.active + " machine" + (d.active === 1 ? "" : "s") + " active now · exact at each pulse"
@@ -489,7 +495,7 @@
         document.querySelector(".hero-lab").innerHTML =
           '<span class="dot"></span> Community tokens saved &middot; ' + ((d.active || 0) > 0 ? "live" : "exact");
       } else {
-        liveBase = null; // fall back to the census exact total
+        liveBase = null; // empty/unavailable store → census exact total
       }
     }).catch(function () { liveBase = null; });
   }

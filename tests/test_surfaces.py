@@ -108,18 +108,31 @@ def test_flush_without_flock(monkeypatch):
 
 
 def test_proxy_heartbeat_timer_ticks_and_stops(monkeypatch):
-    """The in-session heartbeat loop calls maybe_heartbeat and stops on its event."""
-    import distil.proxy as proxy
+    """The in-session heartbeat loop calls maybe_heartbeat and stops on its event.
 
-    calls = []
-    monkeypatch.setattr("distil.census.maybe_heartbeat", lambda: calls.append(1))
-    stop = proxy._start_heartbeat_timer(interval=0.02)
+    Event-driven, not wall-clock-timed — the first tick signals an Event we wait
+    on with a generous timeout, so a loaded CI runner can't make it flaky."""
+    import threading
     import time as _t
 
-    _t.sleep(0.12)
-    stop.set()
-    _t.sleep(0.05)
-    assert len(calls) >= 1  # loop body ran at least once
+    import distil.proxy as proxy
+
+    ticked = threading.Event()
+    calls = []
+
+    def _fake():
+        calls.append(1)
+        ticked.set()
+
+    monkeypatch.setattr("distil.census.maybe_heartbeat", _fake)
+    stop = proxy._start_heartbeat_timer(interval=0.01)
+    try:
+        assert ticked.wait(5.0), "heartbeat loop body never ran"
+    finally:
+        stop.set()
+    # After stop, the loop exits at the next wait boundary; allow it to settle,
+    # then confirm ticks have ceased.
+    _t.sleep(0.1)
     n = len(calls)
-    _t.sleep(0.08)
+    _t.sleep(0.1)
     assert len(calls) == n  # stopped — no further ticks
