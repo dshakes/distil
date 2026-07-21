@@ -1,23 +1,24 @@
 {
-  "generated_ts": 1784600655,
+  "generated_ts": 1784601997,
   "installs": {
-    "census_total": 2,
-    "active_7d": 2,
-    "active_30d": 2,
+    "census_total": 3,
+    "active_7d": 3,
+    "active_30d": 3,
     "by_version": {
       "1.22.0": 1,
-      "1.23.0": 1
+      "1.23.0": 1,
+      "1": 1
     }
   },
   "savings": {
     "tokens": 1430967621,
     "dollars": 0,
     "dollars_notional": 5959.08,
-    "instances": 2,
-    "as_of_ts": 1784557627,
+    "instances": 3,
+    "as_of_ts": 1784601990,
     "rate_per_sec": 9.89,
-    "total_runs": 5954,
-    "avg_per_run": 240337,
+    "total_runs": 5955,
+    "avg_per_run": 240297,
     "history": [
       {
         "ts": 1784522481,
@@ -37,6 +38,10 @@
       },
       {
         "ts": 1784557627,
+        "tokens": 1430967621
+      },
+      {
+        "ts": 1784601990,
         "tokens": 1430967621
       }
     ]
