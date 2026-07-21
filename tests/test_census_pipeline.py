@@ -339,3 +339,31 @@ def test_rollup_rate_ignores_resets(tmp_path):
     ]
     agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
     assert agg["savings"]["rate_per_sec"] == 0.0
+
+
+def test_rollup_carries_forward_equivalence_across_schema_downgrade(tmp_path):
+    """A newer lower-schema ping (v1.23 → schema 3, no equivalence) must NOT
+    erase a known-good equivalence from an older schema-4 ping of the SAME
+    install. The community trust number carries forward per install."""
+    now = int(time.time())
+    rows = [
+        _row4(install_id="a" * 32, ts=now - 100, equivalence={"pct": 100.0, "shadowed": 582},
+              modes={"interactive": 9}),
+        _row3(install_id="a" * 32, ts=now),  # newer, schema 3 → no equivalence/modes
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["installs"]["census_total"] == 1
+    assert agg["savings"]["tokens"] == _row3()["tokens_saved"]  # newest tokens win
+    assert agg["equivalence"] == {"pct": 100.0, "shadowed": 582}  # carried forward
+    assert agg["usage"]["modes"] == {"interactive": 9}  # carried forward too
+
+
+def test_rollup_carry_forward_order_independent(tmp_path):
+    """Carry-forward works regardless of file order of the two pings."""
+    now = int(time.time())
+    rows = [
+        _row3(install_id="a" * 32, ts=now),  # newer first in file
+        _row4(install_id="a" * 32, ts=now - 100, equivalence={"pct": 95.0, "shadowed": 40}),
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["equivalence"] == {"pct": 95.0, "shadowed": 40}

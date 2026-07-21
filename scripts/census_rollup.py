@@ -58,11 +58,36 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     census = [r for r in _read_jsonl(metrics_dir / "data" / "census.jsonl") if validate(r) is None]
     adoption = _read_jsonl(metrics_dir / "data" / "adoption.jsonl")
 
+    # Per-install merge: scalar fields (tokens, ts, version…) take the NEWEST
+    # ping, but schema-dependent dimensions (equivalence, modes, usage maps)
+    # carry forward the latest ping that actually CARRIES them — so a mixed
+    # fleet (a newer ping from an older client that omits a field) never blanks
+    # a known-good value. Without this, a v1.23 (schema-3) ping arriving after a
+    # v1.24 (schema-4) ping would erase that install's decision-equivalence.
+    _CARRY = ("equivalence", "by_model", "agents", "surfaces", "shapes", "modes", "billing")
+
+    def _nonempty(v: object) -> bool:
+        if v is None:
+            return False
+        if isinstance(v, dict) and "shadowed" in v:  # equivalence: real iff shadowed>0
+            return int(v.get("shadowed") or 0) > 0
+        return bool(v)
+
     latest: dict[str, dict] = {}
     for row in census:
-        cur = latest.get(row["install_id"])
+        iid = row["install_id"]
+        cur = latest.get(iid)
         if cur is None or row["ts"] >= cur["ts"]:
-            latest[row["install_id"]] = row
+            merged = dict(row)
+            if cur is not None:  # carry forward any dim the newer row lacks
+                for k in _CARRY:
+                    if not _nonempty(merged.get(k)) and _nonempty(cur.get(k)):
+                        merged[k] = cur[k]
+            latest[iid] = merged
+        else:  # an older row can still supply a dim the newer one is missing
+            for k in _CARRY:
+                if not _nonempty(cur.get(k)) and _nonempty(row.get(k)):
+                    cur[k] = row[k]
 
     def active(days: int) -> int:
         return sum(1 for r in latest.values() if now - r["ts"] <= days * 86400)
