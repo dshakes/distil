@@ -17,6 +17,18 @@ jobs:
       - name: mypy (the package ships py.typed — keep it actually typed)
         run: uvx mypy --python-version 3.12 --ignore-missing-imports distil
 
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: census-worker validators (node:test)
+        run: node --test packaging/census-worker/test/validate.test.mjs packaging/census-worker/test/beat.test.mjs
+      - name: npm bridge package (node:test)
+        run: node --test packaging/npm/test/runner.test.mjs
+
   coverage:
     runs-on: ubuntu-latest
     steps:

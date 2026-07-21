@@ -1,0 +1,43 @@
+{
+  "name": "distil-llm",
+  "version": "1.24.0",
+  "description": "Compress your AI agent's context and prove its decisions don't change — cache-aware, reversible, certified. JS/TS bridge to the distil CLI + proxy helpers.",
+  "keywords": [
+    "llm",
+    "ai-agent",
+    "context-compression",
+    "prompt-compression",
+    "token-savings",
+    "anthropic",
+    "openai",
+    "proxy",
+    "claude",
+    "mcp"
+  ],
+  "homepage": "https://dshakes.github.io/distil/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dshakes/distil.git",
+    "directory": "packaging/npm"
+  },
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "distil": "bin/distil.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
