@@ -14,6 +14,16 @@ All notable changes to Distil are documented here. Format loosely follows
 - Rollup now emits **measured** `savings.rate_per_sec` (Δtokens/Δt between consecutive censuses, resets dropped), `as_of_ts`, `total_runs`, `avg_per_run`, and a `history[]` community-total time series — all measured, none estimated.
 - `docs/adoption.html` rebuilt: a **live odometer** ticking at the measured savings rate (labeled projection, exact anchor, snaps on each new census), the decision-equivalence trust ring, a savings-rate readout, a tokens sparkline, a session-mode panel, and auto-refresh every 45s. Audit trail intact — every number traces to `census.jsonl`.
 - Both validators accept schemas 1–4 (all-or-nothing keys, prior-schema rules still enforced). Live-verified end to end: real payload `equivalence {100%, 582}`, `modes {interactive: 28, sdk: 1}`; the worker rejects out-of-range pct and unknown modes.
+- The rollup **carries forward per-install dimensions** so a mixed-version fleet can't blank them — a newer lower-schema ping (a v1.23 client, no `equivalence`) arriving after a v1.24 ping no longer erases that install's trust number.
+
+### Near-real-time community counter — opt-in heartbeat + edge aggregate
+- **Heartbeat** (`distil/census.py`): the daily census stays the exact auditable archive; a tiny content-free `{v, id, tokens, rate, ts}` beat — at most every 5 min and only when saved tokens grew (idle machines send nothing) — drives the live counter. Same opt-in + `DO_NOT_TRACK` gates, fail-open, sent from the wrap/proxy exit and a lightweight in-session timer.
+- **Worker** (`packaging/census-worker/`): `/v1/beat` validates + upserts latest-per-install into Upstash Redis (no history, no IPs); `/v1/live` sums it on read (exact total, no drift) and reports active installs + their combined rate. Both degrade gracefully without Upstash.
+- **Adoption page** projects the odometer forward at the **active-only** rate, bounded — it ticks while the community works and goes **static the instant everyone idles**, never inventing growth; anchors to `max(live, census)` so it never regresses below the archive and falls back to the census exact total when the live store is empty.
+
+### Real-time LOCAL dashboard + npm/JS-TS bridge
+- **`distil dashboard --web`** (`distil/webdash.py`): a localhost page fed by your own live ledger — the odometer rolls up the instant a real request books more saved tokens. Content-free, local-only, zero-dep.
+- **npm `distil-llm`** (`packaging/npm/`): the JS/TS bridge — `npx distil-llm wrap -- <agent>` resolves a Python runner (uvx/pipx/pip) so JS/TS devs use distil without touching pip; `distilBaseURL()` helpers point any SDK at the proxy. Closes the biggest distribution gap.
 
 ## [1.23.0] — census schema 3: integration attribution (SDK / headless surfaces)
 
