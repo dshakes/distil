@@ -63,3 +63,73 @@ def test_tier1_fold_is_byte_reversible():
     rep = verify_reversible([b], result)
     assert rep.lossless
     assert _ARRAY in set(result.restore.values())
+
+
+# --------------------------------------------------------------------------- #
+# Nested-record fold (fold_records) — extends coverage to tool outputs whose
+# records carry nested fields, the case strict `fold` skips.
+# --------------------------------------------------------------------------- #
+
+from distil.compress.structured import fold_records  # noqa: E402
+
+_NESTED = json.dumps(
+    [
+        {
+            "id": i,
+            "name": f"svc-{i}",
+            "labels": {"tier": "gold", "region": "us-east"},
+            "ports": [80, 443],
+            "ok": True,
+        }
+        for i in range(20)
+    ],
+    indent=2,
+)
+
+
+def test_fold_records_folds_nested_and_shrinks():
+    out = fold_records(_NESTED)
+    assert out is not None and is_folded(out)
+    assert len(out) < len(_NESTED) * 0.75  # keys+structure stated once → real reduction
+    # header marks the JSON-encoded columns (labels idx 2, ports idx 3)
+    assert " j=2,3" in out.split("\n")[0]
+    # every value is preserved in the compact view (information-complete)
+    assert "us-east" in out and "443" in out
+
+
+def test_fold_records_defers_when_flat():
+    # all-scalar records are the strict fold's job — fold_records returns None
+    flat = json.dumps([{"a": 1, "b": "x"} for _ in range(5)])
+    assert fold_records(flat) is None
+
+
+def test_fold_records_safety_guards():
+    # non-uniform schema, DECISION marker, and too-short arrays never fold
+    assert fold_records(json.dumps([{"a": {"x": 1}}, {"b": {"y": 2}}, {"a": {"z": 3}}])) is None
+    assert fold_records('[{"a":{"x":1}},{"a":{"y":2}},{"a":{"z":3}}] DECISION: act') is None
+    assert fold_records(json.dumps([{"a": {"x": 1}}])) is None  # < 3 records
+    # not an array / not JSON / a list with a non-dict element → bail
+    assert fold_records('{"a": {"x": 1}}') is None  # object, not array
+    assert fold_records("[not json") is None
+    assert fold_records(json.dumps([{"a": {"x": 1}}, {"a": {"y": 2}}, 7])) is None  # non-dict row
+    # a column name carrying the header delimiter would make the header ambiguous → bail
+    assert fold_records(json.dumps([{"a,b": {"x": i}} for i in range(3)])) is None
+    # a literal tab in a *scalar* column (alongside a nested column) breaks the layout → bail
+    tabbed = [{"nested": {"x": i}, "note": "a\tb"} for i in range(3)]
+    assert fold_records(json.dumps(tabbed)) is None
+
+
+def test_fold_records_is_byte_reversible_through_tier1():
+    b = Block(id="obs", kind=Kind.TOOL_OUTPUT, text=_NESTED, stability=Stability.VOLATILE)
+    result = Tier1Reversible().compress([b])
+    assert is_folded(result.blocks[0].text)
+    assert len(result.blocks[0].text) < len(_NESTED)
+    rep = verify_reversible([b], result)
+    assert rep.lossless  # byte-exact original recoverable from the restore table
+    assert _NESTED in set(result.restore.values())
+
+
+def test_fold_records_lossless_path_has_no_handle():
+    # emit_handle=False (subscription/lossless): a self-describing table, no handle
+    out = fold_records(_NESTED, emit_handle=False)
+    assert out is not None and "handle=" not in out and is_folded(out)

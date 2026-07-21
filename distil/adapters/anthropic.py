@@ -172,9 +172,17 @@ def _lossless_fold(text: str) -> str | None:
     lossless/subscription path (no expand tool injected). Returns None when the
     content isn't tabular/repetitive. Inherits fold's decision-equivalence — the
     table is byte-identical to the handle-bearing fold minus a metadata token."""
-    from ..compress.structured import fold, template_fold  # local: avoid load-time cycle
+    from ..compress.structured import (
+        fold,
+        fold_records,
+        template_fold,
+    )  # local: avoid load-time cycle
 
-    return fold(text, emit_handle=False) or template_fold(text, emit_handle=False)
+    return (
+        fold(text, emit_handle=False)
+        or fold_records(text, emit_handle=False)
+        or template_fold(text, emit_handle=False)
+    )
 
 
 def _compress_text_content(text: str, store: RestoreStore, verbatim: bool) -> str:
