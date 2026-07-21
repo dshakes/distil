@@ -1,3 +1,7 @@
 {
-  "rewrites": [{ "source": "/v1/ping", "destination": "/api/ping" }]
+  "rewrites": [
+    { "source": "/v1/ping", "destination": "/api/ping" },
+    { "source": "/v1/beat", "destination": "/api/beat" },
+    { "source": "/v1/live", "destination": "/api/live" }
+  ]
 }

@@ -161,6 +161,25 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 
 def serve_webdash(port: int = 8766, *, host: str = "127.0.0.1", open_browser: bool = True) -> None:
     """Blocking: serve the live dashboard until Ctrl-C."""
+    server = build_server(host, port)
+    url = f"http://{host}:{port}"
+    print(f"distil live dashboard → {url}")
+    print("  local only · reads your ledger · nothing leaves this machine · Ctrl-C to stop")
+    if open_browser:
+        threading.Thread(
+            target=lambda: (time.sleep(0.4), webbrowser.open(url)), daemon=True
+        ).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+def build_server(host: str, port: int) -> ThreadingHTTPServer:
+    """The dashboard HTTP server — factored out so tests can drive it directly.
+    Serves the local page and the content-free ``/data`` snapshot; nothing else."""
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # noqa: ANN002 — silence access log
@@ -182,17 +201,4 @@ def serve_webdash(port: int = 8766, *, host: str = "127.0.0.1", open_browser: bo
             else:
                 self._send(404, "text/plain", b"not found")
 
-    server = ThreadingHTTPServer((host, port), H)
-    url = f"http://{host}:{port}"
-    print(f"distil live dashboard → {url}")
-    print("  local only · reads your ledger · nothing leaves this machine · Ctrl-C to stop")
-    if open_browser:
-        threading.Thread(
-            target=lambda: (time.sleep(0.4), webbrowser.open(url)), daemon=True
-        ).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    return ThreadingHTTPServer((host, port), H)

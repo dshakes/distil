@@ -13,6 +13,33 @@ POST /v1/ping  →  validate (lib/validate.js)  →  repository_dispatch "census
 The worker **stores nothing** — no database, no IPs. GitHub's metrics branch
 is the datastore, so ingest, history, and rollup are all publicly auditable.
 
+It also serves the **near-real-time community counter** (optional — needs an
+Upstash Redis store):
+
+```
+POST /v1/beat  →  validate (lib/beat_validate.js)  →  Upstash HSET latest-per-install
+GET  /v1/live  →  Upstash HGETALL → { total, active, rate, installs }  (CORS-open)
+```
+
+`/v1/beat` and `/v1/live` degrade gracefully when Upstash isn't configured
+(`/v1/beat` → 503, `/v1/live` → `{available:false}`), and the docs page falls
+back to the exact daily-census total. So the census works with zero extra setup;
+the live counter lights up once you add Upstash.
+
+## Enable the live counter (optional, ~3 minutes)
+
+1. Vercel dashboard → your `distil-census` project → **Storage** → **Marketplace**
+   → add **Upstash Redis** (free tier is plenty). Vercel injects
+   `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as env vars.
+2. Redeploy (`vercel deploy --prod` or trigger from the dashboard) so the
+   function picks up the vars.
+3. Verify: `curl https://distil-census.vercel.app/v1/live` → `{"available":true,…}`.
+   Opted-in clients (v1.24+) then beat automatically as they use distil, and the
+   adoption page's odometer ticks in near-real-time.
+
+Blast radius: the Upstash store holds only `{install_id → tokens, ts, rate}` —
+anonymous ids and numbers, no content, no IPs, overwritten each beat.
+
 ## Deploy (one time, ~3 minutes)
 
 1. Create a **fine-grained PAT** (github.com → Settings → Developer settings)

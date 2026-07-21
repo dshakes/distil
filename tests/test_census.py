@@ -329,3 +329,136 @@ def test_cmd_census_on_notes_do_not_track(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DO_NOT_TRACK", "1")
     assert cmd_census(argparse.Namespace(action="on")) == 0
     assert "nothing will send" in capsys.readouterr().out
+
+
+def _arm_beat_tripwire(monkeypatch, calls):
+    monkeypatch.setattr(census, "_send_beat", lambda p: calls.append(p))
+
+
+def test_heartbeat_sends_only_when_tokens_grew(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    calls = []
+    _arm_beat_tripwire(monkeypatch, calls)
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 5000)
+    # prior beat 10 min ago at 1000 tokens → grew → sends with a real rate
+    (tmp_path / "heartbeat-last").write_text(
+        json.dumps({"tokens": 1000, "ts": census.time.time() - 600})
+    )
+    assert census.maybe_heartbeat() is True
+    assert len(calls) == 1
+    p = calls[0]
+    assert set(p) == {"v", "id", "tokens", "rate", "ts"}  # content-free
+    assert p["tokens"] == 5000 and p["rate"] > 0
+
+
+def test_heartbeat_silent_when_idle(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    calls = []
+    _arm_beat_tripwire(monkeypatch, calls)
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 1000)
+    (tmp_path / "heartbeat-last").write_text(
+        json.dumps({"tokens": 1000, "ts": census.time.time() - 600})
+    )
+    assert census.maybe_heartbeat() is False  # no growth → nothing sent
+    assert calls == []
+
+
+def test_heartbeat_throttled(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    calls = []
+    _arm_beat_tripwire(monkeypatch, calls)
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 9999)
+    (tmp_path / "heartbeat-last").write_text(
+        json.dumps({"tokens": 1, "ts": census.time.time() - 10})  # 10s ago < 5min
+    )
+    assert census.maybe_heartbeat() is False
+    assert calls == []
+
+
+def test_heartbeat_gated_by_consent_and_dnt(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    calls = []
+    _arm_beat_tripwire(monkeypatch, calls)
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 5000)
+    assert census.maybe_heartbeat() is False  # not opted in
+    census.opt_in()
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    assert census.maybe_heartbeat() is False  # DNT wins
+    assert calls == []
+
+
+def test_heartbeat_send_failure_swallowed(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 9999)
+    (tmp_path / "heartbeat-last").write_text(
+        json.dumps({"tokens": 1, "ts": census.time.time() - 600})
+    )
+
+    def boom(p):
+        raise OSError("beat endpoint down")
+
+    monkeypatch.setattr(census, "_send_beat", boom)
+    assert census.maybe_heartbeat() is True  # attempted, error swallowed
+
+
+def test_current_saved_tokens_survives_calibration_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    (tmp_path / "savings.jsonl").write_text(
+        json.dumps(
+            {
+                "trajectory_id": "t",
+                "model": "m",
+                "turns": 1,
+                "baseline_input_tokens": 1000,
+                "distil_input_tokens": 400,
+                "baseline_dollars": 1.0,
+                "distil_dollars": 0.4,
+                "tokenizer": "heuristic",
+                "ts": 1.0,
+                "acct": 2,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "distil.calibration.factor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError())
+    )
+    assert census._current_saved_tokens() == 600  # identity factor fallback
+
+
+def test_send_beat_posts_to_endpoint(monkeypatch):
+    """_send_beat POSTs the payload to the beat endpoint (urlopen exercised)."""
+    seen = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        seen["body"] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(census.urllib.request, "urlopen", fake_urlopen)
+    census._send_beat({"v": 1, "id": "a" * 32, "tokens": 5, "rate": 1.0, "ts": 1})
+    assert seen["url"].endswith("/v1/beat") and seen["body"]["tokens"] == 5
+
+
+def test_heartbeat_corrupt_marker_recovers(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    (tmp_path / "heartbeat-last").write_text("{not json")  # corrupt → treated as first beat
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 100)
+    calls = []
+    monkeypatch.setattr(census, "_send_beat", lambda p: calls.append(p))
+    # first beat with no prior baseline: last_ts=0 so throttle passes; grew from 0
+    assert census.maybe_heartbeat() is True
+    assert calls and calls[0]["tokens"] == 100

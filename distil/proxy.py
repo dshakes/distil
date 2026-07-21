@@ -1150,6 +1150,27 @@ def _signal_breadcrumb(name: str) -> None:
         pass
 
 
+def _start_heartbeat_timer(interval: float = 60.0) -> threading.Event:
+    """While the proxy serves, tick the near-real-time community heartbeat so a
+    long-lived interactive session pulses too (not only at exit). The heartbeat
+    is internally throttled (≤1/5min) and sends only when tokens grew, so this
+    loop is a cheap no-op most of the time. Daemon thread; stops on the event.
+    Fail-open: a heartbeat problem must never touch the serving path."""
+    stop = threading.Event()
+
+    def _loop() -> None:
+        while not stop.wait(interval):
+            try:
+                from . import census as _census
+
+                _census.maybe_heartbeat()
+            except Exception:  # noqa: BLE001 — heartbeat is best-effort
+                pass
+
+    threading.Thread(target=_loop, daemon=True, name="distil-heartbeat").start()
+    return stop
+
+
 def _install_sigterm_flush(proc_holder: list | None = None) -> None:
     """Turn SIGTERM/SIGHUP into KeyboardInterrupt so the caller's ``finally``
     block (savings flush, shadow drain) runs on a plain ``kill`` or a closed
@@ -1281,11 +1302,13 @@ def serve(
     if savings is not None:
         print("  → recording genuine savings → distil leaderboard")
     _install_sigterm_flush()
+    _hb_stop = _start_heartbeat_timer()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        _hb_stop.set()
         _drain_shadow(handler)
         if savings is not None:
             savings.flush()  # persist remaining genuine savings on shutdown
@@ -1624,6 +1647,7 @@ def wrap_run(
         from . import census as _census
 
         _census.maybe_ping()
+        _census.maybe_heartbeat()  # near-real-time community pulse (≤1/5min, only-if-grew)
     except Exception:  # noqa: BLE001 — census must never affect exit code
         pass
     return code

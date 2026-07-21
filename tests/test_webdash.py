@@ -53,3 +53,56 @@ def test_page_is_self_contained_local_only():
     assert "http://" not in webdash._PAGE and "https://" not in webdash._PAGE
     assert 'fetch("/data"' in webdash._PAGE  # reads the LOCAL endpoint only
     assert "nothing leaves this machine" in webdash._PAGE
+
+
+def test_build_server_serves_endpoints(tmp_path, monkeypatch):
+    import threading
+    import urllib.request
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    srv = webdash.build_server("127.0.0.1", 0)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/data", timeout=3) as r:
+            assert r.status == 200 and "tokens_saved" in json.loads(r.read())
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=3) as r:
+            body = r.read()
+            assert r.status == 200 and b"your tokens saved" in body
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/nope", timeout=3)
+            raise AssertionError("expected 404")
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_serve_webdash_runs_and_closes(tmp_path, monkeypatch):
+    """serve_webdash prints, (optionally) opens a browser, serves, and closes."""
+    import threading
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    holder = {}
+    real_build = webdash.build_server
+
+    def capture(host, port):
+        srv = real_build(host, 0)
+        holder["srv"] = srv
+        return srv
+
+    monkeypatch.setattr(webdash, "build_server", capture)
+    t = threading.Thread(
+        target=lambda: webdash.serve_webdash(port=0, open_browser=False), daemon=True
+    )
+    t.start()
+    for _ in range(50):
+        if "srv" in holder:
+            break
+        import time as _t
+
+        _t.sleep(0.02)
+    assert "srv" in holder
+    holder["srv"].shutdown()
+    t.join(timeout=3)

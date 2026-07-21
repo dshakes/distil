@@ -105,3 +105,21 @@ def test_flush_without_flock(monkeypatch):
     import json
 
     assert json.loads(surfaces.store_path().read_text())["shapes"]["anthropic"] == 1
+
+
+def test_proxy_heartbeat_timer_ticks_and_stops(monkeypatch):
+    """The in-session heartbeat loop calls maybe_heartbeat and stops on its event."""
+    import distil.proxy as proxy
+
+    calls = []
+    monkeypatch.setattr("distil.census.maybe_heartbeat", lambda: calls.append(1))
+    stop = proxy._start_heartbeat_timer(interval=0.02)
+    import time as _t
+
+    _t.sleep(0.12)
+    stop.set()
+    _t.sleep(0.05)
+    assert len(calls) >= 1  # loop body ran at least once
+    n = len(calls)
+    _t.sleep(0.08)
+    assert len(calls) == n  # stopped — no further ticks

@@ -31,8 +31,15 @@ import uuid
 from pathlib import Path
 
 DEFAULT_ENDPOINT = "https://distil-census.vercel.app/v1/ping"
+DEFAULT_BEAT_ENDPOINT = "https://distil-census.vercel.app/v1/beat"
 SEND_TIMEOUT_S = 1.5
 MIN_INTERVAL_S = 24 * 3600
+# Heartbeat: the near-real-time community signal. A tiny content-free
+# {v, id, tokens, rate, ts} sent at most every HEARTBEAT_INTERVAL_S, and ONLY
+# when tokens actually grew since the last beat (idle machines send nothing).
+# Same opt-in + DO_NOT_TRACK gates as the daily census; feeds the live counter.
+HEARTBEAT_INTERVAL_S = 300
+BEAT_SCHEMA = 1
 
 # The frozen payload contract — tests/test_census.py refuses any new key, so
 # widening the census is a deliberate, reviewed act (and a TELEMETRY.md edit).
@@ -344,3 +351,74 @@ def maybe_ping() -> bool:
         return True
     except Exception:  # noqa: BLE001 — census must never affect the host path
         return True
+
+
+def _beat_last_path() -> Path:
+    return _home() / "heartbeat-last"
+
+
+def _current_saved_tokens() -> int:
+    """Calibrated lifetime tokens saved — the same figure the census reports,
+    read cheaply for the heartbeat."""
+    from . import calibration, ledger
+
+    s = ledger.summary()
+    try:
+        f, _ = calibration.factor()
+    except Exception:  # noqa: BLE001
+        f = 1.0
+    return round(max(0, s.total_baseline_tokens - s.total_distil_tokens) * f)
+
+
+def maybe_heartbeat() -> bool:
+    """Near-real-time community pulse: at most one tiny content-free beat every
+    HEARTBEAT_INTERVAL_S, and ONLY when tokens grew since the last beat. Same
+    opt-in + kill-switch gates as the census; fail-open. Returns True iff a beat
+    was sent (an idle interval returns False and sends nothing)."""
+    try:
+        if not enabled():
+            return False
+        now = time.time()
+        try:
+            prev = json.loads(_beat_last_path().read_text(encoding="utf-8"))
+            last_ts = float(prev.get("ts", 0))
+            last_tokens = int(prev.get("tokens", 0))
+        except (OSError, ValueError, json.JSONDecodeError):
+            last_ts, last_tokens = 0.0, 0
+        if now - last_ts < HEARTBEAT_INTERVAL_S:
+            return False
+        tokens = _current_saved_tokens()
+        # Advance the local marker every interval so the rate reflects THIS
+        # interval's real pace — but only actually send when tokens grew.
+        _beat_last_path().parent.mkdir(parents=True, exist_ok=True)
+        grew = tokens > last_tokens
+        rate = (tokens - last_tokens) / (now - last_ts) if grew and last_ts else 0.0
+        _beat_last_path().write_text(
+            json.dumps({"tokens": tokens, "ts": int(now)}), encoding="utf-8"
+        )
+        if not grew:
+            return False  # idle since last beat → nothing to report
+        _send_beat(
+            {
+                "v": BEAT_SCHEMA,
+                "id": install_id(),
+                "tokens": tokens,
+                "rate": round(rate, 2),
+                "ts": int(now),
+            }
+        )
+        return True
+    except Exception:  # noqa: BLE001 — heartbeat must never affect the host path
+        return True
+
+
+def _send_beat(payload: dict) -> None:
+    endpoint = os.environ.get("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT)
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=SEND_TIMEOUT_S):
+        pass

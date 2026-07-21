@@ -214,10 +214,11 @@
           </div>
           <div class="spark" id="spark"></div>
           <div class="hero-sub">
-            The <b>exact</b> measured total — the sum of every opted-in ledger, calibration-corrected,
-            never estimated. It only moves when a new census reports more <em>actually-saved</em>
-            tokens (the board re-fetches every 45s and rolls up to the new real value). Worth
-            <b id="hero-notional">&mdash;</b> at metered API rates.
+            The community total from opted-in ledgers, calibration-corrected, never estimated. When
+            machines are <b>active</b> it ticks forward at their real combined savings rate (from
+            content-free heartbeats every ~5&nbsp;min) and <b>goes static the moment everyone idles</b> —
+            it never invents growth. Exact at each pulse. Worth <b id="hero-notional">&mdash;</b> at
+            metered API rates.
           </div>
         </div>
         <div class="trust">
@@ -444,23 +445,58 @@
     requestAnimationFrame(function () { el.querySelectorAll(".bar-fill").forEach(function (f) { f.style.width = f.dataset.w + "%"; }); });
   }
 
-  // ── the odometer: shows the EXACT measured total, and rolls up ONLY when a
-  //    real new census raises it. No time-based projection — the number never
-  //    moves unless the metrics branch reports more actually-saved tokens. ──
-  var shownTokens = null, targetTokens = 0, rollStart = null, rollFrom = 0;
-  function odoLoop() {
-    if (targetTokens !== shownTokens) {
-      if (reduced) { shownTokens = targetTokens; }
-      else {
-        if (rollStart === null) { rollStart = Date.now(); rollFrom = shownTokens == null ? targetTokens : shownTokens; }
-        var k = Math.min(1, (Date.now() - rollStart) / 1200);
-        k = 1 - Math.pow(1 - k, 3);
-        shownTokens = Math.round(rollFrom + (targetTokens - rollFrom) * k);
-        if (k >= 1) { shownTokens = targetTokens; rollStart = null; }
-      }
-      renderOdo(commas(shownTokens));
+  // ── the odometer ──
+  //  Two honest sources, in priority order:
+  //   1. LIVE heartbeat aggregate (/v1/live): the number projects forward at the
+  //      sum of RECENTLY-ACTIVE installs' measured rates, bounded to PROJ_CAP_S
+  //      so it can't run ahead of the next poll. Active-only rate ⇒ it ticks
+  //      while the community works and goes STATIC the moment everyone idles.
+  //   2. Fallback — the EXACT daily-census total, static (no projection), used
+  //      until the live store is provisioned or if it's unreachable.
+  //  Either way the number never moves without a real measurement behind it.
+  var PROJ_CAP_S = 12;
+  var shownTokens = null, targetTokens = 0, liveBase = null; // liveBase:{total,rate,asOf}
+  function desiredTokens() {
+    if (liveBase) {
+      var el = Math.min(Math.max(0, (Date.now() - liveBase.asOf) / 1000), PROJ_CAP_S);
+      return liveBase.total + liveBase.rate * el;
     }
+    return targetTokens;
+  }
+  function odoLoop() {
+    var t = desiredTokens();
+    if (shownTokens === null || reduced) { shownTokens = t; }
+    else {
+      shownTokens += (t - shownTokens) * 0.16;               // smooth tracking
+      if (Math.abs(t - shownTokens) < 1) shownTokens = t;
+    }
+    renderOdo(commas(shownTokens));
     requestAnimationFrame(odoLoop);
+  }
+
+  // Near-real-time community pulse (opt-in heartbeats → edge store). Polls fast;
+  // degrades to the census exact total when unavailable.
+  var LIVE_ENDPOINT = "https://distil-census.vercel.app/v1/live";
+  function pollLive() {
+    fetch(LIVE_ENDPOINT, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.available && typeof d.total === "number") {
+        if (liveBase && d.total > liveBase.total) flashHero();
+        liveBase = { total: d.total, rate: d.rate || 0, asOf: Date.now() };
+        set("rate-sec", d.rate ? human(Math.round(d.rate * 86400)) + " / day" : "—");
+        set("rate-day", (d.active || 0) > 0
+          ? d.active + " machine" + (d.active === 1 ? "" : "s") + " active now · exact at each pulse"
+          : "no machines active right now · exact total");
+        document.querySelector(".hero-lab").innerHTML =
+          '<span class="dot"></span> Community tokens saved &middot; ' + ((d.active || 0) > 0 ? "live" : "exact");
+      } else {
+        liveBase = null; // fall back to the census exact total
+      }
+    }).catch(function () { liveBase = null; });
+  }
+  function flashHero() {
+    var c = document.querySelector(".hero");
+    if (!c) return; c.style.transition = "box-shadow .1s"; c.style.boxShadow = "0 0 0 1px var(--good), 0 0 40px -8px var(--good)";
+    setTimeout(function () { c.style.boxShadow = ""; }, 900);
   }
 
   function ago(sec) {
@@ -476,15 +512,16 @@
     set("updated", "updated " + new Date(a.generated_ts * 1000).toUTCString().replace(":00 GMT", " UTC") +
       " · source: metrics branch · re-fetching every 45s");
 
-    // odometer target = the EXACT measured total; rolls up only if it grew.
+    // Census total is the FALLBACK odometer source (used when the live pulse
+    // isn't available). The live poller overrides the rate labels when active.
     targetTokens = s.tokens || 0;
     if (shownTokens === null && reduced) { shownTokens = targetTokens; renderOdo(commas(shownTokens)); }
-    var ageSec = Math.max(0, Math.floor(Date.now() / 1000 - (s.as_of_ts || a.generated_ts)));
-    var rate = s.rate_per_sec || 0;
-    // The rate is shown as CONTEXT (what the last measured burst worked out to),
-    // explicitly not a live meter — it does not drive the number.
-    set("rate-sec", rate ? human(Math.round(rate * 86400)) + " / day" : "—");
-    set("rate-day", "measured over the last two censuses · exact total " + ago(ageSec));
+    if (!liveBase) {
+      var ageSec = Math.max(0, Math.floor(Date.now() / 1000 - (s.as_of_ts || a.generated_ts)));
+      var rate = s.rate_per_sec || 0;
+      set("rate-sec", rate ? human(Math.round(rate * 86400)) + " / day" : "—");
+      set("rate-day", "measured over the last two censuses · exact total " + ago(ageSec));
+    }
     set("hero-notional", "$" + commas(s.dollars_notional || 0) + " (notional)");
     sparkline(s.history);
 
@@ -543,7 +580,9 @@
   requestAnimationFrame(odoLoop);
   function refresh() { fetchAggregates().then(paint).catch(function () { set("updated", "live data unavailable"); }); }
   refresh();
-  setInterval(refresh, 45000);  // near-real-time: re-anchor the ticker every 45s
+  setInterval(refresh, 45000);   // census aggregates (versions, models, trust, downloads)
+  pollLive();
+  setInterval(pollLive, 3000);   // near-real-time community pulse (heartbeat aggregate)
 })();
 </script>
 </body>

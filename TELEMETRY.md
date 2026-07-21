@@ -82,6 +82,31 @@ Passive registry stats (PyPI downloads, GitHub traffic, Docker pulls) join the
 same rollup via [`scripts/adoption_snapshot.py`](scripts/adoption_snapshot.py)
 — those never involve your machine at all.
 
+## The heartbeat (opt-in, for the near-real-time community counter)
+
+The daily census is the exact archive; the **heartbeat** is what lets the live
+community counter tick in near-real-time. It rides the *same* opt-in +
+`DO_NOT_TRACK`/`DISTIL_NO_TELEMETRY` gates — if you haven't opted in, none of
+this fires.
+
+- **What:** a tiny content-free JSON — `{v:1, install_id, tokens_saved, rate, ts}`
+  — numbers and the same anonymous id, nothing else.
+- **When:** at most once every **5 minutes**, and **only when your saved-token
+  total actually grew** since the last beat. An idle machine sends nothing.
+  Sent from the proxy/wrap exit and a lightweight in-session timer, fail-open
+  (≤1.5s, swallowed). Opt out of just this with `DISTIL_BEAT_ENDPOINT=` unset
+  is not required — `DO_NOT_TRACK=1` disables it like everything else.
+- **Where it goes:** an edge key-value store (Upstash Redis) that keeps only the
+  *latest per install* (`tokens`, `last-seen`, `rate`) — no history, no IPs. The
+  `/v1/live` aggregate sums it on read (exact community total) and reports how
+  many installs are **active right now** plus their combined rate. The docs
+  page projects the counter forward at that **active-only** rate, bounded, so it
+  ticks while people work and **goes static the instant everyone idles** — it
+  never invents growth. The number is exact at every pulse.
+
+Not stored anywhere: content, prompts, keys, per-request detail, or history —
+the heartbeat overwrites the previous value for your install id.
+
 ## The update check (not telemetry, disclosed anyway)
 
 `distil wrap` and `distil proxy` check **pypi.org** for a newer version at
