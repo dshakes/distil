@@ -69,6 +69,83 @@ def wire_statusline(
     return ("ok", f"wired the distil status line into {settings_path}")
 
 
+def wire_settings_env(
+    settings_path: Path, env_var: str, value: str, *, force: bool = False
+) -> tuple[str, str]:
+    """Wire ``{env_var: value}`` into ``settings_path``'s ``env`` block.
+
+    Claude Code reads its own ``settings.json`` on every launch, regardless of
+    how the ``claude`` binary was started — unlike a shell alias or an
+    ``export`` in an rc file, this also reaches IDE-launched sessions (VSCode's
+    Claude Code extension, or that same extension installed inside Cursor),
+    since those exec the binary directly and never source an interactive
+    shell's rc file. Idempotent; preserves every other key including other
+    ``env`` entries; backs up before replacing a conflicting value.
+
+    Returns ``(status, message)``: ``ok`` | ``exists`` | ``conflict`` | ``error``.
+    """
+    data: object = {}
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            return ("error", f"{settings_path} is not valid JSON ({exc}) — fix it or edit by hand")
+    if not isinstance(data, dict):
+        return ("error", f"{settings_path} is not a JSON object")
+
+    env = data.get("env")
+    existing = env.get(env_var) if isinstance(env, dict) else None
+    if existing == value:
+        return ("exists", f"distil's {env_var} already wired")
+    if existing and not force:
+        return (
+            "conflict",
+            f"{env_var} is already set to {existing!r} in {settings_path}; "
+            "re-run with --force to replace it (it'll be backed up first)",
+        )
+    if existing:  # force: back up the current settings before replacing
+        settings_path.with_name(settings_path.name + ".bak").write_text(
+            settings_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+    data["env"] = {**env, env_var: value} if isinstance(env, dict) else {env_var: value}
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return ("ok", f"wired {env_var} into {settings_path}")
+
+
+def unwire_settings_env(settings_path: Path, env_var: str, value: str) -> tuple[str, str]:
+    """Remove distil's ``env_var`` from ``settings_path`` (inverse of
+    :func:`wire_settings_env`). Only touches the entry if it still holds the
+    exact value distil set — a foreign value (the user repointed it, or set it
+    to something else) is left untouched. Backs up before changing. Returns
+    ``(status, message)``: ``ok`` | ``absent`` | ``foreign`` | ``error``."""
+    if not settings_path.exists():
+        return ("absent", f"no settings file at {settings_path}")
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return ("error", f"{settings_path} is not valid JSON ({exc})")
+    if not isinstance(data, dict):
+        return ("error", f"{settings_path} is not a JSON object")
+
+    env = data.get("env")
+    existing = env.get(env_var) if isinstance(env, dict) else None
+    if existing != value:
+        if existing is None:
+            return ("absent", f"no distil {env_var} to remove")
+        return ("foreign", f"{env_var} is {existing!r}, not distil's — left as-is")
+
+    settings_path.with_name(settings_path.name + ".bak").write_text(
+        settings_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    del env[env_var]
+    if not env:
+        del data["env"]
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return ("ok", f"removed distil's {env_var} from {settings_path}")
+
+
 def unwire_statusline(settings_path: Path) -> tuple[str, str]:
     """Remove the distil status line from ``settings_path`` (the inverse of
     :func:`wire_statusline`). Only touches a status line that is distil's — a
