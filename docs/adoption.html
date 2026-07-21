@@ -207,17 +207,17 @@
     <div class="hero">
       <div class="hero-in">
         <div>
-          <div class="hero-lab"><span class="dot"></span> Community tokens saved &middot; live</div>
+          <div class="hero-lab"><span class="dot"></span> Community tokens saved &middot; exact</div>
           <div class="odo" id="odo" aria-live="off"><span class="d">0</span></div>
           <div class="rate">
-            <span class="up">&#9650;</span><b id="rate-sec">&mdash;</b>&nbsp;tok/s
-            <span class="muted" id="rate-day"></span>
+            <b id="rate-sec">&mdash;</b>&nbsp;<span class="muted" id="rate-day"></span>
           </div>
           <div class="spark" id="spark"></div>
           <div class="hero-sub">
-            <b>Measured</b>, never estimated — the ticker projects forward at the community's real
-            savings rate (Δtokens between two consecutive censuses); it snaps to the exact value on
-            each new ping. Worth <b id="hero-notional">&mdash;</b> at metered API rates.
+            The <b>exact</b> measured total — the sum of every opted-in ledger, calibration-corrected,
+            never estimated. It only moves when a new census reports more <em>actually-saved</em>
+            tokens (the board re-fetches every 45s and rolls up to the new real value). Worth
+            <b id="hero-notional">&mdash;</b> at metered API rates.
           </div>
         </div>
         <div class="trust">
@@ -444,18 +444,30 @@
     requestAnimationFrame(function () { el.querySelectorAll(".bar-fill").forEach(function (f) { f.style.width = f.dataset.w + "%"; }); });
   }
 
-  // ── the live ticker: real anchor + measured rate, projected each frame ──
-  var live = null;  // {tokens, asOf(ms), rate(tok/s), dollarsNotional}
-  function tickLoop() {
-    if (live) {
-      var elapsed = (Date.now() - live.asOf) / 1000;
-      var projected = live.tokens + live.rate * Math.max(0, elapsed);
-      renderOdo(commas(projected));
-      if (live.rate > 0 && live.dpt) {
-        set("hero-notional", "$" + commas(live.dollarsNotional + projected * live.dpt - live.tokens * live.dpt) + " (notional)");
+  // ── the odometer: shows the EXACT measured total, and rolls up ONLY when a
+  //    real new census raises it. No time-based projection — the number never
+  //    moves unless the metrics branch reports more actually-saved tokens. ──
+  var shownTokens = null, targetTokens = 0, rollStart = null, rollFrom = 0;
+  function odoLoop() {
+    if (targetTokens !== shownTokens) {
+      if (reduced) { shownTokens = targetTokens; }
+      else {
+        if (rollStart === null) { rollStart = Date.now(); rollFrom = shownTokens == null ? targetTokens : shownTokens; }
+        var k = Math.min(1, (Date.now() - rollStart) / 1200);
+        k = 1 - Math.pow(1 - k, 3);
+        shownTokens = Math.round(rollFrom + (targetTokens - rollFrom) * k);
+        if (k >= 1) { shownTokens = targetTokens; rollStart = null; }
       }
+      renderOdo(commas(shownTokens));
     }
-    requestAnimationFrame(tickLoop);
+    requestAnimationFrame(odoLoop);
+  }
+
+  function ago(sec) {
+    if (sec < 90) return "moments ago";
+    if (sec < 5400) return Math.round(sec / 60) + " min ago";
+    if (sec < 172800) return Math.round(sec / 3600) + "h ago";
+    return Math.round(sec / 86400) + "d ago";
   }
 
   function paint(a) {
@@ -464,17 +476,16 @@
     set("updated", "updated " + new Date(a.generated_ts * 1000).toUTCString().replace(":00 GMT", " UTC") +
       " · source: metrics branch · re-fetching every 45s");
 
-    // hero live ticker
-    live = {
-      tokens: s.tokens || 0,
-      asOf: (s.as_of_ts || a.generated_ts) * 1000,
-      rate: s.rate_per_sec || 0,
-      dollarsNotional: s.dollars_notional || 0,
-      dpt: s.tokens ? (s.dollars_notional || 0) / s.tokens : 0
-    };
-    set("rate-sec", live.rate ? "+" + commas(live.rate) : "—");
-    set("rate-day", live.rate ? "≈ " + human(live.rate * 86400) + " / day at the measured rate" : "waiting for a second census to measure the rate");
-    set("hero-notional", "$" + commas(live.dollarsNotional) + " (notional)");
+    // odometer target = the EXACT measured total; rolls up only if it grew.
+    targetTokens = s.tokens || 0;
+    if (shownTokens === null && reduced) { shownTokens = targetTokens; renderOdo(commas(shownTokens)); }
+    var ageSec = Math.max(0, Math.floor(Date.now() / 1000 - (s.as_of_ts || a.generated_ts)));
+    var rate = s.rate_per_sec || 0;
+    // The rate is shown as CONTEXT (what the last measured burst worked out to),
+    // explicitly not a live meter — it does not drive the number.
+    set("rate-sec", rate ? human(Math.round(rate * 86400)) + " / day" : "—");
+    set("rate-day", "measured over the last two censuses · exact total " + ago(ageSec));
+    set("hero-notional", "$" + commas(s.dollars_notional || 0) + " (notional)");
     sparkline(s.history);
 
     // trust ring
@@ -529,7 +540,7 @@
       : '<div class="empty-note">billing &amp; agent mix appears as clients opt in</div>';
   }
 
-  requestAnimationFrame(tickLoop);
+  requestAnimationFrame(odoLoop);
   function refresh() { fetchAggregates().then(paint).catch(function () { set("updated", "live data unavailable"); }); }
   refresh();
   setInterval(refresh, 45000);  // near-real-time: re-anchor the ticker every 45s
