@@ -91,10 +91,23 @@ def test_fold_records_folds_nested_and_shrinks():
     out = fold_records(_NESTED)
     assert out is not None and is_folded(out)
     assert len(out) < len(_NESTED) * 0.75  # keys+structure stated once → real reduction
-    # header marks the JSON-encoded columns (labels idx 2, ports idx 3)
-    assert " j=2,3" in out.split("\n")[0]
-    # every value is preserved in the compact view (information-complete)
+    # labels/ports/ok are identical in every row → constant-collapse hoists them
+    # into `«=` directive lines, leaving only the varying id,name in the body.
+    assert out.split("\n")[0].startswith("«rows=20 cols=id,name ")
+    assert "«=labels\t" in out and "«=ports\t" in out and "«=ok\ttrue" in out
+    # every value is still preserved in the compact view (information-complete)
     assert "us-east" in out and "443" in out
+
+
+def test_fold_records_json_column_stays_in_body_when_it_varies():
+    # a nested column that VARIES row-to-row is not constant → stays in the body,
+    # and the header marks its (body-relative) index in j=.
+    varied = json.dumps([{"id": i, "meta": {"k": i}, "ok": True} for i in range(4)])
+    out = fold_records(varied)
+    assert out is not None and is_folded(out)
+    head = out.split("\n")[0]
+    assert "cols=id,meta" in head and " j=1" in head  # meta is body col 1, JSON-encoded
+    assert "«=ok\ttrue" in out  # ok is constant → hoisted
 
 
 def test_fold_records_defers_when_flat():

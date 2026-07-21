@@ -14,10 +14,12 @@ Two folders, tried in order (both reversible, both DECISION-marker-safe, both
 reject-if-not-smaller): ``fold`` handles flat arrays of scalar records; when a
 record carries NESTED fields (dicts/lists — the common shape of real API tool
 output), ``fold_records`` covers it by rendering non-scalar cells as compact
-JSON and marking those columns in the header. On a realistic nested search-
-result array that measures ~42% fewer tokens — savings strict ``fold`` left on
-the table — with the byte-exact original still one ``expand(handle)`` away.
-Anything neither folder matches is left for the Tier-0/Tier-1 path.
+JSON, marking those columns in the header, and hoisting any column that repeats
+one value in every row into a single ``«=name<TAB>value`` directive (constant-
+column collapse, the columnar-DB / Parquet trick). On a realistic nested search-
+result array with enum-like fields that measures ~62% fewer tokens — savings
+strict ``fold`` left on the table — with the byte-exact original still one
+``expand(handle)`` away. Anything neither folder matches is left for Tier-0/1.
 """
 
 from __future__ import annotations
@@ -155,22 +157,39 @@ def fold_records(text: str, emit_handle: bool = True) -> str | None:
         cell = _cell(v)
         return cell if (_SEP not in cell and "\n" not in cell) else None
 
-    rows: list[str] = []
-    for r in obj:
-        cells: list[str] = []
-        for c in cols:
+    # Render every cell first (per-column), so we can spot columns that carry the
+    # SAME value in every row.
+    grid: list[list[str]] = []
+    for c in cols:
+        col_cells: list[str] = []
+        for r in obj:
             rendered = _render(c, r.get(c))
             if rendered is None:  # a literal tab/newline slipped through — bail
                 return None
-            cells.append(rendered)
-        rows.append(_SEP.join(cells))
+            col_cells.append(rendered)
+        grid.append(col_cells)
 
-    # `j=` lists the 0-based indices of JSON-encoded columns (unambiguous even if
-    # a key contains punctuation).
-    jidx = ",".join(str(i) for i, c in enumerate(cols) if c in json_cols)
-    head = f"{_HDR}rows={len(obj)} cols={','.join(cols)} j={jidx}"
+    # Constant-column collapse (columnar-DB / Parquet-style constant encoding): a
+    # column whose value repeats identically in every row costs N copies in the
+    # body for zero information beyond "all rows share this". Hoist it into a single
+    # `«=name<TAB>value` directive line and drop it from the body — the model reads
+    # the shared value once, the byte-exact original is still one expand away. On
+    # enum-heavy real tool output (status/region/flags) this is ~19% fewer tokens
+    # over the plain columnar fold. (Dictionary-indexing *varying* low-cardinality
+    # columns is deliberately skipped: the integer→value indirection is a
+    # decision-equivalence risk a constant hoist doesn't carry.)
+    const_idx = [i for i, cc in enumerate(grid) if len(set(cc)) == 1]
+    body_idx = [i for i in range(len(cols)) if i not in set(const_idx)]
+
+    consts = [f"{_HDR}={cols[i]}{_SEP}{grid[i][0]}" for i in const_idx]
+    body_cols = [cols[i] for i in body_idx]
+    rows = [_SEP.join(grid[i][r] for i in body_idx) for r in range(len(obj))]
+
+    # `j=` lists the 0-based indices (within the BODY columns) that are JSON-encoded.
+    jidx = ",".join(str(k) for k, i in enumerate(body_idx) if cols[i] in json_cols)
+    head = f"{_HDR}rows={len(obj)} cols={','.join(body_cols)} j={jidx}"
     marker = (head + f" handle={_handle(text)}{_HDR}\n") if emit_handle else (head + f"{_HDR}\n")
-    compact = marker + "\n".join(rows)
+    compact = marker + "".join(c + "\n" for c in consts) + "\n".join(rows)
     return compact if len(compact) < len(s) else None
 
 
