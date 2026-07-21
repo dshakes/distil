@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from distil.skeleton import code_skeleton, smart_digest, text_window
+import re
+
+from distil.skeleton import (
+    code_skeleton,
+    generic_code_skeleton,
+    smart_digest,
+    text_window,
+)
 
 SAMPLE = '''\
 import os
@@ -115,3 +122,90 @@ def test_skeleton_certificate_reversible_and_recovers_decisions():
     # Reversible tier: raw digest is lossy, but WITH recovery it is decision-equivalent.
     assert de["recovered_decision_change_pct"] == 0.0
     assert de["raw_decision_change_pct"] > de["recovered_decision_change_pct"]
+
+
+# --- generic (non-Python) brace-block skeleton -----------------------------
+
+_TS = """import { db } from './db';
+
+export class UserService {
+  async findById(id: string): Promise<User | null> {
+    const row = await this.repo.get(id);
+    if (!row) return null;
+    return mapRow(row);
+  }
+}
+"""
+
+
+def test_generic_skeleton_folds_braced_code_and_keeps_signatures():
+    sk = generic_code_skeleton(_TS)
+    assert sk is not None and len(sk) < len(_TS)
+    # signatures + structure kept, body elided
+    assert "export class UserService {" in sk
+    assert "async findById(id: string): Promise<User | null> {" in sk
+    assert "const row" not in sk and "mapRow(row)" not in sk
+    assert "..." in sk
+
+
+def test_generic_skeleton_defers_on_non_code_and_unbalanced():
+    assert generic_code_skeleton("just prose, no braces here") is None
+    assert generic_code_skeleton("plain { text } with no code keyword") is None
+    # unbalanced braces (mid-edit / truncated) → bail, never corrupt
+    assert generic_code_skeleton("func f() {\n  a();\n  b();\n  c();\n") is None
+    # a closing brace with no matching open (depth goes negative) → bail
+    assert generic_code_skeleton("func f() }\n  a();\n  b();\n  c();\n") is None
+
+
+def test_generic_skeleton_ignores_braces_in_strings_and_comments():
+    src = (
+        "function f() {\n"
+        '  const a = "a } brace in a string";  // and a { in a comment\n'
+        "  const b = 2;\n"
+        "  const c = 3;\n"
+        "}\n"
+    )
+    sk = generic_code_skeleton(src)
+    assert sk is not None
+    assert "function f() {" in sk and sk.rstrip().endswith("}")
+
+
+def test_generic_skeleton_handles_block_comments_and_escapes():
+    # a /* */ block comment spanning lines with braces inside, and an escaped
+    # quote inside a string before a brace — neither may unbalance the counter.
+    src = (
+        "function f() {\n"
+        "  /* a block comment\n"
+        "     with a } brace across lines */\n"
+        '  const a = "he said \\" then { ";\n'
+        "  const b = 2;\n"
+        "  const c = 3;\n"
+        "}\n"
+    )
+    sk = generic_code_skeleton(src)
+    assert sk is not None and "function f() {" in sk
+    assert sk.rstrip().endswith("}")  # balanced despite the stray braces
+
+
+def test_generic_skeleton_short_body_not_elided():
+    # a 1-line body is below min_run → left intact (no false elision)
+    src = "func g() {\n  return 1;\n}\n"
+    assert generic_code_skeleton(src) is None
+
+
+def test_smart_digest_routes_nonpython_code_through_generic():
+    out = smart_digest(_TS)
+    assert "handle=" in out  # something was elided → recoverable marker present
+    assert "findById" in out  # signature survived the digest
+
+
+def test_generic_skeleton_reversible_through_tier1():
+    from distil.compress.tier1 import Tier1Reversible
+    from distil.trajectory import Block, Kind
+
+    b = Block(id="b1", kind=Kind.TOOL_OUTPUT, text=_TS)
+    res = Tier1Reversible().compress([b])
+    comp = res.blocks[0].text
+    assert "handle=" in comp and len(comp) < len(_TS)
+    h = re.search(r"handle=([0-9a-f]{8})", comp).group(1)
+    assert res.restore[h] == _TS  # byte-exact original recoverable

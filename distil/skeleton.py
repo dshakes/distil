@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import re
 
 # Markers an agent (or a human) can grep for; kept short to not eat the savings.
 _ELIDED = "..."  # body placeholder, emitted at the body's indentation
@@ -126,6 +127,117 @@ def code_skeleton(text: str) -> str | None:
     return skeleton if len(skeleton) < len(text) else None
 
 
+# --------------------------------------------------------------------------- #
+# Language-agnostic brace-block skeleton — the non-Python half of the code
+# compressor. Python has a real parser (ast, above); C-family / JS / TS / Go /
+# Rust / Java / Swift / Kotlin are brace-delimited, so their structure is
+# recoverable WITHOUT a native parser: keep every line that opens or closes a
+# block (the signatures and braces), elide the runs of pure body statements
+# between them. Zero dependency by design — distil stays a pure-Python install;
+# tree-sitter would buy higher fidelity at the cost of a mandatory native
+# grammar, which is the very thing we don't force. Conservative: a block whose
+# braces don't balance (unparseable / mid-edit) is left intact — we save less,
+# never corrupt — and the byte-exact original is always one expand() away.
+# --------------------------------------------------------------------------- #
+
+_CODE_HINT = re.compile(
+    r"\b(?:function|func|def|class|struct|impl|interface|public|private|"
+    r"static|void|const|let|var|fn|type|enum|namespace|package|import)\b"
+)
+
+
+def _brace_depths(text: str) -> list[tuple[int, int]] | None:
+    """Per-line ``(depth_before, depth_after)`` counting ``{}`` while skipping
+    braces inside strings and comments. Returns None if braces never balance to
+    zero (not clean braced code) or nesting goes negative (a ``}`` with no open)."""
+    depth = 0
+    per_line: list[tuple[int, int]] = []
+    in_block_comment = False
+    for line in text.split("\n"):
+        before = depth
+        i, n = 0, len(line)
+        in_str: str | None = None  # active string quote char, else None
+        while i < n:
+            ch = line[i]
+            two = line[i : i + 2]
+            if in_block_comment:
+                if two == "*/":
+                    in_block_comment = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if in_str is not None:
+                if ch == "\\":  # escape — skip next char
+                    i += 2
+                    continue
+                if ch == in_str:
+                    in_str = None
+                i += 1
+                continue
+            if two == "//" or ch == "#":  # line comment (C-family // and shell/py #)
+                break
+            if two == "/*":
+                in_block_comment = True
+                i += 2
+                continue
+            if ch in "\"'`":
+                in_str = ch
+                i += 1
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth < 0:
+                    return None  # unbalanced — bail, leave the block intact
+            i += 1
+        per_line.append((before, depth))
+    if depth != 0 or in_block_comment:
+        return None
+    return per_line
+
+
+def generic_code_skeleton(text: str, min_run: int = 3) -> str | None:
+    """Brace-delimited code skeleton for non-Python source. Keeps every line that
+    opens or closes a block (signatures + braces) and every top-level line; elides
+    maximal runs of >= ``min_run`` pure-body lines (all at depth >= 1, changing no
+    brace) into a single ``...`` at the body's indentation.
+
+    Returns None when the text isn't clean braced code, carries no code hint, or
+    wouldn't actually shrink. Reversible: the caller keeps the byte-exact original
+    behind a content handle (elided bodies are recovered by ``expand()``)."""
+    if "{" not in text or not _CODE_HINT.search(text):
+        return None
+    depths = _brace_depths(text)
+    if depths is None:
+        return None
+    lines = text.split("\n")
+    # A line is STRUCTURAL if it sits at top level, or opens/closes a block
+    # (its depth changes) — those carry the signatures and braces we keep. A
+    # non-structural line is a pure body statement (depth stays >= 1).
+    structural = [before == 0 or after == 0 or after != before for (before, after) in depths]
+    out: list[str] = []
+    i, n, changed = 0, len(lines), False
+    while i < n:
+        if structural[i]:
+            out.append(lines[i])
+            i += 1
+            continue
+        j = i
+        while j < n and not structural[j]:
+            j += 1
+        if j - i >= min_run:
+            indent = len(lines[i]) - len(lines[i].lstrip())
+            out.append(" " * indent + _ELIDED)
+            changed = True
+        else:
+            out.extend(lines[i:j])
+        i = j
+    skeleton = "\n".join(out)
+    return skeleton if changed and len(skeleton) < len(text) else None
+
+
 def _info(line: str) -> int:
     """Lexical informativeness proxy: count of distinct alphanumeric tokens (len>2).
     A stand-in for the self-information score extractive compressors rank lines by."""
@@ -191,9 +303,47 @@ def smart_digest(text: str, *, head: int = 400, tail: int = 200) -> str:
     caller (which records that same handle) can recover it. If nothing is elided the
     text is returned unchanged — no marker, no empty recoverability promise.
     """
-    sk = code_skeleton(text)
+    sk = code_skeleton(text) or generic_code_skeleton(text)
     base = sk if sk is not None else text
     body = text_window(base, head=head, tail=tail)
     if body == text:
         return text
     return f"{body}\n<<distil elided, handle={_handle(text)}>>"
+
+
+def _selfcheck() -> None:  # pragma: no cover — run via `python -m distil.skeleton`
+    """Runnable check for the brace-skeleton parser path (ponytail: parser => one check)."""
+    js = (
+        "import x from 'y';\n"
+        "function add(a, b) {\n"
+        "  const s = a + b;  // a { in a comment does not count\n"
+        '  const t = "a } string brace";\n'
+        "  return s + t;\n"
+        "}\n"
+        "class Foo {\n"
+        "  method() {\n"
+        "    doA();\n"
+        "    doB();\n"
+        "    doC();\n"
+        "  }\n"
+        "}\n"
+    )
+    sk = generic_code_skeleton(js)
+    assert sk is not None and len(sk) < len(js), "should fold braced code"
+    assert "function add(a, b) {" in sk and "class Foo {" in sk and "method() {" in sk, (
+        "signatures kept"
+    )
+    assert "doB();" not in sk, "3-line body elided"
+    # brace inside string/comment must not unbalance the depth counter
+    assert _brace_depths(js) is not None, "string/comment braces skipped"
+    # unbalanced braces => bail, never corrupt
+    assert generic_code_skeleton("func f() {\n  a();\n  b();\n") is None
+    # no code hint / no braces => defer
+    assert generic_code_skeleton("just prose, no braces here at all") is None
+    # Python defers to the ast skeleton (generic returns None on hint-less {}, but
+    # code_skeleton owns .py via smart_digest ordering)
+    print("skeleton self-check: OK")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    _selfcheck()
