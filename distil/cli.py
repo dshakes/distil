@@ -1670,6 +1670,12 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     import os
     import sys
 
+    if getattr(args, "web", False):
+        from .webdash import serve_webdash
+
+        serve_webdash(port=args.port, open_browser=not getattr(args, "no_open", False))
+        return 0
+
     from .doctor import subscription_mode
     from .shadow import ShadowLedger
 
@@ -2715,12 +2721,19 @@ def build_parser() -> argparse.ArgumentParser:
     di.set_defaults(func=cmd_dissect)
 
     dash = sub.add_parser(
-        "dashboard", help="live terminal dashboard of your savings (Ctrl-C to exit)"
+        "dashboard", help="live dashboard of your savings (terminal, or --web for a browser)"
     )
     dash.add_argument("--once", action="store_true", help="render once and exit (no live refresh)")
     dash.add_argument(
         "--interval", type=float, default=2.0, help="refresh seconds in live mode (default 2)"
     )
+    dash.add_argument(
+        "--web",
+        action="store_true",
+        help="serve a real-time browser dashboard (odometer ticks on real requests) — local only",
+    )
+    dash.add_argument("--port", type=int, default=8766, help="port for --web (default 8766)")
+    dash.add_argument("--no-open", action="store_true", help="with --web, don't open the browser")
     dash.set_defaults(func=cmd_dashboard)
 
     dr = sub.add_parser(
