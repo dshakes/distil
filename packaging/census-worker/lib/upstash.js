@@ -7,8 +7,11 @@
 "use strict";
 
 function creds() {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Accept both naming conventions: the classic Upstash integration
+  // (UPSTASH_REDIS_REST_*) and Vercel's Marketplace Redis storage
+  // (KV_REST_API_*) — whichever the connected store injected.
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   return url && token ? { url, token } : null;
 }
 
