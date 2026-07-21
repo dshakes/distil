@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1784630829,
+  "generated_ts": 1784631218,
   "installs": {
     "census_total": 2,
     "active_7d": 2,
@@ -45,8 +45,8 @@
     ]
   },
   "equivalence": {
-    "pct": null,
-    "shadowed": 0
+    "pct": 100.0,
+    "shadowed": 582
   },
   "usage": {
     "by_model": {
@@ -69,7 +69,10 @@
     "shapes": {
       "anthropic": 981
     },
-    "modes": {}
+    "modes": {
+      "interactive": 28,
+      "sdk": 1
+    }
   },
   "channels": {
     "pypi_downloads_month": 12426,
