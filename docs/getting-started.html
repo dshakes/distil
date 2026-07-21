@@ -146,7 +146,7 @@ pip install distil-llm</pre>
     </div>
 
     <div class="callout good">
-      <strong>Node / TypeScript / other languages?</strong> Run <code>distil proxy</code> (or <code>distil wrap -- &lt;your-agent&gt;</code>) and point your SDK's <code>baseURL</code> at it. No code changes, any language. The CLI needs Python 3.9+; your app does not.
+      <strong>Node / TypeScript / other languages?</strong> Fastest: <code>npx distil-llm wrap -- &lt;your-agent&gt;</code> — the <a href="https://www.npmjs.com/package/distil-llm">npm package</a> bridges to the CLI via uv/pipx (no pip step). Or <code>npm i distil-llm</code> for <code>distilBaseURL()</code> helpers, or just run <code>distil proxy</code> and point your SDK's <code>baseURL</code> at it. No code changes, any language. The CLI needs Python 3.9+; your app does not.
     </div>
 
     <hr/>

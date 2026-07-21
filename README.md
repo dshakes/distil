@@ -6,6 +6,7 @@
 <p align="center">
   <a href="https://github.com/dshakes/distil/actions/workflows/ci.yml"><img src="https://github.com/dshakes/distil/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="https://pypi.org/project/distil-llm/"><img src="https://img.shields.io/pypi/v/distil-llm?color=5ad1c9&label=pypi" alt="PyPI version"/></a>
+  <a href="https://www.npmjs.com/package/distil-llm"><img src="https://img.shields.io/npm/v/distil-llm?color=5ad1c9&label=npm" alt="npm version"/></a>
   <a href="https://pypi.org/project/distil-llm/"><img src="https://img.shields.io/pypi/pyversions/distil-llm?color=5ad1c9" alt="Python versions"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/pypi/l/distil-llm?color=8b7bff" alt="license"/></a>
   <a href="#-what-we-wont-pretend"><img src="https://img.shields.io/badge/runtime%20deps-0-5ad19a" alt="zero runtime deps"/></a>
@@ -227,15 +228,25 @@ One proxy. Point any `base_url`-honoring client at it — **Python, TypeScript, 
 distil proxy --upstream https://api.anthropic.com   # localhost:8788
 ```
 
+```ts
+// JS/TS: npm i distil-llm  → helper so you don't hardcode the URL
+import Anthropic from "@anthropic-ai/sdk";
+import { distilBaseURL } from "distil-llm";
+const client = new Anthropic({ baseURL: distilBaseURL() });
+```
+
 | SDK / framework | Change | Example |
 |---|---|---|
 | Anthropic SDK (Py/TS) | `base_url="http://127.0.0.1:8788"` | [`examples/python_anthropic.py`](examples/python_anthropic.py) · [`examples/js_anthropic.ts`](examples/js_anthropic.ts) |
 | Claude Agent SDK / `claude -p` (headless) | `distil wrap -- <cmd>` or `ANTHROPIC_BASE_URL` | [`examples/python_claude_agent_sdk.py`](examples/python_claude_agent_sdk.py) |
-| OpenAI SDK | `base_url="http://127.0.0.1:8788/v1"` | [`examples/python_openai.py`](examples/python_openai.py) |
+| OpenAI SDK (Chat + Responses) | `base_url="http://127.0.0.1:8788/v1"` | [`examples/python_openai.py`](examples/python_openai.py) |
 | Vercel AI SDK | `createAnthropic({ baseURL: '…:8788' })` | [`examples/js_vercel_ai_sdk.ts`](examples/js_vercel_ai_sdk.ts) |
-| LangChain (py/js) | `anthropicApiUrl` / base URL | [`examples/js_langchain.ts`](examples/js_langchain.ts) |
+| LangChain (py/js) · LangGraph | `anthropicApiUrl` / base URL · `pre_model_hook` | [`examples/js_langchain.ts`](examples/js_langchain.ts) |
 | LiteLLM | `api_base="http://127.0.0.1:8788"` | [`examples/python_litellm.py`](examples/python_litellm.py) |
 | Google Gemini | `--upstream https://generativelanguage.googleapis.com` | [`examples/python_gemini.py`](examples/python_gemini.py) |
+| Codex · aider · Cursor-agent · **any `base_url` client** | `distil wrap -- <agent>` or `OPENAI_BASE_URL` | — |
+
+Anything that speaks the Anthropic / OpenAI / Gemini wire format works — the proxy is framework-agnostic, so CrewAI, AutoGen, Agno, Strands, Bedrock, etc. route through it unchanged by pointing their client's base URL at distil.
 
 Prefer in-process? Wrap the client directly — still no call-site change:
 
@@ -289,8 +300,9 @@ client = wrap(anthropic.Anthropic())   # compresses the request, keeps the cache
 | **Docker** | `docker run ghcr.io/dshakes/distil:latest bench` (or `docker build -t distil .`) | Docker |
 | **Single file** | `make pyz` → `python dist/distil.pyz bench` | Python 3.9+ |
 | **In a venv** | `pip install distil-llm` (inside an active virtualenv) | Python 3.9+ |
+| **Node / JS / TS** | `npx distil-llm wrap -- <agent>` · [`npm i distil-llm`](https://www.npmjs.com/package/distil-llm) for `baseURL` helpers | Node 18+ (bridges to Python via uv/pipx) |
 
-> The import package and CLI are `distil`; the PyPI distribution is `distil-llm` (the bare name was taken — so `uvx`/`pip` must reference `distil-llm`, not `distil`). Distil is a CLI: install it **isolated** (pipx/uv/brew/Docker), because modern macOS/Linux block system-wide `pip install` ([PEP 668](https://peps.python.org/pep-0668/)). **Node / any language:** point your SDK's `base_url` at `distil proxy`, or use `distil wrap -- <agent>` — no Distil-specific package needed.
+> The import package and CLI are `distil`; the PyPI distribution is `distil-llm` (the bare name was taken — so `uvx`/`pip` must reference `distil-llm`, not `distil`). Distil is a CLI: install it **isolated** (pipx/uv/brew/Docker), because modern macOS/Linux block system-wide `pip install` ([PEP 668](https://peps.python.org/pep-0668/)). **Node / JS / TS:** `npx distil-llm wrap -- <agent>` (the npm package bridges to the CLI), or `npm i distil-llm` for `distilBaseURL()` helpers to point any SDK at the proxy — or just set `base_url` yourself.
 
 ---
 
