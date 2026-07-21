@@ -106,3 +106,29 @@ def test_serve_webdash_runs_and_closes(tmp_path, monkeypatch):
     assert "srv" in holder
     holder["srv"].shutdown()
     t.join(timeout=3)
+
+
+def test_serve_webdash_opens_browser(tmp_path, monkeypatch):
+    """open_browser=True runs the browser-open thread (mocked)."""
+    import threading
+    import time as _t
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    opened = threading.Event()
+    monkeypatch.setattr(webdash.webbrowser, "open", lambda url: opened.set())
+    holder = {}
+    real_build = webdash.build_server
+    monkeypatch.setattr(
+        webdash, "build_server", lambda h, p: holder.setdefault("srv", real_build(h, 0))
+    )
+    t = threading.Thread(
+        target=lambda: webdash.serve_webdash(port=0, open_browser=True), daemon=True
+    )
+    t.start()
+    assert opened.wait(3.0), "browser-open thread never ran"
+    for _ in range(50):
+        if "srv" in holder:
+            break
+        _t.sleep(0.02)
+    holder["srv"].shutdown()
+    t.join(timeout=3)
