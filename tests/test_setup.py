@@ -11,6 +11,8 @@ from distil.setup import (
     env_body,
     remove_managed,
     service_spec,
+    unwire_settings_env,
+    wire_settings_env,
     wire_statusline,
     write_managed,
 )
@@ -56,6 +58,100 @@ def test_wire_rejects_non_object(tmp_path) -> None:
     p.write_text("[1, 2, 3]")
     status, _ = wire_statusline(p)
     assert status == "error"
+
+
+# ── settings.json env wiring — reaches IDE-launched Claude Code (VSCode, ────
+# Cursor's Claude Code extension) that a shell rc export never touches ──────
+
+
+def test_wire_settings_env_fresh(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    status, _ = wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "ok"
+    assert json.loads(p.read_text())["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8788"
+
+
+def test_wire_settings_env_idempotent(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    status, _ = wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "exists"
+
+
+def test_wire_settings_env_conflict_needs_force_and_does_not_clobber(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://mine.example"}}))
+    status, _ = wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "conflict"
+    assert "mine.example" in p.read_text()  # untouched
+    status, _ = wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788", force=True)
+    assert status == "ok"
+    assert (tmp_path / "settings.json.bak").exists()
+    assert json.loads(p.read_text())["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8788"
+
+
+def test_wire_settings_env_preserves_other_settings_and_env_keys(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"model": "opus", "env": {"OTHER_VAR": "1"}}))
+    wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    data = json.loads(p.read_text())
+    assert data["model"] == "opus"
+    assert data["env"]["OTHER_VAR"] == "1"
+    assert data["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8788"
+
+
+def test_wire_settings_env_rejects_non_object(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    p.write_text("[1, 2, 3]")
+    status, _ = wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "error"
+
+
+def test_wire_settings_env_bad_json_is_error(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    p.write_text("{not json")
+    status, _ = wire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "error"
+
+
+def test_unwire_settings_env_removes_only_distils(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    # foreign value is preserved
+    p.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://mine.example"}}))
+    status, _ = unwire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "foreign"
+    assert "mine.example" in p.read_text()
+
+    # distil's value is removed, other env keys + settings preserved, backup made
+    p.write_text(
+        json.dumps(
+            {"model": "opus", "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:8788", "X": "1"}}
+        )
+    )
+    status, _ = unwire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert status == "ok"
+    data = json.loads(p.read_text())
+    assert "ANTHROPIC_BASE_URL" not in data["env"]
+    assert data["env"]["X"] == "1"
+    assert data["model"] == "opus"
+    assert (tmp_path / "settings.json.bak").exists()
+
+    # idempotent: nothing left to remove
+    assert unwire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")[0] == "absent"
+
+
+def test_unwire_settings_env_drops_empty_env_block(tmp_path) -> None:
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:8788"}}))
+    unwire_settings_env(p, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
+    assert "env" not in json.loads(p.read_text())
+
+
+def test_unwire_settings_env_absent_and_bad(tmp_path) -> None:
+    assert unwire_settings_env(tmp_path / "nope.json", "ANTHROPIC_BASE_URL", "x")[0] == "absent"
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert unwire_settings_env(bad, "ANTHROPIC_BASE_URL", "x")[0] == "error"
 
 
 # ── distil default: managed-block + shell detection (reliable across machines) ──
@@ -158,6 +254,7 @@ def _default_args(tmp_path, **over):
         undo=False,
         always_on=False,
         no_start=True,
+        force=False,
     )
     base.update(over)
     return argparse.Namespace(**base)
@@ -187,6 +284,8 @@ def test_cmd_default_always_on_writes_service_and_env(tmp_path, monkeypatch, cap
     monkeypatch.setattr(
         setup, "service_spec", lambda port, mode: (svc, f"PLIST {port} --{mode}", "true")
     )
+    settings = tmp_path / "settings.json"
+    monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
     # Record shell-outs so we can assert install is silent but undo stops the service.
     import subprocess
 
@@ -197,8 +296,11 @@ def test_cmd_default_always_on_writes_service_and_env(tmp_path, monkeypatch, cap
     assert svc.exists() and "8788" in svc.read_text()
     assert setup.env_body(8788) in rc.read_text()
     assert calls == []  # --no-start never shells out
+    # settings.json is wired too — reaches IDE-launched Claude Code (VSCode,
+    # Cursor's Claude Code extension) that never sources the rc file above.
+    assert json.loads(settings.read_text())["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8788"
 
-    # undo stops the running service (one shell-out) and cleans up rc + file
+    # undo stops the running service (one shell-out) and cleans up rc + file + settings.json
     assert cli.cmd_default(_default_args(tmp_path, undo=True)) == 0
     if setup.service_unload_cmd() is not None:
         assert calls  # unload was invoked
@@ -206,6 +308,49 @@ def test_cmd_default_always_on_writes_service_and_env(tmp_path, monkeypatch, cap
         assert calls == []  # no service manager on this platform (e.g. Windows)
     assert not svc.exists()
     assert "ANTHROPIC_BASE_URL" not in rc.read_text()
+    assert "ANTHROPIC_BASE_URL" not in settings.read_text()
+
+
+def test_cmd_default_always_on_non_claude_agent_skips_settings_json(
+    tmp_path, monkeypatch
+) -> None:
+    """Only Claude Code reads ~/.claude/settings.json — wiring it for another
+    wrapped agent (e.g. codex) would be a no-op at best, confusing at worst."""
+    from distil import cli, setup
+
+    svc = tmp_path / "svc.plist"
+    monkeypatch.setattr(
+        setup, "service_spec", lambda port, mode: (svc, f"PLIST {port} --{mode}", "true")
+    )
+    settings = tmp_path / "settings.json"
+    monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
+    assert (
+        cli.cmd_default(
+            _default_args(tmp_path, always_on=True, agent="codex", no_start=True)
+        )
+        == 0
+    )
+    assert not settings.exists()
+
+
+def test_cmd_default_always_on_settings_env_conflict_needs_force(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    from distil import cli, setup
+
+    monkeypatch.setattr(
+        setup, "service_spec", lambda port, mode: (tmp_path / "svc.plist", "PLIST", "true")
+    )
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://mine.example"}}))
+    monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
+    assert cli.cmd_default(_default_args(tmp_path, always_on=True)) == 0
+    assert "mine.example" in settings.read_text()  # left untouched without --force
+    out = capsys.readouterr().out
+    assert "--force" in out
+
+    assert cli.cmd_default(_default_args(tmp_path, always_on=True, force=True)) == 0
+    assert json.loads(settings.read_text())["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8788"
 
 
 def test_cmd_default_always_on_unsupported_platform(tmp_path, monkeypatch, capsys) -> None:

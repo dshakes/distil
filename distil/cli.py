@@ -1441,6 +1441,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:
                 undo=False,
                 always_on=False,
                 no_start=False,
+                force=False,
             )
         )
         print()
@@ -1495,11 +1496,14 @@ def cmd_default(args: argparse.Namespace) -> int:
     from . import onboard
     from .setup import (
         alias_body,
+        default_settings_path,
         detect_shell,
         env_body,
         remove_managed,
         service_spec,
         service_unload_cmd,
+        unwire_settings_env,
+        wire_settings_env,
         write_managed,
     )
 
@@ -1527,6 +1531,11 @@ def cmd_default(args: argparse.Namespace) -> int:
                 print(f"✓ removed proxy service {path}")
             except OSError:
                 pass
+        if agent == "claude":  # inverse of the settings.json wiring below
+            st2, msg2 = unwire_settings_env(
+                default_settings_path(), "ANTHROPIC_BASE_URL", f"http://127.0.0.1:{args.port}"
+            )
+            print(("✓ " if st2 in ("ok", "absent", "foreign") else "✗ ") + msg2)
         print(f"  open a new terminal (or: source {rc}) to finish")
         return 0
 
@@ -1546,6 +1555,20 @@ def cmd_default(args: argparse.Namespace) -> int:
         print(f"✓ wrote proxy service → {path}")
         _st, msg = write_managed(rc, env_body(args.port, shell=shell))
         print(f"✓ {msg}  (ANTHROPIC_BASE_URL → http://127.0.0.1:{args.port})")
+        if agent == "claude":
+            # The rc export above only reaches a shell that sources it — an IDE
+            # extension (VSCode's Claude Code extension, or that same extension
+            # inside Cursor) execs the `claude` binary directly and never sources
+            # an rc file. Claude Code reads ~/.claude/settings.json on every
+            # launch regardless, so that's the channel that actually reaches it.
+            sp = default_settings_path()
+            st2, msg2 = wire_settings_env(
+                sp, "ANTHROPIC_BASE_URL", f"http://127.0.0.1:{args.port}", force=args.force
+            )
+            glyph2 = "✓" if st2 in ("ok", "exists") else ("⚠" if st2 == "conflict" else "✗")
+            print(f"{glyph2} {msg2}")
+            if st2 == "conflict":
+                print(f"  re-run with: distil default --always-on --force  (backs up {sp} first)")
         if load and not args.no_start:
             ok = subprocess.run(load, shell=True).returncode == 0
             print("  ✓ proxy service running" if ok else f"  ⚠ start it manually: {load}")
@@ -1594,6 +1617,7 @@ def cmd_offboard(args: argparse.Namespace) -> int:
         remove_managed,
         service_spec,
         service_unload_cmd,
+        unwire_settings_env,
         unwire_statusline,
     )
 
@@ -1636,6 +1660,13 @@ def cmd_offboard(args: argparse.Namespace) -> int:
     sp = default_settings_path()
     if sp.exists() and ask(f"Unwire the distil status line from {sp}?"):
         st, msg = unwire_statusline(sp)
+        print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
+
+    # 3b · the settings.json ANTHROPIC_BASE_URL that --always-on wires for IDE-
+    # launched Claude Code (VSCode, Cursor's Claude Code extension, ...), which
+    # never goes through a shell rc file and so isn't touched by step 1.
+    if sp.exists() and ask(f"Unwire distil's ANTHROPIC_BASE_URL from {sp}?"):
+        st, msg = unwire_settings_env(sp, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
         print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
 
     # 4 · local data (opt-in; it's the user's measured savings history)
@@ -2792,6 +2823,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     de.add_argument(
         "--no-start", action="store_true", help="--always-on: write the service but don't start it"
+    )
+    de.add_argument(
+        "--force",
+        action="store_true",
+        help="--always-on: replace a conflicting ANTHROPIC_BASE_URL in ~/.claude/settings.json "
+        "(backed up first)",
     )
     de.add_argument("--undo", action="store_true", help="remove the distil default")
     de.add_argument("--rc", help="shell rc/profile path (default: auto-detected)")
