@@ -165,10 +165,13 @@ def serve_webdash(port: int = 8766, *, host: str = "127.0.0.1", open_browser: bo
     url = f"http://{host}:{port}"
     print(f"distil live dashboard → {url}")
     print("  local only · reads your ledger · nothing leaves this machine · Ctrl-C to stop")
+
+    def _open() -> None:
+        time.sleep(0.4)
+        webbrowser.open(url)
+
     if open_browser:
-        threading.Thread(
-            target=lambda: (time.sleep(0.4), webbrowser.open(url)), daemon=True
-        ).start()
+        threading.Thread(target=_open, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
