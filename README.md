@@ -499,6 +499,12 @@ PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The one rule that matter
 
 **Beta program** — want early access to v1.20.0 and to help close the GA gate? See [docs/BETA.md](docs/BETA.md).
 
+## 💬 Community & support
+
+- **Questions, ideas, bug reports** → [open an issue](https://github.com/dshakes/distil/issues/new). Every question is a docs gap we haven't closed yet.
+- **See who's saving tokens** → the live, opt-in [adoption board](https://dshakes.github.io/distil/adoption.html) — exact community totals, no projection, [content-free by construction](TELEMETRY.md).
+- **Watch releases** → [releases](https://github.com/dshakes/distil/releases) ship on a fast cadence; `pip install -U distil-llm` (or `uv tool upgrade distil-llm`) tracks them.
+
 ## License
 
 [Apache-2.0](LICENSE) · *“Same potency, less volume.”*
