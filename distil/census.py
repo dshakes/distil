@@ -372,9 +372,16 @@ def _current_saved_tokens() -> int:
 
 def maybe_heartbeat() -> bool:
     """Near-real-time community pulse: at most one tiny content-free beat every
-    HEARTBEAT_INTERVAL_S, and ONLY when tokens grew since the last beat. Same
-    opt-in + kill-switch gates as the census; fail-open. Returns True iff a beat
-    was sent (an idle interval returns False and sends nothing)."""
+    HEARTBEAT_INTERVAL_S, from any install that has saved tokens. Same opt-in +
+    kill-switch gates as the census; fail-open. Returns True iff a beat was sent.
+
+    Liveness, not growth: a beat fires each interval so ``active`` counts installs
+    that are *running distil*, not only those whose saved-token total happens to be
+    climbing right now — a downward calibration refinement (the estimate getting
+    more accurate) must not make a live install read as inactive. ``rate`` still
+    reflects real growth (0 when flat or refined down), so the odometer never
+    projects phantom tokens; only a genuinely new install with 0 saved tokens
+    stays silent (nothing to report yet)."""
     try:
         if not enabled():
             return False
@@ -388,16 +395,15 @@ def maybe_heartbeat() -> bool:
         if now - last_ts < HEARTBEAT_INTERVAL_S:
             return False
         tokens = _current_saved_tokens()
-        # Advance the local marker every interval so the rate reflects THIS
-        # interval's real pace — but only actually send when tokens grew.
+        # Advance the local marker every interval so the next rate reflects THIS
+        # interval's real pace.
         _beat_last_path().parent.mkdir(parents=True, exist_ok=True)
-        grew = tokens > last_tokens
-        rate = (tokens - last_tokens) / (now - last_ts) if grew and last_ts else 0.0
+        rate = (tokens - last_tokens) / (now - last_ts) if tokens > last_tokens and last_ts else 0.0
         _beat_last_path().write_text(
             json.dumps({"tokens": tokens, "ts": int(now)}), encoding="utf-8"
         )
-        if not grew:
-            return False  # idle since last beat → nothing to report
+        if tokens <= 0:
+            return False  # never saved anything yet → not an active saver
         _send_beat(
             {
                 "v": BEAT_SCHEMA,

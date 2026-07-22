@@ -3,6 +3,26 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.25.0] — the compression frontier: nested JSON, constant-column collapse, multi-language code
+
+Three new reversible, gate-certified techniques that close the compression gap with lossy "smart crushers" — every one keeps distil's per-request decision-equivalence proof and pure-Python install.
+
+### Nested-record JSON fold — the shape agents actually traffic in
+- **`fold_records`** (`distil/compress/structured.py`): the strict columnar `fold` only folded flat scalar records; real tool output (API responses, search hits, DB rows) nests dicts/lists and fell through to the generic digest, saving far less. `fold_records` extends the columnar fold to nested records — non-scalar cells render as compact JSON, the header marks which columns are JSON-encoded — for **42% fewer tokens** on nested tool output. Reversible (byte-exact original one `expand(handle)` away), DECISION-marker-safe, reject-if-not-smaller. Wired into the tier1 path and the anthropic lossless path.
+
+### Constant-column collapse — Parquet-style entropy coding
+- A nested column repeating one value in every row (`status:"active"`, a region, a flag) is hoisted into a single `«=name<TAB>value` directive and dropped from the body — the same constant-encoding a columnar database applies to a low-entropy column. Takes the nested fold from ~42% to **~62% fewer tokens** on enum-heavy output. The shared value is stated once, verbatim, so the view stays maximally readable; dictionary-indexing *varying* columns is deliberately declined (the integer→value indirection is a decision-equivalence risk a constant hoist doesn't carry).
+
+### Multi-language code compressor — zero native dependency
+- **`generic_code_skeleton`** (`distil/skeleton.py`): distil's Python-only `ast` skeleton is joined by a language-agnostic brace-block skeleton for **JS/TS/Go/Rust/Java/C/C++/Swift/Kotlin** — keep every signature and brace, elide the pure-body runs between them, driven by a string- and comment-aware brace-depth scanner (braces inside strings, `//`, `#`, `/* */` don't count; unbalanced/mid-edit source bails intact — save less, never corrupt). **~44% on a TypeScript file** with every signature still visible. A competitor's *CodeCompressor* capability delivered with **zero native deps** — a tree-sitter grammar would be a mandatory native extension; distil stays pure-Python.
+- Now wired into the **live** tier1 path (was only in the offline conformal/gate path) and into `smart_digest`, on the **active-recovery path only** — an elided body needs the `distil_expand` handle, so it never runs on the flat-rate lossless path where the folds stay information-complete.
+
+### Live counter — liveness beat so `active` reflects real usage
+- **`maybe_heartbeat`** (`distil/census.py`) now beats every interval from any install that has saved tokens — not only when the saved-token total is *climbing*. A downward calibration refinement (the estimate getting more accurate, as happened at 1.24→1.25) was making a live install read as **inactive**; now `active` counts installs that are *running distil*. `rate` still reflects genuine growth (0 when flat or refined down), so the odometer never projects phantom tokens — an idle community shows an exact, unmoving total by design.
+
+### Gates
+- `distil bench` / `verify` / `validate` all PASS on every change (byte-reversible, decision-equivalent with recovery, 60/60 adversarial). Coverage ≥95%, ruff + mypy clean.
+
 ## [1.24.0] — census schema 4: the trust number, session modes, next-gen live board
 
 ### The metric that drives belief — decision-equivalence, as a community number

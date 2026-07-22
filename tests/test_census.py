@@ -352,7 +352,9 @@ def test_heartbeat_sends_only_when_tokens_grew(tmp_path, monkeypatch):
     assert p["tokens"] == 5000 and p["rate"] > 0
 
 
-def test_heartbeat_silent_when_idle(tmp_path, monkeypatch):
+def test_heartbeat_liveness_when_flat(tmp_path, monkeypatch):
+    # An install that ran but didn't grow its saved-token total still beats
+    # (liveness) so `active` counts it — rate is 0, so no phantom projection.
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     census.opt_in()
     calls = []
@@ -361,7 +363,36 @@ def test_heartbeat_silent_when_idle(tmp_path, monkeypatch):
     (tmp_path / "heartbeat-last").write_text(
         json.dumps({"tokens": 1000, "ts": census.time.time() - 600})
     )
-    assert census.maybe_heartbeat() is False  # no growth → nothing sent
+    assert census.maybe_heartbeat() is True  # liveness beat sent
+    assert len(calls) == 1 and calls[0]["tokens"] == 1000 and calls[0]["rate"] == 0
+
+
+def test_heartbeat_liveness_when_recalibrated_down(tmp_path, monkeypatch):
+    # A downward calibration refinement (more accurate estimate) must not read as
+    # inactive — still beats, rate clamped to 0 (never negative, never projects).
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    calls = []
+    _arm_beat_tripwire(monkeypatch, calls)
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 900)
+    (tmp_path / "heartbeat-last").write_text(
+        json.dumps({"tokens": 1000, "ts": census.time.time() - 600})
+    )
+    assert census.maybe_heartbeat() is True
+    assert len(calls) == 1 and calls[0]["tokens"] == 900 and calls[0]["rate"] == 0
+
+
+def test_heartbeat_silent_when_nothing_saved(tmp_path, monkeypatch):
+    # A brand-new install that has saved nothing yet is not an active saver.
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    calls = []
+    _arm_beat_tripwire(monkeypatch, calls)
+    monkeypatch.setattr(census, "_current_saved_tokens", lambda: 0)
+    (tmp_path / "heartbeat-last").write_text(
+        json.dumps({"tokens": 0, "ts": census.time.time() - 600})
+    )
+    assert census.maybe_heartbeat() is False  # nothing saved → nothing sent
     assert calls == []
 
 
