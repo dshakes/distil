@@ -1,22 +1,23 @@
 {
-  "generated_ts": 1784692410,
+  "generated_ts": 1784721201,
   "installs": {
     "census_total": 2,
     "active_7d": 2,
     "active_30d": 2,
     "by_version": {
-      "1.23.0": 2
+      "1.25.0": 1,
+      "1.23.0": 1
     }
   },
   "savings": {
-    "tokens": 1435923127,
+    "tokens": 1326583658,
     "dollars": 0,
-    "dollars_notional": 5979.99,
+    "dollars_notional": 5524.83,
     "instances": 2,
-    "as_of_ts": 1784630819,
-    "rate_per_sec": 57.67,
-    "total_runs": 6132,
-    "avg_per_run": 234169,
+    "as_of_ts": 1784721191,
+    "rate_per_sec": 0.0,
+    "total_runs": 6283,
+    "avg_per_run": 211139,
     "history": [
       {
         "ts": 1784522481,
@@ -41,6 +42,10 @@
       {
         "ts": 1784630819,
         "tokens": 1435923127
+      },
+      {
+        "ts": 1784721191,
+        "tokens": 1326583658
       }
     ]
   },
@@ -50,11 +55,11 @@
   },
   "usage": {
     "by_model": {
-      "claude-opus-4-8": 596364250,
-      "claude-sonnet-4-6": 545484864,
-      "claude-sonnet-5": 225575787,
-      "claude-fable-5": 68498204,
-      "claude-haiku-4-5-20251001": 22
+      "claude-opus-4-8": 551092842,
+      "claude-sonnet-4-6": 503858630,
+      "claude-sonnet-5": 208361301,
+      "claude-fable-5": 63270864,
+      "claude-haiku-4-5-20251001": 21
     },
     "billing": {
       "subscription": 2
@@ -64,13 +69,13 @@
       "other": 1
     },
     "surfaces": {
-      "wrap": 981
+      "wrap": 1921
     },
     "shapes": {
-      "anthropic": 981
+      "anthropic": 1921
     },
     "modes": {
-      "interactive": 28,
+      "interactive": 26,
       "sdk": 1
     }
   },
