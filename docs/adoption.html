@@ -446,22 +446,17 @@
   }
 
   // ── the odometer ──
-  //  Two honest sources, in priority order:
-  //   1. LIVE heartbeat aggregate (/v1/live): the number projects forward at the
-  //      sum of RECENTLY-ACTIVE installs' measured rates, bounded to PROJ_CAP_S
-  //      so it can't run ahead of the next poll. Active-only rate ⇒ it ticks
-  //      while the community works and goes STATIC the moment everyone idles.
-  //   2. Fallback — the EXACT daily-census total, static (no projection), used
-  //      until the live store is provisioned or if it's unreachable.
-  //  Either way the number never moves without a real measurement behind it.
-  var PROJ_CAP_S = 12;
-  var shownTokens = null, targetTokens = 0, liveBase = null; // liveBase:{total,rate,asOf}
+  //  ONE rule: the number never moves without a real measurement behind it.
+  //  The target is the EXACT total from the store, anchored to max(live, census)
+  //  so it can't regress below the audited archive. It is NEVER projected forward
+  //  on a rate — a rate-driven odometer keeps climbing on a stale rate while
+  //  everyone is idle (phantom tokens), the one thing this must not do. So the
+  //  digits advance only when a poll returns a genuinely HIGHER total (a real new
+  //  heartbeat or census); between measurements they sit static, exact. `rate` is
+  //  shown as context ("X / day"), it does not drive the counter.
+  var shownTokens = null, targetTokens = 0, liveBase = null; // liveBase:{total,rate}
   function desiredTokens() {
-    if (liveBase) {
-      var el = Math.min(Math.max(0, (Date.now() - liveBase.asOf) / 1000), PROJ_CAP_S);
-      return liveBase.total + liveBase.rate * el;
-    }
-    return targetTokens;
+    return liveBase ? liveBase.total : targetTokens;
   }
   function odoLoop() {
     var t = desiredTokens();
@@ -483,11 +478,11 @@
       // An empty store (available but no heartbeats yet) must NOT show 0 — fall
       // back to the census archive. And never regress below that archive: the
       // daily census is the authoritative cumulative total, so anchor to
-      // max(live, census) and let the live rate tick it forward.
+      // max(live, census). The counter advances only when this exact total rises.
       if (d && d.available && (d.installs || 0) > 0 && typeof d.total === "number") {
         var anchor = Math.max(d.total, targetTokens || 0);
         if (liveBase && anchor > liveBase.total) flashHero();
-        liveBase = { total: anchor, rate: d.rate || 0, asOf: Date.now() };
+        liveBase = { total: anchor, rate: d.rate || 0 };
         set("rate-sec", d.rate ? human(Math.round(d.rate * 86400)) + " / day" : "—");
         set("rate-day", (d.active || 0) > 0
           ? d.active + " machine" + (d.active === 1 ? "" : "s") + " active now · exact at each pulse"
