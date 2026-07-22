@@ -350,6 +350,7 @@ class ProxySupervisor:
     def _watch(self) -> None:
         """Upgrade poll + manual-trigger wait + dead-worker respawn + heartbeat."""
         self._heartbeat()  # first beat immediately: short sessions get one too
+        self._census_beat()
         while not self._stopping.is_set():
             self._handover_asked.wait(_POLL_INTERVAL_S)
             if self._stopping.is_set():
@@ -357,6 +358,7 @@ class ProxySupervisor:
             manual = self._handover_asked.is_set()
             self._handover_asked.clear()
             self._heartbeat()
+            self._census_beat()
             self._reap_drained()
             try:
                 if self._worker is not None and self._worker.poll() is not None:
@@ -441,6 +443,23 @@ class ProxySupervisor:
             )
             os.replace(tmp, hb)
         except Exception:  # noqa: BLE001 — a heartbeat must never hurt the session
+            pass
+
+    def _census_beat(self) -> None:
+        """Pulse the near-real-time community heartbeat while the session runs.
+
+        The legacy in-thread proxy did this via _start_heartbeat_timer(); the
+        hot-swap path serves in a worker subprocess that never touches census,
+        so a long-lived `distil wrap` session would otherwise send NO beat until
+        exit — the live counter reads 'no machines active' the whole time it's
+        running. The supervisor outlives every worker swap, so it owns the beat.
+        census self-throttles to ≤1/5min and only sends when tokens grew, so a
+        30s poll tick is a cheap no-op most of the time. Fail-open."""
+        try:
+            from . import census as _census
+
+            _census.maybe_heartbeat()
+        except Exception:  # noqa: BLE001 — census must never touch the session
             pass
 
     def _reap_drained(self) -> None:

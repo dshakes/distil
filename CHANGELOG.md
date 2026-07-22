@@ -3,6 +3,14 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.25.1] — live counter: hot-swap sessions now pulse
+
+Bug fix. The near-real-time community counter read **"no machines active"** even while installs were running distil. Root cause: the in-session liveness heartbeat was wired only into the legacy in-thread `serve()` path (`_start_heartbeat_timer`). Production now runs the hot-swap **supervisor + worker** architecture — the worker subprocess never touches census, and the supervisor (the one process that outlives every worker swap) sent no beat. A long-lived `distil wrap` session therefore emitted **zero** heartbeats until exit, so `/v1/live` reported `active: 0` the whole time it ran.
+
+Fix: the supervisor's `_watch()` poll loop (already ticking every 30 s) now pulses `census.maybe_heartbeat()` beside its crash breadcrumb (`distil/hotswap.py`). census self-throttles to ≤1/5 min and only sends when opted-in with saved tokens, so the added call is a cheap no-op most ticks. Liveness-only, honesty preserved: `rate` stays 0 when tokens are flat or refined downward — the odometer never projects phantom growth; only `active` reflects the running install. Fail-open (a census fault never touches the serving path). Verified live: `active` 0→1 through the new path, `rate` held at 0 on a downward calibration refinement.
+
+Note: the supervisor cannot hot-reload itself (that is *why* workers are separate subprocesses), so a session already running when you upgrade picks this up on its **next** `distil wrap`, not mid-session.
+
 ## [1.25.0] — the compression frontier: nested JSON, constant-column collapse, multi-language code
 
 Three new reversible, gate-certified techniques that close the compression gap with lossy "smart crushers" — every one keeps distil's per-request decision-equivalence proof and pure-Python install.

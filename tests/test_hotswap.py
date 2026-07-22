@@ -583,3 +583,26 @@ def test_supervisor_writes_heartbeat_immediately(tmp_path, monkeypatch):
     finally:
         sup.shutdown()
         upstream.shutdown()
+
+
+def test_watch_pulses_census_heartbeat(monkeypatch):
+    """The supervisor's watch loop is the ONLY census beat in the hot-swap path
+    (the worker subprocess never touches census). If this wiring breaks, a
+    long-lived `distil wrap` session sends no beat until exit and the live
+    counter reads 'no machines active' the whole time it runs."""
+    from distil.hotswap import ProxySupervisor
+
+    calls = []
+    import distil.census as census
+
+    monkeypatch.setattr(census, "maybe_heartbeat", lambda: calls.append(1))
+    # _census_beat uses no instance state — call the unbound method w/ dummy self.
+    ProxySupervisor._census_beat(object())
+    assert calls == [1], "watch loop must pulse the community heartbeat"
+
+    # Fail-open: a census fault must never escape into the serving path.
+    def _boom() -> bool:
+        raise RuntimeError("upstash down")
+
+    monkeypatch.setattr(census, "maybe_heartbeat", _boom)
+    ProxySupervisor._census_beat(object())  # must not raise
