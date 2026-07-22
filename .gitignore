@@ -15,6 +15,7 @@ rust/**/target/
 *.dylib
 *.pyd
 *.rlib
+temp/
 
 # Named competitor comparison — kept local-only (public docs stay neutral)
 benchmarks/named-comparison.local.md
