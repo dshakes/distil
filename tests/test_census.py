@@ -301,6 +301,41 @@ def test_agents_and_modes_from_sessions(tmp_path, monkeypatch):
     assert p["modes"]["sdk"] == 2  # python + weird-tool
 
 
+def test_load_savings_resets_only_a_corrupt_channel(monkeypatch, tmp_path):
+    """A partially-corrupt accrual file (one channel is not a dict) is repaired
+    in place — the bad channel resets to fresh, the intact one is preserved —
+    rather than throwing away all banked savings."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    census._savings_path().write_text(
+        json.dumps(
+            {
+                "v": 1,
+                "by_model": {},
+                "tokens": "corrupt",  # not a dict
+                "dollars": {"saved": 5.0, "raw_seen": 10},  # intact
+            }
+        ),
+        encoding="utf-8",
+    )
+    st = census._load_savings()
+    assert st["tokens"] == {"saved": 0.0, "raw_seen": 0}  # reset to fresh
+    assert st["dollars"] == {"saved": 5.0, "raw_seen": 10}  # preserved
+
+
+def test_save_savings_is_fail_open(monkeypatch, tmp_path):
+    """A failed write to census-savings.json must never propagate — the census
+    rides the host's exit path and can't be allowed to break it. The delta just
+    re-accrues on the next send."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")  # a FILE where a dir is needed
+    monkeypatch.setattr(census, "_savings_path", lambda: blocker / "census-savings.json")
+    census._save_savings({"v": 1, "tokens": {}, "dollars": {}, "by_model": {}})  # must not raise
+    assert not (blocker / "census-savings.json").exists()
+
+
 def test_equivalence_from_shadow(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     census.opt_in()

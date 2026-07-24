@@ -3,6 +3,16 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.27.0] — the coverage gate enforces the floor it advertises
+
+Bug fix + test-debt paydown (issue #32). The `coverage` CI job reported **success while its own log printed** `FAIL … Total coverage: 94.90%`. Root cause: `[tool.coverage.report]` set no `precision`, and coverage.py defaults it to `0` — which rounds the number used for the `--cov-fail-under` decision, not just the printed report. `94.90%` rounded to `95`, so `95 >= 95` passed a floor the suite was actually under. For a project whose whole pitch is *certified gates*, a gate that lies is worse than a red build.
+
+- **`precision = 2`** in `[tool.coverage.report]` (`pyproject.toml`): the fail_under comparison now uses the real two-decimal figure. (Diagnosed in #32 by @dshakes.)
+- **Real coverage lifted honestly above the floor**, not by lowering the bar. Meaningful tests for genuinely-untested branches: the phase-2 learned-salience trio `query_flywheel` / `query_train` / `query_assoc` went **80.6% → 100%** (deterministic-sampling boundaries, both certify-gate rejection floors, every fail-open / skip / malformed-row path), and `census.py`'s accrual persistence gained corrupt-channel-repair + write-fail-open tests. Total coverage now **95.48%**, enforced honestly.
+
+### Gates
+- Full suite green (1818 tests); coverage ≥95% enforced at 2-decimal precision; ruff + mypy clean; `distil verify` / `bench` / `validate` unaffected and PASS.
+
 ## [1.26.0] — the community counter is monotonic; `distil default --always-on`
 
 ### The live counter never un-counts again — count-time delta calibration
