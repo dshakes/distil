@@ -1562,6 +1562,7 @@ def test_cmd_default_always_on_content_none(tmp_path, monkeypatch, capsys) -> No
             agent="claude",
             mode="lossless-only",
             no_start=False,
+            force=False,
         )
     )
     assert rc == 1
@@ -1612,6 +1613,7 @@ def test_cmd_default_always_on_service_start(tmp_path, monkeypatch, capsys) -> N
             agent="claude",
             mode="lossless-only",
             no_start=False,
+            force=False,
         )
     )
     assert rc == 0
