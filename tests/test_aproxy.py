@@ -91,11 +91,11 @@ def _run(coro: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: POST to /v1/messages with a large tool_result → compressed + headers
+# Test 1: POST /v1/messages with a large tool_result → stays reversible (no handle)
 # ---------------------------------------------------------------------------
 
 
-def test_compressible_path_digests_tool_result() -> None:
+def test_compressible_path_stays_reversible() -> None:
     async def _body() -> None:
         fake_app = _make_fake_upstream()
         async with TestServer(fake_app) as upstream_server:
@@ -132,26 +132,15 @@ def test_compressible_path_digests_tool_result() -> None:
 
                 assert resp.status == 200, f"Expected 200, got {resp.status}"
 
-                # distil response headers must be present
-                compressed_hdr = resp.headers.get("x-distil-compressed")
-                assert compressed_hdr == "1", (
-                    f"x-distil-compressed missing or wrong: {compressed_hdr!r}"
-                )
-                tokens_saved_hdr = resp.headers.get("x-distil-tokens-saved")
-                assert tokens_saved_hdr is not None, "x-distil-tokens-saved header missing"
-                assert int(tokens_saved_hdr) > 0, (
-                    f"x-distil-tokens-saved should be positive, got {tokens_saved_hdr!r}"
-                )
-
-                # The fake upstream echoed the body the proxy forwarded — inspect it.
+                # aproxy runs no expand loop, so it must NEVER emit an unrecoverable
+                # Tier-1 digest stub (a handle= marker the async path can't recover). It
+                # stays Tier-0 / reversible: the long tool_result is forwarded WITHOUT a
+                # recovery handle, so nothing the agent later needs is irretrievably lost.
+                # (Recoverable Tier-1 needs the expand loop the sync proxy implements.)
                 echoed: dict[str, Any] = await resp.json()
                 forwarded_content = echoed["messages"][0]["content"][0]["content"]
-
-                assert "handle=" in forwarded_content, (
-                    f"Expected digest marker in forwarded content, got: {forwarded_content!r}"
-                )
-                assert len(forwarded_content) < len(_LONG_TOOL_RESULT), (
-                    "Forwarded tool_result should be shorter than original after digest"
+                assert "handle=" not in forwarded_content, (
+                    f"aproxy must not emit an unrecoverable digest handle: {forwarded_content!r}"
                 )
 
     _run(_body())

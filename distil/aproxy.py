@@ -149,7 +149,16 @@ def make_app(
     # and gates output shaping below.
     _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
     _lossy_ok = may_compress_lossy(_auth_mode)
-    verbatim = verbatim or not _lossy_ok
+    # aproxy injects no distil_expand tool and runs no expand loop, so a Tier-1 digest
+    # stub here can NEVER be recovered — irreversibly lossy on PAYG exactly as on a
+    # subscription. The note above says to fold unrecoverable digest into verbatim; the
+    # previous `not _lossy_ok` only did so for subscription, leaving PAYG async sessions
+    # emitting irreversible stubs. Fold it for EVERY session: the async path stays Tier-0
+    # (reversible lossless transforms — e.g. the #24 columnar fold — still apply, so real
+    # savings remain). Recoverable Tier-1 needs the expand loop the sync proxy implements;
+    # until aproxy grows a streaming equivalent it must not emit an unrecoverable stub.
+    # `_lossy_ok` still gates response shaping (opt-in) below.
+    verbatim = True
 
     # Eager-load the request-path module the handler otherwise imports lazily, so
     # an in-place upgrade never loads a post-upgrade .py mid-serve against the

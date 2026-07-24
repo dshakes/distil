@@ -118,7 +118,11 @@ def test_aproxy_openai_chat_completions_compressed() -> None:
                 )
                 assert resp.status == 200
                 assert resp.headers.get("x-distil-compressed") == "1"
-                assert int(resp.headers.get("x-distil-tokens-saved", "0")) > 0
+                # aproxy runs no expand loop → it must stay reversible: no unrecoverable
+                # Tier-1 digest handle in the forwarded body (Tier-0 lossless only).
+                assert "handle=" not in await resp.text(), (
+                    "aproxy must not emit an unrecoverable digest handle"
+                )
 
     _run(_body())
 
