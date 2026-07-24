@@ -139,6 +139,7 @@ def unwire_settings_env(settings_path: Path, env_var: str, value: str) -> tuple[
     settings_path.with_name(settings_path.name + ".bak").write_text(
         settings_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    assert isinstance(env, dict)  # existing == value (a real str) ⇒ env is the dict we read it from
     del env[env_var]
     if not env:
         del data["env"]
