@@ -328,6 +328,46 @@ def _check_api_key() -> Check:
     )
 
 
+def _port_listening(host: str, port: int, timeout: float = 0.35) -> bool:
+    """True if a TCP connect to host:port succeeds quickly. Loopback probes only."""
+    import socket
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _check_base_url(data: object) -> Check | None:
+    """Guard against a dead ANTHROPIC_BASE_URL in settings.json.
+
+    Claude Code applies settings.json ``env`` on top of the process environment, so a
+    static base URL here overrides the dynamic port that ``distil wrap`` injects. If it
+    points at a port nothing is listening on, ALL Claude Code fails with ConnectionRefused
+    — silently, everywhere. Fail loud so this never masquerades as a distil bug again."""
+    env = data.get("env") if isinstance(data, dict) else None
+    base = (env or {}).get("ANTHROPIC_BASE_URL", "") if isinstance(env, dict) else ""
+    if not base:
+        return None
+    from urllib.parse import urlparse
+
+    u = urlparse(base)
+    host, port = (u.hostname or ""), (u.port or 0)
+    if host not in ("127.0.0.1", "localhost", "::1") or not port:
+        # distil only ever writes a loopback proxy; never probe foreign hosts.
+        return Check("base URL", INFO, f"ANTHROPIC_BASE_URL → {base} (not a local distil proxy)")
+    if _port_listening(host, port):
+        return Check("base URL", OK, f"ANTHROPIC_BASE_URL → {host}:{port} (listening)")
+    return Check(
+        "base URL",
+        FAIL,
+        f"ANTHROPIC_BASE_URL → {host}:{port} but nothing is listening — "
+        "Claude Code will fail with ConnectionRefused",
+        "undo it: distil default --always-on --undo   (or start the proxy on that port)",
+    )
+
+
 def _check_claude_code() -> list[Check]:
     """Claude Code-specific checks: status-line wiring + subscription detection."""
     out: list[Check] = []
@@ -336,6 +376,9 @@ def _check_claude_code() -> list[Check]:
         data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
     except (OSError, json.JSONDecodeError):
         data = {}
+    base_url = _check_base_url(data)
+    if base_url is not None:
+        out.append(base_url)
     sl = (data.get("statusLine") or {}).get("command", "") if isinstance(data, dict) else ""
     if "distil" in sl or "statusline.sh" in sl:
         out.append(Check("status line", OK, "wired into ~/.claude/settings.json"))

@@ -22,6 +22,33 @@ def test_diagnose_runs_every_check_without_crashing() -> None:
         assert c.detail  # every check explains itself
 
 
+def test_check_base_url_guard() -> None:
+    import socket
+
+    # No base URL wired → no check (silent, the common case).
+    assert doctor._check_base_url({}) is None
+    assert doctor._check_base_url({"env": {}}) is None
+
+    # Dead loopback port → FAIL (this is the outage that bricked Claude Code).
+    dead = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}})
+    assert dead is not None and dead.status == doctor.FAIL
+
+    # Foreign (non-loopback) host is never probed — INFO, not a connection attempt.
+    foreign = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": "http://example.com:443"}})
+    assert foreign is not None and foreign.status == doctor.INFO
+
+    # A live loopback port → OK.
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    try:
+        port = srv.getsockname()[1]
+        live = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}"}})
+        assert live is not None and live.status == doctor.OK
+    finally:
+        srv.close()
+
+
 def test_proxy_selftest_round_trips() -> None:
     # The headline check: a request must route through the distil proxy to an
     # in-process fake upstream and back — no network, fully self-contained.
@@ -350,7 +377,6 @@ def test_check_proxy_selftest_fail_on_bad_upstream(monkeypatch):
     f"http://127.0.0.1:{up.server_address[1]}"
 
     # Monkeypatch _check_proxy_selftest to use our bad upstream
-
 
     up.shutdown()  # immediately stop — we just want to verify FAIL is returned gracefully
     ch = doctor._check_proxy_selftest()
