@@ -3,6 +3,20 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.26.0] — the community counter is monotonic; `distil default --always-on`
+
+### The live counter never un-counts again — count-time delta calibration
+- **The bug:** the community "tokens saved" odometer visibly **shrank**. Root cause: every census (and every heartbeat) multiplied the entire **lifetime** cumulative by the **current** calibration factor (`round(lifetime × f)` in `build_payload`, `_by_model`, and `_current_saved_tokens`). Calibration is bidirectional — as an install gathered more real `usage.*` samples and the factor drifted *down* toward a better estimate, the reported total dropped. A single active machine recalibrating downward dragged the public counter backward: tokens already saved got un-counted.
+- **The fix** (`distil/census.py`): the total is now a **monotonic cumulative built from count-time-calibrated deltas** — each census banks `Δraw × factor-known-now` and **freezes it**; a later factor move never restates a past increment. Monotonic by construction, and still honest: every increment is valued at the best estimate available when it was earned (exactly like invoicing each period as it closes), so the census never reports more than the provider would bill. State persists in `~/.distil/census-savings.json`, is wiped with `~/.distil` and on `census off`, and is advanced **only on a real send** — `distil census show` and every preview leave it untouched. The daily census and the near-real-time heartbeat now read the **same** shared total, so the live number and the board agree and neither can shrink.
+- **Aggregator belt-and-suspenders** (`scripts/census_rollup.py`): the community total and sparkline are rebuilt from cumulative **positive** per-install deltas (mirroring the existing `rate_per_sec` `dtok >= 0` primitive), so even the residual pre-fix rows already in `census.jsonl` can't pull the public number down during the upgrade transition. For a fixed (monotonic) client this telescopes to its latest value — nothing is lost.
+
+### `distil default --always-on` — persist the base URL for every Claude Code launch (thanks @tolgatuncoglu!)
+- Contributed by **Tolga Tuncoglu** ([#31](https://github.com/dshakes/distil/pull/31)): `distil default --always-on` writes `ANTHROPIC_BASE_URL` into `~/.claude/settings.json` so Claude Code routes through distil on every launch without a wrapper (`distil/setup.py`, `distil/cli.py`).
+- **Safety guard** added on merge (`distil/doctor.py`): a stale or dead `ANTHROPIC_BASE_URL` in `settings.json` now **fails loud** in `distil doctor` instead of silently breaking every Claude Code session with a connection refused. `distil default` writes are isolated from the developer's real `~/.claude/settings.json` under test.
+
+### Gates
+- Full suite green; `distil bench` / `verify` / `validate` PASS (byte-reversible, decision-equivalent, 60/60 adversarial). Coverage ≥95%, ruff + mypy clean.
+
 ## [1.25.1] — live counter: hot-swap sessions now pulse
 
 Bug fix. The near-real-time community counter read **"no machines active"** even while installs were running distil. Root cause: the in-session liveness heartbeat was wired only into the legacy in-thread `serve()` path (`_start_heartbeat_timer`). Production now runs the hot-swap **supervisor + worker** architecture — the worker subprocess never touches census, and the supervisor (the one process that outlives every worker swap) sent no beat. A long-lived `distil wrap` session therefore emitted **zero** heartbeats until exit, so `/v1/live` reported `active: 0` the whole time it ran.

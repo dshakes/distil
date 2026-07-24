@@ -43,6 +43,11 @@ Python 3.11+, full type hints, `from __future__ import annotations`, ruff
 See [`RELEASING.md`](RELEASING.md) — push a `v*` tag, CI publishes to PyPI via Trusted
 Publishing (no token anywhere). `./scripts/release.sh` drives it end to end.
 
+## Credit
+
+Landed a PR? Add yourself to [`CONTRIBUTORS.md`](CONTRIBUTORS.md) in the same PR —
+one line, newest last. Every merged contribution earns a spot.
+
 ## Conduct
 
 Be kind, be rigorous, report results faithfully (if a check failed, say so with
