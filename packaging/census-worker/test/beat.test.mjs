@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { validateBeat } = require("../lib/beat_validate.js");
 const { pairs } = require("../lib/upstash.js");
+const { monotonicTokens } = require("../api/beat.js");
 
 const good = () => ({ v: 1, id: "a".repeat(32), tokens: 1000, rate: 5.5, ts: 1784600000 });
 
@@ -28,4 +29,12 @@ test("rejects bad heartbeats", () => {
 test("upstash pairs() flattens HGETALL output", () => {
   assert.deepEqual(pairs(["a", "10", "b", "20"]), { a: "10", b: "20" });
   assert.deepEqual(pairs(null), {});
+});
+
+test("monotonicTokens raises but never lowers a stored total", () => {
+  assert.equal(monotonicTokens("1000", 1200), 1200); // grew → rises
+  assert.equal(monotonicTokens("1000", 900), 1000); // dipped → held, never shrinks
+  assert.equal(monotonicTokens(null, 500), 500); // first beat for a new install
+  assert.equal(monotonicTokens(undefined, 0), 0); // brand-new, nothing saved yet
+  assert.equal(monotonicTokens("1000", 1000), 1000); // flat → unchanged
 });

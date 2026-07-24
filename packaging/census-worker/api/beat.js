@@ -15,6 +15,15 @@
 const { validateBeat, MAX_BEAT_BYTES } = require("../lib/beat_validate.js");
 const { creds, pipeline } = require("../lib/upstash.js");
 
+// A beat may only RAISE an install's stored total, never lower it. The client
+// already sends a monotonic count-time-calibrated total; this holds the line for
+// a pre-fix client, or one whose local accrual state (~/.distil/census-savings.json)
+// was wiped and now re-accrues from a lower base — the community counter must
+// never tick backward. Extracted pure so it has a runnable check without Upstash.
+function monotonicTokens(stored, incoming) {
+  return Math.max(Number(stored) || 0, Number(incoming) || 0);
+}
+
 // Best-effort per-instance rate limit (real limiting belongs in the firewall).
 const bucket = { tokens: 120, last: Date.now() };
 function rateLimited() {
@@ -51,8 +60,12 @@ module.exports = async (req, res) => {
     return res.end();
   }
   try {
+    // Read the current stored total first so the write can only raise it. Per
+    // install, beats are ≤1/5min, so this read-then-write has no real race.
+    const prev = await pipeline([["HGET", "hb:tok", body.id]]);
+    const tokens = monotonicTokens(prev && prev[0] && prev[0].result, body.tokens);
     await pipeline([
-      ["HSET", "hb:tok", body.id, String(body.tokens)],
+      ["HSET", "hb:tok", body.id, String(tokens)],
       ["HSET", "hb:ts", body.id, String(body.ts)],
       ["HSET", "hb:rate", body.id, String(body.rate)],
     ]);
@@ -62,3 +75,5 @@ module.exports = async (req, res) => {
   }
   res.end();
 };
+
+module.exports.monotonicTokens = monotonicTokens;
