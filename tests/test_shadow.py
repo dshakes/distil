@@ -644,6 +644,21 @@ def test_force_deterministic_leaves_thinking_requests_valid():
     assert obj["temperature"] == 1  # NOT forced to 0 → no 400
     assert obj["thinking"] == {"type": "enabled", "budget_tokens": 4000}  # untouched
     assert obj["messages"] == [{"role": "user", "content": "hi"}]  # decision input intact
+    # Opus 4.7+ "adaptive" thinking is also "on" → an existing temperature is left alone
+    # (verified live: adaptive + temperature 0 → 400, as-sent → 200).
+    adaptive = json.loads(
+        force_deterministic(
+            json.dumps(
+                {
+                    "model": "claude-opus-4-8",
+                    "messages": [],
+                    "thinking": {"type": "adaptive"},
+                    "temperature": 1,
+                }
+            ).encode()
+        )
+    )
+    assert adaptive["temperature"] == 1  # adaptive counts as thinking-on → not pinned to 0
     # thinking DISABLED + an EXISTING temperature is still pinned to 0 (greedy allowed)
     off = json.loads(
         force_deterministic(

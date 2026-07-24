@@ -393,7 +393,10 @@ def force_deterministic(raw: bytes | None) -> bytes | None:
     # keeps greedy determinism where it's allowed and falls back to the A/A-noise-
     # adjusted comparison (aa_agreement / adjusted_rate) everywhere else.
     thinking = obj.get("thinking")
-    thinking_on = isinstance(thinking, dict) and thinking.get("type") == "enabled"
+    # Thinking "on" in ANY form — the legacy ``enabled`` or the Opus 4.7+ ``adaptive``
+    # (verified live: adaptive also 400s on `temperature != 1`), or any future type.
+    # Only an explicit ``disabled`` / absent counts as off.
+    thinking_on = isinstance(thinking, dict) and thinking.get("type") not in (None, "disabled")
     if "temperature" in obj and not thinking_on:
         obj["temperature"] = 0
     return json.dumps(obj).encode("utf-8")
