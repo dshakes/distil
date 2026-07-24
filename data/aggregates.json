@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1784865128,
+  "generated_ts": 1784871599,
   "installs": {
     "census_total": 2,
     "active_7d": 2,
@@ -10,14 +10,14 @@
     }
   },
   "savings": {
-    "tokens": 1435923127,
+    "tokens": 1164632024,
     "dollars": 0,
     "dollars_notional": 4850.32,
     "instances": 2,
     "as_of_ts": 1784851879,
     "rate_per_sec": 0.0,
     "total_runs": 6353,
-    "avg_per_run": 226023,
+    "avg_per_run": 183320,
     "history": [
       {
         "ts": 1784522481,
@@ -45,11 +45,11 @@
       },
       {
         "ts": 1784721191,
-        "tokens": 1435923127
+        "tokens": 1326583658
       },
       {
         "ts": 1784851879,
-        "tokens": 1435923127
+        "tokens": 1164632024
       }
     ]
   },
@@ -84,26 +84,26 @@
     }
   },
   "channels": {
-    "pypi_downloads_month": 11841,
-    "pypi_downloads_week": 1823,
+    "pypi_downloads_month": 10203,
+    "pypi_downloads_week": 1708,
     "github_stars": 7,
     "clones_uniques_14d": 331,
     "docker_pulls": null
   },
   "pypi_detail": {
-    "real_os_30d": 1842,
-    "real_os_7d": 289,
-    "bots_30d": 9999,
+    "real_os_30d": 1522,
+    "real_os_7d": 279,
+    "bots_30d": 8681,
     "by_system_30d": {
-      "Darwin": 486,
-      "Linux": 1352,
+      "Darwin": 442,
+      "Linux": 1076,
       "Windows": 4,
-      "null": 9999
+      "null": 8681
     },
     "by_python_30d": {
       "3.10": 2,
-      "3.11": 449,
-      "3.12": 1247,
+      "3.11": 389,
+      "3.12": 987,
       "3.13": 4,
       "3.14": 111,
       "3.9": 29
