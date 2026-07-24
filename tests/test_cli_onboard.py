@@ -1598,6 +1598,9 @@ def test_cmd_default_always_on_service_start(tmp_path, monkeypatch, capsys) -> N
     )
     monkeypatch.setattr(setup_mod, "write_managed", lambda *a, **k: ("ok", "wrote env block"))
     monkeypatch.setattr(setup_mod, "env_body", lambda *a, **k: "export ANTHROPIC_BASE_URL=...")
+    # agent=="claude" makes cmd_default wire settings.json — redirect it to tmp so the
+    # suite never touches the real ~/.claude/settings.json (this write bricked Claude Code).
+    monkeypatch.setattr(setup_mod, "default_settings_path", lambda: tmp_path / "settings.json")
 
     class _OK:
         returncode = 0
