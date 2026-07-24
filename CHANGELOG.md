@@ -3,6 +3,45 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.28.0] — recoverable compression everywhere, and it streams
+
+Closes the "expand-injection gap." Lossy Tier-1 digest could leave stubs the agent
+couldn't recover, and the recoverable path lost streaming. Both are fixed: recoverable
+digest is now the default on every path **and** keeps time-to-first-token.
+
+### Streaming `distil_expand` interception — recover WITHOUT losing TTFT (new)
+Recoverable digest injects a `distil_expand` tool so the model can pull an elided block
+back on demand. Handling that used to require **buffering the whole response** (the expand
+loop needs the complete turn), turning time-to-first-token into time-to-last-token on any
+session that carried a digested stub. `distil/streamexpand.py` now **speculatively
+streams**: it relays tokens as they arrive and only intervenes if a `distil_expand` call
+actually appears — suppressing that internal call, resolving the handle, re-querying, and
+**splicing** the continuation into the same client stream (re-indexed, one coherent
+message). Most turns never call expand and stream untouched; the rare expanding turn still
+streams its answer. The agent never sees distil's recovery tool.
+
+### Recoverable by default on every metered path
+`make_app` now turns the expand loop ON wherever lossy digest will actually run (any
+metered/PAYG session that didn't force `--verbatim`). Previously a bare `distil
+proxy`/`wrap` without `--expand`, the async proxy, or a direct `make_app` caller could run
+Tier-1 digest with **no** recovery tool — leaving irreversibly-lossy stubs, the exact harm
+the subscription force-verbatim already prevents, silently un-guarded on PAYG. With
+streamexpand there is no TTFT reason to leave that gap open. `--verbatim` still wins;
+subscription stays lossless-only (no digest).
+
+### The async proxy stops emitting unrecoverable stubs
+`distil.aproxy` injects no expand tool and runs no expand loop, so any Tier-1 stub it
+created could never be pulled back. It now folds all lossy digest into verbatim — the async
+path stays Tier-0 (reversible lossless transforms like the #24 columnar fold still apply,
+so real savings remain) and never leaves an irrecoverable stub. (Recoverable Tier-1 on the
+async path awaits a streaming expand loop of its own.)
+
+### Gates
+- Full suite green (**1828 tests**; +8 for streamexpand — pass-through, interception+splice,
+  block re-indexing, SSE frames split across read boundaries, usage summing, max-iters bound,
+  re-query failure — plus an end-to-end streamed intercept through the real proxy). Coverage
+  ≥95%; pinned ruff + mypy clean; `distil verify` / `bench` / `validate` unaffected.
+
 ## [1.27.1] — the shadow gate actually runs; the compression mode stops flipping
 
 Two bug fixes in the request path's *measurement* and *policy* layers. Neither changes

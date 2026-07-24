@@ -112,8 +112,12 @@ def test_sync_proxy_streams_sse_incrementally(tmp_path):
         assert t_first is not None and t_first < _DELAY * 0.75, (
             f"first chunk took {t_first:.2f}s — response was buffered, not streamed"
         )
-        assert _CHUNK1 in body and _CHUNK2 in body  # nothing lost
-        assert _CHUNK2 not in first  # ...and it genuinely arrived in two pieces
+        # This request digests, so it streams through the expand interceptor
+        # (streamexpand), which reconstructs/normalizes SSE JSON framing to be able to
+        # splice a distil_expand recovery — so assert on CONTENT, not exact bytes. The
+        # streaming property itself (first chunk before the pause) is asserted above.
+        assert b"hello" in body and b"message_stop" in body  # nothing lost
+        assert b"message_stop" not in first  # ...and it genuinely arrived in two pieces
         assert headers.get("x-distil-compressed") == "1"  # compression still ran
     finally:
         proxy.shutdown()
@@ -193,7 +197,9 @@ def test_sync_proxy_streaming_records_savings_and_shadow(tmp_path, monkeypatch):
             }
         ).encode()
         _t, body, headers, _f = _stream_request(proxy.server_address[1], payload)
-        assert _CHUNK2 in body
+        assert (
+            b"message_stop" in body
+        )  # digests → streams through streamexpand (normalized framing)
         assert headers.get("x-distil-shadow") == "sampled"
         # shadow thread records asynchronously — the replay itself re-drives the
         # SSE upstream (~2s of chunk delays), so a loaded CI runner needs far
@@ -284,3 +290,104 @@ def test_aproxy_streams_sse_incrementally(tmp_path):
         loop.run_until_complete(_body())
     finally:
         loop.close()
+
+
+# --- D: streaming distil_expand interception, end to end -----------------------
+def _sse(*events) -> bytes:
+    out = b""
+    for e in events:
+        out += b"event: " + e["type"].encode() + b"\ndata: " + json.dumps(e).encode() + b"\n\n"
+    return out
+
+
+def _expand_turn(handle: str) -> bytes:
+    return _sse(
+        {
+            "type": "message_start",
+            "message": {
+                "id": "m1",
+                "role": "assistant",
+                "content": [],
+                "usage": {"input_tokens": 50, "output_tokens": 1},
+            },
+        },
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "tu", "name": "distil_expand", "input": {}},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": json.dumps({"handle": handle})},
+        },
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use"},
+            "usage": {"output_tokens": 5},
+        },
+        {"type": "message_stop"},
+    )
+
+
+def _answer_turn(text: str) -> bytes:
+    return _sse(
+        {
+            "type": "message_start",
+            "message": {
+                "id": "m2",
+                "role": "assistant",
+                "content": [],
+                "usage": {"input_tokens": 60, "output_tokens": 1},
+            },
+        },
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}},
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 9},
+        },
+        {"type": "message_stop"},
+    )
+
+
+def test_streaming_expand_intercept_end_to_end():
+    """A streamed request that digests (→ a recoverable stub in context) must, when the
+    model calls distil_expand, be intercepted and spliced: the client streams the
+    re-query answer, never sees distil's internal tool, and the upstream is hit twice."""
+    calls = {"n": 0}
+
+    class SSE(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            n = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(n)
+            calls["n"] += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(
+                _expand_turn("deadbeef") if calls["n"] == 1 else _answer_turn("SPLICED-ANSWER")
+            )
+            self.wfile.flush()
+
+        def log_message(self, *a):  # noqa: ANN002
+            pass
+
+    up = ThreadingHTTPServer(("127.0.0.1", 0), SSE)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    handler = build_handler(f"http://127.0.0.1:{up.server_address[1]}", expand=True)
+    proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    try:
+        _, body, _headers, _first = _stream_request(proxy.server_address[1], _payload())
+        assert b"SPLICED-ANSWER" in body  # the client received the re-query's answer
+        assert b"distil_expand" not in body  # never saw distil's internal recovery tool
+        assert b"input_json_delta" not in body
+        assert calls["n"] == 2  # first turn (expand call) + re-query (answer)
+        assert body.count(b'"type": "message_start"') == 1  # one coherent message
+    finally:
+        proxy.shutdown()
+        up.shutdown()

@@ -147,7 +147,7 @@ You don't need byte-equivalence — you need **decision-equivalence**: your agen
 - **Lossless even on a flat-rate plan** — subscription/lossless mode isn't just verbatim: it minifies JSON, collapses duplicate runs, and folds tabular tool output into a compact self-describing table (~70–79% smaller, ToS-safe, no lossy digest). Recent tool outputs stay byte-exact.
 - **See exactly what happened** — `distil dissect` turns a wrap session into a report: savings by model/mechanism, the digest inventory, billed-usage calibration, latency by path, and a *worth-your-attention* anomaly list that catches silent failures automatically.
 - **Compounds on outcomes** — expansions and matched failures teach the policy what to protect (signatures only, never content) — always *more* conservative.
-- **Streams like it isn't there** — SSE relays chunk-by-chunk; TTFT preserved.
+- **Streams like it isn't there** — SSE relays chunk-by-chunk; TTFT preserved — *including recoverable digest*, which speculatively streams and only intercepts an actual `distil_expand` call mid-stream, splicing the recovery in without buffering the turn (no TTFT tax on the reversible tier).
 
 > **Fidelity tiers:** lossless (`--verbatim`) · reversible (byte-recoverable on demand — default) · lossy (every other tool). Only Distil *certifies* the reversible tier (Headroom ships an uncertified retrieve; Distil's recovery is agent-facing — the model expands mid-task — and gated by the decision-equivalence certificate).
 

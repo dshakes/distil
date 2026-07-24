@@ -139,6 +139,23 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
+class _ErrStream:
+    """Adapt a urllib error (or a synthetic status) to the streamexpand response
+    interface — ``.status`` / ``.headers.items()`` / ``.read1(n)`` — so the streaming
+    expand sender never raises and a non-2xx first response relays cleanly."""
+
+    def __init__(self, status: int, headers: Any, body: bytes) -> None:
+        self.status = status
+        self.headers = headers  # http.client.HTTPMessage or dict — both expose .items()
+        self._buf = body
+        self._i = 0
+
+    def read1(self, n: int) -> bytes:
+        out = self._buf[self._i : self._i + n]
+        self._i += len(out)
+        return out
+
+
 # ---------------------------------------------------------------------------
 # Token-saving estimator
 # ---------------------------------------------------------------------------
@@ -295,6 +312,16 @@ def build_handler(
     # the user opted in, and nothing is irreversibly lost. The default (no --expand)
     # stays lossless-only. Output shaping stays gated on `_lossy_ok` (PAYG-only) — it
     # rewrites the *response*, which expand does not make recoverable. See issue #28.
+    #
+    # Recoverable by default: wherever lossy Tier-1 digest WILL run (any metered/PAYG
+    # session that didn't force verbatim), turn the expand loop ON so every stub the
+    # digest leaves is recoverable via distil_expand. streamexpand keeps this fully
+    # streaming (it speculatively relays and only intercepts an actual expand call), so
+    # there is no TTFT reason to leave a metered session emitting irreversible stubs —
+    # the exact harm the subscription force-verbatim prevents, now closed on PAYG too.
+    # An explicit --verbatim (verbatim=True) still wins; subscription stays lossless-only.
+    if _lossy_ok and not verbatim:
+        expand = True
     verbatim = verbatim or not (_lossy_ok or expand)
     if lossless_only and expand:
         import sys as _sys
@@ -745,14 +772,83 @@ def build_handler(
             if shadow_sampled:
                 extras["x-distil-shadow"] = "sampled"
 
-            # Streaming pass-through: when the client asked for a streamed
-            # response, relay upstream bytes as they arrive — time-to-first-token
-            # is preserved. The expand loop needs the complete response (it may
-            # re-query before answering), so expand-eligible requests stay on
-            # the buffered path.
+            # Streaming: relay upstream bytes as they arrive so time-to-first-token is
+            # preserved. Recoverable-digest requests used to fall back to the buffered
+            # expand loop (losing TTFT); streamexpand now speculatively streams and
+            # intercepts a distil_expand call mid-stream, splicing the re-query so the
+            # agent keeps streaming AND the digest stays recoverable.
             want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
             t_req = time.monotonic()  # upstream + relay latency (compression excluded)
-            if want_stream and not _expand_should_intercept(expand, store, body):
+            if want_stream and _expand_should_intercept(expand, store, body):
+                from .streamexpand import stream_with_expand
+
+                def _send_stream(_b: dict[str, Any]) -> Any:
+                    _rb = json.dumps(_b).encode()
+                    _req = urllib.request.Request(
+                        _upstream + self.path,
+                        data=_rb,
+                        headers={**headers, "Content-Length": str(len(_rb))},
+                        method="POST",
+                    )
+                    try:
+                        return _OPENER.open(_req, timeout=_UPSTREAM_TIMEOUT)
+                    except urllib.error.HTTPError as exc:
+                        return _ErrStream(exc.code, exc.headers, exc.read() if exc.fp else b"")
+                    except (urllib.error.URLError, TimeoutError) as exc:
+                        _st = 504 if isinstance(exc, TimeoutError) or _is_timeout(exc) else 502
+                        return _ErrStream(
+                            _st,
+                            {"Content-Type": "application/json"},
+                            b'{"error":"upstream connection failed"}',
+                        )
+
+                _usage_x: dict[str, int] = {}
+                with request_span(_span_model, self.path) as _span:
+                    status_x = stream_with_expand(
+                        self,
+                        _send_stream,
+                        body,
+                        store,
+                        hop_by_hop=_HOP_BY_HOP,
+                        extras=extras,
+                        usage_sink=_usage_x,
+                    )
+                    set_result_attrs(
+                        _span,
+                        original_tokens=before_tok,
+                        compressed_tokens=after_tok,
+                        compression_ratio=(
+                            after_tok / before_tok if before_tok and after_tok is not None else None
+                        ),
+                        compressed="x-distil-compressed" in extras,
+                        shadow_sampled=shadow_sampled,
+                    )
+                if _learn_stats is not None:
+                    _learn_stats.save()
+                if savings is not None and _pending_savings is not None and 200 <= status_x < 300:
+                    _bt, _at, _m = _pending_savings
+                    savings.record(_bt, _at, model=_m)
+                    savings.maybe_flush(every=flush_every)
+                self._emit_detail(
+                    extras=extras,
+                    store=store,
+                    body=body if isinstance(body, dict) else None,
+                    model=_span_model,
+                    stream=True,
+                    client_stream=want_stream,
+                    status=status_x,
+                    booked=(
+                        savings is not None
+                        and _pending_savings is not None
+                        and 200 <= status_x < 300
+                    ),
+                    duration_ms=int((time.monotonic() - t_req) * 1000),
+                    usage=_usage_x,
+                )
+                if shadow_sampled:
+                    self._spawn_shadow(raw, headers, new_raw)
+                return
+            if want_stream:
                 from .streamrelay import stream_upstream
 
                 _usage_s: dict[str, int] = {}
