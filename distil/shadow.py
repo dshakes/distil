@@ -360,8 +360,13 @@ def force_deterministic(raw: bytes | None) -> bytes | None:
     Only ``temperature`` is set — deliberately not ``top_p``/``seed``. Anthropic
     (Claude Code's own upstream) rejects unknown params and warns on temperature
     +top_p together; a 400 there would zero out exactly the samples we most need.
-    temperature 0 is the one knob every provider honors, and the decision signature
-    (tool + normalized args) is coarse enough that greedy decoding agrees ~100%.
+    On models that still expose it, temperature 0 gives greedy decoding and the
+    decision signature (tool + normalized args) is coarse enough that it agrees ~100%.
+    EXCEPTIONS where pinning 0 is forbidden (400) and the request is replayed as-sent
+    — the A/A baseline then absorbs the residual sampling noise (see the body comment):
+    extended ``thinking`` (requires temperature unset/1), and Opus 4.7+ (removed the
+    temperature/top_p/top_k knobs entirely). We therefore only pin an EXISTING
+    temperature and never inject one.
 
     Returns ``None`` when the body isn't a JSON object (not a chat request → skip
     the sample rather than compare it under hot sampling).
@@ -374,7 +379,23 @@ def force_deterministic(raw: bytes | None) -> bytes | None:
         return None
     if not isinstance(obj, dict):
         return None
-    obj["temperature"] = 0
+    # Pinning temperature 0 for a greedy replay must be applied carefully — done
+    # unconditionally it 400'd ~every sampled request (observed: 295/323 replay_failed,
+    # last_fail_reason 400), because two API constraints reject it:
+    #   1. Extended thinking requires temperature unset/1 (Anthropic 400s on anything
+    #      else), and Claude Code runs thinking by DEFAULT.
+    #   2. Opus 4.7+ REMOVED temperature/top_p/top_k entirely — any value 400s — so the
+    #      client already omits temperature on current models (e.g. claude-opus-4-8).
+    # Injecting temperature where the client didn't send it, or overriding it under
+    # thinking, is exactly what breaks. Rule: only pin an EXISTING temperature, and
+    # never when thinking is on; otherwise replay as-sent (already API-valid). A model
+    # that still accepts temperature is the only one that carries the field, so this
+    # keeps greedy determinism where it's allowed and falls back to the A/A-noise-
+    # adjusted comparison (aa_agreement / adjusted_rate) everywhere else.
+    thinking = obj.get("thinking")
+    thinking_on = isinstance(thinking, dict) and thinking.get("type") == "enabled"
+    if "temperature" in obj and not thinking_on:
+        obj["temperature"] = 0
     return json.dumps(obj).encode("utf-8")
 
 

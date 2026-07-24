@@ -611,13 +611,48 @@ def test_force_deterministic_pins_temperature_and_preserves_prompt():
     assert "seed" not in obj and "top_p" not in obj
 
 
-def test_force_deterministic_adds_temperature_when_absent():
+def test_force_deterministic_does_not_inject_temperature_when_absent():
+    """Regression: Opus 4.7+ REMOVED temperature entirely (any value 400s) and the
+    client omits it, so INJECTING temperature 0 where it was absent 400s the replay.
+    force_deterministic must only pin an EXISTING temperature, never add one."""
     import json
 
     from distil.shadow import force_deterministic
 
-    obj = json.loads(force_deterministic(b'{"model":"m","messages":[]}'))
-    assert obj["temperature"] == 0
+    obj = json.loads(force_deterministic(b'{"model":"claude-opus-4-8","messages":[]}'))
+    assert "temperature" not in obj  # not injected → replay stays API-valid on 4.7+
+
+
+def test_force_deterministic_leaves_thinking_requests_valid():
+    """Regression: Anthropic 400s on temperature != 1 with extended thinking, and
+    Claude Code runs thinking by default. Forcing temp 0 unconditionally 400'd ~every
+    sampled request (295/323 replay_failed). A thinking request must be replayed
+    exactly as sent — temperature NOT pinned to 0 — so the replay is API-valid."""
+    import json
+
+    from distil.shadow import force_deterministic
+
+    body = json.dumps(
+        {
+            "model": "claude-opus-4-8",
+            "messages": [{"role": "user", "content": "hi"}],
+            "thinking": {"type": "enabled", "budget_tokens": 4000},
+            "temperature": 1,
+        }
+    ).encode()
+    obj = json.loads(force_deterministic(body))
+    assert obj["temperature"] == 1  # NOT forced to 0 → no 400
+    assert obj["thinking"] == {"type": "enabled", "budget_tokens": 4000}  # untouched
+    assert obj["messages"] == [{"role": "user", "content": "hi"}]  # decision input intact
+    # thinking DISABLED + an EXISTING temperature is still pinned to 0 (greedy allowed)
+    off = json.loads(
+        force_deterministic(
+            json.dumps(
+                {"model": "m", "messages": [], "thinking": {"type": "disabled"}, "temperature": 0.7}
+            ).encode()
+        )
+    )
+    assert off["temperature"] == 0
 
 
 def test_force_deterministic_skips_non_json():
