@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { validateBeat } = require("../lib/beat_validate.js");
 const { pairs } = require("../lib/upstash.js");
-const { monotonicTokens } = require("../api/beat.js");
+const { merge } = require("../api/beat.js");
 
 const good = () => ({ v: 1, id: "a".repeat(32), tokens: 1000, rate: 5.5, ts: 1784600000 });
 
@@ -31,10 +31,16 @@ test("upstash pairs() flattens HGETALL output", () => {
   assert.deepEqual(pairs(null), {});
 });
 
-test("monotonicTokens raises but never lowers a stored total", () => {
-  assert.equal(monotonicTokens("1000", 1200), 1200); // grew → rises
-  assert.equal(monotonicTokens("1000", 900), 1000); // dipped → held, never shrinks
-  assert.equal(monotonicTokens(null, 500), 500); // first beat for a new install
-  assert.equal(monotonicTokens(undefined, 0), 0); // brand-new, nothing saved yet
-  assert.equal(monotonicTokens("1000", 1000), 1000); // flat → unchanged
+test("merge applies the newest beat by ts (last-write-wins), drops stale replays", () => {
+  const b = (tokens, ts) => ({ tokens, ts, rate: 1 });
+  // newer ts, higher total → rises
+  assert.deepEqual(merge({ ts: "100" }, b(1200, 200)), { tokens: 1200, ts: 200, rate: 1 });
+  // newer ts but a LOWER total → propagates (honest re-baseline, not pinned to a ghost)
+  assert.deepEqual(merge({ ts: "100" }, b(900, 200)), { tokens: 900, ts: 200, rate: 1 });
+  // first beat for a new install (no stored ts) is applied
+  assert.deepEqual(merge({ ts: undefined }, b(500, 50)), { tokens: 500, ts: 50, rate: 1 });
+  // an OLDER (stale/replayed) beat is dropped so it can't rewind a fresher value
+  assert.equal(merge({ ts: "300" }, b(1, 200)), null);
+  // same ts → applied (newest wins, idempotent in practice)
+  assert.deepEqual(merge({ ts: "200" }, b(1000, 200)), { tokens: 1000, ts: 200, rate: 1 });
 });

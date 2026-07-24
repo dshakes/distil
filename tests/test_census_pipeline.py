@@ -94,20 +94,41 @@ def test_rollup_dedupes_by_install_id_latest_wins(tmp_path):
     assert agg["installs"]["by_version"] == {"1.21.0": 1, "1.20.0": 1}
 
 
-def test_rollup_community_total_never_shrinks_on_a_dipping_install(tmp_path):
-    """The live-counter bug: a pre-fix client whose factor drifted down sent a
-    SMALLER cumulative, and sum(latest) dragged the public odometer backwards.
-    The rollup now banks only positive per-install deltas, so a later dip holds
-    the number instead of un-counting already-reported savings."""
+def test_rollup_community_total_is_faithful_sum_of_latest_per_install(tmp_path):
+    """The live-counter fix: the community total is Σ latest-per-install — exactly
+    what each install currently reports — NOT a rollup-side ratchet.
+
+    The old rollup banked per-install upward deltas and held each install's PEAK
+    forever. When an install legitimately re-baselines DOWN (its local accrual
+    state is wiped / recalibrated, so its own honest emit drops), that ratchet kept
+    the stale peak, minting a public total no install could reproduce — the real
+    1.4B→1.16B ghost this fix removes. Faithful Σ-of-latest follows the install
+    down, so the counter equals what the live worker reports and what a reinstall
+    recomputes. It's monotonic in normal flow (the client is monotonic at source)
+    and corrects downward only on a real re-baseline — which it must."""
     now = int(time.time())
     rows = [
         _row(install_id="a" * 32, tokens_saved=1000, ts=now - 200),
         _row(install_id="a" * 32, tokens_saved=1200, ts=now - 100),  # earned +200
-        _row(install_id="a" * 32, tokens_saved=900, ts=now),  # recalibrated DOWN
+        _row(install_id="a" * 32, tokens_saved=900, ts=now),  # re-baselined DOWN
     ]
     agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
-    assert agg["savings"]["tokens"] == 1200  # high-water held, NOT 900
-    assert [h["tokens"] for h in agg["savings"]["history"]] == [1000, 1200, 1200]  # never dips
+    assert agg["savings"]["tokens"] == 900  # the install's HONEST latest, not the peak
+    # history follows the real trajectory, including the honest re-baseline dip
+    assert [h["tokens"] for h in agg["savings"]["history"]] == [1000, 1200, 900]
+
+
+def test_rollup_total_sums_distinct_installs_at_their_latest(tmp_path):
+    """Two installs → Σ of each one's most-recent census, and a re-baseline in one
+    never inflates the other (no cross-install carry)."""
+    now = int(time.time())
+    rows = [
+        _row(install_id="a" * 32, tokens_saved=1200, ts=now - 100),
+        _row(install_id="b" * 32, tokens_saved=300, ts=now - 90),
+        _row(install_id="a" * 32, tokens_saved=900, ts=now),  # A re-baselines down
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["savings"]["tokens"] == 1200  # A(900) + B(300), not the held peak
 
 
 def test_rollup_active_windows(tmp_path):

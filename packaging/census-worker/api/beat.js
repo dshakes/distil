@@ -15,13 +15,22 @@
 const { validateBeat, MAX_BEAT_BYTES } = require("../lib/beat_validate.js");
 const { creds, pipeline } = require("../lib/upstash.js");
 
-// A beat may only RAISE an install's stored total, never lower it. The client
-// already sends a monotonic count-time-calibrated total; this holds the line for
-// a pre-fix client, or one whose local accrual state (~/.distil/census-savings.json)
-// was wiped and now re-accrues from a lower base — the community counter must
-// never tick backward. Extracted pure so it has a runnable check without Upstash.
-function monotonicTokens(stored, incoming) {
-  return Math.max(Number(stored) || 0, Number(incoming) || 0);
+// The client is authoritative for its own running total, so a beat is applied
+// LAST-WRITE-WINS by timestamp: the newest beat sets tokens/ts/rate wholesale —
+// even when the new total is LOWER. A legitimate re-baseline (local accrual state
+// ~/.distil/census-savings.json wiped, or a downward calibration) MUST propagate;
+// the old max() pinned the store to a stale high-water that no install could
+// reproduce — exactly the ghost total this counter must never show. Beats are
+// monotonic at source, so in normal flow the total only rises; it drops solely on
+// a real reset, which is honest. An out-of-order OLDER beat (ts < stored) is
+// dropped so it can't rewind a fresher value. Pure → runnable check without Upstash.
+function merge(stored, incoming) {
+  if (Number(incoming.ts) < (Number(stored && stored.ts) || 0)) return null; // stale/replayed
+  return {
+    tokens: Number(incoming.tokens) || 0,
+    ts: Number(incoming.ts) || 0,
+    rate: Number(incoming.rate) || 0,
+  };
 }
 
 // Best-effort per-instance rate limit (real limiting belongs in the firewall).
@@ -60,15 +69,18 @@ module.exports = async (req, res) => {
     return res.end();
   }
   try {
-    // Read the current stored total first so the write can only raise it. Per
+    // Read the current stored ts so an out-of-order/replayed OLDER beat can't
+    // rewind a fresher value; otherwise the newest beat wins wholesale. Per
     // install, beats are ≤1/5min, so this read-then-write has no real race.
-    const prev = await pipeline([["HGET", "hb:tok", body.id]]);
-    const tokens = monotonicTokens(prev && prev[0] && prev[0].result, body.tokens);
-    await pipeline([
-      ["HSET", "hb:tok", body.id, String(tokens)],
-      ["HSET", "hb:ts", body.id, String(body.ts)],
-      ["HSET", "hb:rate", body.id, String(body.rate)],
-    ]);
+    const prev = await pipeline([["HGET", "hb:ts", body.id]]);
+    const next = merge({ ts: prev && prev[0] && prev[0].result }, body);
+    if (next) {
+      await pipeline([
+        ["HSET", "hb:tok", body.id, String(next.tokens)],
+        ["HSET", "hb:ts", body.id, String(next.ts)],
+        ["HSET", "hb:rate", body.id, String(next.rate)],
+      ]);
+    }
     res.statusCode = 202;
   } catch (e) {
     res.statusCode = 502;
@@ -76,4 +88,4 @@ module.exports = async (req, res) => {
   res.end();
 };
 
-module.exports.monotonicTokens = monotonicTokens;
+module.exports.merge = merge;

@@ -111,28 +111,20 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
                 rate_per_sec += dtok / dt
 
     # Community-total token trajectory over time (real points, for a sparkline)
-    # AND the headline community total (`tokens`, below) — both built from
-    # cumulative POSITIVE per-install deltas so the odometer is MONOTONIC: a
-    # pre-fix client whose factor drifted down sent a SMALLER cumulative, and
-    # summing latest values dragged the public counter backwards. Banking only
-    # upward deltas holds the number instead of un-counting already-reported
-    # savings. For a monotonic (post-fix) client this telescopes to its latest
-    # value, so nothing is lost. Mirrors the rate_per_sec primitive (dtok >= 0).
+    # AND the headline community total (`tokens`, below) — both are a faithful
+    # Σ latest-per-install tokens_saved, walked over time: each install contributes
+    # its most-recent value seen so far. The client is monotonic AT SOURCE, so this
+    # only moves backward when an install is genuinely re-baselined (local state
+    # wiped) — which it SHOULD. The old code banked upward per-install deltas across
+    # the whole stream; that pinned the counter to a stale per-install high water
+    # that survived even after that install re-baselined lower, minting a community
+    # total no install could reproduce (the 1.4B ghost). Σ-of-latest can't ghost:
+    # it always equals what the live worker reports and what a reinstall recomputes.
     history: list[dict] = []
-    mono: dict[str, int] = {}  # per-install frozen cumulative — only ever rises
-    prev_seen: dict[str, int] = {}
+    seen: dict[str, int] = {}  # per-install latest tokens_saved seen so far in time
     for row in sorted(census, key=lambda r: r["ts"]):
-        iid = row["install_id"]
-        cur = int(row["tokens_saved"])
-        if cur > prev_seen.get(iid, 0):
-            mono[iid] = mono.get(iid, 0) + (cur - prev_seen.get(iid, 0))
-        else:
-            mono.setdefault(iid, 0)
-        # ponytail: a dip holds (never subtracts); a later re-climb past the old
-        # peak re-adds the recovered span — bounded pre-fix-client noise, gone
-        # once every client emits monotonic cumulatives at source.
-        prev_seen[iid] = cur
-        history.append({"ts": row["ts"], "tokens": sum(mono.values())})
+        seen[row["install_id"]] = int(row["tokens_saved"])
+        history.append({"ts": row["ts"], "tokens": sum(seen.values())})
     history = history[-60:]
 
     as_of_ts = max((int(r["ts"]) for r in latest.values()), default=int(now))
@@ -158,7 +150,7 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     }
 
     versions = Counter(r["version"] for r in latest.values())
-    tokens = sum(mono.values())  # monotonic community lifetime (see history above)
+    tokens = sum(int(r["tokens_saved"]) for r in latest.values())  # Σ latest-per-install (faithful)
     # Dollars are bucketed by billing: metered = real savings; subscription =
     # notional API-rate value (shown and labeled, never mixed into real $).
     # Schema-1 rows carry no billing → conservatively counted as notional.
