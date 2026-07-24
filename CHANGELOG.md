@@ -3,6 +3,59 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.27.1] — the shadow gate actually runs; the compression mode stops flipping
+
+Two bug fixes in the request path's *measurement* and *policy* layers. Neither changes
+what the model is sent on a normal request — but both were silently degrading guarantees
+distil advertises.
+
+### The decision-equivalence shadow gate was recording almost nothing
+- **The bug:** `shadow_counters` showed **295/323 replays failing with HTTP 400**
+  (`signature_none_skipped: 295`, `last_fail_reason: "400"`), so the "compression provably
+  didn't change the agent's next action" number was computed from ~28 samples, not the
+  live stream — the safety net was effectively off.
+- **Root cause** (`distil/shadow.py`, `force_deterministic`): the temp-0 replay pinned
+  `temperature = 0` unconditionally, but two API constraints reject that on the models
+  Claude Code runs — (1) extended **thinking** requires `temperature` unset/1 (400
+  otherwise), and Claude Code enables thinking by default; (2) **Opus 4.7+ removed
+  `temperature`/`top_p`/`top_k` entirely** (any value 400s), so the client omits it.
+  Injecting `temperature: 0` therefore 400'd ~every sampled request.
+- **The fix:** only pin an **existing** temperature, and never when thinking is on;
+  otherwise replay the request exactly as sent (already API-valid). Greedy determinism is
+  kept where the knob still exists; elsewhere the existing A/A baseline (`aa_agreement` /
+  `adjusted_rate`) absorbs the residual sampling noise. `force_deterministic` is the *only*
+  code in the request path that touches sampling params, and only the shadow worker calls
+  it — so this never affected live requests, only the background measurement.
+
+### The compression mode flipped digest↔lossless-only between launches
+- **The bug:** the same machine sometimes ran the aggressive **digest** compressor and
+  sometimes near-passthrough **lossless-only** — visible as wildly inconsistent per-request
+  savings — depending only on whether `ANTHROPIC_API_KEY` happened to be exported when the
+  proxy started.
+- **Root cause** (`distil/doctor.py`, `subscription_mode`): it classified any environment
+  with `ANTHROPIC_API_KEY` set as metered → digest, even for a Claude Pro/Max user whose
+  Claude Code traffic authenticates with the **OAuth** token, not the key. A volatile env
+  var was the deciding signal.
+- **The fix:** the stable OAuth-login signal (`~/.claude.json` has `oauthAccount`) now wins
+  — an OAuth login classifies as subscription (lossless-only) even with a key in the env. It
+  fails safe: misreading subscription traffic as metered would apply lossy digest to it (the
+  exact harm the mode gate prevents), while the reverse only leaves savings on the table. A
+  bare key with no OAuth login is still metered; `DISTIL_SUBSCRIPTION=0` forces metered under
+  an OAuth login.
+
+### Also shipped (deploy-tier — not in the wheel)
+- The community live counter was showing a **1.44B ghost** and a phantom **"874.9M/day"**
+  from a single idle machine. Fixed by making every downstream layer faithful transport of
+  the client's current emit: the worker heartbeat store is now last-write-wins by ts, the
+  rollup community total is Σ latest-per-install (not a peak-banking ratchet), and the
+  adoption page drops the max-anchor and the `rate×86400` projection (`packaging/census-worker`,
+  `scripts/census_rollup.py`, `docs/adoption.html`).
+
+### Gates
+- Full suite green; added tests for both fixes (shadow: thinking replays left valid, no
+  temperature injected when absent; subscription: OAuth wins over a stray key, override still
+  honored). Pinned ruff + mypy clean; `distil verify` / `bench` / `validate` unaffected.
+
 ## [1.27.0] — the coverage gate enforces the floor it advertises
 
 Bug fix + test-debt paydown (issue #32). The `coverage` CI job reported **success while its own log printed** `FAIL … Total coverage: 94.90%`. Root cause: `[tool.coverage.report]` set no `precision`, and coverage.py defaults it to `0` — which rounds the number used for the `--cov-fail-under` decision, not just the printed report. `94.90%` rounded to `95`, so `95 >= 95` passed a floor the suite was actually under. For a project whose whole pitch is *certified gates*, a gate that lies is worse than a red build.

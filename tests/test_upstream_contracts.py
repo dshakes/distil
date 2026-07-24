@@ -36,8 +36,15 @@ def test_claude_oauth_detection_contract(monkeypatch, tmp_path):
     (tmp_path / ".claude.json").write_text('{"oauthAccount": {"x": 1}}', encoding="utf-8")
     assert doctor.subscription_mode() is True
 
-    # a metered key means real dollars, regardless of the OAuth file
+    # OAuth login WINS over a stray metered key: Claude Code authenticates that
+    # traffic with the OAuth token, not the key, so it stays subscription-safe
+    # (lossless-only) — the compression mode can't flip to PAYG/digest just because a
+    # key happens to be in the env (the reported flip). This is what the docstring's
+    # ToS-safety rationale above actually requires.
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    assert doctor.subscription_mode() is True
+    # …but an explicit override still forces metered for a genuinely-PAYG OAuth user.
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
     assert doctor.subscription_mode() is False
 
 

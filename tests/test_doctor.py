@@ -69,10 +69,24 @@ def test_subscription_mode_env_override(monkeypatch) -> None:
 
 
 def test_subscription_mode_metered_key_means_real_dollars(monkeypatch) -> None:
-    # A metered API key set, no explicit override → dollars are real, not notional.
+    # A genuine PAYG setup: a metered API key, NO OAuth login → dollars are real.
     monkeypatch.delenv("DISTIL_SUBSCRIPTION", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setattr(doctor, "_claude_oauth_present", lambda: False)
     assert doctor.subscription_mode() is False
+
+
+def test_subscription_mode_oauth_wins_over_stray_api_key(monkeypatch) -> None:
+    """The mode-flip fix: a Claude Code OAuth login is flat-rate even with an
+    ANTHROPIC_API_KEY in the env, so the mode can't flip digest↔lossless-only between
+    launches depending on whether the key happened to be exported. DISTIL_SUBSCRIPTION
+    still overrides for a genuinely metered OAuth user."""
+    monkeypatch.delenv("DISTIL_SUBSCRIPTION", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setattr(doctor, "_claude_oauth_present", lambda: True)
+    assert doctor.subscription_mode() is True  # OAuth wins → subscription-safe
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
+    assert doctor.subscription_mode() is False  # explicit override still forces metered
 
 
 def test_mode_check_warns_on_verbatim_service(tmp_path, monkeypatch):

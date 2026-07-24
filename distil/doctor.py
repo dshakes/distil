@@ -27,19 +27,29 @@ class Check:
 
 
 def subscription_mode() -> bool:
-    """True when the dollar figures are notional (flat-rate, no per-token bill).
+    """True when the dollar figures are notional (flat-rate) AND compression must stay
+    subscription-safe (lossless-only, no lossy digest).
 
-    Explicit ``DISTIL_SUBSCRIPTION`` wins (on/off). Otherwise auto-detect a Claude
-    Pro/Max OAuth login (``~/.claude.json`` has ``oauthAccount``) with no API key
-    set — the common case where distil's measured dollars don't map to a real bill.
+    Explicit ``DISTIL_SUBSCRIPTION`` wins (on/off). Otherwise a Claude Pro/Max OAuth
+    login (``~/.claude.json`` has ``oauthAccount``) classifies as subscription — even
+    when an ``ANTHROPIC_API_KEY`` is also present in the environment. Claude Code
+    authenticates that traffic with the OAuth token, not the key, so it is flat-rate.
+
+    Keying off the OAuth login (a stable per-machine fact) rather than the volatile
+    ``ANTHROPIC_API_KEY`` env var is what stops the compression mode flipping
+    digest↔lossless-only between launches (the reported symptom). It also fails safe:
+    misreading subscription traffic as metered would apply lossy digest to it — the
+    exact harm the mode gate exists to prevent — whereas the reverse only leaves
+    savings on the table. A bare API key with no OAuth login is a genuine metered
+    setup. Force metered even under an OAuth login with ``DISTIL_SUBSCRIPTION=0``.
     """
     env = os.environ.get("DISTIL_SUBSCRIPTION", "").strip().lower()
     if env in ("1", "true", "yes", "on"):
         return True
     if env in ("0", "false", "no", "off"):
         return False
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return False  # a metered key means the dollars are real
+    # OAuth login wins over a stray ANTHROPIC_API_KEY: no key short-circuit here — a
+    # non-OAuth machine falls through to False (metered), a bare key stays metered.
     return _claude_oauth_present()
 
 
