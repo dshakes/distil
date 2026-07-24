@@ -110,14 +110,29 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             if dt > 0 and dtok >= 0:
                 rate_per_sec += dtok / dt
 
-    # Community-total token trajectory over time (real points, for a sparkline):
-    # walk censuses ascending, keep each install's latest-known tokens, emit the
-    # running community sum at each timestamp. Capped to the last 60 points.
+    # Community-total token trajectory over time (real points, for a sparkline)
+    # AND the headline community total (`tokens`, below) — both built from
+    # cumulative POSITIVE per-install deltas so the odometer is MONOTONIC: a
+    # pre-fix client whose factor drifted down sent a SMALLER cumulative, and
+    # summing latest values dragged the public counter backwards. Banking only
+    # upward deltas holds the number instead of un-counting already-reported
+    # savings. For a monotonic (post-fix) client this telescopes to its latest
+    # value, so nothing is lost. Mirrors the rate_per_sec primitive (dtok >= 0).
     history: list[dict] = []
-    seen_tokens: dict[str, int] = {}
+    mono: dict[str, int] = {}  # per-install frozen cumulative — only ever rises
+    prev_seen: dict[str, int] = {}
     for row in sorted(census, key=lambda r: r["ts"]):
-        seen_tokens[row["install_id"]] = int(row["tokens_saved"])
-        history.append({"ts": row["ts"], "tokens": sum(seen_tokens.values())})
+        iid = row["install_id"]
+        cur = int(row["tokens_saved"])
+        if cur > prev_seen.get(iid, 0):
+            mono[iid] = mono.get(iid, 0) + (cur - prev_seen.get(iid, 0))
+        else:
+            mono.setdefault(iid, 0)
+        # ponytail: a dip holds (never subtracts); a later re-climb past the old
+        # peak re-adds the recovered span — bounded pre-fix-client noise, gone
+        # once every client emits monotonic cumulatives at source.
+        prev_seen[iid] = cur
+        history.append({"ts": row["ts"], "tokens": sum(mono.values())})
     history = history[-60:]
 
     as_of_ts = max((int(r["ts"]) for r in latest.values()), default=int(now))
@@ -143,7 +158,7 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     }
 
     versions = Counter(r["version"] for r in latest.values())
-    tokens = sum(int(r["tokens_saved"]) for r in latest.values())
+    tokens = sum(mono.values())  # monotonic community lifetime (see history above)
     # Dollars are bucketed by billing: metered = real savings; subscription =
     # notional API-rate value (shown and labeled, never mixed into real $).
     # Schema-1 rows carry no billing → conservatively counted as notional.

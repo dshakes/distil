@@ -128,7 +128,7 @@ def opt_out() -> None:
     home = _home()
     home.mkdir(parents=True, exist_ok=True)
     _consent_path().write_text("off", encoding="utf-8")
-    for p in (_id_path(), _last_path()):
+    for p in (_id_path(), _last_path(), _savings_path(), _beat_last_path()):
         try:
             p.unlink()
         except OSError:
@@ -151,30 +151,129 @@ def install_id() -> str:
     return fresh
 
 
-def build_payload() -> dict:
+# ---- monotonic count-time savings accrual --------------------------------
+# The community counters — the daily census (tokens_saved / dollars_saved /
+# by_model) AND the near-real-time heartbeat total — must be MONOTONIC and must
+# never exceed what the provider would bill. Multiplying the whole LIFETIME
+# cumulative by the CURRENT factor (the old code) fails both: as the factor
+# drifts down toward a better estimate, the reported total shrinks — the live
+# counter un-counts tokens already saved. We instead calibrate each census
+# DELTA at count time and freeze it: the running total advances by
+# Δraw × factor-known-now and is never restated when the factor later moves.
+# That is monotonic by construction, and honest — every increment is valued at
+# the best estimate available when it was earned, exactly like invoicing each
+# period as it closes. State is persisted so it survives across sessions and is
+# wiped with ~/.distil (and on opt-out), so revocation stays real.
+
+
+def _savings_path() -> Path:
+    return _home() / "census-savings.json"
+
+
+def _factor(model: str | None = None) -> float:
+    """The calibration factor as a bare float, fail-open to identity (1.0).
+    Calibration is a correction, never a blocker."""
+    try:
+        from .calibration import factor as _cf
+
+        return _cf(model)[0]
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
+def _load_savings() -> dict:
+    """Persisted accrual state. Each channel remembers the raw total already
+    banked (`raw_seen`) and the frozen calibrated cumulative (`saved`, a float
+    so per-period rounding never compounds)."""
+    fresh = {
+        "v": 1,
+        "tokens": {"saved": 0.0, "raw_seen": 0},
+        "dollars": {"saved": 0.0, "raw_seen": 0.0},
+        "by_model": {},
+    }
+    try:
+        d = json.loads(_savings_path().read_text(encoding="utf-8"))
+        if isinstance(d, dict) and d.get("v") == 1 and isinstance(d.get("by_model"), dict):
+            for k in ("tokens", "dollars"):
+                if not isinstance(d.get(k), dict):
+                    d[k] = fresh[k]
+            return d
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return fresh
+
+
+def _save_savings(st: dict) -> None:
+    try:
+        p = _savings_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(st), encoding="utf-8")
+    except OSError:
+        pass  # fail-open: a lost write just re-accrues the same delta next time
+
+
+def _step(ch: dict, raw_now: float, f: float) -> float:
+    """Advance one monotonic channel: bank max(0, Δraw)·f at count time and
+    freeze it. `saved` only ever rises. Returns the new cumulative saved."""
+    if raw_now - ch.get("raw_seen", 0) > 0:
+        ch["saved"] = ch.get("saved", 0.0) + (raw_now - ch["raw_seen"]) * f
+    # ponytail: a shrinking raw (ledger truncation/reset) rebases without
+    # subtracting — census-savings.json is wiped together with ~/.distil, so a
+    # real reset re-accrues from zero and never double-counts.
+    ch["raw_seen"] = raw_now
+    return ch.get("saved", 0.0)
+
+
+def _accrue(
+    raw_tokens: int,
+    raw_dollars: float,
+    raw_by_model: dict,
+    *,
+    persist: bool,
+) -> dict:
+    """Fold this census's raw savings into the frozen cumulative and return the
+    emit-ready numbers. Persists only when `persist` — previews never mutate."""
+    st = _load_savings()
+    tokens_saved = _step(st["tokens"], raw_tokens, _factor())
+    dollars_saved = _step(st["dollars"], raw_dollars, _factor())
+    bm = st["by_model"]
+    for model, raw in raw_by_model.items():
+        ch = bm.setdefault(model, {"saved": 0.0, "raw_seen": 0})
+        _step(ch, raw, _factor(model))  # per-model factor preserves the model mix
+    if persist:
+        _save_savings(st)
+    top = sorted(bm.items(), key=lambda kv: -kv[1].get("saved", 0.0))[:MAX_MODELS]
+    return {
+        "tokens": round(tokens_saved),
+        "dollars": round(dollars_saved, 4),
+        "by_model": {m: round(c["saved"]) for m, c in top if c.get("saved", 0.0) > 0},
+    }
+
+
+def build_payload(*, accrue: bool = False) -> dict:
     """The census, exactly as it would be sent. Numbers and platform strings
     only — never content, paths, hashes-of-content, or key material.
 
     Anti-bloat rules (the community totals must survive scrutiny):
-    - token/dollar counts get the same calibration factor the proof ledger
-      applies (heuristic counts → billed-count estimate; identity until enough
-      samples), so the census never reports more than the provider would bill;
+    - token/dollar/by-model counts are a MONOTONIC cumulative built by
+      calibrating each census DELTA at count time and freezing it, so the total
+      never goes down on a downward recalibration and never reports more than
+      the provider would bill (see the accrual note above);
     - dollars are always reported, but the `billing` field lets the rollup
       bucket them honestly: metered dollars are real savings, subscription
       dollars are the NOTIONAL API-rate value (shown, labeled, never mixed
       into the real-$ total).
+
+    `accrue` gates the ONE side effect: the running total is advanced and
+    persisted only on a real send (`maybe_ping`). `distil census show` and any
+    direct preview call leave `~/.distil/census-savings.json` untouched.
     """
     from . import __version__, ledger
 
     s = ledger.summary()
-    try:
-        from .calibration import factor as _calib_factor
-
-        f, _ = _calib_factor()
-    except Exception:  # noqa: BLE001 — calibration is a correction, never a blocker
-        f = 1.0
-    tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
-    dollars = max(0.0, s.total_baseline_dollars - s.total_distil_dollars)
+    raw_tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
+    raw_dollars = max(0.0, s.total_baseline_dollars - s.total_distil_dollars)
+    acc = _accrue(raw_tokens, raw_dollars, _raw_by_model(), persist=accrue)
     from . import surfaces as _surfaces
 
     integ = _surfaces.snapshot()
@@ -186,10 +285,10 @@ def build_payload() -> dict:
         "arch": platform.machine(),
         "python": platform.python_version(),
         "runs": s.runs,
-        "tokens_saved": round(tokens * f),
-        "dollars_saved": round(dollars * f, 4),
+        "tokens_saved": acc["tokens"],
+        "dollars_saved": acc["dollars"],
         "billing": _billing(),
-        "by_model": _by_model(f),
+        "by_model": acc["by_model"],
         "agents": _agents(),
         "surfaces": integ["surfaces"],
         "shapes": integ["shapes"],
@@ -260,9 +359,10 @@ def _billing() -> str:
         return "metered"
 
 
-def _by_model(f: float) -> dict:
-    """Top models by calibrated tokens saved — model ids only (claude-*, gpt-*…),
-    keys length-capped, at most MAX_MODELS entries."""
+def _raw_by_model() -> dict:
+    """Lifetime raw (uncalibrated) tokens saved per model — model ids only
+    (claude-*, gpt-*…), keys length-capped. Calibration (per-model factor) and
+    the top-N cut happen in `_accrue`, so each model's cumulative is monotonic."""
     from . import ledger
 
     sums: dict[str, int] = {}
@@ -278,8 +378,7 @@ def _by_model(f: float) -> dict:
                 sums[model] = sums.get(model, 0) + saved
     except OSError:
         return {}
-    top = sorted(sums.items(), key=lambda kv: -kv[1])[:MAX_MODELS]
-    return {m: round(v * f) for m, v in top}
+    return sums
 
 
 def _agents() -> list:
@@ -347,7 +446,7 @@ def maybe_ping() -> bool:
         # every session exit into a connect-timeout wait.
         _last_path().parent.mkdir(parents=True, exist_ok=True)
         _last_path().write_text(str(int(now)), encoding="utf-8")
-        _send(build_payload())
+        _send(build_payload(accrue=True))  # the only census-send site that advances the total
         return True
     except Exception:  # noqa: BLE001 — census must never affect the host path
         return True
@@ -358,16 +457,18 @@ def _beat_last_path() -> Path:
 
 
 def _current_saved_tokens() -> int:
-    """Calibrated lifetime tokens saved — the same figure the census reports,
-    read cheaply for the heartbeat."""
-    from . import calibration, ledger
+    """The live-counter figure — the SAME monotonic accrued total the daily
+    census reports, advanced (and persisted) here so the near-real-time beat
+    stays fresh between censuses. Shares `census-savings.json`'s tokens channel,
+    so a downward recalibration can never make the live counter shrink."""
+    from . import ledger
 
     s = ledger.summary()
-    try:
-        f, _ = calibration.factor()
-    except Exception:  # noqa: BLE001
-        f = 1.0
-    return round(max(0, s.total_baseline_tokens - s.total_distil_tokens) * f)
+    raw_tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
+    st = _load_savings()
+    val = _step(st["tokens"], raw_tokens, _factor())
+    _save_savings(st)  # the heartbeat is a real send; keep the shared total fresh
+    return round(val)
 
 
 def maybe_heartbeat() -> bool:

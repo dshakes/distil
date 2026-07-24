@@ -94,6 +94,22 @@ def test_rollup_dedupes_by_install_id_latest_wins(tmp_path):
     assert agg["installs"]["by_version"] == {"1.21.0": 1, "1.20.0": 1}
 
 
+def test_rollup_community_total_never_shrinks_on_a_dipping_install(tmp_path):
+    """The live-counter bug: a pre-fix client whose factor drifted down sent a
+    SMALLER cumulative, and sum(latest) dragged the public odometer backwards.
+    The rollup now banks only positive per-install deltas, so a later dip holds
+    the number instead of un-counting already-reported savings."""
+    now = int(time.time())
+    rows = [
+        _row(install_id="a" * 32, tokens_saved=1000, ts=now - 200),
+        _row(install_id="a" * 32, tokens_saved=1200, ts=now - 100),  # earned +200
+        _row(install_id="a" * 32, tokens_saved=900, ts=now),  # recalibrated DOWN
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["savings"]["tokens"] == 1200  # high-water held, NOT 900
+    assert [h["tokens"] for h in agg["savings"]["history"]] == [1000, 1200, 1200]  # never dips
+
+
 def test_rollup_active_windows(tmp_path):
     now = int(time.time())
     rows = [
@@ -347,8 +363,12 @@ def test_rollup_carries_forward_equivalence_across_schema_downgrade(tmp_path):
     install. The community trust number carries forward per install."""
     now = int(time.time())
     rows = [
-        _row4(install_id="a" * 32, ts=now - 100, equivalence={"pct": 100.0, "shadowed": 582},
-              modes={"interactive": 9}),
+        _row4(
+            install_id="a" * 32,
+            ts=now - 100,
+            equivalence={"pct": 100.0, "shadowed": 582},
+            modes={"interactive": 9},
+        ),
         _row3(install_id="a" * 32, ts=now),  # newer, schema 3 → no equivalence/modes
     ]
     agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)

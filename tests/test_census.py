@@ -180,6 +180,73 @@ def test_calibration_factor_applied(monkeypatch, tmp_path):
     assert p["dollars_saved"] == 8.0
 
 
+def _fake_summary(baseline_tokens, baseline_dollars=0.0):
+    from distil.ledger import LedgerSummary
+
+    return LedgerSummary(
+        runs=1,
+        total_dollars_saved=0.0,
+        total_tokens_saved=0,
+        by_trajectory={},
+        total_baseline_tokens=baseline_tokens,
+        total_distil_tokens=0,
+        total_baseline_dollars=baseline_dollars,
+        total_distil_dollars=0.0,
+    )
+
+
+def test_tokens_saved_never_shrinks_on_downward_recalibration(monkeypatch):
+    """THE bug the user reported: multiplying the whole lifetime cumulative by a
+    drifting factor made the community counter go DOWN. Freezing each delta at
+    count time means a later downward factor cannot un-count banked savings."""
+    census.opt_in()
+    monkeypatch.setattr("distil.ledger.summary", lambda: _fake_summary(1000))
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (1.0, 99))
+    first = census.build_payload(accrue=True)["tokens_saved"]  # bank 1000 × 1.0
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (0.5, 99))
+    second = census.build_payload(accrue=True)["tokens_saved"]  # raw unchanged
+    assert first == 1000
+    assert second >= first  # never shrinks…
+    assert second == 1000  # …and no new raw ⇒ holds, does NOT restate to 500
+
+
+def test_new_savings_accrue_at_the_factor_known_when_earned(monkeypatch):
+    """Each period's delta wears the factor known at that time and is frozen —
+    monotonic AND never more than billed."""
+    census.opt_in()
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (1.0, 99))
+    monkeypatch.setattr("distil.ledger.summary", lambda: _fake_summary(1000))
+    census.build_payload(accrue=True)  # bank 1000 × 1.0 = 1000
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (0.5, 99))
+    monkeypatch.setattr("distil.ledger.summary", lambda: _fake_summary(1500))
+    assert census.build_payload(accrue=True)["tokens_saved"] == 1250  # 1000 + 500×0.5
+
+
+def test_preview_does_not_advance_the_total(monkeypatch):
+    """`census show` / direct build_payload() must never mutate accrual state."""
+    census.opt_in()
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (1.0, 99))
+    monkeypatch.setattr("distil.ledger.summary", lambda: _fake_summary(1000))
+    census.build_payload()  # preview
+    census.build_payload()  # preview again
+    assert census.build_payload(accrue=True)["tokens_saved"] == 1000  # deltas not eaten
+
+
+def test_live_heartbeat_total_is_monotonic_and_shared_with_census(monkeypatch):
+    """The live counter (`_current_saved_tokens`, the heartbeat's figure) is the
+    SAME monotonic accrued total the census reports — a downward factor drift
+    can never make the live number the user watches shrink."""
+    census.opt_in()
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (1.0, 99))
+    monkeypatch.setattr("distil.ledger.summary", lambda: _fake_summary(1000))
+    assert census._current_saved_tokens() == 1000  # banks 1000 × 1.0
+    # Factor refines down; the live number holds, it does not un-count.
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (0.4, 99))
+    assert census._current_saved_tokens() == 1000  # NOT 400
+    # And the daily census reads the very same shared total.
+    assert census.build_payload()["tokens_saved"] == 1000
+
+
 def _seed_ledger(tmp_path, rows):
     """Write a savings.jsonl the census helpers read via ledger.default_path()."""
     import json as _json
