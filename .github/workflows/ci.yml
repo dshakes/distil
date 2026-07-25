@@ -76,6 +76,12 @@ jobs:
         run: uv run distil verify
       - name: Adversarial real-path gate (invariants on hostile inputs)
         run: uv run distil validate
+      # Everything above imports distil from the source tree. This builds the wheel,
+      # installs it clean, and drives the console scripts + server.json launch spec the
+      # way a user's MCP client does — the boundary that shipped a broken registry
+      # entry under a fully green suite.
+      - name: Packaging smoke (shipped artifact, not the source tree)
+        run: uv run --with pytest python -m pytest tests/test_packaging_smoke.py -q
 
   rust:
     runs-on: ubuntu-latest
