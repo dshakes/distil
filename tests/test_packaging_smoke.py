@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -144,3 +145,96 @@ def test_manifests_agree_on_version_and_name() -> None:
     # The README marker is what the registry uses to verify repo ownership.
     marker = (ROOT / "README.md").read_text().splitlines()[0]
     assert spec["name"] in marker, f"server.json name {spec['name']!r} not in README marker"
+
+
+# ---------------------------------------------------------------------------
+# Other declared surfaces: Docker, Homebrew, the Claude Code plugin.
+# Same class as the registry outage — a manifest promises something and nothing
+# ever checks that the promise resolves. These are static cross-manifest checks
+# (fast, always run); the heavy "actually build the image" check is a CI job.
+# ---------------------------------------------------------------------------
+
+
+def test_dockerfile_entrypoint_is_a_real_console_script() -> None:
+    """ENTRYPOINT ["distil"] is the image's whole interface; a rename breaks every pull."""
+    text = (ROOT / "Dockerfile").read_text()
+    entry = re.search(r'^ENTRYPOINT\s+\[\s*"([^"]+)"', text, re.M)
+    assert entry, "Dockerfile declares no ENTRYPOINT"
+    assert entry.group(1) in _pyproject()["project"]["scripts"], (
+        f"Dockerfile ENTRYPOINT is {entry.group(1)!r} but that is not a declared console "
+        f"script (has: {sorted(_pyproject()['project']['scripts'])})"
+    )
+    cmd = re.search(r'^CMD\s+\[\s*"([^"]+)"', text, re.M)
+    if cmd:  # CMD is the default subcommand handed to that entrypoint
+        help_text = subprocess.run(
+            [sys.executable, "-m", "distil.cli", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            timeout=120,
+        ).stdout
+        assert cmd.group(1) in help_text, (
+            f"Dockerfile CMD is {cmd.group(1)!r} but the CLI exposes no such subcommand"
+        )
+
+
+def test_homebrew_formula_is_self_consistent() -> None:
+    """url tag, version field and the sha comment must name the SAME tag.
+
+    Not compared against pyproject on purpose: the formula pins the last *released*
+    tag and legitimately lags an unreleased bump. What must never disagree is the
+    formula with itself — that is how the sha comment drifted 18 releases.
+    """
+    text = (ROOT / "packaging" / "homebrew" / "distil.rb").read_text()
+    url_tag = re.search(r"/tags/v([0-9][^\"/]*)\.tar\.gz", text)
+    version = re.search(r'^\s*version\s+"([^"]+)"', text, re.M)
+    comment = re.search(r"# sha256 is for the v([0-9]\S*?) source tarball", text)
+    assert url_tag and version and comment, "formula is missing url/version/sha-comment"
+    assert url_tag.group(1) == version.group(1) == comment.group(1), (
+        f"formula disagrees with itself: url=v{url_tag.group(1)} "
+        f"version={version.group(1)} sha-comment=v{comment.group(1)}"
+    )
+    assert re.search(r'^\s*sha256\s+"[a-f0-9]{64}"', text, re.M), "formula sha256 is malformed"
+
+
+def test_claude_plugin_manifests_are_valid_and_current() -> None:
+    """The plugin is a shipped surface too: stale metadata is what users see."""
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
+    version = _pyproject()["project"]["version"]
+    for entry in market["plugins"]:
+        src = (ROOT / entry["source"]).resolve()
+        assert src.is_dir(), f"marketplace lists {entry['source']!r} but that path does not exist"
+        manifest = src / ".claude-plugin" / "plugin.json"
+        assert manifest.exists(), f"{entry['name']}: no .claude-plugin/plugin.json"
+        plugin = json.loads(manifest.read_text())
+        assert plugin["name"] == entry["name"], "marketplace/plugin name mismatch"
+        assert plugin["version"] == version, (
+            f"plugin.json is {plugin['version']}, package is {version} — the plugin "
+            "manifest drifts silently because nothing bumps it at release time"
+        )
+
+
+def test_every_skill_and_command_has_usable_frontmatter() -> None:
+    """A skill with no description is never selected; a command with none is unusable."""
+    plugin_root = ROOT / "plugins" / "distil"
+    skills = list((plugin_root / "skills").glob("*/SKILL.md"))
+    assert skills, "no skills found — the glob or the layout changed"
+    for skill in skills:
+        head = skill.read_text()
+        assert head.startswith("---"), f"{skill.name}: no YAML frontmatter"
+        fm = head.split("---", 2)[1]
+        name = re.search(r"^name:\s*(\S+)", fm, re.M)
+        assert name, f"{skill}: frontmatter has no name"
+        assert name.group(1) == skill.parent.name, (
+            f"{skill}: frontmatter name {name.group(1)!r} != directory {skill.parent.name!r}"
+        )
+        assert re.search(r"^description:", fm, re.M), f"{skill}: frontmatter has no description"
+
+    commands = list((plugin_root / "commands").glob("*.md"))
+    assert commands, "no commands found"
+    for cmd in commands:
+        body = cmd.read_text()
+        assert body.startswith("---"), f"{cmd.name}: no frontmatter"
+        assert re.search(r"^description:", body.split("---", 2)[1], re.M), (
+            f"{cmd.name}: no description — it renders blank in the slash-command list"
+        )

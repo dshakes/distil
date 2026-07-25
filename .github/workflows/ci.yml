@@ -83,6 +83,25 @@ jobs:
       - name: Packaging smoke (shipped artifact, not the source tree)
         run: uv run --with pytest python -m pytest tests/test_packaging_smoke.py -q
 
+  # The image publishes ENTRYPOINT ["distil"] + CMD ["bench"] and nothing ever ran
+  # it. The static check in the packaging smoke proves the entrypoint NAMES a real
+  # script; this proves the built image actually executes it.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t distil:ci .
+      - name: Entrypoint runs and reports the shipped version
+        run: |
+          set -euo pipefail
+          VERSION="$(grep -E '^version = ' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          OUT="$(docker run --rm distil:ci --version)"
+          echo "image reports: $OUT (expected $VERSION)"
+          case "$OUT" in *"$VERSION"*) ;; *) echo "::error::image reports $OUT, pyproject says $VERSION"; exit 1 ;; esac
+      - name: Default CMD (bench) certifies inside the image
+        run: docker run --rm distil:ci bench
+
   rust:
     runs-on: ubuntu-latest
     steps:

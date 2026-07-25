@@ -92,7 +92,14 @@ if [ "$IS_RC" -eq 1 ]; then
   info "rc release — CITATION.cff stays at the last citable final ($CITE_V)"
 else
   [ "$CITE_V" = "$VERSION" ] || die "CITATION.cff is $CITE_V, pyproject is $VERSION"
-  ok "version $VERSION consistent (pyproject, CITATION)"
+  # The Claude Code plugin manifest is a shipped surface too — it sat at 1.8.6 for
+  # 22 releases because nothing checked it. server.json likewise feeds the MCP
+  # registry listing.
+  PLUGIN_V="$(grep -E '^\s*"version":' plugins/distil/.claude-plugin/plugin.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+  [ "$PLUGIN_V" = "$VERSION" ] || die "plugin.json is $PLUGIN_V, pyproject is $VERSION"
+  SERVER_V="$(grep -E '^\s*"version":' server.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+  [ "$SERVER_V" = "$VERSION" ] || die "server.json is $SERVER_V, pyproject is $VERSION"
+  ok "version $VERSION consistent (pyproject, CITATION, plugin.json, server.json)"
 fi
 
 git rev-parse "$TAG" >/dev/null 2>&1 && die "tag $TAG already exists — bump the version or delete the tag"
