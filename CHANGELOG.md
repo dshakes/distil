@@ -3,6 +3,40 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.29.0] — the MCP server tells agents what it actually does
+
+Distil's MCP server worked but under-described itself: three tools with one-line
+descriptions, no annotations, and no install instructions anywhere. An agent had to infer
+whether `distil_expand` was safe to retry, and a human had to guess the client config.
+
+### MCP tools are annotated and self-describing
+All three tools now carry MCP `annotations` — `title`, `readOnlyHint`, `destructiveHint`,
+`idempotentHint`, `openWorldHint` — so a client knows `distil_expand` is a safe, repeatable,
+offline read without parsing prose for it. Descriptions state what was previously implicit:
+the JSON return shape, the literal error string on an unknown handle, that the store is
+local and encrypted, that handles age out after `DISTIL_RESTORE_TTL_DAYS`, and when *not*
+to call each tool. `distil_expand` also declares `pattern: ^[0-9a-f]{8}$`, matching the
+handle regex the server already enforced.
+
+Glama's tool-definition rubric scored `distil_expand` 3.7/5 ("no annotations provided, so
+description bears full burden"); since the server-level score is 60% mean + 40% *minimum*,
+the weakest tool set the ceiling.
+
+### Install instructions that fit on one screen
+README gains an MCP section and `docs/integrations.html` is rewritten: the one-line
+`claude mcp add distil -- distil mcp`, the shared `mcpServers` JSON for Claude Desktop /
+Cursor / VS Code, a `uvx` no-install variant, a client-free `tools/list` verify command, and
+a per-tool "when your agent reaches for it" table. Both state the thing users get wrong —
+this is the **recall** path, not the savings path: `distil wrap` compresses traffic, the MCP
+server exists so any agent can expand a handle it finds in context.
+
+### Fixed
+- **`CITATION.cff` was stale at 1.27.0 while `pyproject.toml` shipped 1.28.0.** The v1.28.0
+  tag was cut without `scripts/release.sh`, whose consistency check (`release.sh:94`) exists
+  precisely to catch this. Both are now 1.29.0 — cite the version you actually installed.
+- `glama.json` added at the repo root so the registry listing stays claimed if the repo ever
+  moves to an organization.
+
 ## [1.28.0] — recoverable compression everywhere, and it streams
 
 Closes the "expand-injection gap." Lossy Tier-1 digest could leave stubs the agent
