@@ -192,29 +192,90 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "distil_compress",
         "description": (
-            "Reversibly compress a text blob (e.g. a large tool output) with distil. "
-            "Returns a compact digest, an 8-hex handle, and the tokens saved. The "
-            "original is kept locally and can be recovered with distil_expand."
+            "Reversibly compress a text blob — typically a large tool output you want to "
+            "keep in context cheaply. Returns JSON "
+            '{"compressed": str, "handle": str|null, "tokens_saved": int}: a compact digest '
+            "to keep in the conversation, plus an 8-hex handle that recovers the exact "
+            "original bytes via distil_expand. The original is stored locally (encrypted, "
+            "owner-only) and never sent anywhere. Use when a tool result is large enough "
+            "that carrying it verbatim is wasteful; skip it for short text, which comes back "
+            'unchanged with handle=null and tokens_saved=0. Errors return "error: ..." with '
+            "isError set; nothing is stored."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {"text": {"type": "string", "description": "the text to compress"}},
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": (
+                        "Raw text to compress, passed verbatim — do not pre-summarize or "
+                        "truncate it, or the recovered original will be lossy."
+                    ),
+                }
+            },
             "required": ["text"],
+        },
+        "annotations": {
+            "title": "Compress text (reversibly)",
+            "readOnlyHint": False,  # writes the original to the local store
+            "destructiveHint": False,  # additive only; never mutates prior handles
+            "idempotentHint": True,  # same text → same handle, same stored bytes
+            "openWorldHint": False,  # purely local; no network
         },
     },
     {
         "name": "distil_expand",
-        "description": "Return the original text for a handle produced by distil_compress.",
+        "description": (
+            "Recover the exact original text for an 8-hex handle returned by "
+            "distil_compress. Returns the original bytes as plain text — not JSON, not a "
+            "summary. Use when the digest in context lacks a detail you now need (an exact "
+            "line, value, or stack frame); prefer reading the digest first, since expanding "
+            "spends the tokens compression saved. Reads a local, encrypted store, so it "
+            "works across sessions and processes but not across machines. An unknown, "
+            'expired, or evicted handle returns "error: no original found for handle ..." '
+            "with isError set — re-run the original tool rather than retrying; the answer "
+            "will not change. Handles age out after DISTIL_RESTORE_TTL_DAYS (default 14)."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"handle": {"type": "string", "description": "the 8-hex content handle"}},
+            "properties": {
+                "handle": {
+                    "type": "string",
+                    "description": (
+                        "The 8-hex handle from a prior distil_compress result or a digest "
+                        "stub in context, e.g. '3f9a1c07'. Content-addressed, so it is "
+                        "stable across runs; any other shape is rejected."
+                    ),
+                    "pattern": "^[0-9a-f]{8}$",
+                }
+            },
             "required": ["handle"],
+        },
+        "annotations": {
+            "title": "Expand a handle to its original text",
+            "readOnlyHint": True,  # pure lookup
+            "destructiveHint": False,
+            "idempotentHint": True,  # same handle → same bytes, until it ages out
+            "openWorldHint": False,  # purely local; no network
         },
     },
     {
         "name": "distil_savings",
-        "description": "Report cumulative token/dollar savings from the local distil ledger.",
+        "description": (
+            "Report cumulative savings from the local distil ledger as JSON "
+            '{"runs": int, "tokens_saved": int, "dollars_saved": float}. Covers every '
+            "request distil has compressed on this machine, not just this session. Use to "
+            "answer 'how much has distil saved me'; it says nothing about whether any one "
+            "compression was correct. Takes no arguments; an empty ledger reports zeros."
+        ),
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {
+            "title": "Report cumulative savings",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     },
 ]
 
