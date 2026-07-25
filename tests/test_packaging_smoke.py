@@ -23,7 +23,6 @@ import os
 import re
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -36,8 +35,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _pyproject() -> dict:
-    with (ROOT / "pyproject.toml").open("rb") as fh:
-        return tomllib.load(fh)
+    """The three pyproject fields these checks need, without tomllib.
+
+    tomllib is stdlib only on 3.11+, and this package supports 3.9 — importing it at
+    module scope broke *collection* on the 3.9 leg, taking the whole test run with it.
+    release.sh reads the same fields with grep/sed for the same reason.
+    """
+    text = (ROOT / "pyproject.toml").read_text()
+    project = {
+        "version": re.search(r'^version = "([^"]+)"', text, re.M).group(1),
+        "name": re.search(r'^name = "([^"]+)"', text, re.M).group(1),
+        "scripts": {},
+    }
+    block = re.search(r"^\[project\.scripts\]\n(.*?)(?=^\[)", text, re.M | re.S)
+    if block:
+        for line in block.group(1).splitlines():
+            entry = re.match(r'^\s*([A-Za-z0-9._-]+)\s*=\s*"([^"]+)"', line)
+            if entry:
+                project["scripts"][entry.group(1)] = entry.group(2)
+    return {"project": project}
 
 
 @pytest.fixture(scope="module")
