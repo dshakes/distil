@@ -301,11 +301,41 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
     <p>A zero-dependency <a href="https://modelcontextprotocol.io">Model Context Protocol</a>
     server (stdlib only — no SDK) exposes distil's reversible compression to any MCP client
     (Claude Desktop, IDEs, agents) over stdio:</p>
-    <pre class="term">distil mcp        <span class="d"># newline-delimited JSON-RPC 2.0 over stdio</span></pre>
-    <p>Tools: <code>distil_compress(text)</code> → a compact digest + an 8-hex handle (the
-    original is kept in a local store, never returned until asked); <code>distil_expand(handle)</code>
-    → the original text; <code>distil_savings()</code> → cumulative ledger savings. Wire it into an
-    MCP client's server config as a stdio command (<code>command: "distil", args: ["mcp"]</code>).</p>
+    <pre class="term">claude mcp add distil -- distil mcp   <span class="d"># Claude Code — one line, done</span></pre>
+    <p>Every other client takes the same stdio config — Claude Desktop
+    (<code>~/Library/Application&nbsp;Support/Claude/claude_desktop_config.json</code>), Cursor
+    (<code>.cursor/mcp.json</code>), VS Code (<code>.vscode/mcp.json</code>):</p>
+    <pre class="term">{
+  <span class="g">"mcpServers"</span>: {
+    <span class="g">"distil"</span>: { <span class="g">"command"</span>: <span class="g">"distil"</span>, <span class="g">"args"</span>: [<span class="g">"mcp"</span>] }
+  }
+}</pre>
+    <p>No distil install? Run it from PyPI on demand — <code>"command": "uvx", "args":
+    ["--from", "distil-llm", "distil", "mcp"]</code>. Restart the client after editing. To check the
+    server without a client at all:</p>
+    <pre class="term">echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | distil mcp</pre>
+
+    <table>
+      <thead><tr><th>Tool</th><th>What it does</th><th>Called when</th></tr></thead>
+      <tbody>
+        <tr><td><code>distil_compress(text)</code></td><td>Compact digest + an 8-hex handle; the
+        original is stored locally (encrypted, <code>0600</code>) and never returned until asked</td>
+        <td>A tool returned something huge and carrying it verbatim is wasteful</td></tr>
+        <tr><td><code>distil_expand(handle)</code></td><td>The <em>exact</em> original bytes — not a
+        summary</td><td>The digest lost a detail the agent now needs: a line, a value, a stack frame</td></tr>
+        <tr><td><code>distil_savings()</code></td><td>Cumulative tokens/dollars from the local ledger</td>
+        <td>Someone asks what distil has saved</td></tr>
+      </tbody>
+    </table>
+    <p>Each tool carries MCP annotations (<code>readOnlyHint</code>, <code>idempotentHint</code>,
+    <code>openWorldHint: false</code>), so a client knows <code>distil_expand</code> is a safe,
+    repeatable, offline read instead of inferring it from prose.</p>
+    <p><b>This is the recall path, not the savings path.</b> The MCP server does not compress your
+    agent's traffic — <code>distil wrap</code> does that transparently, with no tool calls. What the
+    MCP server adds is the other half: any agent, including one you never wrapped, can call
+    <code>distil_expand</code> on a handle it sees in context and get the original back. Handles
+    survive restarts and cross processes, and age out after <code>DISTIL_RESTORE_TTL_DAYS</code>
+    (default 14).</p>
 
     <hr/>
 

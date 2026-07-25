@@ -267,6 +267,68 @@ client = wrap(anthropic.Anthropic())   # compresses the request, keeps the cache
 
 ---
 
+## 🧠 MCP server — give your agent a recall tool
+
+Distil ships a [Model Context Protocol](https://modelcontextprotocol.io) server so an agent can
+**compress its own tool output and get the exact bytes back later**. Zero dependencies (stdlib
+JSON-RPC over stdio, no SDK), fully local — content never leaves the machine.
+
+**Add it in one line:**
+
+```bash
+claude mcp add distil -- distil mcp
+```
+
+<details>
+<summary><b>Claude Desktop · Cursor · Windsurf · VS Code</b> — same JSON everywhere</summary>
+
+```jsonc
+{
+  "mcpServers": {
+    "distil": { "command": "distil", "args": ["mcp"] }
+  }
+}
+```
+
+Haven't installed distil? Run it straight from PyPI — no install step:
+
+```jsonc
+{
+  "mcpServers": {
+    "distil": { "command": "uvx", "args": ["--from", "distil-llm", "distil", "mcp"] }
+  }
+}
+```
+
+Config lives in `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude Desktop,
+macOS), `.cursor/mcp.json` (Cursor), or `.vscode/mcp.json` (VS Code). Restart the client after editing.
+</details>
+
+**Verify it's up** — no client needed:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | distil mcp
+```
+
+### The three tools
+
+| Tool | Does | Your agent reaches for it when |
+|---|---|---|
+| `distil_compress(text)` | Returns a compact digest + an **8-hex handle**; stores the original locally (encrypted, `0600`) | A tool returned something huge and carrying it verbatim is wasteful |
+| `distil_expand(handle)` | Returns the **exact original bytes** — not a summary | The digest lost a detail it now needs: a line, a value, a stack frame |
+| `distil_savings()` | Cumulative tokens/dollars from the local ledger | You ask "how much has distil saved me?" |
+
+Every tool is annotated (`readOnlyHint`, `idempotentHint`, `openWorldHint: false`), so a well-behaved
+client knows `distil_expand` is a safe, repeatable, offline read without having to guess from prose.
+
+> **This is the recall path, not the savings path.** The MCP server doesn't compress your agent's
+> traffic — `distil wrap -- <agent>` does that, transparently, with no tool calls. What the MCP server
+> adds is the other half: any agent, including one you didn't wrap, can call `distil_expand` on a
+> handle it sees in context and get the original back. Handles persist across sessions and processes,
+> and age out after `DISTIL_RESTORE_TTL_DAYS` (default 14).
+
+---
+
 ## 📦 Install your way
 
 **New here?** `pipx install distil-llm`, then `distil onboard` — it sets you up and guides you (see [Use it now](#-use-it-now)). Want to see it prove itself first instead? `distil bench` runs the certified gate in ~10s, no API key. The matrix below is for picking an *install format* — everything in it is an alternative, not a requirement.
