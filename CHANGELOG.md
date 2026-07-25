@@ -3,6 +3,62 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.29.1] — nothing can pin a worker thread forever
+
+Two unbounded waits, at opposite ends of the same pipe. Both let one stuck peer
+outlive a SIGTERM'd worker; both are now finite, for the reason the upstream socket
+was already finite.
+
+### The drain has a deadline
+`server_close()` joins the non-daemon handler threads — that join is *how* in-flight
+streams finish draining — but it had no bound, so a single wedged handler pinned the
+whole worker. Caught as an intermittent macOS CI hang, and captured in a stack rather
+than inferred:
+
+```
+handler thread : distil/proxy.py _post_upstream -> socket readinto
+main thread    : socketserver.py server_close -> join -> threading join
+```
+
+`server_close()` now runs on a helper thread joined with `_DRAIN_BUDGET_S`
+(`DISTIL_DRAIN_BUDGET_S`, default 300s — well under the supervisor's 15-minute
+SIGKILL cap). Bounding the join alone is not enough: returning from `main()` re-joins
+those same non-daemon threads at interpreter shutdown, so past the budget — shadow and
+savings already flushed — the worker exits directly. Only the hot-swap worker could
+ever hit this; `QuietHTTPServer` inherits `daemon_threads = True`, so the in-thread
+proxy's join is a no-op.
+
+### Client sockets have a timeout
+`_DistilHandler` inherited `StreamRequestHandler.timeout = None`, so accepted client
+sockets had no timeout at all: a peer that connects and goes silent, or stops reading
+while the response fills the socket buffer, parked its handler thread for the life of
+the process. The upstream socket has carried a finite timeout since it was written,
+with a comment saying it is finite precisely so a wedged upstream "can never pin a
+worker thread forever" — the client half now gets the same bargain via
+`_CLIENT_TIMEOUT` (`DISTIL_CLIENT_TIMEOUT`, default 600s, generous because HTTP/1.1
+keep-alive means an idle agent between turns is sitting in exactly that read).
+`socket.timeout` joins `handle_error`'s quiet list, since a stalled peer now surfaces
+there on write the way a vanished one already did.
+
+Measured, both directions, same scenario — connect, then say nothing:
+`timeout=None` still held the connection open past 8s; `timeout=2.0` closed it at 2.0s.
+
+### Fixed
+- Test teardown called `upstream.shutdown()` without `server_close()`, which stops the
+  accept loop but leaves the listener open — a worker connecting afterwards completed
+  its handshake into the backlog and waited out the full 600s upstream timeout for a
+  reply nobody would send. "Upstream is gone" was a black hole rather than
+  `ECONNREFUSED`. New `_stop_upstream()` helper, applied at all 12 sites.
+- CI now gates on `ruff format --check` (whole tree, pinned `ruff@0.15.10`). The
+  formatter had silently drifted on 16 files because only `ruff check` was gated; that
+  drift is also fixed here, verified AST-identical so nothing changed but layout.
+
+### Gates
+1832 tests · ruff · format · mypy · bench · verify · validate — all green, and both
+fixes carry a regression test that fails without them
+(`test_drain_is_bounded_when_a_handler_cannot_finish`,
+`test_stalled_client_cannot_pin_a_handler_thread`).
+
 ## [1.29.0] — the MCP server tells agents what it actually does
 
 Distil's MCP server worked but under-described itself: three tools with one-line
