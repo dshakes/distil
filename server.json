@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.dshakes/distil",
   "title": "Distil",
-  "description": "Reversibly compress a large tool output to an 8-hex handle, expand it back to the exact original bytes on demand, and report local token savings. Zero dependencies; content never leaves the machine.",
+  "description": "Reversibly compress tool outputs to recoverable handles; expand to exact original bytes on demand.",
   "repository": {
     "url": "https://github.com/dshakes/distil",
     "source": "github"
