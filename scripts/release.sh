@@ -194,11 +194,14 @@ elif confirm "fetch $TAG tarball and patch the sha256 in $FORMULA?"; then
     SHA="$(curl -fsSL "$TARBALL_URL" | shasum -a 256 | awk '{print $1}')" \
       || die "could not fetch the tag tarball — is $TAG pushed yet?"
     [ "${#SHA}" -eq 64 ] || die "unexpected sha256: $SHA"
-    # update sha + url + version in the formula
+    # update sha + url + version in the formula — and the comment that says which
+    # tag the sha belongs to. Leaving that comment unpatched let it drift 18
+    # releases behind the sha it describes, which is worse than no comment.
     sed -i.bak -E \
       -e "s|sha256 \"[^\"]*\"|sha256 \"$SHA\"|" \
       -e "s|/tags/v[0-9][^\"]*\.tar\.gz|/tags/${TAG}.tar.gz|" \
       -e "s|version \"[0-9][^\"]*\"|version \"$VERSION\"|" \
+      -e "s|(# sha256 is for the )v[0-9][^ ]*( source tarball)|\1${TAG}\2|" \
       "$FORMULA"
     rm -f "$FORMULA.bak"
     ok "patched $FORMULA → sha256 $SHA"
