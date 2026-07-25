@@ -47,9 +47,7 @@ def find_transcript(
             if tr.turns or tr.tool_results:
                 return tr
         return None
-    adapters = (
-        [ADAPTERS[tool]] if tool in ADAPTERS else list(ADAPTERS.values())
-    )
+    adapters = [ADAPTERS[tool]] if tool in ADAPTERS else list(ADAPTERS.values())
     for a in adapters:
         for candidate in a.discover(window, cwd)[:3]:
             tr = a.load(candidate)

@@ -40,9 +40,7 @@ def _block_text(content: Any) -> str:
     """Flatten a message/tool_result content field to text."""
     if isinstance(content, str):
         return content
-    return "\n".join(
-        str(b.get("text", "")) for b in _blocks(content) if b.get("type") == "text"
-    )
+    return "\n".join(str(b.get("text", "")) for b in _blocks(content) if b.get("type") == "text")
 
 
 class ClaudeCodeAdapter:
@@ -152,9 +150,7 @@ class ClaudeCodeAdapter:
                     text = _block_text(content).strip()
                     if text:
                         turn += 1
-                        tr.turns.append(
-                            UserTurn(index=turn, ts=ts, text=text[:_EXCERPT])
-                        )
+                        tr.turns.append(UserTurn(index=turn, ts=ts, text=text[:_EXCERPT]))
                 for b in _blocks(content):
                     if b.get("type") == "tool_result":
                         text = _block_text(b.get("content")).strip()

@@ -34,9 +34,7 @@ def load_verified() -> list[dict[str, Any]]:
     return [dict(row) for row in ds]
 
 
-def sample_instance_ids(
-    all_rows: list[dict[str, Any]], n: int, seed: int = SEED
-) -> list[str]:
+def sample_instance_ids(all_rows: list[dict[str, Any]], n: int, seed: int = SEED) -> list[str]:
     """Deterministically draw ``n`` instance ids from the full pool.
 
     Sorting first makes the draw independent of dataset row order; the seeded

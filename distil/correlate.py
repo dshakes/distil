@@ -135,8 +135,14 @@ def correlate(d: Dissection, tr: Transcript) -> Correlation:
                 else:
                     break
             b = buckets.setdefault(
-                turn, TurnCost(index=turn, text=turn_text.get(turn, ""), requests=0,
-                               baseline_tokens=0, saved_tokens=0)
+                turn,
+                TurnCost(
+                    index=turn,
+                    text=turn_text.get(turn, ""),
+                    requests=0,
+                    baseline_tokens=0,
+                    saved_tokens=0,
+                ),
             )
             b.requests += 1
             b.baseline_tokens += int(r.get("compressible_tokens") or 0) + int(

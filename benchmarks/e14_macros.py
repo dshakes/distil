@@ -21,9 +21,7 @@ LH = ROOT / "docs/paper/results/swe_e2e_longhorizon"
 def main(report_path: str) -> None:
     rep = json.loads(Path(report_path).read_text())
     sur = set(rep["resolved_ids"])
-    full = set(
-        json.loads((LH / "reports/distil-lh-full.lh_full.json").read_text())["resolved_ids"]
-    )
+    full = set(json.loads((LH / "reports/distil-lh-full.lh_full.json").read_text())["resolved_ids"])
     ids = sorted(
         json.loads((LH / "trajectory_bound_inputs.json").read_text())["conditions"]["full"]
     )
@@ -42,9 +40,7 @@ def main(report_path: str) -> None:
     cert = certify_trajectory_risk(
         [TrajectoryOutcome(i, i in full, i in sur) for i in ids], alpha=0.10, delta=0.05
     )
-    gated_rep = json.loads(
-        (LH / "reports/distil-lh-distil_gated.lh_distil_gated.json").read_text()
-    )
+    gated_rep = json.loads((LH / "reports/distil-lh-distil_gated.lh_distil_gated.json").read_text())
     gated_patch = gated_rep["completed_instances"] / gated_rep["total_instances"]
 
     out = "\n".join(

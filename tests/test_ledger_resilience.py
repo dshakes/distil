@@ -98,7 +98,8 @@ def test_latest_mode_reads_newest_skips_corruption_and_filters(tmp_path):
     p.write_text(
         json.dumps({"session": "s1", "mode": "digest", "ts": 1}) + "\n"
         "{ corrupt not json\n"
-        + json.dumps({"session": "s2", "mode": "lossless-only", "ts": 2}) + "\n"
+        + json.dumps({"session": "s2", "mode": "lossless-only", "ts": 2})
+        + "\n"
     )
     assert ledger.latest_mode(path=p) == "lossless-only"  # newest overall
     assert ledger.latest_mode(session="s1", path=p) == "digest"  # session-scoped, skips corrupt

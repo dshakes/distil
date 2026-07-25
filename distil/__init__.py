@@ -30,7 +30,9 @@ except PackageNotFoundError:  # source checkout / zipapp without dist-info
         import pathlib
         import re
 
-        _pp = (pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8")
+        _pp = (pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
         _m = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"', _pp)
         __version__ = _m.group(1) if _m else "0+source"
     except Exception:  # noqa: BLE001 — version must never break import

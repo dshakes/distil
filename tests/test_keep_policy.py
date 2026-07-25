@@ -218,9 +218,7 @@ def test_url_spam_is_still_bounded_by_shape_dedup():
     routes URLs through tier1's per-shape repeat cap."""
     from distil.compress.tier1 import digest
 
-    spam = "\n".join(
-        f"GET https://health.internal/check/{i:04d} 200 OK in 3ms" for i in range(60)
-    )
+    spam = "\n".join(f"GET https://health.internal/check/{i:04d} 200 OK in 3ms" for i in range(60))
     out, changed = digest(spam)
     assert changed
     assert len(out) < len(spam) / 2  # spam still folds

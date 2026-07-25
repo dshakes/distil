@@ -5,7 +5,6 @@ This is the safety gate: a strategy that can't pass non-inferiority across the
 whole corpus does not ship.
 """
 
-
 import pytest
 
 from distil import pricing

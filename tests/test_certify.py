@@ -46,6 +46,7 @@ def test_ablation_finds_the_speculative_docs_prunable():
 # A/A control + pooled certify (the live-gate methodology, tested offline)
 # ---------------------------------------------------------------------------
 
+
 class _UniqueRunner:
     """Stochastic stand-in with a 0% self-agreement floor: every draw is a new
     decision. Under the A/A control such a model cannot indict compression —

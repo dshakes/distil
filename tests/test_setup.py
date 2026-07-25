@@ -311,9 +311,7 @@ def test_cmd_default_always_on_writes_service_and_env(tmp_path, monkeypatch, cap
     assert "ANTHROPIC_BASE_URL" not in settings.read_text()
 
 
-def test_cmd_default_always_on_non_claude_agent_skips_settings_json(
-    tmp_path, monkeypatch
-) -> None:
+def test_cmd_default_always_on_non_claude_agent_skips_settings_json(tmp_path, monkeypatch) -> None:
     """Only Claude Code reads ~/.claude/settings.json — wiring it for another
     wrapped agent (e.g. codex) would be a no-op at best, confusing at worst."""
     from distil import cli, setup
@@ -325,10 +323,7 @@ def test_cmd_default_always_on_non_claude_agent_skips_settings_json(
     settings = tmp_path / "settings.json"
     monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
     assert (
-        cli.cmd_default(
-            _default_args(tmp_path, always_on=True, agent="codex", no_start=True)
-        )
-        == 0
+        cli.cmd_default(_default_args(tmp_path, always_on=True, agent="codex", no_start=True)) == 0
     )
     assert not settings.exists()
 

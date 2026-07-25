@@ -48,9 +48,7 @@ def image_ref(instance_id: str) -> str:
 
 
 def have_image(ref: str) -> bool:
-    r = subprocess.run(
-        ["docker", "image", "inspect", ref], capture_output=True, text=True
-    )
+    r = subprocess.run(["docker", "image", "inspect", ref], capture_output=True, text=True)
     return r.returncode == 0
 
 
@@ -108,9 +106,7 @@ def fetch_and_load(instance_id: str, tar_dir: Path, timeout: float = 600.0) -> d
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--sample", type=Path, default=ROOT / "docs/paper/results/swe_e2e/sample.json"
-    )
+    ap.add_argument("--sample", type=Path, default=ROOT / "docs/paper/results/swe_e2e/sample.json")
     ap.add_argument("--tar-dir", type=Path, default=ROOT / ".e7_cache/tars")
     ap.add_argument(
         "--report",
@@ -142,11 +138,7 @@ def main() -> None:
     if ok < len(ids):
         print(
             "FAILURES:",
-            [
-                r["instance_id"]
-                for r in results
-                if r["status"] not in ("loaded", "cached")
-            ],
+            [r["instance_id"] for r in results if r["status"] not in ("loaded", "cached")],
         )
         sys.exit(1)
 

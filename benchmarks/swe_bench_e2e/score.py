@@ -122,13 +122,9 @@ def aggregate(report: dict[str, Any], all_ids: list[str]) -> dict[str, Any]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--pred", type=Path, required=True, help="predictions JSONL for one condition"
-    )
+    ap.add_argument("--pred", type=Path, required=True, help="predictions JSONL for one condition")
     ap.add_argument("--run-id", required=True)
-    ap.add_argument(
-        "--sample", type=Path, default=ROOT / "docs/paper/results/swe_e2e/sample.json"
-    )
+    ap.add_argument("--sample", type=Path, default=ROOT / "docs/paper/results/swe_e2e/sample.json")
     ap.add_argument("--max-workers", type=int, default=4)
     ap.add_argument(
         "--harness-timeout",
