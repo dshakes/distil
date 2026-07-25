@@ -101,6 +101,20 @@ def _read_ready(proc: subprocess.Popen, timeout: float = 30.0) -> str:
     return got[0]
 
 
+def _stop_upstream(server: ThreadingHTTPServer) -> None:
+    """Stop the fake provider AND close its listening socket.
+
+    shutdown() only stops the accept loop — the listener stays open, so a worker
+    that connects afterwards completes its handshake into the backlog, sends its
+    POST, and waits for a reply nobody will ever send. That turns "upstream is
+    gone" into a 600s _UPSTREAM_TIMEOUT black hole instead of an instant
+    ECONNREFUSED, and a worker draining such a handler looks hung. Closing the
+    listener is what actually makes the upstream gone.
+    """
+    server.shutdown()
+    server.server_close()
+
+
 def _spawn_worker(tmp_path, upstream_port: int, **cfg_kw):
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
@@ -157,8 +171,45 @@ def test_worker_serves_on_inherited_fd_and_drains_clean(tmp_path):
         assert b'"text":"ok"' in r.read()
     finally:
         proc.terminate()
-        upstream.shutdown()
+        _stop_upstream(upstream)
     assert proc.wait(timeout=30) == 0
+
+
+def test_drain_is_bounded_when_a_handler_cannot_finish(tmp_path, monkeypatch):
+    """A SIGTERM'd worker must still exit when a handler can never complete.
+
+    server_close() joins the non-daemon handler threads — that join is *how*
+    in-flight streams drain, but unbounded it hands one wedged handler the power
+    to pin the worker for the whole upstream timeout (600s), or forever if a
+    client simply stops reading. Regression for the intermittent macOS CI hang
+    where a straggling handler outlived SIGTERM by >30s.
+
+    The wedge here is an upstream that accepts and then never answers — the same
+    shape as a provider that black-holes a connection.
+    """
+    black_hole = socket.socket()
+    black_hole.bind(("127.0.0.1", 0))
+    black_hole.listen(8)
+    monkeypatch.setenv("DISTIL_DRAIN_BUDGET_S", "5")
+    monkeypatch.setenv("DISTIL_UPSTREAM_TIMEOUT", "600")  # the wedge, if unbounded
+    proc, port, _listener = _spawn_worker(tmp_path, black_hole.getsockname()[1], record=False)
+    try:
+        threading.Thread(
+            target=_post, args=(port, _payload()), kwargs={"timeout": 90}, daemon=True
+        ).start()
+        black_hole.settimeout(30)
+        conn, _ = black_hole.accept()  # the handler is now parked on the upstream read
+        proc.terminate()
+        # 5s budget; without the bound this waits out the 600s upstream timeout.
+        assert proc.wait(timeout=60) == 0
+    finally:
+        try:
+            conn.close()
+        except (OSError, NameError, UnboundLocalError):
+            pass
+        black_hole.close()
+        if proc.poll() is None:
+            proc.kill()
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGPIPE"), reason="no SIGPIPE on this platform")
@@ -199,7 +250,7 @@ def test_worker_survives_abrupt_client_disconnect(tmp_path):
         assert b'"text":"ok"' in r.read()
     finally:
         proc.terminate()
-        upstream.shutdown()
+        _stop_upstream(upstream)
     assert proc.wait(timeout=30) == 0
 
 
@@ -235,7 +286,7 @@ def test_worker_drain_completes_inflight_stream(tmp_path):
     assert body.count(b"event: content_block_delta") == n_chunks  # nothing cut short
     assert b"message_stop" in body
     assert proc.wait(timeout=60) == 0
-    upstream.shutdown()
+    _stop_upstream(upstream)
 
 
 def _wrap_session(tmp_path, upstream_port: int, extra_env: dict | None = None):
@@ -318,7 +369,7 @@ def test_wrap_handover_on_sigusr1_keeps_session(tmp_path):
         code = wrap.wait(timeout=60)
         assert code == 0, "".join(out_lines)
     finally:
-        upstream.shutdown()
+        _stop_upstream(upstream)
         if wrap.poll() is None:
             wrap.kill()
 
@@ -358,7 +409,7 @@ def test_failed_upgrade_rolls_back_and_session_survives(tmp_path):
         code = wrap.wait(timeout=60)
         assert code == 0, "".join(out_lines)
     finally:
-        upstream.shutdown()
+        _stop_upstream(upstream)
         if wrap.poll() is None:
             wrap.kill()
 
@@ -398,7 +449,7 @@ def test_dead_worker_respawns_and_session_survives(tmp_path):
         go.write_text("x")  # request #2 must succeed via the respawned worker
         assert wrap.wait(timeout=60) == 0
     finally:
-        upstream.shutdown()
+        _stop_upstream(upstream)
         if wrap.poll() is None:
             wrap.kill()
 
@@ -435,7 +486,7 @@ def test_supervisor_inprocess_handover_and_reap(tmp_path, monkeypatch):
         assert sup._draining == []
     finally:
         sup.shutdown()
-        upstream.shutdown()
+        _stop_upstream(upstream)
     assert sup._worker is not None and sup._worker.poll() is not None
 
 
@@ -454,7 +505,7 @@ def test_supervisor_inprocess_rollback_keeps_old_worker(tmp_path, monkeypatch):
         assert _post(sup.port, _payload()).status == 200  # and still serving
     finally:
         sup.shutdown()
-        upstream.shutdown()
+        _stop_upstream(upstream)
 
 
 def test_await_ready_times_out_and_kills(tmp_path):
@@ -498,7 +549,7 @@ def test_watch_thread_handles_manual_trigger_and_respawn(tmp_path, monkeypatch):
         assert _post(sup.port, _payload()).status == 200  # respawned and serving
     finally:
         sup.shutdown()
-        upstream.shutdown()
+        _stop_upstream(upstream)
 
 
 def test_respawn_during_upgrade_window_is_quiet(tmp_path, monkeypatch, caplog):
@@ -535,7 +586,7 @@ def test_respawn_during_upgrade_window_is_quiet(tmp_path, monkeypatch, caplog):
         ]
     finally:
         sup.shutdown()
-        upstream.shutdown()
+        _stop_upstream(upstream)
 
 
 def test_reap_kills_a_wedged_drain(tmp_path, monkeypatch):
@@ -553,7 +604,7 @@ def test_reap_kills_a_wedged_drain(tmp_path, monkeypatch):
         if wedged.poll() is None:
             wedged.kill()
         sup.shutdown()
-        upstream.shutdown()
+        _stop_upstream(upstream)
 
 
 def test_memory_evidence_is_one_parseable_line():
@@ -582,7 +633,7 @@ def test_supervisor_writes_heartbeat_immediately(tmp_path, monkeypatch):
         assert "wrap_maxrss_mb=" in content
     finally:
         sup.shutdown()
-        upstream.shutdown()
+        _stop_upstream(upstream)
 
 
 def test_watch_pulses_census_heartbeat(monkeypatch):

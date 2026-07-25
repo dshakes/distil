@@ -67,6 +67,14 @@ _READY_PREFIX = "DISTIL-WORKER-READY "
 # allowed to finish them. ponytail: fixed ceiling, make env-tunable if a real
 # workload ever streams longer.
 _DRAIN_CAP_S = 15 * 60.0
+# Worker-side twin of the cap above. server_close() joins non-daemon handler
+# threads — that join is *how* in-flight streams finish, but unbounded it lets a
+# single wedged handler pin a SIGTERM'd worker indefinitely (a client that never
+# reads, or an upstream that accepts and never answers: 600s of _UPSTREAM_TIMEOUT
+# each). Same reasoning as the finite upstream timeout and _drain_shadow's budget.
+# Well under _DRAIN_CAP_S so the worker leaves on its own before the supervisor
+# has to SIGKILL it.
+_DRAIN_BUDGET_S = float(os.environ.get("DISTIL_DRAIN_BUDGET_S", "300"))
 _POLL_INTERVAL_S = 30.0
 # ponytail: a non-atomic reinstall window lasts ~1s; wait a beat, don't tight-loop.
 _UPGRADE_SETTLE_S = 2.0
@@ -236,13 +244,28 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
                     break
                 log.warning("worker accept loop crashed; restarting", exc_info=True)
     finally:
-        try:
-            server.server_close()  # joins in-flight handler threads (drain)
-        except Exception:  # noqa: BLE001 — draining; teardown is best-effort
-            pass
+        # Drain in-flight requests, but on a deadline. server_close() joins the
+        # non-daemon handler threads; run it on a helper thread so the join is
+        # *bounded* — an unbounded one hands any single wedged handler the power
+        # to keep a SIGTERM'd worker alive forever.
+        drain = threading.Thread(target=server.server_close, daemon=True)
+        drain.start()
+        drain.join(_DRAIN_BUDGET_S)
         _drain_shadow(handler)
         if savings is not None:
             savings.flush()  # SIGTERM lands here too — no savings are ever dropped
+        if drain.is_alive():
+            # Bounding the join alone changes nothing: returning from main() runs
+            # interpreter shutdown, which re-joins those same non-daemon threads
+            # and blocks all over again. Everything durable (shadow, savings) is
+            # already flushed above, so leaving now costs nothing but the wedge.
+            log.warning(
+                "drain exceeded %.0fs — exiting with a handler still in flight",
+                _DRAIN_BUDGET_S,
+            )
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
     return 0
 
 
