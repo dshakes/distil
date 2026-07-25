@@ -14,6 +14,8 @@ jobs:
         uses: astral-sh/setup-uv@v8.3.2
       - name: ruff check
         run: uvx ruff@0.15.10 check distil tests
+      - name: ruff format --check (whole tree — benchmarks drifted once unwatched)
+        run: uvx ruff@0.15.10 format --check .
       - name: mypy (the package ships py.typed — keep it actually typed)
         run: uvx mypy@1.17.1 --python-version 3.12 --ignore-missing-imports distil
 
