@@ -180,3 +180,33 @@ def test_session_delta_round_trip(proxy_factory):
     _post(port, payload)  # establishes the session
     out = _post(port, payload)  # deltas against prior turn
     assert b"done" in out
+
+
+def test_stalled_client_cannot_pin_a_handler_thread(proxy_factory, monkeypatch):
+    """A client that connects and then goes silent must not hold a handler forever.
+
+    StreamRequestHandler.timeout defaults to None, so before _CLIENT_TIMEOUT the
+    accepted socket had no timeout at all: a peer that stops reading (or stops
+    sending mid-request) parks its handler thread for the life of the process.
+    The upstream socket has carried a finite timeout for exactly this reason;
+    this is the client half of that bargain.
+    """
+    import socket as _socket
+
+    # build_handler runs the class body per server, so patching the module global
+    # before the factory call is what sets this handler's timeout.
+    monkeypatch.setattr("distil.proxy._CLIENT_TIMEOUT", 2.0)
+    port = proxy_factory()
+
+    s = _socket.socket()
+    s.settimeout(30)
+    try:
+        s.connect(("127.0.0.1", port))
+        # Say nothing at all: the handler is now blocked reading the request line.
+        t0 = time.monotonic()
+        got = s.recv(1024)  # server-side close lands here once the timeout fires
+        elapsed = time.monotonic() - t0
+        assert got == b"", f"expected server to close the idle connection, got {got!r}"
+        assert elapsed < 20, f"connection held {elapsed:.1f}s — client timeout not applied"
+    finally:
+        s.close()

@@ -105,6 +105,15 @@ def _expand_should_intercept(expand: bool, store: object, body: dict) -> bool:
 # but finite, so a wedged upstream can never pin a worker thread forever.
 _UPSTREAM_TIMEOUT = float(os.environ.get("DISTIL_UPSTREAM_TIMEOUT", "600"))
 
+# Client socket timeout (seconds) — the same bargain as the upstream one above,
+# for the other end of the pipe. Without it (StreamRequestHandler.timeout is None)
+# a client that opens a connection and then stops reading, or stops sending
+# mid-request, pins its handler thread forever: the write blocks on a full socket
+# buffer that will never drain. Generous, because HTTP/1.1 keep-alive means an
+# idle agent between turns is sitting in exactly this read — but finite, so a
+# stalled client leaks a thread for minutes instead of for the process's life.
+_CLIENT_TIMEOUT = float(os.environ.get("DISTIL_CLIENT_TIMEOUT", "600"))
+
 
 def _is_timeout(exc: urllib.error.URLError) -> bool:
     return isinstance(exc.reason, (socket.timeout, TimeoutError))
@@ -123,7 +132,14 @@ class QuietHTTPServer(ThreadingHTTPServer):
         import sys
 
         exc = sys.exc_info()[1]
-        if isinstance(exc, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+        # socket.timeout (== TimeoutError on 3.10+) joins the list: with a client
+        # socket timeout set, a stalled peer surfaces here on write the same way a
+        # vanished one does. Upstream timeouts never reach this — they are caught
+        # in the handler and answered 504.
+        if isinstance(
+            exc,
+            (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, socket.timeout),
+        ):
             return
         super().handle_error(request, client_address)
 
@@ -395,6 +411,11 @@ def build_handler(
         # HTTP/1.1 so streamed responses can use chunked transfer framing
         # (every non-streaming response still carries an exact Content-Length).
         protocol_version = "HTTP/1.1"
+
+        # StreamRequestHandler.setup() applies this to the accepted socket, so
+        # no read or write to a client can block forever. Read at class-creation
+        # time (build_handler runs per server), so tests can dial it down.
+        timeout = _CLIENT_TIMEOUT
 
         # ----------------------------------------------------------------
         # Silence request logs — quiet by design
