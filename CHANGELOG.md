@@ -3,6 +3,38 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.30.0] — the official MCP registry entry actually launches
+
+distil has been listed in the official MCP registry since 2026-07-17 with a launch spec
+that could never have worked:
+
+```
+$ uvx distil-llm mcp        # what the registry entry resolves to
+An executable named `distil-llm` is not provided by package `distil-llm`.
+```
+
+The distribution is `distil-llm` but its console scripts were `distil` and `distil-mcp`,
+and `uvx <pkg>` runs the executable *named after the package*. Anyone who discovered
+distil through the registry — the highest-traffic MCP discovery surface — and used its
+declared spec got a failure.
+
+### `uvx distil-llm` now starts the MCP server
+Adds a `distil-llm` console script pointing at `distil.mcp_server:serve`. Because
+`serve()` ignores argv, the already-published `uvx distil-llm mcp` form works too — so
+this repairs the live registry entry for existing clients without waiting for anything
+to be republished. `distil`, `distil-mcp`, and `uvx --from distil-llm distil-mcp` are all
+unaffected; every form was verified against a built wheel.
+
+Ships `server.json` at the repo root so the registry entry has a committed manifest to
+publish from, instead of existing only as server-side state.
+
+### Fixed
+- `scripts/release.sh` rewrote `url`, `sha256` and `version` in the Homebrew formula but
+  not the comment naming which tag that sha belonged to — it sat at `v1.11.2` while the
+  hash moved 18 releases on. A comment that confidently names the wrong tag is worse than
+  no comment: anyone recomputing the hash would have checked it against the v1.11.2
+  tarball and concluded the formula was corrupt. It now moves in the same `sed`.
+
 ## [1.29.1] — nothing can pin a worker thread forever
 
 Two unbounded waits, at opposite ends of the same pipe. Both let one stuck peer

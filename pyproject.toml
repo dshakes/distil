@@ -2,7 +2,7 @@
 # Import package and CLI are `distil`; the PyPI distribution is `distil-llm`
 # (the bare `distil` name is already taken on PyPI).
 name = "distil-llm"
-version = "1.29.1"
+version = "1.30.0"
 description = "Compression with a quality contract — cache-aware, causally-pruned context compression for agentic runtimes, gated by a statistical non-inferiority test."
 readme = "README.md"
 # Python floor is 3.9 — the version macOS still ships as the system `python3`. The
@@ -53,6 +53,12 @@ distil = "distil.cli:main"
 # distribution is `distil-llm`, and MCP server.json launch specs don't cover
 # the `script subcommand` form cleanly.
 distil-mcp = "distil.mcp_server:serve"
+# `uvx <pkg>` runs the executable *named after the package*, so without this the
+# official MCP registry's own launch spec (`uvx distil-llm ...`) fails with
+# "An executable named `distil-llm` is not provided by package `distil-llm`".
+# serve() ignores argv, so the already-published `uvx distil-llm mcp` form works
+# too — this repairs the live registry entry without needing it republished.
+distil-llm = "distil.mcp_server:serve"
 
 [build-system]
 requires = ["hatchling"]
