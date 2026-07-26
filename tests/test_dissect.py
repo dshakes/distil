@@ -914,6 +914,28 @@ class TestServePortal:
         status, _ = self._get(portal + "/session/..%2F..%2Fetc%2Fpasswd")
         assert status == 404
 
+    def test_index_polls_in_place_instead_of_meta_refresh(self, portal: str) -> None:
+        """The picker updates itself without reloading (WCAG 2.2.1/2.2.4): no meta
+        refresh, a keyed tbody to patch, and a visible control to stop the polling."""
+        _status, body = self._get(portal + "/")
+        assert 'http-equiv="refresh"' not in body
+        assert 'id="sessions-body"' in body
+        assert 'id="pause-btn"' in body and 'aria-pressed="false"' in body
+        assert 'data-sid="s200-1"' in body  # rows keyed so the poll can patch them
+
+    def test_sessions_json_backs_the_poll(self, portal: str) -> None:
+        """/sessions.json is what the poll fetches — same rows as the rendered table."""
+        status, body = self._get(portal + "/sessions.json")
+        assert status == 200
+        rows = json.loads(body)
+        by_sid = {r["sid"]: r for r in rows}
+        assert {"s200-1", "s300-9"} <= set(by_sid)
+        row = by_sid["s200-1"]
+        assert set(row) == {"sid", "tool", "started", "last", "requests", "pct", "status"}
+        assert isinstance(row["pct"], float)
+        # the JSON carries only session metadata — never prompt or response content
+        assert "content" not in body and "messages" not in body
+
 
 class TestTranscriptCorrelation:
     @pytest.fixture(autouse=True)

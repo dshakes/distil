@@ -26,8 +26,9 @@ pyz:  ## Build the single-file executable (dist/distil.pyz)
 docker:  ## Build the container image
 	docker build -t distil:latest .
 
-lint:  ## Lint with ruff
-	uvx ruff check distil tests
+lint:  ## Lint with ruff (pinned to the version CI gates on)
+	uvx ruff@0.15.10 check distil tests
+	uvx ruff@0.15.10 format --check .
 
 clean:  ## Remove build artifacts
 	rm -rf dist build *.egg-info .pytest_cache .ruff_cache
