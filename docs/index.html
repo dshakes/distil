@@ -152,7 +152,7 @@
   .btn:hover{transform:translateY(-2px)}
   .btn.primary:hover{box-shadow:0 12px 36px -12px rgba(139,123,255,.6)}
   pre{box-shadow:var(--shadow)}
-  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
   /* style the shared site.js .copy-btn here (this page uses inline CSS, not site.css) */
   pre{position:relative}
   .copy-btn{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:5px;
@@ -205,7 +205,7 @@
     0 0 0 1px rgba(90,209,201,.14), 0 0 60px -20px rgba(90,209,154,.28)}
   .heroterm .bar{background:linear-gradient(180deg,rgba(90,209,201,.05),transparent)}
   .hc{display:inline-block;width:8px;height:15px;vertical-align:-2px;margin-left:2px;
-    background:var(--good);border-radius:1px;animation:blink 1.05s steps(1) infinite}
+    background:var(--good);border-radius:1px;animation:blink 1.05s steps(1) 5}
   @keyframes blink{50%{opacity:0}}
 
   /* ── section eyebrow rhythm on every section (compass/firstpass DNA) ── */
@@ -248,10 +248,10 @@
   .still{position:absolute;top:-120px;right:-150px;width:640px;height:860px;z-index:0;pointer-events:none;
     opacity:.9;-webkit-mask-image:radial-gradient(120% 90% at 74% 34%,#000 55%,transparent 100%);
             mask-image:radial-gradient(120% 90% at 74% 34%,#000 55%,transparent 100%)}
-  .still .stream{animation:fall 7s linear infinite}
-  .still .drop{transform-box:fill-box;transform-origin:center;animation:breathe 6.5s ease-in-out infinite}
-  .still .halo{transform-box:fill-box;transform-origin:center;animation:breathe 6.5s ease-in-out infinite}
-  .still .pulse{transform-box:fill-box;transform-origin:center;animation:certify 5.5s cubic-bezier(.25,.6,.3,1) infinite}
+  .still .stream{animation:fall 7s linear 1}
+  .still .drop{transform-box:fill-box;transform-origin:center;animation:breathe 6.5s ease-in-out 1}
+  .still .halo{transform-box:fill-box;transform-origin:center;animation:breathe 6.5s ease-in-out 1}
+  .still .pulse{transform-box:fill-box;transform-origin:center;animation:certify 5.5s cubic-bezier(.25,.6,.3,1) 1}
   .still .pulse.p2{animation-delay:2.75s}
   @keyframes fall{to{stroke-dashoffset:-260}}
   @keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
