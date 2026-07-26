@@ -611,12 +611,12 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <h2>Install <span class="g">— pick a format</span><a class="hlink" href="#install" aria-label="Link to this section">#</a></h2>
   <p class="lead">The stdlib-only core makes the packaging clean: zero runtime deps, corpus bundled.</p>
   <div class="tabs" id="install-tabs">
-    <div class="tabbar" role="tablist">
-      <button class="tab is-active" data-tab="uvx" role="tab">uvx <span class="tab-hint">zero install</span></button>
-      <button class="tab" data-tab="pipx" role="tab">pipx <span class="tab-hint">isolated cli</span></button>
-      <button class="tab" data-tab="brew" role="tab">Homebrew</button>
-      <button class="tab" data-tab="docker" role="tab">Docker</button>
-      <button class="tab" data-tab="pyz" role="tab">zipapp</button>
+    <div class="tabbar">
+      <button class="tab is-active" data-tab="uvx" aria-pressed="true">uvx <span class="tab-hint">zero install</span></button>
+      <button class="tab" data-tab="pipx" aria-pressed="false">pipx <span class="tab-hint">isolated cli</span></button>
+      <button class="tab" data-tab="brew" aria-pressed="false">Homebrew</button>
+      <button class="tab" data-tab="docker" aria-pressed="false">Docker</button>
+      <button class="tab" data-tab="pyz" aria-pressed="false">zipapp</button>
     </div>
     <p class="tabrec"><b>uvx</b> — zero install, <span class="rec">recommended</span>. Runs straight from PyPI, nothing to clean up.</p>
     <div class="tabpanels">

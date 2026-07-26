@@ -121,7 +121,11 @@
   }
 })();
 
-/* Tab groups: .tabs > .tab[data-tab] switches .tabpanel[data-panel]. */
+/* Tab groups: .tabs > .tab[data-tab] switches .tabpanel[data-panel].
+   These are plain toggle buttons (not the ARIA tabs/tablist pattern): each
+   button reports its own pressed state via aria-pressed, so they stay
+   ordinary Tab-and-Enter-operable buttons with no roving tabindex or
+   arrow-key contract to maintain. */
 (function () {
   document.querySelectorAll(".tabs").forEach(function (grp) {
     var tabs = grp.querySelectorAll(".tab");
@@ -129,7 +133,11 @@
     tabs.forEach(function (tab) {
       tab.addEventListener("click", function () {
         var key = tab.getAttribute("data-tab");
-        tabs.forEach(function (t) { t.classList.toggle("is-active", t === tab); });
+        tabs.forEach(function (t) {
+          var active = t === tab;
+          t.classList.toggle("is-active", active);
+          t.setAttribute("aria-pressed", active ? "true" : "false");
+        });
         panels.forEach(function (p) { p.classList.toggle("is-active", p.getAttribute("data-panel") === key); });
       });
     });
