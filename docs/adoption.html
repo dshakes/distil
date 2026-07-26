@@ -23,7 +23,7 @@
     background:var(--acc2);box-shadow:0 0 12px 1px rgba(90,209,201,.7);flex:0 0 auto}
   .seyebrow.p::before{background:var(--acc);box-shadow:0 0 12px 1px rgba(139,123,255,.7)}
   .seyebrow.gr::before{background:var(--good);box-shadow:0 0 12px 1px rgba(90,209,154,.7)}
-  .seyebrow.live::before{animation:apulse 1.6s ease-in-out infinite}
+  .seyebrow.live::before{animation:apulse 1.6s ease-in-out 3}
   @keyframes apulse{50%{opacity:.35}}
 
   .astats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0 8px}
@@ -83,12 +83,12 @@
     linear-gradient(180deg,var(--panel2),var(--panel));padding:16px;overflow-x:auto;margin:16px 0 8px}
   .pipe svg{display:block;min-width:840px;width:100%;height:auto}
   .pipe .ln{stroke:#3d3d5c;stroke-width:1.6;fill:none;marker-end:url(#arr)}
-  .pipe .flow{stroke-dasharray:5 6;animation:aflow 1.6s linear infinite}
+  .pipe .flow{stroke-dasharray:5 6;animation:aflow 1.6s linear 3}
   @keyframes aflow{to{stroke-dashoffset:-22}}
   .pipe .bx{fill:#14141f;stroke:#23233a}
   .pipe .bx.hl{stroke:#2a2550}
   .pipe .bx.gr{stroke:#1f3a2c}
-  .pipe .breathe{animation:abreathe 2.6s ease-in-out infinite}
+  .pipe .breathe{animation:abreathe 2.6s ease-in-out 2}
   @keyframes abreathe{0%,100%{opacity:.65}50%{opacity:1}}
   .pipe .tt{fill:var(--ink);font:600 13px var(--mono)}
   .pipe .ss{fill:var(--mut);font:11px var(--mono)}
@@ -112,7 +112,7 @@
   .hero-in{position:relative;padding:26px 28px 22px;display:block}
   .hero-in>div{min-width:0}
   .hero-lab{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:9px}
-  .hero-lab .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 12px 2px rgba(90,209,154,.75);animation:apulse 1.4s ease-in-out infinite}
+  .hero-lab .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 12px 2px rgba(90,209,154,.75);animation:apulse 1.4s ease-in-out 4}
   /* odometer */
   .odo{display:flex;align-items:baseline;gap:1px;margin:10px 0 8px;font-family:var(--mono);font-weight:800;
     font-size:clamp(30px,5.1vw,60px);letter-spacing:-.02em;line-height:1;flex-wrap:wrap;
@@ -122,7 +122,7 @@
   .odo .d.tick{color:#7dffc4}
   .odo .unit{font-size:.34em;font-weight:700;color:var(--mut);letter-spacing:.04em;margin-left:.35em;text-shadow:none}
   .rate{font-family:var(--mono);font-size:13.5px;color:var(--good);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .rate .up{display:inline-block;animation:arise 1.6s ease-in-out infinite}
+  .rate .up{display:inline-block;animation:arise 1.6s ease-in-out 3}
   @keyframes arise{0%,100%{transform:translateY(0);opacity:.7}50%{transform:translateY(-2px);opacity:1}}
   .rate .muted{color:var(--dim)}
   .hero-sub{color:var(--mut);font-size:13px;margin-top:12px;line-height:1.5}
@@ -153,6 +153,10 @@
   @media (prefers-reduced-motion:reduce){
     .hero-lab .dot,.rate .up{animation:none}
   }
+  .live-controls{display:flex;align-items:center;gap:10px;margin:8px 0 2px}
+  .pause-btn{background:transparent;border:1px solid var(--line);color:var(--mut);
+    font-family:var(--mono);font-size:11.5px;padding:4px 11px;border-radius:999px;cursor:pointer}
+  .pause-btn:hover{background:rgba(255,255,255,.05);color:var(--ink)}
 </style>
 </head>
 <body>
@@ -207,7 +211,10 @@
     <div class="hero">
       <div class="hero-in">
         <div>
-          <div class="hero-lab"><span class="dot"></span> Community tokens saved &middot; exact</div>
+          <div class="hero-lab"><span class="dot"></span> Community tokens saved &middot; <span id="hero-state">exact</span></div>
+          <div class="live-controls">
+            <button type="button" id="pause-btn" class="pause-btn" aria-pressed="false">Pause live updates</button>
+          </div>
           <div class="odo" id="odo" aria-live="off"><span class="d">0</span></div>
           <div class="rate">
             <b id="rate-sec">&mdash;</b>&nbsp;<span class="muted" id="rate-day"></span>
@@ -455,10 +462,14 @@
   //  new heartbeat or census), and correct downward only on a real re-baseline;
   //  between measurements they sit static, exact. `rate` is NEVER shown projected.
   var shownTokens = null, targetTokens = 0, liveBase = null; // liveBase:{total,rate}
+  // Pause/Resume (WCAG 2.2.2): a visible control suspends both polling
+  // intervals below and this rAF easing loop; nothing updates while paused.
+  var paused = false, pollTimer = null, liveTimer = null, rafId = null;
   function desiredTokens() {
     return liveBase ? liveBase.total : targetTokens;
   }
   function odoLoop() {
+    if (paused) { rafId = null; return; }
     var t = desiredTokens();
     if (shownTokens === null || reduced) { shownTokens = t; }
     else {
@@ -466,7 +477,7 @@
       if (Math.abs(t - shownTokens) < 1) shownTokens = t;
     }
     renderOdo(commas(shownTokens));
-    requestAnimationFrame(odoLoop);
+    rafId = requestAnimationFrame(odoLoop);
   }
 
   // Near-real-time community pulse (opt-in heartbeats → edge store). Polls fast;
@@ -494,8 +505,7 @@
         set("rate-day", act > 0
           ? "saving now · exact total, moves only when it truly rises"
           : "no machines active right now · exact total");
-        document.querySelector(".hero-lab").innerHTML =
-          '<span class="dot"></span> Community tokens saved &middot; ' + (act > 0 ? "live" : "exact");
+        set("hero-state", act > 0 ? "live" : "exact");
       } else {
         liveBase = null; // empty/unavailable store → census exact total
       }
@@ -584,12 +594,32 @@
       : '<div class="empty-note">billing &amp; agent mix appears as clients opt in</div>';
   }
 
-  requestAnimationFrame(odoLoop);
   function refresh() { fetchAggregates().then(paint).catch(function () { set("updated", "live data unavailable"); }); }
+  function schedule() {
+    pollTimer = setInterval(refresh, 45000); // census aggregates (versions, models, trust, downloads)
+    liveTimer = setInterval(pollLive, 3000); // near-real-time community pulse (heartbeat aggregate)
+  }
+  var pauseBtn = document.getElementById("pause-btn");
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", function () {
+      paused = !paused;
+      pauseBtn.textContent = paused ? "Resume live updates" : "Pause live updates";
+      pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
+      if (paused) {
+        clearInterval(pollTimer);
+        clearInterval(liveTimer);
+      } else {
+        refresh();
+        pollLive();
+        schedule();
+        if (rafId === null) rafId = requestAnimationFrame(odoLoop);
+      }
+    });
+  }
+  rafId = requestAnimationFrame(odoLoop);
   refresh();
-  setInterval(refresh, 45000);   // census aggregates (versions, models, trust, downloads)
   pollLive();
-  setInterval(pollLive, 3000);   // near-real-time community pulse (heartbeat aggregate)
+  schedule();
 })();
 </script>
 </body>
