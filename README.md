@@ -468,6 +468,8 @@ distil conformal --corpus ./mycorpus --alpha 0.05 --delta 0.05
 # ✔ CERTIFIED 'lossless' → 57.4% savings; decision-change ≤ 5.0% at 95% confidence (Learn-Then-Test)
 ```
 
+**Every certificate names the oracle that graded it.** A certificate is evidence, and evidence that doesn't say what produced it isn't evidence — so `Certificate.grader` is stamped from the runner and printed in the guarantee. The default offline gate is graded by a *deterministic synthetic oracle*, not a model, and it says so verbatim: `Graded by: deterministic (synthetic DECISION: oracle — NOT a model)`. Real-model evidence comes from `distil certify --runner anthropic`, and its certificates name that runner instead. You can always tell which layer a number came from, because the number carries it.
+
 It's **conformal risk control** (Learn-Then-Test / CRC — distribution-free, finite-sample), not a heuristic threshold. The one load-bearing caveat: the guarantee requires **exchangeability** (calibration traffic ≈ live traffic) and is **marginal** over that distribution — recalibrate on drift. Full theory + citations: [Concepts](https://dshakes.github.io/distil/concepts.html) · [`docs/PAPER.md`](docs/PAPER.md).
 
 ### 🏔 The trajectory-level certificate

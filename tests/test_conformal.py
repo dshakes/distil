@@ -63,3 +63,39 @@ def test_calibrate_validates_alpha():
 
     with pytest.raises(ValueError):
         calibrate(load_corpus(), DeterministicRunner(), alpha=1.5)
+
+
+def test_certificate_records_who_graded_it():
+    """A certificate must say what produced its numbers.
+
+    Before this, a run graded by the synthetic DECISION: oracle was byte-identical to
+    one graded by a real model — same fields, same guarantee string. That is the same
+    defect class as claiming PEP 740 attestations we never shipped: an evidence
+    artifact asserting more than it can support.
+    """
+    from distil.conformal import Certificate, render_grader
+
+    # the synthetic oracle must never read as a model
+    synthetic = render_grader("deterministic")
+    assert "NOT a model" in synthetic, synthetic
+    assert "synthetic" in synthetic.lower()
+
+    # a real grader passes through as itself
+    assert render_grader("anthropic") == "anthropic"
+
+    # unrecorded provenance is reported, never silently blank
+    for unknown in ("", "unspecified"):
+        assert "not recorded" in render_grader(unknown)
+
+    # the field is on the artifact and reachable via the property
+    cert = Certificate("ltt", 0.05, 0.05, "digest", 0, 0.0, 0.6, 40, "g", "deterministic")
+    assert cert.grader == "deterministic"
+    assert cert.graded_by == synthetic
+
+
+def test_calibrate_stamps_the_runner_into_the_certificate():
+    """End-to-end: whatever graded the losses is what the certificate names."""
+    cert = calibrate(load_corpus(), DeterministicRunner(), alpha=0.30, delta=0.10, method="ltt")
+    assert cert.grader == "deterministic"
+    assert "Graded by:" in cert.guarantee
+    assert "NOT a model" in cert.guarantee

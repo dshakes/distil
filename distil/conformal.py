@@ -218,6 +218,16 @@ class Certificate:
     savings: float  # token savings at the certified level
     n: int  # calibration sample size
     guarantee: str  # human-readable guarantee statement
+    # WHO graded the losses. A certificate that does not say what produced its
+    # numbers is not evidence — a run graded by the synthetic DECISION: oracle was
+    # previously byte-indistinguishable from one graded by a real model. Defaulted
+    # so older callers/pickles keep working; unknown is reported honestly.
+    grader: str = "unspecified"
+
+    @property
+    def graded_by(self) -> str:
+        """Human-readable provenance, explicit that the default oracle is not a model."""
+        return render_grader(self.grader)
 
 
 def ltt_certify(
@@ -321,6 +331,21 @@ def default_ladder():
     ]
 
 
+def render_grader(grader: str) -> str:
+    """Spell out what graded a certificate. The synthetic oracle must never read as
+    a model — that conflation is what makes a certificate look stronger than it is."""
+    if grader == "deterministic":
+        return "deterministic (synthetic DECISION: oracle — NOT a model)"
+    if grader in ("", "unspecified"):
+        return "unspecified (provenance not recorded)"
+    return grader
+
+
+def _grader_name(runner) -> str:
+    """Best-effort provenance for whatever graded the losses."""
+    return str(getattr(runner, "name", None) or type(runner).__name__)
+
+
 def calibrate(
     entries,
     runner,
@@ -381,6 +406,7 @@ def calibrate(
             n,
             f"No level certifies a decision-change rate ≤ {alpha * 100:.1f}% — "
             "stay at byte-exact (or relax α).",
+            _grader_name(runner),
         )
     name = rungs[idx][0]
     risk = sum(level_losses[idx]) / n if n else 0.0
@@ -397,6 +423,17 @@ def calibrate(
             f"vs. uncompressed context is ≤ {alpha * 100:.1f}% with {(1 - delta) * 100:.0f}% "
             f"confidence (Learn-Then-Test, n={n} calibration turns)."
         )
+    grader = _grader_name(runner)
+    guarantee = f"{guarantee} Graded by: {render_grader(grader)}."
     return Certificate(
-        method, alpha, None if method == "crc" else delta, name, idx, risk, savings, n, guarantee
+        method,
+        alpha,
+        None if method == "crc" else delta,
+        name,
+        idx,
+        risk,
+        savings,
+        n,
+        guarantee,
+        grader,
     )
