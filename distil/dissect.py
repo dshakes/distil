@@ -1076,11 +1076,15 @@ def _svg_hbars(
     rows: list[tuple[str, int, list[tuple[str, str, str]]]],
     *,
     color: str = _C_OVERHEAD,
+    name: str = "Bar chart",
 ) -> str:
     """Horizontal bar chart (single measure, one hue): label, thin bar, value.
 
     Each row is (label, value, tooltip_rows). The whole row — label through
-    value — is one oversized hit target for the styled tooltip.
+    value — is one oversized hit target for the styled tooltip. ``name`` is
+    the chart's accessible name (SC 1.1.1): it is rendered both as the
+    ``aria-label`` and as an ``<svg><title>`` so it survives in AT that
+    ignores one or the other.
     """
     if not rows:
         return ""
@@ -1089,7 +1093,9 @@ def _svg_hbars(
     plot_w = width - label_w - val_w
     parts = [
         f'<svg viewBox="0 0 {width} {len(rows) * rh + 6}" role="img" '
+        f'aria-label="{_html.escape(name, quote=True)}" '
         f'style="width:100%;height:auto;font:12px Inter,ui-sans-serif,sans-serif">'
+        f"<title>{_html.escape(name)}</title>"
     ]
     for i, (label, val, tip_rows) in enumerate(rows):
         y = i * rh + 4
@@ -1129,9 +1135,16 @@ def _svg_stack_timeline(requests: list[dict[str, Any]]) -> str:
     n = len(comp)
     step = plot_w / n
     bar_w = max(2, min(28, round(step - 2)))
+    total_saved = sum(saved for _o, _s, saved, _r in comp)
+    name = (
+        f"Per-request token composition for {n} requests: stacked overhead, sent content, "
+        f"and tokens saved, {_human(total_saved)} saved in total"
+    )
     parts = [
         f'<svg viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{_html.escape(name, quote=True)}" '
         f'style="width:100%;height:auto;font:11px Inter,ui-sans-serif,sans-serif">'
+        f"<title>{_html.escape(name)}</title>"
     ]
     for frac in (0.0, 0.5, 1.0):  # recessive grid, three lines
         y = 8 + plot_h * (1 - frac)
@@ -1214,6 +1227,20 @@ def _timeline_table(requests: list[dict[str, Any]]) -> str:
         "<details><summary class='muted'>data table</summary>"
         "<table><tr><th>#</th><th>model</th><th>overhead</th><th>sent</th>"
         f"<th>saved</th><th>billed in</th><th>ms</th></tr>{rows}</table></details>"
+    )
+
+
+def _tool_cost_table(tool_costs: list[tuple[str, int, int]]) -> str:
+    """Data-table fallback for the tool-definition-cost chart, mirroring
+    :func:`_timeline_table` so the same numbers are available without a chart."""
+    rows = "".join(
+        f"<tr><td>{_html.escape(name)}</td><td class='r'>{per:,}</td><td class='r'>{tot:,}</td></tr>"
+        for name, per, tot in tool_costs
+    )
+    return (
+        "<details><summary class='muted'>data table</summary>"
+        "<table><tr><th>tool</th><th>tokens per request</th>"
+        f"<th>session total</th></tr>{rows}</table></details>"
     )
 
 
@@ -1424,6 +1451,7 @@ def render_html(
             else ""
         )
 
+        tool_costs = d.tool_costs()[:10]
         tool_rows = [
             (
                 name,
@@ -1433,17 +1461,19 @@ def render_html(
                     ("", "session total (× every request)", f"{tot:,}"),
                 ],
             )
-            for name, per, tot in d.tool_costs()[:10]
+            for name, per, tot in tool_costs
         ]
         tools_chart = (
             "<h2>Tool definitions <span class='muted'>(tokens per request)</span></h2>"
             "<p class='desc'>Every enabled tool is re-described to the model on every "
             "request, so each bar is a standing cost you pay per call. Long bars from "
             "tools you rarely use are the cheapest tokens to reclaim — disable them.</p>"
-            f"{_svg_hbars(tool_rows)}"
+            f"{_svg_hbars(tool_rows, name='Tool definition cost, tokens per request, top 10 tools')}"
+            f"{_tool_cost_table(tool_costs)}"
             if tool_rows
             else ""
         )
+        kind_rows_chart = d.blocks_by_kind()[:10]
         kind_chart = _svg_hbars(
             [
                 (
@@ -1454,9 +1484,10 @@ def render_html(
                         ("", "distinct blocks", str(uniq)),
                     ],
                 )
-                for sig, uniq, toks in d.blocks_by_kind()[:10]
+                for sig, uniq, toks in kind_rows_chart
             ],
             color=_C_SAVED,
+            name="Tokens folded by block kind, top 10 kinds",
         )
         detail_body = f"""<h2>Request detail</h2>
 <p class="desc">Every API request this session made, and where its tokens went — hover any
