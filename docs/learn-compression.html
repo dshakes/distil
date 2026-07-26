@@ -162,6 +162,7 @@
       <div class="stat-box"><div class="stat-n" id="te-cached">$0</div><div class="stat-l">With prompt caching (prefix read @ 0.1×)</div></div>
       <div class="stat-box hl"><div class="stat-n g" id="te-distil">$0</div><div class="stat-l">With caching <em>+</em> Distil lossless (−26.8%)</div></div>
     </div>
+    <div id="te-live" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;"></div>
     <p style="font-size:12px;color:#5b6177;margin-top:-10px;"><strong>Assumptions:</strong> input-token cost only (output excluded for clarity); prefix is cacheable and byte-stable; per-turn input = prefix + accumulated history; cached line writes the prefix once at 1.25× then reads it at 0.10× while the growing tail stays fresh; Distil line additionally removes 26.8% of fresh tokens losslessly. Illustrative — your numbers depend on your traffic.</p>
 
     <h2>Compression, the whole <span class="g">family tree</span></h2>
@@ -290,12 +291,27 @@
     $("te-turns-v").textContent = n;
     $("te-prefix-v").textContent = fmtN(F);
     $("te-step-v").textContent = fmtN(b);
-    $("te-naive").textContent = fmt$(naiveTok * inP);
-    $("te-cached").textContent = fmt$(cachedCost);
-    $("te-distil").textContent = fmt$(distilCost);
+    var naiveTxt = fmt$(naiveTok * inP), cachedTxt = fmt$(cachedCost), distilTxt = fmt$(distilCost);
+    $("te-naive").textContent = naiveTxt;
+    $("te-cached").textContent = cachedTxt;
+    $("te-distil").textContent = distilTxt;
+    return { naive: naiveTxt, cached: cachedTxt, distil: distilTxt };
+  }
+  // Debounced polite live region: the sliders fire "input" continuously while
+  // dragging, so we only announce the recalculated totals once input settles
+  // for ~500ms, to avoid flooding screen reader users.
+  var teLive = $("te-live");
+  var teLiveTimer = null;
+  function scheduleAnnounce(vals) {
+    if (!teLive) return;
+    clearTimeout(teLiveTimer);
+    teLiveTimer = setTimeout(function () {
+      teLive.textContent = "Naive " + vals.naive + ", with caching " + vals.cached + ", with caching and Distil " + vals.distil + ".";
+    }, 500);
   }
   [turns, prefix, step, model].forEach(function (el) {
-    el.addEventListener("input", recalc); el.addEventListener("change", recalc);
+    el.addEventListener("input", function () { scheduleAnnounce(recalc()); });
+    el.addEventListener("change", function () { scheduleAnnounce(recalc()); });
   });
   recalc();
 })();
