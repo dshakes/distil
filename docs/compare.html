@@ -34,30 +34,40 @@
 
 <div class="shell">
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-section">Getting started</div>
-    <a href="getting-started.html">Install &amp; Quickstart</a>
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
 
-    <div class="sidebar-section">Learn</div>
-    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-    <a href="concepts.html">Concepts</a>
-    <a href="techniques.html">Techniques</a>
-    <a href="architecture.html">Architecture</a>
-    <a href="research.html">Research &amp; Frontier</a>
-    <a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a>
-    <a href="benchmark.html">Benchmark</a>
-    <a href="compare.html" class="active">Compare</a>
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html" class="active" aria-current="page">Compare</a></li>
+      </ul>
 
-    <div class="sidebar-section">Reference</div>
-    <a href="cli.html">CLI Reference</a>
-    <a href="adapters.html">Adapters</a>
-    <a href="corpus.html">Corpus</a>
-    <a href="output.html">Output &amp; I/O</a>
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
 
-    <div class="sidebar-section">More</div>
-    <a href="faq.html">FAQ</a>
-    <a href="integrations.html">Integrations</a>
-    <a href="deploy-security.html">Deploy &amp; Security</a>
-    <a href="index.html">&#8592; Landing page</a>
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">&#8592; Landing page</a></li>
+      </ul>
+    </nav>
   </aside>
 
   <main class="content" id="content" tabindex="-1">
@@ -72,11 +82,11 @@
 
     <table>
       <thead>
-        <tr><th>Capability</th><th>Distil</th><th>Headroom</th><th>rtk</th><th>LLMLingua-2</th><th>Provider caching</th></tr>
+        <tr><th scope="col">Capability</th><th scope="col">Distil</th><th scope="col">Headroom</th><th scope="col">rtk</th><th scope="col">LLMLingua-2</th><th scope="col">Provider caching</th></tr>
       </thead>
       <tbody>
         <tr>
-          <td>Per-step statistical certificate</td>
+          <th scope="row">Per-step statistical certificate</th>
           <td><span class="badge-pass">✔</span> DERC (Learn-Then-Test / CRC)</td>
           <td><span class="badge-fail">✘</span> none published</td>
           <td><span class="badge-fail">✘</span> none published</td>
@@ -84,7 +94,7 @@
           <td>— not a compressor</td>
         </tr>
         <tr>
-          <td>Trajectory-level (task-outcome) certificate</td>
+          <th scope="row">Trajectory-level (task-outcome) certificate</th>
           <td><span class="badge-pass">✔</span> <code>distil certify-trajectories</code></td>
           <td><span class="badge-fail">✘</span></td>
           <td><span class="badge-fail">✘</span></td>
@@ -92,7 +102,7 @@
           <td>— not a compressor</td>
         </tr>
         <tr>
-          <td>Reversible (bytes recoverable on demand)</td>
+          <th scope="row">Reversible (bytes recoverable on demand)</th>
           <td><span class="badge-pass">✔</span> Tier-1 digest + handle, <code>distil_expand</code></td>
           <td><span class="badge-pass">✔</span> documents a local store + <code>headroom_retrieve</code>; the compression itself is lossy in-context (the configuration benchmarked in E8)</td>
           <td><span class="badge-fail">✘</span> lossy filtering (strips boilerplate; keeps raw logs on failure)</td>
@@ -100,7 +110,7 @@
           <td><span class="badge-pass">✔</span> trivially — nothing is removed</td>
         </tr>
         <tr>
-          <td>Live shadow decision-equivalence on real traffic</td>
+          <th scope="row">Live shadow decision-equivalence on real traffic</th>
           <td><span class="badge-pass">✔</span> <code>--shadow</code> / <code>shadow-stats</code></td>
           <td>not published</td>
           <td>not published</td>
@@ -108,7 +118,7 @@
           <td>— no decision risk to measure</td>
         </tr>
         <tr>
-          <td>SSE streaming pass-through (TTFT preserved)</td>
+          <th scope="row">SSE streaming pass-through (TTFT preserved)</th>
           <td><span class="badge-pass">✔</span> chunk-by-chunk relay</td>
           <td>n/a — library, not an HTTP relay</td>
           <td>n/a — CLI output proxy, not an LLM API relay</td>
@@ -116,7 +126,7 @@
           <td>n/a — no proxy layer in the path</td>
         </tr>
         <tr>
-          <td>Savings ledger + status line</td>
+          <th scope="row">Savings ledger + status line</th>
           <td><span class="badge-pass">✔</span> local ledger, <code>leaderboard</code>/<code>statusline</code></td>
           <td>not published</td>
           <td>not published</td>
@@ -124,7 +134,7 @@
           <td>— provider billing dashboard covers this natively</td>
         </tr>
         <tr>
-          <td>Multi-tenant gateway (per-tenant accounting)</td>
+          <th scope="row">Multi-tenant gateway (per-tenant accounting)</th>
           <td><span class="badge-pass">✔</span> <code>distil gateway</code></td>
           <td>not published</td>
           <td>not published</td>
@@ -148,34 +158,34 @@
     <p>Capability tables can't settle whether any of this holds up on a real, long-horizon coding agent. <a href="research.html#e8">E8</a> runs six conditions of the identical ReAct agent (only the compressor differs) end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker) — not a proxy metric.</p>
 
     <table>
-      <thead><tr><th>Condition</th><th style="text-align:center">Task success</th><th style="text-align:center">Tied with full context?</th><th style="text-align:center">Reversible + certified?</th></tr></thead>
+      <thead><tr><th scope="col">Condition</th><th scope="col" style="text-align:center">Task success</th><th scope="col" style="text-align:center">Tied with full context?</th><th scope="col" style="text-align:center">Reversible + certified?</th></tr></thead>
       <tbody>
         <tr style="background:rgba(90,209,154,.16)">
-          <td><strong>Distil</strong> (gated + surprise digest, v1.7)</td>
+          <th scope="row"><strong>Distil</strong> (gated + surprise digest, v1.7)</th>
           <td style="text-align:center"><strong>42.0%</strong></td>
           <td style="text-align:center"><span class="badge-pass">✔ tied with full</span> <small>(paired CI &minus;0.6..+6.2pp)</small></td>
           <td style="text-align:center"><span class="badge-pass">✔</span></td>
         </tr>
         <tr style="background:rgba(90,209,154,.10)">
-          <td><strong>Distil</strong> (relevance-gated, E8)</td>
+          <th scope="row"><strong>Distil</strong> (relevance-gated, E8)</th>
           <td style="text-align:center"><strong>36.8%</strong></td>
           <td style="text-align:center"><span class="badge-pass">✔</span></td>
           <td style="text-align:center"><span class="badge-pass">✔</span></td>
         </tr>
         <tr>
-          <td>Headroom <span style="color:#5b6177">(lossy)</span></td>
+          <th scope="row">Headroom <span style="color:#5b6177">(lossy)</span></th>
           <td style="text-align:center">32.6%</td>
           <td style="text-align:center"><span class="badge-fail">✘ &minus;6.6&nbsp;pp</span></td>
           <td style="text-align:center"><span class="badge-fail">✘</span></td>
         </tr>
         <tr>
-          <td>LLMLingua-2 <span style="color:#5b6177">(lossy)</span></td>
+          <th scope="row">LLMLingua-2 <span style="color:#5b6177">(lossy)</span></th>
           <td style="text-align:center">2.4%</td>
           <td style="text-align:center"><span class="badge-fail">✘ &minus;36.8&nbsp;pp</span></td>
           <td style="text-align:center"><span class="badge-fail">✘</span></td>
         </tr>
         <tr>
-          <td>No compression <span style="color:#5b6177">(full)</span></td>
+          <th scope="row">No compression <span style="color:#5b6177">(full)</span></th>
           <td style="text-align:center">39.2%</td>
           <td style="text-align:center">&mdash;</td>
           <td style="text-align:center">&mdash;</td>

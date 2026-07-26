@@ -120,10 +120,15 @@ a { color: inherit; text-decoration: none; }
   backdrop-filter: blur(8px);
 }
 .sidebar-section {
-  font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim); padding: 20px 12px 8px;
+  font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim); margin: 0; padding: 20px 12px 8px;
 }
+.sidebar-section::before { content: none; }
 .sidebar-section:first-child { padding-top: 4px; }
+/* The sidebar's link groups are real <ul>/<li> lists now (M2/N10); undo the
+   shared prose list styles so the visual result matches the old bare <a>s. */
+.sidebar ul { list-style: none; padding-left: 0; margin: 0; color: inherit; }
+.sidebar li { margin: 0; }
 .sidebar a {
   position: relative; display: block;
   padding: 7px 12px; margin: 1px 0; font-size: 13px;
@@ -252,6 +257,15 @@ th {
 }
 td { padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--mut); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
+/* Matrix-table row headers (M3): a th[scope=row] carries the same semantics
+   as a column th but must keep rendering like the plain td it replaces. */
+th[scope="row"] {
+  padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--mut); vertical-align: top;
+  background: transparent; font-weight: 400; font-size: inherit; text-transform: none; letter-spacing: normal;
+}
+th[scope="row"] strong, th[scope="row"] b { color: var(--ink); }
+th[scope="row"] code { font-size: 11.5px; }
+tr:last-child th[scope="row"] { border-bottom: none; }
 tbody tr { transition: background .12s; }
 tbody tr:hover { background: rgba(139,123,255,.04); }
 td strong, td b { color: var(--ink); }
@@ -279,7 +293,9 @@ td code { font-size: 11.5px; }
 }
 .tier:hover { transform: translateY(-3px); border-color: #2f3a5a; }
 .tier .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--acc2); font-weight: 700; margin-bottom: 6px; }
-.tier h4 { font-size: 15px; margin: 6px 0 5px; color: var(--ink); }
+/* N2: these tier-card headings were <h4> straight under an <h2> (a skipped
+   level); promoted to <h3> in markup, kept visually identical here. */
+.tier h3 { font-family: inherit; font-size: 15px; font-weight: 700; margin: 6px 0 5px; color: var(--ink); }
 .tier p { color: var(--mut); font-size: 13px; }
 
 /* ── Stat boxes ────────────────────────────────────────────────────── */

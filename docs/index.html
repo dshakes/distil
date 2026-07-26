@@ -100,6 +100,8 @@
   .table-scroll{max-width:100%}
   th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}
   th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  /* Row-header th cells (M3) carry scope="row" for AT but must render like the td they replace. */
+  th[scope="row"]{color:var(--ink);font-weight:400;font-size:inherit;text-transform:none;letter-spacing:normal}
   td .new{color:var(--acc);font-weight:700}
   .callout{background:linear-gradient(180deg,#0f1326,#0b0d16);border:1px solid #23284a;border-radius:16px;
     padding:22px;margin-top:8px}
@@ -107,7 +109,8 @@
   .tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
   .tier{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px}
   .tier .k{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc2)}
-  .tier h4{margin:8px 0 6px;font-size:16px}
+  /* N2: promoted from h4 (was a skipped level under the h2 above) to h3; kept visually identical. */
+  .tier h3{font-family:inherit;margin:8px 0 6px;font-size:16px;font-weight:700}
   .tier p{color:var(--mut);font-size:13px;margin:0}
   footer{padding:48px 0 70px;color:var(--dim);font-size:13px;border-top:1px solid var(--line)}
   .muted{color:var(--dim)}
@@ -449,6 +452,7 @@
   </script>
 </div></header>
 
+<main>
 <section id="why"><div class="wrap">
   <div class="seyebrow p">The difference</div>
   <h2 style="margin-top:0">Every other compressor <b class="w">trusts</b>.<br>Distil <b class="g">proves</b>.</h2>
@@ -575,11 +579,11 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <h2>Risk-graded tiers<a class="hlink" href="#tiers" aria-label="Link to section: Risk-graded tiers">#</a></h2>
   <p class="lead">Apply the provably-safe ones everywhere; gate the rest on evidence.</p>
   <div class="tiers">
-    <div class="tier"><div class="k">Tier 0</div><h4>Provably lossless</h4>
+    <div class="tier"><div class="k">Tier 0</div><h3>Provably lossless</h3>
       <p>Reconstructable transforms — JSON minify, reversible run-length encoding. Always on.</p></div>
-    <div class="tier"><div class="k">Tier 1</div><h4>Reversible digest</h4>
+    <div class="tier"><div class="k">Tier 1</div><h3>Reversible digest</h3>
       <p>Decision-aware digest + a handle; the full original stays local and re-expands on demand.</p></div>
-    <div class="tier"><div class="k">Certified</div><h4>Lossy, but gated</h4>
+    <div class="tier"><div class="k">Certified</div><h3>Lossy, but gated</h3>
       <p>Pruning &amp; summarization allowed only at ratios the non-inferiority gate certifies.</p></div>
   </div>
 </div></section>
@@ -588,21 +592,25 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <div class="seyebrow">The cost stack</div>
   <h2>Capabilities <span class="g">— every layer of the cost stack</span><a class="hlink" href="#bestof" aria-label="Link to section: Capabilities — every layer of the cost stack">#</a></h2>
   <table>
-    <tr><th>Capability</th><th>What it does</th><th>Loss profile</th></tr>
-    <tr><td>Priced cache-aware engine</td><td>Models the multi-turn loop and proves naive recompression busts the cache</td><td>—</td></tr>
-    <tr><td>Schema canonicalization</td><td>Recursively key-sorts JSON/tool payloads so the prefix is byte-stable</td><td>lossless</td></tr>
-    <tr><td>Volatile-field extraction</td><td>Lifts dates/UUIDs/JWTs out of the cached prefix so it stops churning</td><td>lossless · reversible</td></tr>
-    <tr><td>Reversible digest + handles</td><td>Originals stay local and re-expand on demand</td><td>reversible</td></tr>
-    <tr><td>Reject-if-bigger invariant</td><td>Never emits a block larger than its original</td><td>safety</td></tr>
-    <tr><td>Adversarial validation gate</td><td><code>distil validate</code> — drives the real compressor against hostile inputs and asserts reversibility, recency-exactness, fail-open, and content-free telemetry hold</td><td><span class="new">CI gate</span></td></tr>
-    <tr><td>Causal / counterfactual pruning</td><td>Ablation discovers context that never changes a decision</td><td><span class="new">certified</span></td></tr>
-    <tr><td>TOST non-inferiority gate (DERC)</td><td>Per-step: a strategy ships only if it passes the quality contract</td><td><span class="new">the moat</span></td></tr>
-    <tr><td>Trajectory-level certificate</td><td>Task-level: <code>distil certify-trajectories</code> bounds end-to-end degradation on matched full/compressed runs</td><td><span class="new">the differentiator</span></td></tr>
-    <tr><td>Savings ledger + leaderboard</td><td>Local-first, privacy-preserving cumulative savings</td><td>opt-in</td></tr>
-    <tr><td>Content-type keep policy</td><td>Pins each kind's load-bearing lines — a log's pass/fail verdict, a traceback's frames, a diff's hunk headers</td><td><span class="new">1.15</span></td></tr>
-    <tr><td>Query-aware salience</td><td>Sees the agent's intent in the same request and pins the line it's asking about — lexically (a grep hit, a SHA), and now <em>semantically</em>: a learned model keeps the line that <em>answers</em> the query with no shared word ("retry limit" → <code>max_attempts = 5</code>)</td><td><span class="new">1.16</span></td></tr>
-    <tr><td>Columnar fold</td><td>Re-encodes JSON record arrays into a compact self-describing table — real token savings even on a flat-rate plan</td><td>lossless</td></tr>
-    <tr><td>Session dissect</td><td><code>distil dissect</code> — per-session deep-dive with an anomaly list that catches silent failures automatically</td><td><span class="new">1.15</span></td></tr>
+    <thead>
+    <tr><th scope="col">Capability</th><th scope="col">What it does</th><th scope="col">Loss profile</th></tr>
+    </thead>
+    <tbody>
+    <tr><th scope="row">Priced cache-aware engine</th><td>Models the multi-turn loop and proves naive recompression busts the cache</td><td>—</td></tr>
+    <tr><th scope="row">Schema canonicalization</th><td>Recursively key-sorts JSON/tool payloads so the prefix is byte-stable</td><td>lossless</td></tr>
+    <tr><th scope="row">Volatile-field extraction</th><td>Lifts dates/UUIDs/JWTs out of the cached prefix so it stops churning</td><td>lossless · reversible</td></tr>
+    <tr><th scope="row">Reversible digest + handles</th><td>Originals stay local and re-expand on demand</td><td>reversible</td></tr>
+    <tr><th scope="row">Reject-if-bigger invariant</th><td>Never emits a block larger than its original</td><td>safety</td></tr>
+    <tr><th scope="row">Adversarial validation gate</th><td><code>distil validate</code> — drives the real compressor against hostile inputs and asserts reversibility, recency-exactness, fail-open, and content-free telemetry hold</td><td><span class="new">CI gate</span></td></tr>
+    <tr><th scope="row">Causal / counterfactual pruning</th><td>Ablation discovers context that never changes a decision</td><td><span class="new">certified</span></td></tr>
+    <tr><th scope="row">TOST non-inferiority gate (DERC)</th><td>Per-step: a strategy ships only if it passes the quality contract</td><td><span class="new">the moat</span></td></tr>
+    <tr><th scope="row">Trajectory-level certificate</th><td>Task-level: <code>distil certify-trajectories</code> bounds end-to-end degradation on matched full/compressed runs</td><td><span class="new">the differentiator</span></td></tr>
+    <tr><th scope="row">Savings ledger + leaderboard</th><td>Local-first, privacy-preserving cumulative savings</td><td>opt-in</td></tr>
+    <tr><th scope="row">Content-type keep policy</th><td>Pins each kind's load-bearing lines — a log's pass/fail verdict, a traceback's frames, a diff's hunk headers</td><td><span class="new">1.15</span></td></tr>
+    <tr><th scope="row">Query-aware salience</th><td>Sees the agent's intent in the same request and pins the line it's asking about — lexically (a grep hit, a SHA), and now <em>semantically</em>: a learned model keeps the line that <em>answers</em> the query with no shared word ("retry limit" → <code>max_attempts = 5</code>)</td><td><span class="new">1.16</span></td></tr>
+    <tr><th scope="row">Columnar fold</th><td>Re-encodes JSON record arrays into a compact self-describing table — real token savings even on a flat-rate plan</td><td>lossless</td></tr>
+    <tr><th scope="row">Session dissect</th><td><code>distil dissect</code> — per-session deep-dive with an anomaly list that catches silent failures automatically</td><td><span class="new">1.15</span></td></tr>
+    </tbody>
   </table>
 </div></section>
 
@@ -679,6 +687,7 @@ client = wrap(anthropic.Anthropic())  <span class="d"># compresses + keeps the c
     <a class="btn ghost" href="https://github.com/dshakes/distil">View on GitHub →</a>
   </div>
 </div></section>
+</main>
 
 <footer><div class="wrap">
   Distil · compression with a quality contract · stdlib-only core ·

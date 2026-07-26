@@ -383,7 +383,7 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
 
     totals_row = (
         f"<tr class='total-row'>"
-        f"<td><strong>TOTAL</strong></td>"
+        f"<th scope='row'><strong>TOTAL</strong></th>"
         f"<td><strong>{totals['requests']}</strong></td>"
         f"<td><strong>{totals['tokens_saved']:,}</strong></td>"
         f"<td><strong>${totals['dollars_saved']:.4f}</strong></td>"
@@ -467,7 +467,7 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     border-bottom: 1px solid #13161f;
     transition: background 0.12s;
   }}
-  tbody tr:hover {{ background: #0d1020; }}
+  tbody tr:hover, tfoot tr:hover {{ background: #0d1020; }}
   tbody td {{
     padding: 0.75rem 1rem;
     font-variant-numeric: tabular-nums;
@@ -477,15 +477,21 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     color: #8b7bff;
     font-size: 0.82rem;
   }}
-  .total-row td {{
+  .total-row td, .total-row th {{
     border-top: 2px solid #1e2130;
     color: #5ad1c9;
     padding: 0.75rem 1rem;
     font-variant-numeric: tabular-nums;
+    text-align: left;
+    font-weight: 400;
   }}
-  .total-row td:first-child {{
+  .total-row td:first-child, .total-row th:first-child {{
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 0.82rem;
+  }}
+  caption.sr-only {{
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
   }}
   .empty {{
     color: #4b5563;
@@ -547,19 +553,22 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
 
 <div class="table-wrap">
 <table>
+  <caption class="sr-only">Per-tenant token compression leaderboard</caption>
   <thead>
     <tr>
-      <th>Tenant</th>
-      <th>Requests</th>
-      <th>Tokens Saved</th>
-      <th>$ Saved</th>
-      <th>% Saved</th>
+      <th scope="col">Tenant</th>
+      <th scope="col">Requests</th>
+      <th scope="col">Tokens Saved</th>
+      <th scope="col">$ Saved</th>
+      <th scope="col">% Saved</th>
     </tr>
   </thead>
   <tbody id="tenant-rows">
     {rows}
-    {totals_row}
   </tbody>
+  <tfoot>
+    {totals_row}
+  </tfoot>
 </table>
 </div>
 <p class="refresh-note">

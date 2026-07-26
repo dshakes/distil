@@ -432,13 +432,18 @@ th,td{{padding:10px 13px;border-bottom:1px solid #1b2030;text-align:left}}
 th{{color:#7d8598;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
 td.r{{text-align:right;font-variant-numeric:tabular-nums}} td.d{{color:#9aa1b3}}
 .foot{{color:#7d8598;font-size:12.5px;margin-top:20px}}
+caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+ clip:rect(0,0,0,0);white-space:nowrap;border:0}}
 </style></head><body><div class="wrap">
 <h1>Compression <span class="g">benchmark</span></h1>
 <p class="sub">model {report.model} · runner {report.runner} · every technique through the same
 decision-equivalence + non-inferiority gate and cache-aware cost model.</p>
-<table><thead><tr><th>technique</th><th>family</th><th style="text-align:right">tok save</th>
-<th style="text-align:right">$ save</th><th style="text-align:right">equiv</th><th>verdict</th>
-<th>fidelity</th></tr></thead><tbody>{body}</tbody></table>
+<table><caption class="sr-only">Compression technique standings</caption>
+<thead><tr><th scope="col">technique</th><th scope="col">family</th>
+<th scope="col" style="text-align:right">tok save</th>
+<th scope="col" style="text-align:right">$ save</th>
+<th scope="col" style="text-align:right">equiv</th><th scope="col">verdict</th>
+<th scope="col">fidelity</th></tr></thead><tbody>{body}</tbody></table>
 <p class="foot">{verdict} Raw token savings that fail the gate are disqualified — savings that
 change the answer aren't savings. Reproduce offline: <code>distil benchmark</code>; verify a real
 tool: <code>distil benchmark --external module:function</code>.</p>

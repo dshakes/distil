@@ -34,32 +34,41 @@
 
 <div class="shell">
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-section">Getting started</div>
-    <a href="getting-started.html">Install &amp; Quickstart</a>
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
 
-    <div class="sidebar-section">Learn</div>
-    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-    <a href="concepts.html">Concepts</a>
-    <a href="techniques.html" class="active">Techniques</a>
-    <a href="architecture.html">Architecture</a>
-    <a href="research.html">Research &amp; Frontier</a>
-    <a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a>
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html" class="active" aria-current="page">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
 
-    <a href="benchmark.html">Benchmark</a>
-    <a href="compare.html">Compare</a>
-    <a href="adoption.html">Adoption <span class="nav-badge">Live</span></a>
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
 
-    <div class="sidebar-section">Reference</div>
-    <a href="cli.html">CLI Reference</a>
-    <a href="adapters.html">Adapters</a>
-    <a href="corpus.html">Corpus</a>
-    <a href="output.html">Output &amp; I/O</a>
-
-    <div class="sidebar-section">More</div>
-    <a href="faq.html">FAQ</a>
-    <a href="integrations.html">Integrations</a>
-    <a href="deploy-security.html">Deploy &amp; Security</a>
-    <a href="index.html">← Landing page</a>
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
   </aside>
 
   <main class="content" id="content" tabindex="-1">
@@ -203,7 +212,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
     <div class="tiers">
       <div class="tier">
         <div class="k">Tier 0</div>
-        <h4>Provably lossless</h4>
+        <h3>Provably lossless</h3>
         <p>Reconstructable transforms with no assumptions about content semantics. Applied unconditionally.</p>
         <ul style="margin-top:10px;font-size:13px;color:var(--mut)">
           <li>JSON minification</li>
@@ -214,7 +223,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
       </div>
       <div class="tier">
         <div class="k">Tier 1</div>
-        <h4>Reversible digest</h4>
+        <h3>Reversible digest</h3>
         <p>Decision-aware digest: the compressed form embeds an 8-hex handle; the original is kept locally and re-expands on demand.</p>
         <ul style="margin-top:10px;font-size:13px;color:var(--mut)">
           <li>Large tool results (≥ 6 lines) digested</li>
@@ -225,7 +234,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
       </div>
       <div class="tier">
         <div class="k">Certified</div>
-        <h4>Lossy, gated</h4>
+        <h3>Lossy, gated</h3>
         <p>Pruning applied only at ratios the non-inferiority gate certifies. Never ships without a TOST PASS.</p>
         <ul style="margin-top:10px;font-size:13px;color:var(--mut)">
           <li>Causal pruning (ablation-discovered)</li>

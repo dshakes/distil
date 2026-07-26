@@ -1225,8 +1225,11 @@ def _timeline_table(requests: list[dict[str, Any]]) -> str:
     )
     return (
         "<details><summary class='muted'>data table</summary>"
-        "<table><tr><th>#</th><th>model</th><th>overhead</th><th>sent</th>"
-        f"<th>saved</th><th>billed in</th><th>ms</th></tr>{rows}</table></details>"
+        "<table><caption class='sr-only'>Per-request token timeline</caption>"
+        "<tr><th scope='col'>#</th><th scope='col'>model</th><th scope='col'>overhead</th>"
+        "<th scope='col'>sent</th>"
+        f"<th scope='col'>saved</th><th scope='col'>billed in</th><th scope='col'>ms</th></tr>"
+        f"{rows}</table></details>"
     )
 
 
@@ -1511,12 +1514,18 @@ the wire. Hover a bar for exact numbers.</p>
 kind:size — e.g. <code>log:l</code> is a large log, <code>prose:m</code> a medium block of
 text. Only these labels are stored, never the content.</p>
 {kind_chart}
-<table><tr><th>kind</th><th>blocks</th><th>tokens</th></tr>{kind_rows}</table>
+<table><caption class="sr-only">Folded block kinds</caption>
+<tr><th scope="col">kind</th><th scope="col">blocks</th><th scope="col">tokens</th></tr>
+{kind_rows}</table>
 <h2>Largest folds</h2>
 <p class="desc">The biggest single blocks distil summarized. The handle is the short ID the
 model can use to ask for the original back; “recoverable” means those original bytes are
 still on this machine.</p>
-<table><tr><th>handle</th><th>kind</th><th>tokens</th><th{_tip_attr("seen", body="How many requests carried this block.")}>seen</th><th{_tip_attr("restore", body="Is the original still on disk (restore/)?")}>restore</th></tr>{top_rows}</table>"""
+<table><caption class="sr-only">Largest folded blocks</caption>
+<tr><th scope="col">handle</th><th scope="col">kind</th><th scope="col">tokens</th>
+<th scope="col"{_tip_attr("seen", body="How many requests carried this block.")}>seen</th>
+<th scope="col"{_tip_attr("restore", body="Is the original still on disk (restore/)?")}>restore</th></tr>
+{top_rows}</table>"""
     else:
         detail_body = (
             "<h2>Request detail</h2><p class='muted'>Not recorded — per-request detail needs a "
@@ -1563,10 +1572,14 @@ each of your prompts cost.</p>
 {unused}
 {refetch_html}
 <h3>Largest folds, named</h3>
-<table><tr><th>source</th><th>under turn</th><th>tokens</th><th>folds</th><th>results seen in</th></tr>
+<table><caption class="sr-only">Largest folds by source</caption>
+<tr><th scope="col">source</th><th scope="col">under turn</th><th scope="col">tokens</th>
+<th scope="col">folds</th><th scope="col">results seen in</th></tr>
 {fold_rows or "<tr><td class='muted' colspan='5'>no blocks could be attributed</td></tr>"}</table>
 <h3>Costliest turns</h3>
-<table><tr><th>#</th><th>your prompt</th><th>req</th><th>baseline</th><th>saved</th></tr>
+<table><caption class="sr-only">Token usage by turn</caption>
+<tr><th scope="col">#</th><th scope="col">your prompt</th><th scope="col">req</th>
+<th scope="col">baseline</th><th scope="col">saved</th></tr>
 {turn_rows or "<tr><td class='muted' colspan='5'>no turns matched</td></tr>"}</table>"""
     heads = d.headlines()
     story = (
@@ -1630,6 +1643,8 @@ ul.warn{{margin:8px 0 0;padding-left:20px}} ul.warn li{{color:#e8b34b;margin:6px
 ul.notes{{margin:14px 0 0;padding-left:20px}} ul.notes li{{color:#9aa1b3;margin:8px 0}}
 details{{margin:10px 0}} details summary{{cursor:pointer;color:#7d8598}}
 .foot{{color:#7d8598;font-size:12.5px;margin-top:26px}}
+caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+ clip:rect(0,0,0,0);white-space:nowrap;border:0}}
 </style></head><body><div class="wrap">
 <h1>Session <span class="g">dissected</span></h1>
 <p class="sub">{e(d.sid)} — {e(man.get("tool") or "unknown tool")},
@@ -1645,7 +1660,9 @@ details{{margin:10px 0}} details summary{{cursor:pointer;color:#7d8598}}
 <h2>Per model</h2>
 <p class="desc">Who talked and what it cost: baseline is what each model <em>would</em> have
 received unwrapped; distil is what was actually sent after compression.</p>
-<table><tr><th>model</th><th>req</th><th>baseline</th><th>distil</th><th>saved</th></tr>{model_rows}</table>
+<table><caption class="sr-only">Token usage by model</caption>
+<tr><th scope="col">model</th><th scope="col">req</th><th scope="col">baseline</th>
+<th scope="col">distil</th><th scope="col">saved</th></tr>{model_rows}</table>
 {detail_body}
 {corr_html}
 <h2>Quality loops</h2>
@@ -1765,6 +1782,8 @@ th{{color:#7d8598;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
 td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}}
 tbody tr{{cursor:pointer}} tbody tr:hover td{{background:#10131d}}
 code{{color:#8b7bff}} .muted{{color:#7d8598}}
+caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+ clip:rect(0,0,0,0);white-space:nowrap;border:0}}
 code a{{color:inherit;text-decoration:underline}}
 code a:hover,code a:focus{{color:#5ad1c9}}
 code a:focus-visible{{outline:2px solid #8b7bff;outline-offset:2px;border-radius:4px}}
@@ -1777,8 +1796,11 @@ code a:focus-visible{{outline:2px solid #8b7bff;outline-offset:2px;border-radius
 <h1>Distil <span class="g">sessions</span></h1>
 <p class="sub"><span>Pick a session to dissect — newest activity first. Updates automatically.</span>
 <button type="button" id="pause-btn" class="pause-btn" aria-pressed="false">Pause</button></p>
-<table><thead><tr><th>session</th><th>tool</th><th>started</th><th>last</th><th>reqs</th>
-<th>saved</th><th>status</th></tr></thead><tbody id="sessions-body">{rows}</tbody></table>
+<table><caption class="sr-only">Recorded sessions</caption>
+<thead><tr><th scope="col">session</th><th scope="col">tool</th><th scope="col">started</th>
+<th scope="col">last</th><th scope="col">reqs</th>
+<th scope="col">saved</th><th scope="col">status</th></tr></thead>
+<tbody id="sessions-body">{rows}</tbody></table>
 <p class="foot" id="foot-note">Local-first: served from this machine's ~/.distil only. Reports are
 per-session; JSON at /json/&lt;session&gt;. Updates every 15 s.</p>
 </div>

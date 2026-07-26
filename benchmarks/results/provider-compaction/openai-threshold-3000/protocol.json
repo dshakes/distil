@@ -1,0 +1,14 @@
+{
+  "alpha": 0.1,
+  "created": 1785098785.127975,
+  "delta": 0.05,
+  "keep_tool_uses": 0,
+  "label": "OpenAI server-side compaction",
+  "max_calls": 360,
+  "model": "gpt-5.2",
+  "n_cases": 40,
+  "sig_version": 3,
+  "target": "openai-compaction",
+  "trigger_tokens": 3000,
+  "votes": 3
+}

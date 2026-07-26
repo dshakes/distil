@@ -87,7 +87,7 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     background:linear-gradient(180deg,var(--panel2),var(--panel));box-shadow:0 40px 120px -50px #000}
   .top{height:3px;background:linear-gradient(90deg,var(--acc),var(--tl))}
   .in{padding:30px 32px 28px}
-  .lab{font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:9px}
+  .lab{margin:0;font-weight:400;font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:9px}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 12px 2px rgba(90,209,154,.75);animation:p 1.4s ease-in-out infinite}
   @keyframes p{50%{opacity:.35}}
   .odo{display:flex;align-items:baseline;gap:1px;margin:14px 0 8px;font-weight:800;font-size:clamp(34px,7vw,68px);line-height:1;letter-spacing:-.02em;flex-wrap:wrap;text-shadow:0 0 30px rgba(90,209,154,.25)}
@@ -115,21 +115,23 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .pause-btn:hover{background:rgba(255,255,255,.05)}
   .pause-btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 </style></head><body>
+<main>
 <div class="card" id="card"><div class="top"></div><div class="in">
-  <div class="lab"><span class="dot"></span> your tokens saved · live · this machine</div>
+  <h1 class="lab"><span class="dot"></span> your tokens saved · live · this machine</h1>
   <div class="odo" id="odo" aria-hidden="true"><span class="d">0</span></div>
   <p id="live-status" class="sr-only" role="status"></p>
   <div class="sub" id="sub">reading your local ledger…</div>
   <div class="row">
-    <div class="m"><div class="mv g" id="pct">–</div><div class="ml">smaller · overall</div></div>
-    <div class="m"><div class="mv" id="dollars">–</div><div class="ml" id="dollarslab">$ saved</div></div>
-    <div class="m"><div class="mv a" id="eq">–</div><div class="ml">decision-equivalence</div></div>
-    <div class="m"><div class="mv" id="runs">–</div><div class="ml">requests</div></div>
+    <div class="m"><div class="mv g" id="pct" aria-labelledby="pctlab">–</div><div class="ml" id="pctlab">smaller · overall</div></div>
+    <div class="m"><div class="mv" id="dollars" aria-labelledby="dollarslab">–</div><div class="ml" id="dollarslab">$ saved</div></div>
+    <div class="m"><div class="mv a" id="eq" aria-labelledby="eqlab">–</div><div class="ml" id="eqlab">decision-equivalence</div></div>
+    <div class="m"><div class="mv" id="runs" aria-labelledby="runslab">–</div><div class="ml" id="runslab">requests</div></div>
   </div>
   <div class="foot"><span>◉ local only · nothing leaves this machine</span>
     <button type="button" id="pause-btn" class="pause-btn" aria-pressed="false">Pause</button>
     <span id="stamp"></span></div>
 </div></div>
+</main>
 <script>
 (function(){
   var reduced=matchMedia("(prefers-reduced-motion:reduce)").matches;

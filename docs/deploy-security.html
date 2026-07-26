@@ -37,32 +37,41 @@
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-section">Getting started</div>
-    <a href="getting-started.html">Install &amp; Quickstart</a>
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
 
-    <div class="sidebar-section">Learn</div>
-    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-    <a href="concepts.html">Concepts</a>
-    <a href="techniques.html">Techniques</a>
-    <a href="architecture.html">Architecture</a>
-    <a href="research.html">Research &amp; Frontier</a>
-    <a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a>
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
 
-    <a href="benchmark.html">Benchmark</a>
-    <a href="compare.html">Compare</a>
-    <a href="adoption.html">Adoption <span class="nav-badge">Live</span></a>
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
 
-    <div class="sidebar-section">Reference</div>
-    <a href="cli.html">CLI Reference</a>
-    <a href="adapters.html">Adapters</a>
-    <a href="corpus.html">Corpus</a>
-    <a href="output.html">Output &amp; I/O</a>
-
-    <div class="sidebar-section">More</div>
-    <a href="faq.html">FAQ</a>
-    <a href="integrations.html">Integrations</a>
-    <a href="deploy-security.html" class="active">Deploy &amp; Security</a>
-    <a href="index.html">← Landing page</a>
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a></li>
+        <li><a href="deploy-security.html" class="active" aria-current="page">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
   </aside>
 
   <!-- Main content -->
@@ -80,17 +89,17 @@
     <div class="tiers">
       <div class="tier">
         <div class="k">Topology 1</div>
-        <h4>Local dev sidecar</h4>
+        <h3>Local dev sidecar</h3>
         <p>Run <code>distil proxy</code> on your laptop alongside your application. Default bind is <code>127.0.0.1:8788</code> — not reachable from the network. Zero infra overhead.</p>
       </div>
       <div class="tier">
         <div class="k">Topology 2</div>
-        <h4>Container sidecar</h4>
+        <h3>Container sidecar</h3>
         <p>Add the proxy as a sidecar container in the same Pod or Compose stack. Your app container calls <code>http://localhost:8788</code>; only the sidecar egresses to the upstream API.</p>
       </div>
       <div class="tier">
         <div class="k">Topology 3</div>
-        <h4>Shared gateway</h4>
+        <h3>Shared gateway</h3>
         <p>Run one proxy instance accessible to multiple services on a private network. Bind to an internal interface (<code>--host 0.0.0.0</code>), keep it behind a firewall or service mesh, never expose it to the public internet.</p>
       </div>
     </div>
