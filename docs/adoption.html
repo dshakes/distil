@@ -422,8 +422,10 @@
     var line = "M" + pts.join(" L");
     var area = line + " L" + W + "," + H + " L0," + H + " Z";
     var hx = px(x1).toFixed(2), hy = py(y1).toFixed(2);
+    var trendLabel = "Community tokens saved trending from " + human(y0) + " to " + human(y1) +
+      " over " + history.length + " censuses";
     el.innerHTML =
-      '<svg viewBox="0 0 100 40" preserveAspectRatio="none"><defs>' +
+      '<svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="' + trendLabel + '"><defs>' +
       '<linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5ad19a" stop-opacity=".28"/><stop offset="1" stop-color="#5ad19a" stop-opacity="0"/></linearGradient></defs>' +
       '<path class="area" d="' + area + '"/><path class="line" d="' + line + '"/>' +
       '<circle class="head" cx="' + hx + '" cy="' + hy + '" r="2.4"/></svg>' +
