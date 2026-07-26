@@ -24,7 +24,7 @@
   --line2:  #252c3e;
   --ink:    #f2f3f7;
   --mut:    #9aa1b3;
-  --dim:    #5b6177;
+  --dim:    #7d8598;
   --acc:    #8b7bff;
   --acc2:   #5ad1c9;
   --warn:   #ff8a6b;
@@ -175,7 +175,7 @@ li::marker { color: var(--dim); }
 /* prose links (scoped so nav/cards keep their styling) */
 .content p a, .content li a, .callout a {
   color: var(--acc2); background: linear-gradient(var(--acc2), var(--acc2)) no-repeat;
-  background-size: 0% 1px; background-position: 0 100%;
+  background-size: 100% 1px; background-position: 0 100%;
   transition: background-size .25s, color .15s;
 }
 .content p a:hover, .content li a:hover, .callout a:hover { background-size: 100% 1px; color: #7fe6df; }
@@ -473,7 +473,7 @@ pre:hover .copy-btn { opacity: 1; }
 }
 
 /* Header ref links — clickable "#" anchor, revealed on hover/focus. */
-.hanchor { margin-left: .45em; color: var(--acc2); text-decoration: none; opacity: .45; font-weight: 600; font-size: .72em; transition: opacity .12s; }
+.hanchor { margin-left: .45em; color: var(--acc2); text-decoration: none; opacity: .7; font-weight: 600; font-size: .72em; transition: opacity .12s; }
 .content h2:hover .hanchor, .content h3:hover .hanchor, .hanchor:hover, .hanchor:focus { opacity: 1; text-decoration: underline; }
 
 /* Tabbed panels (installers, code variants) — compass-style */
