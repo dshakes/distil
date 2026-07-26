@@ -1,5 +1,49 @@
 /* Distil docs — progressive enhancements: copy buttons + "on this page" TOC.
    Vanilla, dependency-free, no external requests. */
+
+/* ── Mobile sidebar toggle: shared by every docs page's ☰ button
+   (onclick="toggleSidebar()") ─────────────────────────────────────────
+   Keeps #sidebar's "open" class and .sidebar-toggle's aria-expanded in
+   sync, closes on outside click or Escape, and returns focus to the
+   toggle button on Escape. */
+(function () {
+  "use strict";
+
+  function getSidebar() { return document.getElementById("sidebar"); }
+  function getToggle() { return document.querySelector(".sidebar-toggle"); }
+
+  function setOpen(open) {
+    var sb = getSidebar();
+    if (!sb) return;
+    sb.classList.toggle("open", open);
+    var btn = getToggle();
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  window.toggleSidebar = function () {
+    var sb = getSidebar();
+    if (!sb) return;
+    setOpen(!sb.classList.contains("open"));
+  };
+
+  document.addEventListener("click", function (e) {
+    var sb = getSidebar();
+    if (sb && sb.classList.contains("open") && !sb.contains(e.target) && !e.target.closest(".sidebar-toggle")) {
+      setOpen(false);
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    var sb = getSidebar();
+    if (sb && sb.classList.contains("open")) {
+      setOpen(false);
+      var btn = getToggle();
+      if (btn) btn.focus();
+    }
+  });
+})();
+
 (function () {
   "use strict";
 

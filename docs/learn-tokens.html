@@ -22,7 +22,7 @@
 <body>
 
 <header class="topbar">
-  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
   <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
   <span class="topbar-pill">compression with a quality contract</span>
   <nav class="topbar-links">
@@ -208,17 +208,6 @@
   </main>
 </div>
 
-<script>
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-}
-document.addEventListener('click', function(e) {
-  var sb = document.getElementById('sidebar');
-  if (sb.classList.contains('open') && !sb.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
-    sb.classList.remove('open');
-  }
-});
-</script>
 <script src="site.js" defer></script>
 </body>
 </html>
