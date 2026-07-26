@@ -331,7 +331,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
     <h3>Training the transformer on your traces</h3>
     <p><code>distil/codec/train_transformer.py</code> &middot; Fine-tunes a HuggingFace token-classification model (default: <code>google/bert_uncased_L-2_H-128_A-2</code>, ~4 MB) using the same label pipeline as the logistic model, then exports to ONNX. Requires the <code>train</code> extras.</p>
 
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d">$ pip install 'distil-llm[train]'</span>
+    <pre class="term"><span class="d">$ pip install 'distil-llm[train]'</span>
 
 <span class="d"># Train on the bundled corpus (replace with --corpus ./mycorpus for real traces)</span>
 <span class="d">$ distil train-transformer --out ./my-keep-model</span>

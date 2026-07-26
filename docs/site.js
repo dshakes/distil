@@ -49,7 +49,10 @@
 
   // ── Copy-to-clipboard on every code block ──────────────────────────
   document.querySelectorAll("pre").forEach(function (pre) {
-    var original = (pre.querySelector("code") || pre).textContent; // capture before button
+    var target = pre.querySelector("code") || pre;
+    var clone = target.cloneNode(true); // strip any pre-existing .copy-btn before reading text
+    clone.querySelectorAll(".copy-btn").forEach(function (b) { b.remove(); });
+    var original = clone.textContent;
     var btn = document.createElement("button");
     btn.className = "copy-btn";
     btn.type = "button";

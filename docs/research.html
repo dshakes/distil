@@ -326,7 +326,7 @@
 
     <p>Results are sorted by savings ascending and printed as the frontier table. Run offline with the deterministic runner (structural decision-equivalence). For real task-accuracy on a benchmark (tau-bench, SWE-bench, GSM8K) ingest its traces and run with <code>--runner anthropic</code>.</p>
 
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d">$ distil eval</span>
+    <pre class="term"><span class="d">$ distil eval</span>
 certified compression frontier  (runner=deterministic)
 
 <span class="d">level                   savings   equiv  certified  curve</span>
@@ -384,7 +384,7 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
       <li><strong>Conformal Risk Control (CRC)</strong> &mdash; Angelopoulos, Bates, Fisch, Lei &amp; Schuster, <em>ICLR</em> 2024 (<a href="https://arxiv.org/abs/2208.02814" target="_blank" rel="noopener">arXiv:2208.02814</a>). For a monotone 0/1 loss, controls the <em>expected</em> rate <code>E[L]&le;&alpha;</code>, tight to O(1/n). Use <code>--method crc</code>.</li>
     </ul>
 
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d">$ distil conformal --corpus ./mycorpus --alpha 0.05 --delta 0.05</span>
+    <pre class="term"><span class="d">$ distil conformal --corpus ./mycorpus --alpha 0.05 --delta 0.05</span>
 Decision-Equivalence Risk Certificate (DERC)
 
   method      : LTT  (Learn-Then-Test)
@@ -449,7 +449,7 @@ Decision-Equivalence Risk Certificate (DERC)
 
     <p>The "decision" is the agent's next action &mdash; the first <code>tool_use</code> (Anthropic), <code>tool_call</code> (OpenAI), or <code>functionCall</code> (Gemini). Two responses are equivalent iff that action matches, exactly the <code>{action, target}</code> fingerprint the certificate uses. It is <strong>streaming-aware</strong>: the decision is reconstructed from SSE, so shadow-mode works on real agent sessions (Claude Code, Codex, Gemini CLI) that stream &mdash; not just non-streaming SDK calls. The result is a rolling, live decision-change rate on <em>your</em> traffic:</p>
 
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d">$ distil proxy --shadow 0.05 --upstream https://api.anthropic.com</span>
+    <pre class="term"><span class="d">$ distil proxy --shadow 0.05 --upstream https://api.anthropic.com</span>
   → shadow-mode live decision-equivalence: sampling 5%
 
 <span class="d">$ distil shadow-stats</span>
@@ -525,7 +525,7 @@ Decision-Equivalence Risk Certificate (DERC)
       </div>
     </div>
 
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d">$ distil online --corpus ./mycorpus --promote-to ./weights/keep_model.json</span>
+    <pre class="term"><span class="d">$ distil online --corpus ./mycorpus --promote-to ./weights/keep_model.json</span>
 self-distilling round — keep-model learns from causal labels, gated by non-inferiority
 
   n_labels: 286
@@ -568,7 +568,7 @@ self-distilling round — keep-model learns from causal labels, gated by non-inf
       <li><strong>Only certified submissions</strong> (where <code>certified == True</code>) contribute to headline totals. Uncertified instances are shown but their numbers do not roll into the aggregate.</li>
     </ul>
 
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d">$ distil federated-leaderboard \
+    <pre class="term"><span class="d">$ distil federated-leaderboard \
     --dir ./submissions \
     --keys ./instance-keys.json \
     --html ./leaderboard.html</span>
