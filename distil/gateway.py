@@ -395,7 +395,6 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="5">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>distil gateway — live dashboard</title>
 <style>
@@ -505,7 +504,22 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     font-size: 0.72rem;
     text-align: right;
     margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.6rem;
   }}
+  .pause-btn {{
+    background: #0f1117;
+    border: 1px solid #1e2130;
+    color: #c7c9d1;
+    font-size: 0.72rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    cursor: pointer;
+  }}
+  .pause-btn:hover {{ background: #171a24; }}
+  .pause-btn:focus-visible {{ outline: 2px solid #8b7bff; outline-offset: 2px; }}
 </style>
 </head>
 <body>
@@ -515,19 +529,19 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
 <div class="headline-cards">
   <div class="card">
     <div class="card-label">Total Requests</div>
-    <div class="card-value">{totals["requests"]}</div>
+    <div class="card-value" id="c-requests">{totals["requests"]}</div>
   </div>
   <div class="card">
     <div class="card-label">Tokens Saved</div>
-    <div class="card-value teal">{totals["tokens_saved"]:,}</div>
+    <div class="card-value teal" id="c-tokens">{totals["tokens_saved"]:,}</div>
   </div>
   <div class="card">
     <div class="card-label">Dollars Saved</div>
-    <div class="card-value">${totals["dollars_saved"]:.4f}</div>
+    <div class="card-value" id="c-dollars">${totals["dollars_saved"]:.4f}</div>
   </div>
   <div class="card">
     <div class="card-label">Compression Rate</div>
-    <div class="card-value teal">{totals["pct_saved"]:.1f}%</div>
+    <div class="card-value teal" id="c-pct">{totals["pct_saved"]:.1f}%</div>
   </div>
 </div>
 
@@ -542,13 +556,87 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
       <th>% Saved</th>
     </tr>
   </thead>
-  <tbody>
+  <tbody id="tenant-rows">
     {rows}
     {totals_row}
   </tbody>
 </table>
 </div>
-<p class="refresh-note">Auto-refresh every 5 s &bull; distil gateway</p>
+<p class="refresh-note">
+  <span id="refresh-note">Updates every 5 s &bull; distil gateway</span>
+  <button type="button" class="pause-btn" id="pause-btn" aria-pressed="false">Pause</button>
+</p>
+<script>
+(function() {{
+  var POLL_MS = 5000;
+  var tbody = document.getElementById("tenant-rows");
+  var pauseBtn = document.getElementById("pause-btn");
+  var note = document.getElementById("refresh-note");
+  var timer = null, paused = false;
+
+  function esc(s) {{
+    return String(s).replace(/[&<>"']/g, function(c) {{
+      return ({{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}})[c];
+    }});
+  }}
+
+  function rowsHtml(tenants, totals) {{
+    var out = "";
+    if (!tenants.length) {{
+      out += '<tr><td colspan="5" class="empty">No requests recorded yet.</td></tr>';
+    }} else {{
+      tenants.forEach(function(t) {{
+        out += "<tr>" +
+          "<td>" + esc(t.tenant) + "</td>" +
+          "<td>" + t.requests + "</td>" +
+          "<td>" + t.tokens_saved.toLocaleString("en-US") + "</td>" +
+          "<td>$" + t.dollars_saved.toFixed(4) + "</td>" +
+          "<td>" + t.pct_saved.toFixed(1) + "%</td>" +
+          "</tr>";
+      }});
+    }}
+    out += "<tr class='total-row'>" +
+      "<td><strong>TOTAL</strong></td>" +
+      "<td><strong>" + totals.requests + "</strong></td>" +
+      "<td><strong>" + totals.tokens_saved.toLocaleString("en-US") + "</strong></td>" +
+      "<td><strong>$" + totals.dollars_saved.toFixed(4) + "</strong></td>" +
+      "<td><strong>" + totals.pct_saved.toFixed(1) + "%</strong></td>" +
+      "</tr>";
+    return out;
+  }}
+
+  function renderCards(totals) {{
+    document.getElementById("c-requests").textContent = totals.requests;
+    document.getElementById("c-tokens").textContent = totals.tokens_saved.toLocaleString("en-US");
+    document.getElementById("c-dollars").textContent = "$" + totals.dollars_saved.toFixed(4);
+    document.getElementById("c-pct").textContent = totals.pct_saved.toFixed(1) + "%";
+  }}
+
+  function poll() {{
+    fetch("/distil/stats", {{cache: "no-store"}}).then(function(r) {{ return r.json(); }}).then(function(d) {{
+      renderCards(d.totals);
+      tbody.innerHTML = rowsHtml(d.tenants, d.totals);
+    }}).catch(function() {{}});
+  }}
+
+  function schedule() {{ timer = setInterval(poll, POLL_MS); }}
+
+  pauseBtn.addEventListener("click", function() {{
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+    pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
+    note.textContent = paused ? "Updates paused • distil gateway" : "Updates every 5 s • distil gateway";
+    if (paused) {{
+      clearInterval(timer);
+    }} else {{
+      poll();
+      schedule();
+    }}
+  }});
+
+  schedule();
+}})();
+</script>
 </body>
 </html>"""
 
