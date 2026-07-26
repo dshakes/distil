@@ -593,9 +593,27 @@ def preregister(
         "created": time.time(),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "protocol.json"
+    # A killed run resumes against its ORIGINAL pre-registration: identical
+    # parameters keep the existing file and its timestamp, so "written before
+    # the first call" stays literally true across a resume. Changed parameters
+    # write a fresh protocol — and its new hash orphans the old ledger lines.
+    if path.exists():
+        try:
+            prior = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            prior = None
+        if isinstance(prior, dict) and _protocol_params(prior) == _protocol_params(protocol):
+            blob = json.dumps(prior, sort_keys=True, indent=2)
+            return prior, hashlib.sha256(blob.encode()).hexdigest()
     blob = json.dumps(protocol, sort_keys=True, indent=2)
-    (out_dir / "protocol.json").write_text(blob + "\n", encoding="utf-8")
+    path.write_text(blob + "\n", encoding="utf-8")
     return protocol, hashlib.sha256(blob.encode()).hexdigest()
+
+
+def _protocol_params(protocol: dict[str, Any]) -> dict[str, Any]:
+    """The protocol minus its timestamp — what must match to resume a run."""
+    return {k: v for k, v in protocol.items() if k != "created"}
 
 
 def run_experiment(
@@ -629,13 +647,43 @@ def run_experiment(
     )
     edits = arms.edits(trigger_tokens=trigger_tokens, keep_tool_uses=keep_tool_uses)
 
+    # Hundreds of sequential calls over ~an hour against a provider that 500s in
+    # bursts: without a ledger, one kill discards every case already paid for
+    # (it did, live, twice on 2026-07-26). Each finished case is appended and
+    # flushed immediately, and a re-run replays it instead of re-buying it.
+    # Lines are stamped with the protocol hash, so a parameter change orphans
+    # them rather than silently mixing two experiments.
+    ledger = out_dir / "cases.jsonl"
+    done: dict[int, CaseResult] = {}
+    if ledger.exists():
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:  # a torn final line from a hard kill
+                continue
+            if not isinstance(rec, dict) or rec.pop("proto", None) != proto_sha:
+                continue
+            index = rec.pop("i", None)
+            try:
+                done[int(index)] = CaseResult(**rec)
+            except (TypeError, ValueError):  # written by a different schema
+                continue
+
     results: list[CaseResult] = []
-    for case in cases:
-        baseline = arms.majority(case, None, votes)
-        aa = arms.majority(case, None, votes)
-        edited = arms.majority(case, edits, votes)
-        results.append(
-            CaseResult(
+    replayed = 0
+    with ledger.open("a", encoding="utf-8") as fh:
+        for i, case in enumerate(cases):
+            # keyed by position, not case_id: a corpus may repeat an id, and a
+            # replay must line up with the case it was actually bought for.
+            cached = done.get(i)
+            if cached is not None and cached.case_id == case.case_id:
+                results.append(cached)
+                replayed += 1
+                continue
+            baseline = arms.majority(case, None, votes)
+            aa = arms.majority(case, None, votes)
+            edited = arms.majority(case, edits, votes)
+            result = CaseResult(
                 case_id=case.case_id,
                 baseline_sig=baseline.signature,
                 edited_sig=edited.signature,
@@ -643,7 +691,9 @@ def run_experiment(
                 fired=edited.fired,
                 cleared_input_tokens=edited.cleared_input_tokens,
             )
-        )
+            results.append(result)
+            fh.write(json.dumps({**asdict(result), "i": i, "proto": proto_sha}) + "\n")
+            fh.flush()
 
     fired = [r for r in results if r.fired]
     n_ab = len(fired)
@@ -668,7 +718,9 @@ def run_experiment(
         certified=(not underpowered) and p <= delta,
         p_value=p,
         underpowered=underpowered,
-        calls_made=arms.calls_made,
+        # what the experiment cost in total, not just what this invocation spent:
+        # a replayed case was still bought, one resume earlier.
+        calls_made=arms.calls_made + replayed * 3 * votes,
         total_cleared_input_tokens=sum(r.cleared_input_tokens for r in results),
         results=results,
     )

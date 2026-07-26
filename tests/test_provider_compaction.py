@@ -505,6 +505,49 @@ def test_run_experiment_writes_protocol_before_first_call(tmp_path):
     assert seen and all(seen), "the protocol must be pre-registered before any live call"
 
 
+def test_killed_run_resumes_without_re_buying_finished_cases(tmp_path, monkeypatch):
+    # the provider 500s partway through and stays down long enough to exhaust the
+    # retries; the cases already paid for must survive the kill
+    monkeypatch.setattr("distil.certify.provider_compaction.time.sleep", lambda _s: None)
+    boom = {"n": 0}
+
+    def on_call(_kw):
+        boom["n"] += 1
+        if boom["n"] > 6:  # mid-run, after two full cases (3 arms x 1 vote each)
+            raise RuntimeError("upstream 500")
+
+    spec = {"baseline": [_tool_resp("a", {})], "edited": [_tool_resp("a", {}, _FIRED)]}
+    cases = [_case() for _ in range(4)]
+
+    arms = ProviderArms(client=_FakeClient(spec, on_call=on_call))
+    with pytest.raises(SystemExit):
+        run_experiment(cases, arms, tmp_path, votes=1, min_fired=1)
+    ledger = (tmp_path / "cases.jsonl").read_text().splitlines()
+    assert len(ledger) == 2, "each finished case is flushed as it completes"
+
+    created_before = json.loads((tmp_path / "protocol.json").read_text())["created"]
+    resumed = ProviderArms(client=_FakeClient(spec))
+    report = run_experiment(cases, arms=resumed, out_dir=tmp_path, votes=1, min_fired=1)
+
+    assert resumed.calls_made == 6, "only the two unfinished cases are re-bought"
+    assert report.calls_made == 12, "the report still reports the full experiment cost"
+    assert report.cases_total == 4
+    assert json.loads((tmp_path / "protocol.json").read_text())["created"] == created_before, (
+        "a resume keeps the original pre-registration timestamp"
+    )
+
+
+def test_changed_protocol_orphans_the_ledger(tmp_path):
+    spec = {"baseline": [_tool_resp("a", {})], "edited": [_tool_resp("a", {}, _FIRED)]}
+    cases = [_case() for _ in range(2)]
+    run_experiment(cases, ProviderArms(client=_FakeClient(spec)), tmp_path, votes=1, min_fired=1)
+
+    # same directory, different pre-registered trigger -> nothing may be replayed
+    rerun = ProviderArms(client=_FakeClient(spec))
+    run_experiment(cases, rerun, tmp_path, votes=1, min_fired=1, trigger_tokens=99999)
+    assert rerun.calls_made == 6, "a parameter change must not reuse the old experiment's cases"
+
+
 def test_report_same_decision_certifies_and_counts_fired(tmp_path):
     client = _FakeClient(
         {"baseline": [_tool_resp("a", {"x": "1"})], "edited": [_tool_resp("a", {"x": "1"}, _FIRED)]}

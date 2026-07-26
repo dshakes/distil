@@ -13,8 +13,10 @@ focused PRs by [@pjdoland](https://github.com/pjdoland) ([#34](https://github.co
 Some of this is plain bug-fixing that happened to surface through an accessibility
 lens. Two docs pages wired their mobile navigation button to a function that was
 defined nowhere, so the menu threw a `ReferenceError` for everyone; nine code blocks
-had a copy button pointing at a missing `copyCode`, and the copy control that did
-work was copying the word "copy" instead of the snippet. The leaderboard's
+had a copy button pointing at a missing `copyCode`. (The report that the *working*
+copy control captured the word "copy" rather than the snippet did not reproduce
+under an intercepted `clipboard.writeText` — the nine dead buttons were real and
+exactly counted; that secondary claim was not.) The leaderboard's
 "not certified" state was an em-dash at **1.75:1** contrast — a verification marker
 you effectively could not read, in a project whose entire pitch is that you should
 verify rather than trust. Muted text across the reports sat at 3.28:1; it is now
@@ -32,6 +34,41 @@ semantics and `aria-current`.
 
 No compression behavior changed: `make gate` (corpus non-inferiority + byte
 fidelity) and the full suite pass unchanged.
+
+### Provider compaction, experiment 2 — the *default* clearing policy
+
+1.32.0 measured Anthropic context editing at `keep=0` and found 92.5% of agent
+decisions changed. The obvious rebuttal is that nobody runs `keep=0`. So this
+release runs the shipped default, `keep=3`, on a 7-round corpus whose two
+decision-bearing tool results sit at the head and whose four routine rounds
+(inventory, shipping scans, comms, promotions) sit at the tail — the ordinary
+shape of a long agent trajectory, where the load-bearing facts are gathered
+early and then buried.
+
+Retention did not help. Clearing changed **95.0%** and **100%** of decisions
+across two independent executions of the pre-registered protocol (both published;
+selecting one after the fact is the practice this harness exists to refuse).
+OpenAI's summarizing compaction changed **20.0%** on the same corpus — a ~5×
+gap, consistent with the ~7× at `keep=0`.
+
+The rate is not the finding. The *failure mode inverted*: at `keep=0`, 37 of 40
+flips were tool→text — the agent lost its facts and stopped acting. At the
+default `keep=3`, stalls nearly vanish and 29–31 of 40 flips become
+tool→**wrong** tool. The three surviving routine results are enough to keep the
+agent confidently acting while the records it needed are gone. Keeping the most
+*recent* tool uses cannot protect a decision that depends on the most *relevant*
+ones; it converts a visible stall into a silent wrong write. Neither feature
+certifies decision-safe at α=0.1.
+
+`certify-provider` runs are now **resumable**. A 360-call run takes ~40 minutes
+and OpenAI's compaction path returns 500s in bursts; two full runs were lost to
+it before each finished case was made durable. Every completed case is appended
+to `cases.jsonl` stamped with the protocol hash, so a re-invocation replays what
+it already bought and a changed parameter orphans the ledger instead of blending
+two experiments. A resume reuses the original `protocol.json`, so
+"pre-registered before the first call" stays literally true across the restart,
+and `calls_made` reports the whole experiment's cost rather than the last
+attempt's.
 
 ## [1.32.0] — certify the provider's own context manipulation
 

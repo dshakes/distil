@@ -8,7 +8,7 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="Provider Compaction — Distil"/>
-<meta property="og:description" content="No vendor will publish decision-equivalence for its own context manipulation. distil certify-provider measures it from the outside: pre-registered, A/A-controlled live A/Bs of Anthropic context editing and OpenAI server-side compaction. First result: clearing changed 92.5% of agent decisions; compaction 12.5%."/>
+<meta property="og:description" content="No vendor will publish decision-equivalence for its own context manipulation. distil certify-provider measures it from the outside: pre-registered, A/A-controlled live A/Bs of Anthropic context editing and OpenAI server-side compaction. Clearing changed 92.5% of agent decisions at keep=0 and 95-100% at the shipped keep=3 default; compaction 12.5-20%."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/provider-compaction.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
@@ -102,13 +102,37 @@
     <hr/>
 
     <h2 id="default-policy">Experiment 2 — the default clearing policy (<code>keep=3</code>)</h2>
-    <!-- FILLED-AFTER-RUN -->
+    <p>Experiment 1 could be dismissed as a strawman: <code>keep=0</code> deletes everything, so of course decisions move. The question that matters to a customer is what the <em>shipped default</em> does. Anthropic's default clearing policy keeps the 3 most recent tool uses — so this experiment holds <code>keep=3</code> fixed and asks whether that retention is protection or decoration.</p>
+
+    <p><strong>Corpus:</strong> 40 seeded transcripts of <strong>7 tool rounds</strong> (~4.3k tokens): two decision-bearing rounds at the head (the order and billing records), then four routine ones — inventory, shipping scans, comms log, promotions — carrying no decision-relevant fact &middot; <strong>Config:</strong> <code>keep=3</code>, the default policy, at a 3k-token trigger &middot; <strong>Subjects:</strong> <code>claude-opus-4-8</code>, <code>gpt-5.2</code> &middot; <strong>Spend:</strong> 360 hard-capped calls per run</p>
+
+    <table>
+      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Adjusted</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 1</td><td>40/40</td><td><strong>95.0%</strong></td><td>2.5%</td><td>94.9%</td><td>99.5%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 2</td><td>40/40</td><td><strong>100%</strong></td><td>2.5%</td><td>100%</td><td>100%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction (<code>compact_threshold=3000</code>)</td><td>40/40</td><td><strong>20.0%</strong></td><td>2.5%</td><td>17.9%</td><td>36.7%</td><td>No</td></tr>
+      </tbody>
+    </table>
+
+    <p>The pre-registered protocol was executed twice against Anthropic. Both runs are published — selecting the kinder or the crueler one after the fact is precisely the practice this page exists to refuse. They agree on the finding and disagree on the last two cases.</p>
+
+    <p><strong>The default is not a weaker version of Experiment 1 — it is a different failure.</strong> Under <code>keep=0</code> the agent lost everything and stopped acting: 37 of 40 flips were tool&rarr;text. Under the default <code>keep=3</code> the stalls nearly vanish and <strong>29–31 of 40 flips become tool&rarr;<em>wrong</em> tool</strong>. The three surviving tool results are the routine ones — inventory, shipping, promotions — and they are enough to keep the agent confidently in acting mode while the records the policy depends on are gone. It refunds where it should escalate fraud, cancels where it should offer credit. A stalled agent is a visible incident; a wrong one is a silent write.</p>
+
+    <div class="callout">
+      <b>What retention buys.</b> Keeping the 3 most recent tool uses did not reduce the decision-change rate at all (92.5% &rarr; 95.0/100%). It converted a loud failure into a quiet one. Retention counted in <em>recency</em> cannot protect a decision that depends on <em>relevance</em> — and in a long agent trajectory the load-bearing facts are gathered early, then buried under routine calls. That ordering is the normal shape of agentic work, not an adversarial construction.
+    </div>
+
+    <div class="callout good">
+      <b>The contrast holds at the default.</b> Summarization changed 20.0% of decisions where deletion changed 95–100% — roughly a <strong>5× gap</strong>, consistent with the ~7× seen in Experiment 1. OpenAI's compaction left 32 of 40 decisions untouched. Neither certifies decision-safe at α=0.1, and both numbers are published either way.
+    </div>
 
     <hr/>
 
     <h2 id="scope">Honest scope</h2>
     <ul>
-      <li><strong>Synthetic corpus, worst-case triggers.</strong> Experiment 1 bounds the regime where the manipulation fires on content the decision depends on. It is not the exposure of a default-config customer: Anthropic's default (<code>keep: 3</code>, trigger 100k tokens) would have preserved both tool rounds of this corpus entirely — which is what Experiment 2 isolates.</li>
+      <li><strong>Synthetic corpora, and Experiment 2's is built to be cleared.</strong> Experiment 1 bounds the regime where the manipulation fires on decision-bearing content. Experiment 2's corpus is deliberately ordered so that <code>keep=3</code> retains only routine rounds — it measures what the default policy does when the load-bearing facts are older than the three most recent tool uses, not how often that ordering arises in your traffic. It is a claim about the policy's <em>mechanism</em>, not a prevalence estimate.</li>
+      <li><strong>The trigger is lowered, the policy is not.</strong> Experiment 2 keeps Anthropic's real default <code>keep=3</code> but fires it at 3k tokens rather than the default 100k, because a 4.3k-token episode cannot cross 100k. What generalises is the retention rule; the threshold is a lever to make it fire at a budget we can afford 40 cases of.</li>
       <li><strong>Decision-equivalence, not task success.</strong> The measured invariant is the agent's next action. distil's own E7 showed per-step equivalence can pass while end-to-end success collapses; the same caveat applies here in both directions.</li>
       <li><strong>The true default-threshold number on long real traffic</strong> (100k+-token transcripts crossing the default triggers naturally) remains open — it needs real long-horizon dumps and a proportionally larger budget. The harness runs it unchanged when the transcripts exist.</li>
       <li><strong>Point-in-time.</strong> Both features are beta surfaces measured on 2026-07-26 against the models named above; vendors can change behavior without notice. Reproduce, don't extrapolate.</li>
@@ -127,8 +151,16 @@ distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json \
   --max-live-calls 360 --out results/anthropic
 distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json \
   --provider openai --trigger-tokens 1000 --n 40 --votes 3 \
-  --max-live-calls 360 --out results/openai</code></pre>
-    <p>Each output directory carries <code>protocol.json</code> (written before the first call; its hash is embedded in the report) and <code>report.json</code> with per-case signatures. The same test design extends to <strong>model-version migration, routing, quantization, and RAG changes</strong> — anything that manipulates what the model sees between you and your agent.</p>
+  --max-live-calls 360 --out results/openai
+
+# experiment 2 — the default keep=3 policy, on the 7-round corpus
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes_long.json \
+  --n 40 --votes 3 --trigger-tokens 3000 --keep 3 \
+  --max-live-calls 360 --out results/anthropic-default-policy
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes_long.json \
+  --provider openai --n 40 --votes 3 --trigger-tokens 3000 \
+  --max-live-calls 360 --out results/openai-threshold-3000</code></pre>
+    <p>Each output directory carries <code>protocol.json</code> (written before the first call; its hash is embedded in the report) and <code>report.json</code> with per-case signatures. Runs are resumable: every finished case is appended to <code>cases.jsonl</code> stamped with the protocol hash, so an interrupted run replays what it already bought instead of re-buying it — and a changed parameter orphans the ledger rather than blending two experiments. Re-invoke the same command to continue. The same test design extends to <strong>model-version migration, routing, quantization, and RAG changes</strong> — anything that manipulates what the model sees between you and your agent.</p>
 
     <div class="site-footer">
       Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>

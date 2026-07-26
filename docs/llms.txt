@@ -49,7 +49,9 @@ https://dshakes.github.io/distil/benchmark.html
 
 Provider Compaction (pre-registered A/B of Anthropic context editing & OpenAI
 server-side compaction: does the provider's own context manipulation change
-agent decisions? First certificates: clearing 92.5% decision change, compaction 12.5%):
+agent decisions? clearing changed 92.5% of agent decisions at keep=0 and 95-100% at the
+shipped keep=3 default, where the failure shifts from stalling to acting on the
+wrong facts; OpenAI compaction 12.5-20%):
 https://dshakes.github.io/distil/provider-compaction.html
 
 Reproduce the numbers (all CI gates, real-model grading, scorecard):
