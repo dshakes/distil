@@ -152,3 +152,28 @@
     });
   });
 })();
+
+/* Wrap content tables in a focusable, labeled scroll region so keyboard
+   users can reach the horizontal scroll that .table-scroll gets on
+   narrower viewports (see site.css). Desktop rendering is unaffected. */
+(function () {
+  "use strict";
+  var container = document.querySelector("main.content, .content");
+  if (!container) return;
+  var lastHeading = null;
+  container.querySelectorAll("h1, h2, h3, h4, table").forEach(function (el) {
+    if (el.tagName !== "TABLE") {
+      lastHeading = el;
+      return;
+    }
+    if (el.closest(".table-scroll")) return; // already wrapped
+    var label = lastHeading ? lastHeading.textContent.replace(/#/g, "").trim() : "";
+    var wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", label || "Scrollable table");
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
+  });
+})();

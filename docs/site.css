@@ -348,8 +348,8 @@ hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
 /* Wide data tables become horizontally scrollable rather than overflowing the
    viewport — applies on tablets too (benchmark tables have 5–7 columns). */
 @media (max-width: 1024px) {
-  .content table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .content table th, .content table td { white-space: nowrap; }
+  .content .table-scroll { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .content .table-scroll th, .content .table-scroll td { white-space: nowrap; }
 }
 @media (max-width: 820px) {
   :root { --sidebar-w: 0px; }
