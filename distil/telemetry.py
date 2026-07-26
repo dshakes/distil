@@ -198,7 +198,7 @@ def render_leaderboard_html(lb: Leaderboard) -> str:
         certified_cell = (
             '<td class="cert yes">&#10004; certified</td>'
             if r.get("certified")
-            else '<td class="cert no">&#8212;</td>'
+            else '<td class="cert no">not certified</td>'
         )
         rows_html += (
             f"<tr>"
@@ -237,7 +237,7 @@ def render_leaderboard_html(lb: Leaderboard) -> str:
   .iid{{font-family:monospace;color:#5ad1c9}}
   .num{{text-align:right;font-variant-numeric:tabular-nums}}
   .cert.yes{{color:#5ad1c9;font-weight:600}}
-  .cert.no{{color:#3a3c4e}}
+  .cert.no{{color:#8b8ea8}}
   .badge{{display:inline-block;background:#1a1c2e;border:1px solid #8b7bff;
           color:#8b7bff;font-size:.7rem;padding:.1rem .4rem;border-radius:.25rem;
           margin-left:.5rem;vertical-align:middle}}

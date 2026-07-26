@@ -418,7 +418,7 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     background-clip: text;
   }}
   .subtitle {{
-    color: #6b7280;
+    color: #8b93a3;
     font-size: 0.85rem;
     margin-bottom: 2rem;
   }}
@@ -440,7 +440,7 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #6b7280;
+    color: #8b93a3;
     margin-bottom: 0.35rem;
   }}
   .card-value {{
@@ -458,7 +458,7 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     text-align: left;
     padding: 0.7rem 1rem;
     border-bottom: 2px solid #1e2130;
-    color: #6b7280;
+    color: #8b93a3;
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.07em;
@@ -501,7 +501,7 @@ def _dashboard_html(snap: dict[str, Any]) -> str:
     overflow: hidden;
   }}
   .refresh-note {{
-    color: #374151;
+    color: #8b93a3;
     font-size: 0.72rem;
     text-align: right;
     margin-top: 0.75rem;

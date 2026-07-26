@@ -1563,7 +1563,7 @@ h3{{font-size:14px;font-weight:700;margin:20px 0 8px}}
 .tot .card{{flex:1;min-width:150px}}
 .card .l{{color:#9aa1b3;font-size:12px}} .card .v{{font-size:30px;font-weight:800;margin-top:4px}}
 .card .v2{{font-size:22px;font-weight:700;margin-top:4px}}
-.card .n{{color:#5b6177;font-size:12px;margin-top:6px;line-height:1.45}}
+.card .n{{color:#7d8598;font-size:12px;margin-top:6px;line-height:1.45}}
 .tile{{cursor:help}} .card[data-tip] .l{{border-bottom:1px dotted #3a4257;display:inline-block;
  padding-bottom:1px}}
 [data-tip]{{outline:none}}
@@ -1577,7 +1577,7 @@ g[data-tip]:hover .mark,g[data-tip]:focus .mark{{filter:brightness(1.35)}}
 #tip .tkey{{width:10px;height:3px;border-radius:1.5px;flex:none}}
 #tip .trow b{{font-variant-numeric:tabular-nums}}
 #tip .tlab{{color:#9aa1b3}}
-.desc{{color:#5b6177;font-size:13px;line-height:1.55;margin:-4px 0 14px}}
+.desc{{color:#7d8598;font-size:13px;line-height:1.55;margin:-4px 0 14px}}
 .story{{background:linear-gradient(180deg,#12151f,#0b0d15);border:1px solid #252c3e;
  border-radius:14px;padding:16px 20px;margin:0 0 10px}}
 .story b{{font-size:15px}}
@@ -1585,16 +1585,16 @@ g[data-tip]:hover .mark,g[data-tip]:focus .mark{{filter:brightness(1.35)}}
 .g{{background:linear-gradient(135deg,#8b7bff,#5ad1c9);-webkit-background-clip:text;background-clip:text;color:transparent}}
 table{{width:100%;border-collapse:collapse;border:1px solid #1b2030;border-radius:12px;overflow:hidden}}
 th,td{{padding:11px 14px;border-bottom:1px solid #1b2030;text-align:left}}
-th{{color:#5b6177;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
-td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}} .muted{{color:#5b6177}}
+th{{color:#7d8598;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
+td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}} .muted{{color:#7d8598}}
 code{{color:#8b7bff}}
 .callout{{border:1px solid #6b5416;background:#14100a;border-radius:12px;
  padding:14px 18px;margin:24px 0}}
 .callout b{{color:#e8b34b}}
 ul.warn{{margin:8px 0 0;padding-left:20px}} ul.warn li{{color:#e8b34b;margin:6px 0}}
 ul.notes{{margin:14px 0 0;padding-left:20px}} ul.notes li{{color:#9aa1b3;margin:8px 0}}
-details{{margin:10px 0}} details summary{{cursor:pointer;color:#5b6177}}
-.foot{{color:#5b6177;font-size:12.5px;margin-top:26px}}
+details{{margin:10px 0}} details summary{{cursor:pointer;color:#7d8598}}
+.foot{{color:#7d8598;font-size:12.5px;margin-top:26px}}
 </style></head><body><div class="wrap">
 <h1>Session <span class="g">dissected</span></h1>
 <p class="sub">{e(d.sid)} — {e(man.get("tool") or "unknown tool")},
@@ -1672,7 +1672,7 @@ def render_sessions_html(sessions: list[SessionOverview]) -> str:
     rows = (
         "".join(
             f"<tr onclick=\"location='/session/{e(o.sid)}'\">"
-            f"<td><code><a href=\"/session/{e(o.sid)}\">{e(o.sid)}</a></code></td><td>{e(o.tool or '?')}</td>"
+            f'<td><code><a href="/session/{e(o.sid)}">{e(o.sid)}</a></code></td><td>{e(o.tool or "?")}</td>'
             f"<td>{e(_when(o.started))}</td><td>{e(_when(o.last_ts))}</td>"
             f"<td class='r'>{o.requests}</td>"
             f"<td class='r'>{100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens if o.baseline_tokens else 0.0:.1f}%</td>"
@@ -1692,14 +1692,14 @@ h1{{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}}
 .g{{background:linear-gradient(135deg,#8b7bff,#5ad1c9);-webkit-background-clip:text;background-clip:text;color:transparent}}
 table{{width:100%;border-collapse:collapse;border:1px solid #1b2030;border-radius:12px;overflow:hidden}}
 th,td{{padding:11px 14px;border-bottom:1px solid #1b2030;text-align:left}}
-th{{color:#5b6177;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
+th{{color:#7d8598;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
 td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}}
 tbody tr{{cursor:pointer}} tbody tr:hover td{{background:#10131d}}
-code{{color:#8b7bff}} .muted{{color:#5b6177}}
+code{{color:#8b7bff}} .muted{{color:#7d8598}}
 code a{{color:inherit;text-decoration:underline}}
 code a:hover,code a:focus{{color:#5ad1c9}}
 code a:focus-visible{{outline:2px solid #8b7bff;outline-offset:2px;border-radius:4px}}
-.foot{{color:#5b6177;font-size:12.5px;margin-top:22px}}
+.foot{{color:#7d8598;font-size:12.5px;margin-top:22px}}
 </style></head><body><div class="wrap">
 <h1>Distil <span class="g">sessions</span></h1>
 <p class="sub">Pick a session to dissect — newest activity first. This page refreshes itself.</p>
