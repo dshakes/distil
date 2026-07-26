@@ -1251,6 +1251,10 @@ def _tip_attr(title: str, rows: list[tuple[str, str, str]] | None = None, body: 
     innerHTML), so model/tool/signature names stay data, not markup. ``rows``
     are (series_color, label, value) triples; values render strong, labels
     secondary, keyed by a short stroke of the series color.
+
+    Also wires ``aria-describedby="tip"`` so a screen reader announces the
+    same explanation a sighted mouse or keyboard user sees in the floating
+    tooltip (the shared ``#tip`` element rendered once per page).
     """
     payload: dict[str, Any] = {"t": title}
     if rows:
@@ -1259,7 +1263,7 @@ def _tip_attr(title: str, rows: list[tuple[str, str, str]] | None = None, body: 
         payload["body"] = body
     return (
         f' data-tip="{_html.escape(json.dumps(payload, ensure_ascii=False), quote=True)}"'
-        ' tabindex="0"'
+        ' tabindex="0" aria-describedby="tip"'
     )
 
 
@@ -1512,7 +1516,7 @@ text. Only these labels are stored, never the content.</p>
 <p class="desc">The biggest single blocks distil summarized. The handle is the short ID the
 model can use to ask for the original back; “recoverable” means those original bytes are
 still on this machine.</p>
-<table><tr><th>handle</th><th>kind</th><th>tokens</th><th title="how many requests carried this block">seen</th><th title="is the original still on disk (restore/)?">restore</th></tr>{top_rows}</table>"""
+<table><tr><th>handle</th><th>kind</th><th>tokens</th><th{_tip_attr("seen", body="How many requests carried this block.")}>seen</th><th{_tip_attr("restore", body="Is the original still on disk (restore/)?")}>restore</th></tr>{top_rows}</table>"""
     else:
         detail_body = (
             "<h2>Request detail</h2><p class='muted'>Not recorded — per-request detail needs a "
@@ -1597,11 +1601,11 @@ h3{{font-size:14px;font-weight:700;margin:20px 0 8px}}
 .card .n{{color:#7d8598;font-size:12px;margin-top:6px;line-height:1.45}}
 .tile{{cursor:help}} .card[data-tip] .l{{border-bottom:1px dotted #3a4257;display:inline-block;
  padding-bottom:1px}}
-[data-tip]{{outline:none}}
+[data-tip]:focus-visible{{outline:2px solid #8b7bff;outline-offset:2px}}
 g[data-tip]:hover .mark,g[data-tip]:focus .mark{{filter:brightness(1.35)}}
 #tip{{position:fixed;display:none;background:#161a26;border:1px solid #2c3550;
  border-radius:10px;padding:10px 13px;font-size:12.5px;line-height:1.5;
- pointer-events:none;z-index:9;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.55)}}
+ z-index:9;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.55)}}
 #tip .tt{{color:#f2f3f7;font-weight:600;margin-bottom:2px}}
 #tip .tb{{color:#9aa1b3}}
 #tip .trow{{display:flex;align-items:center;gap:8px;margin:3px 0}}
@@ -1633,9 +1637,9 @@ details{{margin:10px 0}} details summary{{cursor:pointer;color:#7d8598}}
 · billing: {e(d.billing)}</p>
 {warn_card}
 <div class="tot">
-<div class="card" title="Input tokens are everything sent TO the model (your conversation so far, tool outputs, prompts) — the part that grows every turn and that distil compresses."><div class="l">Input tokens</div><div class="v">{_human(d.baseline_tokens)} → {_human(d.distil_tokens)}</div><div class="n">would have been sent → actually sent</div></div>
-<div class="card" title="Share of input tokens distil kept off the wire across the whole session."><div class="l">Saved</div><div class="v g">{d.pct_saved:.1f}%</div><div class="n">of input tokens never sent</div></div>
-<div class="card" title="What those saved tokens are worth at API prices. On a flat-rate subscription nothing is billed per token, so this is notional — the real win is headroom."><div class="l">Dollars{e(dol_note)}</div><div class="v">${d.dollars_saved:.2f}</div><div class="n">at API prices for this model mix</div></div>
+<div class="card"{_tip_attr("Input tokens", body="Input tokens are everything sent TO the model (your conversation so far, tool outputs, prompts), the part that grows every turn and that distil compresses.")}><div class="l">Input tokens</div><div class="v">{_human(d.baseline_tokens)} → {_human(d.distil_tokens)}</div><div class="n">would have been sent → actually sent</div></div>
+<div class="card"{_tip_attr("Saved", body="Share of input tokens distil kept off the wire across the whole session.")}><div class="l">Saved</div><div class="v g">{d.pct_saved:.1f}%</div><div class="n">of input tokens never sent</div></div>
+<div class="card"{_tip_attr("Dollars", body="What those saved tokens are worth at API prices. On a flat-rate subscription nothing is billed per token, so this is notional: the real win is headroom.")}><div class="l">Dollars{e(dol_note)}</div><div class="v">${d.dollars_saved:.2f}</div><div class="n">at API prices for this model mix</div></div>
 </div>
 {story}
 <h2>Per model</h2>
@@ -1683,6 +1687,7 @@ shadow.jsonl on this machine. Content-free — handles and kind:size signatures 
     tip.style.left = Math.max(8, px) + "px"; tip.style.top = Math.max(8, py) + "px";
   }}
   document.addEventListener("mousemove", function (e) {{
+    if (e.target === tip || tip.contains(e.target)) return; // hoverable: don't hide over the tip itself
     var el = e.target.closest && e.target.closest("[data-tip]");
     if (el && fill(el)) place(e.clientX, e.clientY);
     else tip.style.display = "none";
@@ -1692,6 +1697,9 @@ shadow.jsonl on this machine. Content-free — handles and kind:size signatures 
     if (el && fill(el)) {{ var r = el.getBoundingClientRect(); place(r.right, r.top); }}
   }});
   document.addEventListener("focusout", function () {{ tip.style.display = "none"; }});
+  document.addEventListener("keydown", function (e) {{
+    if (e.key === "Escape") tip.style.display = "none";
+  }});
 }})();
 </script></body></html>"""
 
@@ -1778,7 +1786,13 @@ def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | Non
                 if path.startswith(prefix):
                     sid = resolve_sid(path[len(prefix) :])
                     if sid is None:
-                        self._send(404, "<h1>unknown session</h1>")
+                        self._send(
+                            404,
+                            '<!doctype html><html lang="en"><head><meta charset="utf-8"/>'
+                            "<title>Unknown session: distil</title></head>"
+                            "<body><h1>Unknown session</h1>"
+                            '<p><a href="/">sessions</a></p></body></html>',
+                        )
                         return
                     d = dissect(sid)
                     peers = list_sessions()
@@ -1820,7 +1834,12 @@ def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | Non
                         )
                         self._send(200, page)
                     return
-            self._send(404, "<h1>not found</h1><p><a href='/'>sessions</a></p>")
+            self._send(
+                404,
+                '<!doctype html><html lang="en"><head><meta charset="utf-8"/>'
+                "<title>Not found: distil</title></head>"
+                '<body><h1>Not found</h1><p><a href="/">sessions</a></p></body></html>',
+            )
 
         def log_message(self, *args: Any) -> None:  # quiet by design, like the proxy
             pass

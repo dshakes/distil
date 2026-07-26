@@ -161,7 +161,7 @@
     font:600 11px/1 "Inter",ui-sans-serif,system-ui,sans-serif;color:var(--mut);background:rgba(255,255,255,.04);
     border:1px solid var(--line);border-radius:8px;padding:5px 9px;cursor:pointer;opacity:.55;z-index:2;
     transition:opacity .15s,color .15s,border-color .15s,background .15s}
-  pre:hover .copy-btn{opacity:1}
+  pre:hover .copy-btn,.copy-btn:focus-visible{opacity:1}
   .copy-btn:hover{color:var(--ink);border-color:#34405e;background:rgba(255,255,255,.07)}
   .copy-btn.copied{color:var(--good);border-color:rgba(90,209,154,.4);opacity:1}
   /* tabbed installer */
@@ -264,6 +264,11 @@
   .close h2{font-size:clamp(28px,3.4vw,40px);margin:0 0 8px}
   .close p{color:var(--mut);max-width:560px;margin:0 auto 26px}
   .close .cta{justify-content:center}
+  /* ── Skip link ── */
+  .skip-link{position:absolute;top:0;left:8px;z-index:100;padding:10px 16px;border-radius:0 0 10px 10px;
+    background:var(--acc);color:#06070a;font-weight:700;font-size:13px;
+    transform:translateY(-140%);transition:transform .15s ease}
+  .skip-link:focus{transform:translateY(0)}
 </style>
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
@@ -280,6 +285,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 <nav><div class="wrap">
   <a href="index.html" class="logo" aria-label="Distil home"><img src="assets/logo.svg" alt="" width="26" height="26" style="border-radius:7px;vertical-align:-7px;margin-right:9px"/>Dist<b>il</b></a>
   <span class="pill">compression with a quality contract</span>
@@ -293,7 +299,7 @@
   </div>
 </div></nav>
 
-<header>
+<header id="content" tabindex="-1">
   <svg class="still" viewBox="0 0 440 620" fill="none" aria-hidden="true">
     <defs>
       <linearGradient id="stg" x1="0" y1="0" x2="1" y2="1">
@@ -470,7 +476,7 @@
 
 <section id="plain"><div class="wrap">
   <div class="seyebrow">In plain English</div>
-  <h2>How it works <span class="g">— in plain English</span><a class="hlink" href="#plain" aria-label="Link to this section">#</a></h2>
+  <h2>How it works <span class="g">— in plain English</span><a class="hlink" href="#plain" aria-label="Link to section: How it works — in plain English">#</a></h2>
   <p class="lead">No jargon. Here's the whole idea in three pictures.</p>
   <div class="tiers">
     <div class="card">
@@ -491,7 +497,7 @@
 
 <section id="how"><div class="wrap">
   <div class="seyebrow p">The architecture</div>
-  <h2>Under the hood <span class="g">— a cost-optimized cache hierarchy with a contract</span><a class="hlink" href="#how" aria-label="Link to this section">#</a></h2>
+  <h2>Under the hood <span class="g">— a cost-optimized cache hierarchy with a contract</span><a class="hlink" href="#how" aria-label="Link to section: Under the hood — a cost-optimized cache hierarchy with a contract">#</a></h2>
   <p class="lead">Most compressors optimize bytes. In an agent loop the money is somewhere else.</p>
   <img loading="lazy" src="assets/architecture.svg" alt="Architecture: agent traffic flows through the Distil proxy (Tier-0 lossless, Tier-1 digest, causal prune, salience, cache-aware placement) to the provider, with a recovery loop and decision-equivalence certificate" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 24px"/>
   <h3 style="font-size:22px">Two highest-leverage techniques <span class="g">— and why they win</span></h3>
@@ -526,7 +532,7 @@
 
 <section id="proof"><div class="wrap">
   <div class="seyebrow gr">Receipts, not vibes</div>
-  <h2>The proof <span class="g">— a quality contract, not an estimate</span><a class="hlink" href="#proof" aria-label="Link to this section">#</a></h2>
+  <h2>The proof <span class="g">— a quality contract, not an estimate</span><a class="hlink" href="#proof" aria-label="Link to section: The proof — a quality contract, not an estimate">#</a></h2>
   <p class="lead">We didn't just benchmark ourselves. We ran the real LLMLingua-2 and Headroom
     packages through the same gate, graded <b>live by the real model</b>.</p>
   <img loading="lazy" src="assets/head-to-head.svg" alt="Live head-to-head: Distil vs LLMLingua-2 vs Headroom" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 10px"/>
@@ -558,7 +564,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
 
 <section id="domains"><div class="wrap">
   <div class="seyebrow">Coverage</div>
-  <h2>Measured across 7 domains <span class="g">— the same gate, not one example</span><a class="hlink" href="#domains" aria-label="Link to this section">#</a></h2>
+  <h2>Measured across 7 domains <span class="g">— the same gate, not one example</span><a class="hlink" href="#domains" aria-label="Link to section: Measured across 7 domains — the same gate, not one example">#</a></h2>
   <p class="lead">A strategy isn't trustworthy because it works once. <code>distil bench</code> certifies
     every domain — ops, coding, support, research, data, devops, finance — or it doesn't ship.</p>
   <img loading="lazy" src="assets/domains.svg" alt="Bar chart of lossless savings across 7 domains, all passing the decision-equivalence gate: ops/sre 33.1%, coding 28.7%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 25.0%, finance 29.1%; aggregate 26.8% cheaper losslessly across 5,761 prunable tokens" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
@@ -566,7 +572,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
 
 <section id="tiers"><div class="wrap">
   <div class="seyebrow p">Risk grading</div>
-  <h2>Risk-graded tiers<a class="hlink" href="#tiers" aria-label="Link to this section">#</a></h2>
+  <h2>Risk-graded tiers<a class="hlink" href="#tiers" aria-label="Link to section: Risk-graded tiers">#</a></h2>
   <p class="lead">Apply the provably-safe ones everywhere; gate the rest on evidence.</p>
   <div class="tiers">
     <div class="tier"><div class="k">Tier 0</div><h4>Provably lossless</h4>
@@ -580,7 +586,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
 
 <section id="bestof"><div class="wrap">
   <div class="seyebrow">The cost stack</div>
-  <h2>Capabilities <span class="g">— every layer of the cost stack</span><a class="hlink" href="#bestof" aria-label="Link to this section">#</a></h2>
+  <h2>Capabilities <span class="g">— every layer of the cost stack</span><a class="hlink" href="#bestof" aria-label="Link to section: Capabilities — every layer of the cost stack">#</a></h2>
   <table>
     <tr><th>Capability</th><th>What it does</th><th>Loss profile</th></tr>
     <tr><td>Priced cache-aware engine</td><td>Models the multi-turn loop and proves naive recompression busts the cache</td><td>—</td></tr>
@@ -602,7 +608,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
 
 <section id="integrations"><div class="wrap">
   <div class="seyebrow gr">Drop-in</div>
-  <h2>Works with every SDK <span class="g">— one proxy, no code change</span><a class="hlink" href="#integrations" aria-label="Link to this section">#</a></h2>
+  <h2>Works with every SDK <span class="g">— one proxy, no code change</span><a class="hlink" href="#integrations" aria-label="Link to section: Works with every SDK — one proxy, no code change">#</a></h2>
   <p class="lead">Point any <code>base_url</code>-honoring client at the proxy — Python, TypeScript, any language —
     and get cache-aware lossless compression. <a href="integrations.html" style="color:var(--acc2);text-decoration:underline">See integrations →</a></p>
   <img loading="lazy" src="assets/cross-sdk.svg" alt="Diagram: five client SDKs (Anthropic, OpenAI, Vercel AI, LangChain, LiteLLM) all point base_url at the Distil proxy on localhost:8788, which does cache-aware compression, lossless reversible transforms, and auth-mode gating (or runs in-process via wrap(client)), then forwards to Anthropic, OpenAI-compatible, or Google Gemini APIs with no code changes" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
@@ -610,7 +616,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
 
 <section id="install"><div class="wrap">
   <div class="seyebrow p">Get started</div>
-  <h2>Install <span class="g">— pick a format</span><a class="hlink" href="#install" aria-label="Link to this section">#</a></h2>
+  <h2>Install <span class="g">— pick a format</span><a class="hlink" href="#install" aria-label="Link to section: Install — pick a format">#</a></h2>
   <p class="lead">The stdlib-only core makes the packaging clean: zero runtime deps, corpus bundled.</p>
   <div class="tabs" id="install-tabs">
     <div class="tabbar">
@@ -651,7 +657,7 @@ client = wrap(anthropic.Anthropic())  <span class="d"># compresses + keeps the c
 
 <section id="honest"><div class="wrap">
   <div class="seyebrow">No overselling</div>
-  <h2>What we won't pretend<a class="hlink" href="#honest" aria-label="Link to this section">#</a></h2>
+  <h2>What we won't pretend<a class="hlink" href="#honest" aria-label="Link to section: What we won't pretend">#</a></h2>
   <div class="callout">
     A headline like "87% reduction, 100% accuracy" is <b>unverified marketing</b> until you
     see the eval. Published quality numbers in this space are typically measured at far lower

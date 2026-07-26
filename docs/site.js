@@ -139,7 +139,7 @@
       ha.className = "hanchor";
       ha.href = "#" + h.id;
       ha.textContent = "#";
-      ha.setAttribute("aria-label", "Link to this section");
+      ha.setAttribute("aria-label", "Link to section: " + h.textContent.trim());
       h.appendChild(ha);
     }
     var a = document.createElement("a");
@@ -149,7 +149,7 @@
     nav.appendChild(a);
     entries.push({ a: a, h: h });
   });
-  document.body.appendChild(nav);
+  content.insertBefore(nav, content.firstChild);
 
   // ── Scrollspy: highlight the section currently in view ──────────────
   var byId = {};

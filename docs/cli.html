@@ -20,6 +20,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
@@ -61,7 +62,7 @@
     <a href="index.html">← Landing page</a>
   </aside>
 
-  <main class="content">
+  <main class="content" id="content" tabindex="-1">
 
     <h1>CLI <span class="g">Reference</span></h1>
     <p class="lead">Every subcommand, its flags, and a real sample output. All commands work offline with zero API key — the bundled corpus is self-contained.</p>

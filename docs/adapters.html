@@ -20,6 +20,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
@@ -61,7 +62,7 @@
     <a href="index.html">← Landing page</a>
   </aside>
 
-  <main class="content">
+  <main class="content" id="content" tabindex="-1">
 
     <h1>Adapters <span class="g">&amp; Integration</span></h1>
     <p class="lead">Three paths to production: a one-line Python wrapper that compresses in-process, a standalone HTTP proxy that works with any SDK or framework, or <code>distil wrap</code> — a zero-config launcher that routes any existing command through the proxy automatically.</p>

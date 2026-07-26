@@ -20,6 +20,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
@@ -60,7 +61,7 @@
     <a href="index.html">&#8592; Landing page</a>
   </aside>
 
-  <main class="content">
+  <main class="content" id="content" tabindex="-1">
 
     <h1>The <span class="g">Benchmark</span></h1>
     <p class="lead">Every compression method shrinks tokens — the only number that matters is how much it saves <em>without changing what the agent decides</em>, once prompt caching is priced in. This head-to-head runs every technique through the <strong>same</strong> decision-equivalence gate and the <strong>same</strong> cache-aware cost model: the winner is computed, not assumed.</p>
