@@ -3,6 +3,59 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.31.0] — evidence that checks itself
+
+Four things that all failed the same way: a claim nothing verified.
+
+### PEP 740 attestations — the claim is now enforced, or the release fails
+`README.md` claimed releases carried Sigstore attestations and printed a `pypi-attestations
+verify` command inviting you to check. Nobody had. Every release ever published reported
+`attestations=none` — 1.19.0, 1.20.0, 1.28.0, 1.29.1, 1.30.0, all `0/2` artifacts. The
+publish step relied on the action's default instead of requesting them, and nothing looked
+afterwards.
+
+`attestations: true` is now explicit, and a release step queries the PyPI JSON API for the
+version just published and **fails the job** if no artifact reports attestations or
+provenance. **This is the first release that runs that gate** — the claim is true and
+CI-enforced from here, or the release goes red and says so.
+
+### Certificates name the oracle that graded them
+A `Certificate` recorded α, δ, n, savings and a guarantee — but not what produced the
+losses. A run graded by the synthetic `DECISION:` string-match oracle was byte-identical to
+one graded by `claude-opus-4-8`. `Certificate.grader` is stamped from the runner, and the
+synthetic oracle can never read as a model: `Graded by: deterministic (synthetic DECISION:
+oracle — NOT a model)`.
+
+### Per-request receipts
+`distil receipts` — a hash-chained, content-free record of what happened to each request:
+counts, mode, handles issued, whether they still resolve, and the certificate that authorised
+the mode. Edits, deletions and reorders are all detected. `Receipt.FIELDS` is the exhaustive
+persisted set and a test fails if anything outside it reaches disk; no prompt or completion
+text is ever written. Emitted for every 2xx the proxy serves — not only inside a `wrap`
+session, and not only when a savings ledger happens to be attached.
+
+### Fixed: digest reported `changed=True` on byte-identical output
+`tier1.digest()` returned `True` unconditionally. Where every line is must-keep — a test log
+whose verdict policy pins each `PASS` line — nothing is dropped, no marker is emitted, and
+the output is identical to the input. Callers believed it anyway:
+`RestoreStore._record` persisted ~19KB of plaintext per block to `~/.distil/restore` for
+content that was never digested and can never need recovery (three such entries on a single
+request), and the MCP server handed back a handle for text it had not compressed. `changed`
+now means the output actually differs.
+
+Found while chasing a receipt that read `27764->27764, saved=0` beside three issued handles.
+The savings header itself was honest — the verdict keep policy was correctly retaining every
+line — so **no reported savings number was ever overstated**.
+
+### Also
+- Packaging gate extended to Docker (`ENTRYPOINT`/`CMD` resolve to real targets, plus a CI
+  job that builds the image and runs it), the Homebrew formula (self-consistent url/version/
+  sha comment), and the Claude Code plugin — which caught `plugin.json` sitting at 1.8.6,
+  22 releases stale.
+- `release.sh` now aborts a tag when `pyproject`, `CITATION.cff`, `plugin.json` and
+  `server.json` disagree on version.
+- `server.json` description brought under the registry's 100-character cap.
+
 ## [1.30.0] — the official MCP registry entry actually launches
 
 distil has been listed in the official MCP registry since 2026-07-17 with a launch spec

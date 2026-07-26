@@ -7,13 +7,13 @@
     "url": "https://github.com/dshakes/distil",
     "source": "github"
   },
-  "version": "1.30.0",
+  "version": "1.31.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "distil-llm",
-      "version": "1.30.0",
+      "version": "1.31.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
