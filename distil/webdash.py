@@ -107,10 +107,18 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   .flash{animation:fl 1s ease-out}
   @keyframes fl{0%{box-shadow:0 0 0 1px var(--good),0 0 30px -6px var(--good)}100%{box-shadow:none}}
   @media (prefers-reduced-motion:reduce){.dot{animation:none}.odo .d{transition:none}}
+  body.paused .dot{animation-play-state:paused}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .pause-btn{background:transparent;border:1px solid var(--line);color:var(--mut);
+    font:inherit;font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer}
+  .pause-btn:hover{background:rgba(255,255,255,.05)}
+  .pause-btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 </style></head><body>
 <div class="card" id="card"><div class="top"></div><div class="in">
   <div class="lab"><span class="dot"></span> your tokens saved · live · this machine</div>
-  <div class="odo" id="odo"><span class="d">0</span></div>
+  <div class="odo" id="odo" aria-hidden="true"><span class="d">0</span></div>
+  <p id="live-status" class="sr-only" role="status"></p>
   <div class="sub" id="sub">reading your local ledger…</div>
   <div class="row">
     <div class="m"><div class="mv g" id="pct">–</div><div class="ml">smaller · overall</div></div>
@@ -118,12 +126,16 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <div class="m"><div class="mv a" id="eq">–</div><div class="ml">decision-equivalence</div></div>
     <div class="m"><div class="mv" id="runs">–</div><div class="ml">requests</div></div>
   </div>
-  <div class="foot"><span>◉ local only · nothing leaves this machine</span><span id="stamp"></span></div>
+  <div class="foot"><span>◉ local only · nothing leaves this machine</span>
+    <button type="button" id="pause-btn" class="pause-btn" aria-pressed="false">Pause</button>
+    <span id="stamp"></span></div>
 </div></div>
 <script>
 (function(){
   var reduced=matchMedia("(prefers-reduced-motion:reduce)").matches;
   var odo=document.getElementById("odo"),cells=[];
+  var liveEl=document.getElementById("live-status"),lastAnnounce=0;
+  var pauseBtn=document.getElementById("pause-btn"),paused=false,pollTimer=null,rafId=null;
   function commas(n){return Math.floor(n).toLocaleString("en-US");}
   function human(n){var u=[[1e12,"T"],[1e9,"B"],[1e6,"M"],[1e3,"k"]];for(var i=0;i<u.length;i++)if(n>=u[i][0])return (n/u[i][0]).toFixed(1)+u[i][1];return String(Math.round(n));}
   function render(str){
@@ -132,12 +144,13 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   }
   var shown=null,target=0,from=0,t0=null;
   function loop(){
+    if(paused){rafId=null;return;}
     if(target!==shown){
       if(reduced||shown===null){shown=target;}
       else{if(t0===null){t0=Date.now();from=shown;}var k=Math.min(1,(Date.now()-t0)/900);k=1-Math.pow(1-k,3);shown=Math.round(from+(target-shown===0?0:(target-from))*k);if(k>=1){shown=target;t0=null;}}
       render(commas(shown));
     }
-    requestAnimationFrame(loop);
+    rafId=requestAnimationFrame(loop);
   }
   function set(id,v){var e=document.getElementById(id);if(e)e.textContent=v;}
   var last=null;
@@ -152,9 +165,27 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       set("runs",commas(d.runs));
       document.getElementById("sub").innerHTML="The <b>exact</b> total from your ledger — "+human(d.baseline_tokens)+" → "+human(d.distil_tokens)+" tokens. It ticks up the instant a request books real savings. Equivalence over <b>"+commas(d.equivalence.shadowed)+"</b> shadowed requests.";
       set("stamp","updated "+new Date(d.ts*1000).toLocaleTimeString());
+      var now=Date.now();
+      if(now-lastAnnounce>=30000){
+        liveEl.textContent=human(d.tokens_saved)+" tokens saved, "+d.pct+"% smaller, "+commas(d.runs)+" requests.";
+        lastAnnounce=now;
+      }
     }).catch(function(){});
   }
-  requestAnimationFrame(loop);poll();setInterval(poll,1000);
+  function schedulePoll(){pollTimer=setInterval(poll,1000);}
+  pauseBtn.addEventListener("click",function(){
+    paused=!paused;
+    document.body.classList.toggle("paused",paused);
+    pauseBtn.textContent=paused?"Resume":"Pause";
+    pauseBtn.setAttribute("aria-pressed",paused?"true":"false");
+    if(paused){
+      clearInterval(pollTimer);
+    }else{
+      poll();schedulePoll();
+      if(rafId===null){rafId=requestAnimationFrame(loop);}
+    }
+  });
+  rafId=requestAnimationFrame(loop);poll();schedulePoll();
 })();
 </script></body></html>"""
 
