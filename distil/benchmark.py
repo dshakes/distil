@@ -429,9 +429,9 @@ h1{{font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}}
 .g{{background:linear-gradient(135deg,#8b7bff,#5ad1c9);-webkit-background-clip:text;background-clip:text;color:transparent}}
 table{{width:100%;border-collapse:collapse;border:1px solid #1b2030;border-radius:12px;overflow:hidden;font-size:13.5px}}
 th,td{{padding:10px 13px;border-bottom:1px solid #1b2030;text-align:left}}
-th{{color:#5b6177;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
+th{{color:#7d8598;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
 td.r{{text-align:right;font-variant-numeric:tabular-nums}} td.d{{color:#9aa1b3}}
-.foot{{color:#5b6177;font-size:12.5px;margin-top:20px}}
+.foot{{color:#7d8598;font-size:12.5px;margin-top:20px}}
 </style></head><body><div class="wrap">
 <h1>Compression <span class="g">benchmark</span></h1>
 <p class="sub">model {report.model} · runner {report.runner} · every technique through the same

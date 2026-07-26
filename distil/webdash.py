@@ -79,7 +79,7 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>distil · live savings</title>
 <style>
-  :root{--bg:#0b0c13;--panel:#101420;--panel2:#141a28;--line:#1c2233;--mut:#8a8ca0;--dim:#5a5c70;--good:#5ad19a;--acc:#8b7bff;--tl:#5ad1c9}
+  :root{--bg:#0b0c13;--panel:#101420;--panel2:#141a28;--line:#1c2233;--mut:#8a8ca0;--dim:#878ba2;--good:#5ad19a;--acc:#8b7bff;--tl:#5ad1c9}
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;background:radial-gradient(120% 90% at 15% -10%,rgba(90,209,154,.10),transparent 55%),radial-gradient(120% 120% at 100% 0%,rgba(139,123,255,.10),transparent 50%),var(--bg);
     color:#eaf0ff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;align-items:center;justify-content:center;padding:32px}
