@@ -1,0 +1,351 @@
+{
+  "aa_change_rate": 0.075,
+  "ab_change_rate": 0.925,
+  "adjusted_change_rate": 0.918918918918919,
+  "calls_made": 360,
+  "cases_fired": 40,
+  "cases_total": 40,
+  "certified": false,
+  "p_value": 1.0,
+  "protocol": {
+    "alpha": 0.1,
+    "created": 1785069019.1064808,
+    "delta": 0.05,
+    "keep_tool_uses": 0,
+    "label": "Anthropic context editing",
+    "max_calls": 360,
+    "model": "claude-opus-4-8",
+    "n_cases": 40,
+    "sig_version": 3,
+    "target": "anthropic-context-editing",
+    "trigger_tokens": 500,
+    "votes": 3
+  },
+  "protocol_sha256": "7d3599428a4da1b5463e7647590f05a1f3e50f6007237e273ec5dc3422372722",
+  "results": [
+    {
+      "aa_sig": "tool:ed4d64252589",
+      "baseline_sig": "tool:ed4d64252589",
+      "case_id": "pc-refund-ok-0",
+      "cleared_input_tokens": 2373,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:b32fc4b18dbf",
+      "baseline_sig": "tool:b32fc4b18dbf",
+      "case_id": "pc-credit-opened-1",
+      "cleared_input_tokens": 2346,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:dd0bc8cdc26e",
+      "baseline_sig": "tool:dd0bc8cdc26e",
+      "case_id": "pc-credit-late-2",
+      "cleared_input_tokens": 2366,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:dcec390b200d",
+      "baseline_sig": "tool:dcec390b200d",
+      "case_id": "pc-credit-chargeback-3",
+      "cleared_input_tokens": 2252,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:cb142e1e1343",
+      "baseline_sig": "tool:cb142e1e1343",
+      "case_id": "pc-cancel-ok-4",
+      "cleared_input_tokens": 2402,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "text",
+      "baseline_sig": "text",
+      "case_id": "pc-cancel-shipped-5",
+      "cleared_input_tokens": 2340,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:025b7d3d5540",
+      "baseline_sig": "tool:025b7d3d5540",
+      "case_id": "pc-fraud-mismatch-6",
+      "cleared_input_tokens": 2358,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:906d37adf8b0",
+      "baseline_sig": "tool:906d37adf8b0",
+      "case_id": "pc-fraud-velocity-7",
+      "cleared_input_tokens": 2362,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:e42ecf2b9180",
+      "baseline_sig": "tool:e42ecf2b9180",
+      "case_id": "pc-refund-ok-8",
+      "cleared_input_tokens": 2312,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:e66656077d5d",
+      "baseline_sig": "tool:e66656077d5d",
+      "case_id": "pc-credit-opened-9",
+      "cleared_input_tokens": 2328,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:9c4f9fa5f768",
+      "baseline_sig": "tool:9c4f9fa5f768",
+      "case_id": "pc-credit-late-10",
+      "cleared_input_tokens": 2354,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:12a173df7d9e",
+      "baseline_sig": "tool:12a173df7d9e",
+      "case_id": "pc-credit-chargeback-11",
+      "cleared_input_tokens": 2369,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:21b4d6b96977",
+      "baseline_sig": "tool:21b4d6b96977",
+      "case_id": "pc-cancel-ok-12",
+      "cleared_input_tokens": 2372,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:da7df063d5d0",
+      "baseline_sig": "text",
+      "case_id": "pc-cancel-shipped-13",
+      "cleared_input_tokens": 2349,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:624ec2d45331",
+      "baseline_sig": "tool:624ec2d45331",
+      "case_id": "pc-fraud-mismatch-14",
+      "cleared_input_tokens": 2322,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:eb188af422cf",
+      "baseline_sig": "tool:eb188af422cf",
+      "case_id": "pc-fraud-velocity-15",
+      "cleared_input_tokens": 2388,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:148064bc4de5",
+      "baseline_sig": "tool:148064bc4de5",
+      "case_id": "pc-refund-ok-16",
+      "cleared_input_tokens": 2323,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:b4561b4e269e",
+      "baseline_sig": "tool:b4561b4e269e",
+      "case_id": "pc-credit-opened-17",
+      "cleared_input_tokens": 2367,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:f541a00acc98",
+      "baseline_sig": "tool:f541a00acc98",
+      "case_id": "pc-credit-late-18",
+      "cleared_input_tokens": 2347,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:be425c9f84d9",
+      "baseline_sig": "tool:be425c9f84d9",
+      "case_id": "pc-credit-chargeback-19",
+      "cleared_input_tokens": 2303,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:3b23bb5ad3ea",
+      "baseline_sig": "tool:3b23bb5ad3ea",
+      "case_id": "pc-cancel-ok-20",
+      "cleared_input_tokens": 2390,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "text",
+      "baseline_sig": "tool:2bcf4a309cd2",
+      "case_id": "pc-cancel-shipped-21",
+      "cleared_input_tokens": 2354,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:72ae29fa6b06",
+      "baseline_sig": "tool:72ae29fa6b06",
+      "case_id": "pc-fraud-mismatch-22",
+      "cleared_input_tokens": 2351,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:91efc55251f5",
+      "baseline_sig": "tool:91efc55251f5",
+      "case_id": "pc-fraud-velocity-23",
+      "cleared_input_tokens": 2356,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:f8caeebc8de8",
+      "baseline_sig": "tool:f8caeebc8de8",
+      "case_id": "pc-refund-ok-24",
+      "cleared_input_tokens": 2397,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:d13c9de76bea",
+      "baseline_sig": "tool:d13c9de76bea",
+      "case_id": "pc-credit-opened-25",
+      "cleared_input_tokens": 2322,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:55a20bf34762",
+      "baseline_sig": "tool:55a20bf34762",
+      "case_id": "pc-credit-late-26",
+      "cleared_input_tokens": 2360,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:440200596d75",
+      "baseline_sig": "tool:440200596d75",
+      "case_id": "pc-credit-chargeback-27",
+      "cleared_input_tokens": 2402,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:5c133f86312f",
+      "baseline_sig": "tool:5c133f86312f",
+      "case_id": "pc-cancel-ok-28",
+      "cleared_input_tokens": 2372,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "text",
+      "baseline_sig": "tool:fe0dfda4cdb9",
+      "case_id": "pc-cancel-shipped-29",
+      "cleared_input_tokens": 2392,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:c4785ff622ab",
+      "baseline_sig": "tool:c4785ff622ab",
+      "case_id": "pc-fraud-mismatch-30",
+      "cleared_input_tokens": 2349,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:92ba3d782747",
+      "baseline_sig": "tool:92ba3d782747",
+      "case_id": "pc-fraud-velocity-31",
+      "cleared_input_tokens": 2368,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:ff7359750810",
+      "baseline_sig": "tool:ff7359750810",
+      "case_id": "pc-refund-ok-32",
+      "cleared_input_tokens": 2371,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:b297646bbf30",
+      "baseline_sig": "tool:b297646bbf30",
+      "case_id": "pc-credit-opened-33",
+      "cleared_input_tokens": 2353,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:6ebef109cfa9",
+      "baseline_sig": "tool:6ebef109cfa9",
+      "case_id": "pc-credit-late-34",
+      "cleared_input_tokens": 2393,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:1d0f3f14d901",
+      "baseline_sig": "tool:1d0f3f14d901",
+      "case_id": "pc-credit-chargeback-35",
+      "cleared_input_tokens": 2344,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:c5e74a1a0409",
+      "baseline_sig": "tool:c5e74a1a0409",
+      "case_id": "pc-cancel-ok-36",
+      "cleared_input_tokens": 2323,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "text",
+      "baseline_sig": "text",
+      "case_id": "pc-cancel-shipped-37",
+      "cleared_input_tokens": 2381,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:45fb52f2ec1b",
+      "baseline_sig": "tool:45fb52f2ec1b",
+      "case_id": "pc-fraud-mismatch-38",
+      "cleared_input_tokens": 2363,
+      "edited_sig": "text",
+      "fired": true
+    },
+    {
+      "aa_sig": "tool:29f4339f5705",
+      "baseline_sig": "tool:29f4339f5705",
+      "case_id": "pc-fraud-velocity-39",
+      "cleared_input_tokens": 2337,
+      "edited_sig": "text",
+      "fired": true
+    }
+  ],
+  "risk_bound": 0.9860132982459969,
+  "statement": "Anthropic context editing changed the agent's decision on 92.5% of 40 fired cases (A/A noise floor 7.5%, adjusted 91.9%). (95%-confidence upper bound on the raw rate: 98.6%.) NOT certified at \u03b1=0.1 \u2014 publish this number either way.",
+  "total_cleared_input_tokens": 94211,
+  "underpowered": false
+}

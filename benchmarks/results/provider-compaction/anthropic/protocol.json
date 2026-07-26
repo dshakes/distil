@@ -1,0 +1,14 @@
+{
+  "alpha": 0.1,
+  "created": 1785069019.1064808,
+  "delta": 0.05,
+  "keep_tool_uses": 0,
+  "label": "Anthropic context editing",
+  "max_calls": 360,
+  "model": "claude-opus-4-8",
+  "n_cases": 40,
+  "sig_version": 3,
+  "target": "anthropic-context-editing",
+  "trigger_tokens": 500,
+  "votes": 3
+}
