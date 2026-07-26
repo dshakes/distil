@@ -308,7 +308,9 @@ def test_dashboard_html_contains_dark_bg() -> None:
     assert "#06070a" in html, "dark bg colour missing from dashboard"
     assert "widget-co" in html, "tenant not rendered in dashboard"
     assert "$" in html, "dollar sign missing from dashboard"
-    assert 'content="5"' in html, "auto-refresh meta tag missing"
+    assert 'http-equiv="refresh"' not in html, "meta refresh should be gone (WCAG 2.2.1)"
+    assert 'fetch("/distil/stats"' in html, "in-place JSON polling missing"
+    assert 'id="pause-btn"' in html, "pause/resume control missing"
 
 
 def test_gateway_passthrough_non_compressible(gw_servers: Any) -> None:
