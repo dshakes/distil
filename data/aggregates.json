@@ -1,12 +1,12 @@
 {
-  "generated_ts": 1785000190,
+  "generated_ts": 1785034197,
   "installs": {
     "census_total": 2,
     "active_7d": 2,
     "active_30d": 2,
     "by_version": {
       "1.28.0": 1,
-      "1.23.0": 1
+      "1.30.0": 1
     }
   },
   "savings": {
@@ -14,7 +14,7 @@
     "dollars": 0,
     "dollars_notional": 6412.07,
     "instances": 2,
-    "as_of_ts": 1785000183,
+    "as_of_ts": 1785034187,
     "rate_per_sec": 2148.48,
     "total_runs": 7192,
     "avg_per_run": 206237,
@@ -54,6 +54,10 @@
       {
         "ts": 1785000183,
         "tokens": 1483259737
+      },
+      {
+        "ts": 1785034187,
+        "tokens": 1483259737
       }
     ]
   },
@@ -83,7 +87,7 @@
       "anthropic": 8441
     },
     "modes": {
-      "interactive": 45,
+      "interactive": 50,
       "sdk": 3
     }
   },
