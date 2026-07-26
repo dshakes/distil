@@ -167,7 +167,7 @@ pip install distil-llm</pre>
     <p><strong>Easiest:</strong> let <code>distil onboard</code> set you up and hand you the exact commands for your environment — it detects your agent and billing, wires the status line, and prints a guided tour:</p>
     <pre class="term">distil onboard   <span class="d"># one command: detects your setup, wires the status line, guides you</span></pre>
     <p>Or do it by hand. <code>distil wrap</code> launches your coding agent with its API traffic routed through compression — <strong>no config, no code change</strong>. <code>distil default</code> (run by onboard) picks the right mode for your billing automatically — override any time with an explicit flag:</p>
-    <pre class="term"><span class="d"># metered / API-key billing — expand mode (PAYG auto-default):</span>
+    <pre class="term"><span class="d"># metered / API-key billing — expand mode (<abbr title="pay-as-you-go">PAYG</abbr> auto-default):</span>
 distil wrap --expand -- claude
 <span class="d"># Pro/Max subscription — lossless-only mode (subscription auto-default):</span>
 distil wrap --lossless-only -- claude

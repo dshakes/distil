@@ -215,3 +215,17 @@
     wrap.appendChild(el);
   });
 })();
+
+/* New-tab warning: every link that opens target=_blank gets a visually hidden
+   "(opens in new tab)" note, so screen-reader users get the same heads-up
+   sighted users infer from the browser's own tab behavior (WCAG 3.2.5, AAA). */
+(function () {
+  "use strict";
+  document.querySelectorAll('a[target="_blank"]').forEach(function (a) {
+    if (a.querySelector(".sr-only")) return;
+    var note = document.createElement("span");
+    note.className = "sr-only";
+    note.textContent = " (opens in new tab)";
+    a.appendChild(note);
+  });
+})();

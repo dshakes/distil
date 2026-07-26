@@ -526,3 +526,10 @@ pre:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
 .tabpanel pre { margin: 0; }
 .tabnote { color: var(--mut, #8b91a1); font-size: 13px; margin: 12px 0 0; }
 .tabnote a { color: var(--acc2, #5ad1c9); text-decoration: underline; }
+
+/* Visually hidden, screen-reader-only text (e.g. the new-tab warning site.js appends
+   to every a[target=_blank]). Standard clip-based sr-only pattern. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
