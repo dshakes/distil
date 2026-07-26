@@ -33,30 +33,40 @@
 
 <div class="shell">
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-section">Getting started</div>
-    <a href="getting-started.html">Install &amp; Quickstart</a>
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
 
-    <div class="sidebar-section">Learn</div>
-    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-    <a href="concepts.html">Concepts</a>
-    <a href="techniques.html">Techniques</a>
-    <a href="architecture.html">Architecture</a>
-    <a href="research.html">Research &amp; Frontier</a>
-    <a href="benchmark.html" class="active">Benchmark</a>
-    <a href="compare.html">Compare</a>
-    <a href="adoption.html">Adoption <span class="nav-badge">Live</span></a>
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="benchmark.html" class="active" aria-current="page">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
 
-    <div class="sidebar-section">Reference</div>
-    <a href="cli.html">CLI Reference</a>
-    <a href="adapters.html">Adapters</a>
-    <a href="corpus.html">Corpus</a>
-    <a href="output.html">Output &amp; I/O</a>
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
 
-    <div class="sidebar-section">More</div>
-    <a href="faq.html">FAQ</a>
-    <a href="integrations.html">Integrations</a>
-    <a href="deploy-security.html">Deploy &amp; Security</a>
-    <a href="index.html">&#8592; Landing page</a>
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">&#8592; Landing page</a></li>
+      </ul>
+    </nav>
   </aside>
 
   <main class="content">
@@ -79,19 +89,19 @@
 
     <table>
       <thead>
-        <tr><th>Method</th><th style="text-align:right">Token&nbsp;savings</th><th style="text-align:right">Live&nbsp;decision-change</th><th>Certifies&nbsp;≤5%@95%?</th><th style="text-align:right">Latency/turn</th></tr>
+        <tr><th scope="col">Method</th><th scope="col" style="text-align:right">Token&nbsp;savings</th><th scope="col" style="text-align:right">Live&nbsp;decision-change</th><th scope="col">Certifies&nbsp;≤5%@95%?</th><th scope="col" style="text-align:right">Latency/turn</th></tr>
       </thead>
       <tbody>
         <tr style="background:rgba(90,209,154,.10)">
-          <td><strong>Distil</strong> <span style="color:#5b6177">(causal-prune + lossless)</span></td>
+          <th scope="row"><strong>Distil</strong> <span style="color:#5b6177">(causal-prune + lossless)</span></th>
           <td style="text-align:right"><strong>83.2%</strong></td><td style="text-align:right"><strong>0.0%</strong></td>
           <td><span class="badge-pass">✔ certified — leader</span></td><td style="text-align:right"><strong>0.026&nbsp;ms</strong></td></tr>
         <tr>
-          <td>LLMLingua-2 <span style="color:#5b6177">(<code>llmlingua</code>, real)</span></td>
+          <th scope="row">LLMLingua-2 <span style="color:#5b6177">(<code>llmlingua</code>, real)</span></th>
           <td style="text-align:right">53.1%</td><td style="text-align:right">12.5%</td>
           <td><span class="badge-fail">✘ fails gate</span></td><td style="text-align:right">~1,480&nbsp;ms</td></tr>
         <tr>
-          <td>Headroom <span style="color:#5b6177">(<code>headroom-ai</code>, real)</span></td>
+          <th scope="row">Headroom <span style="color:#5b6177">(<code>headroom-ai</code>, real)</span></th>
           <td style="text-align:right">39.7%</td><td style="text-align:right">0.0%</td>
           <td><span class="badge-pass">✔ certified</span></td><td style="text-align:right">26&nbsp;ms</td></tr>
       </tbody>
@@ -145,14 +155,14 @@ It's not how many tokens you cut — it's which ones.</pre>
     <p>A second, <strong>messages-level</strong> benchmark targets the coding-agent hot path (<code>benchmarks/codebench.py</code>: 16 sessions / 256 turns of read → edit → <strong>re-read</strong>), scoring <strong>cache-aware real dollars</strong> against the <em>real</em> installed packages. Each method is a pure, deterministic, <strong>cache-monotonic</strong> function of the cumulative conversation — the same standard distil holds itself to. The competitors are driven the way they actually deploy: LLMLingua-2 over every tool result (memoised); Headroom via its whole-conversation router with <code>optimize=True</code>.</p>
     <img src="assets/cache-delta.svg" alt="Cache-delta: read, edit, re-read — distil sends a reference + diff" class="svg-embed"/>
     <table>
-      <thead><tr><th>method</th><th style="text-align:right">token savings</th><th style="text-align:right">$ savings (cache-aware)</th><th style="text-align:right">latency / turn</th><th>fidelity</th></tr></thead>
+      <thead><tr><th scope="col">method</th><th scope="col" style="text-align:right">token savings</th><th scope="col" style="text-align:right">$ savings (cache-aware)</th><th scope="col" style="text-align:right">latency / turn</th><th scope="col">fidelity</th></tr></thead>
       <tbody>
-        <tr style="background:rgba(139,123,255,.07)"><td><b>distil</b> (PAYG digest)</td><td class="r">91.5%</td><td class="r">91.1%</td><td class="r">0.08 ms</td><td>reversible</td></tr>
-        <tr><td>distil + cache-delta</td><td class="r">89.6%</td><td class="r">89.0%</td><td class="r">12.9 ms</td><td>reversible</td></tr>
-        <tr><td>LLMLingua-2 (<code>llmlingua</code> 0.2.2, real)</td><td class="r">56.8%</td><td class="r">57.2%</td><td class="r">274 ms</td><td>lossy</td></tr>
-        <tr><td>distil-verbatim + cache-delta</td><td class="r">34.9%</td><td class="r">43.8%</td><td class="r">13.8 ms</td><td>reversible</td></tr>
-        <tr><td>distil-verbatim (Tier-0 only)</td><td class="r">0.0%</td><td class="r">0.0%</td><td class="r">0.6 ms</td><td>reversible</td></tr>
-        <tr><td>Headroom (<code>headroom-ai</code> 0.27.0, real, default)</td><td class="r">22.4%</td><td class="r">&minus;16.8%</td><td class="r">5.3 ms</td><td>lossy</td></tr>
+        <tr style="background:rgba(139,123,255,.07)"><th scope="row"><b>distil</b> (PAYG digest)</th><td class="r">91.5%</td><td class="r">91.1%</td><td class="r">0.08 ms</td><td>reversible</td></tr>
+        <tr><th scope="row">distil + cache-delta</th><td class="r">89.6%</td><td class="r">89.0%</td><td class="r">12.9 ms</td><td>reversible</td></tr>
+        <tr><th scope="row">LLMLingua-2 (<code>llmlingua</code> 0.2.2, real)</th><td class="r">56.8%</td><td class="r">57.2%</td><td class="r">274 ms</td><td>lossy</td></tr>
+        <tr><th scope="row">distil-verbatim + cache-delta</th><td class="r">34.9%</td><td class="r">43.8%</td><td class="r">13.8 ms</td><td>reversible</td></tr>
+        <tr><th scope="row">distil-verbatim (Tier-0 only)</th><td class="r">0.0%</td><td class="r">0.0%</td><td class="r">0.6 ms</td><td>reversible</td></tr>
+        <tr><th scope="row">Headroom (<code>headroom-ai</code> 0.27.0, real, default)</th><td class="r">22.4%</td><td class="r">&minus;16.8%</td><td class="r">5.3 ms</td><td>lossy</td></tr>
       </tbody>
     </table>
     <div class="callout">
@@ -166,43 +176,43 @@ It's not how many tokens you cut — it's which ones.</pre>
 
     <table>
       <thead>
-        <tr><th>Technique</th><th>Family</th><th style="text-align:right">Tokens&nbsp;saved</th><th style="text-align:right">$&nbsp;saved</th><th style="text-align:right">Decision&nbsp;equiv.</th><th>Verdict</th><th>Fidelity</th></tr>
+        <tr><th scope="col">Technique</th><th scope="col">Family</th><th scope="col" style="text-align:right">Tokens&nbsp;saved</th><th scope="col" style="text-align:right">$&nbsp;saved</th><th scope="col" style="text-align:right">Decision&nbsp;equiv.</th><th scope="col">Verdict</th><th scope="col">Fidelity</th></tr>
       </thead>
       <tbody>
         <tr style="background:rgba(139,123,255,.08)">
-          <td><strong>distil-causal</strong></td><td>cache-aware + causal pruning</td>
+          <th scope="row"><strong>distil-causal</strong></th><td>cache-aware + causal pruning</td>
           <td style="text-align:right">80.5%</td><td style="text-align:right"><strong>81.5%</strong></td>
           <td style="text-align:right">100%</td><td><span class="badge-pass">✔ certified · leader</span></td><td>lossy*</td></tr>
         <tr>
-          <td>truncate-tail <span style="color:#5b6177">(structural baseline)</span></td><td>sliding-window / truncation</td>
+          <th scope="row">truncate-tail <span style="color:#5b6177">(structural baseline)</span></th><td>sliding-window / truncation</td>
           <td style="text-align:right">78.7%</td><td style="text-align:right">79.6%</td>
           <td style="text-align:right">14%</td><td><span class="badge-fail">✘ fails gate</span></td><td>lossy</td></tr>
         <tr>
-          <td><strong>distil-stream</strong></td><td>lossless + cross-turn dedup (fully reversible)</td>
+          <th scope="row"><strong>distil-stream</strong></th><td>lossless + cross-turn dedup (fully reversible)</td>
           <td style="text-align:right">61.0%</td><td style="text-align:right">61.7%</td>
           <td style="text-align:right">100%</td><td><span class="badge-pass">✔ certified</span></td><td>reversible</td></tr>
         <tr>
-          <td><strong>distil-lossless</strong></td><td>cache-aware lossless + structured fold + template mining</td>
+          <th scope="row"><strong>distil-lossless</strong></th><td>cache-aware lossless + structured fold + template mining</td>
           <td style="text-align:right">57.4%</td><td style="text-align:right">58.1%</td>
           <td style="text-align:right">100%</td><td><span class="badge-pass">✔ certified</span></td><td>byte-exact</td></tr>
         <tr>
-          <td>summarize <span style="color:#5b6177">(structural baseline)</span></td><td>abstractive / rolling summary</td>
+          <th scope="row">summarize <span style="color:#5b6177">(structural baseline)</span></th><td>abstractive / rolling summary</td>
           <td style="text-align:right">56.5%</td><td style="text-align:right">57.2%</td>
           <td style="text-align:right">39%</td><td><span class="badge-fail">✘ fails gate</span></td><td>lossy</td></tr>
         <tr>
-          <td><strong>LLMLingua-2</strong> <span style="color:#5b6177">(real pkg)</span></td><td><code>llmlingua</code> 0.2.2, per tool-result</td>
+          <th scope="row"><strong>LLMLingua-2</strong> <span style="color:#5b6177">(real pkg)</span></th><td><code>llmlingua</code> 0.2.2, per tool-result</td>
           <td style="text-align:right">54.9%</td><td style="text-align:right">54.8%</td>
           <td style="text-align:right">0%</td><td><span class="badge-fail">✘ fails gate</span></td><td>lossy</td></tr>
         <tr>
-          <td><strong>Headroom</strong> <span style="color:#5b6177">(real pkg)</span></td><td><code>headroom-ai</code> 0.27.0, whole-conversation <code>optimize=True</code></td>
+          <th scope="row"><strong>Headroom</strong> <span style="color:#5b6177">(real pkg)</span></th><td><code>headroom-ai</code> 0.27.0, whole-conversation <code>optimize=True</code></td>
           <td style="text-align:right">43.5%</td><td style="text-align:right">44.0%</td>
           <td style="text-align:right">61%</td><td><span class="badge-fail">✘ fails gate</span></td><td>lossy</td></tr>
         <tr>
-          <td>extractive-prune <span style="color:#5b6177">(structural baseline)</span></td><td>extractive importance (LLMLingua technique family)</td>
+          <th scope="row">extractive-prune <span style="color:#5b6177">(structural baseline)</span></th><td>extractive importance (LLMLingua technique family)</td>
           <td style="text-align:right">18.2%</td><td style="text-align:right">18.4%</td>
           <td style="text-align:right">77%</td><td><span class="badge-fail">✘ fails gate</span></td><td>lossy</td></tr>
         <tr>
-          <td>minify-all</td><td>lossless minification</td>
+          <th scope="row">minify-all</th><td>lossless minification</td>
           <td style="text-align:right">0.1%</td><td style="text-align:right">0.1%</td>
           <td style="text-align:right">100%</td><td><span class="badge-pass">✔ certified</span></td><td>byte-exact</td></tr>
       </tbody>

@@ -88,15 +88,15 @@
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--tokenizer</code></td><td><code>heuristic</code></td><td><code>heuristic</code> (offline, zero deps) or <code>anthropic</code> (billing-grade <code>count_tokens</code>)</td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model pricing to use (see pricing catalog)</td></tr>
-        <tr><td><code>--margin</code></td><td><code>0.02</code></td><td>TOST indifference margin (max tolerable mean score drop)</td></tr>
-        <tr><td><code>--alpha</code></td><td><code>0.05</code></td><td>Significance level for the non-inferiority test</td></tr>
-        <tr><td><code>--record</code></td><td>off</td><td>Append corpus-aggregate savings to the local savings ledger</td></tr>
-        <tr><td><code>--corpus</code></td><td>bundled corpus</td><td>Run on a custom corpus dir (e.g. from <code>distil ingest</code>)</td></tr>
-        <tr><td><code>--savings-only</code></td><td>off</td><td>Report token savings only; skip the decision-equivalence gate (for real-trace corpora without DECISION labels)</td></tr>
+        <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> (offline, zero deps) or <code>anthropic</code> (billing-grade <code>count_tokens</code>)</td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing to use (see pricing catalog)</td></tr>
+        <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST indifference margin (max tolerable mean score drop)</td></tr>
+        <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Significance level for the non-inferiority test</td></tr>
+        <tr><th scope="row"><code>--record</code></th><td>off</td><td>Append corpus-aggregate savings to the local savings ledger</td></tr>
+        <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Run on a custom corpus dir (e.g. from <code>distil ingest</code>)</td></tr>
+        <tr><th scope="row"><code>--savings-only</code></th><td>off</td><td>Report token savings only; skip the decision-equivalence gate (for real-trace corpora without DECISION labels)</td></tr>
       </tbody>
     </table>
 
@@ -125,13 +125,13 @@ GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; a
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--trajectory, -t</code></td><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
-        <tr><td><code>--tokenizer</code></td><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code> (billing-grade)</td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model pricing to use</td></tr>
-        <tr><td><code>--output-tokens-per-turn</code></td><td><code>0</code></td><td>Assumed output tokens per turn (for output cost accounting)</td></tr>
-        <tr><td><code>--record</code></td><td>off</td><td>Append this run to the local savings ledger</td></tr>
+        <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
+        <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code> (billing-grade)</td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing to use</td></tr>
+        <tr><th scope="row"><code>--output-tokens-per-turn</code></th><td><code>0</code></td><td>Assumed output tokens per turn (for output cost accounting)</td></tr>
+        <tr><th scope="row"><code>--record</code></th><td>off</td><td>Append this run to the local savings ledger</td></tr>
       </tbody>
     </table>
 
@@ -157,13 +157,13 @@ note: naive compression costs $0.01691 — <span class="w">66% MORE</span> than 
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--trajectory, -t</code></td><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
-        <tr><td><code>--strategy</code></td><td><code>distil</code></td><td>Strategy to certify: <code>distil</code>, <code>aggressive</code>, <code>naive</code>, <code>none</code></td></tr>
-        <tr><td><code>--runner</code></td><td><code>deterministic</code></td><td><code>deterministic</code> (offline, uses ground-truth markers) or <code>anthropic</code> (live model, requires key)</td></tr>
-        <tr><td><code>--margin</code></td><td><code>0.02</code></td><td>TOST indifference margin</td></tr>
-        <tr><td><code>--alpha</code></td><td><code>0.05</code></td><td>Significance level</td></tr>
+        <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
+        <tr><th scope="row"><code>--strategy</code></th><td><code>distil</code></td><td>Strategy to certify: <code>distil</code>, <code>aggressive</code>, <code>naive</code>, <code>none</code></td></tr>
+        <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, uses ground-truth markers) or <code>anthropic</code> (live model, requires key)</td></tr>
+        <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST indifference margin</td></tr>
+        <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Significance level</td></tr>
       </tbody>
     </table>
 
@@ -203,9 +203,9 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--trajectory, -t</code></td><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
+        <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
       </tbody>
     </table>
 
@@ -229,10 +229,10 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--trajectory, -t</code></td><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
-        <tr><td><code>--tokenizer</code></td><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code></td></tr>
+        <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
+        <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code></td></tr>
       </tbody>
     </table>
 
@@ -296,11 +296,11 @@ VALIDATE: <span class="g">PASS</span> — 60/60 checks across 12 adversarial cas
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--tokenizer</code></td><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code></td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model pricing to use</td></tr>
-        <tr><td><code>--control-fraction</code></td><td><code>0.2</code></td><td>Fraction of corpus held out as control group</td></tr>
+        <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code></td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing to use</td></tr>
+        <tr><th scope="row"><code>--control-fraction</code></th><td><code>0.2</code></td><td>Fraction of corpus held out as control group</td></tr>
       </tbody>
     </table>
 
@@ -334,10 +334,10 @@ fresh start: all new records use post-1.10 accounting (booked only after upstrea
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--html</code></td><td>off</td><td>Render your savings ledger as a self-contained HTML page at this path</td></tr>
-        <tr><td><code>--json</code></td><td>off</td><td>Machine-readable output: the full savings summary plus decision-equivalence/shadow-sample counts when shadow data exists</td></tr>
+        <tr><th scope="row"><code>--html</code></th><td>off</td><td>Render your savings ledger as a self-contained HTML page at this path</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: the full savings summary plus decision-equivalence/shadow-sample counts when shadow data exists</td></tr>
       </tbody>
     </table>
 
@@ -368,20 +368,20 @@ by trajectory:
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--host</code></td><td><code>127.0.0.1</code></td><td>Interface to bind on</td></tr>
-        <tr><td><code>--port</code></td><td><code>8788</code></td><td>Port to listen on</td></tr>
-        <tr><td><code>--upstream</code></td><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL to forward to</td></tr>
-        <tr><td><code>--lossless-only</code></td><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
-        <tr><td><code>--verbatim</code></td><td>off</td><td>Skip the Tier-1 digest; Tier-0 only (JSON minify + collapse exact-duplicate runs). Interactive-safe, lower savings. Use where <code>distil_expand</code> recovery is unavailable.</td></tr>
-        <tr><td><code>--shape-output</code></td><td>off</td><td>Enable generation-side verbosity shaping: <code>light</code> (conservative) or <code>aggressive</code>. Injects a <code>role:"system"</code> directive before the request. Gated by <code>--lossless-only</code>: shaping is skipped when <code>--lossless-only</code> is set. No subscription key detection.</td></tr>
-        <tr><td><code>--expand</code></td><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
-        <tr><td><code>--shadow</code></td><td>off (direct use; <code>distil wrap</code> defaults to 0.02)</td><td>Shadow-mode sampling rate (0–1): re-run a fraction of requests uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — prove equivalence in minutes, then drop back).</td></tr>
-        <tr><td><code>--session-delta</code></td><td>off</td><td>Enable cross-turn cache-delta encoding (deduplicates repeated stable blocks across the session)</td></tr>
-        <tr><td><code>--async</code></td><td>off</td><td>Use the async aiohttp backend (<code>distil/aproxy.py</code>) for high-concurrency streaming. Requires <code>pip install 'distil-llm[async]'</code>. Async event loop handles thousands of concurrent sessions. Note: the async backend supports lossless / verbatim / output-shaping, but not <code>--expand</code>, <code>--session-delta</code>, or <code>--shadow</code> yet — pass those on the standard (sync) proxy, which handles typical agent concurrency. Combining them with <code>--async</code> prints a notice and ignores them.</td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model used to price the genuine dollar savings recorded to the ledger</td></tr>
-        <tr><td><code>--no-record</code></td><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
+        <tr><th scope="row"><code>--host</code></th><td><code>127.0.0.1</code></td><td>Interface to bind on</td></tr>
+        <tr><th scope="row"><code>--port</code></th><td><code>8788</code></td><td>Port to listen on</td></tr>
+        <tr><th scope="row"><code>--upstream</code></th><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL to forward to</td></tr>
+        <tr><th scope="row"><code>--lossless-only</code></th><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
+        <tr><th scope="row"><code>--verbatim</code></th><td>off</td><td>Skip the Tier-1 digest; Tier-0 only (JSON minify + collapse exact-duplicate runs). Interactive-safe, lower savings. Use where <code>distil_expand</code> recovery is unavailable.</td></tr>
+        <tr><th scope="row"><code>--shape-output</code></th><td>off</td><td>Enable generation-side verbosity shaping: <code>light</code> (conservative) or <code>aggressive</code>. Injects a <code>role:"system"</code> directive before the request. Gated by <code>--lossless-only</code>: shaping is skipped when <code>--lossless-only</code> is set. No subscription key detection.</td></tr>
+        <tr><th scope="row"><code>--expand</code></th><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
+        <tr><th scope="row"><code>--shadow</code></th><td>off (direct use; <code>distil wrap</code> defaults to 0.02)</td><td>Shadow-mode sampling rate (0–1): re-run a fraction of requests uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — prove equivalence in minutes, then drop back).</td></tr>
+        <tr><th scope="row"><code>--session-delta</code></th><td>off</td><td>Enable cross-turn cache-delta encoding (deduplicates repeated stable blocks across the session)</td></tr>
+        <tr><th scope="row"><code>--async</code></th><td>off</td><td>Use the async aiohttp backend (<code>distil/aproxy.py</code>) for high-concurrency streaming. Requires <code>pip install 'distil-llm[async]'</code>. Async event loop handles thousands of concurrent sessions. Note: the async backend supports lossless / verbatim / output-shaping, but not <code>--expand</code>, <code>--session-delta</code>, or <code>--shadow</code> yet — pass those on the standard (sync) proxy, which handles typical agent concurrency. Combining them with <code>--async</code> prints a notice and ignores them.</td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model used to price the genuine dollar savings recorded to the ledger</td></tr>
+        <tr><th scope="row"><code>--no-record</code></th><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
       </tbody>
     </table>
 
@@ -442,19 +442,19 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--host</code></td><td><code>127.0.0.1</code></td><td>Bind address for the ephemeral proxy</td></tr>
-        <tr><td><code>--upstream</code></td><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL to forward to</td></tr>
-        <tr><td><code>--env-var</code></td><td><code>ANTHROPIC_BASE_URL</code></td><td>Environment variable to point at the proxy in the child process</td></tr>
-        <tr><td><code>--lossless-only</code></td><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
-        <tr><td><code>--verbatim</code></td><td>off</td><td>Skip the Tier-1 digest; Tier-0 only. Interactive-safe, lower savings.</td></tr>
-        <tr><td><code>--shape-output</code></td><td>off</td><td>Generation-side verbosity shaping (gated by <code>--lossless-only</code>)</td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model used to price genuine dollar savings recorded to the ledger</td></tr>
-        <tr><td><code>--no-record</code></td><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
-        <tr><td><code>--expand</code></td><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
-        <tr><td><code>--shadow</code></td><td>0.02 (2%, opt-out)</td><td>Fraction of requests re-issued uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — proves equivalence fast, use then drop back). See <a href="#statusline">status line</a> for how to read the <code>de</code> segment.</td></tr>
-        <tr><td><code>--session-delta</code></td><td>off</td><td>Enable cross-turn cache-delta encoding</td></tr>
+        <tr><th scope="row"><code>--host</code></th><td><code>127.0.0.1</code></td><td>Bind address for the ephemeral proxy</td></tr>
+        <tr><th scope="row"><code>--upstream</code></th><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL to forward to</td></tr>
+        <tr><th scope="row"><code>--env-var</code></th><td><code>ANTHROPIC_BASE_URL</code></td><td>Environment variable to point at the proxy in the child process</td></tr>
+        <tr><th scope="row"><code>--lossless-only</code></th><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
+        <tr><th scope="row"><code>--verbatim</code></th><td>off</td><td>Skip the Tier-1 digest; Tier-0 only. Interactive-safe, lower savings.</td></tr>
+        <tr><th scope="row"><code>--shape-output</code></th><td>off</td><td>Generation-side verbosity shaping (gated by <code>--lossless-only</code>)</td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model used to price genuine dollar savings recorded to the ledger</td></tr>
+        <tr><th scope="row"><code>--no-record</code></th><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
+        <tr><th scope="row"><code>--expand</code></th><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
+        <tr><th scope="row"><code>--shadow</code></th><td>0.02 (2%, opt-out)</td><td>Fraction of requests re-issued uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — proves equivalence fast, use then drop back). See <a href="#statusline">status line</a> for how to read the <code>de</code> segment.</td></tr>
+        <tr><th scope="row"><code>--session-delta</code></th><td>off</td><td>Enable cross-turn cache-delta encoding</td></tr>
       </tbody>
     </table>
 
@@ -478,9 +478,9 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--input</code></td><td>bundled fixture</td><td>Path to a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs</td></tr>
+        <tr><th scope="row"><code>--input</code></th><td>bundled fixture</td><td>Path to a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs</td></tr>
       </tbody>
     </table>
 
@@ -501,12 +501,12 @@ output-token A/B — n=8 turns
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--input</code></td><td>required</td><td>Path to the JSONL log file (Anthropic or OpenAI request format)</td></tr>
-        <tr><td><code>--out</code></td><td><code>./ingested-corpus</code></td><td>Output directory where the trajectory will be written</td></tr>
-        <tr><td><code>--provider</code></td><td><code>anthropic</code></td><td><code>anthropic</code> or <code>openai</code> — selects the input format</td></tr>
-        <tr><td><code>--model</code></td><td><code>claude-opus-4-8</code></td><td>Model name to tag the trajectory with (must be in the pricing catalog)</td></tr>
+        <tr><th scope="row"><code>--input</code></th><td>required</td><td>Path to the JSONL log file (Anthropic or OpenAI request format)</td></tr>
+        <tr><th scope="row"><code>--out</code></th><td><code>./ingested-corpus</code></td><td>Output directory where the trajectory will be written</td></tr>
+        <tr><th scope="row"><code>--provider</code></th><td><code>anthropic</code></td><td><code>anthropic</code> or <code>openai</code> — selects the input format</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-opus-4-8</code></td><td>Model name to tag the trajectory with (must be in the pricing catalog)</td></tr>
       </tbody>
     </table>
 
@@ -529,9 +529,9 @@ corpus gate — savings-only (no DECISION labels)
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--iterations</code></td><td><code>200</code></td><td>Number of compression iterations to run</td></tr>
+        <tr><th scope="row"><code>--iterations</code></th><td><code>200</code></td><td>Number of compression iterations to run</td></tr>
       </tbody>
     </table>
 
@@ -553,16 +553,16 @@ distil performance benchmark
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--host</code></td><td><code>127.0.0.1</code></td><td>Interface to bind on. Pass <code>0.0.0.0</code> for network-accessible deployments.</td></tr>
-        <tr><td><code>--port</code></td><td><code>8789</code></td><td>Port to listen on.</td></tr>
-        <tr><td><code>--upstream</code></td><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL (set once at startup, cannot be overridden per-request).</td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model pricing key for per-tenant dollar accounting.</td></tr>
-        <tr><td><code>--lossless-only</code></td><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
-        <tr><td><code>--verbatim</code></td><td>off</td><td>Skip the Tier-1 digest; Tier-0 only. Interactive-safe, lower savings.</td></tr>
-        <tr><td><code>--admin-token</code></td><td>unset (env <code>DISTIL_GATEWAY_TOKEN</code>)</td><td>Bearer token required for <code>/distil/stats</code> and <code>/distil/dashboard</code>. Mandatory for those routes on non-loopback binds — without it, <code>/distil/*</code> is disabled entirely rather than left open.</td></tr>
-        <tr><td><code>--trust-tenant-header</code></td><td>off</td><td>Honor the client-supplied <code>x-distil-tenant</code> header for accounting. Off by default: tenant identity is derived from the credential hash, never a client-writable header, so no caller can book its traffic under another tenant's line.</td></tr>
+        <tr><th scope="row"><code>--host</code></th><td><code>127.0.0.1</code></td><td>Interface to bind on. Pass <code>0.0.0.0</code> for network-accessible deployments.</td></tr>
+        <tr><th scope="row"><code>--port</code></th><td><code>8789</code></td><td>Port to listen on.</td></tr>
+        <tr><th scope="row"><code>--upstream</code></th><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL (set once at startup, cannot be overridden per-request).</td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing key for per-tenant dollar accounting.</td></tr>
+        <tr><th scope="row"><code>--lossless-only</code></th><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
+        <tr><th scope="row"><code>--verbatim</code></th><td>off</td><td>Skip the Tier-1 digest; Tier-0 only. Interactive-safe, lower savings.</td></tr>
+        <tr><th scope="row"><code>--admin-token</code></th><td>unset (env <code>DISTIL_GATEWAY_TOKEN</code>)</td><td>Bearer token required for <code>/distil/stats</code> and <code>/distil/dashboard</code>. Mandatory for those routes on non-loopback binds — without it, <code>/distil/*</code> is disabled entirely rather than left open.</td></tr>
+        <tr><th scope="row"><code>--trust-tenant-header</code></th><td>off</td><td>Honor the client-supplied <code>x-distil-tenant</code> header for accounting. Off by default: tenant identity is derived from the credential hash, never a client-writable header, so no caller can book its traffic under another tenant's line.</td></tr>
       </tbody>
     </table>
 
@@ -619,13 +619,13 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
 
     <h4>gateway keys flags</h4>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>gateway --require-keys</code></td><td>off</td><td>Force key auth even before any keys are issued.</td></tr>
-        <tr><td><code>gateway --tenant-rpm</code></td><td>0 (unlimited)</td><td>Gateway-wide requests-per-minute cap per tenant.</td></tr>
-        <tr><td><code>gateway --tenant-daily-tokens</code></td><td>0 (unlimited)</td><td>Gateway-wide daily input-token cap per tenant.</td></tr>
-        <tr><td><code>keys issue --tenant &lt;name&gt;</code></td><td>required</td><td>Tenant label to associate with the new key.</td></tr>
-        <tr><td><code>keys revoke &lt;prefix&gt;</code></td><td>required</td><td>First hex characters of the key to revoke (as shown by <code>keys list</code>).</td></tr>
+        <tr><th scope="row"><code>gateway --require-keys</code></th><td>off</td><td>Force key auth even before any keys are issued.</td></tr>
+        <tr><th scope="row"><code>gateway --tenant-rpm</code></th><td>0 (unlimited)</td><td>Gateway-wide requests-per-minute cap per tenant.</td></tr>
+        <tr><th scope="row"><code>gateway --tenant-daily-tokens</code></th><td>0 (unlimited)</td><td>Gateway-wide daily input-token cap per tenant.</td></tr>
+        <tr><th scope="row"><code>keys issue --tenant &lt;name&gt;</code></th><td>required</td><td>Tenant label to associate with the new key.</td></tr>
+        <tr><th scope="row"><code>keys revoke &lt;prefix&gt;</code></th><td>required</td><td>First hex characters of the key to revoke (as shown by <code>keys list</code>).</td></tr>
       </tbody>
     </table>
 
@@ -641,11 +641,11 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--out</code></td><td><code>distil-keep-transformer</code></td><td>Output directory. Receives <code>model.onnx</code>, tokenizer files, and <code>metrics.json</code>.</td></tr>
-        <tr><td><code>--base-model</code></td><td><code>google/bert_uncased_L-2_H-128_A-2</code></td><td>HuggingFace model ID to fine-tune. Swap for <code>distilbert-base-uncased</code> for higher accuracy at larger size.</td></tr>
-        <tr><td><code>--epochs</code></td><td><code>3</code></td><td>Number of training epochs.</td></tr>
+        <tr><th scope="row"><code>--out</code></th><td><code>distil-keep-transformer</code></td><td>Output directory. Receives <code>model.onnx</code>, tokenizer files, and <code>metrics.json</code>.</td></tr>
+        <tr><th scope="row"><code>--base-model</code></th><td><code>google/bert_uncased_L-2_H-128_A-2</code></td><td>HuggingFace model ID to fine-tune. Swap for <code>distilbert-base-uncased</code> for higher accuracy at larger size.</td></tr>
+        <tr><th scope="row"><code>--epochs</code></th><td><code>3</code></td><td>Number of training epochs.</td></tr>
       </tbody>
     </table>
 
@@ -676,11 +676,11 @@ Load with: TransformerKeepModel.from_pretrained('./my-keep-model/model.onnx', '.
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--corpus</code></td><td>bundled corpus</td><td>Custom corpus dir (e.g. from <code>distil ingest</code> on benchmark traces)</td></tr>
-        <tr><td><code>--runner</code></td><td><code>deterministic</code></td><td><code>deterministic</code> (offline, structural equivalence) or <code>anthropic</code> (live model, requires API key)</td></tr>
-        <tr><td><code>--out</code></td><td>off</td><td>Write the raw curve as a timestamped JSONL file to this directory</td></tr>
+        <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir (e.g. from <code>distil ingest</code> on benchmark traces)</td></tr>
+        <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, structural equivalence) or <code>anthropic</code> (live model, requires API key)</td></tr>
+        <tr><th scope="row"><code>--out</code></th><td>off</td><td>Write the raw curve as a timestamped JSONL file to this directory</td></tr>
       </tbody>
     </table>
 
@@ -708,16 +708,16 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--external</code></td><td>—</td><td><code>module:function[:Name]</code> — register a real compressor (<code>list[str]→list[str]</code> over per-turn block texts), measured on the identical axes. Repeatable.</td></tr>
-        <tr><td><code>--corpus</code></td><td>bundled corpus</td><td>Custom corpus dir (e.g. ingested benchmark traces)</td></tr>
-        <tr><td><code>--runner</code></td><td><code>deterministic</code></td><td><code>deterministic</code> (offline) or <code>anthropic</code> (live model)</td></tr>
-        <tr><td><code>--pricing</code></td><td><code>claude-opus-4-8</code></td><td>Model pricing for the cache-aware cost model</td></tr>
-        <tr><td><code>--tokenizer</code></td><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code> (billing-grade)</td></tr>
-        <tr><td><code>--margin</code></td><td><code>0.02</code></td><td>TOST non-inferiority margin</td></tr>
-        <tr><td><code>--alpha</code></td><td><code>0.05</code></td><td>Significance level for the non-inferiority test</td></tr>
-        <tr><td><code>--html</code> / <code>--out</code></td><td>off</td><td>Render the standings as HTML / write raw results JSONL</td></tr>
+        <tr><th scope="row"><code>--external</code></th><td>—</td><td><code>module:function[:Name]</code> — register a real compressor (<code>list[str]→list[str]</code> over per-turn block texts), measured on the identical axes. Repeatable.</td></tr>
+        <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir (e.g. ingested benchmark traces)</td></tr>
+        <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline) or <code>anthropic</code> (live model)</td></tr>
+        <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing for the cache-aware cost model</td></tr>
+        <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code> (billing-grade)</td></tr>
+        <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST non-inferiority margin</td></tr>
+        <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Significance level for the non-inferiority test</td></tr>
+        <tr><th scope="row"><code>--html</code> / <code>--out</code></th><td>off</td><td>Render the standings as HTML / write raw results JSONL</td></tr>
       </tbody>
     </table>
 
@@ -743,12 +743,12 @@ LEADER (certified $ savings): distil-causal — 37.4% cheaper, 100% decision-equ
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--targets</code></td><td><code>1.0,0.97,0.95,0.90,0.80</code></td><td>Comma-separated equivalence targets in (0,1]</td></tr>
-        <tr><td><code>--corpus</code></td><td>bundled corpus</td><td>Custom corpus dir</td></tr>
-        <tr><td><code>--runner</code></td><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
-        <tr><td><code>--samples</code></td><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
+        <tr><th scope="row"><code>--targets</code></th><td><code>1.0,0.97,0.95,0.90,0.80</code></td><td>Comma-separated equivalence targets in (0,1]</td></tr>
+        <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir</td></tr>
+        <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
+        <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
     </table>
 
@@ -770,14 +770,14 @@ savings-vs-equivalence dial  (runner=deterministic)
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--alpha</code></td><td><code>0.05</code></td><td>Risk target: max tolerable decision-change rate</td></tr>
-        <tr><td><code>--delta</code></td><td><code>0.05</code></td><td>LTT failure probability; confidence is 1&minus;&delta; (ignored by CRC)</td></tr>
-        <tr><td><code>--method</code></td><td><code>ltt</code></td><td><code>ltt</code> (high-probability bound) or <code>crc</code> (expected-rate bound)</td></tr>
-        <tr><td><code>--corpus</code></td><td>bundled corpus</td><td>Calibration corpus dir (use your own traffic via <code>distil ingest</code>)</td></tr>
-        <tr><td><code>--runner</code></td><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
-        <tr><td><code>--samples</code></td><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
+        <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Risk target: max tolerable decision-change rate</td></tr>
+        <tr><th scope="row"><code>--delta</code></th><td><code>0.05</code></td><td>LTT failure probability; confidence is 1&minus;&delta; (ignored by CRC)</td></tr>
+        <tr><th scope="row"><code>--method</code></th><td><code>ltt</code></td><td><code>ltt</code> (high-probability bound) or <code>crc</code> (expected-rate bound)</td></tr>
+        <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Calibration corpus dir (use your own traffic via <code>distil ingest</code>)</td></tr>
+        <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
+        <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
     </table>
 
@@ -799,10 +799,10 @@ Decision-Equivalence Risk Certificate (DERC)
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--corpus</code></td><td>bundled corpus</td><td>Corpus dir of traffic to learn from. Use <code>distil ingest</code> to convert real logs first.</td></tr>
-        <tr><td><code>--promote-to</code></td><td>off (dry run)</td><td>If certified, write the new weights as a <code>LogisticKeepModel</code>-compatible JSON file to this path.</td></tr>
+        <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Corpus dir of traffic to learn from. Use <code>distil ingest</code> to convert real logs first.</td></tr>
+        <tr><th scope="row"><code>--promote-to</code></th><td>off (dry run)</td><td>If certified, write the new weights as a <code>LogisticKeepModel</code>-compatible JSON file to this path.</td></tr>
       </tbody>
     </table>
 
@@ -825,9 +825,9 @@ self-distilling round — keep-model learns from causal labels, gated by non-inf
     <p>The model is <strong>additive-only</strong> (it can only widen the keep set, so reversibility and the decision-equivalence certificate are untouched) and <strong>gated</strong>: weights are promoted only if held-out recall beats the phase-1 lexical baseline at a precision floor. With no promoted weights, behavior is exactly phase&nbsp;1. Collection runs automatically under <code>distil wrap --expand</code>; it stores only numeric feature vectors and expand outcomes — never a prompt, a line, or a query term.</p>
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--min-samples</code></td><td>200</td><td>Minimum accumulated flywheel labels before a candidate is eligible for promotion.</td></tr>
+        <tr><th scope="row"><code>--min-samples</code></th><td>200</td><td>Minimum accumulated flywheel labels before a candidate is eligible for promotion.</td></tr>
       </tbody>
     </table>
     <pre class="term"><span class="d">$ distil query-relevance</span>
@@ -845,11 +845,11 @@ flywheel; promote only if it beats the phase-1 lexical baseline (additive-only, 
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--dir</code></td><td>required</td><td>Directory containing <code>submissions.jsonl</code> (one signed aggregate per line)</td></tr>
-        <tr><td><code>--keys</code></td><td>off</td><td>Path to a JSON file mapping <code>instance_id</code> &rarr; HMAC key. Submissions with no matching key are rejected.</td></tr>
-        <tr><td><code>--html</code></td><td>off</td><td>Write a self-contained leaderboard HTML page to this path</td></tr>
+        <tr><th scope="row"><code>--dir</code></th><td>required</td><td>Directory containing <code>submissions.jsonl</code> (one signed aggregate per line)</td></tr>
+        <tr><th scope="row"><code>--keys</code></th><td>off</td><td>Path to a JSON file mapping <code>instance_id</code> &rarr; HMAC key. Submissions with no matching key are rejected.</td></tr>
+        <tr><th scope="row"><code>--html</code></th><td>off</td><td>Write a self-contained leaderboard HTML page to this path</td></tr>
       </tbody>
     </table>
 
@@ -872,12 +872,12 @@ verifiable savings — 3 verified instance(s), 0 rejected
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>outcomes</code></td><td>required</td><td>Path to a JSONL file of matched runs, one object per line: <code>{"task_id": ..., "full_success": bool, "compressed_success": bool}</code></td></tr>
-        <tr><td><code>--alpha</code></td><td><code>0.05</code></td><td>Maximum end-to-end degradation risk to certify</td></tr>
-        <tr><td><code>--delta</code></td><td><code>0.05</code></td><td>Confidence budget — certificate holds at confidence 1&minus;&delta;</td></tr>
-        <tr><td><code>--json</code></td><td>off</td><td>Machine-readable output: the full certificate fields plus <code>statement</code></td></tr>
+        <tr><th scope="row"><code>outcomes</code></th><td>required</td><td>Path to a JSONL file of matched runs, one object per line: <code>{"task_id": ..., "full_success": bool, "compressed_success": bool}</code></td></tr>
+        <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Maximum end-to-end degradation risk to certify</td></tr>
+        <tr><th scope="row"><code>--delta</code></th><td><code>0.05</code></td><td>Confidence budget — certificate holds at confidence 1&minus;&delta;</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: the full certificate fields plus <code>statement</code></td></tr>
       </tbody>
     </table>
 
@@ -936,9 +936,9 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--json</code></td><td>off</td><td>Machine-readable output: <code>samples</code>, <code>changes</code>, <code>decision_change_rate</code>, <code>decision_equivalence</code></td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: <code>samples</code>, <code>changes</code>, <code>decision_change_rate</code>, <code>decision_equivalence</code></td></tr>
       </tbody>
     </table>
 
@@ -949,10 +949,10 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
 
     <h3>Flags</h3>
     <table>
-      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
-        <tr><td><code>--no-color</code></td><td>off</td><td>Disable ANSI colors in the check list</td></tr>
-        <tr><td><code>--json</code></td><td>off</td><td>Machine-readable output (CI-gateable): <code>{"checks": [...], "ok": bool}</code>, one object per check with <code>name</code>/<code>status</code>/<code>detail</code>/<code>hint</code></td></tr>
+        <tr><th scope="row"><code>--no-color</code></th><td>off</td><td>Disable ANSI colors in the check list</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output (CI-gateable): <code>{"checks": [...], "ok": bool}</code>, one object per check with <code>name</code>/<code>status</code>/<code>detail</code>/<code>hint</code></td></tr>
       </tbody>
     </table>
 

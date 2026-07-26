@@ -248,6 +248,15 @@ th {
 }
 td { padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--mut); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
+/* Matrix-table row headers (M3): a th[scope=row] carries the same semantics
+   as a column th but must keep rendering like the plain td it replaces. */
+th[scope="row"] {
+  padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--mut); vertical-align: top;
+  background: transparent; font-weight: 400; font-size: inherit; text-transform: none; letter-spacing: normal;
+}
+th[scope="row"] strong, th[scope="row"] b { color: var(--ink); }
+th[scope="row"] code { font-size: 11.5px; }
+tr:last-child th[scope="row"] { border-bottom: none; }
 tbody tr { transition: background .12s; }
 tbody tr:hover { background: rgba(139,123,255,.04); }
 td strong, td b { color: var(--ink); }
@@ -275,7 +284,9 @@ td code { font-size: 11.5px; }
 }
 .tier:hover { transform: translateY(-3px); border-color: #2f3a5a; }
 .tier .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--acc2); font-weight: 700; margin-bottom: 6px; }
-.tier h4 { font-size: 15px; margin: 6px 0 5px; color: var(--ink); }
+/* N2: these tier-card headings were <h4> straight under an <h2> (a skipped
+   level); promoted to <h3> in markup, kept visually identical here. */
+.tier h3 { font-family: inherit; font-size: 15px; font-weight: 700; margin: 6px 0 5px; color: var(--ink); }
 .tier p { color: var(--mut); font-size: 13px; }
 
 /* ── Stat boxes ────────────────────────────────────────────────────── */
