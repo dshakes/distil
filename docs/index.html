@@ -155,6 +155,10 @@
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
   /* style the shared site.js .copy-btn here (this page uses inline CSS, not site.css) */
   pre{position:relative}
+  /* shared site.js appends this to every a[target=_blank]; this page has no site.css link,
+     so the utility is duplicated here (same rule as docs/site.css) */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .copy-btn{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:5px;
     font:600 11px/1 "Inter",ui-sans-serif,system-ui,sans-serif;color:var(--mut);background:rgba(255,255,255,.04);
     border:1px solid var(--line);border-radius:8px;padding:5px 9px;cursor:pointer;opacity:.55;z-index:2;
