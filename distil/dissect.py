@@ -1666,29 +1666,58 @@ shadow.jsonl on this machine. Content-free — handles and kind:size signatures 
 
 
 # ------------------------------------------------------------------- portal
+def _session_row(o: SessionOverview) -> dict[str, Any]:
+    """One session as JSON-serializable data, shared by the initial HTML
+    render and the ``/sessions.json`` poll endpoint so both stay in sync."""
+    pct = (
+        100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens
+        if o.baseline_tokens
+        else 0.0
+    )
+    return {
+        "sid": o.sid,
+        "tool": o.tool or "?",
+        "started": _when(o.started),
+        "last": _when(o.last_ts),
+        "requests": o.requests,
+        "pct": round(pct, 1),
+        "status": o.status,
+    }
+
+
+def sessions_json(sessions: list[SessionOverview]) -> str:
+    """JSON payload backing the portal's in-place poll (``/sessions.json``)."""
+    return json.dumps([_session_row(o) for o in sessions])
+
+
 def render_sessions_html(sessions: list[SessionOverview]) -> str:
-    """The portal index: the session picker as a clickable page."""
+    """The portal index: the session picker as a clickable page.
+
+    Polls ``/sessions.json`` every 15 s and patches the table body in place
+    (keyed by session id) rather than reloading the whole page, so keyboard
+    focus and reading position survive an update. A visible Pause button
+    lets a user stop the polling entirely.
+    """
     e = _html.escape
     rows = (
         "".join(
-            f"<tr onclick=\"location='/session/{e(o.sid)}'\">"
-            f"<td><code>{e(o.sid)}</code></td><td>{e(o.tool or '?')}</td>"
-            f"<td>{e(_when(o.started))}</td><td>{e(_when(o.last_ts))}</td>"
-            f"<td class='r'>{o.requests}</td>"
-            f"<td class='r'>{100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens if o.baseline_tokens else 0.0:.1f}%</td>"
-            f"<td>{e(o.status)}</td></tr>"
-            for o in sessions
+            f"<tr data-sid=\"{e(r['sid'])}\" onclick=\"location='/session/{e(r['sid'])}'\">"
+            f"<td><code>{e(r['sid'])}</code></td><td>{e(r['tool'])}</td>"
+            f"<td>{e(r['started'])}</td><td>{e(r['last'])}</td>"
+            f"<td class='r'>{r['requests']}</td>"
+            f"<td class='r'>{r['pct']:.1f}%</td>"
+            f"<td>{e(r['status'])}</td></tr>"
+            for r in (_session_row(o) for o in sessions)
         )
         or "<tr><td class='muted' colspan='7'>no sessions recorded yet — run a wrap first</td></tr>"
     )
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta http-equiv="refresh" content="15"/>
 <title>Distil — sessions</title><style>
 body{{margin:0;background:#06070b;color:#f2f3f7;font:15px/1.6 Inter,ui-sans-serif,sans-serif}}
 .wrap{{max-width:820px;margin:0 auto;padding:48px 24px}}
 h1{{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}}
-.sub{{color:#9aa1b3;margin:0 0 28px}}
+.sub{{color:#9aa1b3;margin:0 0 28px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}}
 .g{{background:linear-gradient(135deg,#8b7bff,#5ad1c9);-webkit-background-clip:text;background-clip:text;color:transparent}}
 table{{width:100%;border-collapse:collapse;border:1px solid #1b2030;border-radius:12px;overflow:hidden}}
 th,td{{padding:11px 14px;border-bottom:1px solid #1b2030;text-align:left}}
@@ -1697,14 +1726,88 @@ td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}}
 tbody tr{{cursor:pointer}} tbody tr:hover td{{background:#10131d}}
 code{{color:#8b7bff}} .muted{{color:#5b6177}}
 .foot{{color:#5b6177;font-size:12.5px;margin-top:22px}}
+.pause-btn{{background:#10131d;border:1px solid #1b2030;color:#e0e2ea;font-size:12.5px;
+  padding:5px 12px;border-radius:6px;cursor:pointer}}
+.pause-btn:hover{{background:#171a28}}
+.pause-btn:focus-visible{{outline:2px solid #8b7bff;outline-offset:2px}}
 </style></head><body><div class="wrap">
 <h1>Distil <span class="g">sessions</span></h1>
-<p class="sub">Pick a session to dissect — newest activity first. This page refreshes itself.</p>
+<p class="sub"><span>Pick a session to dissect — newest activity first. Updates automatically.</span>
+<button type="button" id="pause-btn" class="pause-btn" aria-pressed="false">Pause</button></p>
 <table><thead><tr><th>session</th><th>tool</th><th>started</th><th>last</th><th>reqs</th>
-<th>saved</th><th>status</th></tr></thead><tbody>{rows}</tbody></table>
-<p class="foot">Local-first: served from this machine's ~/.distil only. Reports are per-session;
-JSON at /json/&lt;session&gt;.</p>
-</div></body></html>"""
+<th>saved</th><th>status</th></tr></thead><tbody id="sessions-body">{rows}</tbody></table>
+<p class="foot" id="foot-note">Local-first: served from this machine's ~/.distil only. Reports are
+per-session; JSON at /json/&lt;session&gt;. Updates every 15 s.</p>
+</div>
+<script>
+(function () {{
+  var POLL_MS = 15000;
+  var tbody = document.getElementById("sessions-body");
+  var pauseBtn = document.getElementById("pause-btn");
+  var note = document.getElementById("foot-note");
+  var timer = null, paused = false;
+  var FOOT = "Local-first: served from this machine's ~/.distil only. Reports are per-session; " +
+    "JSON at /json/<session>.";
+
+  function render(list) {{
+    var seen = {{}};
+    list.forEach(function (r) {{
+      seen[r.sid] = true;
+      var tr = tbody.querySelector('tr[data-sid="' + r.sid + '"]');
+      if (!tr) {{
+        tr = document.createElement("tr");
+        tr.dataset.sid = r.sid;
+        tr.addEventListener("click", function () {{ location = "/session/" + r.sid; }});
+        tr.innerHTML = "<td><code></code></td><td></td><td></td><td></td>" +
+          "<td class='r'></td><td class='r'></td><td></td>";
+        tbody.appendChild(tr);
+      }}
+      var c = tr.children;
+      c[0].firstChild.textContent = r.sid;
+      c[1].textContent = r.tool;
+      c[2].textContent = r.started;
+      c[3].textContent = r.last;
+      c[4].textContent = r.requests;
+      c[5].textContent = r.pct.toFixed(1) + "%";
+      c[6].textContent = r.status;
+    }});
+    Array.prototype.slice.call(tbody.querySelectorAll("tr[data-sid]")).forEach(function (tr) {{
+      if (!seen[tr.dataset.sid]) tr.remove();
+    }});
+    var placeholder = tbody.querySelector("tr:not([data-sid])");
+    if (list.length && placeholder) placeholder.remove();
+    if (!list.length && !tbody.querySelector("tr[data-sid]") && !placeholder) {{
+      tbody.innerHTML = "<tr><td class='muted' colspan='7'>no sessions recorded yet — " +
+        "run a wrap first</td></tr>";
+    }}
+  }}
+
+  function poll() {{
+    fetch("/sessions.json", {{cache: "no-store"}})
+      .then(function (r) {{ return r.json(); }})
+      .then(render)
+      .catch(function () {{}});
+  }}
+
+  function schedule() {{ timer = setInterval(poll, POLL_MS); }}
+
+  pauseBtn.addEventListener("click", function () {{
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+    pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
+    note.textContent = FOOT + (paused ? " Updates paused." : " Updates every 15 s.");
+    if (paused) {{
+      clearInterval(timer);
+    }} else {{
+      poll();
+      schedule();
+    }}
+  }});
+
+  schedule();
+}})();
+</script>
+</body></html>"""
 
 
 def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | None = None) -> Any:
@@ -1738,6 +1841,9 @@ def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | Non
             path = self.path.split("?", 1)[0]
             if path in ("/", "/index.html"):
                 self._send(200, render_sessions_html(list_sessions()))
+                return
+            if path == "/sessions.json":
+                self._send(200, sessions_json(list_sessions()), ctype="application/json")
                 return
             query = self.path.partition("?")[2]
             for prefix, as_json in (("/session/", False), ("/json/", True)):
