@@ -65,8 +65,8 @@
     <h1>Core <span class="g">Concepts</span></h1>
     <p class="lead">Three ideas explain why Distil's numbers are real and why the approach is different: decision-equivalence as the correct quality target, a statistical certificate that enforces it, and cache-aware cost modeling that makes aggressive compression financially correct.</p>
 
-    <figure class="archfig" aria-label="Interactive Distil architecture diagram — click a block to open its concept">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="Distil architecture: agent to cache-aware compression pipeline to upstream LLM, with the recovery loop and the decision-equivalence quality contract">
+    <figure class="archfig" aria-label="Interactive Distil architecture diagram — select a block to open its concept">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="group" aria-label="Distil architecture: agent to cache-aware compression pipeline to upstream LLM, with the recovery loop and the decision-equivalence quality contract">
       <defs>
         <linearGradient id="iabg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
         <linearGradient id="iag" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
@@ -95,19 +95,19 @@
       <text x="600" y="140" text-anchor="middle" font-size="16" font-weight="800" fill="url(#iag)">compress → cache-pin → forward</text>
 
       <g font-size="12.5" text-anchor="middle">
-        <a href="techniques.html#tiers"><title>Tier-0 — lossless verbatim transforms (always on)</title><g><rect x="340" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="401" y="181" fill="#dbe0ee" font-weight="700">Tier-0</text><text x="401" y="197" fill="#9aa0b2" font-size="10.5">lossless</text></g></a>
-        <a href="techniques.html#tiers"><title>Tier-1 — reversible decision-aware digest</title><g><rect x="472" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="533" y="181" fill="#dbe0ee" font-weight="700">Tier-1 digest</text><text x="533" y="197" fill="#9aa0b2" font-size="10.5">reversible</text></g></a>
-        <a href="techniques.html#causal"><title>Causal / counterfactual pruning — ablation-proven</title><g><rect x="604" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="665" y="181" fill="#dbe0ee" font-weight="700">causal prune</text><text x="665" y="197" fill="#9aa0b2" font-size="10.5">ablation-proven</text></g></a>
-        <a href="techniques.html#salience-protection"><title>Salience protection — model-free needle-keeping</title><g><rect x="736" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="797" y="181" fill="#dbe0ee" font-weight="700">salience</text><text x="797" y="197" fill="#9aa0b2" font-size="10.5">model-free</text></g></a>
+        <a href="techniques.html#tiers" aria-label="Tier-0 — lossless verbatim transforms (always on)"><title>Tier-0 — lossless verbatim transforms (always on)</title><g><rect x="340" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="401" y="181" fill="#dbe0ee" font-weight="700">Tier-0</text><text x="401" y="197" fill="#9aa0b2" font-size="10.5">lossless</text></g></a>
+        <a href="techniques.html#tiers" aria-label="Tier-1 — reversible decision-aware digest"><title>Tier-1 — reversible decision-aware digest</title><g><rect x="472" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="533" y="181" fill="#dbe0ee" font-weight="700">Tier-1 digest</text><text x="533" y="197" fill="#9aa0b2" font-size="10.5">reversible</text></g></a>
+        <a href="techniques.html#causal" aria-label="Causal / counterfactual pruning — ablation-proven"><title>Causal / counterfactual pruning — ablation-proven</title><g><rect x="604" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="665" y="181" fill="#dbe0ee" font-weight="700">causal prune</text><text x="665" y="197" fill="#9aa0b2" font-size="10.5">ablation-proven</text></g></a>
+        <a href="techniques.html#salience-protection" aria-label="Salience protection — model-free needle-keeping"><title>Salience protection — model-free needle-keeping</title><g><rect x="736" y="158" width="122" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="797" y="181" fill="#dbe0ee" font-weight="700">salience</text><text x="797" y="197" fill="#9aa0b2" font-size="10.5">model-free</text></g></a>
       </g>
       <g stroke="#3a486a" stroke-width="1.4" fill="none"><path d="M462,182 L472,182"/><path d="M594,182 L604,182"/><path d="M726,182 L736,182"/></g>
 
-      <a href="techniques.html#cache-aware"><title>Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate</title><rect x="340" y="220" width="518" height="36" rx="9" fill="#0e1320" stroke="#2a5740"/>
+      <a href="techniques.html#cache-aware" aria-label="Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate"><title>Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate</title><rect x="340" y="220" width="518" height="36" rx="9" fill="#0e1320" stroke="#2a5740"/>
       <circle cx="361" cy="238" r="4" fill="#5ad19a"/>
       <text x="377" y="243" font-size="12.5" fill="#dbe0ee">cache-aware placement — stable prefix billed at the <tspan fill="#6fe0aa" font-weight="700">0.1× cache-read</tspan> rate</text></a>
 
-      <a href="techniques.html#tiers"><title>RestoreStore — originals kept locally, never sent to the model</title><g transform="translate(340,268)"><rect width="248" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">RestoreStore</text><text x="15" y="43" font-size="11" fill="#9aa0b2">originals kept locally · 0 tokens on wire</text><text x="15" y="55" font-size="10" fill="#727a92">never sent to the model</text></g></a>
-      <a href="techniques.html#tiers"><title>distil_expand — the model recovers any digested detail on demand</title><g transform="translate(602,268)"><rect width="256" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#5ad1c9">distil_expand</text><text x="15" y="43" font-size="11" fill="#9aa0b2">model recovers any digested detail</text><text x="15" y="55" font-size="10" fill="#727a92">transparent re-query · PAYG</text></g></a>
+      <a href="techniques.html#tiers" aria-label="RestoreStore — originals kept locally, never sent to the model"><title>RestoreStore — originals kept locally, never sent to the model</title><g transform="translate(340,268)"><rect width="248" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">RestoreStore</text><text x="15" y="43" font-size="11" fill="#9aa0b2">originals kept locally · 0 tokens on wire</text><text x="15" y="55" font-size="10" fill="#727a92">never sent to the model</text></g></a>
+      <a href="techniques.html#tiers" aria-label="distil_expand — the model recovers any digested detail on demand"><title>distil_expand — the model recovers any digested detail on demand</title><g transform="translate(602,268)"><rect width="256" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#5ad1c9">distil_expand</text><text x="15" y="43" font-size="11" fill="#9aa0b2">model recovers any digested detail</text><text x="15" y="55" font-size="10" fill="#727a92">transparent re-query · PAYG</text></g></a>
 
       <g transform="translate(966,122)"><rect width="186" height="84" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
         <text x="18" y="31" font-size="14" font-weight="700" fill="#eef0f5">Anthropic · OpenAI</text>
@@ -122,24 +122,24 @@
       <text x="600" y="396" text-anchor="middle" font-size="12.5" fill="#7fe6ad">response → transparent expand loop → agent (it just gets the right answer)</text>
 
       <text x="48" y="436" font-size="12" letter-spacing="2" font-weight="700" fill="#7b8298">THE QUALITY CONTRACT — every operating point is certified decision-equivalent</text>
-      <a href="concepts.html#contract"><title>Decision-Equivalence Certificate — the conformal guarantee</title><g transform="translate(48,448)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
+      <a href="concepts.html#contract" aria-label="Decision-Equivalence Certificate — the conformal guarantee"><title>Decision-Equivalence Certificate — the conformal guarantee</title><g transform="translate(48,448)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
         <circle cx="26" cy="31" r="6" fill="#8b7bff"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Decision-Equivalence Certificate</text>
         <text x="20" y="52" font-size="11.5" fill="#9aa0b2">conformal risk control (LTT/CRC) · distribution-free</text>
         <text x="20" y="69" font-size="11.5" fill="#9aa0b2">P(decision-change ≤ α) ≥ 1 − δ</text>
       </g></a>
-      <a href="concepts.html#contract"><title>Shadow mode — live decision-equivalence on real traffic</title><g transform="translate(420,448)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
+      <a href="concepts.html#contract" aria-label="Shadow mode — live decision-equivalence on real traffic"><title>Shadow mode — live decision-equivalence on real traffic</title><g transform="translate(420,448)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
         <circle cx="26" cy="31" r="6" fill="#5ad1c9"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Shadow mode — live</text>
         <text x="20" y="52" font-size="11.5" fill="#9aa0b2">samples real traffic, runs it both ways</text>
         <text x="20" y="69" font-size="11.5" fill="#9aa0b2">rolling decision-change rate · streaming-aware</text>
       </g></a>
-      <a href="techniques.html#keep-model"><title>Learned keep-model — the self-improving, never-regressing flywheel</title><g transform="translate(792,448)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
+      <a href="techniques.html#keep-model" aria-label="Learned keep-model — the self-improving, never-regressing flywheel"><title>Learned keep-model — the self-improving, never-regressing flywheel</title><g transform="translate(792,448)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
         <circle cx="26" cy="31" r="6" fill="#5ad19a"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Learned keep-model — flywheel</text>
         <text x="20" y="52" font-size="11.5" fill="#9aa0b2">every expand is a label; only ever gets</text>
         <text x="20" y="69" font-size="11.5" fill="#9aa0b2">more conservative — never-regressing</text>
       </g></a>
     </svg>
     </figure>
-    <p class="archfig-hint"><b>Interactive</b> — click any block to open the concept or technique behind it.</p>
+    <p class="archfig-hint"><b>Interactive</b> — select any block (click, or Tab then Enter) to open the concept or technique behind it.</p>
 
     <hr/>
 
