@@ -3,6 +3,21 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.31.1] — prove the attestation gate
+
+No runtime change. This release exists to run the corrected attestation check in CI,
+because a verification step that has never executed is not a verification step.
+
+1.31.0's release job failed on a **false negative**: the gate read
+`/pypi/<pkg>/<ver>/json`, which PyPI does not populate with attestation data. Every
+release back to 1.19.0 does carry a bundle, on the `/integrity/<pkg>/<ver>/<file>/provenance`
+endpoint. The fix landed in `95fd3f5` but not in the `v1.31.0` tag, so re-running that job
+replayed the same bug — a rerun could never have gone green.
+
+This tag carries the corrected gate. If the release job passes, the check works against a
+live publish; if it fails, the check is still wrong and we find out now rather than on a
+release that matters.
+
 ## [1.31.0] — evidence that checks itself
 
 Four things that all failed the same way: a claim nothing verified.
