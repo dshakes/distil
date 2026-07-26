@@ -128,7 +128,7 @@
     </svg>
 
     <ul>
-      <li><strong>Prefill vs decode.</strong> Reading the prompt (<em>prefill</em>) is compute-bound and parallel; generating output (<em>decode</em>) is memory-bandwidth-bound and sequential — every output token re-reads the whole model and KV cache from memory. That's <em>why</em> output is priced 3–10× higher than input, and why a cache hit (which skips prefill compute) can discount input so aggressively.</li>
+      <li><strong>Prefill vs decode.</strong> Reading the prompt (<em>prefill</em>) is compute-bound and parallel; generating output (<em>decode</em>) is memory-bandwidth-bound and sequential — every output token re-reads the whole model and <abbr title="key-value">KV</abbr> cache from memory. That's <em>why</em> output is priced 3–10× higher than input, and why a cache hit (which skips prefill compute) can discount input so aggressively.</li>
       <li><strong>Prompt caching rewrites the coefficient, not the shape.</strong> If the prefix (system prompt + tools + frozen early history) is byte-stable, you <em>write</em> it once and <em>read</em> it every later turn. Anthropic's documented model: a 5-minute cache <strong>write costs 1.25×</strong> base input, a <strong>read costs 0.10×</strong> — a 10× gap. The curve stays quadratic; caching just shrinks the dominant term's coefficient by ~10×. <strong>Any byte change anywhere in the prefix invalidates everything after it</strong> — a <code>datetime.now()</code> near the top, or editing a tool definition, silently throws the cache away.</li>
     </ul>
     <p style="color:#9aa1b3;font-size:13.5px;">This is the foundation of Distil's approach — see <a href="concepts.html">Concepts → cache misses dominate cost</a> for the measured numbers behind it.</p>

@@ -119,7 +119,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
       <thead><tr><th>Tier</th><th>Lossless?</th><th>How</th></tr></thead>
       <tbody>
         <tr>
-          <td><strong>Tier 0</strong> — JSON minify, RLE</td>
+          <td><strong>Tier 0</strong> — JSON minify, <abbr title="run-length encoding">RLE</abbr></td>
           <td>Provably lossless</td>
           <td>Reconstructable by inversion — no side state needed. The original can always be recovered from the transform output alone.</td>
         </tr>
@@ -234,7 +234,7 @@ distil bench   --tokenizer anthropic</pre>
     <table>
       <thead><tr><th>Mode flag</th><th>What it does</th><th>Savings</th><th>Safety</th><th>Auto-selected when</th></tr></thead>
       <tbody>
-        <tr><td><code>--expand</code></td><td>Shortens context + the AI gets a button to request the full original back</td><td>Most</td><td>Originals kept locally, restorable</td><td>Metered / API-key (PAYG)</td></tr>
+        <tr><td><code>--expand</code></td><td>Shortens context + the AI gets a button to request the full original back</td><td>Most</td><td>Originals kept locally, restorable</td><td>Metered / API-key (<abbr title="pay-as-you-go">PAYG</abbr>)</td></tr>
         <tr><td><em>(no flag)</em> digest</td><td>Shortens context; originals stored on your machine and restored when the AI needs them</td><td>High</td><td>Originals kept locally, restorable</td><td>Default if no flag passed</td></tr>
         <tr><td><code>--lossless-only</code> / <code>--safe</code></td><td>Lossless-only transforms — no summarizing, every byte reconstructible</td><td>Fewer</td><td>Zero unrecoverable content</td><td>Subscription / flat-rate</td></tr>
         <tr><td><code>--verbatim</code></td><td>Whitespace + JSON normalization only</td><td>Minimal</td><td>Most conservative</td><td>Debugging / auditing</td></tr>
@@ -302,7 +302,7 @@ distil shadow-stats                  <span class="d"># check the de rate</span>
 
     <h2>"Does distil break streaming?"</h2>
 
-    <p>No. SSE responses are relayed <strong>chunk-by-chunk</strong> as the upstream produces them — the proxy, the async proxy, and the gateway all route through the same relay (<code>distil/streamrelay.py</code>), so Distil preserves time-to-first-token like a direct connection. Nothing is buffered start-to-finish before it reaches the client.</p>
+    <p>No. SSE (Server-Sent Events) responses are relayed <strong>chunk-by-chunk</strong> as the upstream produces them — the proxy, the async proxy, and the gateway all route through the same relay (<code>distil/streamrelay.py</code>), so Distil preserves time-to-first-token like a direct connection. Nothing is buffered start-to-finish before it reaches the client.</p>
 
     <p>Content-free accounting is teed off that same stream rather than requiring a separate buffered pass: the complete body is assembled in memory as it streams by, so token-saved headers and shadow-mode decision comparison run exactly as they would on a non-streaming response. A slow or unreachable upstream is bounded by <code>DISTIL_UPSTREAM_TIMEOUT</code> (default 600s) and maps to a <code>504</code> — see <a href="deploy-security.html#streaming">Deploy &amp; Security &rarr; Streaming and upstream timeouts</a>.</p>
 
