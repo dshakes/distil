@@ -47,6 +47,11 @@ https://dshakes.github.io/distil/faq.html
 Benchmark (certified compression frontier, live head-to-head):
 https://dshakes.github.io/distil/benchmark.html
 
+Provider Compaction (pre-registered A/B of Anthropic context editing & OpenAI
+server-side compaction: does the provider's own context manipulation change
+agent decisions? First certificates: clearing 92.5% decision change, compaction 12.5%):
+https://dshakes.github.io/distil/provider-compaction.html
+
 Reproduce the numbers (all CI gates, real-model grading, scorecard):
 https://dshakes.github.io/distil/benchmarks.html
 

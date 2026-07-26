@@ -127,7 +127,19 @@ def _noise(rng: random.Random, stamp: str, lines: int) -> str:
     return "\n".join(out)
 
 
-def episode(rng: random.Random, index: int, spec) -> dict:
+# Routine follow-up rounds for the LONG (default-policy) corpus. Their results are
+# pure operational noise — nothing decision-bearing. Under Anthropic's DEFAULT
+# clearing policy (keep = 3 most recent tool uses) they are exactly what survives,
+# while the decision-bearing get_order/get_billing rounds at the head get cleared.
+ROUTINE_ROUNDS = [
+    ("check_inventory", "in-stock counts by warehouse; restock ETAs"),
+    ("get_shipping_events", "carrier scan history; no exceptions recorded"),
+    ("get_communications", "email/SMS log; delivery notification sent"),
+    ("get_promotions", "active promotions; none applied to this order"),
+]
+
+
+def episode(rng: random.Random, index: int, spec, *, routine_rounds: int = 0) -> dict:
     name, order_tpl, billing_tpl, gold, day_range = spec
     order_id = f"A{2000 + index}"
     d = rng.randint(*day_range)
@@ -148,7 +160,7 @@ def episode(rng: random.Random, index: int, spec) -> dict:
         f"BILLING {billing_rec}\n"
         f"{_noise(rng, '2026-07-26T09:04', 6)}"
     )
-    return {
+    ep = {
         "id": f"pc-{name}-{index}",
         "title": f"pc-{name}-{index}",
         "reward": 1,
@@ -171,12 +183,30 @@ def episode(rng: random.Random, index: int, spec) -> dict:
                 ],
             },
             {"role": "tool", "content": billing_obs},
-            {
-                "role": "assistant",
-                "tool_calls": [{"function": {"name": gold, "arguments": {"order_id": order_id}}}],
-            },
         ],
     }
+    for r in range(routine_rounds):
+        tool_name, summary = ROUTINE_ROUNDS[r % len(ROUTINE_ROUNDS)]
+        obs = (
+            f"{tool_name}({order_id}) -> {summary}\n"
+            f"{_noise(rng, f'2026-07-26T09:{10 + r:02d}', 30)}"
+        )
+        ep["messages"].append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"function": {"name": tool_name, "arguments": {"order_id": order_id}}}
+                ],
+            }
+        )
+        ep["messages"].append({"role": "tool", "content": obs})
+    ep["messages"].append(
+        {
+            "role": "assistant",
+            "tool_calls": [{"function": {"name": gold, "arguments": {"order_id": order_id}}}],
+        }
+    )
+    return ep
 
 
 def build(n: int = 40, seed: int = 20260726) -> int:
@@ -186,10 +216,22 @@ def build(n: int = 40, seed: int = 20260726) -> int:
     return len(eps)
 
 
+def build_long(n: int = 40, seed: int = 20260727) -> int:
+    """The default-policy corpus: 2 decision-bearing rounds at the HEAD, then 4
+    routine rounds — so Anthropic's default keep=3 clears exactly the records."""
+    rng = random.Random(seed)
+    eps = [episode(rng, i, SCENARIOS[i % len(SCENARIOS)], routine_rounds=4) for i in range(n)]
+    (HERE / "provider_compaction_episodes_long.json").write_text(json.dumps(eps, indent=2))
+    return len(eps)
+
+
 if __name__ == "__main__":
-    n = build()
-    blob = (HERE / "provider_compaction_episodes.json").read_text()
-    print(
-        f"{n} episodes, {len(blob)} chars (~{len(blob) // (4 * n)} tokens/episode) -> "
-        f"{HERE / 'provider_compaction_episodes.json'}"
-    )
+    for builder, fname in (
+        (build, "provider_compaction_episodes.json"),
+        (build_long, "provider_compaction_episodes_long.json"),
+    ):
+        n = builder()
+        blob = (HERE / fname).read_text()
+        print(
+            f"{n} episodes, {len(blob)} chars (~{len(blob) // (4 * n)} tokens/episode) -> {fname}"
+        )

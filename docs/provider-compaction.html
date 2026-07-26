@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Provider Compaction — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Provider Compaction — Distil"/>
+<meta property="og:description" content="No vendor will publish decision-equivalence for its own context manipulation. distil certify-provider measures it from the outside: pre-registered, A/A-controlled live A/Bs of Anthropic context editing and OpenAI server-side compaction. First result: clearing changed 92.5% of agent decisions; compaction 12.5%."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/provider-compaction.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Provider Compaction — Distil"/>
+<meta name="twitter:description" content="The decision-equivalence number no vendor publishes about itself — measured from the wire, pre-registered, with an A/A control."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+</head>
+<body>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-section">Getting started</div>
+    <a href="getting-started.html">Install &amp; Quickstart</a>
+
+    <div class="sidebar-section">Learn</div>
+    <a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+    <a href="concepts.html">Concepts</a>
+    <a href="techniques.html">Techniques</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="research.html">Research &amp; Frontier</a>
+    <a href="provider-compaction.html" class="active">Provider Compaction <span class="nav-badge">New</span></a>
+    <a href="benchmark.html">Benchmark</a>
+    <a href="compare.html">Compare</a>
+    <a href="adoption.html">Adoption <span class="nav-badge">Live</span></a>
+
+    <div class="sidebar-section">Reference</div>
+    <a href="cli.html">CLI Reference</a>
+    <a href="adapters.html">Adapters</a>
+    <a href="corpus.html">Corpus</a>
+    <a href="output.html">Output &amp; I/O</a>
+
+    <div class="sidebar-section">More</div>
+    <a href="faq.html">FAQ</a>
+    <a href="integrations.html">Integrations</a>
+    <a href="deploy-security.html">Deploy &amp; Security</a>
+    <a href="index.html">&#8592; Landing page</a>
+  </aside>
+
+  <main class="content">
+
+    <h1>Provider Compaction <span class="g">— certifying the provider's own context manipulation</span></h1>
+    <p class="lead">Anthropic context editing silently <em>clears</em> old tool results before the model sees them. OpenAI server-side compaction silently <em>summarizes</em> them into an opaque item. Every customer of these features is exposed to them; neither vendor publishes what they do to an agent's decisions. That is a structural conflict of interest, not a roadmap gap — <strong>no vendor will ship a tool that measures its own degradation</strong>. A third party on the wire can. <code>distil certify-provider</code> is that measurement.</p>
+
+    <div class="callout">
+      <strong>Method — the same contract distil applies to itself.</strong> Each case is a multi-turn tool transcript replayed three ways against the same model: <strong>baseline</strong> (manipulation off), <strong>edited</strong> (manipulation on), and a <strong>second independent baseline</strong> — the A/A arm that measures the model's self-agreement on identical input, without which any change rate is uninterpretable sampling noise. Decisions are majority-of-3 per arm and compared with the same normalized signature the <a href="research.html">shadow gate</a> uses (SIG v3). Firing is <strong>ground-truthed per request</strong> — Anthropic's <code>applied_edits</code> response field, OpenAI's <code>compaction</code> output item — and cases where the manipulation never fired are excluded from the sample rather than diluting it. The protocol (n, α, δ, votes, trigger, model) is written to disk <em>before the first API call</em>; live calls are hard-capped in code; the decision-change rate carries a distribution-free Hoeffding–Bentkus upper bound. Pre-registration matters because deciding n after seeing results is exactly the failure mode this project criticises in others.
+    </div>
+
+    <hr/>
+
+    <h2 id="worst-case">Experiment 1 — the worst-case regime: manipulation fires on decision-bearing content</h2>
+    <p><strong>Corpus:</strong> 40 seeded synthetic support transcripts (~1.7k tokens, two tool rounds) built so every decision-bearing fact lives in a tool result buried in log noise, with no directive telling the model what to do &middot; <strong>Config:</strong> maximally aggressive — Anthropic <code>clear_tool_uses</code> with <code>keep=0</code>, trigger 500 tokens; OpenAI <code>compact_threshold=1000</code> (the API minimum) &middot; <strong>Subjects:</strong> <code>claude-opus-4-8</code>, <code>gpt-5.2</code> &middot; <strong>Spend:</strong> 360 hard-capped calls per provider &middot; <strong>Numbers:</strong> <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/provider-compaction">benchmarks/results/provider-compaction/</a></p>
+
+    <table>
+      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Adjusted</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic context editing (clear, <code>keep=0</code>)</td><td>40/40</td><td><strong>92.5%</strong></td><td>7.5%</td><td>91.9%</td><td>98.6%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>40/40</td><td><strong>12.5%</strong></td><td>0.0%</td><td>12.5%</td><td>27.8%</td><td>No</td></tr>
+      </tbody>
+    </table>
+
+    <p>The <em>shape</em> of the failures says more than the rates. Anthropic's clearing produced <strong>37 tool→text flips out of 40</strong>: with the load-bearing tool results deleted (mean 2,355 input tokens cleared per case, reported by the API itself), the agent does not pick a <em>wrong</em> action — it stops acting altogether and falls back to prose. Zero tool→different-tool flips. OpenAI's compaction preserved the decision on 35/40, its five flips concentrated in the one deliberately ambiguous scenario (cancel-after-shipment), and <code>gpt-5.2</code> was perfectly self-consistent (A/A floor 0.0%).</p>
+
+    <div class="callout good">
+      <b>The headline contrast.</b> In the same regime, on the same corpus, <strong>summarization preserved agent decisions roughly 7× better than deletion</strong> (12.5% vs 92.5% decision change). And the dominant failure mode of deletion is not corruption but <em>stalling</em>: the agent loses the facts it needed and stops acting. Neither feature certifies decision-safe at α=0.1 — and per the house rule (see E7 on the <a href="research.html">Research page</a>), the numbers are published either way.
+    </div>
+
+    <hr/>
+
+    <h2 id="default-policy">Experiment 2 — the default clearing policy (<code>keep=3</code>)</h2>
+    <!-- FILLED-AFTER-RUN -->
+
+    <hr/>
+
+    <h2 id="scope">Honest scope</h2>
+    <ul>
+      <li><strong>Synthetic corpus, worst-case triggers.</strong> Experiment 1 bounds the regime where the manipulation fires on content the decision depends on. It is not the exposure of a default-config customer: Anthropic's default (<code>keep: 3</code>, trigger 100k tokens) would have preserved both tool rounds of this corpus entirely — which is what Experiment 2 isolates.</li>
+      <li><strong>Decision-equivalence, not task success.</strong> The measured invariant is the agent's next action. distil's own E7 showed per-step equivalence can pass while end-to-end success collapses; the same caveat applies here in both directions.</li>
+      <li><strong>The true default-threshold number on long real traffic</strong> (100k+-token transcripts crossing the default triggers naturally) remains open — it needs real long-horizon dumps and a proportionally larger budget. The harness runs it unchanged when the transcripts exist.</li>
+      <li><strong>Point-in-time.</strong> Both features are beta surfaces measured on 2026-07-26 against the models named above; vendors can change behavior without notice. Reproduce, don't extrapolate.</li>
+    </ul>
+
+    <h2 id="reproduce">Reproduce it</h2>
+    <pre><code># corpus (seeded, byte-reproducible)
+python benchmarks/fixtures/make_provider_episodes.py
+
+# dry-run prints the exact call budget before anything is spent
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json --dry-run
+
+# experiment 1 (360 hard-capped live calls per provider)
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json \
+  --n 40 --votes 3 --alpha 0.1 --delta 0.05 --trigger-tokens 500 --keep 0 \
+  --max-live-calls 360 --out results/anthropic
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json \
+  --provider openai --trigger-tokens 1000 --n 40 --votes 3 \
+  --max-live-calls 360 --out results/openai</code></pre>
+    <p>Each output directory carries <code>protocol.json</code> (written before the first call; its hash is embedded in the report) and <code>report.json</code> with per-case signatures. The same test design extends to <strong>model-version migration, routing, quantization, and RAG changes</strong> — anything that manipulates what the model sees between you and your agent.</p>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script>
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+document.addEventListener('click', function(e) {
+  var sb = document.getElementById('sidebar');
+  if (sb.classList.contains('open') && !sb.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
+    sb.classList.remove('open');
+  }
+});
+</script>
+<script src="site.js" defer></script>
+</body>
+</html>
