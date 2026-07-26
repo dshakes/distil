@@ -270,6 +270,26 @@ class ProviderArms:
             )
         self.calls_made += 1
 
+    # A full run is hundreds of sequential calls over ~an hour; one transient
+    # upstream 500 must not burn the whole spend (it did, live, on 2026-07-26 —
+    # the SDK's own retries were exhausted). Bounded backoff on top; the final
+    # failure is still a loud SystemExit, never a silent skip.
+    _RETRIES = 3
+    _BACKOFF_S = 8.0
+
+    def _call(self, fn: Any, provider: str) -> Any:
+        for attempt in range(1, self._RETRIES + 1):
+            try:
+                return fn()
+            except SystemExit:
+                raise
+            except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit / 5xx
+                if attempt == self._RETRIES:
+                    raise SystemExit(
+                        f"distil: the {provider} API call failed after {attempt} attempts — {exc}"
+                    ) from None
+                time.sleep(self._BACKOFF_S * attempt)
+
     def _ensure_client(self) -> Any:
         if self._client is None:
             try:
@@ -300,12 +320,8 @@ class ProviderArms:
         }
         if edits is not None:
             kw["context_management"] = edits
-        try:
-            resp = self._ensure_client().beta.messages.create(**kw)
-        except SystemExit:
-            raise
-        except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit
-            raise SystemExit(f"distil: the Anthropic API call failed — {exc}") from None
+        client = self._ensure_client()
+        resp = self._call(lambda: client.beta.messages.create(**kw), "Anthropic")
 
         body: dict[str, Any] = (
             resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)  # type: ignore[arg-type]
@@ -460,12 +476,8 @@ class OpenAIArms(ProviderArms):
         }
         if edits is not None:
             kw["context_management"] = edits
-        try:
-            resp = self._ensure_client().responses.create(**kw)
-        except SystemExit:
-            raise
-        except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit
-            raise SystemExit(f"distil: the OpenAI API call failed — {exc}") from None
+        client = self._ensure_client()
+        resp = self._call(lambda: client.responses.create(**kw), "OpenAI")
 
         body: dict[str, Any] = (
             resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)  # type: ignore[arg-type]

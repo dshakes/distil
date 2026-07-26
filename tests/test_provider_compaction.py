@@ -260,8 +260,33 @@ def test_api_failure_is_a_clean_message():
         def create(self, **kw):
             raise ValueError("rate limited")
 
+    arms = ProviderArms(client=_Exploding())
+    arms._RETRIES = 1  # don't sit through backoff in tests
     with pytest.raises(SystemExit, match="API call failed"):
-        ProviderArms(client=_Exploding()).observe(_case(), None)
+        arms.observe(_case(), None)
+
+
+def test_transient_api_failure_is_retried(monkeypatch):
+    from distil.certify import provider_compaction as pc
+
+    naps: list[float] = []
+    monkeypatch.setattr(pc.time, "sleep", naps.append)
+
+    class _Flaky:
+        def __init__(self):
+            self.beta = self
+            self.messages = self
+            self.failures = 2
+
+        def create(self, **kw):
+            if self.failures:
+                self.failures -= 1
+                raise ValueError("500 server_error")  # transient upstream blip
+            return _FakeResponse(_tool_resp("a", {}))
+
+    obs = ProviderArms(client=_Flaky()).observe(_case(), None)
+    assert obs.signature.startswith("tool:")
+    assert naps == [8.0, 16.0]  # bounded backoff, then success — the run survives
 
 
 def test_observe_sends_beta_and_edits_only_on_edited_arm():
@@ -430,8 +455,10 @@ def test_openai_client_failures_are_clean_messages(monkeypatch):
         def create(self, **kw):
             raise ValueError("quota")
 
+    arms = OpenAIArms(client=_Exploding())
+    arms._RETRIES = 1  # don't sit through backoff in tests
     with pytest.raises(SystemExit, match="OpenAI API call failed"):
-        OpenAIArms(client=_Exploding()).observe(_case(), None)
+        arms.observe(_case(), None)
 
     monkeypatch.setitem(sys.modules, "openai", None)  # import raises ImportError
     with pytest.raises(SystemExit, match="'openai' package"):
