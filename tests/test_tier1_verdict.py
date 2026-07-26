@@ -77,6 +77,65 @@ def test_salience_layer_pins_verdicts():
         assert m.score(line, "tool_result") < 1.0, f"false verdict pin: {line!r}"
 
 
+def test_changed_is_false_when_nothing_was_elided():
+    """`changed` must mean the output actually differs from the input.
+
+    Regression for a real defect: digest() returned True unconditionally. On content
+    where every line is must-keep — a test log whose verdict policy pins each PASS
+    line — nothing is dropped, no marker is emitted, and the output is byte-identical.
+    Reporting True there made callers persist an original for a block they never
+    digested: RestoreStore._record wrote plaintext to ~/.distil/restore for content
+    that can never need recovery, burning the FIFO cap and widening the at-rest
+    surface for nothing. The MCP server likewise handed back a handle for text it had
+    not compressed.
+    """
+    from distil.compress.tier1 import digest
+
+    # every line is a verdict line -> all must-keep -> nothing to drop
+    all_keep = "run_tests()\n" + "\n".join(
+        f"PASS tests/test_mod_{i}.py::case_{i} in 0.0{i}s" for i in range(400)
+    )
+    out, changed = digest(all_keep)
+    assert out == all_keep, "nothing should have been elided"
+    assert changed is False, "changed=True on byte-identical output is the bug"
+    assert "handle=" not in out
+
+    # ordinary noise still digests and still reports changed
+    noisy = "get_logs()\n" + "\n".join(
+        f"info: handler processed item {i} normally" for i in range(400)
+    )
+    out2, changed2 = digest(noisy)
+    assert changed2 is True
+    assert len(out2) < len(noisy)
+    assert "handle=" in out2
+
+
+def test_unchanged_block_records_no_restore_entry(tmp_path, monkeypatch):
+    """The consequence that matters: no plaintext stored for content left verbatim."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.adapters.anthropic import compress_messages
+
+    all_keep = "run_tests()\n" + "\n".join(
+        f"PASS tests/test_mod_{i}.py::case_{i} in 0.0{i}s" for i in range(400)
+    )
+    msgs = []
+    for k in range(4):
+        msgs.append(
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": f"t{k}", "content": all_keep}],
+            }
+        )
+        msgs.append({"role": "assistant", "content": f"step {k}"})
+    msgs.append({"role": "user", "content": "summarise"})
+
+    compressed, store = compress_messages(msgs, verbatim=False, keep=None)
+    assert not (getattr(store, "handles", None) or []), (
+        "stored an original for an un-digested block"
+    )
+    assert compressed == msgs, "nothing should have changed"
+
+
 if __name__ == "__main__":
     test_passing_verdict_survives_digest()
     test_go_and_build_verdicts_kept()

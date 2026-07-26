@@ -144,12 +144,14 @@ def digest(
 
     out: list[str] = []
     dropped = 0
+    emitted = False  # did we actually elide anything?
     i = 0
     n = len(lines)
     while i < n:
         if i in keep_idx:
             if dropped:
                 out.append(f"<< +{dropped} lines, handle={_handle(text)} >>")
+                emitted = True
                 dropped = 0
             out.append(lines[i])
         else:
@@ -157,7 +159,16 @@ def digest(
         i += 1
     if dropped:
         out.append(f"<< +{dropped} lines, handle={_handle(text)} >>")
-    return "\n".join(out), True
+        emitted = True
+    # `changed` must mean the output actually differs. When every line is must-keep —
+    # a 400-line test log where the verdict policy pins each PASS line — nothing is
+    # dropped, no marker is emitted, and the output is byte-identical to the input.
+    # Returning True there made callers store an original for a block they never
+    # digested: `RestoreStore._record` persisted plaintext to ~/.distil/restore for
+    # content that can never need recovery, consuming the FIFO cap and widening the
+    # at-rest surface for nothing. It also made the MCP server hand back a handle for
+    # text it had not compressed.
+    return "\n".join(out), emitted
 
 
 class Tier1Reversible:
