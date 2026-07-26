@@ -167,3 +167,47 @@ def test_proxy_emits_a_verifiable_receipt_per_served_request(home, monkeypatch):
     # content-free holds through the real path too
     on_disk = (home / "receipts.jsonl").read_text()
     assert "hello" not in on_disk
+
+
+def test_tokens_saved_is_derived_and_never_negative():
+    r = R.Receipt(1.0, "r", "s", "m", "digest", 1000, 400, False)
+    assert r.tokens_saved == 600
+    # a compressed count above the original (shouldn't happen) must not read as a gain
+    grew = R.Receipt(1.0, "r", "s", "m", "verbatim", 100, 140, True)
+    assert grew.tokens_saved == 0
+
+
+def test_append_is_fail_open_when_the_path_is_unwritable(home, monkeypatch):
+    """A receipt must never break a request. An unwritable store is a gap you can see,
+    not an exception the caller has to handle."""
+
+    def _boom(*a, **k):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(R.Path, "mkdir", _boom)
+    r = R.append(R.Receipt(1.0, "r0", "s", "m", "digest", 10, 5, False))
+    assert r is not None, "append must return the receipt even when it cannot persist"
+
+
+def test_reader_skips_non_dict_and_unparseable_lines(home):
+    R.append(_mk(0))
+    p = home / "receipts.jsonl"
+    # a bare JSON scalar (parses, but is not a receipt) and an unparseable line
+    p.write_text(p.read_text() + "42\n" + "{oops\n")
+    got = list(R.read())
+    assert len(got) == 1, "only the real receipt should survive"
+    assert R.verify().ok
+
+
+def test_broken_chain_statement_names_the_failure(home):
+    for i in range(2):
+        R.append(_mk(i))
+    p = home / "receipts.jsonl"
+    lines = p.read_text().splitlines()
+    d = json.loads(lines[0])
+    d["model"] = "tampered"
+    lines[0] = json.dumps(d, sort_keys=True, separators=(",", ":"))
+    p.write_text("\n".join(lines) + "\n")
+    v = R.verify()
+    assert not v.ok
+    assert "BROKEN" in v.statement and "edited, reordered, or removed" in v.statement
