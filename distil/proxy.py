@@ -1041,6 +1041,57 @@ def build_handler(
             Records token accounting, per-block digest signatures (handle + kind
             + size only — never content), and shadow/expand flags. Best-effort:
             any failure is a debug log — bookkeeping must never break a request."""
+            # Per-request receipt — the exportable, hash-chained artifact. Emitted for
+            # every 2xx the proxy serves: not only inside a `wrap` session, and not only
+            # when a savings ledger happens to be attached (`booked`). A compliance
+            # record that disappears depending on how you launched the proxy, or on
+            # whether accounting is on, is not a compliance record. Own try/except so it
+            # cannot be skipped by — or skip — the diagnostic record below.
+            if 200 <= int(status or 0) < 300:
+                try:
+                    import hashlib as _hashlib
+
+                    from . import receipts as _receipts
+
+                    _ts = time.time()
+                    _handles = sorted(getattr(store, "handles", None) or ())
+                    # "restorable" is measured, not assumed: every handle this request
+                    # issued must resolve right now, or the receipt says it did not.
+                    _restorable = True
+                    for _h in _handles:
+                        try:
+                            if store.expand(_h) is None:
+                                _restorable = False
+                                break
+                        except Exception:  # noqa: BLE001 — unresolvable counts as not restorable
+                            _restorable = False
+                            break
+                    _mode = extras.get("x-distil-mode", "verbatim")
+                    _saved = int(extras.get("x-distil-tokens-saved", 0) or 0)
+                    _orig = int(extras.get("x-distil-compressible-tokens", 0) or 0)
+                    _receipts.append(
+                        _receipts.Receipt(
+                            ts=_ts,
+                            request_id=_hashlib.sha256(
+                                f"{_ts}:{model}:{_saved}:{','.join(_handles)}".encode()
+                            ).hexdigest()[:16],
+                            session=str(os.environ.get("DISTIL_SESSION") or ""),
+                            model=str(model or "unknown"),
+                            mode=_mode,
+                            tokens_original=_orig,
+                            tokens_compressed=max(0, _orig - _saved),
+                            # Tier-0 (verbatim/lossless) round-trips byte-exact. digest is
+                            # recoverable-on-demand via a handle — a weaker claim, so it is
+                            # not reported as reversible.
+                            reversible=_mode in ("verbatim", "lossless"),
+                            handles=list(_handles),
+                            restorable=_restorable,
+                            certificate=str(extras.get("x-distil-certificate", "")),
+                        )
+                    )
+                except Exception:  # noqa: BLE001 — a receipt must never break a request
+                    log.debug("receipt emit failed", exc_info=True)
+
             try:
                 from . import ledger
 
@@ -1123,6 +1174,7 @@ def build_handler(
                     "blocks": blocks,
                 }
                 ledger.append_session_request(rec)
+
             except Exception:  # noqa: BLE001 — bookkeeping must never break a request
                 log.debug("request-detail record failed", exc_info=True)
 

@@ -105,3 +105,65 @@ def test_malformed_line_does_not_crash_the_reader(home):
     p = home / "receipts.jsonl"
     p.write_text(p.read_text() + "{not json\n")
     assert R.verify().ok, "a corrupt trailing line must not invalidate real receipts"
+
+
+def test_proxy_emits_a_verifiable_receipt_per_served_request(home, monkeypatch):
+    """The wiring, not just the module: a real request through a real proxy must leave
+    a receipt, and the chain must verify.
+
+    Gated on 2xx only — deliberately NOT on `booked` (a savings ledger being attached)
+    nor on being inside a `wrap` session. A compliance record that vanishes depending on
+    how the proxy was launched is not a compliance record.
+    """
+    import json as _json
+    import threading
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from distil.proxy import build_handler
+
+    class _Up(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            b = b'{"id":"m","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":10}}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+        def log_message(self, *a):  # noqa: D102
+            pass
+
+    up = ThreadingHTTPServer(("127.0.0.1", 0), _Up)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    px = ThreadingHTTPServer(
+        ("127.0.0.1", 0), build_handler(f"http://127.0.0.1:{up.server_address[1]}")
+    )
+    threading.Thread(target=px.serve_forever, daemon=True).start()
+    try:
+        payload = {
+            "model": "claude-opus-4-8",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hello"}],
+        }
+        for _ in range(2):
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{px.server_address[1]}/v1/messages",
+                    data=_json.dumps(payload).encode(),
+                    headers={"content-type": "application/json"},
+                ),
+                timeout=30,
+            ).read()
+    finally:
+        px.shutdown()
+        up.shutdown()
+
+    got = list(R.read())
+    assert len(got) == 2, f"expected one receipt per served request, got {len(got)}"
+    assert R.verify().ok
+    assert all(r.model == "claude-opus-4-8" for r in got)
+    # content-free holds through the real path too
+    on_disk = (home / "receipts.jsonl").read_text()
+    assert "hello" not in on_disk
