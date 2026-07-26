@@ -1744,7 +1744,13 @@ def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | Non
                 if path.startswith(prefix):
                     sid = resolve_sid(path[len(prefix) :])
                     if sid is None:
-                        self._send(404, "<h1>unknown session</h1>")
+                        self._send(
+                            404,
+                            '<!doctype html><html lang="en"><head><meta charset="utf-8"/>'
+                            "<title>Unknown session: distil</title></head>"
+                            "<body><h1>Unknown session</h1>"
+                            '<p><a href="/">sessions</a></p></body></html>',
+                        )
                         return
                     d = dissect(sid)
                     peers = list_sessions()
@@ -1786,7 +1792,12 @@ def make_server(host: str = "127.0.0.1", port: int = 8790, transcript: str | Non
                         )
                         self._send(200, page)
                     return
-            self._send(404, "<h1>not found</h1><p><a href='/'>sessions</a></p>")
+            self._send(
+                404,
+                '<!doctype html><html lang="en"><head><meta charset="utf-8"/>'
+                "<title>Not found: distil</title></head>"
+                '<body><h1>Not found</h1><p><a href="/">sessions</a></p></body></html>',
+            )
 
         def log_message(self, *args: Any) -> None:  # quiet by design, like the proxy
             pass
