@@ -111,11 +111,20 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           echo "checking attestations for distil-llm ${VERSION}"
-          PROBE="import json,sys; u=json.load(sys.stdin)['urls']; print(' '.join(x['filename'] for x in u if not x.get('attestations') and not x.get('provenance')))"
+          # Ask the integrity API, not the JSON API. PyPI does NOT populate an
+          # "attestations" field on /pypi/<pkg>/<ver>/json — checking it there reports a
+          # false negative even when the bundle exists, which failed the 1.31.0 release
+          # that had in fact attested correctly.
+          FILES="import json,sys; print(' '.join(u['filename'] for u in json.load(sys.stdin)['urls']))"
+          COUNT="import json,sys; print(len(json.load(sys.stdin).get('attestation_bundles') or []))"
           for attempt in 1 2 3 4 5; do
             sleep $((attempt * 10))   # PyPI indexes attestations a moment after upload
             RESP="$(curl -fsSL "https://pypi.org/pypi/distil-llm/${VERSION}/json")" || continue
-            MISSING="$(printf '%s' "$RESP" | python3 -c "$PROBE")"
+            MISSING=""
+            for FN in $(printf '%s' "$RESP" | python3 -c "$FILES"); do
+              N="$(curl -fsSL "https://pypi.org/integrity/distil-llm/${VERSION}/${FN}/provenance" 2>/dev/null | python3 -c "$COUNT" 2>/dev/null || echo 0)"
+              [ "${N:-0}" -ge 1 ] || MISSING="$MISSING $FN"
+            done
             if [ -z "$MISSING" ]; then
               echo "✓ all artifacts carry attestations"
               exit 0

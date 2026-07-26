@@ -7,17 +7,21 @@ All notable changes to Distil are documented here. Format loosely follows
 
 Four things that all failed the same way: a claim nothing verified.
 
-### PEP 740 attestations — the claim is now enforced, or the release fails
-`README.md` claimed releases carried Sigstore attestations and printed a `pypi-attestations
-verify` command inviting you to check. Nobody had. Every release ever published reported
-`attestations=none` — 1.19.0, 1.20.0, 1.28.0, 1.29.1, 1.30.0, all `0/2` artifacts. The
-publish step relied on the action's default instead of requesting them, and nothing looked
-afterwards.
+### PEP 740 attestations — now enforced by the release job
+`README.md` claimed releases carried Sigstore attestations. **They did** — every release back
+to 1.19.0 carries an attestation bundle. What was missing was any check, so the claim was
+merely *unverified* rather than false.
 
-`attestations: true` is now explicit, and a release step queries the PyPI JSON API for the
-version just published and **fails the job** if no artifact reports attestations or
-provenance. **This is the first release that runs that gate** — the claim is true and
-CI-enforced from here, or the release goes red and says so.
+The release job now queries PyPI for the version it just published and **fails** if no
+attestation bundle is present, so the claim cannot drift.
+
+> **Correction.** An earlier draft of this entry — and commit `b3eb4a7` — stated that every
+> release published with `attestations=none`. That was wrong. It read `/pypi/<pkg>/<ver>/json`,
+> which PyPI does not populate with an attestations field; the data lives on the `/integrity/
+> <pkg>/<ver>/<file>/provenance` endpoint. The first run of the new gate failed 1.31.0 for the
+> same reason — a false negative in the check itself. Both the gate and the claim are corrected
+> here. The irony is not lost: a verification step that reported a false failure is the exact
+> defect class this release is about.
 
 ### Certificates name the oracle that graded them
 A `Certificate` recorded α, δ, n, savings and a guarantee — but not what produced the
