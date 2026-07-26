@@ -20,6 +20,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">&#9776;</button>
@@ -60,7 +61,7 @@
     <a href="index.html">&larr; Landing page</a>
   </aside>
 
-  <main class="content">
+  <main class="content" id="content" tabindex="-1">
 
     <h1>Reproduce the <span class="g">Numbers</span></h1>
     <p class="lead">Every headline number has a command. This page shows exactly how each one is produced — what is synthetic, what is live, and what we ran but chose not to ship as the default (E7). None of it requires you to trust our word; it requires you to run the script.</p>

@@ -20,6 +20,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
@@ -60,7 +61,7 @@
     <a href="index.html">← Landing page</a>
   </aside>
 
-  <main class="content">
+  <main class="content" id="content" tabindex="-1">
 
     <h1>Output <span class="g">&amp; I/O</span></h1>
     <p class="lead">Most compressors only touch the input side; Distil compresses <strong>both sides</strong> — input context in, generation verbosity out — plus a lossless re-entry digest that keeps long outputs from re-billing as full history. This page covers all three, plus real-trace ingestion and the performance benchmark.</p>

@@ -20,6 +20,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to main content</a>
 
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
@@ -60,7 +61,7 @@
     <a href="index.html">← Landing page</a>
   </aside>
 
-  <main class="content">
+  <main class="content" id="content" tabindex="-1">
 
     <h1>Compression <span class="g">Techniques</span></h1>
     <p class="lead">Each technique targets a specific slice of agent cost, but two carry the bulk of the win: <strong>cache-aware lossless compression</strong> keeps the prefix byte-stable so every cached token stays cached, and <strong>causal pruning</strong> drops what ablation proves never changed a decision. The rest stack cleanly on top — and one of them, recoverable compression, is something no lossy compressor can structurally replicate.</p>

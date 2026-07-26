@@ -72,6 +72,15 @@ a { color: inherit; text-decoration: none; }
 *::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 *::-webkit-scrollbar-thumb:hover { background: #34405e; }
 
+/* ── Skip link ─────────────────────────────────────────────────────── */
+.skip-link {
+  position: absolute; top: 0; left: 8px; z-index: 100;
+  padding: 10px 16px; border-radius: 0 0 10px 10px;
+  background: var(--acc); color: #06070b; font-weight: 700; font-size: 13px;
+  transform: translateY(-140%); transition: transform .15s ease;
+}
+.skip-link:focus { transform: translateY(0); }
+
 /* ── Top bar ───────────────────────────────────────────────────────── */
 .topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;
