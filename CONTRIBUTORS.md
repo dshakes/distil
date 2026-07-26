@@ -16,6 +16,7 @@ This file is the record.
 
 - **pliablepixels** ([@pliablepixels](https://github.com/pliablepixels)) — per-content-type keep policy (`distil/compress/keep_policy.py`), so a digest keeps a test run's verdict instead of folding the answer and keeping the noise ([#23](https://github.com/dshakes/distil/pull/23), shipped 1.15.0); and `distil dissect` — the per-session deep-dive report, including `--serve` and agent-transcript correlation ([#27](https://github.com/dshakes/distil/pull/27), shipped 1.15.1).
 - **Tolga Tuncoglu** ([@tolgatuncoglu](https://github.com/tolgatuncoglu)) — `distil default --always-on`: persist `ANTHROPIC_BASE_URL` into `~/.claude/settings.json` so Claude Code routes through distil on every launch, including sessions started from an IDE extension rather than a terminal ([#31](https://github.com/dshakes/distil/pull/31), shipped 1.26.0).
+- **PJ Doland** ([@pjdoland](https://github.com/pjdoland)): keyboard accessibility across the docs site and dissect portal (working mobile navigation, keyboard-reachable session links, copy-button cleanup, focusable table scrolling), the first in a WCAG 2.2 series ([#34](https://github.com/dshakes/distil/pull/34)).
 
 ---
 

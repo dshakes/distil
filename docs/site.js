@@ -1,11 +1,58 @@
 /* Distil docs — progressive enhancements: copy buttons + "on this page" TOC.
    Vanilla, dependency-free, no external requests. */
+
+/* ── Mobile sidebar toggle: shared by every docs page's ☰ button
+   (onclick="toggleSidebar()") ─────────────────────────────────────────
+   Keeps #sidebar's "open" class and .sidebar-toggle's aria-expanded in
+   sync, closes on outside click or Escape, and returns focus to the
+   toggle button on Escape. */
+(function () {
+  "use strict";
+
+  function getSidebar() { return document.getElementById("sidebar"); }
+  function getToggle() { return document.querySelector(".sidebar-toggle"); }
+
+  function setOpen(open) {
+    var sb = getSidebar();
+    if (!sb) return;
+    sb.classList.toggle("open", open);
+    var btn = getToggle();
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  window.toggleSidebar = function () {
+    var sb = getSidebar();
+    if (!sb) return;
+    setOpen(!sb.classList.contains("open"));
+  };
+
+  document.addEventListener("click", function (e) {
+    var sb = getSidebar();
+    if (sb && sb.classList.contains("open") && !sb.contains(e.target) && !e.target.closest(".sidebar-toggle")) {
+      setOpen(false);
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    var sb = getSidebar();
+    if (sb && sb.classList.contains("open")) {
+      setOpen(false);
+      var btn = getToggle();
+      if (btn) btn.focus();
+    }
+  });
+})();
+
 (function () {
   "use strict";
 
   // ── Copy-to-clipboard on every code block ──────────────────────────
   document.querySelectorAll("pre").forEach(function (pre) {
-    var original = (pre.querySelector("code") || pre).textContent; // capture before button
+    var target = pre.querySelector("code") || pre;
+    var clone = target.cloneNode(true); // strip any pre-existing .copy-btn before reading text
+    clone.querySelectorAll(".copy-btn").forEach(function (b) { b.remove(); });
+    var original = clone.textContent;
     var btn = document.createElement("button");
     btn.className = "copy-btn";
     btn.type = "button";
@@ -103,5 +150,30 @@
         panels.forEach(function (p) { p.classList.toggle("is-active", p.getAttribute("data-panel") === key); });
       });
     });
+  });
+})();
+
+/* Wrap content tables in a focusable, labeled scroll region so keyboard
+   users can reach the horizontal scroll that .table-scroll gets on
+   narrower viewports (see site.css). Desktop rendering is unaffected. */
+(function () {
+  "use strict";
+  var container = document.querySelector("main.content, .content");
+  if (!container) return;
+  var lastHeading = null;
+  container.querySelectorAll("h1, h2, h3, h4, table").forEach(function (el) {
+    if (el.tagName !== "TABLE") {
+      lastHeading = el;
+      return;
+    }
+    if (el.closest(".table-scroll")) return; // already wrapped
+    var label = lastHeading ? lastHeading.textContent.replace(/#/g, "").trim() : "";
+    var wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", label || "Scrollable table");
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
   });
 })();

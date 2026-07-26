@@ -97,6 +97,7 @@
   code{overflow-wrap:anywhere}
   .term .c{color:var(--acc2)} .term .g{color:var(--good)} .term .w{color:var(--warn)} .term .d{color:var(--dim)}
   table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  .table-scroll{max-width:100%}
   th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}
   th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
   td .new{color:var(--acc);font-weight:700}
@@ -112,7 +113,8 @@
   .muted{color:var(--dim)}
   @media(max-width:840px){
     .stats{grid-template-columns:1fr 1fr}.grid2,.tiers{grid-template-columns:1fr}
-    table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;font-size:13px}
+    .table-scroll{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table{white-space:nowrap;font-size:13px}
     header{padding:56px 0 28px}section{padding:40px 0}
     .cta{flex-direction:column}.cta .btn{text-align:center}
     .doors{grid-template-columns:1fr}
@@ -676,6 +678,25 @@ client = wrap(anthropic.Anthropic())  <span class="d"># compresses + keeps the c
   Distil · compression with a quality contract · stdlib-only core ·
   <span class="muted">prices are representative public list price — verify before billing use.</span>
 </div></footer>
+<script>
+  /* This page has its own layout (no .content), so site.js's generic
+     table-scroll wrap doesn't reach it: wrap the one wide table here too,
+     same fix, a focusable, labeled scroll region for keyboard users. */
+  (function () {
+    "use strict";
+    var table = document.querySelector("table");
+    if (!table) return;
+    var heading = table.closest("section") && table.closest("section").querySelector("h2");
+    var label = heading ? heading.textContent.replace(/#/g, "").trim() : "";
+    var wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", label || "Scrollable table");
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  })();
+</script>
 <script src="site.js" defer></script>
 </body>
 </html>

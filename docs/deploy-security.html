@@ -23,7 +23,7 @@
 
 <!-- Top bar -->
 <header class="topbar">
-  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
   <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
   <span class="topbar-pill">compression with a quality contract</span>
   <nav class="topbar-links">
@@ -223,7 +223,7 @@ distil proxy --verbatim     --upstream https://api.anthropic.com</pre>
     <p>The <strong>managed gateway</strong> extends the basic proxy with per-tenant token and dollar accounting, a live auto-refreshing dashboard, and a JSON stats API. Use it when multiple teams or applications share one distil instance and need visibility into who's saving what.</p>
 
     <h3>Starting the gateway</h3>
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d"># Default: binds 127.0.0.1:8789 and forwards to Anthropic</span>
+    <pre class="term"><span class="d"># Default: binds 127.0.0.1:8789 and forwards to Anthropic</span>
 <span class="d">$ distil gateway --port 8789 --upstream https://api.anthropic.com</span>
 distil gateway listening on http://127.0.0.1:8789
   dashboard: http://127.0.0.1:8789/distil/dashboard
@@ -425,7 +425,7 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
     </div>
 
     <h3>Starting the async proxy</h3>
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d"># Install the async extra first</span>
+    <pre class="term"><span class="d"># Install the async extra first</span>
 <span class="d">$ pip install 'distil-llm[async]'</span>
 
 <span class="d"># Start the async proxy (same flags as the threaded proxy)</span>
@@ -478,7 +478,7 @@ distil async proxy listening on http://127.0.0.1:8788
     <p>Benchmarks measured on Apple M-series (aarch64-apple-darwin, <code>--release</code>), 100 samples each, on a ~30 KB synthetic log with repeated lines, prose, and JSON snippets. <code>collapse_runs</code> achieves ~12 GB/s throughput. <code>count_tokens</code> is dominated by Unicode character-class scanning.</p>
 
     <h3>Build and install</h3>
-    <pre class="term"><button class="copy-btn" onclick="copyCode(this)">copy</button><span class="d"># One-time: install maturin</span>
+    <pre class="term"><span class="d"># One-time: install maturin</span>
 <span class="d">$ uv tool install maturin</span>
 
 <span class="d"># Build and install the Rust extension into the project virtualenv</span>
@@ -564,17 +564,6 @@ rust</pre>
   </main>
 </div>
 
-<script>
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-}
-document.addEventListener('click', function(e) {
-  var sb = document.getElementById('sidebar');
-  if (sb.classList.contains('open') && !sb.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
-    sb.classList.remove('open');
-  }
-});
-</script>
 <script src="site.js" defer></script>
 </body>
 </html>

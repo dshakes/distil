@@ -1672,7 +1672,7 @@ def render_sessions_html(sessions: list[SessionOverview]) -> str:
     rows = (
         "".join(
             f"<tr onclick=\"location='/session/{e(o.sid)}'\">"
-            f"<td><code>{e(o.sid)}</code></td><td>{e(o.tool or '?')}</td>"
+            f"<td><code><a href=\"/session/{e(o.sid)}\">{e(o.sid)}</a></code></td><td>{e(o.tool or '?')}</td>"
             f"<td>{e(_when(o.started))}</td><td>{e(_when(o.last_ts))}</td>"
             f"<td class='r'>{o.requests}</td>"
             f"<td class='r'>{100.0 * (o.baseline_tokens - o.distil_tokens) / o.baseline_tokens if o.baseline_tokens else 0.0:.1f}%</td>"
@@ -1696,6 +1696,9 @@ th{{color:#5b6177;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
 td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}}
 tbody tr{{cursor:pointer}} tbody tr:hover td{{background:#10131d}}
 code{{color:#8b7bff}} .muted{{color:#5b6177}}
+code a{{color:inherit;text-decoration:underline}}
+code a:hover,code a:focus{{color:#5ad1c9}}
+code a:focus-visible{{outline:2px solid #8b7bff;outline-offset:2px;border-radius:4px}}
 .foot{{color:#5b6177;font-size:12.5px;margin-top:22px}}
 </style></head><body><div class="wrap">
 <h1>Distil <span class="g">sessions</span></h1>
