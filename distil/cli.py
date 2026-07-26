@@ -1939,6 +1939,59 @@ def cmd_certify_trajectories(args: argparse.Namespace) -> int:
     return 0 if cert.certified else 1
 
 
+def cmd_certify_provider(args: argparse.Namespace) -> int:
+    """Certify PROVIDER-native context editing: does Anthropic's clear-tool-uses
+    manipulation change the agent's next decision? Pre-registered, A/A-controlled,
+    budget-capped live A/B — see distil.certify.provider_compaction."""
+    from .certify.provider_compaction import (
+        ProviderArms,
+        load_episodes,
+        run_experiment,
+        to_case,
+    )
+
+    episodes = load_episodes(Path(args.episodes))
+    cases = [c for c in (to_case(e, i) for i, e in enumerate(episodes)) if c is not None]
+    if args.n is not None:
+        cases = cases[: args.n]
+    if not cases:
+        print("distil certify-provider: no usable episodes (need tool_use/tool_result history)")
+        return 2
+    calls = 3 * args.votes * len(cases)
+    max_calls = args.max_live_calls if args.max_live_calls is not None else calls
+    if args.dry_run:
+        print(
+            f"certify-provider plan: {len(cases)} cases × 3 arms × {args.votes} votes "
+            f"= {calls} live calls on {args.model} (cap {max_calls}); "
+            f"trigger={args.trigger_tokens} input_tokens, keep={args.keep} tool uses, "
+            f"α={args.alpha}, δ={args.delta}. No calls made."
+        )
+        return 0
+    arms = ProviderArms(model=args.model, max_calls=max_calls)
+    report = run_experiment(
+        cases,
+        arms,
+        Path(args.out),
+        votes=args.votes,
+        alpha=args.alpha,
+        delta=args.delta,
+        trigger_tokens=args.trigger_tokens,
+        keep_tool_uses=args.keep,
+        min_fired=args.min_fired,
+    )
+    print("distil provider-compaction certificate (anthropic context-editing)\n")
+    print(f"  cases (fired/total)  : {report.cases_fired}/{report.cases_total}")
+    print(f"  A/B change rate      : {report.ab_change_rate * 100:.2f}% (fired cases)")
+    print(f"  A/A noise floor      : {report.aa_change_rate * 100:.2f}%")
+    print(f"  adjusted change rate : {report.adjusted_change_rate * 100:.2f}%")
+    print(f"  risk bound (1-δ)     : {report.risk_bound * 100:.2f}%")
+    print(f"  live calls made      : {report.calls_made}")
+    print(f"  tokens cleared (sum) : {report.total_cleared_input_tokens}")
+    print(f"\n  {report.statement}")
+    print(f"\n  protocol + report written to {args.out}/")
+    return 0 if (report.certified or not args.strict) else 1
+
+
 def cmd_gateway(args: argparse.Namespace) -> int:
     """Managed multi-tenant gateway with a live per-tenant savings dashboard."""
     import os as _os_mod
@@ -3007,6 +3060,43 @@ def build_parser() -> argparse.ArgumentParser:
     ct.add_argument("--delta", type=float, default=0.05, help="confidence budget (1-δ)")
     ct.add_argument("--json", action="store_true", help="machine-readable output")
     ct.set_defaults(func=cmd_certify_trajectories)
+
+    cp = sub.add_parser(
+        "certify-provider",
+        help="A/B-certify PROVIDER context editing (Anthropic clear-tool-uses) for decision drift",
+    )
+    cp.add_argument(
+        "episodes",
+        help="tau-bench-shaped JSON: episodes with multi-turn tool messages (see benchmarks/fixtures/)",
+    )
+    cp.add_argument("--model", default="claude-opus-4-8")
+    cp.add_argument("--n", type=int, default=None, help="cap the number of cases (pre-registered)")
+    cp.add_argument("--votes", type=int, default=3, help="majority-of-k calls per arm")
+    cp.add_argument("--alpha", type=float, default=0.1, help="max decision-change rate to certify")
+    cp.add_argument("--delta", type=float, default=0.05, help="confidence budget (1-δ)")
+    cp.add_argument(
+        "--trigger-tokens",
+        type=int,
+        default=500,
+        help="input-token threshold at which the provider edit activates",
+    )
+    cp.add_argument("--keep", type=int, default=0, help="recent tool uses the edit preserves")
+    cp.add_argument(
+        "--max-live-calls",
+        type=int,
+        default=None,
+        help="hard live-call budget (default: exactly the planned 3×votes×cases)",
+    )
+    cp.add_argument(
+        "--min-fired",
+        type=int,
+        default=None,
+        help="minimum cases where editing must actually fire (default: half the cases)",
+    )
+    cp.add_argument("--out", default="provider-compaction", help="output dir (protocol + report)")
+    cp.add_argument("--dry-run", action="store_true", help="print the plan and budget; no calls")
+    cp.add_argument("--strict", action="store_true", help="exit 1 unless certified at α")
+    cp.set_defaults(func=cmd_certify_provider)
 
     gw = sub.add_parser("gateway", help="managed multi-tenant gateway + live savings dashboard")
     gw.add_argument("--host", default="127.0.0.1")
