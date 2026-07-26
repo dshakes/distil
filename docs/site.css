@@ -152,7 +152,12 @@ a { color: inherit; text-decoration: none; }
   padding: 52px 56px 96px; max-width: 920px;
   animation: rise .5s cubic-bezier(.2,.7,.2,1) both;
 }
-@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+/* Fade only — deliberately no transform. The "On this page" TOC is a fixed-position
+   descendant of .content (it lives here so the nav landmark precedes the prose it
+   indexes), and a transformed ancestor becomes the containing block for fixed
+   descendants — which resolves the TOC's `right` against this 920px column instead
+   of the viewport and lands it on top of the text. Keep this opacity-only. */
+@keyframes rise { from { opacity: 0; } to { opacity: 1; } }
 
 .sidebar-toggle {
   display: none; background: none; border: 1px solid var(--line2);

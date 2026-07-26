@@ -1,8 +1,8 @@
 {
   "alpha": 0.1,
-  "created": 1785099058.539083,
+  "created": 1785099268.679415,
   "delta": 0.05,
-  "keep_tool_uses": 3,
+  "keep_tool_uses": 0,
   "label": "OpenAI server-side compaction",
   "max_calls": 360,
   "model": "gpt-5.2",

@@ -3,6 +3,36 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.33.0] — the reports are readable now
+
+A WCAG 2.2 pass over the docs site and **every HTML surface distil generates** —
+the gateway dashboard, the live web dashboard, the savings ledger, the technique
+leaderboard, the benchmark report, and the `dissect` portal. Contributed as eight
+focused PRs by [@pjdoland](https://github.com/pjdoland) ([#34](https://github.com/dshakes/distil/pull/34)–[#41](https://github.com/dshakes/distil/pull/41)).
+
+Some of this is plain bug-fixing that happened to surface through an accessibility
+lens. Two docs pages wired their mobile navigation button to a function that was
+defined nowhere, so the menu threw a `ReferenceError` for everyone; nine code blocks
+had a copy button pointing at a missing `copyCode`, and the copy control that did
+work was copying the word "copy" instead of the snippet. The leaderboard's
+"not certified" state was an em-dash at **1.75:1** contrast — a verification marker
+you effectively could not read, in a project whose entire pitch is that you should
+verify rather than trust. Muted text across the reports sat at 3.28:1; it is now
+5.45–6.37:1, comfortably past AA.
+
+The interaction changes are real UX wins, not just conformance. The gateway
+dashboard and the sessions portal used `<meta http-equiv="refresh">`, so they
+reloaded wholesale every 5 s and 15 s — destroying scroll position, text selection,
+and keyboard focus while you were reading them. Both now poll JSON and patch rows
+in place, with a visible Pause control (WCAG 2.2.1/2.2.4). Charts in the dissect
+report carry accessible names and a `data table` fallback with the same numbers.
+Tooltips are focusable, dismissible with Escape, and announced. Tables have real
+headers, captions, and scope; the docs sidebar is a labeled `<nav>` with list
+semantics and `aria-current`.
+
+No compression behavior changed: `make gate` (corpus non-inferiority + byte
+fidelity) and the full suite pass unchanged.
+
 ## [1.32.0] — certify the provider's own context manipulation
 
 `distil certify-provider`: a pre-registered, A/A-controlled, budget-capped live A/B

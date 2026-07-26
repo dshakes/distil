@@ -271,10 +271,14 @@ class ProviderArms:
         self.calls_made += 1
 
     # A full run is hundreds of sequential calls over ~an hour; one transient
-    # upstream 500 must not burn the whole spend (it did, live, on 2026-07-26 —
-    # the SDK's own retries were exhausted). Bounded backoff on top; the final
-    # failure is still a loud SystemExit, never a silent skip.
-    _RETRIES = 3
+    # upstream 500 must not burn the whole spend (it did, live, twice on
+    # 2026-07-26 — the SDK's own retries were exhausted, then 3 linear retries
+    # ≈24s were exhausted too). Exponential backoff to ~4 min of tolerance,
+    # which covers an ordinary blip; the final failure is still a loud
+    # SystemExit, never a silent skip.
+    # ponytail: retry only — no per-case checkpointing. Add resume-from-partial
+    # if a run ever dies past the ~4 min mark.
+    _RETRIES = 6
     _BACKOFF_S = 8.0
 
     def _call(self, fn: Any, provider: str) -> Any:
@@ -288,7 +292,7 @@ class ProviderArms:
                     raise SystemExit(
                         f"distil: the {provider} API call failed after {attempt} attempts — {exc}"
                     ) from None
-                time.sleep(self._BACKOFF_S * attempt)
+                time.sleep(self._BACKOFF_S * 2 ** (attempt - 1))
 
     def _ensure_client(self) -> Any:
         if self._client is None:
