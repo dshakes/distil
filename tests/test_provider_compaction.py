@@ -14,6 +14,7 @@ import pytest
 from distil.certify.provider_compaction import (
     CONTEXT_MGMT_BETA,
     Case,
+    OpenAIArms,
     ProviderArms,
     edit_config,
     load_episodes,
@@ -309,6 +310,152 @@ def test_live_call_budget_is_a_hard_stop():
     arms.observe(_case(), None)
     with pytest.raises(SystemExit):
         arms.observe(_case(), None)
+
+
+# --------------------------------------------------------------------------- #
+# OpenAI arm
+# --------------------------------------------------------------------------- #
+
+
+class _FakeOpenAI:
+    """Scripted responses.create; records requests, cycles bodies per arm."""
+
+    def __init__(self, script: dict[str, list[dict]]) -> None:
+        self._script = {k: list(v) for k, v in script.items()}
+        self.requests: list[dict] = []
+        self.responses = self
+
+    def create(self, **kw):
+        self.requests.append(kw)
+        arm = "edited" if "context_management" in kw else "baseline"
+        queue = self._script[arm]
+        body = queue.pop(0) if len(queue) > 1 else queue[0]
+        return _FakeResponse(body)
+
+
+def _oa_call(name: str, args: str, compacted: bool = False) -> dict:
+    out: list = []
+    if compacted:
+        out.append({"type": "compaction", "encrypted_content": "opaque"})
+    out.append({"type": "function_call", "call_id": "c1", "name": name, "arguments": args})
+    return {"output": out}
+
+
+def test_openai_input_conversion_maps_tool_pairs():
+    from distil.certify.provider_compaction import _responses_input, _responses_tools
+
+    items = _responses_input(_case())
+    assert items[0] == {"role": "user", "content": "hi"}
+    assert items[1]["type"] == "function_call" and items[1]["call_id"] == "toolu_001"
+    assert json.loads(items[1]["arguments"]) == {}
+    assert items[2] == {"type": "function_call_output", "call_id": "toolu_001", "output": "ok"}
+    tools = _responses_tools(_case())
+    assert tools == [
+        {"type": "function", "name": "get", "description": "d", "parameters": {"type": "object"}}
+    ]
+
+
+def test_openai_observe_fires_on_compaction_item_and_matches_signature():
+    client = _FakeOpenAI(
+        {
+            "baseline": [_oa_call("get", '{"x": "1"}')],
+            "edited": [_oa_call("get", '{"x": "1"}', compacted=True)],
+        }
+    )
+    arms = OpenAIArms(client=client)
+    edits = arms.edits(trigger_tokens=100, keep_tool_uses=0)
+    assert edits == [{"type": "compaction", "compact_threshold": 100}]
+    base = arms.observe(_case(), None)
+    edited = arms.observe(_case(), edits)
+    assert "context_management" not in client.requests[0]
+    assert client.requests[1]["context_management"] == edits
+    assert not base.fired and edited.fired
+    # same decision through compaction -> identical signature (shadow-normalized)
+    assert base.signature == edited.signature
+    assert base.signature.startswith("tool:")
+
+
+def test_openai_text_answer_signature_and_experiment_end_to_end(tmp_path):
+    text_resp = {
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": "hm"}]}]
+    }
+    client = _FakeOpenAI(
+        {
+            "baseline": [_oa_call("get", "{}")],
+            "edited": [
+                {
+                    "output": [
+                        {"type": "compaction", "encrypted_content": "x"},
+                        text_resp["output"][0],
+                    ]
+                }
+            ],
+        }
+    )
+    arms = OpenAIArms(client=client)
+    report = run_experiment([_case()] * 4, arms, tmp_path, votes=1, min_fired=2)
+    assert report.protocol["target"] == "openai-compaction"
+    assert report.cases_fired == 4
+    assert report.ab_change_rate == 1.0  # tool_use -> text is a decision change
+    assert "OpenAI server-side compaction" in report.statement
+
+
+def test_openai_signature_none_and_text_blocks():
+    from distil.certify.provider_compaction import _responses_input, _responses_signature
+
+    assert _responses_signature([]) == "none"
+    assert _responses_signature([{"type": "message", "content": []}]) == "text"
+    # assistant text blocks in the history map to plain role messages
+    case = Case(
+        case_id="t",
+        system="s",
+        messages=[
+            {"role": "assistant", "content": [{"type": "text", "text": "thinking aloud"}]},
+            {"role": "user", "content": "go"},
+        ],
+        tools=[],
+    )
+    items = _responses_input(case)
+    assert items[0] == {"role": "assistant", "content": "thinking aloud"}
+
+
+def test_openai_client_failures_are_clean_messages(monkeypatch):
+    import sys
+    import types
+
+    class _Exploding:
+        def __init__(self):
+            self.responses = self
+
+        def create(self, **kw):
+            raise ValueError("quota")
+
+    with pytest.raises(SystemExit, match="OpenAI API call failed"):
+        OpenAIArms(client=_Exploding()).observe(_case(), None)
+
+    monkeypatch.setitem(sys.modules, "openai", None)  # import raises ImportError
+    with pytest.raises(SystemExit, match="'openai' package"):
+        OpenAIArms().observe(_case(), None)
+
+    stub = types.ModuleType("openai")
+
+    class _Boom:
+        def __init__(self):
+            raise RuntimeError("no key")
+
+    stub.OpenAI = _Boom
+    monkeypatch.setitem(sys.modules, "openai", stub)
+    with pytest.raises(SystemExit, match="could not initialise the OpenAI client"):
+        OpenAIArms().observe(_case(), None)
+
+
+def test_cli_openai_dry_run(capsys):
+    from distil.cli import main
+
+    rc = main(["certify-provider", str(FIXTURE), "--provider", "openai", "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "openai-compaction" in out and "gpt-5.2" in out
 
 
 # --------------------------------------------------------------------------- #

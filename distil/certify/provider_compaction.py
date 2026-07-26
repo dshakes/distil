@@ -31,8 +31,10 @@ Non-negotiables, enforced in code, not intention:
     this project criticises in others;
   * the negative result is a result: the report states the bound either way.
 
-OpenAI compaction is intentionally out of scope for now (no working key in this
-environment; the two-arm design transfers unchanged when a runner exists).
+The same design runs against **OpenAI server-side compaction** (Responses API
+``context_management`` with a ``compact_threshold``; firing ground-truthed by
+the ``compaction`` output item) via :class:`OpenAIArms` — only the wire format
+and the firing signal differ.
 """
 
 from __future__ import annotations
@@ -237,8 +239,12 @@ class ArmObservation:
 
 
 class ProviderArms:
-    """Issues the per-arm live calls, with the same budget discipline as
-    AnthropicRunner: a hard ``max_calls`` ceiling that fails loudly."""
+    """Issues the per-arm live calls against **Anthropic context editing**, with
+    the same budget discipline as AnthropicRunner: a hard ``max_calls`` ceiling
+    that fails loudly."""
+
+    target = "anthropic-context-editing"
+    label = "Anthropic context editing"
 
     def __init__(
         self,
@@ -252,6 +258,17 @@ class ProviderArms:
         self.max_tokens = max_tokens
         self.max_calls = max_calls
         self.calls_made = 0
+
+    def edits(self, *, trigger_tokens: int, keep_tool_uses: int) -> Any:
+        return edit_config(trigger_tokens=trigger_tokens, keep_tool_uses=keep_tool_uses)
+
+    def _charge(self) -> None:
+        if self.max_calls is not None and self.calls_made >= self.max_calls:
+            raise SystemExit(
+                f"distil: live-call budget exhausted ({self.calls_made}/{self.max_calls}) "
+                "— raise --max-live-calls or shrink the episode set."
+            )
+        self.calls_made += 1
 
     def _ensure_client(self) -> Any:
         if self._client is None:
@@ -271,13 +288,8 @@ class ProviderArms:
                 ) from None
         return self._client
 
-    def observe(self, case: Case, edits: dict[str, Any] | None) -> ArmObservation:
-        if self.max_calls is not None and self.calls_made >= self.max_calls:
-            raise SystemExit(
-                f"distil: live-call budget exhausted ({self.calls_made}/{self.max_calls}) "
-                "— raise --max-live-calls or shrink the episode set."
-            )
-        self.calls_made += 1
+    def observe(self, case: Case, edits: Any | None) -> ArmObservation:
+        self._charge()
         kw: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -311,13 +323,159 @@ class ProviderArms:
             cleared_input_tokens=cleared,
         )
 
-    def majority(self, case: Case, edits: dict[str, Any] | None, votes: int) -> ArmObservation:
+    def majority(self, case: Case, edits: Any | None, votes: int) -> ArmObservation:
         obs = [self.observe(case, edits) for _ in range(max(1, votes))]
         sig = Counter(o.signature for o in obs).most_common(1)[0][0]
         return ArmObservation(
             signature=sig,
             fired=any(o.fired for o in obs),
             cleared_input_tokens=max(o.cleared_input_tokens for o in obs),
+        )
+
+
+def _responses_input(case: Case) -> list[dict[str, Any]]:
+    """The Case's Anthropic wire messages, mapped to Responses API input items:
+    tool_use -> function_call, tool_result -> function_call_output. One converter
+    (episode -> Case) feeds both providers; this mapping is deterministic."""
+    items: list[dict[str, Any]] = []
+    for m in case.messages:
+        content = m["content"]
+        if isinstance(content, str):
+            items.append({"role": m["role"], "content": content})
+            continue
+        for b in content:
+            if b["type"] == "text":
+                items.append({"role": m["role"], "content": b["text"]})
+            elif b["type"] == "tool_use":
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": b["id"],
+                        "name": b["name"],
+                        "arguments": json.dumps(b["input"]),
+                    }
+                )
+            elif b["type"] == "tool_result":
+                items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": b["tool_use_id"],
+                        "output": str(b.get("content", "")),
+                    }
+                )
+    return items
+
+
+def _responses_tools(case: Case) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "name": t["name"],
+            "description": t.get("description", ""),
+            "parameters": t.get("input_schema", {"type": "object"}),
+        }
+        for t in case.tools
+    ]
+
+
+def _responses_signature(output: list[Any]) -> str:
+    """Map Responses output items onto the shadow signature by rebuilding the
+    Chat Completions shape — same normalization, same tool:/text/none space."""
+    for item in output:
+        if isinstance(item, dict) and item.get("type") == "function_call":
+            chat = {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": item.get("name"),
+                                        "arguments": item.get("arguments"),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+            return decision_signature(chat)
+    if any(isinstance(i, dict) and i.get("type") == "message" for i in output):
+        return "text"
+    return "none"
+
+
+class OpenAIArms(ProviderArms):
+    """The same three-arm experiment against **OpenAI server-side compaction**
+    (Responses API ``context_management`` with a ``compact_threshold``).
+
+    Firing ground truth: a ``{"type": "compaction", "encrypted_content": ...}``
+    item in the response output. The compaction payload is opaque, so unlike
+    Anthropic there is no cleared-token count — ``cleared_input_tokens`` stays 0
+    and firing is the item's presence alone.
+    """
+
+    target = "openai-compaction"
+    label = "OpenAI server-side compaction"
+
+    def __init__(
+        self,
+        model: str = "gpt-5.2",
+        client: object | None = None,
+        max_tokens: int = 512,
+        max_calls: int | None = None,
+    ) -> None:
+        super().__init__(model=model, client=client, max_tokens=max_tokens, max_calls=max_calls)
+
+    def edits(self, *, trigger_tokens: int, keep_tool_uses: int) -> Any:
+        # keep_tool_uses has no OpenAI analog — compaction summarizes, not clears.
+        return [{"type": "compaction", "compact_threshold": trigger_tokens}]
+
+    def _ensure_client(self) -> Any:
+        if self._client is None:
+            try:
+                from openai import OpenAI
+            except ImportError:
+                raise SystemExit(
+                    "distil: the 'openai' package is needed for --provider openai "
+                    "(live A/B).\n  install it:  pipx inject distil-llm openai"
+                ) from None
+            try:
+                self._client = OpenAI()
+            except Exception as exc:  # noqa: BLE001 — missing/invalid key, etc.
+                raise SystemExit(
+                    f"distil: could not initialise the OpenAI client — {exc}\n"
+                    "  set your key:  export OPENAI_API_KEY=sk-..."
+                ) from None
+        return self._client
+
+    def observe(self, case: Case, edits: Any | None) -> ArmObservation:
+        self._charge()
+        kw: dict[str, Any] = {
+            "model": self.model,
+            "max_output_tokens": self.max_tokens,
+            "instructions": case.system,
+            "tools": _responses_tools(case),
+            "input": _responses_input(case),
+        }
+        if edits is not None:
+            kw["context_management"] = edits
+        try:
+            resp = self._ensure_client().responses.create(**kw)
+        except SystemExit:
+            raise
+        except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit
+            raise SystemExit(f"distil: the OpenAI API call failed — {exc}") from None
+
+        body: dict[str, Any] = (
+            resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)  # type: ignore[arg-type]
+        )
+        output = body.get("output") or []
+        fired = any(isinstance(i, dict) and i.get("type") == "compaction" for i in output)
+        return ArmObservation(
+            signature=_responses_signature(output),
+            fired=fired,
+            cleared_input_tokens=0,  # opaque compaction item — no cleared-token report
         )
 
 
@@ -363,16 +521,17 @@ class ProviderCompactionReport:
 
     @property
     def statement(self) -> str:
+        label = self.protocol.get("label", "Provider context manipulation")
         if self.underpowered:
             return (
-                f"UNDERPOWERED: context editing fired on only {self.cases_fired}/"
+                f"UNDERPOWERED: {label} fired on only {self.cases_fired}/"
                 f"{self.cases_total} cases — the A/B sample cannot support a verdict. "
                 "Lower --trigger-tokens / --keep, or use longer transcripts."
             )
         a = self.protocol["alpha"]
         d = self.protocol["delta"]
         head = (
-            f"Anthropic context editing changed the agent's decision on "
+            f"{label} changed the agent's decision on "
             f"{self.ab_change_rate * 100:.1f}% of {self.cases_fired} fired cases "
             f"(A/A noise floor {self.aa_change_rate * 100:.1f}%, adjusted "
             f"{self.adjusted_change_rate * 100:.1f}%). "
@@ -390,6 +549,8 @@ class ProviderCompactionReport:
 def preregister(
     out_dir: Path,
     *,
+    target: str,
+    label: str,
     model: str,
     n_cases: int,
     votes: int,
@@ -402,8 +563,8 @@ def preregister(
     """Write the protocol to disk BEFORE any live call, and return it with its
     hash. The report embeds both, so a post-hoc n/α/δ change is visible."""
     protocol = {
-        "target": "anthropic-context-editing",
-        "beta": CONTEXT_MGMT_BETA,
+        "target": target,
+        "label": label,
         "model": model,
         "n_cases": n_cases,
         "votes": votes,
@@ -439,6 +600,8 @@ def run_experiment(
     """
     protocol, proto_sha = preregister(
         out_dir,
+        target=arms.target,
+        label=arms.label,
         model=arms.model,
         n_cases=len(cases),
         votes=votes,
@@ -448,7 +611,7 @@ def run_experiment(
         keep_tool_uses=keep_tool_uses,
         max_calls=arms.max_calls,
     )
-    edits = edit_config(trigger_tokens=trigger_tokens, keep_tool_uses=keep_tool_uses)
+    edits = arms.edits(trigger_tokens=trigger_tokens, keep_tool_uses=keep_tool_uses)
 
     results: list[CaseResult] = []
     for case in cases:

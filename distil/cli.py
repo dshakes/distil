@@ -1944,12 +1944,15 @@ def cmd_certify_provider(args: argparse.Namespace) -> int:
     manipulation change the agent's next decision? Pre-registered, A/A-controlled,
     budget-capped live A/B — see distil.certify.provider_compaction."""
     from .certify.provider_compaction import (
+        OpenAIArms,
         ProviderArms,
         load_episodes,
         run_experiment,
         to_case,
     )
 
+    arms_cls = OpenAIArms if args.provider == "openai" else ProviderArms
+    model = args.model or ("gpt-5.2" if args.provider == "openai" else "claude-opus-4-8")
     episodes = load_episodes(Path(args.episodes))
     cases = [c for c in (to_case(e, i) for i, e in enumerate(episodes)) if c is not None]
     if args.n is not None:
@@ -1961,13 +1964,13 @@ def cmd_certify_provider(args: argparse.Namespace) -> int:
     max_calls = args.max_live_calls if args.max_live_calls is not None else calls
     if args.dry_run:
         print(
-            f"certify-provider plan: {len(cases)} cases × 3 arms × {args.votes} votes "
-            f"= {calls} live calls on {args.model} (cap {max_calls}); "
-            f"trigger={args.trigger_tokens} input_tokens, keep={args.keep} tool uses, "
+            f"certify-provider plan [{arms_cls.target}]: {len(cases)} cases × 3 arms × "
+            f"{args.votes} votes = {calls} live calls on {model} (cap {max_calls}); "
+            f"trigger={args.trigger_tokens} tokens, keep={args.keep} tool uses, "
             f"α={args.alpha}, δ={args.delta}. No calls made."
         )
         return 0
-    arms = ProviderArms(model=args.model, max_calls=max_calls)
+    arms = arms_cls(model=model, max_calls=max_calls)
     report = run_experiment(
         cases,
         arms,
@@ -1979,7 +1982,7 @@ def cmd_certify_provider(args: argparse.Namespace) -> int:
         keep_tool_uses=args.keep,
         min_fired=args.min_fired,
     )
-    print("distil provider-compaction certificate (anthropic context-editing)\n")
+    print(f"distil provider-compaction certificate ({arms.target})\n")
     print(f"  cases (fired/total)  : {report.cases_fired}/{report.cases_total}")
     print(f"  A/B change rate      : {report.ab_change_rate * 100:.2f}% (fired cases)")
     print(f"  A/A noise floor      : {report.aa_change_rate * 100:.2f}%")
@@ -3069,7 +3072,18 @@ def build_parser() -> argparse.ArgumentParser:
         "episodes",
         help="tau-bench-shaped JSON: episodes with multi-turn tool messages (see benchmarks/fixtures/)",
     )
-    cp.add_argument("--model", default="claude-opus-4-8")
+    cp.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        default="anthropic",
+        help="whose context manipulation to certify: Anthropic context editing "
+        "or OpenAI server-side compaction",
+    )
+    cp.add_argument(
+        "--model",
+        default=None,
+        help="subject model (default: claude-opus-4-8 / gpt-5.2 per provider)",
+    )
     cp.add_argument("--n", type=int, default=None, help="cap the number of cases (pre-registered)")
     cp.add_argument("--votes", type=int, default=3, help="majority-of-k calls per arm")
     cp.add_argument("--alpha", type=float, default=0.1, help="max decision-change rate to certify")
@@ -3078,7 +3092,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--trigger-tokens",
         type=int,
         default=500,
-        help="input-token threshold at which the provider edit activates",
+        help="token threshold at which the provider edit/compaction activates",
     )
     cp.add_argument("--keep", type=int, default=0, help="recent tool uses the edit preserves")
     cp.add_argument(
