@@ -3,6 +3,32 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.32.0] — certify the provider's own context manipulation
+
+`distil certify-provider`: a pre-registered, A/A-controlled, budget-capped live A/B
+that measures whether **the provider's own context manipulation** changes an agent's
+next decision — Anthropic context editing (`clear_tool_uses`) and OpenAI server-side
+compaction (`--provider openai`). Vendors will not publish decision-equivalence for
+their own features; a third party on the wire can.
+
+The design is the shadow/certificate machinery pointed at a new A/B: same multi-turn
+tool transcript, manipulation ON vs OFF, plus a second baseline arm for the sampling
+noise floor. Firing is ground-truthed per request (`applied_edits` / the `compaction`
+output item); cases where the manipulation never fired are excluded from the sample.
+The protocol (n, α, δ, votes, trigger, model) is written to disk before the first
+API call, live calls are hard-capped, and transient upstream failures retry with
+bounded backoff instead of burning an unattended run.
+
+First pre-registered certificates (n=40, majority-of-3, worst-case configs on a
+synthetic decision-bearing corpus, `benchmarks/results/provider-compaction/`):
+Anthropic clearing changed the agent's decision on **92.5%** of fired cases —
+37/40 flips were tool→text, the agent stops acting rather than acting differently —
+while OpenAI compaction changed **12.5%**. Neither certifies decision-safe at α=0.1.
+Honest scope: aggressive triggers on transcripts built so tool results are
+decision-bearing; the default-config number on long real traffic is future work.
+
+Also: the `live` extra now includes the OpenAI SDK.
+
 ## [1.31.1] — prove the attestation gate
 
 No runtime change. This release exists to run the corrected attestation check in CI,
