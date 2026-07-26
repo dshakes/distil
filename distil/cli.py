@@ -539,6 +539,39 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_receipts(args: argparse.Namespace) -> int:
+    """Verify or export the per-request receipt chain.
+
+    A receipt records what distil did to one request — counts, mode, handles issued,
+    whether they still resolve — and never any content. Receipts are hash-chained, so
+    this command needs nothing but the file: it recomputes every hash and every link.
+    """
+    from dataclasses import asdict
+
+    from . import receipts as _r
+
+    if args.export:
+        n = 0
+        for rec in _r.read():
+            print(json.dumps(asdict(rec), sort_keys=True, separators=(",", ":")))
+            n += 1
+        if n == 0:
+            print("# no receipts recorded", file=sys.stderr)
+        return 0
+
+    verdict = _r.verify()
+    print(verdict.statement)
+    if verdict.total:
+        saved = sum(r.tokens_saved for r in _r.read())
+        print(f"  path      {_r.receipts_path()}")
+        print(f"  receipts  {verdict.total}")
+        print(f"  tokens    {saved:,} saved across the chain")
+        unresolved = [r.request_id for r in _r.read() if not r.restorable]
+        if unresolved:
+            print(f"  ⚠ not restorable at write time: {len(unresolved)} request(s)")
+    return 0 if verdict.ok else 1
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Byte-fidelity gate (Phase 6): every distil compression across the corpus is
     reconstructable, and frozen history never mutates turn-to-turn."""
@@ -2446,6 +2479,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="print a shields.io badge URL + markdown of your measured savings",
     )
     lb.set_defaults(func=cmd_leaderboard)
+
+    rc = sub.add_parser(
+        "receipts",
+        help="verify (or export) the tamper-evident per-request receipt chain",
+    )
+    rc.add_argument(
+        "--export", action="store_true", help="print every receipt as JSONL instead of verifying"
+    )
+    rc.set_defaults(func=cmd_receipts)
 
     rs = sub.add_parser(
         "reset",
