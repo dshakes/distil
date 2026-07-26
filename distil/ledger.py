@@ -400,6 +400,8 @@ th,td{{padding:11px 14px;border-bottom:1px solid #1b2030;text-align:left}}
 th{{color:#5b6177;font-size:11px;text-transform:uppercase;letter-spacing:.07em}}
 td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}} .muted{{color:#5b6177}}
 .foot{{color:#5b6177;font-size:12.5px;margin-top:22px}}
+caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+ clip:rect(0,0,0,0);white-space:nowrap;border:0}}
 </style></head><body><div class="wrap">
 <h1>Your <span class="g">savings</span></h1>
 <p class="sub">Genuine, local-first — measured from your own runs and proxy traffic. No content leaves your machine.</p>
@@ -410,7 +412,10 @@ td.r{{text-align:right;color:#5ad1c9;font-variant-numeric:tabular-nums}} .muted{
  <div class="card"><div class="l">Runs</div><div class="v">{s.runs:,}</div></div>
  {_eq_card(change_rate, samples)}{_session_card(session)}
 </div>
-<table><thead><tr><th>source</th><th style="text-align:right">{col_hdr}</th></tr></thead><tbody>{rows}</tbody></table>
+<table><caption class="sr-only">Savings by source</caption>
+<thead><tr><th scope="col">source</th>
+<th scope="col" style="text-align:right">{col_hdr}</th></tr></thead>
+<tbody>{rows}</tbody></table>
 <p class="foot">{note} Share verifiably across instances with <code>distil federated-leaderboard</code>.</p>
 </div></body></html>"""
 

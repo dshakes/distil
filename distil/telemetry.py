@@ -242,6 +242,8 @@ def render_leaderboard_html(lb: Leaderboard) -> str:
           color:#8b7bff;font-size:.7rem;padding:.1rem .4rem;border-radius:.25rem;
           margin-left:.5rem;vertical-align:middle}}
   .rejected{{font-size:.8rem;color:#8b8ea8;margin-top:1rem}}
+  caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+      clip:rect(0,0,0,0);white-space:nowrap;border:0}}
 </style>
 </head>
 <body>
@@ -258,10 +260,13 @@ def render_leaderboard_html(lb: Leaderboard) -> str:
     <div class="value">{t.get("instances", 0):,}</div></div>
 </div>
 <table>
+<caption class="sr-only">Per-instance verified savings leaderboard</caption>
 <thead><tr>
-  <th>#</th><th>Instance</th><th style="text-align:right">Tokens saved</th>
-  <th style="text-align:right">Dollars saved</th><th style="text-align:right">Runs</th>
-  <th>Certified</th>
+  <th scope="col">#</th><th scope="col">Instance</th>
+  <th scope="col" style="text-align:right">Tokens saved</th>
+  <th scope="col" style="text-align:right">Dollars saved</th>
+  <th scope="col" style="text-align:right">Runs</th>
+  <th scope="col">Certified</th>
 </tr></thead>
 <tbody>
 {rows_html}</tbody>
