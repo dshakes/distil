@@ -335,11 +335,11 @@
 
   <div class="doors">
     <a class="door" href="getting-started.html">
-      <span class="door-ico">⚡</span>
+      <span class="door-ico" aria-hidden="true">⚡</span>
       <span class="door-body"><span class="door-t">Get saving (2 min)</span><span class="door-d">One command, no code changes</span></span>
     </a>
     <div class="door door-alt">
-      <span class="door-ico">🔬</span>
+      <span class="door-ico" aria-hidden="true">🔬</span>
       <span class="door-body"><span class="door-t"><a href="compare.html">See the proof</a></span><span class="door-d">Benchmarks &amp; <a href="research.html">full research</a></span></span>
     </div>
   </div>
@@ -474,15 +474,15 @@
   <p class="lead">No jargon. Here's the whole idea in three pictures.</p>
   <div class="tiers">
     <div class="card">
-      <h3>🗂️ Don't re-send what's already remembered</h3>
+      <h3><span aria-hidden="true">🗂️</span> Don't re-send what's already remembered</h3>
       <p style="color:var(--mut)">Every turn, your agent re-sends the <em>entire</em> conversation — and you pay for all of it, again. The model can cheaply "remember" the parts that haven't changed, so Distil keeps those parts perfectly stable and only touches the new bits. <b>Like not re-reading someone the whole book to add one sentence.</b></p>
     </div>
     <div class="card">
-      <h3>✂️ Drop only what doesn't matter</h3>
+      <h3><span aria-hidden="true">✂️</span> Drop only what doesn't matter</h3>
       <p style="color:var(--mut)">Most of that context never changes what the agent decides to do next. Distil finds those dead-weight parts with a simple test — <em>remove it, replay, did the decision change?</em> If no, it was safe to cut. <b>Keep the clues, drop the filler.</b></p>
     </div>
     <div class="card">
-      <h3>🧾 Prove it — don't just trust it</h3>
+      <h3><span aria-hidden="true">🧾</span> Prove it — don't just trust it</h3>
       <p style="color:var(--mut)">Here's the part nobody else does: Distil <em>measures</em> that your agent still makes the same choice on the shrunk context. If it can't prove that, it sends everything, untouched. <b>A warranty on the compression, not a promise.</b></p>
     </div>
   </div>
@@ -493,7 +493,7 @@
   <div class="seyebrow p">The architecture</div>
   <h2>Under the hood <span class="g">— a cost-optimized cache hierarchy with a contract</span><a class="hlink" href="#how" aria-label="Link to this section">#</a></h2>
   <p class="lead">Most compressors optimize bytes. In an agent loop the money is somewhere else.</p>
-  <img loading="lazy" src="assets/architecture.svg" alt="architecture" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 24px"/>
+  <img loading="lazy" src="assets/architecture.svg" alt="Architecture: agent traffic flows through the Distil proxy (Tier-0 lossless, Tier-1 digest, causal prune, salience, cache-aware placement) to the provider, with a recovery loop and decision-equivalence certificate" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 24px"/>
   <h3 style="font-size:22px">Two highest-leverage techniques <span class="g">— and why they win</span></h3>
   <div class="grid2">
     <div class="card">
@@ -553,7 +553,7 @@ VERDICT: <span class="g">PASS</span>  (certified non-inferior)
 <span class="d">$ distil certify --strategy aggressive</span>
 decision-equivalence match rate: <span class="w">0.0%</span>
 VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
-  <img loading="lazy" src="assets/cache-aware.svg" alt="cache-aware savings" style="width:100%;border:1px solid var(--line);border-radius:16px;margin-top:18px"/>
+  <img loading="lazy" src="assets/cache-aware.svg" alt="Bar chart of per-run cost: baseline (no cache, no compress) $0.01524; cache only $0.01115 (-27%); naive recompression busts the prefix cache and costs more, $0.01691; distil's cache-aware lossless approach $0.01019 (-33%), the lowest of the four" style="width:100%;border:1px solid var(--line);border-radius:16px;margin-top:18px"/>
 </div></section>
 
 <section id="domains"><div class="wrap">
@@ -561,7 +561,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <h2>Measured across 7 domains <span class="g">— the same gate, not one example</span><a class="hlink" href="#domains" aria-label="Link to this section">#</a></h2>
   <p class="lead">A strategy isn't trustworthy because it works once. <code>distil bench</code> certifies
     every domain — ops, coding, support, research, data, devops, finance — or it doesn't ship.</p>
-  <img loading="lazy" src="assets/domains.svg" alt="measured across 7 domains" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
+  <img loading="lazy" src="assets/domains.svg" alt="Bar chart of lossless savings across 7 domains, all passing the decision-equivalence gate: ops/sre 33.1%, coding 28.7%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 25.0%, finance 29.1%; aggregate 26.8% cheaper losslessly across 5,761 prunable tokens" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
 </div></section>
 
 <section id="tiers"><div class="wrap">
@@ -605,7 +605,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <h2>Works with every SDK <span class="g">— one proxy, no code change</span><a class="hlink" href="#integrations" aria-label="Link to this section">#</a></h2>
   <p class="lead">Point any <code>base_url</code>-honoring client at the proxy — Python, TypeScript, any language —
     and get cache-aware lossless compression. <a href="integrations.html" style="color:var(--acc2);text-decoration:underline">See integrations →</a></p>
-  <img loading="lazy" src="assets/cross-sdk.svg" alt="one proxy, every SDK" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
+  <img loading="lazy" src="assets/cross-sdk.svg" alt="Diagram: five client SDKs (Anthropic, OpenAI, Vercel AI, LangChain, LiteLLM) all point base_url at the Distil proxy on localhost:8788, which does cache-aware compression, lossless reversible transforms, and auth-mode gating (or runs in-process via wrap(client)), then forwards to Anthropic, OpenAI-compatible, or Google Gemini APIs with no code changes" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
 </div></section>
 
 <section id="install"><div class="wrap">
