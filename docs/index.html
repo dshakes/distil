@@ -243,6 +243,32 @@
   .vs .vfoot{margin-top:16px;font-size:12.5px;color:var(--dim);font-family:var(--mono)}
   @media(max-width:840px){.vs{grid-template-columns:1fr}}
 
+  /* Install pill — marked up as a preformatted block deliberately, so site.js's
+     existing copy-button wiring picks it up and there is no second copy
+     implementation to keep in sync. */
+  /* padding-right clears site.js's absolutely-positioned copy button, which would
+     otherwise sit on top of the command text. */
+  .installpill{display:inline-block;margin:24px 0 4px;padding:13px 84px 13px 20px;
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid #2a2550;border-radius:999px;
+    box-shadow:0 0 0 1px rgba(139,123,255,.08),0 14px 40px -22px rgba(139,123,255,.5)}
+  .installpill code{font-family:var(--mono);font-size:15px;color:var(--ink);background:none;padding:0}
+  @media(max-width:560px){.installpill{display:block;border-radius:14px}
+    .installpill code{font-size:13px}}
+
+  /* "Works with" — the is-this-for-me signal, above the stat tiles. */
+  .workswith{margin:34px 0 6px}
+  .workswith-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--mut);margin-bottom:14px}
+  .chiprow{display:flex;flex-wrap:wrap;gap:9px;list-style:none;padding:0;margin:0}
+  .chiprow li{border:1px solid var(--line);border-radius:999px;padding:7px 15px;
+    font-size:13px;color:var(--ink);font-family:var(--mono);
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    transition:border-color .18s ease,transform .18s ease}
+  .chiprow li:hover{border-color:#2a2550;transform:translateY(-2px)}
+  .workswith-f{color:var(--dim);font-size:13px;margin:14px 0 0;max-width:62ch;line-height:1.6}
+  @media (prefers-reduced-motion:reduce){.chiprow li{transition:none}}
+
   /* hero fine-print: 2-col so it fills the width (no right-side gap) */
   .herofoot{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:28px;
     padding-top:22px;border-top:1px solid var(--line)}
@@ -346,6 +372,11 @@
     <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference)</small></p>
   <p class="sub" style="font-size:15px;margin-top:22px">New to this? <a href="#plain"><b>See how it works in plain English →</b></a></p>
 
+  <!-- Install, above the fold. A visitor's first question is "how do I get this", and it
+       used to be answerable only by scrolling into a terminal card whose first line is a
+       benchmark, not an install. One copyable line costs nothing and answers it. -->
+  <pre class="installpill"><code>pipx install distil-llm</code></pre>
+
   <div class="doors">
     <a class="door" href="getting-started.html">
       <span class="door-ico" aria-hidden="true">⚡</span>
@@ -376,6 +407,31 @@
     <p class="sub" style="font-size:13.5px">One command sets you up — <code>distil onboard</code> detects your agent + billing, wires the status line, and hands you the exact next steps:<br>
       <code>pipx install distil-llm &amp;&amp; distil onboard</code><br>
       <span style="opacity:.8">…or route Claude Code directly, no code change: <code>distil wrap --expand -- claude</code></span></p>
+  </div>
+
+  <!-- "Is this for me?" answered above the stats. Previously the only place a visitor
+       could see which agents/frameworks are supported was the integrations page, two
+       clicks away. Every name here is a surface distil actually ships: the first four
+       are `distil wrap` presets (distil/onboard.py AGENT_PRESETS), the rest are entries
+       in the integration matrix. Nothing aspirational. -->
+  <div class="workswith" aria-labelledby="workswith-h">
+    <div id="workswith-h" class="workswith-h">Works with</div>
+    <ul class="chiprow">
+      <li>Claude Code</li>
+      <li>Codex</li>
+      <li>Gemini CLI</li>
+      <li>aider</li>
+      <li>LangChain</li>
+      <li>LangGraph</li>
+      <li>LiteLLM</li>
+      <li>Agno</li>
+      <li>AWS Strands</li>
+      <li>Vercel AI SDK</li>
+      <li>MCP</li>
+    </ul>
+    <p class="workswith-f">…and anything else that lets you set a base URL — distil is a
+      proxy, so there is no per-framework package to install or keep in sync.
+      <a href="integrations.html">Full integration matrix →</a></p>
   </div>
 
   <div class="stats">
