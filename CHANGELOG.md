@@ -3,6 +3,49 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.37.0] — you will be asked, once, at the moment it makes sense
+
+**The census undercounted because nobody was asked.** `distil onboard` was the
+only place that ever requested consent, so anyone who ran `pipx install
+distil-llm` and went straight to `distil wrap` — the natural path, and the one
+the README showed most prominently until this week — was never asked and could
+never be counted. The live numbers made the shape of it obvious: **2 opted-in
+installs against 11,102 monthly downloads and 374 unique cloners.** That is not a
+counter that is broken; it is a question that was never put.
+
+**You will now be asked once, at the end of a session that actually saved
+something.** That is the only moment the question is fair: you have run the
+thing, there is a real number on screen, and "share this?" is concrete rather
+than hypothetical. The prompt sits before the census send, so a first yes counts
+the session you were looking at rather than one a day later.
+
+Every guard the original prompt established is kept, and one is new. Asked once —
+a stored yes or no ends it permanently. `DO_NOT_TRACK` and `DISTIL_NO_TELEMETRY`
+win outright. Both streams must be a terminal, so pipes, CI and headless runs
+never prompt and therefore never enrol. **Ctrl-C is not an answer** — recording a
+decline there would burn the one chance to ask on a keystroke that meant "not
+now" — though unanswered prompts stop after three, because a prompt nobody
+answers must not become a prompt nobody escapes. The new one: **nothing is asked
+if the session saved nothing.** Asking someone who got no value to share their
+numbers is a worse question and a worse experience than staying quiet. And none
+of it can raise: this runs on the wrap teardown path, where an exception would
+change your exit code over telemetry.
+
+**What this does not do is make you identifiable.** `install_id` is a random
+UUID, and `distil census off` deletes it — so a machine that toggles consent
+mints a new one. There is no way to tell one person's second laptop from two
+different people, and there will not be: the fix for a small opted-in set is a
+larger opted-in set, not fingerprinting.
+
+**Docs.** A light theme (page chrome only — diagrams and code blocks stay dark,
+because SVGs loaded through `<img>` cannot inherit page CSS and half-recolouring
+them would look broken rather than deliberate; contrast measured at 7.24:1 body
+and 17.5:1 headings). Per-page **Copy as Markdown**, because these docs are read
+by agents as often as by people. And eight per-framework pages — Anthropic SDK,
+OpenAI SDK, LiteLLM, LangChain, Vercel AI SDK, Agno, Strands, CrewAI — each
+carrying the caveat that actually bites, such as CrewAI resolving `planning_llm`
+separately and silently bypassing the proxy.
+
 ## [1.36.0] — the image transform is certified, and now on by default
 
 1.35.0 shipped vision compression **merged but inert**: the gate demanded a
