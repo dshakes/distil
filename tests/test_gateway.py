@@ -487,3 +487,216 @@ def test_gateway_state_load_caps_at_max_tenants(tmp_path: Any) -> None:
 
     snap = state.snapshot()
     assert len(snap["tenants"]) == _MAX_TENANTS
+
+
+def test_metrics_endpoint_serves_prometheus_exposition(gw_servers: Any) -> None:
+    """Enterprises scrape; they do not poll a dashboard. /distil/metrics must be
+    valid Prometheus text exposition, carrying the same numbers as /distil/stats."""
+    gw_port, _state = gw_servers
+    # generate some traffic so there is at least one tenant series
+    with urllib.request.urlopen(
+        _post(
+            gw_port,
+            "/v1/messages",
+            _messages_payload(),
+            extra_headers={"x-distil-tenant": "scrape-co"},
+        )
+    ) as r:
+        assert r.status == 200
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{gw_port}/distil/metrics") as resp:
+        assert resp.status == 200
+        ctype = resp.headers.get("Content-Type", "")
+        body = resp.read().decode()
+
+    assert ctype.startswith("text/plain"), f"Prometheus needs text/plain, got {ctype!r}"
+    assert "version=0.0.4" in ctype, "exposition format version must be declared"
+
+    # Every series must be preceded by its HELP and TYPE, or scrapers warn.
+    for name in ("distil_requests_total", "distil_tokens_saved_total", "distil_compression_ratio"):
+        assert f"# HELP {name} " in body, f"missing HELP for {name}"
+        assert f"# TYPE {name} " in body, f"missing TYPE for {name}"
+    assert 'distil_requests_total{tenant="scrape-co"}' in body
+    assert "distil_build_info{version=" in body
+
+    # Well-formed: every non-comment line is `name value` with a numeric value.
+    for line in body.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        _series, _, value = line.rpartition(" ")
+        float(value)  # raises if the exposition is malformed
+
+
+def test_metrics_totals_agree_with_stats(gw_servers: Any) -> None:
+    """The scrape and the JSON must not disagree — two sources of truth for the
+    same number is how dashboards start lying."""
+    gw_port, _state = gw_servers
+    with urllib.request.urlopen(
+        _post(
+            gw_port,
+            "/v1/messages",
+            _messages_payload(),
+            extra_headers={"x-distil-tenant": "agree-co"},
+        )
+    ) as r:
+        assert r.status == 200
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{gw_port}/distil/stats") as r:
+        stats = json.loads(r.read().decode())
+    with urllib.request.urlopen(f"http://127.0.0.1:{gw_port}/distil/metrics") as r:
+        body = r.read().decode()
+
+    row = next(t for t in stats["tenants"] if t["tenant"] == "agree-co")
+    assert f'distil_requests_total{{tenant="agree-co"}} {row["requests"]}' in body
+    assert f'distil_tokens_saved_total{{tenant="agree-co"}} {row["tokens_saved"]}' in body
+
+
+def test_metrics_endpoint_enforces_the_admin_gate() -> None:
+    """/distil/metrics is labelled by tenant, so an open scrape endpoint would
+    publish the customer list to anyone who can reach the port. It must sit
+    behind exactly the same gate as /distil/stats — refused on a non-loopback
+    bind with no token, 401 on a wrong token, 200 only with the right Bearer.
+    """
+    import http.client
+
+    upstream_server = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
+    threading.Thread(target=upstream_server.serve_forever, daemon=True).start()
+    upstream_url = f"http://127.0.0.1:{upstream_server.server_address[1]}"
+    price = pricing_get("claude-opus-4-8")
+
+    def _get(port: int, headers: dict | None = None) -> tuple[int, str]:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/distil/metrics", headers=headers or {})
+        resp = conn.getresponse()
+        status, body = resp.status, resp.read().decode(errors="replace")
+        conn.close()
+        return status, body
+
+    # Non-loopback, no token → refused, and the body must not leak metrics.
+    h1 = build_gateway_handler(upstream_url, GatewayState(price), price, loopback=False)
+    s1 = ThreadingHTTPServer(("127.0.0.1", 0), h1)
+    threading.Thread(target=s1.serve_forever, daemon=True).start()
+    status, body = _get(s1.server_address[1])
+    assert status == 403, f"unauthenticated non-loopback scrape returned {status}"
+    assert "distil_requests_total" not in body, "refused response leaked metric names"
+
+    # Token configured → 401 without and on a wrong token; 200 only with the right one.
+    h2 = build_gateway_handler(
+        upstream_url, GatewayState(price), price, loopback=False, admin_token="sekrit"
+    )
+    s2 = ThreadingHTTPServer(("127.0.0.1", 0), h2)
+    threading.Thread(target=s2.serve_forever, daemon=True).start()
+    port = s2.server_address[1]
+    assert _get(port)[0] == 401
+    assert _get(port, {"Authorization": "Bearer wrong"})[0] == 401
+    status, body = _get(port, {"Authorization": "Bearer sekrit"})
+    assert status == 200
+    assert "# TYPE distil_requests_total counter" in body
+
+    for srv in (s1, s2, upstream_server):
+        srv.shutdown()
+
+
+def test_metrics_never_emit_secrets_or_raw_content() -> None:
+    """The exposition carries counters and a tenant label — never prompt text,
+    API keys, or handles. A metrics endpoint is the easiest place to leak by
+    accident because nobody reads it until it is scraped into a shared Grafana.
+    """
+    from distil.metrics import render
+
+    snap = {
+        "tenants": [
+            {
+                "tenant": "acme",
+                "requests": 1,
+                "tokens_baseline": 10,
+                "tokens_compressed": 5,
+                "tokens_saved": 5,
+                "dollars_saved": 0.1,
+                "pct_saved": 50.0,
+                # fields a future snapshot might carry that must NOT be exported
+                "api_key": "sk-ant-SECRET",
+                "last_prompt": "the user's private question",
+            }
+        ]
+    }
+    out = render(snap, version="1.34.0")
+    assert "sk-ant-SECRET" not in out
+    assert "private question" not in out
+    assert "api_key" not in out
+    # allow-list by construction: only the declared series appear
+    names = {
+        ln.split("{")[0].split(" ")[0] for ln in out.splitlines() if ln and not ln.startswith("#")
+    }
+    assert names <= {
+        "distil_requests_total",
+        "distil_tokens_baseline_total",
+        "distil_tokens_sent_total",
+        "distil_tokens_saved_total",
+        "distil_dollars_saved_total",
+        "distil_compression_ratio",
+        "distil_build_info",
+    }, f"unexpected series exported: {names}"
+
+
+def test_metrics_label_injection_cannot_break_the_exposition() -> None:
+    """A tenant id is attacker-influenced in some deployments. Quotes, newlines
+    and backslashes must be escaped or a malicious label could forge extra
+    series in the scrape."""
+    from distil.metrics import render
+
+    hostile = 'evil",forged_total="9999\nfake_metric 1\\'
+    out = render(
+        {
+            "tenants": [
+                {
+                    "tenant": hostile,
+                    "requests": 1,
+                    "tokens_baseline": 1,
+                    "tokens_compressed": 0,
+                    "tokens_saved": 1,
+                    "dollars_saved": 0.0,
+                    "pct_saved": 100.0,
+                }
+            ]
+        }
+    )
+
+    # No raw newline may survive: one metric == one line.
+    assert "\nfake_metric" not in out, "a newline in a label broke out of its line"
+    lines = [ln for ln in out.splitlines() if ln and not ln.startswith("#")]
+    assert len(lines) == 7, f"label injection forged extra series: {len(lines)} lines"
+
+    def labels_of(line: str) -> dict[str, str]:
+        """Parse a label block the way a scraper does — honouring backslash
+        escapes — so an escaped quote cannot be miscounted as a delimiter."""
+        inner = line[line.index("{") + 1 : line.rindex("}")]
+        out_labels, key, buf, in_val, esc = {}, "", "", False, False
+        for ch in inner:
+            if esc:
+                buf += {"n": "\n", "\\": "\\", '"': '"'}.get(ch, ch)
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                if in_val:
+                    out_labels[key.strip(" ,=")] = buf
+                    key, buf = "", ""
+                in_val = not in_val
+            elif in_val:
+                buf += ch
+            else:
+                key += ch
+        return out_labels
+
+    for line in lines:
+        if "{" not in line:
+            continue
+        got = labels_of(line)
+        if line.startswith("distil_build_info"):
+            assert set(got) == {"version"}, f"build_info labels drifted: {set(got)}"
+            continue
+        # A hostile tenant id must remain exactly ONE label, value round-tripped.
+        assert set(got) == {"tenant"}, f"injection created labels {set(got)}"
+        assert got["tenant"] == hostile, "round-trip lost or altered the label value"
+        float(line.rpartition(" ")[2])  # value still parses

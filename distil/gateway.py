@@ -860,6 +860,12 @@ def build_gateway_handler(
             if self.path == "/distil/stats":
                 if self._admin_authorized():
                     self._handle_stats()
+            elif self.path == "/distil/metrics":
+                # Behind the SAME admin gate as /distil/stats: the series are
+                # labelled by tenant, so an open /metrics would publish the
+                # tenant list to anyone who can reach the port.
+                if self._admin_authorized():
+                    self._handle_metrics()
             elif self.path == "/distil/dashboard":
                 if self._admin_authorized():
                     self._handle_dashboard()
@@ -941,6 +947,28 @@ def build_gateway_handler(
             body = json.dumps(snap, indent=2).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _handle_metrics(self) -> None:
+            """Prometheus scrape target. Never raises: a failed scrape must not
+            take down the proxy path that shares this server. A scraper that
+            gets a 500 retries in 15s; an exception escaping here would drop the
+            connection mid-response and leave a half-written body on the wire."""
+            from . import metrics as _metrics
+
+            try:
+                from . import __version__ as _v
+            except Exception:  # noqa: BLE001
+                _v = ""
+            try:
+                body = _metrics.render(state.snapshot(), version=_v).encode()
+            except Exception:  # noqa: BLE001 — observability must never break the proxy
+                self._reject(500, "metrics render failed")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", _metrics.CONTENT_TYPE)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -1286,6 +1314,7 @@ def serve_gateway(
     server = QuietHTTPServer((host, port), handler)
     print(f"distil gateway listening on http://{host}:{port}")
     print(f"  dashboard: http://{host}:{port}/distil/dashboard")
+    print(f"  metrics:   http://{host}:{port}/distil/metrics  (Prometheus)")
     auth_active = require_keys or key_store.has_active_keys()
     if auth_active:
         print("  key auth: enabled (dsk- bearer keys required)")

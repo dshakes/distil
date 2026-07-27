@@ -177,3 +177,75 @@ def test_otel_failures_never_break_the_request_path(monkeypatch):
         assert span is not None  # started, but every method on it explodes
         otel.set_result_attrs(span, original_tokens=2, compressed=True)  # swallowed
     # reaching here without an exception IS the assertion
+
+
+# ---------------------------------------------------------------------------
+# OTel metrics — the counter half of the export. Independent of tracing.
+# ---------------------------------------------------------------------------
+
+
+def test_record_compression_is_a_silent_noop_without_the_sdk(monkeypatch) -> None:
+    """The core has no runtime dependencies, so the common case is no metrics
+    SDK at all. That path must cost nothing and never raise."""
+    monkeypatch.setattr(otel, "_METRICS_ENABLED", False)
+    otel.record_compression(1000, 400, model="claude-opus-4-8")  # must not raise
+
+
+def test_record_compression_never_raises_on_a_broken_instrument(monkeypatch) -> None:
+    """A misbehaving exporter must not take down the request it is measuring."""
+
+    class _Boom:
+        def add(self, *a, **k):
+            raise RuntimeError("collector exploded")
+
+    monkeypatch.setattr(otel, "_METRICS_ENABLED", True)
+    monkeypatch.setattr(otel, "_c_requests", _Boom())
+    otel.record_compression(1000, 400)  # swallowed
+
+
+def test_counters_export_the_real_numbers() -> None:
+    """Assert the VALUES an OTel collector would receive, not merely that the
+    call succeeded — a metrics export that reports zeros is worse than none."""
+    sdk = pytest.importorskip("opentelemetry.sdk.metrics")
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+    reader = InMemoryMetricReader()
+    provider = sdk.MeterProvider(metric_readers=[reader])
+    meter = provider.get_meter("distil-test")
+
+    import distil.otel as o
+
+    saved_state = (o._METRICS_ENABLED, o._c_requests, o._c_baseline, o._c_sent, o._c_saved)
+    try:
+        o._METRICS_ENABLED = True
+        o._c_requests = meter.create_counter("distil.requests")
+        o._c_baseline = meter.create_counter("distil.tokens.baseline")
+        o._c_sent = meter.create_counter("distil.tokens.sent")
+        o._c_saved = meter.create_counter("distil.tokens.saved")
+
+        o.record_compression(1000, 400, model="claude-opus-4-8", provider="anthropic")
+        o.record_compression(500, 200, model="claude-opus-4-8", provider="anthropic")
+
+        totals: dict[str, float] = {}
+        for rm in reader.get_metrics_data().resource_metrics or []:
+            for sm in rm.scope_metrics:
+                for m in sm.metrics:
+                    for pt in m.data.data_points:
+                        totals[m.name] = totals.get(m.name, 0) + pt.value
+    finally:
+        (o._METRICS_ENABLED, o._c_requests, o._c_baseline, o._c_sent, o._c_saved) = saved_state
+
+    assert totals["distil.requests"] == 2
+    assert totals["distil.tokens.baseline"] == 1500
+    assert totals["distil.tokens.sent"] == 600
+    assert totals["distil.tokens.saved"] == 900, "saved must equal baseline - sent"
+
+
+def test_metrics_are_recorded_even_when_tracing_is_off(monkeypatch) -> None:
+    """Tracing and metrics are independently optional. set_result_attrs() with a
+    None span (tracer absent or sampled out) must STILL record the counters —
+    otherwise metrics silently depend on a tracer nobody installed."""
+    seen: list[tuple] = []
+    monkeypatch.setattr(otel, "record_compression", lambda o_, c_, **k: seen.append((o_, c_)))
+    otel.set_result_attrs(None, original_tokens=900, compressed_tokens=300)
+    assert seen == [(900, 300)], "counters were skipped when the span was None"

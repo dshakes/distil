@@ -57,6 +57,7 @@
       <ul>
         <li><a href="cli.html">CLI Reference</a></li>
         <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="corpus.html">Corpus</a></li>
         <li><a href="output.html">Output &amp; I/O</a></li>
       </ul>
@@ -166,7 +167,8 @@
       <li><strong>Per session</strong> — <code>distil shadow-stats</code> (live decision-change rate), the <code>distil gateway</code> dashboard, and the <strong>Proof Ledger</strong> (<code>distil/proof_ledger.py</code>) — a compact end-of-session printout on <code>distil wrap</code> exit showing calibrated tokens/cost, shadow verdict with honest suppression labels, and restorability. Opt out with <code>DISTIL_NO_LEDGER=1</code>.</li>
       <li><strong>Per machine, lifetime</strong> — <code>distil leaderboard</code> rolls up the local savings ledger (<code>~/.distil/savings.jsonl</code>); <code>--html</code> exports a page.</li>
       <li><strong>Community, verifiable</strong> — <code>distil federated-leaderboard</code> aggregates HMAC-signed, content-free, tamper-evident savings across instances; only certified submissions count, and sharing is opt-in (no telemetry by default).</li>
-      <li><strong>OTel traces (opt-in)</strong> — <code>pip install 'distil-llm[otel]'</code> emits GenAI semantic-convention spans plus <code>distil.tokens.original</code>, <code>distil.tokens.compressed</code>, <code>distil.compression.ratio</code>, <code>distil.shadow.sampled</code>, and <code>distil.session.id</code> for per-session trace correlation. Module: <code>distil/otel.py</code>.</li>
+      <li><strong>OTel traces (opt-in)</strong> — <code>pip install 'distil-llm[otel]'</code> emits GenAI semantic-convention spans plus <code>distil.tokens.original</code>, <code>distil.tokens.compressed</code>, <code>distil.compression.ratio</code>, <code>distil.shadow.sampled</code>, and <code>distil.session.id</code> for per-session trace correlation, plus OTel counters (<code>distil.requests</code>, <code>distil.tokens.baseline</code>/<code>.sent</code>/<code>.saved</code>) recorded at the same point. Module: <code>distil/otel.py</code>.</li>
+      <li><strong>Prometheus scrape</strong> — the gateway serves text exposition at <code>/distil/metrics</code> (stdlib-only, no client library), behind the same admin gate as <code>/distil/stats</code> because the series are tenant-labelled. Module: <code>distil/metrics.py</code>; see <a href="metrics.html">Metrics &amp; Observability</a>.</li>
     </ul>
 
     <hr/>
