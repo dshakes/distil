@@ -348,6 +348,42 @@ def _accrue(
     }
 
 
+def _reported_version() -> str:
+    """The distil version to report as installed — read from DISK, not from this
+    interpreter's already-imported ``__version__``.
+
+    These differ, and the difference silently corrupted the version histogram.
+    ``distil wrap`` is the flagship surface and is deliberately long-lived: the
+    hot-swap replaces the proxy *worker* on upgrade so the agent session never
+    restarts, which means the wrap parent keeps running the code it started
+    with — for days. It is also the process that emits the census on session
+    exit. So every wrap user's beat reported whatever version was installed when
+    their session began, and kept reporting it for the life of that session. The
+    "versions in the wild" chart was therefore a picture of when people last
+    restarted, not of what they have installed. Observed live: a machine running
+    1.34.0 beat ``1.28.0`` two upgrades later.
+
+    ``importlib.metadata`` re-discovers the dist-info on each call, so a
+    pipx/pip upgrade under a running process is visible immediately — that is
+    precisely what ``hotswap.installed_version()`` was built for, so this reuses
+    it rather than re-deriving it.
+
+    Falls back to the interpreter's own version when the package metadata is not
+    discoverable (a source checkout, a zipapp, a vendored copy). That fallback is
+    the old, slightly-stale answer, which is strictly better than reporting
+    nothing and is never wrong about *which* distil is running.
+    """
+    from . import __version__
+
+    try:
+        from .hotswap import installed_version
+
+        on_disk = installed_version()
+    except Exception:  # noqa: BLE001 — telemetry must never break the caller
+        on_disk = None
+    return on_disk or __version__
+
+
 def build_payload(*, accrue: bool = False) -> dict:
     """The census, exactly as it would be sent. Numbers and platform strings
     only — never content, paths, hashes-of-content, or key material.
@@ -366,7 +402,7 @@ def build_payload(*, accrue: bool = False) -> dict:
     persisted only on a real send (`maybe_ping`). `distil census show` and any
     direct preview call leave `~/.distil/census-savings.json` untouched.
     """
-    from . import __version__, ledger
+    from . import ledger
 
     s = ledger.summary()
     raw_tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
@@ -378,7 +414,7 @@ def build_payload(*, accrue: bool = False) -> dict:
     payload = {
         "schema": 4,
         "install_id": install_id(),
-        "version": __version__,
+        "version": _reported_version(),
         "os": platform.system(),
         "arch": platform.machine(),
         "python": platform.python_version(),

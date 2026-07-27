@@ -163,7 +163,15 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
         "shadowed": eq_shadowed,
     }
 
-    versions = Counter(r["version"] for r in latest.values())
+    # "Versions in the wild" means the CURRENT fleet, so it is scoped to installs
+    # that are still active. Counting every install_id ever seen made a machine
+    # that pinged once and vanished sit in the histogram forever, pinned to
+    # whatever it last reported — the chart drifted toward dead old versions and
+    # a fresh upgrade barely moved it. Every other population number on the page
+    # is already 7/30d-scoped; this one silently was not.
+    versions = Counter(
+        r["version"] for r in latest.values() if now - r["ts"] <= 30 * 86400 and r.get("version")
+    )
     tokens = sum(int(r["tokens_saved"]) for r in latest.values())  # Σ latest-per-install (faithful)
     # Dollars are bucketed by billing: metered = real savings; subscription =
     # notional API-rate value (shown and labeled, never mixed into real $).

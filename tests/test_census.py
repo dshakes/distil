@@ -750,3 +750,41 @@ def test_heartbeat_corrupt_marker_recovers(tmp_path, monkeypatch):
     # first beat with no prior baseline: last_ts=0 so throttle passes; grew from 0
     assert census.maybe_heartbeat() is True
     assert calls and calls[0]["tokens"] == 100
+
+
+# ---------------------------------------------------------------------------
+# Reported version — the "versions in the wild" histogram depends on this
+# ---------------------------------------------------------------------------
+
+
+def test_reported_version_reads_disk_not_the_running_interpreter(monkeypatch):
+    """A long-lived `distil wrap` parent keeps running the code it started with
+    (hot-swap replaces the worker, not the parent) and is the process that emits
+    the census on exit. Reporting the imported __version__ there meant every
+    wrap user's beat was pinned to whenever their session began — observed live
+    as a 1.34.0 machine reporting 1.28.0 two upgrades later.
+    """
+    import distil
+    import distil.hotswap as hotswap
+
+    monkeypatch.setattr(hotswap, "installed_version", lambda: "9.9.9")
+    monkeypatch.setattr(distil, "__version__", "1.28.0")  # the stale in-memory one
+    assert census._reported_version() == "9.9.9"
+    assert census.build_payload()["version"] == "9.9.9"
+
+
+def test_reported_version_falls_back_when_metadata_is_absent(monkeypatch):
+    """Source checkout / zipapp / vendored copy: no dist-info to discover. The
+    stale-but-real version beats reporting nothing."""
+    import distil
+    import distil.hotswap as hotswap
+
+    monkeypatch.setattr(distil, "__version__", "1.28.0")
+    monkeypatch.setattr(hotswap, "installed_version", lambda: None)
+    assert census._reported_version() == "1.28.0"
+
+    def _boom():
+        raise RuntimeError("metadata backend exploded")
+
+    monkeypatch.setattr(hotswap, "installed_version", _boom)
+    assert census._reported_version() == "1.28.0", "a probe failure must not propagate"
