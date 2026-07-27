@@ -146,6 +146,44 @@ jobs:
 #    add PUBLISH_TO_PYPI = true
 # 3. Push a tag (vX.Y.Z). No API token is ever stored — auth is OIDC.
 
+  # The npm wrapper — the README carries an npm version badge, but nothing ever
+  # published it after the first manual push: the registry served 1.25.0 while
+  # the repo said 1.27.0 and PyPI was on 1.33.1. A badge that advertises a build
+  # nine releases old is worse than no badge.
+  #
+  # Dormant until an NPM_TOKEN secret exists (an automation token from
+  # npmjs.com → Access Tokens). Until then the release is unaffected and the
+  # version can no longer drift silently: tests/test_packaging_smoke.py and the
+  # release.sh preflight both pin packaging/npm/package.json to pyproject.
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !contains(needs.build.outputs.version, 'rc') }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::warning::NPM_TOKEN not set — skipping npm publish. The README's npm"
+            echo "::warning::badge will keep showing the last published version."
+            exit 0
+          fi
+          cd packaging/npm
+          V="$(node -p "require('./package.json').version")"
+          # Re-running a release for a version already on npm must not fail the run.
+          if npm view "distil-llm@$V" version >/dev/null 2>&1; then
+            echo "distil-llm@$V already on npm — nothing to do"
+            exit 0
+          fi
+          npm publish --provenance --access public
+
   # GA container image → GitHub Container Registry, on the same v* tag.
   # ghcr.io needs no extra secrets (GITHUB_TOKEN with packages:write).
   publish-image:
