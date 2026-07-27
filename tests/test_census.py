@@ -313,6 +313,95 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
     assert on_disk > 0
 
 
+class _Sum:
+    def __init__(self, tokens):
+        self.total_tokens_saved = tokens
+
+
+@pytest.fixture
+def tty(monkeypatch):
+    """Claim stdout is a terminal. The invite is TTY-only so it never lands in a
+    pipe or a CI log, and pytest's captured stdout is not a TTY."""
+    from distil import cli
+
+    monkeypatch.setattr(cli, "_is_tty", lambda: True)
+
+
+def test_invite_offers_the_census_once_to_someone_with_savings(tty, capsys):
+    """Consent was only ever offered inside `distil onboard`, in a TTY — anyone
+    who went straight from `uvx`/`pipx` to `distil wrap` was never asked."""
+    from distil import cli
+
+    assert census.consent() is None
+    cli._census_invite(_Sum(5_000_000))
+    assert "distil census on" in capsys.readouterr().out
+    # Shown once. A second `distil stats` must be silent.
+    cli._census_invite(_Sum(5_000_000))
+    assert capsys.readouterr().out == ""
+
+
+def test_invite_never_grants_consent(tty, capsys):
+    """Seeing the invite is not answering it: the user stays un-asked and can
+    still opt in (or never) — the invite must not become a silent opt-in."""
+    from distil import cli
+
+    cli._census_invite(_Sum(5_000_000))
+    assert "distil census on" in capsys.readouterr().out
+    assert census.consent() is None
+    assert not census.enabled()
+
+
+def test_invite_is_silent_when_already_answered_or_disabled(tty, monkeypatch, capsys):
+    from distil import cli
+
+    census.opt_out()  # already answered
+    cli._census_invite(_Sum(5_000_000))
+    assert capsys.readouterr().out == ""
+
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    (census._home() / "census").unlink()  # back to un-asked
+    cli._census_invite(_Sum(5_000_000))
+    assert capsys.readouterr().out == "", "DO_NOT_TRACK must silence the invite too"
+
+
+def test_invite_is_silent_below_the_savings_threshold(tty, capsys):
+    from distil import cli
+
+    cli._census_invite(_Sum(cli.INVITE_MIN_TOKENS - 1))
+    assert capsys.readouterr().out == ""
+
+
+def test_stats_actually_shows_the_invite(tty, monkeypatch, capsys):
+    """Wiring test: the invite must reach the user through `distil stats`, not
+    just exist as a function nobody calls."""
+    import argparse
+
+    from distil import cli, ledger
+
+    summary = ledger.LedgerSummary(
+        runs=3,
+        total_dollars_saved=1.5,
+        total_tokens_saved=5_000_000,
+        by_trajectory={"live-proxy": 1.5},
+        total_baseline_tokens=10_000_000,
+        total_distil_tokens=5_000_000,
+        total_baseline_dollars=3.0,
+        total_distil_dollars=1.5,
+    )
+    monkeypatch.setattr(ledger, "summary", lambda *a, **k: summary)
+    args = argparse.Namespace(badge=False, html=None, json=False)
+    assert cli.cmd_leaderboard(args) == 0
+    assert "distil census on" in capsys.readouterr().out
+
+
+def test_invite_is_silent_without_a_tty(capsys):
+    """Piped into a file or a CI log, `distil stats` stays clean."""
+    from distil import cli
+
+    cli._census_invite(_Sum(5_000_000))
+    assert capsys.readouterr().out == ""
+
+
 def _seed_ledger(tmp_path, rows):
     """Write a savings.jsonl the census helpers read via ledger.default_path()."""
     import json as _json

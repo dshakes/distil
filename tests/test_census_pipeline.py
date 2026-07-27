@@ -144,6 +144,29 @@ def test_rollup_active_windows(tmp_path):
     assert agg["installs"]["census_total"] == 3
 
 
+def test_rollup_separates_consenting_from_contributing(tmp_path):
+    """Consenting is not contributing. A machine can turn the census on and
+    never run anything — counting it as a machine that is "saving" is how one
+    idle opt-in turned a single real ledger into a two-machine community story.
+    """
+    now = int(time.time())
+    rows = [
+        _row(install_id="a" * 32, ts=now, tokens_saved=1_600_000_000),
+        _row(install_id="b" * 32, ts=now, tokens_saved=0, runs=0),  # opted in, idle
+        _row(install_id="c" * 32, ts=now - 86400 * 90, tokens_saved=500),  # stale
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+
+    assert agg["installs"]["census_total"] == 3
+    assert agg["installs"]["active_30d"] == 2  # a and b are recent…
+    assert agg["installs"]["contributing_30d"] == 1  # …but only a has saved anything
+    assert agg["installs"]["contributing_7d"] == 1
+    assert agg["savings"]["instances"] == 3
+    assert agg["savings"]["contributing"] == 2, "stale-but-nonzero still contributed"
+    # The headline total is unaffected — this changes what we CLAIM, not the sum.
+    assert agg["savings"]["tokens"] == 1_600_000_500
+
+
 def test_rollup_drops_invalid_rows_and_survives_corruption(tmp_path):
     now = int(time.time())
     valid = _row(install_id="a" * 32, ts=now)

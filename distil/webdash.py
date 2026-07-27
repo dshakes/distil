@@ -37,8 +37,16 @@ def _snapshot() -> dict:
     )
     eq = _equivalence()
     sub = _subscription()
+    # Prefer the count-time accrued total — the same monotonic figure the census
+    # reports — so "your savings" reads identically here, in the census, and in
+    # the community rollup. lifetime×current-factor (the fallback) restates every
+    # token already earned whenever calibration refines, so the number a user is
+    # watching can drop without a single token being un-saved.
+    from . import census as _census
+
+    accrued = _census.accrued_tokens()
     return {
-        "tokens_saved": round(tokens * f),
+        "tokens_saved": accrued if accrued is not None else round(tokens * f),
         "dollars_saved": round(dollars * f, 2),
         "pct": round(pct, 1),
         "runs": s.runs,

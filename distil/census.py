@@ -207,6 +207,46 @@ def _parse_savings(text: str) -> dict:
     return fresh
 
 
+def _invite_path() -> Path:
+    return _home() / "census-invite"
+
+
+def invite_seen() -> bool:
+    """Whether the one-time census invite has already been shown."""
+    return _invite_path().exists()
+
+
+def mark_invite_seen() -> None:
+    """Record that the invite was shown, so it is shown exactly once.
+
+    Deliberately separate from `consent`: seeing the invite is not answering it.
+    A user who ignores it stays un-asked (`consent() is None`) and can still opt
+    in later, but is never shown the same nudge twice.
+    """
+    try:
+        p = _invite_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("1", encoding="utf-8")
+    except OSError:
+        pass  # fail-open: worst case the invite prints once more
+
+
+def accrued_tokens() -> int | None:
+    """The count-time accrued token total, or None if nothing has accrued yet.
+
+    This is the figure the census and the heartbeat report: each delta banked at
+    the factor known when it was earned, so it never restates history. Local
+    surfaces ("your savings") read it through here so the number a user sees in
+    `distil dashboard` is the same one the community total is built from, rather
+    than lifetime×current-factor — which silently shrinks as calibration refines.
+
+    Read-only: never creates or advances state, so it is safe to call regardless
+    of consent (and returns None once `census off` has deleted the state).
+    """
+    saved = float(_load_savings().get("tokens", {}).get("saved") or 0.0)
+    return round(saved) if saved > 0 else None
+
+
 def _load_savings() -> dict:
     """Persisted accrual state. Each channel remembers the raw total already
     banked (`raw_seen`) and the frozen calibrated cumulative (`saved`, a float
