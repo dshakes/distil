@@ -1,0 +1,13 @@
+# Generated artifacts: committed because GitHub Pages serves this repo statically
+# (there is no build step to produce them at deploy time), but they must not be
+# read as diffs.
+#
+# docs/search-index.json is ONE line of ~250 KB minified JSON. As a diff that is a
+# single "+" line containing a quarter-megabyte blob, which every diff-consuming
+# tool then pulls into its context — the SDLC classifier hit error_max_turns on it
+# and failed the PR. `-diff` makes git report "binary files differ" instead, and
+# linguist-generated collapses it in the GitHub review UI.
+#
+# Freshness is guaranteed by tests/test_search_index.py, not by reading the diff,
+# so nothing is lost by making it unreadable here.
+docs/search-index.json -diff linguist-generated=true
