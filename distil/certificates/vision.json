@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "strategy": "vision",
+  "non_inferior": true,
+  "verdict": "PASS",
+  "certified_at": "2026-07-27",
+  "certified_by": "distil maintainers",
+  "runner": "anthropic",
+  "model": "claude-opus-4-8",
+  "trajectory": "corpus/vision-ci-dashboard.json",
+  "turns": 4,
+  "match_rate": 1.0,
+  "aa_self_agreement_floor": 1.0,
+  "tost": {
+    "margin": 0.02,
+    "alpha": 0.05,
+    "mean_diff": 0.0,
+    "p": "<0.0001"
+  },
+  "reproduce": "distil certify --strategy vision --runner anthropic --trajectory corpus/vision-ci-dashboard.json",
+  "scope": "Non-inferiority of byte-identical image duplicate-elision, measured on the bundled vision trajectory against claude-opus-4-8. It does NOT certify your traffic, your model, or any lossy image transform \u2014 distil performs none. Re-run the command above against your own captured trajectory to certify your workload, and set DISTIL_VISION=0 to disable regardless."
+}
