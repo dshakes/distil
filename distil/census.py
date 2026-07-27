@@ -113,6 +113,98 @@ def consent() -> str | None:
         return None
 
 
+def _ask_count_path() -> Path:
+    return _home() / "census-asked"
+
+
+# A prompt nobody answers must not become a prompt nobody escapes. Ctrl-C is
+# deliberately not recorded as a decline (see `onboard`), which means an
+# interrupted prompt returns next session — fine once or twice, a nag by the
+# fourth time. After this many unanswered asks, stop asking forever; `distil
+# census on` is still there for anyone who changes their mind.
+MAX_UNANSWERED_ASKS = 3
+
+
+def maybe_ask_consent(*, out=None, inp=None) -> bool | None:
+    """Ask for census consent ONCE, at the end of a session that actually saved
+    something. Returns True (opted in), False (declined), or None (not asked).
+
+    Placed at wrap exit because that is the only moment the question is fair:
+    the user has run the thing, there is a real number on screen, and "share
+    this?" is concrete rather than hypothetical. Until now the sole consent
+    surface was `distil onboard` — so anyone who did `pipx install distil-llm`
+    and went straight to `distil wrap`, which is the natural path, was never
+    asked and could never be counted. The census did not undercount by accident;
+    it undercounted by construction.
+
+    Every guard the onboard prompt established is preserved, because consent
+    code earns nothing by being clever:
+
+      * asked once — a stored "on" or "off" ends it permanently;
+      * DO_NOT_TRACK / DISTIL_NO_TELEMETRY win outright;
+      * both streams must be a TTY, so pipes, CI and headless runs never prompt
+        and therefore never enrol;
+      * Ctrl-C / EOF is NOT an answer — recording "off" there would burn the one
+        chance to ask on a keystroke that meant "not now";
+      * and nothing here may raise: this runs on the wrap teardown path, where an
+        exception would change a user's exit code over telemetry.
+
+    The saved-something condition is new and deliberate. Asking a user who got
+    no value to share their numbers is both a worse question and a worse
+    experience than not asking at all.
+    """
+    import sys
+
+    out = out or sys.stdout
+    inp = inp or sys.stdin
+    try:
+        if hard_disabled() or consent() is not None:
+            return None
+        if not (
+            getattr(inp, "isatty", lambda: False)() and getattr(out, "isatty", lambda: False)()
+        ):
+            return None
+        if _current_saved_tokens() <= 0:
+            return None  # nothing worth sharing yet — ask when there is
+
+        asked = 0
+        try:
+            asked = int(_ask_count_path().read_text(encoding="utf-8").strip() or 0)
+        except (OSError, ValueError):
+            asked = 0
+        if asked >= MAX_UNANSWERED_ASKS:
+            return None
+
+        out.write(
+            "\n  Share an anonymous, content-free census? Numbers only — version, OS,\n"
+            "  tokens and $ saved. Never prompts or responses. Max one JSON per day.\n"
+            "  Preview exactly what would be sent:  distil census show\n"
+        )
+        out.flush()
+        try:
+            answer = input("  Share the anonymous census? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            # Not an answer. Count it so an unanswerable terminal cannot nag
+            # forever, but never treat the silence as a decision.
+            try:
+                _ask_count_path().parent.mkdir(parents=True, exist_ok=True)
+                _ask_count_path().write_text(str(asked + 1), encoding="utf-8")
+            except OSError:
+                pass
+            out.write("\n  no answer recorded — enable anytime: distil census on\n")
+            return None
+
+        if answer in ("y", "yes"):
+            opt_in()
+            out.write("  census on — TELEMETRY.md documents exactly what is sent\n")
+            return True
+        opt_out()
+        out.write("  census off — re-enable anytime: distil census on\n")
+        return False
+    except Exception:  # noqa: BLE001 — consent must never affect a user's exit code
+        return None
+
+
 def enabled() -> bool:
     return not hard_disabled() and consent() == "on"
 
