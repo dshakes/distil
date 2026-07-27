@@ -34,6 +34,7 @@ from ..compress.tier0 import collapse_runs, minify_json
 from ..mcp_server import load_restore as _load_restore
 from ..mcp_server import record_restore as _record_restore
 from ..compress.intent import extract_intent
+from ..compress import vision as _vision
 from ..compress.tier1 import digest as _tier1_digest
 from ..tokenizer import DEFAULT as _tokenizer
 
@@ -67,6 +68,17 @@ _intent_tls = _threading.local()
 
 def _active_intent() -> frozenset[str]:
     return getattr(_intent_tls, "terms", frozenset())
+
+
+# Vision duplicate-elision state for this request (ADR 0003). Thread-local for the
+# same reason as the intent terms: the per-block compressor recurses, and threading
+# a new arg through every call site would touch code that has nothing to do with
+# images. None = disabled, which is the default until `vision` is certified.
+_vision_tls = _threading.local()
+
+
+def _active_vision() -> Any:
+    return getattr(_vision_tls, "dedup", None)
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -236,6 +248,44 @@ def _compress_tool_result_text(
     return _apply_tier0(text)
 
 
+def _compress_image_block(
+    item: dict[str, Any], store: RestoreStore, verbatim: bool, is_recent: bool
+) -> dict[str, Any]:
+    """Elide a REPEATED image, byte-reversibly. See distil/compress/vision.py.
+
+    A first occurrence is always sent verbatim — the model has to actually see
+    the image. Only a byte-identical repeat becomes a reference stub, and only
+    when the vision content type has been certified (ADR 0003).
+
+    Skipped entirely in verbatim mode (its contract is that the model sees
+    semantically identical content, and a reference is not that) and on recent
+    turns (the recency rule: never make the agent reason blind over its freshest
+    input). Both cases still *note* the payload, so a later duplicate is still
+    recognized as a repeat rather than mistaken for a first sighting.
+    """
+    dedup = _active_vision()
+    if dedup is None:
+        return item
+    source = item.get("source")
+    if not isinstance(source, dict):
+        return item  # malformed/unknown shape — pass through untouched
+
+    if verbatim or is_recent:
+        dedup.note(source)
+        return item
+
+    verdict = dedup.elide(source)
+    if verdict is None:
+        return item
+    handle, original, tokens = verdict
+    if not store._record(handle, original):
+        # 8-hex collision with different content — a stub would expand to the
+        # wrong image. Keeping the block verbatim is always safe (same rule the
+        # text digester follows).
+        return item
+    return {"type": "text", "text": _vision.reference_text(handle, tokens)}
+
+
 def _compress_content_item(
     item: dict[str, Any], store: RestoreStore, role: str, verbatim: bool, is_recent: bool = False
 ) -> dict[str, Any]:
@@ -249,9 +299,12 @@ def _compress_content_item(
     """
     btype = item.get("type", "")
 
-    # Never touch tool_use or image blocks.
-    if btype in ("tool_use", "image"):
+    # Never touch tool_use blocks.
+    if btype == "tool_use":
         return item
+
+    if btype == "image":
+        return _compress_image_block(item, store, verbatim, is_recent)
 
     if btype == "text":
         if role == "assistant":
@@ -291,6 +344,12 @@ def _compress_content_item(
                         changed = True
                     else:
                         new_list.append(sub)
+                elif isinstance(sub, dict) and sub.get("type") == "image":
+                    # Where computer-use / browser screenshots actually live: a
+                    # tool_result whose content list carries the image block.
+                    new_sub = _compress_image_block(sub, store, verbatim, is_recent)
+                    new_list.append(new_sub)
+                    changed = changed or new_sub is not sub
                 else:
                     new_list.append(sub)
             if not changed:
@@ -376,6 +435,9 @@ def compress_messages(
     """
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
     _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
+    # Vision duplicate elision (ADR 0003) — None unless the content type has been
+    # certified, so the default path is byte-for-byte what it was before.
+    _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
     try:
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
@@ -394,6 +456,7 @@ def compress_messages(
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
+        _vision_tls.dedup = None
 
 
 def place_cache_control(

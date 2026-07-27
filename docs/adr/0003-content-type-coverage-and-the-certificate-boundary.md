@@ -1,6 +1,6 @@
 # ADR 0003 — Content-type coverage, and where the certificate can follow
 
-- Status: Proposed
+- Status: Accepted — decision 2 partially implemented (see Implementation status)
 - Date: 2026-07-27
 - Deciders: distil maintainers
 
@@ -89,3 +89,31 @@ the certificate unfalsifiable.
   buried: **on content-type breadth we are behind, and breadth is a legitimate
   user need.** Being right about rigor does not make a missing capability
   present.
+
+## Implementation status
+
+**Decision 2 — images, step 1 of 2: shipped, disabled.** `distil/compress/vision.py`
+implements the one image transform that is *byte-reversible*: the second and
+later appearances of a byte-identical image become a short reference stub
+carrying a `RestoreStore` handle; the first appearance is untouched, so the model
+still sees the image. It covers both top-level `image` blocks and the nested
+`tool_result` case, which is where computer-use and browser screenshots actually
+arrive. Dimensions are read from the file header with the stdlib (PNG/JPEG/GIF/
+WEBP), so the zero-runtime-dependency property holds and savings accounting is
+real rather than assumed; an unreadable header reports a deliberately low
+estimate rather than a flattering one.
+
+Per decision 1 it is **off until certified**: `vision.enabled()` is False unless
+`~/.distil/certificates/vision.json` exists, and with no certificate the adapter
+is byte-for-byte what it was before. It is additionally skipped in verbatim mode
+and on recent turns, so it can never make an agent reason blind over its freshest
+input.
+
+*Not yet done, and the ADR is not satisfied until it is:* the corpus needs a
+vision domain and `distil certify --strategy vision` needs to run and pass. Until
+then no user gets this behavior. The step deliberately stops at the gate rather
+than shipping enabled — this is the friction decision 1 asked for, applied to its
+own first case.
+
+**Decisions 3 and 4 remain as written** — memory and inter-agent context deferred
+pending their own gate definition; routing out of scope.
