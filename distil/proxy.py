@@ -1845,6 +1845,13 @@ def wrap_run(
     try:
         from . import census as _census
 
+        # Ask for consent BEFORE the ping, so a first-time yes takes effect in the
+        # same session the user granted it — otherwise their first census would be
+        # a day late, and the number they just agreed to share is the number on
+        # screen. Self-gating: no-ops unless never asked, a TTY, and something was
+        # actually saved. `distil onboard` was the only consent surface, which
+        # meant anyone who installed and went straight to `wrap` was never asked.
+        _census.maybe_ask_consent()
         _census.maybe_ping()
         _census.maybe_heartbeat()  # near-real-time community pulse (≤1/5min, only-if-grew)
     except Exception:  # noqa: BLE001 — census must never affect exit code
