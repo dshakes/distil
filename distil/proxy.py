@@ -177,6 +177,30 @@ class _ErrStream:
 # ---------------------------------------------------------------------------
 
 
+def _image_tokens(block: dict[str, Any]) -> int:
+    """Billed token cost of a vision block, which is NOT its base64 length.
+
+    Providers price an image by pixel area, so counting the base64 payload as
+    text (or, as this function used to, not counting it at all) makes the
+    baseline wrong for any agent that screenshots. Left uncounted, an elided
+    duplicate scored as *negative* savings: zero on the before side, the
+    replacement stub's tokens on the after side.
+    """
+    from .compress.vision import estimate_tokens as _est
+
+    src = block.get("source")
+    if not isinstance(src, dict):
+        return 0
+    data = src.get("data")
+    if not isinstance(data, str) or not data:
+        # A url source: real cost, unknown dimensions. estimate_tokens' own
+        # conservative floor is the honest answer — never zero, never flattering.
+        return _est(None) if isinstance(src.get("url"), str) else 0
+    from .compress.vision import _decode_b64
+
+    return _est(_decode_b64(data))
+
+
 def _count_messages(msgs: list[dict[str, Any]]) -> int:
     """Heuristic token count of an Anthropic/OpenAI messages list."""
     total = 0
@@ -188,6 +212,9 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
             for block in content:
                 if not isinstance(block, dict):
                     continue
+                if block.get("type") == "image":
+                    total += _image_tokens(block)
+                    continue
                 for key in ("text", "content"):
                     val = block.get(key)
                     if isinstance(val, str):
@@ -195,6 +222,9 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
                     elif isinstance(val, list):
                         for sub in val:
                             if isinstance(sub, dict):
+                                if sub.get("type") == "image":
+                                    total += _image_tokens(sub)
+                                    continue
                                 sv = sub.get("text", "")
                                 if isinstance(sv, str):
                                     total += _tokenizer.count(sv)
