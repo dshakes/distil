@@ -395,3 +395,191 @@
     btn.querySelector(".sk-kbd").textContent = "Ctrl K";
   }
 })();
+
+/* ── Copy page as Markdown ────────────────────────────────────────────
+   These docs are read by agents as often as by people, and the useful thing
+   to hand an LLM is markdown, not a screenshot of a rendered page. There is
+   already an llms.txt for the whole site; this is the per-page equivalent.
+
+   Converts the rendered <main> rather than re-fetching a source file, because
+   there is no markdown source — these pages are hand-written HTML. Handles the
+   structures actually used here (headings, lists, tables, pre/code, links,
+   inline code, callouts) and deliberately drops the rest instead of emitting
+   half-converted HTML: a fragment that is mostly markdown with stray <div>s is
+   worse to paste into a model than clean prose. */
+(function () {
+  "use strict";
+
+  var main = document.querySelector("main.content");
+  if (!main) return;
+
+  function inline(node) {
+    var out = "";
+    node.childNodes.forEach(function (n) {
+      if (n.nodeType === 3) { out += n.nodeValue.replace(/\s+/g, " "); return; }
+      if (n.nodeType !== 1) return;
+      var tag = n.tagName.toLowerCase(), t = inline(n);
+      if (tag === "code") out += "`" + n.textContent.replace(/\s+/g, " ").trim() + "`";
+      else if (tag === "strong" || tag === "b") out += "**" + t.trim() + "**";
+      else if (tag === "em" || tag === "i") out += "*" + t.trim() + "*";
+      else if (tag === "a") {
+        var href = n.getAttribute("href") || "";
+        // Section permalinks ("#") are chrome, not content.
+        if (n.classList.contains("hlink")) return;
+        if (href && href.charAt(0) !== "#") {
+          out += "[" + t.trim() + "](" + new URL(href, location.href).href + ")";
+        } else out += t;
+      } else if (tag === "br") out += "\n";
+      else out += t;
+    });
+    return out;
+  }
+
+  function tableToMd(tbl) {
+    var rows = [].slice.call(tbl.querySelectorAll("tr"));
+    if (!rows.length) return "";
+    var lines = [], widthSet = false;
+    rows.forEach(function (tr) {
+      var cells = [].slice.call(tr.children).map(function (c) {
+        return inline(c).trim().replace(/\|/g, "\\|");
+      });
+      if (!cells.length) return;
+      lines.push("| " + cells.join(" | ") + " |");
+      if (!widthSet) {
+        lines.push("|" + cells.map(function () { return " --- "; }).join("|") + "|");
+        widthSet = true;
+      }
+    });
+    return lines.join("\n");
+  }
+
+  function toMarkdown(root) {
+    var out = [];
+    [].slice.call(root.children).forEach(function (el) {
+      var tag = el.tagName.toLowerCase();
+      if (tag === "h1") out.push("# " + inline(el).replace(/#\s*$/, "").trim());
+      else if (tag === "h2") out.push("## " + inline(el).replace(/#\s*$/, "").trim());
+      else if (tag === "h3") out.push("### " + inline(el).replace(/#\s*$/, "").trim());
+      else if (tag === "h4") out.push("#### " + inline(el).replace(/#\s*$/, "").trim());
+      else if (tag === "p") { var p = inline(el).trim(); if (p) out.push(p); }
+      else if (tag === "ul" || tag === "ol") {
+        var i = 0;
+        [].slice.call(el.children).forEach(function (li) {
+          i++;
+          out.push((tag === "ol" ? i + ". " : "- ") + inline(li).trim());
+        });
+      } else if (tag === "pre") {
+        out.push("```\n" + el.textContent.replace(/\n?Copy\n?$/, "").replace(/\s+$/, "") + "\n```");
+      } else if (tag === "table") { var t = tableToMd(el); if (t) out.push(t); }
+      else if (tag === "hr") out.push("---");
+      else if (tag === "img") {
+        // Diagrams carry real information in alt text; keep it, it is often the
+        // clearest one-sentence summary on the page.
+        var alt = el.getAttribute("alt");
+        if (alt) out.push("![" + alt + "](" + new URL(el.getAttribute("src"), location.href).href + ")");
+      } else if (tag === "div" || tag === "section" || tag === "figure" || tag === "blockquote") {
+        var nested = toMarkdown(el);
+        if (nested.trim()) out.push(nested);
+      }
+    });
+    return out.join("\n\n");
+  }
+
+  function build() {
+    var title = (document.title || "").split("—")[0].trim();
+    return (
+      "# " + title + "\n\n" +
+      "> Source: " + location.href + "\n\n" +
+      toMarkdown(main).replace(/^# .*\n\n/, "")
+    );
+  }
+
+  var btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "md-copy";
+  btn.textContent = "Copy as Markdown";
+  btn.setAttribute("aria-label", "Copy this page as Markdown");
+  btn.addEventListener("click", function () {
+    var md = build();
+    var done = function () {
+      btn.textContent = "✓ Copied";
+      setTimeout(function () { btn.textContent = "Copy as Markdown"; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md).then(done).catch(function () { fallback(md, done); });
+    } else fallback(md, done);
+  });
+
+  function fallback(text, done) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;top:-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) { btn.textContent = "Copy failed"; }
+    ta.remove();
+  }
+
+  var h1 = main.querySelector("h1");
+  if (h1 && h1.parentNode) h1.parentNode.insertBefore(btn, h1.nextSibling);
+})();
+
+/* ── Theme toggle ─────────────────────────────────────────────────────
+   Follows the OS by default and remembers an explicit choice. The stored value
+   is only ever "light" or "dark" — never a "system" sentinel — so a reader who
+   picks a theme keeps it, and one who never touches the control keeps tracking
+   their OS as it changes through the day.
+
+   The <html data-theme> attribute is set by a tiny inline script in each page's
+   <head> (see theme-init.js, inlined at build time) so the first paint is
+   already correct; this file only wires the control. Without that, every page
+   would flash dark before switching. */
+(function () {
+  "use strict";
+
+  var KEY = "distil-theme";
+  var root = document.documentElement;
+
+  function stored() {
+    try { return localStorage.getItem(KEY); } catch (e) { return null; }
+  }
+  function systemDark() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function current() {
+    return root.getAttribute("data-theme") || (systemDark() ? "dark" : "light");
+  }
+  function apply(theme) {
+    root.setAttribute("data-theme", theme);
+    btn.setAttribute("aria-label", "Switch to " + (theme === "dark" ? "light" : "dark") + " theme");
+    btn.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+    btn.textContent = theme === "dark" ? "☾" : "☀";
+  }
+
+  var btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "theme-toggle";
+  btn.addEventListener("click", function () {
+    var next = current() === "dark" ? "light" : "dark";
+    try { localStorage.setItem(KEY, next); } catch (e) { /* private mode: session-only */ }
+    apply(next);
+  });
+
+  // Follow the OS while the reader has never chosen — a laptop that flips to
+  // dark at sunset should take the docs with it.
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    var onChange = function () { if (!stored()) apply(mq.matches ? "dark" : "light"); };
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  }
+
+  // Place it in the topbar next to the GitHub link; fall back to the sidebar.
+  var host = document.querySelector(".topbar-links") || document.querySelector("nav .links");
+  if (host) host.appendChild(btn);
+  else {
+    var sb = document.getElementById("sidebar");
+    if (sb) (sb.querySelector("nav") || sb).appendChild(btn);
+  }
+  apply(current());
+})();
