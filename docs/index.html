@@ -243,6 +243,34 @@
   .vs .vfoot{margin-top:16px;font-size:12.5px;color:var(--dim);font-family:var(--mono)}
   @media(max-width:840px){.vs{grid-template-columns:1fr}}
 
+  /* Install pill — marked up as a preformatted block deliberately, so site.js's
+     existing copy-button wiring picks it up and there is no second copy
+     implementation to keep in sync. */
+  /* padding-right clears site.js's absolutely-positioned copy button, which would
+     otherwise sit on top of the command text. */
+  .installpill{display:inline-block;margin:24px 0 4px;padding:13px 84px 13px 20px;
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid #2a2550;border-radius:999px;
+    box-shadow:0 0 0 1px rgba(139,123,255,.08),0 14px 40px -22px rgba(139,123,255,.5)}
+  .installpill code{font-family:var(--mono);font-size:15px;color:var(--ink);background:none;padding:0}
+  .installalt{color:var(--dim);font-size:13px;margin:10px 0 0;max-width:62ch;line-height:1.6}
+  .installalt code{font-family:var(--mono);font-size:12.5px;color:var(--mut)}
+  @media(max-width:560px){.installpill{display:block;border-radius:14px}
+    .installpill code{font-size:13px}}
+
+  /* "Works with" — the is-this-for-me signal, above the stat tiles. */
+  .workswith{margin:34px 0 6px}
+  .workswith-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--mut);margin-bottom:14px}
+  .chiprow{display:flex;flex-wrap:wrap;gap:9px;list-style:none;padding:0;margin:0}
+  .chiprow li{border:1px solid var(--line);border-radius:999px;padding:7px 15px;
+    font-size:13px;color:var(--ink);font-family:var(--mono);
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    transition:border-color .18s ease,transform .18s ease}
+  .chiprow li:hover{border-color:#2a2550;transform:translateY(-2px)}
+  .workswith-f{color:var(--dim);font-size:13px;margin:14px 0 0;max-width:62ch;line-height:1.6}
+  @media (prefers-reduced-motion:reduce){.chiprow li{transition:none}}
+
   /* hero fine-print: 2-col so it fills the width (no right-side gap) */
   .herofoot{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:28px;
     padding-top:22px;border-top:1px solid var(--line)}
@@ -346,6 +374,14 @@
     <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference)</small></p>
   <p class="sub" style="font-size:15px;margin-top:22px">New to this? <a href="#plain"><b>See how it works in plain English →</b></a></p>
 
+  <!-- Install, above the fold. A visitor's first question is "how do I get this", and it
+       used to be answerable only by scrolling into a terminal card whose first line is a
+       benchmark, not an install. One copyable line costs nothing and answers it. -->
+  <pre class="installpill"><code>uvx --from distil-llm distil onboard</code></pre>
+  <p class="installalt">Sets up everything, including a permanent install — and it is the
+    same command <a href="getting-started.html">Install &amp; Quickstart</a> leads with.
+    Prefer pipx? <code>pipx install distil-llm &amp;&amp; distil onboard</code>.</p>
+
   <div class="doors">
     <a class="door" href="getting-started.html">
       <span class="door-ico" aria-hidden="true">⚡</span>
@@ -378,6 +414,37 @@
       <span style="opacity:.8">…or route Claude Code directly, no code change: <code>distil wrap --expand -- claude</code></span></p>
   </div>
 
+  <!-- "Is this for me?" answered above the stats. Previously the only place a visitor
+       could see which agents/frameworks are supported was the integrations page, two
+       clicks away. Every name here is a surface distil actually ships: the first four
+       are `distil wrap` presets (distil/onboard.py AGENT_PRESETS), the rest are entries
+       in the integration matrix. Nothing aspirational. -->
+  <div class="workswith" aria-labelledby="workswith-h">
+    <div id="workswith-h" class="workswith-h">Works with</div>
+    <ul class="chiprow">
+      <li>Claude Code</li>
+      <li>Codex</li>
+      <li>Gemini CLI</li>
+      <li>aider</li>
+      <li>Cursor</li>
+      <li>CrewAI</li>
+      <li>LangChain</li>
+      <li>LangGraph</li>
+      <li>LiteLLM</li>
+      <li>Agno</li>
+      <li>AWS Strands</li>
+      <li>Vercel AI SDK</li>
+      <li>MCP</li>
+    </ul>
+    <p class="workswith-f">…and anything else that lets you set a base URL — distil is a
+      proxy, so there is no per-framework package to install or keep in sync.
+      Two carry caveats worth reading before you rely on them: Cursor routes only its
+      agent/chat panel through a custom base URL (tab-completion and ⌘K stay on its own
+      backend), and CrewAI needs the LLM passed to <code>planning_llm</code> and
+      <code>function_calling_llm</code> too, not just the agents.
+      <a href="integrations.html">Full integration matrix →</a></p>
+  </div>
+
   <div class="stats">
     <div class="stat hl">
       <div class="n">83<s>%</s></div>
@@ -401,31 +468,6 @@
     </div>
   </div>
 
-  <!-- Live adoption strip — hydrated from the metrics branch (nightly rollup of
-       registry stats + the opt-in census; see TELEMETRY.md). Hidden until the
-       fetch succeeds, so a missing/empty metrics branch costs nothing. -->
-  <div class="stats" id="adoption-live" hidden>
-    <div class="stat">
-      <div class="n" id="al-downloads">–</div>
-      <div class="l">PyPI installs / month</div>
-      <div class="foot">bot-filtered · <a href="adoption.html">full breakdown &rarr;</a></div>
-    </div>
-    <div class="stat">
-      <div class="n" id="al-installs">–</div>
-      <div class="l">Active installs, 30d</div>
-      <div class="foot">opt-in census · <a href="adoption.html">live adoption page &rarr;</a></div>
-    </div>
-    <div class="stat hl">
-      <div class="n" id="al-tokens">–</div>
-      <div class="l">Community tokens saved</div>
-      <div class="foot">Σ of opted-in ledgers · numbers only, never content</div>
-    </div>
-    <div class="stat hl">
-      <div class="n" id="al-dollars">–</div>
-      <div class="l">Community $ saved</div>
-      <div class="foot">same census · updated nightly</div>
-    </div>
-  </div>
   <script>
   (function () {
     "use strict";
@@ -568,6 +610,43 @@ VERDICT: <span class="g">PASS</span>  (certified non-inferior)
 decision-equivalence match rate: <span class="w">0.0%</span>
 VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <img loading="lazy" src="assets/cache-aware.svg" alt="Bar chart of per-run cost: baseline (no cache, no compress) $0.01524; cache only $0.01115 (-27%); naive recompression busts the prefix cache and costs more, $0.01696; distil's cache-aware lossless approach $0.01023 (-33%), the lowest of the four" style="width:100%;border:1px solid var(--line);border-radius:16px;margin-top:18px"/>
+</div></section>
+
+<section id="adoption"><div class="wrap">
+  <div class="seyebrow">Adoption &middot; live</div>
+  <h2 style="margin-top:0">Small numbers, <span class="g">shown anyway</span><a class="hlink" href="#adoption" aria-label="Link to section: Adoption">#</a></h2>
+  <p class="sub" style="font-size:15px">These sit here rather than beside the proof tiles above,
+    because they answer a different question. The tiles above are what distil <em>does</em>, and they
+    are large. These are how many people have <em>opted in</em> to being counted, and they are small —
+    a project that publishes a calibrated decision-change rate does not get to hide its install
+    count. Every figure is recomputed nightly by public code from a public git branch, and
+    consenting is not contributing: an idle opt-in is never counted as a saver.</p>
+
+  <!-- Live adoption strip — hydrated from the metrics branch (nightly rollup of
+       registry stats + the opt-in census; see TELEMETRY.md). Hidden until the
+       fetch succeeds, so a missing/empty metrics branch costs nothing. -->
+  <div class="stats" id="adoption-live" hidden>
+    <div class="stat">
+      <div class="n" id="al-downloads">–</div>
+      <div class="l">PyPI installs / month</div>
+      <div class="foot">bot-filtered · <a href="adoption.html">full breakdown &rarr;</a></div>
+    </div>
+    <div class="stat">
+      <div class="n" id="al-installs">–</div>
+      <div class="l">Active installs, 30d</div>
+      <div class="foot">opt-in census · <a href="adoption.html">live adoption page &rarr;</a></div>
+    </div>
+    <div class="stat hl">
+      <div class="n" id="al-tokens">–</div>
+      <div class="l">Community tokens saved</div>
+      <div class="foot">Σ of opted-in ledgers · numbers only, never content</div>
+    </div>
+    <div class="stat hl">
+      <div class="n" id="al-dollars">–</div>
+      <div class="l">Community $ saved</div>
+      <div class="foot">same census · updated nightly</div>
+    </div>
+  </div>
 </div></section>
 
 <section id="domains"><div class="wrap">
