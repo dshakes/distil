@@ -487,3 +487,57 @@ def test_gateway_state_load_caps_at_max_tenants(tmp_path: Any) -> None:
 
     snap = state.snapshot()
     assert len(snap["tenants"]) == _MAX_TENANTS
+
+
+def test_metrics_endpoint_serves_prometheus_exposition(gw_servers: Any) -> None:
+    """Enterprises scrape; they do not poll a dashboard. /distil/metrics must be
+    valid Prometheus text exposition, carrying the same numbers as /distil/stats."""
+    gw_port, _state = gw_servers
+    # generate some traffic so there is at least one tenant series
+    with urllib.request.urlopen(
+        _post(gw_port, "/v1/messages", _messages_payload(),
+              extra_headers={"x-distil-tenant": "scrape-co"})
+    ) as r:
+        assert r.status == 200
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{gw_port}/distil/metrics") as resp:
+        assert resp.status == 200
+        ctype = resp.headers.get("Content-Type", "")
+        body = resp.read().decode()
+
+    assert ctype.startswith("text/plain"), f"Prometheus needs text/plain, got {ctype!r}"
+    assert "version=0.0.4" in ctype, "exposition format version must be declared"
+
+    # Every series must be preceded by its HELP and TYPE, or scrapers warn.
+    for name in ("distil_requests_total", "distil_tokens_saved_total", "distil_compression_ratio"):
+        assert f"# HELP {name} " in body, f"missing HELP for {name}"
+        assert f"# TYPE {name} " in body, f"missing TYPE for {name}"
+    assert 'distil_requests_total{tenant="scrape-co"}' in body
+    assert "distil_build_info{version=" in body
+
+    # Well-formed: every non-comment line is `name value` with a numeric value.
+    for line in body.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        _series, _, value = line.rpartition(" ")
+        float(value)  # raises if the exposition is malformed
+
+
+def test_metrics_totals_agree_with_stats(gw_servers: Any) -> None:
+    """The scrape and the JSON must not disagree — two sources of truth for the
+    same number is how dashboards start lying."""
+    gw_port, _state = gw_servers
+    with urllib.request.urlopen(
+        _post(gw_port, "/v1/messages", _messages_payload(),
+              extra_headers={"x-distil-tenant": "agree-co"})
+    ) as r:
+        assert r.status == 200
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{gw_port}/distil/stats") as r:
+        stats = json.loads(r.read().decode())
+    with urllib.request.urlopen(f"http://127.0.0.1:{gw_port}/distil/metrics") as r:
+        body = r.read().decode()
+
+    row = next(t for t in stats["tenants"] if t["tenant"] == "agree-co")
+    assert f'distil_requests_total{{tenant="agree-co"}} {row["requests"]}' in body
+    assert f'distil_tokens_saved_total{{tenant="agree-co"}} {row["tokens_saved"]}' in body

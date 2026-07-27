@@ -860,6 +860,12 @@ def build_gateway_handler(
             if self.path == "/distil/stats":
                 if self._admin_authorized():
                     self._handle_stats()
+            elif self.path == "/distil/metrics":
+                # Behind the SAME admin gate as /distil/stats: the series are
+                # labelled by tenant, so an open /metrics would publish the
+                # tenant list to anyone who can reach the port.
+                if self._admin_authorized():
+                    self._handle_metrics()
             elif self.path == "/distil/dashboard":
                 if self._admin_authorized():
                     self._handle_dashboard()
@@ -941,6 +947,22 @@ def build_gateway_handler(
             body = json.dumps(snap, indent=2).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _handle_metrics(self) -> None:
+            """Prometheus scrape target. Never raises: a failed scrape must not
+            take down the proxy path that shares this server."""
+            from . import metrics as _metrics
+
+            try:
+                from . import __version__ as _v
+            except Exception:  # noqa: BLE001
+                _v = ""
+            body = _metrics.render(state.snapshot(), version=_v).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", _metrics.CONTENT_TYPE)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
