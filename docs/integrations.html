@@ -150,6 +150,34 @@
           <td><a href="https://github.com/dshakes/distil/blob/main/examples/python_litellm.py">python_litellm.py</a></td>
         </tr>
         <tr>
+          <td><strong>Cursor</strong> <span class="muted">(agent/chat panel only)</span></td>
+          <td>IDE</td>
+          <td>Settings &rarr; <em>Override OpenAI Base URL</em></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#cursor">below</a></td>
+        </tr>
+        <tr>
+          <td><strong>CrewAI</strong></td>
+          <td>Python</td>
+          <td><code>base_url=</code> in <code>LLM({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#crewai">below</a></td>
+        </tr>
+        <tr>
+          <td><strong>Agno</strong></td>
+          <td>Python</td>
+          <td><code>base_url=</code> in <code>OpenAILike({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#agno">below</a></td>
+        </tr>
+        <tr>
+          <td><strong>Strands Agents</strong></td>
+          <td>Python</td>
+          <td><code>client_args={"base_url": …}</code> in <code>OpenAIModel({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#strands">below</a></td>
+        </tr>
+        <tr>
           <td><strong>Vercel AI SDK</strong> (<code>@ai-sdk/anthropic</code>)</td>
           <td>TypeScript</td>
           <td><code>baseURL</code> in <code>createAnthropic({…})</code></td>
@@ -227,6 +255,75 @@ model_list:
 
 <span class="d"># Terminal 2 — start the LiteLLM Proxy against that config</span>
 litellm --config config.yaml</pre>
+
+    <h3 id="cursor">Cursor</h3>
+    <p>Settings → enable <strong>Override OpenAI Base URL</strong>, set it to the proxy, and add your model. The key field is labelled "OpenAI API Key" but is sent to whatever endpoint you configure.</p>
+
+    <div class="callout">
+      <b>Partial coverage — know this before you rely on it.</b> Cursor routes its <em>agent and chat panel</em> through the overridden base URL, but <strong>tab completion and ⌘K inline edit stay on Cursor's own backend</strong> and never reach the proxy. So your savings cover the long-context agent traffic (which is where the tokens are) and not the keystroke-level features. Also note that turning this on has been reported to break Anthropic BYOK models with 422s, since Claude traffic is then sent OpenAI-shaped to your endpoint.
+    </div>
+
+    <h3 id="crewai">CrewAI</h3>
+    <p>CrewAI's <code>LLM</code> takes <code>base_url</code> directly. Point it at the proxy and prefix the model with its provider.</p>
+
+<pre class="term"><span class="d">$ pip install crewai
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
+
+<span class="k">import</span> os
+<span class="k">from</span> crewai <span class="k">import</span> Agent, LLM
+
+llm = LLM(
+    model=<span class="s">"openai/gpt-4o"</span>,               <span class="d"># provider prefix is required</span>
+    base_url=<span class="s">"http://127.0.0.1:8788/v1"</span>,  <span class="d"># ← the only change; end at /v1</span>
+    api_key=os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+)
+agent = Agent(llm=llm, ...)</pre>
+
+    <div class="callout">
+      <b>Pass the LLM everywhere, not just to the agents.</b> CrewAI resolves <code>planning_llm</code>, <code>function_calling_llm</code> and any manager LLM separately — leave those unset and those calls go straight to the provider, bypassing the proxy entirely. You would see partial savings and no error. Set <code>base_url</code> to the <code>/v1</code> root, not <code>/v1/chat/completions</code>; LiteLLM appends the route itself.
+    </div>
+
+    <h3 id="agno">Agno</h3>
+    <p>Agno's <code>OpenAILike</code> is the class it recommends for any OpenAI-compatible endpoint — it takes the same parameters as <code>OpenAIChat</code> and relaxes the OpenAI-only assumptions. Point <code>base_url</code> at the proxy and every model call the agent makes is compressed on the way out.</p>
+
+<pre class="term"><span class="d">$ pip install agno openai
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
+
+<span class="k">import</span> os
+<span class="k">from</span> agno.agent <span class="k">import</span> Agent
+<span class="k">from</span> agno.models.openai.like <span class="k">import</span> OpenAILike
+
+agent = Agent(
+    model=OpenAILike(
+        id=<span class="s">"gpt-4o"</span>,
+        api_key=os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+        base_url=<span class="s">"http://127.0.0.1:8788/v1"</span>,   <span class="d"># ← the only change</span>
+    )
+)
+agent.print_response(<span class="s">"..."</span>)</pre>
+
+    <h3 id="strands">Strands Agents</h3>
+    <p>Strands' <code>OpenAIModel</code> forwards <code>client_args</code> straight to the underlying <code>openai</code> client, so <code>base_url</code> goes there. Nothing else in the agent changes.</p>
+
+<pre class="term"><span class="d">$ pip install strands-agents
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
+
+<span class="k">import</span> os
+<span class="k">from</span> strands <span class="k">import</span> Agent
+<span class="k">from</span> strands.models.openai <span class="k">import</span> OpenAIModel
+
+model = OpenAIModel(
+    client_args={
+        <span class="s">"api_key"</span>: os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+        <span class="s">"base_url"</span>: <span class="s">"http://127.0.0.1:8788/v1"</span>,  <span class="d"># ← the only change</span>
+    },
+    model_id=<span class="s">"gpt-4o"</span>,
+)
+agent = Agent(model=model)</pre>
+
+    <div class="callout">
+      <b>Why there is no <code>distil-agno</code> or <code>distil-strands</code> package.</b> Both of these are two-line <code>base_url</code> redirects, and so is every other framework that speaks an OpenAI- or Anthropic-shaped API. distil is a proxy, so a framework is supported the moment it lets you set an endpoint — there is nothing to version, nothing to break on the framework's next release, and no per-framework code to maintain. The in-process hooks further down exist only for the cases where you want compression <em>without</em> running a proxy at all.
+    </div>
 
     <h3>Vercel AI SDK (TypeScript)</h3>
     <pre class="term"><span class="c">import</span> { createAnthropic } <span class="c">from</span> <span class="g">"@ai-sdk/anthropic"</span>;
