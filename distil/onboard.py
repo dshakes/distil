@@ -145,6 +145,8 @@ def is_outdated(installed: str, latest: str | None) -> bool:
     """True if a newer *released* version than ``installed`` is available."""
     if not latest:
         return False
+    if installed == latest:
+        return False  # nothing is newer than itself, pre-release or not
     bi, pre_i = _ver_tuple(installed)
     bl, _pre_l = _ver_tuple(latest)
     if bi != bl:
