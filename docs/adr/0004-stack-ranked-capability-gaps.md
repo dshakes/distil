@@ -48,6 +48,35 @@ blocks, which is what a UI-automation agent actually produces) and a passing
 `distil certify --strategy vision`. Until both exist, no release note may claim
 image compression.
 
+**It is blocked on a data-model change, not on writing a corpus file.** The
+certification path is text-only end to end:
+
+- `Block.text` is a `str` (`distil/trajectory.py`), so a trajectory cannot carry
+  an image at all;
+- `AgentRunner.decide(blocks: list[Block]) -> str` is the entire grading
+  interface, and `DeterministicRunner` reaches the decision by scanning
+  `b.text` for `DECISION:` markers.
+
+There is a tempting shortcut that must be named so nobody takes it: serialize the
+image as base64 into `Block.text` and certify that. It would run, go green, and
+mean nothing — it would measure whether deleting a base64 blob from a *text*
+prompt changes a *text* decision, which is not the claim. The claim is that the
+model, having actually seen an image once, decides the same way when a later
+identical copy is replaced by a reference. Grading that requires sending real
+image content to a vision model.
+
+So rank 1 decomposes into: (a) let a Block carry non-text content, (b) teach the
+live runner to build real provider content blocks from it, (c) build the corpus
+domain, (d) run the certification against a vision model. (a) touches the core
+type every existing strategy depends on, which is why this is its own piece of
+work and not a follow-up commit.
+
+Until then the honest statement of what is proven about `compress/vision.py` is:
+**reversibility yes, decision-equivalence not yet.** The round-trip is verified by
+test (the elided `source` object is recovered byte-exact); the effect on the
+model's next action is unmeasured. Those are different claims and the second one
+is the one distil exists to make.
+
 ### Rank 2 — Integration breadth is a documentation gap, and is closed by documenting it.
 
 The surveyed alternative names more framework integrations than we do. Read

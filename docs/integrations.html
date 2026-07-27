@@ -149,6 +149,20 @@
           <td><a href="https://github.com/dshakes/distil/blob/main/examples/python_litellm.py">python_litellm.py</a></td>
         </tr>
         <tr>
+          <td><strong>Cursor</strong> <span class="muted">(agent/chat panel only)</span></td>
+          <td>IDE</td>
+          <td>Settings &rarr; <em>Override OpenAI Base URL</em></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#cursor">below</a></td>
+        </tr>
+        <tr>
+          <td><strong>CrewAI</strong></td>
+          <td>Python</td>
+          <td><code>base_url=</code> in <code>LLM({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#crewai">below</a></td>
+        </tr>
+        <tr>
           <td><strong>Agno</strong></td>
           <td>Python</td>
           <td><code>base_url=</code> in <code>OpenAILike({…})</code></td>
@@ -240,6 +254,31 @@ model_list:
 
 <span class="d"># Terminal 2 — start the LiteLLM Proxy against that config</span>
 litellm --config config.yaml</pre>
+
+    <h3 id="cursor">Cursor</h3>
+    <p>Settings → enable <strong>Override OpenAI Base URL</strong>, set it to the proxy, and add your model. The key field is labelled "OpenAI API Key" but is sent to whatever endpoint you configure.</p>
+
+    <div class="callout">
+      <b>Partial coverage — know this before you rely on it.</b> Cursor routes its <em>agent and chat panel</em> through the overridden base URL, but <strong>tab completion and ⌘K inline edit stay on Cursor's own backend</strong> and never reach the proxy. So your savings cover the long-context agent traffic (which is where the tokens are) and not the keystroke-level features. Also note that turning this on has been reported to break Anthropic BYOK models with 422s, since Claude traffic is then sent OpenAI-shaped to your endpoint.
+    </div>
+
+    <h3 id="crewai">CrewAI</h3>
+    <p>CrewAI's <code>LLM</code> takes <code>base_url</code> directly. Point it at the proxy and prefix the model with its provider.</p>
+
+<pre class="term"><span class="d">$ pip install crewai &amp;&amp; distil proxy --port 8788 &amp;</span>
+
+<span class="k">from</span> crewai <span class="k">import</span> Agent, LLM
+
+llm = LLM(
+    model=<span class="s">"openai/gpt-4o"</span>,               <span class="d"># provider prefix is required</span>
+    base_url=<span class="s">"http://127.0.0.1:8788/v1"</span>,  <span class="d"># ← the only change; end at /v1</span>
+    api_key=os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+)
+agent = Agent(llm=llm, ...)</pre>
+
+    <div class="callout">
+      <b>Pass the LLM everywhere, not just to the agents.</b> CrewAI resolves <code>planning_llm</code>, <code>function_calling_llm</code> and any manager LLM separately — leave those unset and those calls go straight to the provider, bypassing the proxy entirely. You would see partial savings and no error. Set <code>base_url</code> to the <code>/v1</code> root, not <code>/v1/chat/completions</code>; LiteLLM appends the route itself.
+    </div>
 
     <h3 id="agno">Agno</h3>
     <p>Agno's <code>OpenAILike</code> is the class it recommends for any OpenAI-compatible endpoint — it takes the same parameters as <code>OpenAIChat</code> and relaxes the OpenAI-only assumptions. Point <code>base_url</code> at the proxy and every model call the agent makes is compressed on the way out.</p>
