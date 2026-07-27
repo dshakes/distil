@@ -274,4 +274,15 @@ jobs:
           PY
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -am "distil ${VER}" && git -c push.default=current push || echo "tap already current"
+          # `commit && push || echo` swallowed a FAILED PUSH as "already current":
+          # an auth or non-fast-forward error printed the happy-path message and the
+          # job went green with brew still on the old version. Nothing-to-commit and
+          # push-failed are different outcomes, so separate them — under
+          # `set -euo pipefail` a real push failure now fails the release.
+          if git diff --quiet -- Formula/distil.rb; then
+            echo "tap already at ${VER} — nothing to push"
+          else
+            git commit -qam "distil ${VER}"
+            git -c push.default=current push
+            echo "tap updated to ${VER}"
+          fi
