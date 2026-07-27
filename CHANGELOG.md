@@ -3,6 +3,45 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.36.0] — the image transform is certified, and now on by default
+
+1.35.0 shipped vision compression **merged but inert**: the gate demanded a
+certificate and none could exist, because the certification path was text-only
+end to end. `Block.text` is a `str`, so a trajectory could not hold an image, and
+every runner graded a decision from text. This closes that.
+
+**Certified, live.** `Block` now carries optional `media`; the Anthropic runner
+renders it as real provider image blocks; `vision` is a registered strategy; and
+`corpus/vision-ci-dashboard.json` is a decision-bearing vision trajectory with
+real, CRC-valid PNGs whose context accumulates, so byte-identical screenshots
+genuinely pile up. Against `claude-opus-4-8`: **100% decision-equivalence, A/A
+self-agreement floor 100%, TOST p<0.0001, VERDICT PASS.**
+
+**The first live run failed, and that is the point.** Turn 3 diverged — baseline
+`promote_release`, compressed `open_failing_build`. The cause was not the
+compression: the runner was hoisting every image to the front of the turn,
+severing each screenshot from the caption identifying it. An A/B whose two arms
+differ in prompt *shape* measures the shape. Interleaving fixed it. No offline
+deterministic oracle could have surfaced that, which is exactly why this domain
+is certified live and is deliberately excluded from `distil bench`.
+
+**What changes for you on upgrade.** The maintainer's certificate ships in the
+package, so vision de-duplication is **enabled by default**. An agent that sends
+repeated identical screenshots — UI automation, dashboard polling — will start
+seeing duplicates elided, and its reported savings will rise accordingly. Only
+byte-identical payloads are ever elided, the first occurrence is untouched, url
+sources are never treated as duplicates, and every elision is recoverable through
+`distil_expand`. `DISTIL_VISION=0` disables it outright.
+
+**What you are inheriting, precisely.** The shipped certificate states its own
+scope: the model, the corpus, the verdict, and the exact command to reproduce it.
+It does **not** certify your traffic. Run `distil certify --strategy vision
+--runner anthropic` against your own captured trajectory to certify your
+workload — and if that run FAILS, your result wins: a local failing verdict is
+never overridden by the shipped pass. The gate reads three sources in order
+(`DISTIL_VISION` → local → shipped) and every one of them must parse and carry an
+explicit passing verdict. Inheriting a certificate is not skipping the gate.
+
 ## [1.35.0] — see what it does before you trust it
 
 Eight merged PRs. The theme is the same one twice: **a number that claims to be
