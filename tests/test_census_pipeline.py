@@ -94,6 +94,26 @@ def test_rollup_dedupes_by_install_id_latest_wins(tmp_path):
     assert agg["installs"]["by_version"] == {"1.21.0": 1, "1.20.0": 1}
 
 
+def test_by_version_counts_only_the_still_active_fleet(tmp_path):
+    """ "Versions in the wild" must describe the CURRENT fleet.
+
+    Counting every install_id ever seen let a machine that pinged once and
+    vanished sit in the histogram forever, pinned to whatever it last reported —
+    so the chart drifted toward dead old versions and a real upgrade barely
+    moved it. Every other population number on the page is 7/30d-scoped; this
+    one silently was not.
+    """
+    now = int(time.time())
+    rows = [
+        _row(install_id="a" * 32, ts=now, version="1.34.0"),
+        _row(install_id="b" * 32, ts=now - 31 * 86400, version="1.20.0"),  # gone
+    ]
+    agg = census_rollup.rollup(_write_metrics(tmp_path, rows, []), now=now)
+    assert agg["installs"]["by_version"] == {"1.34.0": 1}, "an abandoned install still counted"
+    # It is still a real install that once existed — the all-time tally keeps it.
+    assert agg["installs"]["census_total"] == 2
+
+
 def test_rollup_community_total_is_faithful_sum_of_latest_per_install(tmp_path):
     """The live-counter fix: the community total is Σ latest-per-install — exactly
     what each install currently reports — NOT a rollup-side ratchet.

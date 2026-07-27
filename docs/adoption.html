@@ -66,6 +66,15 @@
 
   .gridtwo{display:grid;grid-template-columns:1fr 1fr;gap:26px}
   @media(max-width:920px){.gridtwo{grid-template-columns:1fr}}
+  /* Census charts: one reflowing grid rather than three stacked hard-coded pairs.
+     Those pairs carried their own margin-tops (12px on the first row, 22px after)
+     so the columns started at different heights and the block read as ragged.
+     auto-fit keeps rows aligned, drops to 2-up then 1-up on its own, and a new
+     chart can be added without picking a row for it. */
+  .chartgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+             gap:22px 26px;margin-top:18px}
+  .chartgrid > section{min-width:0}  /* let long bar labels ellipsize, not stretch the column */
+  .chartgrid .seyebrow{margin-top:0}
 
   .chipset{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}
   .chip{border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:12.5px;
@@ -299,37 +308,31 @@
     <h2 style="margin-top:0">Who actually <span class="g">runs</span> it — and what it saves them</h2>
     <p>Machines that consented (<code>distil census on</code>). Anonymous install ids, schema frozen by test, <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">fully disclosed</a> — preview your own payload anytime with <code>distil census show</code>.</p>
 
-    <div class="gridtwo">
-      <div>
-        <div class="seyebrow p" style="margin-top:12px">Distil versions in the wild</div>
+    <div class="chartgrid">
+      <section>
+        <div class="seyebrow p">Versions in the wild &middot; active 30d</div>
         <div class="bars" id="byversion"></div>
-      </div>
-      <div>
-        <div class="seyebrow p" style="margin-top:12px">Tokens saved by model</div>
+      </section>
+      <section>
+        <div class="seyebrow p">Tokens saved by model</div>
         <div class="bars" id="bymodel"></div>
-      </div>
-    </div>
-
-    <div class="gridtwo">
-      <div>
-        <div class="seyebrow p" style="margin-top:22px">Integration surface &middot; requests</div>
+      </section>
+      <section>
+        <div class="seyebrow p">Integration surface &middot; requests</div>
         <div class="bars" id="bysurface"></div>
-      </div>
-      <div>
-        <div class="seyebrow p" style="margin-top:22px">API shape &middot; SDK wire formats</div>
+      </section>
+      <section>
+        <div class="seyebrow p">API shape &middot; SDK wire formats</div>
         <div class="bars" id="byshape"></div>
-      </div>
-    </div>
-
-    <div class="gridtwo">
-      <div>
-        <div class="seyebrow p" style="margin-top:22px">Session mode &middot; how it's driven</div>
+      </section>
+      <section>
+        <div class="seyebrow p">Session mode &middot; how it's driven</div>
         <div class="bars" id="bymode"></div>
-      </div>
-      <div>
-        <div class="seyebrow p" style="margin-top:22px">Billing mix &middot; wrapped agents &middot; channels</div>
+      </section>
+      <section>
+        <div class="seyebrow p">Billing mix &middot; wrapped agents &middot; channels</div>
         <div class="chipset" id="chips"></div>
-      </div>
+      </section>
     </div>
 
     <div class="seyebrow">How it's measured</div>
@@ -485,6 +488,10 @@
   // Pause/Resume (WCAG 2.2.2): a visible control suspends both polling
   // intervals below and this rAF easing loop; nothing updates while paused.
   var paused = false, pollTimer = null, liveTimer = null, rafId = null;
+  // Census contributor count from the last aggregates paint. The live pulse needs
+  // it because the live endpoint has no contributor field of its own, and the one
+  // it does send (`active`) is a consent count. null until the first paint.
+  var lastContributing = null;
   function desiredTokens() {
     return liveBase ? liveBase.total : targetTokens;
   }
@@ -520,11 +527,21 @@
         // No rate projection ("there is no honest amount of rate-projection"): a
         // per-interval heartbeat rate ×86400 is phantom "/day" growth from idle
         // machines. Show the honest live pulse — how many machines are saving now.
-        // "saving now" must mean *saving*, not *consenting*. A heartbeat only
-        // fires when tokens actually grew, so d.active is already contributors
-        // only — but prefer an explicit count when the endpoint sends one, and
-        // never let the consent count stand in for it.
-        var act = (d.saving != null ? d.saving : d.active) || 0;
+        // "saving now" must mean *saving*, not *consenting*.
+        //
+        // This used to fall back to d.active on the theory that a heartbeat only
+        // fires when tokens grew, so active was contributors-only. The live
+        // endpoint does not actually work that way: it returns
+        // {"active":2,"installs":2} — active IS the consent count. So the hero
+        // read "2 machines saving now" directly above its own sentence saying
+        // "summed from 1 machine that ... actually reported savings". The page
+        // contradicted itself, in the overstating direction.
+        //
+        // Order now: an explicit `saving` from the endpoint, else the census
+        // `contributing` count the rest of this page already renders, else no
+        // machine count at all. Never d.active — it cannot be distinguished from
+        // consent, and when it equals `installs` it demonstrably is consent.
+        var act = d.saving != null ? d.saving : (lastContributing != null ? lastContributing : 0);
         set("rate-sec", act > 0 ? commas(act) + (act === 1 ? " machine" : " machines") : "exact");
         set("rate-day", act > 0
           ? "saving now · exact total, moves only when it truly rises"
@@ -589,6 +606,7 @@
     // claim about how many reported, rather than substituting the consent count
     // (which is the very overstatement this exists to remove).
     var contrib = s.contributing != null ? s.contributing : null;
+    lastContributing = contrib;  // the live pulse reuses this — see pollLive()
     var consented = a.installs.census_total || 0;
     set("hero-machines", contrib == null
       ? "the machines"
