@@ -32,6 +32,23 @@ package is genuinely absent. The test was verified to fail (`zipapp reports
 Also folds in the in-repo Homebrew formula sync, so the tag and `main` no longer
 diverge — `v1.33.0` was tagged one commit before it.
 
+### Census: the community total could run backwards, and Ctrl-C burned the consent ask
+
+`saved` is monotonic per step, but it was advanced from two places (the daily
+census and the near-real-time heartbeat) across several concurrent processes —
+wrap, proxy worker, gateway, webdash — each doing load → step → write-whole-file
+with no lock. The last writer clobbered the rest: a process holding minutes-old
+state wrote a smaller `saved` back and rewound `raw_seen` with it, so an
+already-banked delta could be counted twice. That is how a total which can only
+rise published 1.44B, then 1.33B, then 1.16B, then 1.48B. `_savings_locked()`
+now holds an exclusive `flock` across the whole read-modify-write, so every
+writer steps from the newest state.
+
+Separately, `except (EOFError, KeyboardInterrupt)` around the consent prompt fell
+through to `opt_out()`. A user who pressed Ctrl-C — or whose stdin was a pipe —
+was permanently recorded as having declined and was never asked again. No answer
+now leaves consent unset, so the question can be asked another time.
+
 ## [1.33.0] — the reports are readable now
 
 A WCAG 2.2 pass over the docs site and **every HTML surface distil generates** —
