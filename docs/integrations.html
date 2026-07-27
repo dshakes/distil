@@ -149,6 +149,20 @@
           <td><a href="https://github.com/dshakes/distil/blob/main/examples/python_litellm.py">python_litellm.py</a></td>
         </tr>
         <tr>
+          <td><strong>Agno</strong></td>
+          <td>Python</td>
+          <td><code>base_url=</code> in <code>OpenAILike({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#agno">below</a></td>
+        </tr>
+        <tr>
+          <td><strong>Strands Agents</strong></td>
+          <td>Python</td>
+          <td><code>client_args={"base_url": …}</code> in <code>OpenAIModel({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#strands">below</a></td>
+        </tr>
+        <tr>
           <td><strong>Vercel AI SDK</strong> (<code>@ai-sdk/anthropic</code>)</td>
           <td>TypeScript</td>
           <td><code>baseURL</code> in <code>createAnthropic({…})</code></td>
@@ -226,6 +240,44 @@ model_list:
 
 <span class="d"># Terminal 2 — start the LiteLLM Proxy against that config</span>
 litellm --config config.yaml</pre>
+
+    <h3 id="agno">Agno</h3>
+    <p>Agno's <code>OpenAILike</code> is the class it recommends for any OpenAI-compatible endpoint — it takes the same parameters as <code>OpenAIChat</code> and relaxes the OpenAI-only assumptions. Point <code>base_url</code> at the proxy and every model call the agent makes is compressed on the way out.</p>
+
+<pre class="term"><span class="d">$ pip install agno openai &amp;&amp; distil proxy --port 8788 &amp;</span>
+
+<span class="k">from</span> agno.agent <span class="k">import</span> Agent
+<span class="k">from</span> agno.models.openai.like <span class="k">import</span> OpenAILike
+
+agent = Agent(
+    model=OpenAILike(
+        id=<span class="s">"gpt-4o"</span>,
+        api_key=os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+        base_url=<span class="s">"http://127.0.0.1:8788/v1"</span>,   <span class="d"># ← the only change</span>
+    )
+)
+agent.print_response(<span class="s">"..."</span>)</pre>
+
+    <h3 id="strands">Strands Agents</h3>
+    <p>Strands' <code>OpenAIModel</code> forwards <code>client_args</code> straight to the underlying <code>openai</code> client, so <code>base_url</code> goes there. Nothing else in the agent changes.</p>
+
+<pre class="term"><span class="d">$ pip install strands-agents &amp;&amp; distil proxy --port 8788 &amp;</span>
+
+<span class="k">from</span> strands <span class="k">import</span> Agent
+<span class="k">from</span> strands.models.openai <span class="k">import</span> OpenAIModel
+
+model = OpenAIModel(
+    client_args={
+        <span class="s">"api_key"</span>: os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+        <span class="s">"base_url"</span>: <span class="s">"http://127.0.0.1:8788/v1"</span>,  <span class="d"># ← the only change</span>
+    },
+    model_id=<span class="s">"gpt-4o"</span>,
+)
+agent = Agent(model=model)</pre>
+
+    <div class="callout">
+      <b>Why there is no <code>distil-agno</code> or <code>distil-strands</code> package.</b> Both of these are two-line <code>base_url</code> redirects, and so is every other framework that speaks an OpenAI- or Anthropic-shaped API. distil is a proxy, so a framework is supported the moment it lets you set an endpoint — there is nothing to version, nothing to break on the framework's next release, and no per-framework code to maintain. The in-process hooks further down exist only for the cases where you want compression <em>without</em> running a proxy at all.
+    </div>
 
     <h3>Vercel AI SDK (TypeScript)</h3>
     <pre class="term"><span class="c">import</span> { createAnthropic } <span class="c">from</span> <span class="g">"@ai-sdk/anthropic"</span>;
