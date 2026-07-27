@@ -241,13 +241,20 @@ jobs:
       - name: Update tap formula
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          if [ -z "$TAP_TOKEN" ]; then
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then
             echo "::notice::TAP_TOKEN not set — skipping Homebrew tap bump."
             exit 0
           fi
-          VER="${RELEASE_VERSION}"   # see above: GITHUB_REF_NAME is the branch on dispatch
-          SHA="$(curl -sL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VER}.tar.gz" | shasum -a 256 | cut -d' ' -f1)"
+          # see publish-pypi: GITHUB_REF_NAME is the branch on workflow_dispatch
+          VER="${RELEASE_VERSION:-}"
+          # Never write a formula from an empty version: it would rewrite the tap's
+          # url/sha to "v" and break `brew install` for everyone.
+          [ -n "$VER" ] || { echo "::error::RELEASE_VERSION is empty — refusing to touch the tap"; exit 1; }
+          SHA="$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VER}.tar.gz" | shasum -a 256 | cut -d' ' -f1)"
+          [ -n "$SHA" ] || { echo "::error::could not hash the v${VER} tarball"; exit 1; }
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/dshakes/homebrew-tap" tap
           cd tap
           python3 - "$VER" "$SHA" <<'PY'
