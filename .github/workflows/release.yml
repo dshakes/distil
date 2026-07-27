@@ -30,6 +30,17 @@ jobs:
           V=$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *"([^"]+)".*/\1/')
           echo "Resolved version: '$V'"
           test -n "$V" || { echo "::error::could not resolve version from pyproject.toml"; exit 1; }
+          # Every job keys off pyproject, so a tag that disagrees with it would build
+          # and publish the OTHER version: push v1.35.0 with pyproject on 1.34.0 and
+          # the run uploads assets onto the existing v1.34.0 release and re-publishes
+          # 1.34.0, while the tag you pushed stays empty. Refuse instead.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG_V="${GITHUB_REF_NAME#v}"
+            [ "$TAG_V" = "$V" ] || {
+              echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject version ${V} — bump pyproject or retag"
+              exit 1
+            }
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Gate before release
         run: |
