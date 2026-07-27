@@ -110,6 +110,30 @@ class AnthropicRunner:
         ]
         user = "\n\n".join(f"[{b.kind.value}] {b.text}" for b in rest)
 
+        # Vision blocks are rendered as REAL provider content blocks — otherwise
+        # the model never sees an image and any "vision certificate" would be
+        # grading text ABOUT an image, the shortcut ADR 0004 rules out.
+        #
+        # INTERLEAVED with each block's own text, not batched ahead of it. The
+        # first version hoisted every image to the front of the turn, which
+        # severed each screenshot from the caption identifying it ("after the
+        # rerun"). The live run caught it immediately: on the corpus's final
+        # turn the baseline chose promote_release and the compressed arm chose
+        # open_failing_build — a divergence produced by the RENDERING, not by
+        # the compression under test. An A/B whose two arms differ in prompt
+        # SHAPE is not measuring compression at all.
+        has_media = any(b.media for b in rest)
+        content: list[dict[str, Any]] = []
+        if has_media:
+            for b in rest:
+                content.append({"type": "text", "text": f"[{b.kind.value}] {b.text}"})
+                for item in b.media or ():
+                    if isinstance(item, dict) and item.get("type") == "image":
+                        content.append(item)
+            content.append(
+                {"type": "text", "text": "\nRecord the single next action you would take."}
+            )
+
         # Constrain `action` to the tools the context actually declares — the
         # grader must pick from the same menu the agent would (kills free-typed
         # action paraphrases that register as false decision changes). Falls
@@ -134,7 +158,14 @@ class AnthropicRunner:
             messages=[
                 {
                     "role": "user",
-                    "content": user + "\n\nRecord the single next action you would take.",
+                    # A plain string when there is no media, so the text-only
+                    # path is byte-identical to what it sent before this change
+                    # and every existing certificate stays comparable.
+                    "content": (
+                        content
+                        if has_media
+                        else user + "\n\nRecord the single next action you would take."
+                    ),
                 }
             ],
         )

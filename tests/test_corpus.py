@@ -24,9 +24,29 @@ def test_corpus_is_multidomain():
 
 
 def test_manifest_covers_every_corpus_file():
-    listed = {e.file for e in ENTRIES}
+    """Every corpus file must be accounted for — as an offline-gate trajectory or
+    explicitly as live-only. An unlisted file is dead weight nothing exercises.
+
+    `live_only` exists for domains the DeterministicRunner structurally cannot
+    grade. The vision domain's decision is carried by the IMAGE; that runner reads
+    DECISION: markers out of text, and corpus.validate() demands one on a
+    decision-relevant volatile block. Meeting that here would mean writing the
+    screenshot's content into the text, making the image decorative and any
+    resulting certificate a claim about text. Those domains are certified against
+    a live vision runner instead (see corpus/manifest.json for the reasoning).
+    """
+    import json
+
+    manifest = json.loads((CORPUS_DIR / "manifest.json").read_text(encoding="utf-8"))
+    listed = {e.file for e in ENTRIES} | {t["file"] for t in manifest.get("live_only", [])}
     on_disk = {p.name for p in CORPUS_DIR.glob("*.json") if p.name != "manifest.json"}
     assert on_disk == listed, f"orphan/missing corpus files: {on_disk ^ listed}"
+
+    for entry in manifest.get("live_only", []):
+        assert entry.get("why_not_in_the_offline_gate"), (
+            f"{entry['file']} is live-only but does not say why — without the reason "
+            "someone will 'fix' it back into the offline gate and certify text"
+        )
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=IDS)

@@ -1,13 +1,49 @@
 {
   "version": 1,
-  "description": "Distil trajectory corpus — real, captured-style agent runs across domains. Each is a 4-turn headless agent loop with a cacheable stable prefix, decision-driven volatile tool outputs, and causally-inert noise. The corpus is the asset that makes certification meaningful beyond a single example.",
+  "description": "Distil trajectory corpus \u2014 real, captured-style agent runs across domains. Each is a 4-turn headless agent loop with a cacheable stable prefix, decision-driven volatile tool outputs, and causally-inert noise. The corpus is the asset that makes certification meaningful beyond a single example.",
   "trajectories": [
-    {"file": "sample_trajectory.json",   "domain": "ops/sre",       "title": "Disk-pressure incident remediation"},
-    {"file": "coding-bugfix.json",        "domain": "coding",        "title": "Off-by-one bugfix from a failing test"},
-    {"file": "support-refund.json",       "domain": "support",       "title": "Refund resolved within policy"},
-    {"file": "research-synthesis.json",   "domain": "research",      "title": "Two-source claim verification"},
-    {"file": "data-analysis-sql.json",    "domain": "data-analysis", "title": "Revenue anomaly root-caused via SQL"},
-    {"file": "devops-rollback.json",      "domain": "devops",        "title": "Crash-loop rollback to last-good revision"},
-    {"file": "finance-reconcile.json",    "domain": "finance",       "title": "Invoice/payment reconciliation with exception"}
+    {
+      "file": "sample_trajectory.json",
+      "domain": "ops/sre",
+      "title": "Disk-pressure incident remediation"
+    },
+    {
+      "file": "coding-bugfix.json",
+      "domain": "coding",
+      "title": "Off-by-one bugfix from a failing test"
+    },
+    {
+      "file": "support-refund.json",
+      "domain": "support",
+      "title": "Refund resolved within policy"
+    },
+    {
+      "file": "research-synthesis.json",
+      "domain": "research",
+      "title": "Two-source claim verification"
+    },
+    {
+      "file": "data-analysis-sql.json",
+      "domain": "data-analysis",
+      "title": "Revenue anomaly root-caused via SQL"
+    },
+    {
+      "file": "devops-rollback.json",
+      "domain": "devops",
+      "title": "Crash-loop rollback to last-good revision"
+    },
+    {
+      "file": "finance-reconcile.json",
+      "domain": "finance",
+      "title": "Invoice/payment reconciliation with exception"
+    }
+  ],
+  "live_only": [
+    {
+      "file": "vision-ci-dashboard.json",
+      "domain": "vision/ui-automation",
+      "title": "CI dashboard tile \u2014 repeated screenshots",
+      "why_not_in_the_offline_gate": "The decision is carried by the IMAGE, not by text. The offline gate's DeterministicRunner grades by reading DECISION: markers out of block text, and corpus.validate() requires one on a decision-relevant volatile block. Satisfying that here would mean writing the tile's colour into the text \u2014 at which point the image is decorative and any resulting certificate is a claim about text, not vision. This domain is therefore certified ONLY against a live vision runner: distil certify --strategy vision --runner anthropic --trajectory corpus/vision-ci-dashboard.json"
+    }
   ]
 }

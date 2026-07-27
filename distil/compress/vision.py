@@ -77,6 +77,23 @@ def _certificate_path() -> Path:
     return home / "certificates" / "vision.json"
 
 
+def _shipped_certificate_path() -> Path:
+    """The maintainer-signed certificate bundled with the package.
+
+    Certifying requires a live vision model and an API key, which most users of a
+    stdlib-only library will never run. Shipping the maintainer's result lets them
+    inherit a real, reproducible certificate instead of the feature being inert
+    for everyone but its author.
+
+    What they inherit is scoped, and the file says so: non-inferiority of
+    byte-identical duplicate elision on the bundled vision trajectory against one
+    named model, with the exact command to reproduce it. It is not a claim about
+    their traffic. A local certificate takes precedence, so certifying your own
+    workload overrides ours, and ``DISTIL_VISION=0`` disables regardless.
+    """
+    return Path(__file__).resolve().parent.parent / "certificates" / "vision.json"
+
+
 def enabled() -> bool:
     """True only when this content type has been certified non-inferior.
 
@@ -89,11 +106,33 @@ def enabled() -> bool:
     documented as a user-facing tuning knob. ``DISTIL_VISION=0`` hard-disables
     even when a certificate is present, which is the escape hatch if a fleet
     wants the old behavior back without deleting state.
+
+    Resolution order, most specific first:
+
+      1. ``DISTIL_VISION`` — an explicit operator decision, either way.
+      2. A LOCAL certificate under ``DISTIL_HOME`` — you certified your own
+         workload, so your result outranks ours.
+      3. The certificate shipped with the package — the maintainer's live run on
+         the bundled vision trajectory. Real and reproducible, but scoped to that
+         corpus and model; the file states its own scope.
+
+    Every one of them still has to parse and carry an explicit passing verdict.
+    Inheriting a certificate is not the same as skipping the gate.
     """
     override = os.environ.get("DISTIL_VISION")
     if override is not None:
         return override.strip() not in ("", "0", "false", "no")
-    return _certificate_is_valid(_certificate_path())
+
+    local = _certificate_verdict(_certificate_path())
+    if local is not None:
+        # An explicit local verdict is a DECISION and wins either way. Critically
+        # that includes a local FAIL: if you certified your own workload and it
+        # did not pass, silently falling back to the shipped PASS would use our
+        # corpus to overrule your evidence about your traffic.
+        return local
+    # No local verdict at all (absent, corrupt, truncated, wrong strategy) is an
+    # ABSENCE, not a failure — fall through to the shipped certificate.
+    return _certificate_verdict(_shipped_certificate_path()) is True
 
 
 def _certificate_is_valid(path: Path) -> bool:
@@ -111,21 +150,37 @@ def _certificate_is_valid(path: Path) -> bool:
     file. The cost of failing closed is that compression stays off; the cost of
     failing open is an uncertified transform on live traffic.
     """
+    return _certificate_verdict(path) is True
+
+
+def _certificate_verdict(path: Path) -> bool | None:
+    """Tri-state read of a certificate: True = passes, False = explicit FAIL,
+    None = no readable verdict at all.
+
+    The three states matter because a shipped certificate now exists to fall back
+    on. Collapsing "explicitly failed" into "no verdict" would mean a user whose
+    own certification run FAILED silently inherits our PASS — our corpus
+    overruling their evidence about their own traffic. An unreadable file is an
+    absence and may fall through; a stated failure may not.
+    """
     try:
         raw = path.read_text(encoding="utf-8")
-    except OSError:  # absent, unreadable, a directory — all "not certified"
-        return False
+    except OSError:  # absent, unreadable, a directory — no verdict
+        return None
     try:
         doc = json.loads(raw)
     except (ValueError, TypeError):
-        return False
+        return None  # truncated or corrupt write — no verdict, not a failure
     if not isinstance(doc, dict):
-        return False
+        return None
     if doc.get("strategy") != "vision":
-        return False
-    # Accept any of the verdict spellings the certify path may write, but only
-    # when explicitly true — absence is not a pass.
-    return any(doc.get(k) is True for k in ("non_inferior", "certified", "passed"))
+        return None  # a certificate for something else says nothing about this
+    keys = ("non_inferior", "certified", "passed")
+    if any(doc.get(k) is True for k in keys):
+        return True
+    if any(doc.get(k) is False for k in keys):
+        return False  # a stated FAIL — a decision, and it wins
+    return None  # named the strategy but stated no verdict
 
 
 # ---------------------------------------------------------------------------

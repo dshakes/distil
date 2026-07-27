@@ -75,9 +75,59 @@ def aggressive(blocks: list[Block], turn: int) -> list[Block]:
     return [b.copy_with(b.text[:120]) for b in blocks]
 
 
+def vision(blocks: list[Block], turn: int) -> list[Block]:
+    """Vision duplicate elision, as a certifiable strategy (ADR 0003).
+
+    The first appearance of an image is left alone; a later BYTE-IDENTICAL copy
+    has its media dropped and a reference line appended to the block's text. The
+    live runner renders media as real image content blocks, so certifying this
+    compares the model's next action when it sees N images against when it sees
+    the distinct subset — which is the actual claim, rather than a claim about
+    text that mentions images.
+
+    Identity is the exact base64 payload. A url source is never treated as a
+    duplicate: two occurrences of one URL are not evidence of the same pixels
+    (signed URLs, dashboards, cache-busted screenshots), and eliding on that
+    basis would assert an identity nobody verified.
+
+    Text is untouched, so this composes with the text strategies rather than
+    competing with them: certifying `vision` isolates the image transform.
+    """
+    seen: set[str] = set()
+    out: list[Block] = []
+    for b in blocks:
+        if not b.media:
+            out.append(b)
+            continue
+        kept: list[dict] = []
+        elided = 0
+        for item in b.media:
+            data = item.get("source", {}).get("data") if isinstance(item, dict) else None
+            if not isinstance(data, str) or not data:
+                kept.append(item)  # url or unrecognized shape — never elided
+                continue
+            if data in seen:
+                elided += 1
+                continue
+            seen.add(data)
+            kept.append(item)
+        if not elided:
+            out.append(b)
+            continue
+        note = (
+            f"\n<< distil:image — {elided} image(s) identical to one shown earlier in this "
+            "conversation, not repeated here; the originals remain recoverable >>"
+        )
+        nb = b.copy_with(b.text + note)
+        nb.media = kept or None
+        out.append(nb)
+    return out
+
+
 REGISTRY: dict[str, Strategy] = {
     "none": none,
     "distil": distil,
     "naive": naive,
     "aggressive": aggressive,
+    "vision": vision,
 }

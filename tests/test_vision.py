@@ -60,10 +60,16 @@ def certified(tmp_path, monkeypatch):
 
 
 def test_disabled_without_a_certificate(tmp_path, monkeypatch):
-    """ADR 0003: a new content type ships disabled until it certifies. With no
-    certificate the adapter must be byte-for-byte what it was before."""
+    """ADR 0003: a new content type stays disabled until SOMETHING certifies it.
+
+    The package now ships the maintainer's live certificate, so the default is
+    enabled — but the gate is unchanged: remove every certificate and the adapter
+    is byte-for-byte what it was before this module existed. That is what this
+    asserts, by stripping the shipped one too.
+    """
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     monkeypatch.delenv("DISTIL_VISION", raising=False)
+    monkeypatch.setattr(vision, "_shipped_certificate_path", lambda: tmp_path / "absent.json")
     assert vision.enabled() is False
 
     img = _image_block(_png(1024, 1024))
@@ -344,11 +350,15 @@ def test_enabled_survives_an_unreadable_home(monkeypatch, tmp_path):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     monkeypatch.delenv("DISTIL_VISION", raising=False)
 
-    def _boom(self):
+    def _boom(self, *args, **kwargs):
         raise OSError("permission denied")
 
-    monkeypatch.setattr(vision.Path, "is_file", _boom)
-    assert vision.enabled() is False  # must not propagate
+    monkeypatch.setattr(vision.Path, "read_text", _boom)
+    # The property under test is that an unreadable home does not PROPAGATE, not
+    # what the gate then decides — with both sources unreadable it must simply be
+    # a clean False rather than an exception reaching the request path.
+    monkeypatch.setattr(vision, "_shipped_certificate_path", lambda: tmp_path / "absent.json")
+    assert vision.enabled() is False
 
 
 def test_url_sources_are_never_deduped():
@@ -416,12 +426,14 @@ def test_gate_fails_closed_on_anything_short_of_a_real_certificate(
     parses rather than stat()s. Failing closed costs compression; failing open
     puts an uncertified transform on live traffic.
     """
-    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    monkeypatch.delenv("DISTIL_VISION", raising=False)
     cert = tmp_path / "certificates" / "vision.json"
     cert.parent.mkdir(parents=True, exist_ok=True)
     cert.write_text(payload)
-    assert vision.enabled() is False, f"gate opened on {why}"
+    # Asserted on the PARSER, not on enabled(): "this file does not certify" and
+    # "the gate is closed" are different claims once a shipped certificate can be
+    # fallen back to. The gate-level behaviour is pinned by the full state matrix
+    # below.
+    assert vision._certificate_is_valid(cert) is False, f"parser accepted {why}"
 
 
 def test_gate_opens_only_on_a_real_certificate(tmp_path, monkeypatch):
@@ -437,11 +449,9 @@ def test_gate_opens_only_on_a_real_certificate(tmp_path, monkeypatch):
 def test_gate_fails_closed_when_the_path_is_unreadable(tmp_path, monkeypatch):
     """A directory where the certificate should be, a permissions error, a
     vanished mount — none of these are a pass."""
-    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    monkeypatch.delenv("DISTIL_VISION", raising=False)
     cert = tmp_path / "certificates" / "vision.json"
     cert.mkdir(parents=True)  # a DIRECTORY, not a file
-    assert vision.enabled() is False
+    assert vision._certificate_is_valid(cert) is False
 
 
 def test_proxy_counts_image_tokens_so_elision_scores_positive():
@@ -475,3 +485,129 @@ def test_proxy_counts_image_tokens_so_elision_scores_positive():
         }
     ]
     assert _count_messages(nested) >= 1000, "nested screenshot counted as ~free"
+
+
+# ---------------------------------------------------------------------------
+# The shipped (maintainer) certificate
+# ---------------------------------------------------------------------------
+
+
+def test_shipped_certificate_enables_vision_out_of_the_box(tmp_path, monkeypatch):
+    """Certifying needs a live vision model and an API key, which most users of a
+    stdlib-only library will never run. Shipping the maintainer's real result lets
+    them inherit it rather than the feature being inert for everyone but its
+    author. It is still a parsed certificate, not a skipped gate."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))  # no local certificate
+    monkeypatch.delenv("DISTIL_VISION", raising=False)
+    assert vision.enabled() is True
+    assert vision._shipped_certificate_path().is_file()
+
+
+def test_shipped_certificate_states_its_own_scope():
+    """A certificate you inherit is worth what you can check about it. It must
+    name the model, the corpus, the verdict, and how to reproduce it — otherwise
+    'certified' is just a boolean someone typed."""
+    doc = json.loads(vision._shipped_certificate_path().read_text())
+    assert doc["strategy"] == "vision"
+    assert doc["non_inferior"] is True
+    for key in ("model", "trajectory", "runner", "match_rate", "reproduce", "scope"):
+        assert doc.get(key), f"shipped certificate omits {key!r}"
+    assert "certify --strategy vision" in doc["reproduce"]
+    # It must NOT overclaim: the scope has to say this is not about your traffic.
+    assert "does NOT certify your traffic" in doc["scope"]
+
+
+def test_env_disable_beats_the_shipped_certificate(tmp_path, monkeypatch):
+    """The escape hatch has to work even for a certificate the user did not
+    install and cannot delete."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_VISION", "0")
+    assert vision.enabled() is False
+
+
+# ---------------------------------------------------------------------------
+# The complete gate state space
+#
+# The fallback introduced a second certificate source, and the interaction of
+# (env override x local verdict x shipped verdict) is exactly where a gate goes
+# quietly wrong. Enumerated rather than sampled, so no combination is decided by
+# accident and every cell is a stated intention.
+# ---------------------------------------------------------------------------
+
+_PASS = json.dumps({"strategy": "vision", "non_inferior": True})
+_FAIL = json.dumps({"strategy": "vision", "non_inferior": False})
+_CORRUPT = '{"strategy": "vision", "non_inferior": tru'
+_OTHER = json.dumps({"strategy": "tier1", "non_inferior": True})
+_MUTE = json.dumps({"strategy": "vision"})  # names it, states nothing
+
+
+@pytest.mark.parametrize(
+    "env,local,expected,rationale",
+    [
+        # An explicit operator decision outranks every certificate, both ways.
+        ("0", None, False, "operator disabled it"),
+        ("0", _PASS, False, "operator disable beats a local PASS"),
+        ("1", None, True, "operator force-enabled, uncertified"),
+        ("1", _FAIL, True, "operator override beats a local FAIL"),
+        # No override: a local verdict is a decision about YOUR traffic and wins.
+        (None, _PASS, True, "local PASS"),
+        (
+            None,
+            _FAIL,
+            False,
+            "local FAIL must NOT fall through to the shipped PASS — that would let "
+            "our corpus overrule your evidence about your own traffic",
+        ),
+        # No local VERDICT is an absence, not a failure: fall through.
+        (None, None, True, "no local certificate -> shipped"),
+        (None, _CORRUPT, True, "corrupt local file is an absence, not a FAIL"),
+        (None, _OTHER, True, "a certificate for another strategy says nothing here"),
+        (None, _MUTE, True, "names the strategy but states no verdict"),
+    ],
+)
+def test_gate_state_matrix(tmp_path, monkeypatch, env, local, expected, rationale):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    if env is None:
+        monkeypatch.delenv("DISTIL_VISION", raising=False)
+    else:
+        monkeypatch.setenv("DISTIL_VISION", env)
+    if local is not None:
+        cert = tmp_path / "certificates" / "vision.json"
+        cert.parent.mkdir(parents=True, exist_ok=True)
+        cert.write_text(local)
+    assert vision.enabled() is expected, rationale
+
+
+def test_gate_closes_completely_when_no_certificate_exists_anywhere(tmp_path, monkeypatch):
+    """The pre-certification guarantee must still hold: strip BOTH sources and
+    the adapter is byte-for-byte what it was before this feature existed."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.delenv("DISTIL_VISION", raising=False)
+    monkeypatch.setattr(vision, "_shipped_certificate_path", lambda: tmp_path / "nope.json")
+    assert vision.enabled() is False
+
+    img = _image_block(_png(1024, 1024))
+    messages = [
+        {"role": "user", "content": [img]},
+        {"role": "user", "content": [json.loads(json.dumps(img))]},
+    ]
+    out, _ = compress_messages(messages)
+    assert out == messages
+
+
+def test_verdict_is_tri_state_not_boolean(tmp_path):
+    """The distinction the fallback depends on: absent/corrupt returns None (an
+    absence, may fall through) while a stated failure returns False (a decision,
+    may not)."""
+    p = tmp_path / "c.json"
+    assert vision._certificate_verdict(p) is None, "missing file"
+    p.write_text(_CORRUPT)
+    assert vision._certificate_verdict(p) is None, "corrupt file"
+    p.write_text(_OTHER)
+    assert vision._certificate_verdict(p) is None, "other strategy"
+    p.write_text(_MUTE)
+    assert vision._certificate_verdict(p) is None, "no verdict stated"
+    p.write_text(_FAIL)
+    assert vision._certificate_verdict(p) is False, "explicit FAIL"
+    p.write_text(_PASS)
+    assert vision._certificate_verdict(p) is True, "explicit PASS"
