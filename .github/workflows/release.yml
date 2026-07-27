@@ -1,154 +1,215 @@
 name: release
 
-# One-click release: tag → publish GitHub Release (notes from CHANGELOG) → open the
-# Homebrew formula-bump PR. Runs on GitHub's runners, which have the ref-write access a
-# local/sandboxed clone may not — so "cut a release" becomes a single tap from the
-# Actions tab or GitHub Mobile (Run workflow), no terminal required.
-#
-# The formula bump lands as a PR (main is branch-protected) — merge it to point
-# `brew install` at the new tag. Mirrors scripts/release.sh; idempotent (safe to re-run).
-
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release, e.g. v0.10.1. Leave blank to use the newest [X.Y.Z] heading in CHANGELOG.md."
-        required: false
-        default: ""
+  push:
+    tags: ["v*"]
+  # Manual release: lets a maintainer (or CI) cut the release for the version in
+  # pyproject without pushing a tag from a restricted environment. The job creates
+  # the matching tag + GitHub release and publishes to PyPI.
+  workflow_dispatch: {}
 
 permissions:
-  contents: write          # create + push the tag, publish the Release
-  pull-requests: write     # open the Homebrew formula-bump PR
-
-concurrency:
-  group: release
-  cancel-in-progress: false
+  contents: write
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
         with:
-          fetch-depth: 0     # full history so the tag + CHANGELOG parsing work
-
-      - name: Resolve version
+          python-version: "3.12"
+      - name: Resolve version from pyproject
         id: ver
-        env:
-          IN: ${{ inputs.version }}
+        # sed (not `cut -d'"'`, which mis-parsed the quote and yielded an empty
+        # version → a release literally named "v"). Fail loudly if empty so a
+        # bad version can never silently create/clobber the wrong release.
         run: |
-          set -euo pipefail
-          v="$IN"
-          if [ -z "$v" ]; then
-            v="v$(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | tr -dc '0-9.')"
-          fi
-          case "$v" in v*) ;; *) v="v$v" ;; esac
-          [ "$v" != "v" ] || { echo "could not resolve a version (pass one, or add a [X.Y.Z] heading)"; exit 1; }
-          echo "version=$v"      >> "$GITHUB_OUTPUT"
-          echo "num=${v#v}"      >> "$GITHUB_OUTPUT"
-          echo "Releasing $v"
-
-      - name: Extract release notes from CHANGELOG
-        id: notes
-        env:
-          NUM: ${{ steps.ver.outputs.num }}
+          V=$(grep -m1 '^version' pyproject.toml | sed -E 's/^version *= *"([^"]+)".*/\1/')
+          echo "Resolved version: '$V'"
+          test -n "$V" || { echo "::error::could not resolve version from pyproject.toml"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Gate before release
         run: |
-          set -euo pipefail
-          {
-            echo 'body<<RELEASE_NOTES_EOF'
-            awk -v v="$NUM" '$0 ~ ("^## \\[" v "\\]"){f=1;next} f&&/^## \[/{exit} f{print}' CHANGELOG.md
-            echo 'RELEASE_NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create and push the tag (idempotent)
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-            echo "tag $VERSION already on origin — skipping"
-          else
-            # Runners have no git identity; annotated tags need one (empty-ident fatal).
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$VERSION" -m "compass $VERSION"
-            git push origin "refs/tags/$VERSION"
-          fi
-
-      - name: Publish the GitHub Release (idempotent, marks Latest)
+          uv run --with pytest python -m pytest -q
+          uv run distil bench
+          uv run distil verify
+      - name: Build wheel + sdist
+        run: uv build
+      - name: Build single-file executable
+        run: bash scripts/build_pyz.sh
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/distil.cyclonedx.json
+          upload-release-assets: false # this workflow attaches assets itself below, not via a `release` event
+      - name: Create the GitHub release (+ tag v<version>) and attach artifacts
+        # `gh release create` reliably creates the tag + release + uploads assets on
+        # ANY trigger (including manual workflow_dispatch), unlike action-gh-release
+        # which can no-op on a non-tag ref. Idempotent: if the release already exists,
+        # upload/clobber the assets instead of failing.
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.ver.outputs.version }}
-          NOTES: ${{ steps.notes.outputs.body }}
         run: |
-          set -euo pipefail
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            printf '%s' "$NOTES" | gh release edit "$VERSION" --notes-file -
+          V="v${{ steps.ver.outputs.version }}"
+          # rc tags are soak candidates (see RELEASING.md): marked prerelease so
+          # nobody installs one by accident from the releases page.
+          PRE=""
+          case "$V" in *rc*) PRE="--prerelease" ;; esac
+          if gh release view "$V" >/dev/null 2>&1; then
+            gh release upload "$V" dist/*.whl dist/*.tar.gz dist/distil.pyz dist/distil.cyclonedx.json --clobber
           else
-            printf '%s' "$NOTES" | gh release create "$VERSION" --latest --title "$VERSION — compass" --notes-file -
+            gh release create "$V" dist/*.whl dist/*.tar.gz dist/distil.pyz dist/distil.cyclonedx.json \
+              --target "${{ github.sha }}" --title "$V" $PRE \
+              --notes "Release $V — see CHANGELOG.md. Install: pipx install distil-llm (PyPI), or download the wheel/distil.pyz below if PyPI is blocked."
           fi
+      - name: Stage PyPI artifacts (wheel + sdist only)
+        run: |
+          mkdir -p pypi-dist
+          cp dist/*.whl dist/*.tar.gz pypi-dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pypi-dist
+          path: pypi-dist/
 
-      - name: Open the Homebrew formula-bump PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.ver.outputs.version }}
-          REPO: ${{ github.repository }}
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    # Enable once the PyPI trusted publisher is configured (see below), by setting
+    # repo variable PUBLISH_TO_PYPI=true. Until then the release still ships GitHub artifacts.
+    if: ${{ vars.PUBLISH_TO_PYPI == 'true' }}
+    environment:
+      name: pypi
+      url: https://pypi.org/p/distil-llm
+    permissions:
+      id-token: write   # OIDC — trusted publishing, no API token/secret needed
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: pypi-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # tolerate re-running a release for a version already on PyPI (e.g. when
+          # re-cutting only to (re)create the GitHub release) — don't fail the run.
+          skip-existing: true
+          # PEP 740 Sigstore attestations. Recent action versions default this on, but
+          # 1.30.0 published with attestations=NO and provenance=none, so the default
+          # cannot be relied on — request it explicitly and verify it below.
+          attestations: true
+
+      # The README claims releases carry PEP 740 attestations. Claiming a security
+      # property without checking it is exactly the failure this project exists to
+      # criticise, so the claim is enforced here: if PyPI does not report attestations
+      # for the version just published, the release job fails.
+      - name: Verify PyPI recorded the attestations
         run: |
           set -euo pipefail
-          # Optional + generic: only repos that ship a Homebrew tap formula get this PR.
-          formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
-          [ -n "$formula" ] || { echo "no Homebrew formula in this repo — skipping formula PR"; exit 0; }
-          url="https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz"
-          sha="$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)"
-          [ -n "$sha" ] || { echo "could not compute tarball sha"; exit 1; }
-          tmp="$(mktemp)"
-          sed -E -e "s#archive/refs/tags/v[0-9.]+\.tar\.gz#archive/refs/tags/$VERSION.tar.gz#" \
-                 -e "s/^([[:space:]]*sha256 )\"[a-f0-9]*\"/\1\"$sha\"/" "$formula" >"$tmp" && mv "$tmp" "$formula"
-          if git diff --quiet -- "$formula"; then echo "formula already at $VERSION — no PR needed"; exit 0; fi
-          branch="release/formula-$VERSION"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git commit -aqm "chore(release): pin $VERSION + tarball sha in the Homebrew formula"
-          git push -f origin "$branch"
-          gh pr create --base main --head "$branch" \
-            --title "chore(release): Homebrew formula -> $VERSION" \
-            --body "Automated formula bump for **$VERSION** (url + tarball \`sha256 $sha\`). Auto-merges once checks pass, so \`brew install\` never lags a release." \
-            || gh pr edit "$branch" --body "Automated formula bump for $VERSION (sha256 $sha)." || true
-          # Close the loop: land the bump automatically once required checks pass, so a
-          # forgotten manual merge can't leave brew on a stale release (the reason we
-          # were pinned to v0.20.0). Tolerant — if the repo hasn't enabled auto-merge,
-          # the CI drift guard on main still flags the staleness loudly.
-          # NOTE: if branch protection requires the `ci` check, that check must be able
-          # to run on this bot-authored PR — pushes made with the default GITHUB_TOKEN
-          # don't trigger `on: pull_request`, so use a PAT (secrets.RELEASE_PAT) for the
-          # push above if auto-merge stalls waiting on checks.
-          gh pr merge --auto --squash "$branch" \
-            || echo "::warning::could not enable auto-merge — enable 'Allow auto-merge' in repo settings (+ required checks), or merge the formula PR by hand"
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "checking attestations for distil-llm ${VERSION}"
+          # Ask the integrity API, not the JSON API. PyPI does NOT populate an
+          # "attestations" field on /pypi/<pkg>/<ver>/json — checking it there reports a
+          # false negative even when the bundle exists, which failed the 1.31.0 release
+          # that had in fact attested correctly.
+          FILES="import json,sys; print(' '.join(u['filename'] for u in json.load(sys.stdin)['urls']))"
+          COUNT="import json,sys; print(len(json.load(sys.stdin).get('attestation_bundles') or []))"
+          for attempt in 1 2 3 4 5; do
+            sleep $((attempt * 10))   # PyPI indexes attestations a moment after upload
+            RESP="$(curl -fsSL "https://pypi.org/pypi/distil-llm/${VERSION}/json")" || continue
+            MISSING=""
+            for FN in $(printf '%s' "$RESP" | python3 -c "$FILES"); do
+              N="$(curl -fsSL "https://pypi.org/integrity/distil-llm/${VERSION}/${FN}/provenance" 2>/dev/null | python3 -c "$COUNT" 2>/dev/null || echo 0)"
+              [ "${N:-0}" -ge 1 ] || MISSING="$MISSING $FN"
+            done
+            if [ -z "$MISSING" ]; then
+              echo "✓ all artifacts carry attestations"
+              exit 0
+            fi
+            echo "attempt ${attempt}: still missing on — ${MISSING}"
+          done
+          echo "::error::PyPI reports no PEP 740 attestations for ${VERSION}, but README.md claims them. Either the publish step failed to attest, or the README claim must be removed."
+          exit 1
 
-      - name: Sync formula into the shared tap (dshakes/homebrew-tap)
+# ── PyPI trusted publishing setup (one-time, on pypi.org) ──────────────────────
+# 1. Create the project owner account, then add a *pending publisher*:
+#    PyPI → Your projects → Publishing → Add a new pending publisher
+#      PyPI Project Name : distil-llm
+#      Owner             : dshakes
+#      Repository        : distil
+#      Workflow name     : release.yml
+#      Environment       : pypi
+# 2. In this repo: Settings → Secrets and variables → Actions → Variables →
+#    add PUBLISH_TO_PYPI = true
+# 3. Push a tag (vX.Y.Z). No API token is ever stored — auth is OIDC.
+
+  # GA container image → GitHub Container Registry, on the same v* tag.
+  # ghcr.io needs no extra secrets (GITHUB_TOKEN with packages:write).
+  publish-image:
+    runs-on: ubuntu-latest
+    needs: [build]
+    # No image for rc soak tags: `1.X.Yrc1` isn't valid semver for the tagger,
+    # and an rc must never move `latest` — rc soakers install the wheel/pipx.
+    if: ${{ !contains(github.ref_name, 'rc') }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # Keep the Homebrew tap in lockstep with the release — no more manual formula
+  # bumps. Needs a TAP_TOKEN secret (PAT with contents:write on the tap repo);
+  # no-ops with a notice if absent, so it never blocks a release.
+  bump-homebrew:
+    runs-on: ubuntu-latest
+    needs: [build]
+    # Never point the tap at an rc — brew users get finals only.
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, 'rc')
+    steps:
+      - name: Update tap formula
         env:
-          TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
-          VERSION: ${{ steps.ver.outputs.version }}
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
-          set -euo pipefail
-          # Users install via `brew install dshakes/tap/compass`, which reads the shared
-          # tap repo — so each release must push the bumped formula there too. Cross-repo
-          # write needs a PAT (the default GITHUB_TOKEN is scoped to this repo only).
-          formula="$(ls Formula/*.rb 2>/dev/null | head -1 || true)"
-          [ -n "$formula" ] || exit 0
-          if [ -z "${TAP_PAT:-}" ]; then
-            echo "::warning::HOMEBREW_TAP_PAT not set — skipping tap sync. Add a fine-grained PAT with contents:write on dshakes/homebrew-tap so the tap tracks releases automatically."
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::notice::TAP_TOKEN not set — skipping Homebrew tap bump."
             exit 0
           fi
-          tmp="$(mktemp -d)"
-          git clone --depth 1 "https://x-access-token:${TAP_PAT}@github.com/dshakes/homebrew-tap.git" "$tmp/tap" 2>/dev/null
-          mkdir -p "$tmp/tap/Formula"
-          cp "$formula" "$tmp/tap/Formula/compass.rb"
-          cd "$tmp/tap"
-          if git diff --quiet; then echo "tap already current for $VERSION"; exit 0; fi
+          VER="${GITHUB_REF_NAME#v}"
+          SHA="$(curl -sL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VER}.tar.gz" | shasum -a 256 | cut -d' ' -f1)"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/dshakes/homebrew-tap" tap
+          cd tap
+          python3 - "$VER" "$SHA" <<'PY'
+          import re, sys
+          ver, sha = sys.argv[1], sys.argv[2]
+          fp = "Formula/distil.rb"; s = open(fp).read()
+          s = re.sub(r'v\d+\.\d+\.\d+', f'v{ver}', s)
+          s = re.sub(r'sha256 "[a-f0-9]{64}"', f'sha256 "{sha}"', s)
+          s = re.sub(r'version "\d+\.\d+\.\d+"', f'version "{ver}"', s)
+          open(fp, "w").write(s)
+          PY
           git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -aqm "compass $VERSION"
-          git push
-          echo "synced compass $VERSION into dshakes/homebrew-tap"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "distil ${VER}" && git -c push.default=current push || echo "tap already current"
