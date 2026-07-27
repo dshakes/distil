@@ -92,6 +92,20 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
     def active(days: int) -> int:
         return sum(1 for r in latest.values() if now - r["ts"] <= days * 86400)
 
+    def contributing(days: int) -> int:
+        """Installs that are active AND have actually saved something.
+
+        Consenting is not contributing: a machine can turn the census on and
+        never run anything, and two of those look identical in `active_30d`.
+        The page says "N machines saving" — that claim needs this number, not
+        the consent count, or one idle opt-in inflates the community story.
+        """
+        return sum(
+            1
+            for r in latest.values()
+            if now - r["ts"] <= days * 86400 and int(r.get("tokens_saved") or 0) > 0
+        )
+
     # MEASURED community savings rate: for each install with >=2 pings, the
     # token delta over the time delta between its two most recent censuses
     # (dropping resets where tokens went backwards), summed across installs.
@@ -201,6 +215,10 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             "census_total": len(latest),
             "active_7d": active(7),
             "active_30d": active(30),
+            # Machines that actually saved something, not just consented. The
+            # savings tiles must never count an idle opt-in as a contributor.
+            "contributing_7d": contributing(7),
+            "contributing_30d": contributing(30),
             "by_version": dict(versions.most_common()),
         },
         "savings": {
@@ -208,6 +226,7 @@ def rollup(metrics_dir: Path, now: float | None = None) -> dict:
             "dollars": dollars_real,
             "dollars_notional": dollars_notional,
             "instances": len(latest),
+            "contributing": sum(1 for r in latest.values() if int(r.get("tokens_saved") or 0) > 0),
             # Live-projection inputs — all measured, none estimated:
             "as_of_ts": as_of_ts,  # the token total is exact as of this ts
             "rate_per_sec": round(rate_per_sec, 2),  # measured Δtokens/Δt

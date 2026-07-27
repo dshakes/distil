@@ -304,7 +304,62 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         "\n(local-first; export a page with --html, or share verifiably with "
         "`distil federated-leaderboard`.)"
     )
+    _census_invite(s)
     return 0
+
+
+# How much a user must have saved before the census is worth mentioning. Below
+# this the invite is noise; above it the number is worth contributing.
+INVITE_MIN_TOKENS = 100_000
+
+
+def _is_tty() -> bool:
+    """Whether stdout is a terminal — a seam so this stays testable.
+
+    pytest reinstalls its own captured `sys.stdout` for the call phase, and that
+    object is a TextIOWrapper, which accepts no instance attributes: `isatty`
+    can be patched neither on the instance nor on the type. One indirection is
+    cheaper than a test that cannot express "the user is at a terminal".
+    """
+    return sys.stdout.isatty()
+
+
+def _census_invite(s: Any) -> None:
+    """Mention the census once, to someone who has something to contribute.
+
+    Consent was only ever offered inside `distil onboard`, in a TTY. Anyone who
+    installed with `uvx`/`pipx` and went straight to `distil wrap` was never
+    asked at all — which is why the community total is built from a handful of
+    machines while the download count is orders of magnitude larger.
+
+    This does not weaken consent: it is opt-IN, printed once, never assumed, and
+    silent for anyone who has already answered, set a kill switch, or is being
+    piped somewhere. Declining is still a deliberate act; so is ignoring it.
+    """
+    try:
+        from . import census as _census
+
+        if (
+            not _is_tty()
+            or _census.consent() is not None
+            or _census.hard_disabled()
+            or s.total_tokens_saved < INVITE_MIN_TOKENS
+            or _census.invite_seen()
+        ):
+            return
+        import os as _os
+
+        color = _os.environ.get("NO_COLOR") is None
+
+        def c(code: str, t: str) -> str:
+            return f"\033[{code}m{t}\033[0m" if color else t
+
+        _census.mark_invite_seen()
+        print(c("90", "\nYour savings are local and stay local. If you'd like them counted in the"))
+        print(c("90", "public community total: ") + c("1", "distil census on"))
+        print(c("90", "  content-free, numbers only, one JSON/day · preview: distil census show"))
+    except Exception:  # noqa: BLE001 — an invite must never break `stats`
+        pass
 
 
 def cmd_prune(args: argparse.Namespace) -> int:

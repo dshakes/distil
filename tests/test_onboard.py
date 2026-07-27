@@ -128,6 +128,12 @@ def test_is_outdated_semantics() -> None:
         onboard.is_outdated("1.3.0.dev0", "1.3.0") is True
     )  # pre-release of the release → upgrade
     assert onboard.is_outdated("1.3.0", None) is False  # offline / check failed
+    # A pre-release compared to ITSELF is not outdated. Same base + "ours is a
+    # pre-release" used to short-circuit to True, so anyone running an rc that
+    # PyPI also reported as latest was nagged to upgrade to what they had.
+    assert onboard.is_outdated("1.34.0rc1", "1.34.0rc1") is False
+    assert onboard.is_outdated("1.34.0rc1", "1.34.0") is True  # …but the GA is newer
+    assert onboard.is_outdated("1.34.0rc1", "1.33.1") is False  # …and rc leads last stable
 
 
 def test_upgrade_command_per_method() -> None:

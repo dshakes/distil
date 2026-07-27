@@ -24,6 +24,18 @@ It is **off until you say yes** — either `distil census on` or answering the
 one-time question in `distil onboard` (declining is recorded; you are never
 asked again; `--yes` does *not* consent for you).
 
+**Only an answer counts as an answer.** If you interrupt that question with
+Ctrl-C, or `onboard` runs with stdin piped, nothing is recorded — you stay
+un-asked and can decide later. (Until 1.33.x an interrupted prompt was stored
+as a refusal, which quietly spent the one chance to ask.)
+
+Because that question only appears inside `distil onboard`, and only at a
+terminal, most installs are never asked at all. So `distil stats` mentions the
+census **once**, and only if you have real savings to contribute. It prints a
+line and nothing else: it never sends anything, never grants consent, is silent
+when piped or when `DO_NOT_TRACK` is set, and is never shown twice. Ignoring it
+leaves you un-asked, exactly as before.
+
 ### Exactly what is sent
 
 At most **one JSON object per 24 hours**, fired from the proxy/wrap shutdown
