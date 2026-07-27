@@ -265,8 +265,10 @@ litellm --config config.yaml</pre>
     <h3 id="crewai">CrewAI</h3>
     <p>CrewAI's <code>LLM</code> takes <code>base_url</code> directly. Point it at the proxy and prefix the model with its provider.</p>
 
-<pre class="term"><span class="d">$ pip install crewai &amp;&amp; distil proxy --port 8788 &amp;</span>
+<pre class="term"><span class="d">$ pip install crewai
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
 
+<span class="k">import</span> os
 <span class="k">from</span> crewai <span class="k">import</span> Agent, LLM
 
 llm = LLM(
@@ -283,8 +285,10 @@ agent = Agent(llm=llm, ...)</pre>
     <h3 id="agno">Agno</h3>
     <p>Agno's <code>OpenAILike</code> is the class it recommends for any OpenAI-compatible endpoint — it takes the same parameters as <code>OpenAIChat</code> and relaxes the OpenAI-only assumptions. Point <code>base_url</code> at the proxy and every model call the agent makes is compressed on the way out.</p>
 
-<pre class="term"><span class="d">$ pip install agno openai &amp;&amp; distil proxy --port 8788 &amp;</span>
+<pre class="term"><span class="d">$ pip install agno openai
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
 
+<span class="k">import</span> os
 <span class="k">from</span> agno.agent <span class="k">import</span> Agent
 <span class="k">from</span> agno.models.openai.like <span class="k">import</span> OpenAILike
 
@@ -300,8 +304,10 @@ agent.print_response(<span class="s">"..."</span>)</pre>
     <h3 id="strands">Strands Agents</h3>
     <p>Strands' <code>OpenAIModel</code> forwards <code>client_args</code> straight to the underlying <code>openai</code> client, so <code>base_url</code> goes there. Nothing else in the agent changes.</p>
 
-<pre class="term"><span class="d">$ pip install strands-agents &amp;&amp; distil proxy --port 8788 &amp;</span>
+<pre class="term"><span class="d">$ pip install strands-agents
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
 
+<span class="k">import</span> os
 <span class="k">from</span> strands <span class="k">import</span> Agent
 <span class="k">from</span> strands.models.openai <span class="k">import</span> OpenAIModel
 
