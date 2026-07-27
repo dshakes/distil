@@ -572,3 +572,75 @@ pre:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
 .sk-foot kbd{font-family:var(--mono,ui-monospace,monospace);border:1px solid var(--line,#1b1f2a);
   border-radius:4px;padding:1px 5px;margin-right:3px}
 @media (prefers-reduced-motion:reduce){.sk-trigger{transition:none}}
+
+/* ── Copy page as Markdown ────────────────────────────────────────────
+   Injected by site.js under the page <h1>. Sits quiet: this is for the
+   reader who already knows they want it, not a call to action. */
+.md-copy{display:inline-flex;align-items:center;gap:7px;margin:0 0 18px;
+  padding:6px 13px;cursor:pointer;font:500 12.5px/1 inherit;
+  color:var(--dim);background:var(--panel2);border:1px solid var(--line);
+  border-radius:9px;transition:color .15s ease,border-color .15s ease}
+.md-copy:hover{color:var(--ink);border-color:var(--line2)}
+.md-copy::before{content:"⌘";font-family:var(--mono);opacity:.6}
+@media (prefers-reduced-motion:reduce){.md-copy{transition:none}}
+
+/* ── Light theme ──────────────────────────────────────────────────────
+   Scoped deliberately: page CHROME goes light, while diagrams and code
+   blocks stay dark.
+
+   That is a design decision, not an unfinished job. SVGs loaded through
+   <img src> cannot inherit page CSS — a hard browser constraint — so a manual
+   toggle physically cannot recolour the 15 dark-baked diagrams. The options
+   were to redesign every diagram, ship two copies of each, or treat them as
+   dark cards on a light page. The last is what code blocks already do here and
+   what most technical docs do, so it reads as intentional rather than broken.
+
+   Applied via [data-theme] on <html>, set before first paint by an inline
+   script in each page's <head> — see site.js. */
+:root[data-theme="light"]{
+  --bg:     #fbfbfd;
+  --bg2:    #f4f5f8;
+  --panel:  #ffffff;
+  --panel2: #f4f5f8;
+  --line:   #e2e5ec;
+  --line2:  #cfd4e0;
+  --ink:    #14161c;
+  --mut:    #4d5566;
+  --dim:    #626b7d;   /* AA on #fbfbfd */
+  --acc:    #5b46d9;   /* darkened: the dark-mode violet fails contrast on white */
+  --acc2:   #0f7d75;   /* darkened teal, same reason */
+  --warn:   #a8410f;
+  --good:   #16704a;
+  --grad:   linear-gradient(135deg,#5b46d9 0%,#0f7d75 100%);
+  --card:   linear-gradient(180deg,#ffffff 0%,#f7f8fb 100%);
+  --shadow:  0 14px 40px -28px rgba(20,22,28,.35);
+  --shadow2: 0 18px 48px -26px rgba(91,70,217,.25);
+}
+
+/* Diagrams and terminals keep their dark treatment; give them a visible edge so
+   they read as deliberate panels rather than holes in the page. */
+:root[data-theme="light"] .svg-embed,
+:root[data-theme="light"] img[src$=".svg"]{
+  border:1px solid var(--line);border-radius:14px;background:#0b0c13;
+}
+:root[data-theme="light"] pre,
+:root[data-theme="light"] .term{
+  background:#0f1117;color:#e7e9ee;border-color:#20242f;
+}
+:root[data-theme="light"] pre code{color:#e7e9ee}
+/* The sidebar/topbar translucency is tuned for a dark backdrop. */
+:root[data-theme="light"] .topbar{background:rgba(251,251,253,.86)}
+:root[data-theme="light"] .sidebar{background:var(--bg)}
+
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;cursor:pointer;border-radius:9px;
+  color:var(--dim);background:var(--panel2);border:1px solid var(--line);
+  transition:color .15s ease,border-color .15s ease}
+.theme-toggle:hover{color:var(--ink);border-color:var(--line2)}
+@media (prefers-reduced-motion:reduce){.theme-toggle{transition:none}}
+
+/* Nested sidebar list — the per-framework integration pages. */
+.sidebar-sub{list-style:none;margin:4px 0 2px;padding:0 0 0 12px;
+  border-left:1px solid var(--line)}
+.sidebar-sub a{font-size:13px;color:var(--dim);padding:4px 10px}
+.sidebar-sub a:hover{color:var(--ink)}

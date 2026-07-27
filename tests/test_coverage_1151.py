@@ -247,7 +247,7 @@ def test_claude_discover_and_edge_parsing(tmp_path, monkeypatch):
     ClaudeCodeAdapter().load(tmp_path / "does-not-exist.jsonl")  # OSError -> empty transcript
 
 
-def test_more_edges():
+def test_more_edges(tmp_path, monkeypatch):
     from distil.adapters.anthropic import (
         RestoreStore,
         _compress_content_item,
@@ -264,7 +264,14 @@ def test_more_edges():
     assert _compress_content_item(img, st, "user", False) == img  # passthrough
     tu = {"type": "tool_use", "id": "x", "name": "y", "input": {}}
     assert _compress_content_item(tu, st, "assistant", False)["type"] == "tool_use"
-    assert find_transcript("unknown-tool-xyz", (0.0, 1.0)) is None  # no adapter
+    # An unknown tool deliberately falls back to EVERY adapter (see
+    # find_transcript's docstring — old sessions have no manifest), so the
+    # Claude adapter scans ~/.claude/projects. Without isolating that, this
+    # asserted a property of the developer's home directory: green on a clean CI
+    # runner, red on any machine that has ever run Claude Code. Point the config
+    # dir at an empty tmp dir so "nothing to find" is a fact, not an accident.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "no-such-config"))
+    assert find_transcript("unknown-tool-xyz", (0.0, 1.0)) is None
 
 
 def test_ledger_edges(tmp_path, monkeypatch):

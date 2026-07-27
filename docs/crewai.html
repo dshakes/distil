@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CrewAI — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="CrewAI — Distil"/>
+<meta property="og:description" content="Route CrewAI through distil in one line — certified, reversible context compression with no code change beyond a base URL."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/crewai.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="CrewAI — Distil"/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="https://github.com/dshakes/distil">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html" class="active" aria-current="page">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>CrewAI <span class="g">&times; Distil</span></h1>
+    <p class="lead">CrewAI's <code>LLM</code> takes <code>base_url</code> directly. Prefix the model with its provider.</p>
+
+    <h2 id="setup">Setup</h2>
+    <p>Start the proxy against the provider this SDK talks to, then point the client at it. Nothing else in your code changes.</p>
+
+<pre class="term"><span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span>
+
+<span class="k">import</span> os
+<span class="k">from</span> crewai <span class="k">import</span> Agent, LLM
+
+llm = LLM(
+    model=<span class="s">"openai/gpt-4o"</span>,                 <span class="d"># provider prefix is required</span>
+    base_url=<span class="s">"http://127.0.0.1:8788/v1"</span>,   <span class="d"># ← the only change; end at /v1</span>
+    api_key=os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+)
+agent = Agent(llm=llm, ...)</pre>
+
+    <div class="callout">
+      <b>Worth knowing.</b> CrewAI resolves <code>planning_llm</code>, <code>function_calling_llm</code> and any manager LLM <em>separately</em>. Leave those unset and those calls go straight to the provider, bypassing the proxy — you would see partial savings and no error.
+    </div>
+
+    <h2 id="what-happens">What actually happens</h2>
+    <p>The proxy intercepts only the compressible paths &mdash; <code>/v1/messages</code>, <code>/v1/chat/completions</code>, <code>/v1/responses</code> and the Gemini <code>generateContent</code> routes. Everything else passes through untouched, and your API key travels in the request headers exactly as normal: the proxy never logs or stores it.</p>
+
+    <p>Large tool results are replaced by reversible digests carrying a content handle, and the original stays on your machine. The agent can pull any of it back mid-task through the <code>distil_expand</code> tool, so nothing is permanently discarded &mdash; which is what lets the compression be aggressive without being a gamble.</p>
+
+    <div class="callout good">
+      <b>Check it before you trust it.</b> <code>distil simulate -m request.json</code> replays one of your real requests through the pipeline with <em>no model in the path</em> and reports what would be compressed, what would be left byte-exact, and which rule protected it. See the <a href="cli.html#simulate">CLI reference</a>.
+    </div>
+
+    <h2 id="verify">Verify it is actually routing</h2>
+    <p>The most common failure is silent: the client never reaches the proxy and everything still works, just uncompressed. Two checks:</p>
+
+<pre class="term"><span class="d">$ curl -s localhost:8788/distil/health</span>
+{"status":"ok"}
+
+<span class="d">$ distil dashboard</span>          <span class="d"># live savings; zero here means nothing is routing</span></pre>
+
+    <p>Every response also carries <code>x-distil-tokens-saved</code>, so a request that went through the proxy is identifiable from its headers alone.</p>
+
+    <hr/>
+    <p class="muted">Full matrix of every supported SDK, including the in-process hooks that need no proxy: <a href="integrations.html">Integrations</a>. Distil is a proxy, so anything that lets you set a base URL works &mdash; this page is a worked example, not the boundary of support.</p>
+
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>
