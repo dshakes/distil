@@ -538,3 +538,37 @@ pre:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+
+/* ── ⌘K docs search ───────────────────────────────────────────────────
+   Injected by site.js; see the note there for why the trigger is not in
+   the 21 page templates. */
+.sk-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  width:100%;margin:0 0 18px;padding:9px 12px;cursor:pointer;
+  font:500 13px/1 inherit;color:var(--mut,#8b91a1);
+  background:var(--panel2,#0f1219);border:1px solid var(--line,#1b1f2a);border-radius:10px;
+  transition:border-color .15s ease,color .15s ease}
+.sk-trigger:hover{border-color:#2a2550;color:var(--ink,#e7e9ee)}
+.sk-kbd{font-family:var(--mono,ui-monospace,monospace);font-size:11px;padding:2px 6px;
+  border:1px solid var(--line,#1b1f2a);border-radius:5px;color:var(--dim,#7d8598)}
+
+.sk-overlay{position:fixed;inset:0;z-index:60;display:flex;justify-content:center;
+  align-items:flex-start;padding:12vh 20px 20px;background:rgba(4,5,8,.72);
+  backdrop-filter:blur(3px)}
+.sk-overlay[hidden]{display:none}
+.sk-panel{width:100%;max-width:620px;background:var(--panel,#0c0e14);
+  border:1px solid #2a2550;border-radius:16px;overflow:hidden;
+  box-shadow:0 40px 100px -30px rgba(0,0,0,.85)}
+.sk-input{width:100%;padding:17px 20px;border:0;outline:0;
+  background:transparent;color:var(--ink,#e7e9ee);font-size:16px;
+  border-bottom:1px solid var(--line,#1b1f2a)}
+.sk-input::placeholder{color:var(--dim,#7d8598)}
+.sk-results{list-style:none;margin:0;padding:6px;max-height:52vh;overflow-y:auto}
+.sk-hit{display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:10px;cursor:pointer}
+.sk-hit.is-active{background:var(--panel2,#0f1219);box-shadow:inset 0 0 0 1px #2a2550}
+.sk-t{font-size:14px;color:var(--ink,#e7e9ee)}
+.sk-s{font-size:12px;color:var(--dim,#7d8598);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sk-foot{padding:9px 16px;border-top:1px solid var(--line,#1b1f2a);
+  color:var(--dim,#7d8598);font-size:11.5px}
+.sk-foot kbd{font-family:var(--mono,ui-monospace,monospace);border:1px solid var(--line,#1b1f2a);
+  border-radius:4px;padding:1px 5px;margin-right:3px}
+@media (prefers-reduced-motion:reduce){.sk-trigger{transition:none}}
