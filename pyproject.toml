@@ -2,7 +2,7 @@
 # Import package and CLI are `distil`; the PyPI distribution is `distil-llm`
 # (the bare `distil` name is already taken on PyPI).
 name = "distil-llm"
-version = "1.34.0"
+version = "1.35.0"
 description = "Compression with a quality contract — cache-aware, causally-pruned context compression for agentic runtimes, gated by a statistical non-inferiority test."
 readme = "README.md"
 # Python floor is 3.9 — the version macOS still ships as the system `python3`. The

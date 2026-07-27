@@ -3,6 +3,74 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.35.0] — see what it does before you trust it
+
+Eight merged PRs. The theme is the same one twice: **a number that claims to be
+current, and a preview that claims to be complete.** Both were wrong, in public.
+
+**Three adoption numbers were stale, not false.** Reported as "the page shows a
+previous version when I have the latest" and it turned out to be three separate
+bugs of one shape. `distil wrap` is deliberately long-lived — hot-swap replaces
+the proxy *worker* on upgrade so your session never restarts, which means the
+wrap parent keeps running the code it started with, for days, and it is the
+process that emits the census. Every wrap user's beat reported whatever was
+installed when their session began; a machine running 1.34.0 was observed beating
+`1.28.0`, two upgrades later. `by_version` also counted every install ever seen
+under a chart that says "in the wild", so a machine that pinged once and vanished
+sat there forever. And the live hero read "2 machines saving now" directly above
+its own sentence "summed from 1 machine that actually reported savings" — the
+endpoint's `active` field is a *consent* count, and the page fell back to it.
+All three fixed; the version now reads from disk, the histogram is 30d-scoped,
+and "saving now" means saving.
+
+**`distil simulate` — a dry run that says what it will NOT touch.** Running the
+real pipeline locally with no model in the path was already possible. What was
+missing is the question that actually decides adoption: *what would you leave
+alone, and why?* distil already computes that — the recency exemption, the
+assistant's own words, tool_use arguments, lines the keep policy pins as
+decision-bearing — so the protected set is now first-class output, per block,
+naming the rule. Two guarantees are reported separately, because conflating them
+made the first version lie: `byte-exact` (not touched at all) and `lossless-only`
+(bytes may change, meaning preserved, nothing moved behind a handle). Recency is
+the second kind, not the first — it exempts a block from the Tier-1 digest, not
+from Tier-0.
+
+**Prometheus and OpenTelemetry.** `GET /distil/metrics` serves the standard text
+exposition, stdlib-only, behind the same admin gate as `/distil/stats` because the
+series are labelled by tenant. OTel counters mirror it, recorded at the same
+instrumentation point as the span attributes and *before* the span guard, so they
+survive tracing being sampled off. This corrects two published claims: the README
+and Deploy & Security both said distil has no metrics endpoint and cited that as a
+differentiator. It has one; the gate is the differentiator, and it is tested.
+
+**Images become a certifiable content type (ADR 0003).** The prevailing technique
+here downscales, which is lossy by construction — the model sees a different image
+and nobody can say whether the answer changed. Instead, the second and later
+appearances of a *byte-identical* image become a recoverable reference; the first
+is untouched. It ships **disabled**: `vision.enabled()` parses the certificate and
+requires an explicit passing verdict, so with none present the adapter is
+byte-for-byte what it was before. Reversibility is proven; decision-equivalence is
+not yet, and ADR 0004 records exactly what blocks it.
+
+**A savings figure that was wrong in public.** The proxy's estimator never counted
+image blocks, so an image was ~0 tokens on the "before" side. Any agent that sends
+images had an understated baseline. Now counted at pixel-area cost — which means
+**reported savings and census figures will shift for image traffic.** That is a
+correction, not an improvement.
+
+**Docs search.** 22 pages with no way to search them. ⌘K, static index, no service
+and no dependency. A test fails if the committed index goes stale, because a
+generated artifact that is committed rots the first time someone adds a page — and
+rots silently, since search simply never returns it.
+
+Also: Agno, Strands, Cursor and CrewAI added to the integration matrix, each with
+the caveat that actually bites (Cursor's override covers its agent panel but not
+tab-completion; CrewAI resolves `planning_llm` separately, so leaving it unset
+bypasses the proxy with no error). ADR 0004 stack-ranks what is genuinely left and
+records three gaps the earlier audit had *understated* — we had more than we
+thought. And the Gemini cross-audit workflow, dead on every PR, now runs from the
+base commit with a fail-closed tool allowlist rather than trusting the PR's tree.
+
 ## [1.34.0] — say whose savings those are
 
 The counter fix in 1.33.1 stopped the community total moving backwards. This is
