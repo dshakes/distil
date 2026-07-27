@@ -17,7 +17,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from distil.proxy import build_handler
 
-_DELAY = 0.6  # upstream pause between chunks; first byte must beat this
+_DELAY = 3.0  # upstream pause between chunks; first byte must beat this
+# 0.6s previously: on a loaded shared CI runner (observed on windows-latest) the
+# whole first-chunk round trip — thread spin-up, socket connect, HTTP framing —
+# can itself take over a second with no buffering bug involved, which left only
+# ~450ms of slack and flaked. 3.0s keeps the assertion meaningful (a genuinely
+# buffered response still needs the full upstream pause before any byte arrives)
+# while giving the streamed path enough absolute slack to absorb that jitter.
 # Realistic Anthropic SSE deltas (with the `type` fields real streams carry) so the
 # decision signature reconstructs to a real "text" decision, not "none" — shadow
 # recording deliberately skips "none" signatures (transient/unparseable responses).
