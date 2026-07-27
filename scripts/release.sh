@@ -99,7 +99,12 @@ else
   [ "$PLUGIN_V" = "$VERSION" ] || die "plugin.json is $PLUGIN_V, pyproject is $VERSION"
   SERVER_V="$(grep -E '^\s*"version":' server.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
   [ "$SERVER_V" = "$VERSION" ] || die "server.json is $SERVER_V, pyproject is $VERSION"
-  ok "version $VERSION consistent (pyproject, CITATION, plugin.json, server.json)"
+  # The npm wrapper carries a version badge in the README and nothing checked it:
+  # it sat at 1.27.0 in-repo while the registry served 1.25.0 and PyPI was on
+  # 1.33.1 — a badge advertising a build nine releases old.
+  NPM_V="$(grep -E '^\s*"version":' packaging/npm/package.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+  [ "$NPM_V" = "$VERSION" ] || die "packaging/npm/package.json is $NPM_V, pyproject is $VERSION"
+  ok "version $VERSION consistent (pyproject, CITATION, plugin.json, server.json, npm)"
 fi
 
 git rev-parse "$TAG" >/dev/null 2>&1 && die "tag $TAG already exists — bump the version or delete the tag"

@@ -59,14 +59,14 @@
     <rect class="cbar c2" x="300" y="180" width="502" height="30" rx="10" fill="url(#bar1)" stroke="#2e3758" stroke-width="1"/>
     <text x="816" y="201" fill="#8b91a3">$0.01115  ·  −27%</text>
 
-    <!-- naive 0.01691 -->
+    <!-- naive 0.01696 -->
     <text x="40" y="251" fill="#ff8a6b">naive compress</text>
     <text x="40" y="267" font-size="10" fill="#5b6177">busts the prefix cache</text>
     <text x="1055" y="226" font-size="10.5" text-anchor="end" fill="#ff8a6b">▲ costs MORE than baseline</text>
     <rect class="cbar c3" x="300" y="236" width="761" height="30" rx="10" fill="#2e1a20" stroke="#ff8a6b" stroke-width="1.5" stroke-opacity="0.7"/>
-    <text x="1075" y="256" fill="#ff8a6b">$0.01691</text>
+    <text x="1075" y="256" fill="#ff8a6b">$0.01696</text>
 
-    <!-- distil 0.01019 -->
+    <!-- distil 0.01023 -->
     <text x="40" y="307" fill="#5ad1c9">distil</text>
     <text x="40" y="323" font-size="10" fill="#5b6177">cache-aware lossless</text>
     <!-- glow layer behind distil bar -->
@@ -74,6 +74,6 @@
     <!-- actual distil bar -->
     <rect class="cbar cwin" x="300" y="292" width="459" height="30" rx="10" fill="url(#g)"/>
     <g clip-path="url(#cwclip)"><rect class="cshim" x="230" y="292" width="70" height="30" fill="url(#cshimg)"/></g>
-    <text x="773" y="313" font-weight="700" fill="#f2f3f7">$0.01019  ·  −33%</text>
+    <text x="773" y="313" font-weight="700" fill="#f2f3f7">$0.01023  ·  −33%</text>
   </g>
 </svg>

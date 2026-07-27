@@ -40,12 +40,12 @@
   <!-- rows: bar columns[160..520] | % @540 | PASS @600 | FAIL @730 | tokens @910 -->
   <g transform="translate(40,116)">
 
-    <!-- ops/sre 33.1 615 -->
+    <!-- ops/sre 32.8 615 -->
     <g transform="translate(0,38)">
       <rect class="dbar dr1" x="160" y="-9" width="360" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
       <rect class="dbar dr1" x="160" y="-9" width="360" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">ops/sre</text>
-      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">33.1%</text>
+      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">32.8%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
       <text x="634" y="9" text-anchor="middle" font-size="11" font-weight="700" fill="#5ad19a">&#x2714; PASS</text>
       <rect x="726" y="-4" width="68" height="18" rx="9" fill="#2e1a1a" stroke="#4a2525"/>
@@ -54,12 +54,12 @@
       <line x1="0" y1="19" x2="1120" y2="19" stroke="#1a1f2e" stroke-width="1" opacity="0.7"/>
     </g>
 
-    <!-- coding 28.7 736 -->
+    <!-- coding 25.5 736 -->
     <g transform="translate(0,76)">
-      <rect class="dbar dr2" x="160" y="-9" width="312" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar dr2" x="160" y="-9" width="312" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr2" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr2" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">coding</text>
-      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">28.7%</text>
+      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">25.5%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
       <text x="634" y="9" text-anchor="middle" font-size="11" font-weight="700" fill="#5ad19a">&#x2714; PASS</text>
       <rect x="726" y="-4" width="68" height="18" rx="9" fill="#2e1a1a" stroke="#4a2525"/>
@@ -70,8 +70,8 @@
 
     <!-- support 32.6 765 -->
     <g transform="translate(0,114)">
-      <rect class="dbar dr3" x="160" y="-9" width="355" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar dr3" x="160" y="-9" width="355" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr3" x="160" y="-9" width="358" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr3" x="160" y="-9" width="358" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">support</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">32.6%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -84,8 +84,8 @@
 
     <!-- research 25.7 809 -->
     <g transform="translate(0,152)">
-      <rect class="dbar dr4" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar dr4" x="160" y="-9" width="280" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr4" x="160" y="-9" width="282" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr4" x="160" y="-9" width="282" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">research</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">25.7%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -98,8 +98,8 @@
 
     <!-- data-analysis 18.1 965 -->
     <g transform="translate(0,190)">
-      <rect class="dbar dr5" x="160" y="-9" width="197" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar dr5" x="160" y="-9" width="197" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr5" x="160" y="-9" width="199" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr5" x="160" y="-9" width="199" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">data-analysis</text>
       <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">18.1%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
@@ -110,12 +110,12 @@
       <line x1="0" y1="19" x2="1120" y2="19" stroke="#1a1f2e" stroke-width="1" opacity="0.7"/>
     </g>
 
-    <!-- devops 25.0 857 -->
+    <!-- devops 22.8 857 -->
     <g transform="translate(0,228)">
-      <rect class="dbar dr6" x="160" y="-9" width="272" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar dr6" x="160" y="-9" width="272" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr6" x="160" y="-9" width="250" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr6" x="160" y="-9" width="250" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">devops</text>
-      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">25.0%</text>
+      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">22.8%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
       <text x="634" y="9" text-anchor="middle" font-size="11" font-weight="700" fill="#5ad19a">&#x2714; PASS</text>
       <rect x="726" y="-4" width="68" height="18" rx="9" fill="#2e1a1a" stroke="#4a2525"/>
@@ -124,12 +124,12 @@
       <line x1="0" y1="19" x2="1120" y2="19" stroke="#1a1f2e" stroke-width="1" opacity="0.7"/>
     </g>
 
-    <!-- finance 29.1 1014 -->
+    <!-- finance 24.9 1014 -->
     <g transform="translate(0,266)">
-      <rect class="dbar dr7" x="160" y="-9" width="317" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
-      <rect class="dbar dr7" x="160" y="-9" width="317" height="20" rx="6" fill="url(#g)"/>
+      <rect class="dbar dr7" x="160" y="-9" width="273" height="20" rx="6" fill="url(#g)" opacity="0.2" filter="url(#glow)"/>
+      <rect class="dbar dr7" x="160" y="-9" width="273" height="20" rx="6" fill="url(#g)"/>
       <text x="0" y="5" font-size="13" fill="#f2f3f7">finance</text>
-      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">29.1%</text>
+      <text x="540" y="5" font-size="13" font-weight="700" fill="#f2f3f7">24.9%</text>
       <rect x="596" y="-4" width="76" height="18" rx="9" fill="#0d3028" stroke="#1a5040"/>
       <text x="634" y="9" text-anchor="middle" font-size="11" font-weight="700" fill="#5ad19a">&#x2714; PASS</text>
       <rect x="726" y="-4" width="68" height="18" rx="9" fill="#2e1a1a" stroke="#4a2525"/>
@@ -141,5 +141,5 @@
   </g>
 
   <line x1="40" y1="402" x2="1160" y2="402" stroke="#252c3e" stroke-width="1"/>
-  <text x="40" y="424" font-size="13" fill="#8b91a3">aggregate: <tspan fill="#5ad1c9" font-weight="700">26.8% cheaper</tspan>, losslessly &#xB7; <tspan fill="#f2f3f7">5,761 tokens</tspan> causally prunable &#xB7; <tspan fill="#5ad19a">GATE: PASS</tspan></text>
+  <text x="40" y="424" font-size="13" fill="#8b91a3">aggregate: <tspan fill="#5ad1c9" font-weight="700">25.3% cheaper</tspan>, reversibly &#xB7; <tspan fill="#f2f3f7">5,761 tokens</tspan> causally prunable &#xB7; <tspan fill="#5ad19a">GATE: PASS</tspan></text>
 </svg>

@@ -209,6 +209,22 @@ def test_manifests_agree_on_version_and_name() -> None:
     assert spec["name"] in marker, f"server.json name {spec['name']!r} not in README marker"
 
 
+def test_npm_package_version_matches() -> None:
+    """The npm wrapper is a published surface with a version badge in the README,
+    and nothing was checking it. It drifted to 1.27.0 in-repo while the registry
+    still served 1.25.0 and PyPI was on 1.33.1 — a badge advertising a build nine
+    releases old. Same failure class as server.json: a manifest promises a version
+    and nothing verifies the promise.
+    """
+    pkg = json.loads((ROOT / "packaging" / "npm" / "package.json").read_text())
+    version = _pyproject()["project"]["version"]
+    assert pkg["version"] == version, (
+        f"packaging/npm/package.json is {pkg['version']}, package is {version} — "
+        "bump it with the other manifests at release time"
+    )
+    assert pkg["name"] == _pyproject()["project"]["name"]
+
+
 # ---------------------------------------------------------------------------
 # Other declared surfaces: Docker, Homebrew, the Claude Code plugin.
 # Same class as the registry outage — a manifest promises something and nothing

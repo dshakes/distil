@@ -107,15 +107,15 @@ corpus gate — 7 trajectories | model claude-opus-4-8 | tokenizer=heuristic
 
 domain            trajectory               $ saved   distil   aggr  pruned
 ---------------------------------------------------------------------------
-ops/sre           sre-disk-incident          33.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>     615
-coding            coding-bugfix              28.7%     <span class="g">PASS</span>   <span class="w">FAIL</span>     736
+ops/sre           sre-disk-incident          32.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     615
+coding            coding-bugfix              25.5%     <span class="g">PASS</span>   <span class="w">FAIL</span>     736
 support           support-refund             32.6%     <span class="g">PASS</span>   <span class="w">FAIL</span>     765
 research          research-synthesis         25.7%     <span class="g">PASS</span>   <span class="w">FAIL</span>     809
 data-analysis     data-analysis-sql          18.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>     965
-devops            devops-rollback            25.0%     <span class="g">PASS</span>   <span class="w">FAIL</span>     857
-finance           finance-reconcile          29.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>    1014
+devops            devops-rollback            22.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     857
+finance           finance-reconcile          24.9%     <span class="g">PASS</span>   <span class="w">FAIL</span>    1014
 ---------------------------------------------------------------------------
-aggregate: distil cuts $0.14212 -> $0.10402 (26.8% cheaper) losslessly; 5761 tokens prunable.
+aggregate: distil cuts $0.14212 -> $0.10610 (25.3% cheaper) losslessly; 5761 tokens prunable.
 
 GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; aggressive rejected on all.</pre>
 
@@ -144,11 +144,11 @@ strategy                               $ / run   vs baseline  cache hits
 ------------------------------------------------------------------------
 baseline (no cache, no compress)       0.01524          0.0%           0
 cache only                             0.01115         26.8%       1,028
-naive compress + cache                 0.01691        <span class="w">-11.0%</span>           0
-distil (cache-aware lossless)          0.01019         <span class="g">33.1%</span>       1,028
+naive compress + cache                 0.01696        <span class="w">-11.3%</span>           0
+distil (cache-aware lossless)          0.01023         <span class="g">32.8%</span>       1,028
 ------------------------------------------------------------------------
-distil cuts $0.01524 -> $0.01019 per run (33.1% cheaper), losslessly.
-note: naive compression costs $0.01691 — <span class="w">66% MORE</span> than distil despite fewer tokens,
+distil cuts $0.01524 -> $0.01023 per run (32.8% cheaper), reversibly.
+note: naive compression costs $0.01696 — <span class="w">66% MORE</span> than distil despite fewer tokens,
       because it busts the prefix cache.</pre>
 
     <hr/>

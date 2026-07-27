@@ -1,7 +1,7 @@
 {
   "name": "distil-llm",
-  "version": "1.27.0",
-  "description": "Compress your AI agent's context and prove its decisions don't change — cache-aware, reversible, certified. JS/TS bridge to the distil CLI + proxy helpers.",
+  "version": "1.34.0",
+  "description": "Compress your AI agent's context and prove its decisions don't change \u2014 cache-aware, reversible, certified. JS/TS bridge to the distil CLI + proxy helpers.",
   "keywords": [
     "llm",
     "ai-agent",

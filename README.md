@@ -170,15 +170,15 @@ To be precise about what each layer proves: the **per-commit** gates grade decis
 ```
 domain            trajectory                $ saved   distil   aggr  pruned
 ---------------------------------------------------------------------------
-ops/sre           sre-disk-incident           33.1%     PASS   FAIL     615
-coding            coding-bugfix               28.7%     PASS   FAIL     736
+ops/sre           sre-disk-incident           32.8%     PASS   FAIL     615
+coding            coding-bugfix               25.5%     PASS   FAIL     736
 support           support-refund              32.6%     PASS   FAIL     765
 research          research-synthesis          25.7%     PASS   FAIL     809
 data-analysis     data-analysis-sql           18.1%     PASS   FAIL     965
-devops            devops-rollback             25.0%     PASS   FAIL     857
-finance           finance-reconcile           29.1%     PASS   FAIL    1014
+devops            devops-rollback             22.8%     PASS   FAIL     857
+finance           finance-reconcile           24.9%     PASS   FAIL    1014
 ---------------------------------------------------------------------------
-aggregate: distil cuts $0.14212 -> $0.10402 (26.8% cheaper) reversibly; 5761 tokens causally prunable.
+aggregate: distil cuts $0.14212 -> $0.10610 (25.3% cheaper) reversibly; 5761 tokens causally prunable.
 GATE: PASS — every trajectory certified non-inferior; aggressive rejected on all.
 ```
 
