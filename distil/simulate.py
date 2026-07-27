@@ -109,29 +109,49 @@ def waste_signals(text: str) -> dict[str, dict[str, int]]:
     return out
 
 
-def _protection(role: str, btype: str, is_recent: bool, text: str) -> str:
-    """Why this block would be left byte-exact, or "" if it is compressible.
+def _protection(role: str, btype: str, is_recent: bool, text: str) -> tuple[str, str]:
+    """(rule, guarantee) for a protected block, or ("", "") if compressible.
 
-    The wording is the *rule*, not a restatement of the outcome — a user who
-    disagrees with a protection should be able to find the mechanism from this
-    string alone.
+    `guarantee` is deliberately separate from `rule`, and there are two of them,
+    because conflating them made this module lie. Recency exempts a block from
+    the Tier-1 DIGEST — it does not exempt it from Tier-0, whose lossless
+    transforms (minify_json, collapse_runs) still rewrite the bytes. Reporting
+    that as "left byte-exact" was false, in the one module whose entire purpose
+    is truthful protection reporting.
+
+      byte-exact     — not touched at all
+      lossless-only  — bytes may change; meaning is preserved and no content is
+                       moved behind a handle
+
+    The rule text names the MECHANISM, not the outcome, so a reader who disagrees
+    with a protection can go find the code that caused it.
     """
     if btype == "tool_use":
-        return "tool_use — arguments are executed verbatim, never rewritten"
+        return ("tool_use — arguments are executed verbatim, never rewritten", "byte-exact")
     if btype == "image":
-        return "image — vision blocks are only ever de-duplicated, never altered"
+        return (
+            "image — vision blocks are never re-encoded; an exact duplicate of an "
+            "earlier image may be replaced by a recoverable reference",
+            "byte-exact",
+        )
     if role == "assistant":
-        return "assistant turn — the model's own words are never rewritten"
+        return ("assistant turn — the model's own words are never rewritten", "byte-exact")
     if is_recent:
         return (
-            f"recency — within the last {RECENCY_KEEP_TURNS} tool-bearing turns, "
-            "which stay byte-exact so the agent never reasons blind on fresh output"
+            f"recency — within the last {RECENCY_KEEP_TURNS} tool-bearing turns, so no "
+            "Tier-1 digest is applied and the agent never reasons blind on fresh output "
+            "(Tier-0 lossless transforms still apply)",
+            "lossless-only",
         )
     kind = classify(text)
-    pinned = [ln for ln in text.splitlines() if must_keep(ln, kind)]
-    if pinned and len(pinned) == len(text.splitlines()):
-        return f"every line is decision-bearing ({kind.value}) — nothing is droppable"
-    return ""
+    lines = text.splitlines()
+    pinned = [ln for ln in lines if must_keep(ln, kind)]
+    if lines and len(pinned) == len(lines):
+        return (
+            f"every line is decision-bearing ({kind.value}) — nothing is droppable",
+            "lossless-only",
+        )
+    return ("", "")
 
 
 def _recent_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -171,14 +191,31 @@ def simulate(messages: list[dict[str, Any]], *, verbatim: bool = False) -> dict[
         d_list = d_content if isinstance(d_content, list) else [d_content]
 
         for j, s_blk in enumerate(s_list):
+            btype = s_blk.get("type", "text") if isinstance(s_blk, dict) else "text"
             text = _block_text(s_blk)
-            if not text:
-                continue
             d_blk = d_list[j] if j < len(d_list) else None
             after_text = _block_text(d_blk)
-            btype = s_blk.get("type", "text") if isinstance(s_blk, dict) else "text"
-            b_tok, a_tok = _count(text), _count(after_text)
 
+            # Images carry no text at all, and skipping text-less blocks made the
+            # `image` protection branch DEAD — the report silently omitted vision
+            # blocks entirely. Same defect as tool_use had; fixed at the root here
+            # rather than per-type, so a future block kind cannot vanish the same
+            # way. Their cost is pixel-area, not string length.
+            if btype == "image":
+                from .proxy import _image_tokens
+
+                b_tok = _image_tokens(s_blk) if isinstance(s_blk, dict) else 0
+                a_tok = (
+                    _image_tokens(d_blk)
+                    if isinstance(d_blk, dict) and d_blk.get("type") == "image"
+                    else _count(after_text)
+                )
+            elif not text:
+                continue  # genuinely empty block of a kind that is textual
+            else:
+                b_tok, a_tok = _count(text), _count(after_text)
+
+            _prot_rule, _prot_guarantee = _protection(role, btype, idx in recent, text)
             sig = waste_signals(text)
             for k in totals:
                 totals[k]["chars"] += sig[k]["chars"]
@@ -193,7 +230,8 @@ def simulate(messages: list[dict[str, Any]], *, verbatim: bool = False) -> dict[
                     "tokens_after": a_tok,
                     "saved": max(0, b_tok - a_tok),
                     "kind": classify(text).value if btype == "tool_result" else "",
-                    "protected_by": _protection(role, btype, idx in recent, text),
+                    "protected_by": _prot_rule,
+                    "guarantee": _prot_guarantee,
                     "waste": sig,
                 }
             )
@@ -254,18 +292,20 @@ def format_report(sim: dict[str, Any], *, width: int = 76) -> str:
             )
         L.append("")
 
-    protected = [b for b in sim["blocks"] if b["protected_by"]]
-    if protected:
-        L.append("  left byte-exact, and why")
+    exact = [b for b in sim["blocks"] if b.get("guarantee") == "byte-exact"]
+    lossless = [b for b in sim["blocks"] if b.get("guarantee") == "lossless-only"]
+
+    def _emit(group: list[dict[str, Any]], heading: str) -> None:
+        if not group:
+            return
+        L.append(heading)
         seen: set[str] = set()
-        for b in protected:
+        for b in group:
             why = b["protected_by"]
             if why in seen:
                 continue
             seen.add(why)
             head = f"    turn {b['turn']:<3} {b['type']:<12} "
-            # Wrap rather than slice: these strings explain a RULE, and a reason
-            # cut mid-sentence ("…which stay byte-exact so the") teaches nothing.
             words, line = why.split(), head
             for w in words:
                 if len(line) + len(w) + 1 > width and line.strip() != head.strip():
@@ -275,6 +315,14 @@ def format_report(sim: dict[str, Any], *, width: int = 76) -> str:
                     line = (line + " " + w) if line != head else line + w
             if line.strip():
                 L.append(line)
-        if len(protected) > len(seen):
-            L.append(f"    … {len(protected) - len(seen)} more block(s) under the same rules")
+        if len(group) > len(seen):
+            L.append(f"    … {len(group) - len(seen)} more block(s) under the same rules")
+        L.append("")
+
+    _emit(exact, "  never touched (byte-exact)")
+    _emit(
+        lossless,
+        "  no digest applied — Tier-0 lossless transforms only, so bytes may change\n"
+        "  but meaning is preserved and nothing moves behind a handle",
+    )
     return "\n".join(L)
