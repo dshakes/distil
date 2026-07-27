@@ -35,6 +35,46 @@ def _pct(part: float, whole: float) -> str:
     return f"{(1 - part / whole) * 100:5.1f}%" if whole else "  n/a"
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    """Dry-run the real pipeline on a real request. No model is called."""
+    import json as _json
+
+    from .simulate import format_report, simulate
+
+    if args.messages:
+        try:
+            raw = _json.loads(Path(args.messages).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"distil simulate: cannot read {args.messages}: {exc}")
+            return 2
+        messages = raw.get("messages") if isinstance(raw, dict) else raw
+        if not isinstance(messages, list):
+            print("distil simulate: expected a JSON array of messages, or {'messages': [...]}")
+            return 2
+    else:
+        # Bundled sample, shaped into a messages array so the default run
+        # exercises the same adapter path a real request takes.
+        traj = _load(None)
+        messages = []
+        for turn in traj.turns:
+            for blk in turn.blocks:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": blk.id, "content": blk.text}
+                        ],
+                    }
+                )
+
+    sim = simulate(messages, verbatim=args.verbatim)
+    if args.json:
+        print(_json.dumps(sim, indent=2))
+    else:
+        print(format_report(sim))
+    return 0
+
+
 def cmd_compress(args: argparse.Namespace) -> int:
     traj = _load(args.trajectory)
     tok = tokenizer.resolve(args.tokenizer, model=traj.model)
@@ -2573,6 +2613,24 @@ def build_parser() -> argparse.ArgumentParser:
     add_traj(c)
     add_tokenizer(c)
     c.set_defaults(func=cmd_compress)
+
+    sim = sub.add_parser(
+        "simulate",
+        help="dry-run a real request: what would be compressed, what is protected, and why",
+    )
+    sim.add_argument(
+        "--messages",
+        "-m",
+        help="path to a JSON file holding an Anthropic/OpenAI `messages` array "
+        "(default: the bundled sample trajectory, converted)",
+    )
+    sim.add_argument(
+        "--verbatim",
+        action="store_true",
+        help="preview the in-context-lossless mode (no Tier-1 digest stubs)",
+    )
+    sim.add_argument("--json", action="store_true", help="machine-readable output")
+    sim.set_defaults(func=cmd_simulate)
 
     s = sub.add_parser("savings", help="price strategies in real dollars (technique #1)")
     add_traj(s)
