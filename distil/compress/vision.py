@@ -93,10 +93,39 @@ def enabled() -> bool:
     override = os.environ.get("DISTIL_VISION")
     if override is not None:
         return override.strip() not in ("", "0", "false", "no")
+    return _certificate_is_valid(_certificate_path())
+
+
+def _certificate_is_valid(path: Path) -> bool:
+    """Whether *path* holds a certificate that actually certifies THIS strategy.
+
+    File existence is not certification. An empty ``{}``, a truncated write, a
+    half-finished run, or a certificate for some other strategy would all pass an
+    ``is_file()`` check and silently switch on a transform the ADR says ships
+    only after a non-inferiority result. The gate is the entire argument for
+    letting a new content type exist at all, so it parses.
+
+    Requires the certificate to name this strategy AND to carry an explicit
+    passing verdict. Fails closed on anything it cannot read or does not
+    understand — a missing key, a false verdict, malformed JSON, an unreadable
+    file. The cost of failing closed is that compression stays off; the cost of
+    failing open is an uncertified transform on live traffic.
+    """
     try:
-        return _certificate_path().is_file()
-    except OSError:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:  # absent, unreadable, a directory — all "not certified"
         return False
+    try:
+        doc = json.loads(raw)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(doc, dict):
+        return False
+    if doc.get("strategy") != "vision":
+        return False
+    # Accept any of the verdict spellings the certify path may write, but only
+    # when explicitly true — absence is not a pass.
+    return any(doc.get(k) is True for k in ("non_inferior", "certified", "passed"))
 
 
 # ---------------------------------------------------------------------------
@@ -233,18 +262,25 @@ class ImageDedup:
 
     @staticmethod
     def _key(source: dict[str, Any]) -> str | None:
-        """Identity of an image payload, or None if it is not one we handle.
+        """Identity of an image payload, or None if we cannot prove identity.
 
-        URL sources are keyed by their url; base64 sources by their data. A
-        source with neither (or a non-string payload) is unrecognized and is
-        always left alone.
+        ONLY inline base64 payloads are keyed, because only there do we hold the
+        actual bytes. URL sources are deliberately excluded: two occurrences of
+        the same URL are not evidence of the same image. Dashboards, signed
+        URLs, `?t=` cache-busted screenshots and auth-dependent resources all
+        return different pixels from a stable URL, so keying on the URL would
+        let a *different* second image be replaced by a stub asserting it is
+        identical — a false claim, and a silent one, since expand would return
+        the first image's bytes.
+
+        That is the reversibility contract broken, not merely a missed saving,
+        so the URL case is refused rather than approximated. Deduping it safely
+        would need a verified content digest of the fetched bytes, which means
+        fetching them, which this module does not do.
         """
         data = source.get("data")
         if isinstance(data, str) and data:
             return f"b64:{data}"
-        url = source.get("url")
-        if isinstance(url, str) and url:
-            return f"url:{url}"
         return None
 
     def elide(self, source: dict[str, Any]) -> tuple[str, str, int] | None:

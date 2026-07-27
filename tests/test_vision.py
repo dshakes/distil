@@ -351,13 +351,21 @@ def test_enabled_survives_an_unreadable_home(monkeypatch, tmp_path):
     assert vision.enabled() is False  # must not propagate
 
 
-def test_url_sources_dedupe_too():
-    """A url-source image is billed the same; identity is the url."""
+def test_url_sources_are_never_deduped():
+    """Two occurrences of the same URL are NOT evidence of the same image.
+
+    Dashboards, signed URLs, cache-busted screenshots and auth-dependent
+    resources all return different pixels from a stable URL. Keying on the URL
+    would let a genuinely different second image be replaced by a stub asserting
+    it is identical — and expand would then hand back the FIRST image's bytes.
+    That is the reversibility contract broken, silently, so the URL case is
+    refused outright rather than approximated.
+    """
     d = vision.ImageDedup(min_b64_chars=4)
     src = {"type": "url", "url": "https://example.com/" + "a" * 40 + ".png"}
-    assert d.elide(src) is None  # first
-    verdict = d.elide(dict(src))
-    assert verdict is not None and verdict[2] == vision._UNKNOWN_SIZE_TOKENS
+    assert d.elide(src) is None
+    assert d.elide(dict(src)) is None, "a url repeat was elided without proof of identity"
+    assert d.elided == 0
 
 
 def test_unrecognized_and_oversized_stub_sources_are_left_alone():
@@ -379,3 +387,91 @@ def test_decode_b64_never_raises_on_garbage():
     assert vision._decode_b64("") is None
     assert vision._decode_b64(12345) is None
     assert vision._decode_b64("!!!not base64!!!") is not None or True  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# The certificate gate must actually read the certificate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "payload,why",
+    [
+        ("{}", "an empty object certifies nothing"),
+        ('{"strategy": "vision"}', "named the strategy but carried no verdict"),
+        ('{"strategy": "vision", "non_inferior": false}', "an explicit FAIL"),
+        ('{"strategy": "tier1", "non_inferior": true}', "a certificate for another strategy"),
+        ('{"strategy": "vision", "non_inferior": "yes"}', "a truthy string is not true"),
+        ('{"strategy": "vision", "non_inferior": tru', "a truncated/interrupted write"),
+        ("[]", "valid JSON, wrong shape"),
+        ("", "an empty file"),
+    ],
+)
+def test_gate_fails_closed_on_anything_short_of_a_real_certificate(
+    tmp_path, monkeypatch, payload, why
+):
+    """File existence is not certification.
+
+    The gate is the entire argument for letting a new content type exist, so it
+    parses rather than stat()s. Failing closed costs compression; failing open
+    puts an uncertified transform on live traffic.
+    """
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.delenv("DISTIL_VISION", raising=False)
+    cert = tmp_path / "certificates" / "vision.json"
+    cert.parent.mkdir(parents=True, exist_ok=True)
+    cert.write_text(payload)
+    assert vision.enabled() is False, f"gate opened on {why}"
+
+
+def test_gate_opens_only_on_a_real_certificate(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.delenv("DISTIL_VISION", raising=False)
+    cert = tmp_path / "certificates" / "vision.json"
+    cert.parent.mkdir(parents=True, exist_ok=True)
+    for verdict in ("non_inferior", "certified", "passed"):
+        cert.write_text(json.dumps({"strategy": "vision", verdict: True}))
+        assert vision.enabled() is True, f"{verdict}=true should certify"
+
+
+def test_gate_fails_closed_when_the_path_is_unreadable(tmp_path, monkeypatch):
+    """A directory where the certificate should be, a permissions error, a
+    vanished mount — none of these are a pass."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.delenv("DISTIL_VISION", raising=False)
+    cert = tmp_path / "certificates" / "vision.json"
+    cert.mkdir(parents=True)  # a DIRECTORY, not a file
+    assert vision.enabled() is False
+
+
+def test_proxy_counts_image_tokens_so_elision_scores_positive():
+    """Savings telemetry must not go NEGATIVE on an elided image.
+
+    Images bill by pixel area, but the proxy's counter only ever walked text
+    keys — so an image contributed 0 to the "before" side while its replacement
+    stub contributed real tokens to the "after" side. The feature would have
+    reported itself as a loss.
+    """
+    from distil.proxy import _count_messages, _tokens_saved
+
+    raw = _png(1024, 1024)
+    before = [{"role": "user", "content": [_image_block(raw)]}]
+    after = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": vision.reference_text("ab12cd34", 1398)}],
+        }
+    ]
+    assert _count_messages(before) >= 1000, "image block counted as ~free"
+    assert _tokens_saved(before, after) > 0, "eliding an image scored as no saving"
+
+    # Nested in a tool_result — where screenshots actually arrive.
+    nested = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "t", "content": [_image_block(raw)]}
+            ],
+        }
+    ]
+    assert _count_messages(nested) >= 1000, "nested screenshot counted as ~free"
