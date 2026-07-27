@@ -107,6 +107,52 @@ def test_cli_reports_the_version_the_manifest_claims(installed: Path) -> None:
     )
 
 
+def test_zipapp_reports_the_version_the_manifest_claims(tmp_path: Path) -> None:
+    """The .pyz is a shipped release asset, and nothing else here runs it.
+
+    It has no dist-info, so `importlib.metadata` misses; and the pyproject fallback
+    in distil/__init__.py cannot read_text() inside a zip archive. Both paths fail
+    silently to "0+source", which is exactly what v1.31.0, v1.32.0 and v1.33.0
+    published — a customer-facing artifact that could not name its own version,
+    through three releases and a green suite, because no test executed it.
+    """
+    build = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "build_pyz.sh")],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=ROOT,
+    )
+    assert build.returncode == 0, build.stderr[-500:]
+
+    pyz = ROOT / "dist" / "distil.pyz"
+    assert pyz.exists(), "build_pyz.sh reported success but produced no archive"
+
+    # Run it where distil-llm is NOT installed. Under this suite's own interpreter
+    # importlib.metadata finds the editable install and answers correctly, so the
+    # zipapp path never executes and a broken archive still looks green — which is
+    # how this defect reached three releases. A bare venv is the only honest probe.
+    venv = tmp_path / "clean"
+    subprocess.run(
+        [sys.executable, "-m", "venv", "--without-pip", str(venv)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+    python = venv / "bin" / "python"
+    assert python.exists(), "bare venv produced no interpreter"
+
+    out = subprocess.run(
+        [str(python), str(pyz), "--version"], capture_output=True, text=True, timeout=120
+    )
+    assert out.returncode == 0, out.stderr[-500:]
+    expected = _pyproject()["project"]["version"]
+    assert expected in out.stdout, (
+        f"zipapp reports {out.stdout.strip()!r}, pyproject says {expected!r}"
+    )
+    assert "0+source" not in out.stdout, "the zipapp fell back instead of reading its stamp"
+
+
 @pytest.mark.parametrize("script", ["distil-mcp", "distil-llm"])
 def test_mcp_console_scripts_speak_jsonrpc_over_real_stdio(installed: Path, script: str) -> None:
     """Drive the installed script as a subprocess, the way an MCP client does.

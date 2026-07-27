@@ -23,17 +23,23 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version  # 
 try:
     __version__ = _pkg_version("distil-llm")
 except PackageNotFoundError:  # source checkout / zipapp without dist-info
-    # Read pyproject directly rather than hardcode a literal — a duplicated
-    # version string drifts from the real one AND conflicts on every release
-    # merge-back (a conflicted pyproject then bricks `uv run`). Single source.
+    # A zipapp has no dist-info AND cannot read_text() its own pyproject, so the
+    # branch below can only ever return "0+source" there. build_pyz.sh stamps
+    # this module from pyproject at build time; zipimport can import it.
     try:
-        import pathlib
-        import re
+        from distil._version import __version__  # type: ignore[no-redef]
+    except ImportError:
+        # Read pyproject directly rather than hardcode a literal — a duplicated
+        # version string drifts from the real one AND conflicts on every release
+        # merge-back (a conflicted pyproject then bricks `uv run`). Single source.
+        try:
+            import pathlib
+            import re
 
-        _pp = (pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
-            encoding="utf-8"
-        )
-        _m = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"', _pp)
-        __version__ = _m.group(1) if _m else "0+source"
-    except Exception:  # noqa: BLE001 — version must never break import
-        __version__ = "0+source"
+            _pp = (pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
+                encoding="utf-8"
+            )
+            _m = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"', _pp)
+            __version__ = _m.group(1) if _m else "0+source"
+        except Exception:  # noqa: BLE001 — version must never break import
+            __version__ = "0+source"

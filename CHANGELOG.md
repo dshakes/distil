@@ -3,6 +3,35 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.33.1] — the zipapp can name itself
+
+`distil.pyz` — a release asset offered as the install path for anyone PyPI is
+blocked for — reported its version as `0+source` rather than the version it was
+built from. It has done so since at least 1.31.0.
+
+The archive carries no `dist-info`, so `importlib.metadata` misses; and the
+pyproject fallback in `distil/__init__.py` calls `read_text()` on a path inside
+the zip, which a zipapp cannot open. Both paths failed silently to a literal.
+`build_pyz.sh` now stamps `distil/_version.py` from `pyproject.toml` at build
+time — `zipimport` can import a module even though it cannot read a file — and
+the fallback chain tries the stamp before the unreachable pyproject read.
+
+Nothing functional changed: the archive always executed correctly, it just could
+not answer `--version`. Customer-facing regardless, since that string is what a
+bug report quotes.
+
+**Why it survived three releases**, which is the more useful finding: no test ever
+ran the `.pyz`. And running it naively still would not have caught this — under
+any interpreter with `distil-llm` installed, `importlib.metadata` answers
+correctly and the zipapp path never executes, so the artifact looks green in
+exactly the environment a developer tests it in. `tests/test_packaging_smoke.py`
+now builds the archive and runs it in a bare `venv --without-pip`, where the
+package is genuinely absent. The test was verified to fail (`zipapp reports
+'distil 0+source', pyproject says '1.33.0'`) with the stamping step removed.
+
+Also folds in the in-repo Homebrew formula sync, so the tag and `main` no longer
+diverge — `v1.33.0` was tagged one commit before it.
+
 ## [1.33.0] — the reports are readable now
 
 A WCAG 2.2 pass over the docs site and **every HTML surface distil generates** —

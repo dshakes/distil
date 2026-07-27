@@ -12,6 +12,19 @@ trap 'rm -rf "$STAGE"' EXIT
 cp -r distil "$STAGE/distil"
 cp -r corpus "$STAGE/corpus"
 
+# Stamp the version as an importable module. The zipapp has no dist-info, and the
+# pyproject fallback in distil/__init__.py can't read_text() inside an archive —
+# so without this the pyz reports "0+source" (it did, through 1.33.0). zipimport
+# can import, so a generated module is the one thing that survives the archive.
+PY="$(command -v python3 || command -v python)"
+"$PY" - "$STAGE/distil/_version.py" <<'STAMP'
+import pathlib, re, sys
+pp = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+v = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"', pp).group(1)
+pathlib.Path(sys.argv[1]).write_text(f'__version__ = "{v}"\n', encoding="utf-8")
+print(f"stamped pyz version {v}")
+STAMP
+
 # __main__ so `python distil.pyz <cmd>` works; point the corpus at the archive's
 # extracted sibling via a tiny launcher that sets DISTIL_CORPUS next to the pyz.
 cat > "$STAGE/__main__.py" <<'PY'
