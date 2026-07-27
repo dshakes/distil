@@ -28,6 +28,8 @@ import platform
 import time
 import urllib.request
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 DEFAULT_ENDPOINT = "https://distil-census.vercel.app/v1/ping"
@@ -181,26 +183,84 @@ def _factor(model: str | None = None) -> float:
         return 1.0
 
 
-def _load_savings() -> dict:
-    """Persisted accrual state. Each channel remembers the raw total already
-    banked (`raw_seen`) and the frozen calibrated cumulative (`saved`, a float
-    so per-period rounding never compounds)."""
-    fresh = {
+def _fresh_savings() -> dict:
+    return {
         "v": 1,
         "tokens": {"saved": 0.0, "raw_seen": 0},
         "dollars": {"saved": 0.0, "raw_seen": 0.0},
         "by_model": {},
     }
+
+
+def _parse_savings(text: str) -> dict:
+    """Accrual state from raw JSON, falling back to a fresh zeroed state."""
+    fresh = _fresh_savings()
     try:
-        d = json.loads(_savings_path().read_text(encoding="utf-8"))
+        d = json.loads(text)
         if isinstance(d, dict) and d.get("v") == 1 and isinstance(d.get("by_model"), dict):
             for k in ("tokens", "dollars"):
                 if not isinstance(d.get(k), dict):
                     d[k] = fresh[k]
             return d
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError):
         pass
     return fresh
+
+
+def _load_savings() -> dict:
+    """Persisted accrual state. Each channel remembers the raw total already
+    banked (`raw_seen`) and the frozen calibrated cumulative (`saved`, a float
+    so per-period rounding never compounds)."""
+    try:
+        return _parse_savings(_savings_path().read_text(encoding="utf-8"))
+    except OSError:
+        return _fresh_savings()
+
+
+@contextmanager
+def _savings_locked(persist: bool) -> Iterator[dict]:
+    """Yield the accrual state for a read-modify-write under an exclusive flock.
+
+    `saved` is monotonic *per step*, but the counter is advanced from two
+    places (the daily census and the near-real-time heartbeat) and distil runs
+    as several processes at once — wrap, proxy worker, gateway, webdash. Each
+    used to do load → step → write-the-whole-file with no lock, so the last
+    writer clobbered the others: a process holding state from minutes ago wrote
+    a *smaller* `saved` back, and rewound `raw_seen` with it so an
+    already-banked delta got counted a second time. That is how a total that
+    can only rise published 1.44B, then 1.33B, then 1.16B, then 1.48B.
+
+    Reading inside the lock is what fixes it: every writer sees the newest
+    state before it steps. Mirrors `surfaces._flush_locked`.
+    """
+    if not persist:  # previews never mutate, so they never need the lock
+        yield _load_savings()
+        return
+    try:
+        p = _savings_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(p, "a+", encoding="utf-8")
+    except OSError:
+        yield _load_savings()  # fail-open: accrue in memory, lose only the write
+        return
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass  # no flock (e.g. Windows): degrades to the old last-write-wins
+        fh.seek(0)
+        st = _parse_savings(fh.read())
+        yield st
+        try:
+            fh.seek(0)
+            fh.truncate()
+            json.dump(st, fh)
+        except OSError:
+            pass  # a lost write just re-accrues the same delta next time
+    finally:
+        fh.close()
 
 
 def _save_savings(st: dict) -> None:
@@ -233,15 +293,13 @@ def _accrue(
 ) -> dict:
     """Fold this census's raw savings into the frozen cumulative and return the
     emit-ready numbers. Persists only when `persist` — previews never mutate."""
-    st = _load_savings()
-    tokens_saved = _step(st["tokens"], raw_tokens, _factor())
-    dollars_saved = _step(st["dollars"], raw_dollars, _factor())
-    bm = st["by_model"]
-    for model, raw in raw_by_model.items():
-        ch = bm.setdefault(model, {"saved": 0.0, "raw_seen": 0})
-        _step(ch, raw, _factor(model))  # per-model factor preserves the model mix
-    if persist:
-        _save_savings(st)
+    with _savings_locked(persist) as st:
+        tokens_saved = _step(st["tokens"], raw_tokens, _factor())
+        dollars_saved = _step(st["dollars"], raw_dollars, _factor())
+        bm = st["by_model"]
+        for model, raw in raw_by_model.items():
+            ch = bm.setdefault(model, {"saved": 0.0, "raw_seen": 0})
+            _step(ch, raw, _factor(model))  # per-model factor preserves the model mix
     top = sorted(bm.items(), key=lambda kv: -kv[1].get("saved", 0.0))[:MAX_MODELS]
     return {
         "tokens": round(tokens_saved),
@@ -465,9 +523,10 @@ def _current_saved_tokens() -> int:
 
     s = ledger.summary()
     raw_tokens = max(0, s.total_baseline_tokens - s.total_distil_tokens)
-    st = _load_savings()
-    val = _step(st["tokens"], raw_tokens, _factor())
-    _save_savings(st)  # the heartbeat is a real send; keep the shared total fresh
+    # the heartbeat is a real send; advance the shared total under the same
+    # lock the census uses, or the two writers clobber each other.
+    with _savings_locked(True) as st:
+        val = _step(st["tokens"], raw_tokens, _factor())
     return round(val)
 
 

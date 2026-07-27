@@ -1487,19 +1487,26 @@ def cmd_onboard(args: argparse.Namespace) -> int:
     if interactive and _census.consent() is None and not _census.hard_disabled():
         print(c("90", "Optional: a content-free adoption census — numbers only (version, OS,"))
         print(c("90", "tokens/$ saved), max one JSON/day. Preview: distil census show"))
+        census_yes: bool | None
         try:
             census_yes = input(
                 c("1", "Share the anonymous census?") + c("90", " [y/N] ")
             ).strip().lower() in ("y", "yes")
         except (EOFError, KeyboardInterrupt):
+            # Ctrl-C or a closed stdin is NOT an answer. Recording "off" here
+            # burned the one chance to ask: consent is asked once, so a user who
+            # interrupted the prompt (or whose stdin was a pipe) was marked as
+            # having declined and was never asked again.
             print()
-            census_yes = False
+            census_yes = None
         if census_yes:
             _census.opt_in()
             print(c("90", "  census on — TELEMETRY.md documents exactly what's sent") + "\n")
-        else:
+        elif census_yes is False:
             _census.opt_out()
             print(c("90", "  census off — re-enable anytime: distil census on") + "\n")
+        else:
+            print(c("90", "  no answer recorded — enable anytime: distil census on") + "\n")
 
     # Or just route the agent once, right now.
     if env.agents:

@@ -247,6 +247,72 @@ def test_live_heartbeat_total_is_monotonic_and_shared_with_census(monkeypatch):
     assert census.build_payload()["tokens_saved"] == 1000
 
 
+def test_second_writer_reads_inside_the_lock(monkeypatch):
+    """distil runs as several processes at once (wrap, proxy worker, gateway,
+    webdash) and two of them advance this counter: the daily census and the
+    heartbeat. Each used to do load -> step -> write-the-whole-file with no
+    lock, so a writer holding minutes-old state wrote a SMALLER `saved` back
+    and rewound `raw_seen` with it — which is how a total that can only rise
+    published 1.44B, then 1.33B, then 1.16B, then 1.48B.
+
+    The guarantee is that the second writer reads *inside* the lock, so it
+    steps from the first writer's committed total, never from stale state.
+    """
+    import threading
+
+    census.opt_in()
+    a_inside, a_may_commit = threading.Event(), threading.Event()
+    seen = {}
+
+    def writer_a():
+        with census._savings_locked(True) as st:
+            census._step(st["tokens"], 5000, 1.0)
+            a_inside.set()
+            a_may_commit.wait(5)  # hold the lock, uncommitted
+
+    def writer_b():
+        a_inside.wait(5)  # B starts while A is still mid-write
+        with census._savings_locked(True) as st:
+            seen["saved"] = st["tokens"]["saved"]
+
+    ta, tb = threading.Thread(target=writer_a), threading.Thread(target=writer_b)
+    ta.start(), tb.start()
+    assert a_inside.wait(5)
+    a_may_commit.set()
+    ta.join(5), tb.join(5)
+
+    # Unlocked, B would have read 0 (A had not written yet) and clobbered A's
+    # 5000 on the way out. Serialized, B sees the committed total.
+    assert seen["saved"] == 5000
+    assert census._load_savings()["tokens"]["saved"] == 5000
+
+
+def test_concurrent_writers_never_lower_the_total(monkeypatch):
+    """The invariant the adoption page publishes: the shared total is
+    monotonic under concurrency, not just per-process."""
+    import threading
+
+    census.opt_in()
+    monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (1.0, 99))
+    readings, lock = [], threading.Lock()
+
+    def bump(raw):
+        monkeypatch.setattr("distil.ledger.summary", lambda raw=raw: _fake_summary(raw))
+        val = census._current_saved_tokens()
+        with lock:
+            readings.append(val)
+
+    threads = [threading.Thread(target=bump, args=(n,)) for n in (100, 900, 300, 1500, 700)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+
+    on_disk = census._load_savings()["tokens"]["saved"]
+    assert on_disk >= max(readings), "a concurrent writer rewound the shared total"
+    assert on_disk > 0
+
+
 def _seed_ledger(tmp_path, rows):
     """Write a savings.jsonl the census helpers read via ledger.default_path()."""
     import json as _json
