@@ -421,6 +421,8 @@
       <li>Codex</li>
       <li>Gemini CLI</li>
       <li>aider</li>
+      <li>Cursor</li>
+      <li>CrewAI</li>
       <li>LangChain</li>
       <li>LangGraph</li>
       <li>LiteLLM</li>
@@ -431,6 +433,10 @@
     </ul>
     <p class="workswith-f">…and anything else that lets you set a base URL — distil is a
       proxy, so there is no per-framework package to install or keep in sync.
+      Two carry caveats worth reading before you rely on them: Cursor routes only its
+      agent/chat panel through a custom base URL (tab-completion and ⌘K stay on its own
+      backend), and CrewAI needs the LLM passed to <code>planning_llm</code> and
+      <code>function_calling_llm</code> too, not just the agents.
       <a href="integrations.html">Full integration matrix →</a></p>
   </div>
 
@@ -457,31 +463,6 @@
     </div>
   </div>
 
-  <!-- Live adoption strip — hydrated from the metrics branch (nightly rollup of
-       registry stats + the opt-in census; see TELEMETRY.md). Hidden until the
-       fetch succeeds, so a missing/empty metrics branch costs nothing. -->
-  <div class="stats" id="adoption-live" hidden>
-    <div class="stat">
-      <div class="n" id="al-downloads">–</div>
-      <div class="l">PyPI installs / month</div>
-      <div class="foot">bot-filtered · <a href="adoption.html">full breakdown &rarr;</a></div>
-    </div>
-    <div class="stat">
-      <div class="n" id="al-installs">–</div>
-      <div class="l">Active installs, 30d</div>
-      <div class="foot">opt-in census · <a href="adoption.html">live adoption page &rarr;</a></div>
-    </div>
-    <div class="stat hl">
-      <div class="n" id="al-tokens">–</div>
-      <div class="l">Community tokens saved</div>
-      <div class="foot">Σ of opted-in ledgers · numbers only, never content</div>
-    </div>
-    <div class="stat hl">
-      <div class="n" id="al-dollars">–</div>
-      <div class="l">Community $ saved</div>
-      <div class="foot">same census · updated nightly</div>
-    </div>
-  </div>
   <script>
   (function () {
     "use strict";
@@ -624,6 +605,43 @@ VERDICT: <span class="g">PASS</span>  (certified non-inferior)
 decision-equivalence match rate: <span class="w">0.0%</span>
 VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <img loading="lazy" src="assets/cache-aware.svg" alt="Bar chart of per-run cost: baseline (no cache, no compress) $0.01524; cache only $0.01115 (-27%); naive recompression busts the prefix cache and costs more, $0.01696; distil's cache-aware lossless approach $0.01023 (-33%), the lowest of the four" style="width:100%;border:1px solid var(--line);border-radius:16px;margin-top:18px"/>
+</div></section>
+
+<section id="adoption"><div class="wrap">
+  <div class="seyebrow">Adoption &middot; live</div>
+  <h2 style="margin-top:0">Small numbers, <span class="g">shown anyway</span><a class="hlink" href="#adoption" aria-label="Link to section: Adoption">#</a></h2>
+  <p class="sub" style="font-size:15px">These sit here rather than beside the proof tiles above,
+    because they answer a different question. The tiles above are what distil <em>does</em>, and they
+    are large. These are how many people have <em>opted in</em> to being counted, and they are small —
+    a project that publishes a calibrated decision-change rate does not get to hide its install
+    count. Every figure is recomputed nightly by public code from a public git branch, and
+    consenting is not contributing: an idle opt-in is never counted as a saver.</p>
+
+  <!-- Live adoption strip — hydrated from the metrics branch (nightly rollup of
+       registry stats + the opt-in census; see TELEMETRY.md). Hidden until the
+       fetch succeeds, so a missing/empty metrics branch costs nothing. -->
+  <div class="stats" id="adoption-live" hidden>
+    <div class="stat">
+      <div class="n" id="al-downloads">–</div>
+      <div class="l">PyPI installs / month</div>
+      <div class="foot">bot-filtered · <a href="adoption.html">full breakdown &rarr;</a></div>
+    </div>
+    <div class="stat">
+      <div class="n" id="al-installs">–</div>
+      <div class="l">Active installs, 30d</div>
+      <div class="foot">opt-in census · <a href="adoption.html">live adoption page &rarr;</a></div>
+    </div>
+    <div class="stat hl">
+      <div class="n" id="al-tokens">–</div>
+      <div class="l">Community tokens saved</div>
+      <div class="foot">Σ of opted-in ledgers · numbers only, never content</div>
+    </div>
+    <div class="stat hl">
+      <div class="n" id="al-dollars">–</div>
+      <div class="l">Community $ saved</div>
+      <div class="foot">same census · updated nightly</div>
+    </div>
+  </div>
 </div></section>
 
 <section id="domains"><div class="wrap">
