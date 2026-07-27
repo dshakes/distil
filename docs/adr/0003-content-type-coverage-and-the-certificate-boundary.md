@@ -1,6 +1,6 @@
 # ADR 0003 — Content-type coverage, and where the certificate can follow
 
-- Status: Accepted — decision 2 partially implemented (see Implementation status)
+- Status: Accepted — decision 2 IMPLEMENTED AND CERTIFIED (see Implementation status)
 - Date: 2026-07-27
 - Deciders: distil maintainers
 

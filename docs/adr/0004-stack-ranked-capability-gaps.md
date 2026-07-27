@@ -37,45 +37,42 @@ Gaps are ranked by *user-visible cost of leaving them open*, not by effort.
 
 ### Rank 1 — ~~Vision is uncertified, therefore inert~~ **CLOSED: certified live, 100% decision-equivalence.**
 
-ADR 0003 decision 2 shipped `compress/vision.py` behind `vision.enabled()`,
-which is False until a certificate exists. That was deliberate — but it means the
-capability currently does **nothing for any user**, and a capability that exists
-only in the repository is not a capability. This is the highest-cost open item
-precisely because it looks finished.
+**Closed 2026-07-27.** Recorded in past tense below, because what blocked it is
+more useful than the fact that it is done.
 
-Closing it needs a corpus vision domain (a trajectory carrying repeated image
-blocks, which is what a UI-automation agent actually produces) and a passing
-`distil certify --strategy vision`. Until both exist, no release note may claim
-image compression.
+*The gap.* ADR 0003 decision 2 shipped `compress/vision.py` behind
+`vision.enabled()`, which was False until a certificate existed — and none could,
+so the capability did nothing for any user. A capability that exists only in the
+repository is not a capability, and this was the highest-cost open item precisely
+because it looked finished.
 
-**It is blocked on a data-model change, not on writing a corpus file.** The
-certification path is text-only end to end:
+*Why it was not a corpus file.* The certification path was text-only end to end:
+`Block.text` is a `str`, so a trajectory could not carry an image, and
+`AgentRunner.decide(blocks) -> str` was the whole grading interface, with
+`DeterministicRunner` reading `DECISION:` markers out of block text. The
+available shortcut — serialize the base64 into `Block.text` and certify that —
+would have run, gone green, and measured whether deleting a blob from a *text*
+prompt changes a *text* decision. Not the claim.
 
-- `Block.text` is a `str` (`distil/trajectory.py`), so a trajectory cannot carry
-  an image at all;
-- `AgentRunner.decide(blocks: list[Block]) -> str` is the entire grading
-  interface, and `DeterministicRunner` reaches the decision by scanning
-  `b.text` for `DECISION:` markers.
+*How it was closed.* `Block` gained an optional `media` list; the live Anthropic
+runner renders it as real provider image content blocks; `vision` became a
+registered strategy; and `corpus/vision-ci-dashboard.json` is a decision-bearing
+vision trajectory whose context accumulates, so byte-identical screenshots
+genuinely pile up. Against `claude-opus-4-8`: **100% decision-equivalence, A/A
+floor 100%, TOST p<0.0001, PASS.**
 
-There is a tempting shortcut that must be named so nobody takes it: serialize the
-image as base64 into `Block.text` and certify that. It would run, go green, and
-mean nothing — it would measure whether deleting a base64 blob from a *text*
-prompt changes a *text* decision, which is not the claim. The claim is that the
-model, having actually seen an image once, decides the same way when a later
-identical copy is replaced by a reference. Grading that requires sending real
-image content to a vision model.
+*What it cost to find out.* The first live run FAILED — the compressed arm chose
+`open_failing_build` where the baseline chose `promote_release`. The cause was
+the harness, not the compression: it hoisted every image to the front of the
+turn, severing each screenshot from its caption. An A/B whose arms differ in
+prompt *shape* measures the shape. No offline oracle would have surfaced that,
+which is the argument for live certification, produced by the thing itself.
 
-So rank 1 decomposes into: (a) let a Block carry non-text content, (b) teach the
-live runner to build real provider content blocks from it, (c) build the corpus
-domain, (d) run the certification against a vision model. (a) touches the core
-type every existing strategy depends on, which is why this is its own piece of
-work and not a follow-up commit.
-
-Until then the honest statement of what is proven about `compress/vision.py` is:
-**reversibility yes, decision-equivalence not yet.** The round-trip is verified by
-test (the elided `source` object is recovered byte-exact); the effect on the
-model's next action is unmeasured. Those are different claims and the second one
-is the one distil exists to make.
+*Standing constraint.* The vision corpus stays out of `distil bench`. That gate's
+runner grades from text; this domain's decision is in the pixels. Making it pass
+offline would mean writing the tile's colour into the text — image decorative,
+certificate about text. `test_manifest_covers_every_corpus_file` enforces that the
+`live_only` reason exists so the omission is not "fixed" later.
 
 ### Rank 2 — Integration breadth is a documentation gap, and is closed by documenting it.
 
