@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — say whose savings those are
+## [1.34.0] — say whose savings those are
 
 The counter fix in 1.33.1 stopped the community total moving backwards. This is
 the other half of the same problem: what that total actually *means*.
