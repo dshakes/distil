@@ -23,6 +23,61 @@ except Exception:  # noqa: BLE001 — observability must never break the request
     _tracer = None
     _ENABLED = False
 
+# Metrics are a separate optional surface from tracing: a fleet may run an OTel
+# collector for metrics and scrape Prometheus for the same numbers, or neither.
+# Instruments are created once and named to match distil/metrics.py so the two
+# exports agree — one number, two transports.
+try:
+    from opentelemetry import metrics as _otel_metrics
+
+    _meter: Any = _otel_metrics.get_meter("distil")
+    _c_requests: Any = _meter.create_counter(
+        "distil.requests", unit="{request}", description="Requests processed by distil."
+    )
+    _c_baseline: Any = _meter.create_counter(
+        "distil.tokens.baseline", unit="{token}", description="Input tokens before compression."
+    )
+    _c_sent: Any = _meter.create_counter(
+        "distil.tokens.sent", unit="{token}", description="Input tokens actually sent."
+    )
+    _c_saved: Any = _meter.create_counter(
+        "distil.tokens.saved", unit="{token}", description="Input tokens kept off the wire."
+    )
+    _METRICS_ENABLED = True
+except Exception:  # noqa: BLE001 — an absent metrics SDK must not break the request path
+    _meter = None
+    _c_requests = _c_baseline = _c_sent = _c_saved = None
+    _METRICS_ENABLED = False
+
+
+def record_compression(
+    original_tokens: int | None,
+    compressed_tokens: int | None,
+    *,
+    model: str = "",
+    provider: str = "",
+) -> None:
+    """Record one request's compression on the OTel counters.
+
+    Called from the same place the span attributes are set, so tracing and
+    metrics can never disagree about a request. Silently does nothing when the
+    metrics SDK is absent — which is the default, since the core has no runtime
+    dependencies. Never raises.
+    """
+    if not _METRICS_ENABLED:
+        return
+    try:
+        attrs = {k: v for k, v in (("model", model), ("provider", provider)) if v}
+        _c_requests.add(1, attrs)
+        if original_tokens is not None:
+            _c_baseline.add(max(0, int(original_tokens)), attrs)
+        if compressed_tokens is not None:
+            _c_sent.add(max(0, int(compressed_tokens)), attrs)
+        if original_tokens is not None and compressed_tokens is not None:
+            _c_saved.add(max(0, int(original_tokens) - int(compressed_tokens)), attrs)
+    except Exception:  # noqa: BLE001 — observability must never break the request path
+        pass
+
 
 def _provider_from_path(path: str) -> str:
     if "generateContent" in path or "countTokens" in path:
@@ -87,7 +142,14 @@ def set_result_attrs(
     compressed count); response/output tokens aren't known at this layer, so
     ``gen_ai.usage.output_tokens`` is deliberately never set — backends treat
     it as generated tokens and a prompt count there would corrupt cost math.
-    The original/compressed pair lives in the ``distil.*`` namespace."""
+    The original/compressed pair lives in the ``distil.*`` namespace.
+
+    Also records the OTel counters. Metrics are recorded here — before the
+    ``span is None`` guard — because tracing and metrics are independently
+    optional: a fleet may export metrics with sampling-off tracing, and the
+    counters must not silently depend on a tracer being installed. Recording at
+    this one point also means every call site is covered by construction."""
+    record_compression(original_tokens, compressed_tokens)
     if span is None:
         return
     try:

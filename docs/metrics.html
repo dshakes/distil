@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Metrics &amp; Observability — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Metrics &amp; Observability — Distil"/>
+<meta property="og:description" content="Scrape distil with Prometheus, export OpenTelemetry counters and GenAI spans, and alert on compression health — zero extra dependencies in the core."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/metrics.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Metrics &amp; Observability — Distil"/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="https://github.com/dshakes/distil">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html" class="active" aria-current="page">Metrics &amp; Observability</a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Metrics <span class="g">&amp; Observability</span></h1>
+    <p class="lead">Enterprises scrape; they do not poll a dashboard. distil exposes its savings as a Prometheus endpoint and as OpenTelemetry counters — the same numbers over two transports, with no dependency added to the core.</p>
+
+    <h2>Prometheus</h2>
+    <p>The gateway serves the standard text exposition format at <code>/distil/metrics</code>:</p>
+
+<pre class="term"><span class="d">$ distil gateway --port 8788</span>
+distil gateway listening on http://127.0.0.1:8788
+  dashboard: http://127.0.0.1:8788/distil/dashboard
+  metrics:   http://127.0.0.1:8788/distil/metrics  (Prometheus)
+
+<span class="d">$ curl -s localhost:8788/distil/metrics | head</span>
+# HELP distil_requests_total Requests processed, by tenant.
+# TYPE distil_requests_total counter
+distil_requests_total{tenant="widget-co"} 12
+# HELP distil_tokens_saved_total Input tokens kept off the wire.
+# TYPE distil_tokens_saved_total counter
+distil_tokens_saved_total{tenant="widget-co"} 38000</pre>
+
+    <h3>Series</h3>
+    <table>
+      <caption class="sr-only">Exported Prometheus series</caption>
+      <tr><th scope="col">Metric</th><th scope="col">Type</th><th scope="col">Meaning</th></tr>
+      <tr><td><code>distil_requests_total</code></td><td>counter</td><td>Requests processed, per tenant.</td></tr>
+      <tr><td><code>distil_tokens_baseline_total</code></td><td>counter</td><td>Input tokens that <em>would</em> have been sent.</td></tr>
+      <tr><td><code>distil_tokens_sent_total</code></td><td>counter</td><td>Input tokens actually sent.</td></tr>
+      <tr><td><code>distil_tokens_saved_total</code></td><td>counter</td><td>Tokens kept off the wire.</td></tr>
+      <tr><td><code>distil_dollars_saved_total</code></td><td>counter</td><td>Value of saved tokens at the configured input price.</td></tr>
+      <tr><td><code>distil_compression_ratio</code></td><td>gauge</td><td>Fraction saved, 0–1.</td></tr>
+      <tr><td><code>distil_build_info</code></td><td>gauge</td><td>Always 1; carries the <code>version</code> label.</td></tr>
+    </table>
+
+    <p>Names follow Prometheus convention — <code>distil_</code> prefix, base units, <code>_total</code> on monotonic counters — so <code>rate()</code> and <code>increase()</code> work without relabeling. Totals are deliberately <strong>not</strong> exported as separate series: Prometheus sums labelled series itself, and shipping both invites double counting.</p>
+
+    <div class="callout">
+      <b>The endpoint is authenticated.</b> Series are labelled by tenant, so an open <code>/distil/metrics</code> would publish your customer list to anyone who can reach the port. It sits behind exactly the same gate as <code>/distil/stats</code>: open on loopback for local use, and on any non-loopback bind it requires <code>--admin-token</code> and refuses without it.
+    </div>
+
+<pre class="term"><span class="d">scrape_config for a non-loopback gateway</span>
+scrape_configs:
+  - job_name: distil
+    metrics_path: /distil/metrics
+    authorization:
+      type: Bearer
+      credentials: $DISTIL_ADMIN_TOKEN
+    static_configs:
+      - targets: ["distil-gateway:8788"]</pre>
+
+    <h2>OpenTelemetry</h2>
+    <p>distil emits GenAI-convention <strong>spans</strong> and, independently, <strong>counters</strong>. Both are optional and both fail open — if the SDK is absent, or an exporter throws, the request path is untouched.</p>
+
+    <table>
+      <caption class="sr-only">Exported OpenTelemetry instruments</caption>
+      <tr><th scope="col">Instrument</th><th scope="col">Unit</th><th scope="col">Mirrors</th></tr>
+      <tr><td><code>distil.requests</code></td><td><code>{request}</code></td><td><code>distil_requests_total</code></td></tr>
+      <tr><td><code>distil.tokens.baseline</code></td><td><code>{token}</code></td><td><code>distil_tokens_baseline_total</code></td></tr>
+      <tr><td><code>distil.tokens.sent</code></td><td><code>{token}</code></td><td><code>distil_tokens_sent_total</code></td></tr>
+      <tr><td><code>distil.tokens.saved</code></td><td><code>{token}</code></td><td><code>distil_tokens_saved_total</code></td></tr>
+    </table>
+
+    <p>Counters are recorded at the same instrumentation point as the span attributes, so tracing and metrics can never disagree about a request — and they are recorded <em>before</em> the span check, so metrics work with tracing sampled off.</p>
+
+<pre class="term"><span class="d"># 1. the API distil records against (this is all the extra pulls in)</span>
+$ pip install "distil-llm[otel]"
+
+<span class="d"># 2. an SDK + exporter — what actually ships the data off the box</span>
+$ pip install opentelemetry-distro opentelemetry-exporter-otlp
+
+<span class="d"># 3. standard OTel env vars apply — no distil-specific config</span>
+$ export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317
+$ opentelemetry-instrument distil proxy</pre>
+
+    <div class="callout">
+      <b>Step 2 is not optional.</b> The <code>[otel]</code> extra installs <code>opentelemetry-api</code> only. The API on its own is a no-op recorder — spans and counters are accepted and discarded, and nothing leaves the process until an SDK and exporter are configured. That is deliberate: it is what keeps the extra dependency-light and why a missing or misconfigured OTel install can never break the request path. If you see no data, check that step 2 ran before assuming distil is silent.
+    </div>
+
+    <h2>What to alert on</h2>
+    <p>The useful alert is not "savings dropped" — savings vary with traffic. It is <strong>compression stopped happening at all</strong>, which usually means a config or upstream change, not a distil bug:</p>
+
+<pre class="term"><span class="d"># compression effectively disabled for 15 minutes</span>
+rate(distil_tokens_saved_total[15m]) == 0
+  and rate(distil_requests_total[15m]) &gt; 0</pre>
+
+    <p>Pair it with the decision-equivalence signal from <a href="benchmark.html">the certificate</a>: savings without equivalence is not a win, and distil is the only layer that reports both.</p>
+
+    <hr/>
+    <p class="muted">Zero runtime dependencies: the Prometheus exporter is stdlib-only, and the OTel path imports lazily behind an extra. Neither can fail in a way that reaches your traffic.</p>
+
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>
