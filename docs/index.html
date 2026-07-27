@@ -253,6 +253,8 @@
     border:1px solid #2a2550;border-radius:999px;
     box-shadow:0 0 0 1px rgba(139,123,255,.08),0 14px 40px -22px rgba(139,123,255,.5)}
   .installpill code{font-family:var(--mono);font-size:15px;color:var(--ink);background:none;padding:0}
+  .installalt{color:var(--dim);font-size:13px;margin:10px 0 0;max-width:62ch;line-height:1.6}
+  .installalt code{font-family:var(--mono);font-size:12.5px;color:var(--mut)}
   @media(max-width:560px){.installpill{display:block;border-radius:14px}
     .installpill code{font-size:13px}}
 
@@ -375,7 +377,10 @@
   <!-- Install, above the fold. A visitor's first question is "how do I get this", and it
        used to be answerable only by scrolling into a terminal card whose first line is a
        benchmark, not an install. One copyable line costs nothing and answers it. -->
-  <pre class="installpill"><code>pipx install distil-llm</code></pre>
+  <pre class="installpill"><code>uvx --from distil-llm distil onboard</code></pre>
+  <p class="installalt">Sets up everything, including a permanent install — and it is the
+    same command <a href="getting-started.html">Install &amp; Quickstart</a> leads with.
+    Prefer pipx? <code>pipx install distil-llm &amp;&amp; distil onboard</code>.</p>
 
   <div class="doors">
     <a class="door" href="getting-started.html">
