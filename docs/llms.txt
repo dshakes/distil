@@ -41,6 +41,10 @@ https://dshakes.github.io/distil/cli.html
 Deploy & Security (topologies, encrypt-at-rest, gateway keys, OTel session id):
 https://dshakes.github.io/distil/deploy-security.html
 
+Metrics & Observability (Prometheus /distil/metrics exposition and its admin
+gate, OpenTelemetry counters + GenAI spans, what to alert on):
+https://dshakes.github.io/distil/metrics.html
+
 FAQ (decision-equivalence, nightly gate, OpenAI/Gemini adapters, troubleshooting):
 https://dshakes.github.io/distil/faq.html
 
