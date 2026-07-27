@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="Vision duplicate elision: an agent sends four screenshots — three byte-identical red CI tiles and one distinct green tile. Distil keeps the first red tile and the green tile verbatim and replaces the two repeated reds with recoverable references, so the model still sees every distinct image. Certified at 100 percent decision-equivalence against a live vision model.">
+  <defs>
+    <linearGradient id="vbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+    <linearGradient id="vg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
+    <linearGradient id="vcard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+    <pattern id="vdots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.02"/></pattern>
+    <marker id="varr" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7d8cff"/></marker>
+  </defs>
+
+  <rect width="1200" height="400" fill="url(#vbg)"/><rect width="1200" height="400" fill="url(#vdots)"/>
+
+  <text x="48" y="50" font-size="24" font-weight="800" letter-spacing="-0.3" fill="#f2f3f7">Vision <tspan fill="#9aa0b2" font-weight="500" font-size="15">— repeated screenshots cost full price every turn</tspan></text>
+
+  <g font-size="11.5" letter-spacing="2" font-weight="700" text-anchor="middle">
+    <text x="235" y="96" fill="#7b8298">WHAT THE AGENT SENDS</text>
+    <text x="960" y="96" fill="#7b8298">WHAT THE MODEL RECEIVES</text>
+  </g>
+
+  <!-- Sent: 3 identical red tiles + 1 distinct green -->
+  <g>
+    <rect x="48" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <text x="91" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
+    <text x="91" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 0</text>
+
+    <rect x="146" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <text x="189" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
+    <text x="189" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 1</text>
+
+    <rect x="244" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <text x="287" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
+    <text x="287" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 2</text>
+
+    <rect x="342" y="120" width="86" height="86" rx="10" fill="#2a9c68" stroke="#3dc789" stroke-width="1.5"/>
+    <text x="385" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#04220f">CI: PASS</text>
+    <text x="385" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 3</text>
+  </g>
+  <text x="48" y="256" font-size="12.5" fill="#9aa0b2">4 images &#183; ~5,600 input tokens &#183; three are <tspan fill="#e7e9ee" font-weight="600">byte-identical</tspan></text>
+
+  <!-- Pipeline -->
+  <line x1="452" y1="163" x2="524" y2="163" stroke="#7d8cff" stroke-width="2.6" marker-end="url(#varr)"/>
+  <rect x="536" y="118" width="286" height="92" rx="14" fill="url(#vcard)" stroke="url(#vg)" stroke-width="1.6"/>
+  <text x="679" y="148" text-anchor="middle" font-size="14" font-weight="800" fill="url(#vg)">duplicate elision</text>
+  <text x="679" y="170" text-anchor="middle" font-size="11.5" fill="#9aa0b2">identity = exact base64 payload</text>
+  <text x="679" y="190" text-anchor="middle" font-size="11.5" fill="#9aa0b2">never re-encoded, never downscaled</text>
+  <line x1="834" y1="163" x2="900" y2="163" stroke="#7d8cff" stroke-width="2.6" marker-end="url(#varr)"/>
+
+  <!-- Received: first red kept, green kept, two references -->
+  <g>
+    <rect x="912" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <text x="955" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
+    <text x="955" y="222" text-anchor="middle" font-size="10.5" fill="#5ad19a">kept &#183; first sight</text>
+
+    <rect x="1010" y="120" width="86" height="86" rx="10" fill="#2a9c68" stroke="#3dc789" stroke-width="1.5"/>
+    <text x="1053" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#04220f">CI: PASS</text>
+    <text x="1053" y="222" text-anchor="middle" font-size="10.5" fill="#5ad19a">kept &#183; distinct</text>
+
+    <rect x="912" y="248" width="184" height="34" rx="8" fill="#111726" stroke="#2a3650" stroke-dasharray="4 4"/>
+    <text x="1004" y="270" text-anchor="middle" font-size="10.5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="#8b91a1">2 &#215; &#171;image, handle=&#8230;&#187;</text>
+  </g>
+  <text x="912" y="304" font-size="12.5" fill="#9aa0b2">2 images &#183; every distinct one still seen</text>
+  <text x="912" y="324" font-size="12.5" fill="#9aa0b2">recoverable byte-exact via</text>
+  <text x="912" y="342" font-size="12.5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="#5ad1c9">distil_expand</text>
+
+  <!-- The claim -->
+  <rect x="48" y="292" width="800" height="62" rx="12" fill="#0f1326" stroke="#23284a"/>
+  <text x="70" y="316" font-size="13" font-weight="700" fill="#e7e9ee">Certified, not asserted</text>
+  <text x="70" y="338" font-size="12" fill="#9aa0b2">100% decision-equivalence vs a live vision model (A/A floor 100%, TOST p&lt;0.0001) &#183; the distinct set is never reduced</text>
+
+  <text x="48" y="380" font-size="11.5" fill="#7d8598">Only byte-identical payloads are elided &#183; the first occurrence is never touched &#183; url sources are never treated as duplicates &#183; DISTIL_VISION=0 disables</text>
+</svg>

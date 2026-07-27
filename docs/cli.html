@@ -198,6 +198,26 @@ TOST non-inferiority (margin=0.02, alpha=0.05): mean diff=-1.000, p=1.0000
 
 VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)</pre>
 
+    <div class="callout">
+      <b>Certifying vision.</b> The <code>vision</code> strategy is graded against a <em>live</em> vision model, because its decision is carried by the image rather than by text — an offline oracle reading <code>DECISION:</code> markers out of block text cannot see it. The bundled vision trajectory is therefore excluded from <code>distil bench</code> on purpose:<br/>
+      <code>distil certify --strategy vision --runner anthropic --trajectory corpus/vision-ci-dashboard.json</code><br/>
+      A local result outranks the certificate shipped in the package — <strong>including a failure</strong>. See <a href="techniques.html#vision">Vision</a>.
+    </div>
+
+    <hr/>
+
+    <!-- certify-provider -->
+    <h2 id="certify-provider">distil certify-provider</h2>
+    <p>A/B-certify the <em>provider's own</em> context manipulation — Anthropic context editing (clear-tool-uses) and OpenAI server-side compaction — using the same decision-equivalence machinery distil holds itself to. Pre-registered, so the result stands whichever way it falls.</p>
+
+    <p>Published findings, aggressive configs, n=40 per arm: Anthropic clearing changed the agent's decision in <strong>92.5%</strong> of runs (37/40 turned a tool call into text — the agent stops acting); OpenAI compaction in <strong>12.5%</strong>. Neither certifies at &alpha;=0.1. Summarization is roughly 7&times; safer than deletion. Full write-up: <a href="provider-compaction.html">Provider Compaction</a>.</p>
+
+    <pre class="term"><span class="d">$ distil certify-provider --provider anthropic --runs 40</span></pre>
+
+    <div class="callout">
+      <b>Why this exists.</b> Every compressor asks to be trusted, including the ones built into the providers. This runs the provider's own feature through the gate distil publishes for itself — and reports the answer even when it is unflattering to the platform everyone is already using.
+    </div>
+
     <hr/>
 
     <!-- prune -->
@@ -251,6 +271,50 @@ turn    before     after   saved
  ALL      8228      5920   28.1%
 
 reversible: yes (Tier-0/1) — 3 blocks digested, originals recoverable locally</pre>
+
+    <hr/>
+
+    <!-- simulate -->
+    <h2 id="simulate">distil simulate</h2>
+    <p>Dry-run a <em>real</em> request: what would be compressed, what would be left alone, and <strong>why</strong>. No network, no model, no side effects — safe to run across a sample of production traffic to size the saving before switching anything on.</p>
+
+    <p>The protected set is first-class output. A preview that reports a ratio while hiding its reasoning is the same &ldquo;trust me&rdquo; every other compressor offers, with a number attached; distil already computes why a block is protected, so it prints the rule.</p>
+
+    <h3>Flags</h3>
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--messages, -m</code></th><td>bundled sample</td><td>Path to a JSON file holding an Anthropic/OpenAI <code>messages</code> array (or <code>{"messages": [...]}</code>)</td></tr>
+        <tr><th scope="row"><code>--verbatim</code></th><td>off</td><td>Preview the in-context-lossless mode — no Tier-1 digest stubs</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output</td></tr>
+      </tbody>
+    </table>
+
+    <pre class="term"><span class="d">$ distil simulate -m request.json</span>
+distil simulate — what would happen, no model called
+
+  14,609 tokens in  -&gt;  476 out   (96.7% saved, 1 block(s) recoverable)
+
+  where the waste is (diagnostics; they overlap, so they are not summed)
+    json_bloat      5,041 chars         0 tokens
+    whitespace      2,160 chars         0 tokens
+
+    chars &gt; 0 but tokens = 0: this tokenizer is whitespace-insensitive,
+    so it will not bill you for that shape. Re-run with a billing-grade
+    tokenizer to see what your provider would actually charge.
+
+  never touched (byte-exact)
+    turn 0   tool_use     tool_use — arguments are executed verbatim, never
+                          rewritten
+
+  no digest applied — Tier-0 lossless transforms only, so bytes may change
+  but meaning is preserved and nothing moves behind a handle
+    turn 5   text         recency — within the last 2 tool-bearing turns, so
+                          no Tier-1 digest is applied</pre>
+
+    <div class="callout">
+      <b>Two guarantees, reported separately.</b> <code>byte-exact</code> means the block is not touched at all; <code>lossless-only</code> means its bytes may change but meaning is preserved and nothing moves behind a handle. Recency is the second kind — it exempts a block from the Tier-1 digest, not from Tier-0 — and conflating them would make the report untrue.
+    </div>
 
     <hr/>
 
@@ -365,6 +429,30 @@ by trajectory:
     <pre class="term"><span class="d">$ distil dissect</span>            <span class="d"># pick a recent session</span>
 <span class="d">$ distil dissect s4821-3 --html report.html</span>
 <span class="d">$ distil dissect --serve</span>       <span class="d"># localhost portal, all sessions</span></pre>
+
+    <h2 id="learn">distil learn</h2>
+    <p>Show the keep-byte-exact policy Distil has learned from your own <code>distil_expand</code> signals: content the agent kept pulling back is content that should not have been digested in the first place. Read-only — it reports the policy, it does not change it.</p>
+    <pre class="term"><span class="d">$ distil learn</span>              <span class="d"># the policy your traffic implies</span>
+<span class="d">$ distil learn --threshold 0.3 --min-samples 20</span></pre>
+
+    <h2 id="calibrate">distil calibrate</h2>
+    <p>Auto-tune the gate's operating point to your agent rather than to the bundled corpus. Fail-safe by construction: if calibration cannot establish a safe point it falls back to full context, so a bad tune costs savings and never correctness.</p>
+    <pre class="term"><span class="d">$ distil calibrate --margin 0.02</span></pre>
+
+    <h2 id="receipts">distil receipts</h2>
+    <p>Verify — or export — the tamper-evident per-request receipt chain. Each compressed request appends a hash-linked receipt, so the savings you report can be audited rather than taken on faith, and a broken link is detectable.</p>
+    <pre class="term"><span class="d">$ distil receipts</span>           <span class="d"># verify the chain</span>
+<span class="d">$ distil receipts --export receipts.jsonl</span></pre>
+
+    <h2 id="mcp">distil mcp</h2>
+    <p>Run the zero-dependency MCP server over stdio, exposing <code>distil_compress</code>, <code>distil_expand</code> and <code>distil_savings</code> to any MCP client. This is how an agent recovers a digested block on demand — the mechanism that makes Tier-1 reversible in practice and not just in principle.</p>
+    <pre class="term"><span class="d">$ distil mcp</span>                <span class="d"># stdio server</span>
+<span class="d">$ uvx --from distil-llm distil-mcp</span>   <span class="d"># launch spec for MCP clients</span></pre>
+
+    <h2 id="upgrade">distil upgrade</h2>
+    <p>Upgrade Distil, auto-detecting how it was installed (brew / pipx / uv / pip). Live <code>wrap</code> sessions hot-swap onto the new version without restarting the agent.</p>
+    <pre class="term"><span class="d">$ distil upgrade</span>
+<span class="d">$ distil version</span>            <span class="d"># the installed version</span></pre>
 
     <h2 id="proxy">distil proxy</h2>
     <p>HTTP proxy that applies Distil compression to every LLM API request passing through it. Drop-in for any client that honours a <code>base_url</code> parameter — Anthropic SDK, OpenAI SDK, LiteLLM, LangChain, etc. As real traffic flows through it, the actual per-request token reduction is accumulated into your local ledger (see <a href="#leaderboard">distil leaderboard</a>) — genuine savings, numbers only, never content.</p>

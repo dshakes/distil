@@ -206,6 +206,39 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
 
     <hr/>
 
+    <h2 id="vision">④ Vision <span class="g">— duplicate elision, certified</span></h2>
+    <p><strong>Module:</strong> <code>distil/compress/vision.py</code> &middot; Strategy: <code>vision</code> &middot; Loss profile: reversible, gated on a certificate</p>
+
+    <p>A 1024&times;1024 image is roughly 1,400 input tokens, and an agent that screenshots a UI, re-reads a diagram or polls a dashboard pays that on <em>every turn the block stays in context</em>. Distil used to compress the text around such a block and leave the block itself at full price.</p>
+
+    <img src="assets/vision.svg" alt="Vision duplicate elision: an agent sends four screenshots — three byte-identical red CI tiles and one distinct green tile. Distil keeps the first red tile and the green tile verbatim and replaces the two repeated reds with recoverable references, so the model still sees every distinct image. Certified at 100% decision-equivalence against a live vision model." class="svg-embed"/>
+
+    <h3>Why not resize</h3>
+    <p>The prevailing technique in this space is an ML router that picks a resize/quality tradeoff. That is <strong>lossy by construction</strong>: the model sees a different image, and nobody can say whether the answer changed. Distil's contract is that a lossy tier ships only behind a decision-equivalence certificate — so instead of degrading images, it removes the ones the model has <em>already seen</em>:</p>
+
+    <ul>
+      <li>Identity is the <strong>exact base64 payload</strong>. Nothing is re-encoded, downscaled, or re-compressed.</li>
+      <li>The <strong>first occurrence is never touched</strong> — the model has to actually see the image.</li>
+      <li>A repeat becomes a short reference carrying an 8-hex handle; <code>distil_expand</code> returns the original <code>source</code> object byte-exact.</li>
+      <li><strong>URL sources are never treated as duplicates.</strong> Two occurrences of one URL are not evidence of the same pixels — signed URLs, dashboards and cache-busted screenshots all serve different bytes from a stable URL. Eliding on that basis would assert an identity nobody verified.</li>
+    </ul>
+
+    <div class="callout">
+      <b>Certified, not asserted.</b> Against a live vision model on the bundled vision trajectory: <strong>100% decision-equivalence</strong>, A/A self-agreement floor 100%, TOST <em>p</em>&lt;0.0001, verdict PASS. Reproduce it yourself:<br/>
+      <code>distil certify --strategy vision --runner anthropic --trajectory corpus/vision-ci-dashboard.json</code>
+    </div>
+
+    <p>The first live run <strong>failed</strong> — and that is worth knowing, because it is what a real gate looks like. The compressed arm chose <code>open_failing_build</code> where the baseline chose <code>promote_release</code>. The cause was not the compression: the grading harness was hoisting every image to the front of the turn, severing each screenshot from the caption identifying it. An A/B whose two arms differ in prompt <em>shape</em> measures the shape. No offline oracle would have surfaced that, which is why this content type is certified against a live model rather than a synthetic one.</p>
+
+    <h3>What you inherit, and how to override it</h3>
+    <p>The maintainer's certificate ships inside the package, so de-duplication is <strong>on by default</strong> — certifying requires a vision model and an API key, and without this the capability would be inert for everyone but its author. The certificate states its own scope (model, corpus, verdict, reproduce command) and explicitly does <em>not</em> certify your traffic.</p>
+
+    <p>Certify your own workload and <strong>your result wins</strong>, including a failure: a local FAIL is never overridden by the shipped PASS. The gate resolves <code>DISTIL_VISION</code> &rarr; local certificate &rarr; shipped certificate, and every source must parse and carry an explicit passing verdict. Set <code>DISTIL_VISION=0</code> to disable outright.</p>
+
+    <p>Design record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0003-content-type-coverage-and-the-certificate-boundary.md">ADR 0003</a> (why images, and why not resize) and <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0004-stack-ranked-capability-gaps.md">ADR 0004</a> (what blocked certification, and how it was closed).</p>
+
+    <hr/>
+
     <!-- Tier model -->
     <h2 id="tiers">Risk-graded tiers</h2>
     <p>Every technique is assigned to a tier based on its loss profile. Distil applies them in order — lossless ones unconditionally, certified-lossy ones only when the gate passes.</p>
