@@ -261,15 +261,15 @@ corpus gate — 7 trajectories | model claude-opus-4-8 | tokenizer=heuristic
 
 domain            trajectory               $ saved   distil   aggr  pruned
 ---------------------------------------------------------------------------
-ops/sre           sre-disk-incident          33.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>     615
-coding            coding-bugfix              28.7%     <span class="g">PASS</span>   <span class="w">FAIL</span>     736
+ops/sre           sre-disk-incident          32.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     615
+coding            coding-bugfix              25.5%     <span class="g">PASS</span>   <span class="w">FAIL</span>     736
 support           support-refund             32.6%     <span class="g">PASS</span>   <span class="w">FAIL</span>     765
 research          research-synthesis         25.7%     <span class="g">PASS</span>   <span class="w">FAIL</span>     809
 data-analysis     data-analysis-sql          18.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>     965
-devops            devops-rollback            25.0%     <span class="g">PASS</span>   <span class="w">FAIL</span>     857
-finance           finance-reconcile          29.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>    1014
+devops            devops-rollback            22.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     857
+finance           finance-reconcile          24.9%     <span class="g">PASS</span>   <span class="w">FAIL</span>    1014
 ---------------------------------------------------------------------------
-aggregate: distil cuts $0.14212 -> $0.10402 (26.8% cheaper) reversibly; 5761 tokens causally prunable.
+aggregate: distil cuts $0.14212 -> $0.10610 (25.3% cheaper) reversibly; 5761 tokens causally prunable.
 
 GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; aggressive rejected on all.</pre>
 

@@ -557,8 +557,8 @@ strategy                               $ / run   vs baseline  cache hits
 ------------------------------------------------------------------------
 baseline (no cache, no compress)       0.01524          0.0%           0
 cache only                             0.01115         26.8%       1,028
-naive compress + cache                 0.01691        <span class="w">-11.0%</span>           0   <span class="d">← busts cache</span>
-distil (cache-aware lossless)          0.01019         <span class="g">33.1%</span>       1,028
+naive compress + cache                 0.01696        <span class="w">-11.3%</span>           0   <span class="d">← busts cache</span>
+distil (cache-aware lossless)          0.01023         <span class="g">32.8%</span>       1,028
 
 <span class="d">$ distil certify --strategy distil</span>
 decision-equivalence match rate: <span class="g">100.0%</span>
@@ -567,7 +567,7 @@ VERDICT: <span class="g">PASS</span>  (certified non-inferior)
 <span class="d">$ distil certify --strategy aggressive</span>
 decision-equivalence match rate: <span class="w">0.0%</span>
 VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
-  <img loading="lazy" src="assets/cache-aware.svg" alt="Bar chart of per-run cost: baseline (no cache, no compress) $0.01524; cache only $0.01115 (-27%); naive recompression busts the prefix cache and costs more, $0.01691; distil's cache-aware lossless approach $0.01019 (-33%), the lowest of the four" style="width:100%;border:1px solid var(--line);border-radius:16px;margin-top:18px"/>
+  <img loading="lazy" src="assets/cache-aware.svg" alt="Bar chart of per-run cost: baseline (no cache, no compress) $0.01524; cache only $0.01115 (-27%); naive recompression busts the prefix cache and costs more, $0.01696; distil's cache-aware lossless approach $0.01023 (-33%), the lowest of the four" style="width:100%;border:1px solid var(--line);border-radius:16px;margin-top:18px"/>
 </div></section>
 
 <section id="domains"><div class="wrap">
@@ -575,7 +575,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
   <h2>Measured across 7 domains <span class="g">— the same gate, not one example</span><a class="hlink" href="#domains" aria-label="Link to section: Measured across 7 domains — the same gate, not one example">#</a></h2>
   <p class="lead">A strategy isn't trustworthy because it works once. <code>distil bench</code> certifies
     every domain — ops, coding, support, research, data, devops, finance — or it doesn't ship.</p>
-  <img loading="lazy" src="assets/domains.svg" alt="Bar chart of lossless savings across 7 domains, all passing the decision-equivalence gate: ops/sre 33.1%, coding 28.7%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 25.0%, finance 29.1%; aggregate 26.8% cheaper losslessly across 5,761 prunable tokens" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
+  <img loading="lazy" src="assets/domains.svg" alt="Bar chart of lossless savings across 7 domains, all passing the decision-equivalence gate: ops/sre 32.8%, coding 25.5%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 22.8%, finance 24.9%; aggregate 25.3% cheaper reversibly across 5,761 prunable tokens" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
 </div></section>
 
 <section id="tiers"><div class="wrap">
