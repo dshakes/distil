@@ -35,7 +35,7 @@ question.
 
 Gaps are ranked by *user-visible cost of leaving them open*, not by effort.
 
-### Rank 1 — Vision is implemented but uncertified, therefore inert. **Do it next.**
+### Rank 1 — ~~Vision is uncertified, therefore inert~~ **CLOSED: certified live, 100% decision-equivalence.**
 
 ADR 0003 decision 2 shipped `compress/vision.py` behind `vision.enabled()`,
 which is False until a certificate exists. That was deliberate — but it means the

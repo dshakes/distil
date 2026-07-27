@@ -1,0 +1,274 @@
+{
+  "id": "vision-ci-dashboard",
+  "model": "claude-opus-4-8",
+  "_note": "Vision domain (ADR 0003). Context accumulates as in every other trajectory, so by turn 3 the history holds three BYTE-IDENTICAL red tiles plus one distinct green tile. Correct dedup collapses the reds to one and keeps the green, leaving the decision (promote_release) unchanged. A strategy that elided the GREEN tile would flip the decision to open_failing_build \u2014 which is what makes this domain able to FAIL, not merely pass.",
+  "turns": [
+    {
+      "index": 0,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous release agent watching a CI dashboard.\nThe dashboard tile is RED when the build is failing and GREEN when it passes.\nDECISION: when the newest tile is red, open the failing build; when green, promote the release"
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "Available tools:\n- open_failing_build(build_id)\n- promote_release(version)\nDECISION: choose exactly one tool per turn"
+        },
+        {
+          "id": "obs-shot-0",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous release agent watching a CI dashboard.\nThe dashboard tile is RED when the build is failing and GREEN when it passes.\nDECISION: when the newest tile is red, open the failing build; when green, promote the release"
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "Available tools:\n- open_failing_build(build_id)\n- promote_release(version)\nDECISION: choose exactly one tool per turn"
+        },
+        {
+          "id": "hist-shot-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "obs-shot-1",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile (re-checked)",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "noise-1",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "poll 0: heartbeat ok, no state change\npoll 1: heartbeat ok, no state change\npoll 2: heartbeat ok, no state change\npoll 3: heartbeat ok, no state change\npoll 4: heartbeat ok, no state change\npoll 5: heartbeat ok, no state change\npoll 6: heartbeat ok, no state change\npoll 7: heartbeat ok, no state change\npoll 8: heartbeat ok, no state change\npoll 9: heartbeat ok, no state change\npoll 10: heartbeat ok, no state change\npoll 11: heartbeat ok, no state change\npoll 12: heartbeat ok, no state change\npoll 13: heartbeat ok, no state change\npoll 14: heartbeat ok, no state change\npoll 15: heartbeat ok, no state change\npoll 16: heartbeat ok, no state change\npoll 17: heartbeat ok, no state change\npoll 18: heartbeat ok, no state change\npoll 19: heartbeat ok, no state change\npoll 20: heartbeat ok, no state change\npoll 21: heartbeat ok, no state change\npoll 22: heartbeat ok, no state change\npoll 23: heartbeat ok, no state change\npoll 24: heartbeat ok, no state change\npoll 25: heartbeat ok, no state change\npoll 26: heartbeat ok, no state change\npoll 27: heartbeat ok, no state change\npoll 28: heartbeat ok, no state change\npoll 29: heartbeat ok, no state change\npoll 30: heartbeat ok, no state change\npoll 31: heartbeat ok, no state change\npoll 32: heartbeat ok, no state change\npoll 33: heartbeat ok, no state change\npoll 34: heartbeat ok, no state change\npoll 35: heartbeat ok, no state change\npoll 36: heartbeat ok, no state change\npoll 37: heartbeat ok, no state change\npoll 38: heartbeat ok, no state change\npoll 39: heartbeat ok, no state change"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous release agent watching a CI dashboard.\nThe dashboard tile is RED when the build is failing and GREEN when it passes.\nDECISION: when the newest tile is red, open the failing build; when green, promote the release"
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "Available tools:\n- open_failing_build(build_id)\n- promote_release(version)\nDECISION: choose exactly one tool per turn"
+        },
+        {
+          "id": "hist-shot-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "hist-shot-1",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile (re-checked)",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "obs-shot-2",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile (polling)",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "noise-2",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "poll 0: heartbeat ok, no state change\npoll 1: heartbeat ok, no state change\npoll 2: heartbeat ok, no state change\npoll 3: heartbeat ok, no state change\npoll 4: heartbeat ok, no state change\npoll 5: heartbeat ok, no state change\npoll 6: heartbeat ok, no state change\npoll 7: heartbeat ok, no state change\npoll 8: heartbeat ok, no state change\npoll 9: heartbeat ok, no state change\npoll 10: heartbeat ok, no state change\npoll 11: heartbeat ok, no state change\npoll 12: heartbeat ok, no state change\npoll 13: heartbeat ok, no state change\npoll 14: heartbeat ok, no state change\npoll 15: heartbeat ok, no state change\npoll 16: heartbeat ok, no state change\npoll 17: heartbeat ok, no state change\npoll 18: heartbeat ok, no state change\npoll 19: heartbeat ok, no state change\npoll 20: heartbeat ok, no state change\npoll 21: heartbeat ok, no state change\npoll 22: heartbeat ok, no state change\npoll 23: heartbeat ok, no state change\npoll 24: heartbeat ok, no state change\npoll 25: heartbeat ok, no state change\npoll 26: heartbeat ok, no state change\npoll 27: heartbeat ok, no state change\npoll 28: heartbeat ok, no state change\npoll 29: heartbeat ok, no state change\npoll 30: heartbeat ok, no state change\npoll 31: heartbeat ok, no state change\npoll 32: heartbeat ok, no state change\npoll 33: heartbeat ok, no state change\npoll 34: heartbeat ok, no state change\npoll 35: heartbeat ok, no state change\npoll 36: heartbeat ok, no state change\npoll 37: heartbeat ok, no state change\npoll 38: heartbeat ok, no state change\npoll 39: heartbeat ok, no state change"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous release agent watching a CI dashboard.\nThe dashboard tile is RED when the build is failing and GREEN when it passes.\nDECISION: when the newest tile is red, open the failing build; when green, promote the release"
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "Available tools:\n- open_failing_build(build_id)\n- promote_release(version)\nDECISION: choose exactly one tool per turn"
+        },
+        {
+          "id": "hist-shot-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "hist-shot-1",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile (re-checked)",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "hist-shot-2",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile (polling)",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QMQ0AMAzAsMEpfxSDNQZ7m8NSAEQ+d0afzvpBPECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQIEDhAAECBAhQOECAAAECFA4QIECAAIUDBAgQoM0e+XtiSh3eUM8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "obs-shot-3",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "screenshot of the CI dashboard tile after the rerun",
+          "media": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QQQ0AIBDAsJODJnQiEAd82aPJBCyddbYezfeDeIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQD+7VaCahp5k9fQAAAAASUVORK5CYII="
+              }
+            }
+          ]
+        },
+        {
+          "id": "noise-3",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "poll 0: heartbeat ok, no state change\npoll 1: heartbeat ok, no state change\npoll 2: heartbeat ok, no state change\npoll 3: heartbeat ok, no state change\npoll 4: heartbeat ok, no state change\npoll 5: heartbeat ok, no state change\npoll 6: heartbeat ok, no state change\npoll 7: heartbeat ok, no state change\npoll 8: heartbeat ok, no state change\npoll 9: heartbeat ok, no state change\npoll 10: heartbeat ok, no state change\npoll 11: heartbeat ok, no state change\npoll 12: heartbeat ok, no state change\npoll 13: heartbeat ok, no state change\npoll 14: heartbeat ok, no state change\npoll 15: heartbeat ok, no state change\npoll 16: heartbeat ok, no state change\npoll 17: heartbeat ok, no state change\npoll 18: heartbeat ok, no state change\npoll 19: heartbeat ok, no state change\npoll 20: heartbeat ok, no state change\npoll 21: heartbeat ok, no state change\npoll 22: heartbeat ok, no state change\npoll 23: heartbeat ok, no state change\npoll 24: heartbeat ok, no state change\npoll 25: heartbeat ok, no state change\npoll 26: heartbeat ok, no state change\npoll 27: heartbeat ok, no state change\npoll 28: heartbeat ok, no state change\npoll 29: heartbeat ok, no state change\npoll 30: heartbeat ok, no state change\npoll 31: heartbeat ok, no state change\npoll 32: heartbeat ok, no state change\npoll 33: heartbeat ok, no state change\npoll 34: heartbeat ok, no state change\npoll 35: heartbeat ok, no state change\npoll 36: heartbeat ok, no state change\npoll 37: heartbeat ok, no state change\npoll 38: heartbeat ok, no state change\npoll 39: heartbeat ok, no state change"
+        }
+      ]
+    }
+  ]
+}
