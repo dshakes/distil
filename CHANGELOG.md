@@ -3,6 +3,39 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — say whose savings those are
+
+The counter fix in 1.33.1 stopped the community total moving backwards. This is
+the other half of the same problem: what that total actually *means*.
+
+**Consenting is not contributing.** The adoption page counted every machine that
+had turned the census on as a machine that was saving. On the real data that
+made "2 machines saving now" out of one machine with 1.6B tokens and one that
+had reported `tokens_saved: 0` twice and never run anything. The rollup now
+emits `contributing` (installs that have actually reported savings) alongside
+`instances`, and the page uses it: the headline reads "from 1 machine", the
+install tile reads "1 of 2 have reported savings · 1 opted in but idle", and
+below five contributors the hero carries an explicit small-sample notice —
+*this is one real ledger, not a community aggregate*. Aggregates written before
+the field existed make **no** claim rather than falling back to the consent
+count, which is the overstatement this removes.
+
+**Your savings, one number.** `distil dashboard --web` computed savings as
+lifetime-raw × *current* calibration factor, the exact method `census.py`
+documents as wrong: it restates every token already earned whenever calibration
+refines, so the number on screen can drop without a token being un-saved. It
+also disagreed with the census on the same machine — 1,522,590,876 against
+1,491,058,879. Both now read the count-time accrued total through
+`census.accrued_tokens()`, so your dashboard, your census payload, and the
+community rollup are the same figure.
+
+**Most users are never asked.** Consent is offered in exactly one place —
+inside `distil onboard`, at a TTY. Anyone who went from `uvx`/`pipx` straight to
+`distil wrap` was never asked at all, which is most of them. `distil stats` now
+mentions the census once, only to someone with real savings to contribute, only
+at a terminal, never twice, and silent under `DO_NOT_TRACK`. It does not send
+anything and does not grant consent — ignoring it leaves you un-asked.
+
 ## [1.33.1] — the zipapp can name itself
 
 `distil.pyz` — a release asset offered as the install path for anyone PyPI is

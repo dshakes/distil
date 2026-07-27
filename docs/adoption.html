@@ -127,6 +127,11 @@
   .rate .muted{color:var(--dim)}
   .hero-sub{color:var(--mut);font-size:13px;margin-top:12px;line-height:1.5}
   .hero-sub b{color:var(--ink)}
+  /* Sample-size disclosure. A total summed from one machine is a real number
+     but it is not a community number, and the page has to say which it is
+     before the reader assumes. Shown only while the sample is small. */
+  .hero-caveat{margin-top:10px;padding:9px 12px;border-radius:9px;
+    border:1px solid #4a3a12;background:#161207;color:#e8b34b;font-size:12.5px;line-height:1.45}
   /* trust ring */
   .trust{display:flex;flex-wrap:wrap;align-items:center;gap:22px 30px;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
   .ring-wrap{display:flex;align-items:center;gap:16px;flex:1 1 340px;min-width:0}
@@ -232,11 +237,13 @@
           </div>
           <div class="spark" id="spark"></div>
           <div class="hero-sub">
-            The community total from opted-in ledgers, calibration-corrected, never estimated. It's an
+            Summed from <b id="hero-machines">&mdash;</b> that opted in and have actually reported
+            savings, calibration-corrected, never estimated. It's an
             <b>exact cumulative</b>, summed fresh on every read — the digits move only when a real
             heartbeat or census (content-free, every ~5&nbsp;min) reports genuinely more saved, and
             <b>sit static while everyone idles</b>. No per-day projection, no invented growth. Worth
             <b id="hero-notional">&mdash;</b> at metered API rates.
+            <div id="hero-sample" class="hero-caveat" hidden></div>
           </div>
         </div>
         <div class="trust">
@@ -259,7 +266,7 @@
     </div>
 
     <div class="astats">
-      <div class="astat pu"><div class="n" id="t-active">–</div><div class="l">Active installs &middot; 30d</div><div class="foot">opt-in census &middot; one per machine &middot; bot-proof by construction</div></div>
+      <div class="astat pu"><div class="n" id="t-active">–</div><div class="l">Active installs &middot; 30d</div><div class="foot"><b id="t-contributing">–</b> reporting savings &middot; <span id="t-active-foot">opt-in census &middot; one per machine</span></div></div>
       <div class="astat hl"><div class="n" id="t-dollars-real">–</div><div class="l">Real $ saved &middot; metered</div><div class="foot">plus <b id="t-notional">–</b> notional API-rate value from flat-rate subscriptions</div></div>
       <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered <b>download events</b> (incl. CI &amp; upgrades) — not unique users; the census tile is the provable-users number</div></div>
       <div class="astat"><div class="n" id="t-shapes">–</div><div class="l">API shapes seen</div><div class="foot">distinct SDK wire formats across the fleet — Anthropic / OpenAI / Gemini</div></div>
@@ -513,11 +520,15 @@
         // No rate projection ("there is no honest amount of rate-projection"): a
         // per-interval heartbeat rate ×86400 is phantom "/day" growth from idle
         // machines. Show the honest live pulse — how many machines are saving now.
-        var act = d.active || 0;
+        // "saving now" must mean *saving*, not *consenting*. A heartbeat only
+        // fires when tokens actually grew, so d.active is already contributors
+        // only — but prefer an explicit count when the endpoint sends one, and
+        // never let the consent count stand in for it.
+        var act = (d.saving != null ? d.saving : d.active) || 0;
         set("rate-sec", act > 0 ? commas(act) + (act === 1 ? " machine" : " machines") : "exact");
         set("rate-day", act > 0
           ? "saving now · exact total, moves only when it truly rises"
-          : "no machines active right now · exact total");
+          : "no machines saving right now · exact total");
         set("hero-state", act > 0 ? "live" : "exact");
       } else {
         liveBase = null; // empty/unavailable store → census exact total
@@ -570,6 +581,42 @@
     set("ms-runs", commas(s.total_runs || 0));
     set("ms-avg", human(s.avg_per_run) || "—");
     set("t-active", human(a.installs.active_30d));
+
+    // Provenance of the headline total. `contributing` counts installs that have
+    // actually reported savings — consenting is not contributing, and one idle
+    // opt-in must never be counted into a "community" story. Aggregates written
+    // before that field existed simply do not know: say "machines" and make no
+    // claim about how many reported, rather than substituting the consent count
+    // (which is the very overstatement this exists to remove).
+    var contrib = s.contributing != null ? s.contributing : null;
+    var consented = a.installs.census_total || 0;
+    set("hero-machines", contrib == null
+      ? "the machines"
+      : (contrib === 1 ? "1 machine" : commas(contrib) + " machines"));
+    set("t-contributing", contrib == null ? "—" : commas(contrib));
+    var idle = contrib == null ? 0 : Math.max(0, consented - contrib);
+    set("t-active-foot", contrib == null
+      ? "opt-in census · one per machine"
+      : (commas(contrib) + " of " + commas(consented) + " have reported savings"
+         + (idle ? " · " + commas(idle) + " opted in but idle" : "")));
+    var caveat = document.getElementById("hero-sample");
+    if (caveat) {
+      if (contrib == null) {
+        caveat.hidden = true;  // unknown sample size — assert nothing
+      } else if (contrib <= 1) {
+        caveat.innerHTML = "<b>Small sample.</b> This total comes from a single opted-in machine, "
+          + "so read it as one real ledger — not a community aggregate. The number is exact; "
+          + "the sample is not yet representative.";
+        caveat.hidden = false;
+      } else if (contrib < 5) {
+        caveat.innerHTML = "<b>Small sample.</b> " + commas(contrib) + " machines reporting. "
+          + "Exact, but not yet representative of the wider fleet.";
+        caveat.hidden = false;
+      } else {
+        caveat.hidden = true;
+      }
+    }
+
     set("t-dollars-real", "$" + (human(s.dollars) || "0"));
     set("t-notional", "$" + human(s.dollars_notional));
     set("t-real", human(pd.real_os_30d));
