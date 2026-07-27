@@ -165,8 +165,14 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: ${{ !contains(needs.build.outputs.version, 'rc') }}
+    permissions:
+      contents: read
+      # `npm publish --provenance` signs via OIDC, exactly like publish-pypi's
+      # trusted publishing — without this the publish fails outright. The
+      # workflow-level default (contents: write) does not include it.
+      id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
