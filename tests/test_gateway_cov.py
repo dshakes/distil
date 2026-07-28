@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -366,23 +365,22 @@ def test_gateway_streaming_request_uses_streamrelay() -> None:
 
 def test_gateway_passthrough_connection_refused_502() -> None:
     """Gateway _passthrough: refused upstream connection → 502."""
-    # Reserve the port by binding without listening (see test_proxy_cov.py's
-    # test_proxy_connection_refused_502 for why): a bound-but-not-listening socket
-    # gets an immediate RST on any connect attempt while we hold it, so nothing else
-    # on a shared CI host can steal the port out from under us mid-test.
-    placeholder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    placeholder.bind(("127.0.0.1", 0))
-    dead_port = placeholder.getsockname()[1]
+    # Release the placeholder as late as possible (see test_proxy_cov.py's
+    # test_proxy_connection_refused_502 for why, and why bind-without-listen isn't
+    # used instead — it isn't portable, macOS runners don't RST it the way Linux does).
+    placeholder = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
+    dead_port = placeholder.server_address[1]
     try:
         srv, _ = _make_gateway(dead_port)
         try:
+            placeholder.server_close()
             # GET to non-admin path → _passthrough → URLError → 502
             status, _, data = _req("GET", srv.server_address[1], "/v1/models")
             assert status == 502
         finally:
             srv.shutdown()
     finally:
-        placeholder.close()
+        placeholder.server_close()
 
 
 # ---------------------------------------------------------------------------

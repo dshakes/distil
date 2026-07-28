@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -296,18 +295,25 @@ def test_proxy_upstream_500_on_compressible_post(error_proxy: int) -> None:
 
 def test_proxy_connection_refused_502() -> None:
     """Connection refused at upstream → proxy returns 502 (URLError path)."""
-    # Reserve a port by binding without listening, rather than binding-then-releasing:
-    # a bound-but-not-listening socket gets an immediate RST (refused) on any connect
-    # attempt while we hold it, so nothing else on a shared CI host can ever steal the
-    # port out from under us mid-test — no release window, no race.
-    placeholder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    placeholder.bind(("127.0.0.1", 0))
-    dead_port = placeholder.getsockname()[1]
+    # Bind a server to reserve a port, then release it right before use — the release
+    # must happen as late as possible: the freed port stays free only until *something*
+    # (anything on the shared CI host) grabs it, so every extra bind/thread-spawn we do
+    # before actually using it widens a real race — observed as a client-side timeout
+    # (proxy connects to a port something else now holds and the request just hangs)
+    # rather than the expected fast 502, on a loaded CI runner.
+    #
+    # A bind-without-listen variant (hold the port open the whole test, relying on the
+    # kernel's RST for "nobody's listening") was tried and reverted: it's instant on
+    # Linux, but on macOS runners the same connect instead timed out (URLError read as
+    # a timeout → 504, not 502) — not portable, so back to release-late-and-close-fast.
+    placeholder = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
+    dead_port = placeholder.server_address[1]
     try:
         handler = build_handler(f"http://127.0.0.1:{dead_port}")
         proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         try:
+            placeholder.server_close()
             # Non-streaming POST (compressible) → _post_upstream URLError → 502
             body = json.dumps(
                 {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "hello"}]}
@@ -317,7 +323,7 @@ def test_proxy_connection_refused_502() -> None:
         finally:
             proxy.shutdown()
     finally:
-        placeholder.close()
+        placeholder.server_close()
 
 
 # ---------------------------------------------------------------------------
@@ -516,17 +522,17 @@ def test_streamrelay_http_error_relayed_via_passthrough(error_proxy: int) -> Non
 def test_streamrelay_connection_refused_502() -> None:
     """streamrelay returns 502 when the upstream refuses the connection (lines 85-93).
 
-    See test_proxy_connection_refused_502 above for why the port is reserved by
-    binding without listening rather than binding-then-releasing.
+    See test_proxy_connection_refused_502 above for why the placeholder is released
+    as late as possible rather than held open bind-without-listen style.
     """
-    placeholder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    placeholder.bind(("127.0.0.1", 0))
-    dead_port = placeholder.getsockname()[1]
+    placeholder = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
+    dead_port = placeholder.server_address[1]
     try:
         handler = build_handler(f"http://127.0.0.1:{dead_port}")
         proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         try:
+            placeholder.server_close()
             # GET → _passthrough → stream_upstream → URLError (refused) → 502
             status, _, data = _request("GET", proxy.server_address[1])
             assert status == 502
@@ -534,7 +540,7 @@ def test_streamrelay_connection_refused_502() -> None:
         finally:
             proxy.shutdown()
     finally:
-        placeholder.close()
+        placeholder.server_close()
 
 
 # ---------------------------------------------------------------------------
