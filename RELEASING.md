@@ -72,7 +72,31 @@ gh run watch --repo dshakes/distil $(gh run list --repo dshakes/distil -w releas
 
 ## After CI is green
 
-- **Verify PyPI:** `pipx install distil-llm && distil --version` → the new version.
+- **Verify PyPI** — install the *published* artifact and check it, rather than trusting
+  the workflow's green tick. A green run proves an upload happened; installing proves
+  users get what the release claims.
+
+  ```bash
+  V=X.Y.Z
+  T="$(mktemp -d)"; python3 -m venv "$T/venv"
+  "$T/venv/bin/pip" install -q --no-cache-dir "distil-llm==$V"
+  DISTIL_HOME="$T/home" "$T/venv/bin/distil" --version      # → distil X.Y.Z
+  # attestation: publisher must be dshakes/distil via release.yml
+  curl -s "https://pypi.org/integrity/distil-llm/$V/distil_llm-$V-py3-none-any.whl/provenance" \
+    | python3 -c 'import json,sys; [print(b["publisher"]) for b in json.load(sys.stdin)["attestation_bundles"]]'
+  ```
+
+  **Always set `DISTIL_HOME` to a throwaway when running a verification build.** A temp
+  venv is not a machine. Without it, the verification inherits this machine's install id
+  and consent, and `distil census on` or a `wrap` exit will file a census ping — putting a
+  version on the public adoption board that nobody actually has installed. This happened
+  during the 1.36.0 verification: the board showed an install on 1.36.0 while the only
+  real install was on 1.34.0. Savings were unaffected (they accrue from count-time
+  deltas); the version label was wrong for a day.
+
+  Anything that ships in the wheel and is load-bearing deserves a line here too — e.g.
+  `distil.certificates/vision.json` must survive packaging, or the feature it gates goes
+  silently inert.
 - **Homebrew:** `release.sh` patches `packaging/homebrew/distil.rb` with the tag tarball's
   sha256. Copy that formula into the tap repo (`dshakes/homebrew-tap` → `Formula/distil.rb`)
   so `brew install dshakes/tap/distil` serves it.
