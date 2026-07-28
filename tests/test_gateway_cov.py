@@ -365,12 +365,16 @@ def test_gateway_streaming_request_uses_streamrelay() -> None:
 
 def test_gateway_passthrough_connection_refused_502() -> None:
     """Gateway _passthrough: refused upstream connection → 502."""
+    # Release the placeholder as late as possible (see test_proxy_cov.py's
+    # test_proxy_connection_refused_502 for why): an earlier release widens a real
+    # race on shared CI runners where something else grabs the freed port before
+    # the gateway connects to it, turning an expected fast 502 into a client hang.
     placeholder = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
     dead_port = placeholder.server_address[1]
-    placeholder.server_close()
 
     srv, _ = _make_gateway(dead_port)
     try:
+        placeholder.server_close()
         # GET to non-admin path → _passthrough → URLError → 502
         status, _, data = _req("GET", srv.server_address[1], "/v1/models")
         assert status == 502

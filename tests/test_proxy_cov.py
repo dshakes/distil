@@ -295,15 +295,20 @@ def test_proxy_upstream_500_on_compressible_post(error_proxy: int) -> None:
 
 def test_proxy_connection_refused_502() -> None:
     """Connection refused at upstream → proxy returns 502 (URLError path)."""
-    # Bind a server to reserve a port, then release it without serving.
+    # Bind a server to reserve a port, then release it without serving. The release
+    # must happen as late as possible: the freed port stays free only until *something*
+    # (anything on the shared CI host) grabs it, so every extra bind/thread-spawn we do
+    # before actually using it widens a real race — observed as a client-side timeout
+    # (proxy connects to a port something else now holds and the request just hangs)
+    # rather than the expected fast 502, on a loaded CI runner.
     placeholder = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
     dead_port = placeholder.server_address[1]
-    placeholder.server_close()
 
     handler = build_handler(f"http://127.0.0.1:{dead_port}")
     proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=proxy.serve_forever, daemon=True).start()
     try:
+        placeholder.server_close()
         # Non-streaming POST (compressible) → _post_upstream URLError → 502
         body = json.dumps(
             {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "hello"}]}
@@ -508,15 +513,20 @@ def test_streamrelay_http_error_relayed_via_passthrough(error_proxy: int) -> Non
 
 
 def test_streamrelay_connection_refused_502() -> None:
-    """streamrelay returns 502 when the upstream refuses the connection (lines 85-93)."""
+    """streamrelay returns 502 when the upstream refuses the connection (lines 85-93).
+
+    See test_proxy_connection_refused_502 above for why the placeholder is released
+    as late as possible: an early release widens a real (if rare) race on shared CI
+    runners where something else grabs the freed port before the proxy connects to it.
+    """
     placeholder = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
     dead_port = placeholder.server_address[1]
-    placeholder.server_close()
 
     handler = build_handler(f"http://127.0.0.1:{dead_port}")
     proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=proxy.serve_forever, daemon=True).start()
     try:
+        placeholder.server_close()
         # GET → _passthrough → stream_upstream → URLError (refused) → 502
         status, _, data = _request("GET", proxy.server_address[1])
         assert status == 502
