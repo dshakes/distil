@@ -131,6 +131,12 @@ fi
 
 # clean-install smoke test: build the wheel, install it into a throwaway venv with
 # no index, and confirm the entrypoint + bundled corpus actually work.
+#
+# DISTIL_HOME points at the throwaway too. A temp venv is not a machine: if it
+# touches the real ~/.distil it inherits this machine's install id and consent,
+# and anything it reports lands on the public adoption board as though someone
+# were running that version. It also keeps a smoke-test bench off the real
+# savings ledger.
 info "clean-install smoke test…"
 SMOKE="$(mktemp -d)"
 trap 'rm -rf "$SMOKE"' EXIT
@@ -139,9 +145,11 @@ if [ "$DRY_RUN" -eq 0 ]; then
   WHEEL="$(ls "$SMOKE"/wheel/distil_llm-"$VERSION"-py3-none-any.whl)"
   python3 -m venv "$SMOKE/venv"
   "$SMOKE/venv/bin/pip" install -q --no-index "$WHEEL"
+  export DISTIL_HOME="$SMOKE/home"
   GOT="$("$SMOKE/venv/bin/distil" --version | awk '{print $2}')"
   [ "$GOT" = "$VERSION" ] || die "clean install reports $GOT, expected $VERSION"
   "$SMOKE/venv/bin/distil" bench >/dev/null || die "distil bench failed on a clean install"
+  unset DISTIL_HOME
   ok "clean install works: distil $VERSION, bench gate runs"
 fi
 echo

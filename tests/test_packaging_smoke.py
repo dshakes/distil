@@ -316,3 +316,35 @@ def test_every_skill_and_command_has_usable_frontmatter() -> None:
         assert re.search(r"^description:", body.split("---", 2)[1], re.M), (
             f"{cmd.name}: no description — it renders blank in the slash-command list"
         )
+
+
+def test_release_smoke_test_cannot_file_a_census_ping() -> None:
+    """A throwaway venv must not borrow this machine's census identity.
+
+    The release script installs the wheel into a temp venv and runs the CLI
+    against it. Without an isolated DISTIL_HOME that venv inherits the real
+    ~/.distil — same install id, same consent — so anything it reports lands on
+    the public adoption board as an install that does not exist. That is not
+    hypothetical: during the 1.36.0 verification the board showed an install on
+    1.36.0 while the only real one was on 1.34.0.
+
+    Pinned as text because the failure is a deleted line, not a wrong value.
+    """
+    script = (ROOT / "scripts" / "release.sh").read_text()
+    smoke = script.split("clean-install smoke test", 1)
+    assert len(smoke) > 1, "clean-install smoke block not found — did release.sh move?"
+    block = smoke[1].split("push main", 1)[0]
+
+    assert 'export DISTIL_HOME="$SMOKE/home"' in block, (
+        "the release smoke test runs the CLI without isolating DISTIL_HOME — it can "
+        "ping the census under this machine's install id"
+    )
+    # The isolation must be in force for every CLI invocation in the block, so it
+    # has to come before the first one.
+    isolate_at = block.index("export DISTIL_HOME=")
+    first_cli = min(
+        (block.index(c) for c in ('"$SMOKE/venv/bin/distil"',) if c in block),
+        default=-1,
+    )
+    assert first_cli != -1, "smoke block no longer invokes the installed CLI"
+    assert isolate_at < first_cli, "DISTIL_HOME is set after the CLI has already run"
