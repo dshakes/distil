@@ -174,14 +174,14 @@ Four gates, all in CI: **`bench`** (non-inferiority on the corpus), **`verify`**
 | **distil** (reversible) | 14.3% | **100.0%** | **100.0%** |
 | truncation @ matched savings | 14.1% | 91.6% | 82.7% |
 
-`distil retention` also splits recall into **visible** (in front of the model) and **recoverable** (one `distil_expand` away, verified against the handle's restore bytes). On the corpus that's 87.7% visible → 100% true, so being reversible instead of lossy is worth **12.3% recall** — the moat, as a measurement rather than an argument. `distil retention --live` reports the same on your own traffic; the meter stores counts only, never content.
+`distil retention` also splits recall into **visible** (in front of the model) and **recoverable** (one `distil_expand` away, verified against the handle's restore bytes). On the corpus that's 90.2% visible → 100% true, so being reversible instead of lossy is worth **9.8% recall** — the moat, as a measurement rather than an argument. `distil retention --live` reports the same on your own traffic; the meter stores counts only, never content.
 
 **And it found a real hole.** The first thing the recall harness caught was not a regression but a missing capability: distil was compressing **0.0%** of HTML tool results — minified markup is one long line, so line-folding had nothing to fold. Agents with a fetch or browser tool were paying full price for `<script>`, `<style>`, and nav chrome. Now:
 
 | real page | before | after | saved | facts lost |
 |---|---|---|---|---|
 | Wikipedia article | 281,093 tok | 14,260 tok | **94.9%** | **0** |
-| Python docs page | 27,136 tok | 3,751 tok | **86.2%** | **0** |
+| Python docs page | 32,322 tok | 4,229 tok | **86.9%** | **0** |
 
 Reversible, which is the part a lossy extractor can't offer: the exact original stays behind the handle, so a bad heuristic call costs one `distil_expand` instead of the content.
 

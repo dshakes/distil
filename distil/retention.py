@@ -62,9 +62,18 @@ from .trajectory import Block, Kind, Stability
 
 DIMENSIONS = ("numerics", "artifacts", "errors")
 
-# A number with its key context ("retry_limit: 3", "port=8787", '"latency_ms": 12').
+# A number with its key context ("retry_limit: 3", "port=8787", "invoices=88ms").
 # Bare numbers are skipped: without a key they are unverifiable noise.
-_NUMERIC_RE = re.compile(r"[A-Za-z_][\w.-]{0,24}\"?[ =:]{1,3}\d+(?:\.\d+)?")
+#
+# The lookarounds and the trailing unit matter more than they look. Without them the
+# match ends mid-token — "invoices=88" clipped out of "invoices=88ms", and junk like
+# "T09:14" carved out of "2026-06-21T09:14:02Z". Both make bad probes: the first loses
+# the unit and would false-match "invoices=889", the second is not a fact at all. They
+# also cannot satisfy a right-boundary test, which is what surfaced this while
+# tightening `_in_recovery` for the audit finding.
+_NUMERIC_RE = re.compile(
+    r"(?<![\w:.-])[A-Za-z_][\w.-]{0,24}\"?[ =:]{1,3}\d+(?:\.\d+)?[A-Za-z%]*(?![\w:.-])"
+)
 _URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+")
 _PATH_RE = re.compile(r"(?:~/|\.{1,2}/|/)?(?:[\w.-]+/){2,}[\w.@-]+")
 # Requires at least one a-f, so decimal runs (timestamps, row counts) are not
@@ -196,6 +205,26 @@ def _normalize(text: str) -> str:
     return _NORMALIZE_RE.sub(" ", text).strip()
 
 
+def _in_recovery(value: str, recovery: str) -> bool:
+    """Is `value` present in the recovered bytes, at token boundaries?
+
+    A bare substring test inflates recoverable recall on short values: the gold answer
+    "12" matches inside "file-12.csv", and "5" matches almost anything. Boundaries are
+    checked with lookarounds rather than ``\\b`` so values that begin or end with
+    punctuation still anchor correctly. (Audit finding: short dataset answers were
+    false-matching against unrelated paths and hashes in other digested documents.)
+    """
+    if not value or not recovery:
+        return False
+    if len(value) < _MIN_TARGET_LEN:
+        # Very short values ("12", "5") still slip through punctuation boundaries —
+        # "12" is a token inside "file-12.csv". Require real whitespace/string edges so
+        # only a standalone occurrence counts. Erring toward NOT crediting recovery is
+        # the safe direction for a metric whose job is to surface loss.
+        return re.search(rf"(?:^|\s){re.escape(value)}(?:\s|$)", recovery) is not None
+    return re.search(rf"(?<!\w){re.escape(value)}(?!\w)", recovery) is not None
+
+
 def _survives(dimension: str, value: str, haystack: str, normalized: str) -> bool:
     """True if `value` is still present, allowing for legitimate reshaping."""
     if value in haystack:
@@ -240,7 +269,7 @@ def probe_block(original: Block, compressed_text: str, restore: dict[str, str]) 
         for value in values:
             if _survives(name, value, compressed_text, normalized):
                 tally.retained += 1
-            elif recovery and value in recovery:
+            elif _in_recovery(value, recovery):
                 tally.recoverable += 1
         dims[name] = tally
 
@@ -447,14 +476,14 @@ def _score_case(case: Any, *, shape: str, truncate_to: float | None = None) -> C
     else:
         answer_retained = _phrase_survives(case.answer, text, normalized)
         if not answer_retained and recovery:
-            answer_recoverable = case.answer in recovery
+            answer_recoverable = _in_recovery(case.answer, recovery)
 
     retained = recoverable = 0
     gold = [s for s in case.support if _phrase_survives(s, original, original_norm)]
     for sentence in gold:
         if _phrase_survives(sentence, text, normalized):
             retained += 1
-        elif recovery and sentence in recovery:
+        elif _in_recovery(sentence, recovery):
             recoverable += 1
 
     return CaseScore(
@@ -611,8 +640,15 @@ def measure_live(original: Any, compressed: Any, store: Any = None) -> dict[str,
 
     recovery = ""
     if store is not None:
+        # Only handles this store already holds IN MEMORY. RestoreStore.expand() falls
+        # back to a synchronous disk read for unknown handles, and this runs in the
+        # request path — a long transcript, or tool output that merely CONTAINS the text
+        # "handle=deadbeef", would turn one sampled request into many file reads. The
+        # in-memory set is also the only recoverability we can prove for this turn.
+        # (Audit finding: synchronous disk I/O in the hot path.)
+        known = getattr(store, "handles", None) or frozenset()
         parts: list[str] = []
-        for handle in set(_HANDLE_RE.findall(compressed_text)):
+        for handle in set(_HANDLE_RE.findall(compressed_text)) & set(known):
             try:
                 parts.append(store.expand(handle) or "")
             except Exception:  # noqa: BLE001 — a missing handle is not a crash
@@ -625,7 +661,7 @@ def measure_live(original: Any, compressed: Any, store: Any = None) -> dict[str,
         for value in values:
             if _survives(name, value, compressed_text, normalized):
                 tally.retained += 1
-            elif recovery and value in recovery:
+            elif _in_recovery(value, recovery):
                 tally.recoverable += 1
     return dims
 

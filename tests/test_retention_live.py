@@ -175,6 +175,56 @@ def test_anthropic_text_block_content_is_read() -> None:
     assert dims["numerics"].total > 0 and dims["artifacts"].total > 0
 
 
+def test_no_disk_read_for_handles_outside_the_store() -> None:
+    """Audit finding: expand() falls back to a synchronous disk read for unknown
+    handles, and this runs in the request path. Tool output that merely CONTAINS
+    'handle=deadbeef' would have turned one sampled request into file reads."""
+    reads: list[str] = []
+
+    class _Tracking:
+        handles = frozenset({"aaaaaaaa"})
+
+        def expand(self, handle: str) -> str:
+            reads.append(handle)
+            return "recovered bytes"
+
+    original = [_tool_result("latency_ms=42 path=/var/log/app/a.log")]
+    # A stub naming a handle the store does not hold — must never be consulted.
+    compressed = [_tool_result("<< +9 lines, handle=deadbeef >>")]
+    measure_live(original, compressed, _Tracking())
+    assert reads == []  # no lookup at all, so no disk fallback can fire
+
+    # A handle the store DOES hold is still consulted.
+    compressed_known = [_tool_result("<< +9 lines, handle=aaaaaaaa >>")]
+    measure_live(original, compressed_known, _Tracking())
+    assert reads == ["aaaaaaaa"]
+
+
+def test_store_without_a_handles_property_is_tolerated() -> None:
+    class _Bare:
+        def expand(self, handle: str) -> str:
+            raise AssertionError("must not be called without a handles set")
+
+    original = [_tool_result("latency_ms=42 path=/var/log/app/a.log")]
+    compressed = [_tool_result("<< +9 lines, handle=deadbeef >>")]
+    dims = measure_live(original, compressed, _Bare())
+    assert sum(t.lost for t in dims.values()) > 0
+
+
+def test_short_values_are_not_credited_by_a_loose_substring() -> None:
+    """Audit finding: a bare substring test inflated recoverable recall — "12" matches
+    inside "file-12.csv"."""
+    from distil.retention import _in_recovery
+
+    haystack = "see /srv/data/file-12.csv and hash a12b3c4d5e6f7 plus port=8012"
+    assert _in_recovery("12", haystack) is False
+    assert _in_recovery("5", haystack) is False
+    assert _in_recovery("12", "the count was 12 items") is True
+    assert _in_recovery("file-12.csv", haystack) is True
+    assert _in_recovery("", haystack) is False
+    assert _in_recovery("x", "") is False
+
+
 def test_unknown_handle_in_text_is_skipped() -> None:
     """A marker naming a handle the store cannot expand must not raise or credit."""
 

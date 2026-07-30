@@ -190,7 +190,7 @@ must appear in that handle's restore bytes. Two numbers fall out —
     true recall    = (retained + recoverable) / total     (the information bound)
 
 — and the gap between them is what reversibility buys. On the committed corpus:
-**100% true recall, 87.7% visible, 0 lost** — reversibility is worth 12.3% recall.
+**100% true recall, 90.2% visible, 0 lost** — reversibility is worth 9.8% recall.
 
 ```
 distil retention                 # corpus (zero cost, offline) — a CI gate
@@ -258,7 +258,7 @@ exact original behind an expand handle:
 | real page | before | after | saved | facts lost |
 |---|---|---|---|---|
 | Wikipedia article | 281,093 tok | 14,260 tok | **94.9%** | **0** |
-| Python docs page | 27,136 tok | 3,751 tok | **86.2%** | **0** |
+| Python docs page | 32,322 tok | 4,229 tok | **86.9%** | **0** |
 
 Recall-biased on purpose: `<header>` is kept (it usually wraps the `<h1>`), `img` alt
 text is kept, and `div`/`section` are never dropped. Being reversible is what licenses

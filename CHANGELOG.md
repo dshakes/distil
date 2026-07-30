@@ -17,8 +17,8 @@ the question users actually ask, which is not "did the next action survive?" but
   (paths/URLs/hashes/UUIDs) and error lines are classified `retained` /
   `recoverable` / `lost`. `recoverable` is **verified, not assumed**: the handle must
   appear in that block's own compressed text *and* the fact must appear in that
-  handle's restore bytes. On the corpus: **100% true recall, 87.7% visible, 0 lost** —
-  so being reversible rather than lossy is worth **12.3% recall**, the first time that
+  handle's restore bytes. On the corpus: **100% true recall, 90.2% visible, 0 lost** —
+  so being reversible rather than lossy is worth **9.8% recall**, the first time that
   property has had a number instead of an argument. Now a per-commit CI gate
   (`--max-lost 0`); it is zero-cost, needs no API key and no network.
 - **`distil retention --dataset {hotpotqa,squad}` — public ground truth.** Graded
@@ -50,7 +50,7 @@ the question users actually ask, which is not "did the next action survive?" but
   | page | before | after | saved | facts lost |
   |---|---|---|---|---|
   | Wikipedia article | 281,093 tok | 14,260 tok | **94.9%** | **0** |
-  | Python docs page | 27,136 tok | 3,751 tok | **86.2%** | 0 |
+  | Python docs page | 32,322 tok | 4,229 tok | **86.9%** | 0 |
 
   Deliberately **recall-biased**: only tags that cannot hold article content are
   dropped, plus four unambiguous chrome landmarks (`nav`/`footer`/`aside`/`form`).
@@ -64,6 +64,32 @@ the question users actually ask, which is not "did the next action survive?" but
   Documented tradeoff: on raw HTML most probe-able "artifacts" are `href` URLs, which
   extraction drops as navigation. They stay recoverable, but visible recall for that
   dimension is low by design — now a measured number instead of an unknown.
+### Fixed after cross-audit
+
+All three findings from the PR's independent audit reproduced, so all three are fixed:
+
+- **Unclosed chrome tags swallowed the article.** Chrome skipping keyed off a matching
+  close tag and real HTML often never sends one, so content *before* an unclosed
+  `<aside>` was emitted while the article after it was dropped. An `<article>`/`<main>`
+  landmark now ends any active skip, plus a skipped-data budget as a backstop for
+  `<div>`-built chrome. `script`/`style` stay exempt — their payload is legitimately huge.
+- **Synchronous disk I/O in the request path.** `RestoreStore.expand()` falls back to a
+  disk read for unknown handles, and the meter called it for every `handle=` match — so
+  tool output merely *containing* that string could turn one sampled request into a
+  series of file reads. Matched handles are now intersected with the store's in-memory
+  set.
+- **Short answers false-matched in recovered bytes.** `"12"` matched inside
+  `file-12.csv`. Recoverability now requires token boundaries, and values under four
+  characters require whitespace boundaries.
+
+That last fix then failed the corpus gate, which is how it proved its worth: it exposed
+that `_NUMERIC_RE` had been extracting values ending **mid-token** — `invoices=88` clipped
+from `invoices=88ms`, junk like `T09:14` from inside a timestamp. Extraction now takes the
+whole token including its unit. The probe set is smaller and cleaner (417 facts, not 503),
+which moves the corpus figures to **90.2% visible / 100% true / 0 lost** and the measured
+value of reversibility from 12.3% to **9.8%**. The earlier number was inflated by junk
+probes; this one is honest.
+
 - [ADR 0005](docs/adr/0005-external-validity-and-fact-level-recall.md) and a new
   §5 in [docs/EVALUATION.md](docs/EVALUATION.md).
 

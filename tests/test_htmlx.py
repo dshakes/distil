@@ -112,6 +112,63 @@ def test_nested_dropped_subtree_does_not_swallow_the_rest() -> None:
     assert "inner" not in out
 
 
+def test_unclosed_chrome_does_not_swallow_the_article() -> None:
+    """Audit finding. Chrome skipping keyed off a matching close tag, and real HTML
+    often never sends one — so content BEFORE an unclosed <aside> was emitted while the
+    actual article after it was silently dropped. A content landmark ends the skip."""
+    html = (
+        "<!DOCTYPE html><html><body>"
+        "<article><h1>Kept Title</h1><p>Intro paragraph.</p></article>"
+        "<aside>sidebar"  # never closed
+        "<article><h2>Second Section</h2>"
+        + "<p>Body fact=42 that must survive.</p>" * 40
+        + "</article></body></html>"
+    )
+    out = extract(html)
+    assert out is not None
+    assert "Kept Title" in out
+    assert "Second Section" in out  # was lost before the fix
+    assert "fact=42" in out
+
+
+def test_unclosed_chrome_without_a_landmark_hits_the_budget() -> None:
+    """Backstop for <div>-built chrome, where no <article>/<main> follows to recover on:
+    the skip is abandoned once it has eaten more than a plausible nav's worth of text."""
+    html = (
+        "<!DOCTYPE html><html><body><nav>"
+        + ("<span>navjunk</span>" * 60)
+        + ("<div><p>Real body fact=7 in a div-built page.</p></div>" * 400)
+        + "</body></html>"
+    )
+    out = extract(html)
+    assert out is not None and "fact=7" in out
+
+
+def test_well_formed_chrome_is_still_dropped() -> None:
+    """The fixes must not cost the savings: closed nav/footer still go."""
+    html = _page("<h1>T</h1>" + "<p>Article body sentence.</p>" * 40)
+    out = extract(html)
+    assert out is not None
+    assert "NavLink" not in out and "footjunk" not in out
+    assert "Article body" in out
+
+
+def test_script_payload_is_never_budget_capped() -> None:
+    """A huge <script> is legitimately huge — the budget backstop must not resume
+    collecting inside it and leak minified JS into the output."""
+    html = (
+        "<!DOCTYPE html><html><head><script>"
+        + ("var averylongvariablename=1;" * 4000)
+        + "</script></head><body><article>"
+        + "<p>Body text here.</p>" * 30
+        + "</article></body></html>"
+    )
+    out = extract(html)
+    assert out is not None
+    assert "averylongvariablename" not in out
+    assert "Body text" in out
+
+
 def test_declines_when_not_worthwhile() -> None:
     """Markup that is already almost all text is not worth a marker + restore entry."""
     html = "<div><p>" + ("Almost entirely readable prose content here. " * 40) + "</p></div>"

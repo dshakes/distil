@@ -99,6 +99,18 @@ _BLOCK = frozenset(
 
 _VOID = frozenset({"br", "hr", "img", "input", "meta", "link", "source", "col", "area", "base"})
 
+# Primary content landmarks. Chrome skipping keys off a matching close tag, and real
+# HTML frequently never sends one — so an unclosed <nav>/<aside> would otherwise skip
+# the entire remainder of the document, including the article. These end any active
+# skip: whatever an unclosed sidebar is, it does not legitimately contain the page's
+# <article>/<main>. (Audit finding: content before an unclosed chrome tag was emitted
+# while everything after it was dropped.)
+_CONTENT_LANDMARK = frozenset({"article", "main"})
+# Backstop for pages with no landmark to recover on (chrome built from <div>s). Real
+# nav/footer text is a few hundred characters; this much skipped data means the close
+# tag is missing, so abandon the skip rather than eat the rest of the page.
+_SKIP_DATA_BUDGET = 8_000
+
 _TAG_RE = re.compile(r"<\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>")
 _CLOSE_RE = re.compile(r"</\s*([a-zA-Z][a-zA-Z0-9]*)\s*>")
 _DOCTYPE_RE = re.compile(r"<!doctype\s+html|<html\b|<body\b|<head\b", re.IGNORECASE)
@@ -148,15 +160,28 @@ class _Extractor(HTMLParser):
         self.parts: list[str] = []
         self._skip_depth = 0
         self._skipping: str | None = None
+        self._skipped_chars = 0
         self.dropped_tags = 0
+
+    def _end_skip(self) -> None:
+        self._skipping = None
+        self._skip_depth = 0
+        self._skipped_chars = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
         self.dropped_tags += 1
         if self._skipping is not None:
-            if tag == self._skipping and tag not in _VOID:
+            # A content landmark cannot be inside the sidebar we think we are in: the
+            # chrome tag was never closed. Resume collecting rather than dropping the
+            # rest of the document.
+            if tag in _CONTENT_LANDMARK and self._skipping not in _DROP_SUBTREE:
+                self._end_skip()
+            elif tag == self._skipping and tag not in _VOID:
                 self._skip_depth += 1
-            return
+                return
+            else:
+                return
         if tag in _DROP_SUBTREE or tag in _DROP_CHROME:
             if tag not in _VOID:
                 self._skipping = tag
@@ -176,13 +201,23 @@ class _Extractor(HTMLParser):
             if tag == self._skipping:
                 self._skip_depth -= 1
                 if self._skip_depth <= 0:
-                    self._skipping = None
+                    self._end_skip()
             return
         if tag in _BLOCK:
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if self._skipping is None and data.strip():
+        if self._skipping is not None:
+            # Budget backstop for chrome with no close tag and no landmark after it
+            # (a <div>-built sidebar): stop skipping instead of eating the article.
+            # Never applies to script/style, whose payload is legitimately huge.
+            if self._skipping in _DROP_SUBTREE:
+                return
+            self._skipped_chars += len(data)
+            if self._skipped_chars > _SKIP_DATA_BUDGET:
+                self._end_skip()
+            return
+        if data.strip():
             self.parts.append(data)
 
     def error(self, message: str) -> None:  # pragma: no cover - py<3.10 ABC shim

@@ -68,7 +68,7 @@ rather than blending both into an F1 that hides which direction the error ran.
 Facts are classified `retained` / `recoverable` / `lost`. `recoverable` means the fact is
 absent from what the model sees but reachable via `distil_expand`. This distinction only
 exists because distil is reversible, and it is the first time that property has had a
-number: on the corpus, reversibility is worth **12.3% recall** (87.7% visible → 100%).
+number: on the corpus, reversibility is worth **9.8% recall** (90.2% visible → 100%).
 
 Crucially, recoverability is **verified, not inferred**: the handle must appear in *that
 block's own* compressed text, and the fact must appear in *that handle's* restore bytes.
@@ -122,7 +122,8 @@ fetch or browser tool was paying full price for `<script>`, `<style>`, and chrom
 `compress/htmlx.py` extracts content with stdlib `html.parser` (no lxml, no bs4, no
 readability port — the core stays dependency-free) and records the exact original under
 the marker's handle. Real pages: Wikipedia 281,093 → 14,260 tokens (**94.9%**), Python
-docs 27,136 → 3,751 (**86.2%**), **0 facts lost** in both.
+docs 32,322 → 4,229 (**86.9%**), **0 facts lost** in both. Both measured end-to-end
+through the adapter (the envelope a user actually sends), not on the extractor alone.
 
 The extraction is deliberately **recall-biased**, for the same asymmetry as §3: only
 tags that cannot hold article content are dropped outright, plus four unambiguous
@@ -148,10 +149,52 @@ without one, tag density alone is insufficient — a log line reading `parse fai
 doctype-less fragment must also show closing tags substantially balancing its open
 ones. This was a real false positive caught by its own test, not a hypothetical.
 
+### 8. Findings from cross-audit, and what they changed
+
+The PR's independent cross-audit raised three findings. All three reproduced, so all
+three are fixed — and one of them exposed a defect in the metric itself that had been
+flattering us.
+
+**Unclosed chrome tags swallowed the article.** Chrome skipping keyed off a matching
+close tag, and real HTML frequently never sends one. Content *before* an unclosed
+`<aside>` was emitted while everything after it — the actual article — was dropped.
+(The fully-swallowed case was benign: extraction returned empty, declined, and the
+block passed through uncompressed. The partial case was not.) Fixed with two bounds: an
+`<article>`/`<main>` landmark ends any active skip, since an unclosed sidebar cannot
+legitimately contain the page's main content; and a skipped-data budget abandons the
+skip on `<div>`-built chrome where no landmark follows. `script`/`style` are exempt from
+the budget — their payload is legitimately huge.
+
+**Synchronous disk I/O in the request path.** `RestoreStore.expand()` falls back to a
+disk read for handles it does not hold in memory, and the live meter called it for every
+`handle=` match in the compressed text. A long transcript — or tool output that merely
+*contains* the string `handle=deadbeef`, which distil's own adversarial harness plants —
+would turn one sampled request into a series of file reads. The meter now intersects
+matched handles with the store's in-memory set, which removes the disk path entirely and
+is also the only recoverability provable for the current turn.
+
+**Short answers false-matched in the recovered bytes.** `case.answer in recovery` is a
+bare substring test: the gold answer `"12"` matches inside `file-12.csv`, and `"5"`
+matches almost anything. Recoverability now requires token boundaries, and values
+shorter than four characters require whitespace boundaries — erring toward *not*
+crediting recovery, which is the safe direction for a metric whose job is to surface
+loss.
+
+That third fix then failed the corpus gate, which is how it earned its keep: tightening
+the match revealed that `_NUMERIC_RE` had been extracting values that end **mid-token** —
+`invoices=88` clipped out of `invoices=88ms`, and junk like `T09:14` carved out of a
+timestamp. Those are strictly worse probes (the first loses its unit and would
+false-match `invoices=889`; the second is not a fact at all), and they could not satisfy
+a right-boundary test. Extraction now captures the whole token including its unit and
+refuses to start or end mid-token. The probe set is smaller and cleaner as a result —
+417 facts rather than 503 — which moved the corpus figures to **90.2% visible / 100%
+true / 0 lost**, and the measured value of reversibility from 12.3% to **9.8%**. The
+earlier number was inflated by junk probes; this one is the honest one.
+
 ## Consequences
 
 - distil can state a quality claim checkable against data the reader already trusts.
-- The reversibility moat has a measured value (+12.3% recall on the corpus, +8.4% answer
+- The reversibility moat has a measured value (+9.8% recall on the corpus, +8.4% answer
   / +17.3% support vs matched-savings truncation on HotpotQA) instead of an argument.
 - New maintenance surface: two third-party dataset shapes. Adapters return `None` on
   anything unexpected and the loader raises rather than reporting a short run, so an
