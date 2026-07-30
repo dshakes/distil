@@ -210,14 +210,32 @@ divergence about tags, not about the decision. The fixture puts the marker alone
 line so the gate measures what it means to. Worth remembering before reading any future
 divergence on markup-bearing content as a real one.
 
-**The retention headline is fact-weighted, so corpus composition moves it.** Adding this
+**The retention headline was fact-weighted, so corpus composition moved it.** Adding this
 trajectory took the corpus from 417 facts to 1083 and the reversibility figure from 9.8%
 to 62.6% — not because anything improved, but because `web-research` alone contributes
 666 facts at 4.4% visible, HTML being dense in `href` URLs that extraction drops as
-navigation. The other seven still read 90.2% visible. One fixture can now swing the
-headline, which is a genuine weakness of quoting a single number; a macro-average over
-trajectories, or the per-bucket breakdown the report already prints, would be more
-robust. Until that changes, the number should always be quoted with its corpus.
+navigation. The other seven still read 90.2% visible.
+
+### 10. The headline is a per-domain macro average
+
+A number one fixture can move by 53 points is measuring the corpus, not the compressor.
+So the headline is now the **mean of the per-domain ratios, each domain counted once**:
+**21.4%**, against 62.6% fact-weighted.
+
+Macro is the right default here because the corpus is a *deliberately* unbalanced sample
+— it exists to cover diverse agent shapes, not to model a traffic distribution, so
+weighting a domain by how many probe-able facts its fixtures happen to contain has no
+meaning to recover. Under macro, adding a ninth domain moves the figure by at most 1/9
+of its distance, and adding fixtures *within* a domain cannot move it at all.
+
+Micro is still printed beside it rather than dropped, because the two diverging is
+information: it says one domain dominates the fact count. The report also gained
+per-domain rows, which show what a single number cannot — the spread runs from 0.0% on
+`coding` to 95.6% on `web-research`. The JSON payload leads with `macro` and tags `micro`
+with the reason it moves, so a consumer cannot grab the swingable number by habit.
+
+`--max-lost` is unaffected: a lost fact is a count, not a ratio, and no averaging choice
+changes whether something was unrecoverable.
 
 ## Consequences
 

@@ -144,6 +144,41 @@ class BlockProbe:
     block_id: str
     savings: float  # fraction of characters removed from this block
     dims: dict[str, Tally]
+    domain: str = ""  # corpus domain this block came from; "" outside the corpus
+
+
+@dataclass
+class MacroAverage:
+    """Per-domain mean, where every domain counts once.
+
+    The fact-weighted (micro) aggregate is dominated by whichever domain happens to
+    carry the most probe-able facts. Adding one HTML trajectory took the corpus from
+    417 facts to 1083 and moved the reversibility figure from 9.8% to 62.6% — not
+    because anything improved, but because HTML pages are dense in `href` URLs and that
+    one domain became 61% of the fact count. A headline a single fixture can swing is
+    not measuring the compressor.
+
+    So the macro average is the headline: mean the per-domain ratios, not the raw
+    counts. Micro is still reported beside it, because the two disagreeing is itself
+    information — it says the corpus is unbalanced.
+    """
+
+    domains: int = 0
+    visible_recall: float = 1.0
+    recall: float = 1.0
+
+    @property
+    def gap(self) -> float:
+        """What reversibility is worth: recoverable-but-not-visible, per domain."""
+        return self.recall - self.visible_recall
+
+    def to_dict(self) -> dict[str, float | int]:
+        return {
+            "domains": self.domains,
+            "visible_recall": round(self.visible_recall, 4),
+            "recall": round(self.recall, 4),
+            "gap": round(self.gap, 4),
+        }
 
 
 @dataclass
@@ -179,10 +214,41 @@ class RetentionReport:
     def lost_facts(self) -> int:
         return self.overall().lost
 
+    def by_domain(self) -> dict[str, Tally]:
+        """Fact tallies per corpus domain, in first-seen order."""
+        out: dict[str, Tally] = {}
+        for p in self.probes:
+            tally = out.setdefault(p.domain or "(uncategorised)", Tally())
+            for dim in p.dims.values():
+                tally.add(dim)
+        return out
+
+    def macro(self) -> MacroAverage:
+        """Per-domain mean — the headline, because it cannot be swung by one fixture."""
+        per = [t for t in self.by_domain().values() if t.total]
+        if not per:
+            return MacroAverage()
+        return MacroAverage(
+            domains=len(per),
+            visible_recall=sum(t.visible_recall for t in per) / len(per),
+            recall=sum(t.recall for t in per) / len(per),
+        )
+
     def to_dict(self) -> dict[str, object]:
+        overall = self.overall()
         return {
             "blocks_probed": len(self.probes),
-            "overall": self.overall().to_dict(),
+            # Macro first: it is the headline, and ordering the payload the same way the
+            # report reads keeps a consumer from grabbing the swingable number by habit.
+            "macro": self.macro().to_dict(),
+            "micro": {
+                "visible_recall": round(overall.visible_recall, 4),
+                "recall": round(overall.recall, 4),
+                "gap": round(overall.recall - overall.visible_recall, 4),
+                "note": "fact-weighted; moves with corpus composition",
+            },
+            "overall": overall.to_dict(),
+            "by_domain": {k: v.to_dict() for k, v in self.by_domain().items()},
             "by_dimension": {n: t.to_dict() for n, t in self.aggregate().items()},
             "by_savings_bucket": {k: v.to_dict() for k, v in self.by_savings_bucket().items()},
         }
@@ -250,7 +316,9 @@ def _survives(dimension: str, value: str, haystack: str, normalized: str) -> boo
     return False
 
 
-def probe_block(original: Block, compressed_text: str, restore: dict[str, str]) -> BlockProbe:
+def probe_block(
+    original: Block, compressed_text: str, restore: dict[str, str], *, domain: str = ""
+) -> BlockProbe:
     """Classify every fact in `original` as retained / recoverable / lost.
 
     Recoverability is proven, not assumed: the fact must appear in the restore bytes
@@ -274,7 +342,7 @@ def probe_block(original: Block, compressed_text: str, restore: dict[str, str]) 
         dims[name] = tally
 
     savings = 1.0 - (len(compressed_text) / len(original.text)) if original.text else 0.0
-    return BlockProbe(original.id, max(savings, 0.0), dims)
+    return BlockProbe(original.id, max(savings, 0.0), dims, domain=domain)
 
 
 def probe_trajectory(entry: CorpusEntry, report: RetentionReport | None = None) -> RetentionReport:
@@ -295,7 +363,9 @@ def probe_trajectory(entry: CorpusEntry, report: RetentionReport | None = None) 
         by_id = {b.id: b.text for b in t0.blocks}
         for original in volatile:
             compressed_text = by_id.get(original.id, "")
-            report.probes.append(probe_block(original, compressed_text, restore))
+            report.probes.append(
+                probe_block(original, compressed_text, restore, domain=entry.domain)
+            )
     return report
 
 
@@ -763,7 +833,7 @@ def format_live(dims: dict[str, Tally], requests: int) -> str:
     out = [
         f"live fact retention  ({requests} sampled requests, real traffic)",
         "",
-        f"  {'dimension':<12}{'recall':>7}{'visible':>10}{'lost':>7}{'facts':>8}",
+        f"  {'dimension':<14}{'recall':>7}{'visible':>10}{'lost':>7}{'facts':>8}",
         "-" * 66,
     ]
     for name, tally in dims.items():
@@ -796,10 +866,10 @@ def _bar_char() -> str:
 
 def _row(label: str, tally: Tally) -> str:
     if not tally.total:
-        return f"  {label:<12}       n/a (0 facts)"
+        return f"  {label:<14}       n/a (0 facts)"
     bar = _bar_char() * round(tally.recall * 20)
     return (
-        f"  {label:<12}{tally.recall:>7.1%}{tally.visible_recall:>10.1%}"
+        f"  {label:<14}{tally.recall:>7.1%}{tally.visible_recall:>10.1%}"
         f"{tally.lost:>7}{tally.total:>8}  {bar}"
     )
 
@@ -809,26 +879,49 @@ def format_report(report: RetentionReport) -> str:
     out = [
         f"fact-level retention  ({len(report.probes)} compressed blocks probed)",
         "",
-        f"  {'dimension':<12}{'recall':>7}{'visible':>10}{'lost':>7}{'facts':>8}",
+        f"  {'dimension':<14}{'recall':>7}{'visible':>10}{'lost':>7}{'facts':>8}",
         "-" * 66,
     ]
     for name, tally in report.aggregate().items():
         out.append(_row(name, tally))
     out.append("-" * 66)
     out.append(_row("ALL", overall))
+    by_domain = report.by_domain()
+    if len(by_domain) > 1:
+        out += ["", "by domain (each counts once toward the macro average):"]
+        for label, tally in by_domain.items():
+            if tally.total:
+                out.append(_row(label, tally))
+
     out += ["", "by block savings:"]
     for label, tally in report.by_savings_bucket().items():
         if tally.total:
             out.append(_row(label, tally))
+
+    macro = report.macro()
     out += [
         "",
         f"recall {overall.recall:.1%} — {overall.retained} of {overall.total} facts stay visible, "
         f"{overall.recoverable} more are one distil_expand away, {overall.lost} lost.",
     ]
     if overall.recoverable:
-        gap = overall.recall - overall.visible_recall
-        out.append(
-            f"reversibility is worth {gap:.1%} recall here: a lossy compressor at the same "
-            "savings would have dropped those facts for good."
-        )
+        micro_gap = overall.recall - overall.visible_recall
+        if macro.domains > 1:
+            # Macro leads. Micro is fact-weighted, so whichever domain happens to carry
+            # the most probe-able facts sets it — one HTML fixture moved it 9.8% -> 62.6%
+            # without anything about the compressor changing.
+            out.append(
+                f"reversibility is worth {macro.gap:.1%} recall — the mean across "
+                f"{macro.domains} domains, each counted once. A lossy compressor at the "
+                "same savings would have dropped those facts for good."
+            )
+            out.append(
+                f"  (fact-weighted, the same figure reads {micro_gap:.1%}; the two diverge "
+                "when one domain dominates the fact count, so prefer the macro number.)"
+            )
+        else:
+            out.append(
+                f"reversibility is worth {micro_gap:.1%} recall here: a lossy compressor at "
+                "the same savings would have dropped those facts for good."
+            )
     return "\n".join(out)

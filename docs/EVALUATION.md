@@ -190,12 +190,17 @@ must appear in that handle's restore bytes. Two numbers fall out —
     true recall    = (retained + recoverable) / total     (the information bound)
 
 — and the gap between them is what reversibility buys. On the committed corpus:
-**100% true recall, 37.4% visible, 0 lost** — reversibility is worth 62.6% recall. That
-headline is *fact-weighted*, so corpus composition moves it: the `web-research`
-trajectory alone contributes 666 of the 1083 facts at 4.4% visible, because HTML pages
-are dense in `href` URLs that extraction drops as navigation. Excluding it the other
-seven read 90.2% visible and a 9.8% gap. Quote the number with its corpus, or read the
-per-bucket breakdown the report prints.
+**100% true recall, 0 lost**, and reversibility is worth **21.4% recall** — the mean
+across all 8 domains, each counted once.
+
+That is deliberately the *macro* average. The fact-weighted (micro) figure reads 62.6%,
+and the gap between the two is the point: micro is set by whichever domain happens to
+carry the most probe-able facts, and adding one HTML trajectory moved it from 9.8% to
+62.6% with nothing about the compressor changing — `web-research` alone contributes 666
+of the 1083 facts at 4.4% visible, HTML being dense in `href` URLs that extraction drops
+as navigation. A headline one fixture can swing is not measuring the compressor, so the
+report leads with macro and prints micro beside it; the two diverging is itself a
+signal that the corpus is unbalanced. Per-domain rows are in the report.
 
 ```
 distil retention                 # corpus (zero cost, offline) — a CI gate

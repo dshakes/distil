@@ -294,6 +294,102 @@ def test_dataset_report_serializes_both_arms() -> None:
     assert set(payload["distil"]) == set(payload["baseline"]) - {"label"}
 
 
+def _probe(domain: str, total: int, retained: int, recoverable: int) -> object:
+    from distil.retention import BlockProbe, Tally
+
+    return BlockProbe(
+        block_id=f"{domain}-b",
+        savings=0.5,
+        dims={"numerics": Tally(total=total, retained=retained, recoverable=recoverable)},
+        domain=domain,
+    )
+
+
+def test_macro_average_is_not_swung_by_one_dominant_domain() -> None:
+    """The reason this metric exists. A fact-weighted mean is set by whichever domain
+    carries the most probes — adding one HTML fixture moved it 9.8% -> 62.6% without
+    anything about the compressor changing. Macro counts each domain once."""
+    from distil.retention import RetentionReport
+
+    report = RetentionReport(
+        probes=[
+            _probe("a", total=10, retained=10, recoverable=0),  # gap 0%
+            _probe("b", total=10, retained=10, recoverable=0),  # gap 0%
+            _probe("huge", total=1000, retained=0, recoverable=1000),  # gap 100%
+        ]
+    )
+    overall = report.overall()
+    micro_gap = overall.recall - overall.visible_recall
+    macro = report.macro()
+
+    assert macro.domains == 3
+    assert macro.gap == pytest.approx(1 / 3, abs=1e-6)  # (0 + 0 + 1) / 3
+    assert micro_gap > 0.97  # the 1000-fact domain sets the fact-weighted number
+    assert macro.gap < micro_gap  # and macro resists it
+
+
+def test_macro_ignores_empty_domains() -> None:
+    from distil.retention import RetentionReport
+
+    report = RetentionReport(
+        probes=[
+            _probe("real", total=4, retained=2, recoverable=2),
+            _probe("empty", total=0, retained=0, recoverable=0),
+        ]
+    )
+    assert report.macro().domains == 1
+    assert report.macro().visible_recall == pytest.approx(0.5)
+
+
+def test_macro_on_an_empty_report_is_neutral() -> None:
+    from distil.retention import RetentionReport
+
+    macro = RetentionReport().macro()
+    assert macro.domains == 0 and macro.gap == 0.0 and macro.recall == 1.0
+
+
+def test_report_leads_with_macro_and_labels_micro() -> None:
+    """A reader must not be able to quote the swingable number by accident."""
+    from distil.retention import RetentionReport, format_report
+
+    rendered = format_report(
+        RetentionReport(
+            probes=[
+                _probe("a", total=10, retained=10, recoverable=0),
+                _probe("huge", total=1000, retained=0, recoverable=1000),
+            ]
+        )
+    )
+    assert "the mean across 2 domains, each counted once" in rendered
+    assert "fact-weighted, the same figure reads" in rendered
+    assert "by domain (each counts once" in rendered
+
+
+def test_single_domain_report_keeps_the_plain_sentence() -> None:
+    """With one domain a macro average says nothing extra, so do not clutter it."""
+    from distil.retention import RetentionReport, format_report
+
+    rendered = format_report(RetentionReport(probes=[_probe("only", 10, 4, 6)]))
+    assert "reversibility is worth 60.0% recall here" in rendered
+    assert "fact-weighted" not in rendered
+
+
+def test_corpus_macro_is_reported_and_beats_micro_for_stability() -> None:
+    """On the real corpus the two must actually differ, or the distinction is untested."""
+    report = run()
+    macro = report.macro()
+    overall = report.overall()
+    assert macro.domains == 8
+    assert macro.recall == 1.0 and overall.lost == 0
+    # web-research carries 61% of the facts, so fact-weighting inflates the gap.
+    assert macro.gap < (overall.recall - overall.visible_recall)
+
+    payload = report.to_dict()
+    assert list(payload)[1] == "macro", "macro must lead the payload, before micro"
+    assert payload["micro"]["note"].startswith("fact-weighted")
+    assert set(payload["by_domain"]) >= {"web-research", "coding"}
+
+
 def test_report_encodes_on_a_windows_console() -> None:
     """U+2588 is not in cp1252, so printing the bar to a stock Windows console raised
     UnicodeEncodeError and took down the retention CI gate on windows-latest while
