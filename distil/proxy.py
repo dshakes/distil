@@ -312,6 +312,7 @@ def build_handler(
     flush_every: int = 10,
     expand: bool = False,
     shadow_rate: float = 0.0,
+    retention_rate: float = 0.0,
     session_delta: bool = False,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
@@ -432,6 +433,15 @@ def build_handler(
         _shadow_sampler = ShadowSampler(shadow_rate)
         _shadow_ledger = ShadowLedger()
         _shadow_counters = ShadowCounters()
+
+    # Live fact-retention meter: same posture as shadow (sampled, off by default), but
+    # cheaper — it needs no second upstream call, only an in-process scan, and it
+    # persists counts alone.
+    _retention_meter = None
+    if retention_rate and retention_rate > 0:
+        from .retention import LiveMeter
+
+        _retention_meter = LiveMeter(retention_rate)
 
     # First-POST latch for the session traffic marker: only the 0→1 transition
     # matters, so after one write the check is a single list lookup.
@@ -725,6 +735,9 @@ def build_handler(
                             _learn_stats.record_digest(signature(store.expand(h)))
                         except Exception:  # noqa: BLE001 — learning never breaks a request
                             log.debug("learning tally failed", exc_info=True)
+                # Live retention meter: sampled, content-free (counts only), fail-open.
+                if _retention_meter is not None and _retention_meter.enabled:
+                    _retention_meter.observe(original, compressed, store)
                 before_tok = _count_messages(original)
                 after_tok = _count_messages(compressed)
                 saved = max(0, before_tok - after_tok)
@@ -1438,6 +1451,7 @@ def serve(
     pricing_model: str = "claude-opus-4-8",
     expand: bool = False,
     shadow_rate: float = 0.0,
+    retention_rate: float = 0.0,
     session_delta: bool = False,
 ) -> None:
     """Run a blocking :class:`ThreadingHTTPServer` proxy.
@@ -1476,6 +1490,7 @@ def serve(
         savings=savings,
         expand=expand,
         shadow_rate=shadow_rate,
+        retention_rate=retention_rate,
         session_delta=session_delta,
     )
     server = QuietHTTPServer((host, port), handler)
@@ -1485,6 +1500,11 @@ def serve(
         print(
             f"  → shadow-mode live decision-equivalence: sampling {shadow_rate * 100:.0f}% "
             "(distil shadow-stats)"
+        )
+    if retention_rate and retention_rate > 0:
+        print(
+            f"  → live fact-retention meter: sampling {retention_rate * 100:.0f}% "
+            "(content-free; distil retention --live)"
         )
     if expand:
         print(
@@ -1534,6 +1554,7 @@ def wrap_run(
     expand: bool = False,
     session_delta: bool = False,
     shadow_rate: float = 0.0,
+    retention_rate: float = 0.0,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
 
@@ -1609,6 +1630,7 @@ def wrap_run(
                     "expand": expand,
                     "session_delta": session_delta,
                     "shadow_rate": shadow_rate,
+                    "retention_rate": retention_rate,
                 },
             }
         )
@@ -1636,6 +1658,7 @@ def wrap_run(
                     expand=expand,
                     session_delta=session_delta,
                     shadow_rate=shadow_rate,
+                    retention_rate=retention_rate,
                 ),
                 host=host,
             )
@@ -1663,6 +1686,7 @@ def wrap_run(
             expand=expand,
             session_delta=session_delta,
             shadow_rate=shadow_rate,
+            retention_rate=retention_rate,
         )
         server = QuietHTTPServer((host, 0), handler)  # port 0 → OS picks a free port
         base = f"http://{host}:{server.server_address[1]}"

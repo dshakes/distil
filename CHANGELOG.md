@@ -3,6 +3,116 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — recall, and a number a stranger can check
+
+Every quality gate distil shipped until now was graded on **our** corpus against
+**our** oracle. The statistics were rigorous; the external validity was zero — a
+reader had nothing they already trusted to check us against. And none of it answered
+the question users actually ask, which is not "did the next action survive?" but
+"is the number I needed still there?"
+
+### Added
+
+- **`distil retention` — fact-level recall.** Keyed numerics, artifacts
+  (paths/URLs/hashes/UUIDs) and error lines are classified `retained` /
+  `recoverable` / `lost`. `recoverable` is **verified, not assumed**: the handle must
+  appear in that block's own compressed text *and* the fact must appear in that
+  handle's restore bytes. On the corpus: **100% true recall, 90.2% visible, 0 lost** —
+  so being reversible rather than lossy is worth **9.8% recall**, the first time that
+  property has had a number instead of an argument. Now a per-commit CI gate
+  (`--max-lost 0`); it is zero-cost, needs no API key and no network.
+- **`distil retention --dataset {hotpotqa,squad}` — public ground truth.** Graded
+  against answer keys written by someone else, next to a truncation baseline tuned to
+  reproduce distil's own token savings on the same case. HotpotQA (n=100, 14.3%
+  savings): **100% answer recall and 100% gold-sentence recall, vs 91.6% / 82.7% for
+  truncation at 14.1% savings.** Rows load from the HuggingFace datasets-server REST
+  API as plain JSON, so the core stays **stdlib-only** (`dependencies = []` holds) and
+  cache under `$DISTIL_HOME/datasets` for offline reproduction. Runs nightly, not
+  per-commit: a required check gated on a third-party host would make main's health
+  hostage to their uptime.
+- **`distil retention --live` — recall on your own traffic, content-free.** A sampled
+  meter (`--retention RATE`; 0.05 by default under `wrap`, 0 under a bare `proxy`)
+  scores retention **in-process** and persists **counts only** — three integers per
+  dimension, with deliberately no field that could carry content. There is no
+  plaintext session recorder to secure, which is the whole point. Bounded to 64 KiB
+  per request, fail-open, and unlike `--shadow` it costs **no extra tokens** because
+  there is no second upstream call.
+- **Reversible HTML extraction — the web-fetch blind spot.** Building the retention
+  harness exposed a capability gap it could then measure: distil compressed **0.0%** of
+  an HTML tool result. The cause was structural, not a missing heuristic — minified
+  markup arrives as one enormous line, so Tier-1's line-folding had nothing to fold and
+  the JSON/record folds do not recognise markup. Any agent with a fetch or browser tool
+  was paying full price for `<script>`, `<style>`, nav and footer chrome.
+
+  `distil/compress/htmlx.py` extracts the content with stdlib `html.parser` and keeps
+  the exact original behind an expand handle. Measured on real pages:
+
+  | page | before | after | saved | facts lost |
+  |---|---|---|---|---|
+  | Wikipedia article | 281,093 tok | 14,260 tok | **94.9%** | **0** |
+  | Python docs page | 32,322 tok | 4,229 tok | **86.9%** | 0 |
+
+  Deliberately **recall-biased**: only tags that cannot hold article content are
+  dropped, plus four unambiguous chrome landmarks (`nav`/`footer`/`aside`/`form`).
+  `<header>` is kept because it usually wraps the `<h1>`, and `img` alt text is kept
+  because it is often a figure's only description. Unlike a lossy extractor the
+  heuristic is **recoverable** — `distil retention` measures 100% true recall with 0
+  lost on the pages above, so a bad call costs one `distil_expand`, not the content.
+  Skipped in `verbatim` mode (no expand tool to recover with) and on recency-exempt
+  blocks (the agent's latest output stays byte-exact).
+
+  Documented tradeoff: on raw HTML most probe-able "artifacts" are `href` URLs, which
+  extraction drops as navigation. They stay recoverable, but visible recall for that
+  dimension is low by design — now a measured number instead of an unknown.
+### Fixed after cross-audit
+
+All three findings from the PR's independent audit reproduced, so all three are fixed:
+
+- **Unclosed chrome tags swallowed the article.** Chrome skipping keyed off a matching
+  close tag and real HTML often never sends one, so content *before* an unclosed
+  `<aside>` was emitted while the article after it was dropped. An `<article>`/`<main>`
+  landmark now ends any active skip, plus a skipped-data budget as a backstop for
+  `<div>`-built chrome. `script`/`style` stay exempt — their payload is legitimately huge.
+- **Synchronous disk I/O in the request path.** `RestoreStore.expand()` falls back to a
+  disk read for unknown handles, and the meter called it for every `handle=` match — so
+  tool output merely *containing* that string could turn one sampled request into a
+  series of file reads. Matched handles are now intersected with the store's in-memory
+  set.
+- **Short answers false-matched in recovered bytes.** `"12"` matched inside
+  `file-12.csv`. Recoverability now requires token boundaries, and values under four
+  characters require whitespace boundaries.
+
+That last fix then failed the corpus gate, which is how it proved its worth: it exposed
+that `_NUMERIC_RE` had been extracting values ending **mid-token** — `invoices=88` clipped
+from `invoices=88ms`, junk like `T09:14` from inside a timestamp. Extraction now takes the
+whole token including its unit. The probe set is smaller and cleaner (417 facts, not 503),
+which moves the corpus figures to **90.2% visible / 100% true / 0 lost** and the measured
+value of reversibility from 12.3% to **9.8%**. The earlier number was inflated by junk
+probes; this one is honest.
+
+- [ADR 0005](docs/adr/0005-external-validity-and-fact-level-recall.md) and a new
+  §5 in [docs/EVALUATION.md](docs/EVALUATION.md).
+
+### Honesty notes
+
+Three defects found while building this, each of which had been reporting numbers in
+distil's favour:
+
+- HotpotQA's comparison questions answer "yes"/"no", which is never a span in the
+  passage. Grading them reported the dataset's answer *format* as 10% compression
+  loss. Answers are now graded **only when present in the uncompressed context**.
+- SQuAD v2's unanswerable questions (55% of the split) were being scored as retained —
+  a free win on a majority of cases. They are excluded and counted separately.
+- A recall number from compression that barely engaged is arithmetic, not evidence, so
+  `--min-recall` now **fails** below 1% savings. This is not hypothetical: distil's
+  compressors correctly decline to touch short prose, so `--shape prose` yields 0%
+  savings and a vacuous 100% recall. The default `--shape json` reflects how a
+  retrieval tool actually returns documents.
+
+Worth knowing: on SQuAD at 84.8% savings, true recall is 100% but **visible recall is
+0%** — every gold answer sits behind a handle. Lossless, but one round trip per
+answer. The report says so instead of printing only the reassuring number.
+
 ## [1.37.0] — you will be asked, once, at the moment it makes sense
 
 **The census undercounted because nobody was asked.** `distil onboard` was the
