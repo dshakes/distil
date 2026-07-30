@@ -40,6 +40,7 @@ import json
 import os
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -741,10 +742,26 @@ def format_live(dims: dict[str, Tally], requests: int) -> str:
     return "\n".join(out)
 
 
+def _bar_char() -> str:
+    """The block glyph where the console can encode it, ASCII where it cannot.
+
+    U+2588 is absent from cp1252, so printing it to a stock Windows console raises
+    UnicodeEncodeError — which took down the retention gate on the windows-latest CI
+    leg while every POSIX leg passed. An em dash survives there (cp1252 has one), so
+    the rest of this module's output is safe; only the bar needed degrading.
+    """
+    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        "█".encode(encoding)
+    except (LookupError, UnicodeEncodeError):
+        return "#"
+    return "█"
+
+
 def _row(label: str, tally: Tally) -> str:
     if not tally.total:
         return f"  {label:<12}       n/a (0 facts)"
-    bar = "█" * round(tally.recall * 20)
+    bar = _bar_char() * round(tally.recall * 20)
     return (
         f"  {label:<12}{tally.recall:>7.1%}{tally.visible_recall:>10.1%}"
         f"{tally.lost:>7}{tally.total:>8}  {bar}"

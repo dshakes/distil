@@ -9,6 +9,8 @@ conversions Tier-0 legitimately performs.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from distil.retention import (
@@ -290,6 +292,32 @@ def test_dataset_report_serializes_both_arms() -> None:
     assert payload["dataset"] == "hotpotqa" and payload["shape"] == "json"
     assert payload["compression_engaged"] is True
     assert set(payload["distil"]) == set(payload["baseline"]) - {"label"}
+
+
+def test_report_encodes_on_a_windows_console() -> None:
+    """U+2588 is not in cp1252, so printing the bar to a stock Windows console raised
+    UnicodeEncodeError and took down the retention CI gate on windows-latest while
+    every POSIX leg passed. Every rendered surface must survive that encoding."""
+    import io
+    import sys
+
+    from distil.retention import LiveMeter, _bar_char, format_live, load_live
+
+    real = sys.stdout
+    try:
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        assert _bar_char() == "#"  # degrades rather than raising
+        corpus = format_report(run())
+        dims, requests = load_live(Path(__file__).parent / "does-not-exist.jsonl")
+        live = format_live(dims, requests)
+    finally:
+        sys.stdout = real
+
+    for rendered in (corpus, live):
+        rendered.encode("cp1252")  # raises if any glyph is unencodable
+
+    assert _bar_char() == "█"  # and keeps the block glyph where it is supported
+    assert LiveMeter(0.0).enabled is False
 
 
 def test_corpus_is_lossless_and_gains_from_reversibility() -> None:
