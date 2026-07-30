@@ -22,17 +22,22 @@ All notable changes to Distil are documented here. Format loosely follows
 
 ### Changed
 
-- **The corpus-wide retention headline moved, because the corpus changed.** With the
-  HTML trajectory the figures read **1083 facts, 37.4% visible, 100% true, 0 lost**, so
-  reversibility scores **62.6%** rather than 1.38.0's 9.8%.
+- **The retention headline is now a per-domain macro average, so one fixture cannot
+  swing it.** `distil retention` reports **21.4%** — the mean across all 8 domains, each
+  counted once — and prints the fact-weighted figure beside it rather than as the
+  headline.
 
-  This is composition, not improvement, and it is worth being blunt about: the number is
-  *fact-weighted*, and `web-research` alone contributes 666 of the 1083 facts at 4.4%
-  visible — HTML pages are dense in `href` URLs, which extraction drops as navigation and
-  which stay recoverable behind the handle. The other seven trajectories still read 90.2%
-  visible and a 9.8% gap. A single fixture can now swing the headline, which is a real
-  weakness of quoting one number; the per-bucket breakdown the report prints is the more
-  honest read.
+  The reason is the previous entry. Adding a single HTML trajectory moved the
+  fact-weighted number from 9.8% to 62.6% with nothing about the compressor changing:
+  `web-research` alone contributes 666 of the 1083 facts at 4.4% visible, because HTML is
+  dense in `href` URLs that extraction drops as navigation. A number that a fixture can
+  move that far is measuring the corpus, not the compressor.
+
+  Both are still reported, because the two diverging is itself a signal that the corpus
+  is unbalanced — and the report gained per-domain rows, which is the read that actually
+  shows the spread (0.0% on `coding`, 95.6% on `web-research`). The JSON payload leads
+  with `macro` and labels `micro` with why it moves. `--max-lost` is unaffected: a lost
+  fact is a count, not a ratio.
 
 ## [1.38.0] — recall, and a number a stranger can check
 
