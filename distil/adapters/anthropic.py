@@ -219,6 +219,25 @@ def _compress_tool_result_text(
     must see its most recent output byte-exact to choose its next action, so those
     stay verbatim with NO fold — even a lossless columnar fold changes the bytes.
     """
+    # Learned policy: if your agents keep expanding this kind of content, keep it
+    # byte-exact (strictly safer — only ever reduces savings, never equivalence).
+    # Hoisted above the HTML step so both digest paths honour it, and evaluated once.
+    keep_byte_exact = _active_keep(text)
+
+    # HTML from a fetch/browser tool. Handled BEFORE the _MIN_LINES gate because
+    # minified markup is a single enormous line, so that gate would fall through to
+    # Tier-0-only and save nothing (measured: 0.0% on a realistic 8.3k-token page).
+    # Requires a handle to stay recoverable, so it is skipped when verbatim (no expand
+    # tool available) and when recent (must stay byte-exact for the next decision).
+    if not verbatim and not is_recent and not keep_byte_exact:
+        from ..compress.htmlx import extract as _html_extract
+
+        stripped = _html_extract(text)
+        if stripped is not None:
+            h = _handle(text)
+            if store._record(h, text):
+                return f"{stripped}\n<< html chrome elided, handle={h} >>"
+
     lines = text.splitlines()
     if len(lines) < _MIN_LINES:
         # Too short to digest — lossless Tier-0 transforms only.
@@ -233,9 +252,7 @@ def _compress_tool_result_text(
         folded = None if is_recent else _lossless_fold(text)
         return folded or _apply_tier0(text)
 
-    # Learned policy: if your agents keep expanding this kind of content, keep it
-    # byte-exact (strictly safer — only ever reduces savings, never equivalence).
-    if _active_keep(text):
+    if keep_byte_exact:
         return _apply_tier0(text)
 
     digested, changed = _tier1_digest(text, intent=_active_intent())

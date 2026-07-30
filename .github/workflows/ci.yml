@@ -79,6 +79,11 @@ jobs:
         run: uv run distil verify
       - name: Adversarial real-path gate (invariants on hostile inputs)
         run: uv run distil validate
+      # Fact-level recall on the corpus: zero cost (no LLM, no API key, no network), so
+      # it is a mandatory per-commit gate rather than a nightly. Tier-0/1 are lossless
+      # by construction, so ANY unrecoverable fact is a real regression.
+      - name: Fact-retention gate (recall on the corpus)
+        run: uv run distil retention --max-lost 0
       # Everything above imports distil from the source tree. This builds the wheel,
       # installs it clean, and drives the console scripts + server.json launch spec the
       # way a user's MCP client does — the boundary that shipped a broken registry

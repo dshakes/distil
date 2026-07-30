@@ -107,3 +107,54 @@ jobs:
           name: live-cert-reports
           path: live-cert-reports/
           retention-days: 30
+
+  # Public-benchmark recall — external validity. Graded against ground truth written by
+  # someone else (HotpotQA supporting_facts, SQuAD v2 answer spans), so a reader can
+  # check the claim against data they already trust rather than our own corpus.
+  #
+  # Not a per-commit gate: it needs the network (HuggingFace datasets-server), and a
+  # required check that depends on a third-party host would make main's health hostage
+  # to their uptime. Runs nightly here instead, and fails loudly — never silently
+  # "passes" by measuring nothing (see `distil retention --dataset`, which exits 1 on a
+  # fetch failure AND on compression that did not engage).
+  public-benchmarks:
+    runs-on: ubuntu-latest
+    if: github.repository == 'dshakes/distil'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.12"
+      - name: HotpotQA — answer + supporting-fact recall vs a matched-savings baseline
+        id: hotpot
+        continue-on-error: true
+        run: |
+          uv run distil retention --dataset hotpotqa -n 100 --min-recall 0.99 \
+            | tee hotpotqa.txt
+      - name: SQuAD v2 — gold answer-span recall
+        id: squad
+        continue-on-error: true
+        run: |
+          uv run distil retention --dataset squad -n 100 --min-recall 0.99 \
+            | tee squad.txt
+      - name: Summarize
+        run: |
+          {
+            echo "## Public-benchmark recall"
+            for f in hotpotqa squad; do
+              echo "### $f"
+              echo '```'
+              cat "$f.txt" 2>/dev/null || echo "(no output — step failed before writing)"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          # A dataset host being down is a warning; a real recall regression is a failure.
+          # Both arms failing means we measured nothing, which must not read as green.
+          if [ "${{ steps.hotpot.outcome }}" = "failure" ] && [ "${{ steps.squad.outcome }}" = "failure" ]; then
+            echo "::error::both public benchmarks failed — no external validity signal this run"
+            exit 1
+          fi
+          if [ "${{ steps.hotpot.outcome }}" = "failure" ] || [ "${{ steps.squad.outcome }}" = "failure" ]; then
+            echo "::warning::one public benchmark failed (host down, or a real regression) — see the summary"
+          fi

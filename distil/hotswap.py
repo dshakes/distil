@@ -55,7 +55,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 from ._log import log
@@ -97,13 +97,19 @@ class WorkerConfig:
     expand: bool = False
     session_delta: bool = False
     shadow_rate: float = 0.0
+    retention_rate: float = 0.0
 
     def to_env(self) -> str:
         return json.dumps(asdict(self), separators=(",", ":"))
 
     @classmethod
     def from_env(cls) -> WorkerConfig:
-        return cls(**json.loads(os.environ[_CONFIG_ENV]))
+        # Tolerate unknown keys: a supervisor from a NEWER build may spawn a worker
+        # from an older one mid-upgrade (that is the whole point of hot-swap), and an
+        # unrecognised config field must not take the session down.
+        raw = json.loads(os.environ[_CONFIG_ENV])
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in raw.items() if k in known})
 
 
 def memory_evidence() -> str:
@@ -194,6 +200,7 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
         expand=cfg.expand,
         session_delta=cfg.session_delta,
         shadow_rate=cfg.shadow_rate,
+        retention_rate=cfg.retention_rate,
     )
 
     class _WorkerServer(QuietHTTPServer):

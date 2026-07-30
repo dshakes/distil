@@ -161,9 +161,29 @@ Don't take the table above on faith. `distil bench` re-certifies savings *and* d
 uvx --from distil-llm distil bench      # certify savings + quality across 7 domains, in seconds
 distil verify                           # byte-fidelity: every compression is exactly reversible
 distil validate                         # adversarial real-path gate: invariants on hostile inputs
+distil retention                        # fact recall: what stays visible vs expand-recoverable
+distil retention --dataset hotpotqa     # graded against a PUBLIC benchmark's ground truth
 ```
 
-Three gates, all in CI: **`bench`** (non-inferiority on the corpus), **`verify`** (byte-fidelity), and **`validate`** — which drives the compressor against *adversarial* inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and asserts reversibility, reject-if-bigger, recency-exactness, fail-open, and content-free telemetry hold on every one. That last gate exists because a green unit suite kept coexisting with real-traffic bugs; `validate` is the adversarial layer that catches them.
+Four gates, all in CI: **`bench`** (non-inferiority on the corpus), **`verify`** (byte-fidelity), **`retention`** (fact-level recall), and **`validate`** — which drives the compressor against *adversarial* inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and asserts reversibility, reject-if-bigger, recency-exactness, fail-open, and content-free telemetry hold on every one. That last gate exists because a green unit suite kept coexisting with real-traffic bugs; `validate` is the adversarial layer that catches them.
+
+**Recall, and a number you can check yourself.** The three gates above are graded on *our* corpus against *our* oracle — rigorous, but not checkable by you. `distil retention --dataset hotpotqa` grades against ground truth written by someone else (HotpotQA's gold supporting sentences, amid 8 distractor paragraphs), next to a truncation baseline tuned to distil's own savings on the same case:
+
+| HotpotQA, n=100 | savings | answer recall | gold-sentence recall |
+|---|---|---|---|
+| **distil** (reversible) | 14.3% | **100.0%** | **100.0%** |
+| truncation @ matched savings | 14.1% | 91.6% | 82.7% |
+
+`distil retention` also splits recall into **visible** (in front of the model) and **recoverable** (one `distil_expand` away, verified against the handle's restore bytes). On the corpus that's 87.7% visible → 100% true, so being reversible instead of lossy is worth **12.3% recall** — the moat, as a measurement rather than an argument. `distil retention --live` reports the same on your own traffic; the meter stores counts only, never content.
+
+**And it found a real hole.** The first thing the recall harness caught was not a regression but a missing capability: distil was compressing **0.0%** of HTML tool results — minified markup is one long line, so line-folding had nothing to fold. Agents with a fetch or browser tool were paying full price for `<script>`, `<style>`, and nav chrome. Now:
+
+| real page | before | after | saved | facts lost |
+|---|---|---|---|---|
+| Wikipedia article | 281,093 tok | 14,260 tok | **94.9%** | **0** |
+| Python docs page | 27,136 tok | 3,751 tok | **86.2%** | **0** |
+
+Reversible, which is the part a lossy extractor can't offer: the exact original stays behind the handle, so a bad heuristic call costs one `distil_expand` instead of the content.
 
 To be precise about what each layer proves: the **per-commit** gates grade decision-equivalence with an offline deterministic oracle over the committed corpus (fast, free, runs on every push — but synthetic). A **nightly** [`live-cert`](.github/workflows/live-cert.yml) job re-certifies the same trajectories against a *real* model (`distil certify --runner anthropic`), budget-capped with a hard `--max-live-calls` ceiling so an unattended run can never spend silently. The empirical results above (SWE-bench n=500, live head-to-head n=200) were graded by real models; the per-commit badge alone doesn't claim that.
 

@@ -189,6 +189,18 @@ class Tier1Reversible:
         restore: dict[str, str] = {}
         for b in blocks:
             if b.kind in _DIGESTIBLE:
+                # 0) HTML from a fetch/browser tool. Runs FIRST because minified markup
+                #    is one long line, which defeats every fold below it (measured: 0%
+                #    savings on a real 8.3k-token page). Extraction yields lines, so the
+                #    line-oriented machinery downstream works again.
+                from .htmlx import extract as _html_extract
+
+                stripped = _html_extract(b.text)
+                if stripped is not None:
+                    h = _handle(b.text)
+                    restore[h] = b.text  # exact original: the heuristic is recoverable
+                    out.append(b.copy_with(f"{stripped}\n<< html chrome elided, handle={h} >>"))
+                    continue
                 # 1) reversible structured compaction: flat columnar fold, then the
                 #    nested-record fold (tool outputs with nested fields), then template mining
                 compact = fold(b.text) or fold_records(b.text) or template_fold(b.text)

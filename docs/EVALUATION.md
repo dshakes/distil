@@ -158,7 +158,120 @@ another. An anytime-valid drift monitor
 moved far enough from the certified distribution that the certificate should
 be considered stale and re-run.
 
-## 5. How to reproduce
+## 5. Fact-level recall, and grading against someone else's answer key
+
+Sections 1–4 all measure the same kind of thing: whether the agent's *next action*
+survives compression, graded on distil's own corpus against planted `DECISION:`
+markers. That is the right invariant to certify, but it is not the question users
+ask, and it is not checkable by an outsider. Two additions close both gaps
+([ADR 0005](adr/0005-external-validity-and-fact-level-recall.md)).
+
+### 5.1 Three states, and why recall is the headline
+
+A compressor's error is asymmetric. Dropping a fact produces a wrong answer;
+keeping content you did not need merely saves fewer tokens. So we report **recall**
+and let the savings number carry the other direction, rather than blending both into
+an F1 that hides which way the error ran.
+
+Every fact — keyed numerics, artifacts (paths/URLs/hashes/UUIDs), error lines — lands
+in one of three buckets:
+
+| Bucket | Meaning |
+|---|---|
+| `retained` | in the text the model sees, verbatim or after a format conversion |
+| `recoverable` | absent, but provably reachable via `distil_expand` |
+| `lost` | absent with no recovery path — the only bucket that can cause a wrong answer |
+
+`recoverable` exists only because distil is reversible, and it is **verified, not
+assumed**: the handle must appear in that block's own compressed text, *and* the fact
+must appear in that handle's restore bytes. Two numbers fall out —
+
+    visible recall = retained / total                    (free, no tool call)
+    true recall    = (retained + recoverable) / total     (the information bound)
+
+— and the gap between them is what reversibility buys. On the committed corpus:
+**100% true recall, 87.7% visible, 0 lost** — reversibility is worth 12.3% recall.
+
+```
+distil retention                 # corpus (zero cost, offline) — a CI gate
+distil retention --live          # YOUR traffic, from the sampled meter
+```
+
+The live meter scores **in-process** and stores **counts only** — three integers per
+dimension, with deliberately no field that could carry content, so no plaintext
+session recorder exists to secure. It is sampled (`--retention RATE`, default 0.05
+under `wrap`, 0 under a bare `proxy`), bounded (64 KiB per request), and fail-open. It
+costs no extra tokens: unlike shadow mode there is no second upstream call.
+
+### 5.2 Public benchmarks — external validity
+
+```
+distil retention --dataset list
+distil retention --dataset hotpotqa -n 100
+```
+
+Graded against ground truth written by someone else: HotpotQA's `supporting_facts`
+(the exact gold sentences, amid 8 distractor paragraphs) and SQuAD v2's answer spans.
+Rows come from the HuggingFace datasets-server REST API as plain JSON, so the loader
+stays stdlib-only and `dependencies = []` holds; they cache under `$DISTIL_HOME/datasets`
+so a published number reproduces offline.
+
+A recall number alone proves nothing — an identity transform scores 100%. So each run
+also scores a **truncation baseline tuned to reproduce distil's own token savings on
+that same case**, and prints both savings figures so the match is auditable:
+
+| HotpotQA, n=100 | savings | answer recall | support recall |
+|---|---|---|---|
+| distil (reversible) | 14.3% | **100.0%** | **100.0%** |
+| truncation @ matched savings | 14.1% | 91.6% | 82.7% |
+
+Three honesty rules the command enforces, each of which caught a real defect while
+this was being built:
+
+- **Only probeable answers are graded.** HotpotQA's comparison questions answer
+  "yes"/"no", which is never a span in the passage. Grading them reported the
+  dataset's answer *format* as 10% compression loss. Answers now count only when
+  present in the **uncompressed** context; the rest are excluded and counted.
+- **Unanswerable questions are excluded, not passed.** SQuAD v2 ships them
+  deliberately; scoring them as retained would be a free win on 55% of the split.
+- **A run where compression did not engage fails.** Below 1% savings the recall
+  number is arithmetic, not evidence — so `--min-recall` refuses to pass on it. This
+  matters because distil's compressors correctly decline to touch short prose:
+  `--shape prose` yields 0% savings and a vacuous 100%. The default `--shape json`
+  reflects how a retrieval tool actually returns documents.
+
+Note also what SQuAD exposes: at 84.8% savings true recall is 100% but **visible
+recall is 0%** — every answer sits behind a handle. Lossless, but one round trip per
+answer. The report says so rather than printing only the reassuring number.
+
+### 5.3 What the harness found: HTML was compressing 0%
+
+A recall metric earns its keep by finding things, and the first thing this one found was
+a capability gap rather than a regression. distil compressed **0.0%** of an HTML tool
+result — structurally, because minified markup is a single enormous line, so Tier-1's
+line-folding had nothing to fold and the JSON/record folds do not recognise markup. Any
+agent with a fetch or browser tool paid full price for `<script>`, `<style>`, and chrome.
+
+`distil/compress/htmlx.py` now extracts the content (stdlib `html.parser`) and keeps the
+exact original behind an expand handle:
+
+| real page | before | after | saved | facts lost |
+|---|---|---|---|---|
+| Wikipedia article | 281,093 tok | 14,260 tok | **94.9%** | **0** |
+| Python docs page | 27,136 tok | 3,751 tok | **86.2%** | **0** |
+
+Recall-biased on purpose: `<header>` is kept (it usually wraps the `<h1>`), `img` alt
+text is kept, and `div`/`section` are never dropped. Being reversible is what licenses
+the aggressiveness — a lossy extractor's mistake is permanent, this one costs one
+`distil_expand`. Skipped under `--verbatim` (nothing to recover with) and on the
+recency-exempt latest tool result.
+
+One measured tradeoff, stated rather than buried: on raw HTML most probe-able artifacts
+are `href` URLs, which extraction drops as navigation. True recall stays 100% because
+they are recoverable, but **visible** recall on that dimension is low (4.8% overall on
+the Wikipedia page). That is a tunable with a number attached now, not an unknown.
+
+## 6. How to reproduce
 
 - `distil shadow-stats` — live decision-equivalence, raw/baseline/adjusted
   decomposition, from real traffic collected by `distil wrap --shadow`.

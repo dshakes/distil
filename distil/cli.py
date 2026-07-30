@@ -814,6 +814,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
             pricing_model=args.pricing,
             expand=args.expand,
             shadow_rate=args.shadow,
+            retention_rate=getattr(args, "retention", 0.0),
             session_delta=args.session_delta,
         )
     return 0
@@ -1979,6 +1980,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         expand=args.expand,
         session_delta=args.session_delta,
         shadow_rate=args.shadow,
+        retention_rate=getattr(args, "retention", 0.0),
     )
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can
@@ -2484,6 +2486,73 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_retention(args: argparse.Namespace) -> int:
+    """Fact-level recall: which facts stay visible, which are expand-recoverable."""
+
+    from .retention import format_report, run
+
+    if args.live:
+        from .retention import format_live, load_live
+
+        dims, requests = load_live()
+        print(format_live(dims, requests))
+        return 0
+
+    if args.dataset:
+        return _retention_dataset(args)
+
+    entries = load_corpus(args.corpus) if args.corpus else load_corpus()
+    rep = run(entries)
+    if args.json:
+        print(json.dumps(rep.to_dict(), indent=2))
+    else:
+        print(format_report(rep))
+    # A lost fact has no recovery path — the only bucket that can make an agent
+    # answer wrong, so it is what gates.
+    if args.max_lost is not None and rep.lost_facts > args.max_lost:
+        print(f"\nFAIL: {rep.lost_facts} lost facts > --max-lost {args.max_lost}")
+        return 1
+    return 0
+
+
+def _retention_dataset(args: argparse.Namespace) -> int:
+    """Grade against a public benchmark's third-party answer key."""
+
+    from .datasets import DatasetUnavailable, available, load
+    from .retention import DatasetReport, format_dataset_report, score_dataset
+
+    if args.dataset == "list":
+        print("public benchmarks (ground truth written by someone else):\n")
+        for name, description in available():
+            print(f"  {name:<12} {description}")
+        return 0
+
+    try:
+        cases = load(args.dataset, args.n, offline=args.offline)
+    except DatasetUnavailable as exc:
+        # Loud, never a silent pass: a gate that measures nothing must not go green.
+        print(f"FAIL: {exc}")
+        return 1
+
+    rep = score_dataset(cases, args.dataset, shape=args.shape)
+    if args.json:
+        print(json.dumps(rep.to_dict(), indent=2))
+    else:
+        print(format_dataset_report(rep))
+
+    if args.min_recall is not None:
+        # A near-identity transform trivially retains everything. Passing a recall gate
+        # on it would certify nothing, so an unengaged run fails the gate.
+        if not rep.engaged:
+            print(f"\nFAIL: compression did not engage ({rep.savings:.1%}) — recall proves nothing")
+            return 1
+        answer, _ = DatasetReport._answer_recall(rep.scores, with_recovery=True)
+        if answer < args.min_recall:
+            print(f"\nFAIL: answer recall {answer:.1%} < --min-recall {args.min_recall:.1%}")
+            return 1
+    return 0
+
+
 def cmd_online(args: argparse.Namespace) -> int:
     """One self-distilling round: causal labels → retrain → certify → promote."""
     from .online import online_round
@@ -2760,6 +2829,40 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--out", help="write the raw curve JSONL to this dir")
     ev.set_defaults(func=cmd_eval)
 
+    rt = sub.add_parser(
+        "retention",
+        help="fact-level recall: retained / expand-recoverable / lost (zero cost, offline)",
+    )
+    rt.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
+    rt.add_argument("--json", action="store_true", help="machine-readable report")
+    rt.add_argument(
+        "--max-lost", type=int, help="exit 1 if more than this many facts are unrecoverable"
+    )
+    rt.add_argument(
+        "--dataset",
+        help="grade against a public benchmark's ground truth instead of the corpus "
+        "('list' to see them)",
+    )
+    rt.add_argument("-n", type=int, help="number of benchmark cases (default: the dataset's own)")
+    rt.add_argument(
+        "--live",
+        action="store_true",
+        help="fact recall measured on YOUR traffic by the sampled meter (content-free)",
+    )
+    rt.add_argument(
+        "--offline", action="store_true", help="use only cached benchmark rows (no network)"
+    )
+    rt.add_argument(
+        "--min-recall", type=float, help="exit 1 if answer recall falls below this (0-1)"
+    )
+    rt.add_argument(
+        "--shape",
+        default="json",
+        choices=("json", "prose"),
+        help="how retrieved docs reach the agent: json tool result (production) or bare prose",
+    )
+    rt.set_defaults(func=cmd_retention)
+
     bn = sub.add_parser(
         "benchmark",
         help="head-to-head vs competing techniques on the same gate + cost model",
@@ -2914,6 +3017,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="shadow-mode live decision-equivalence: sample this fraction of requests "
         "(e.g. 0.05) and run them uncompressed too, in the background, to measure the "
         "live decision-change rate on real traffic (`distil shadow-stats`). Adds ~RATE cost.",
+    )
+    px.add_argument(
+        "--retention",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="live fact-retention meter: sample this fraction of requests and score how "
+        "many numbers/paths/errors stayed visible vs went behind an expand handle "
+        "(`distil retention --live`). Content-free (counts only) and costs no tokens.",
     )
     px.add_argument(
         "--session-delta",
@@ -3128,6 +3240,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="cache-delta coding: cross-turn dedup + cross-version delta (re-reads after "
         "edits sent as a diff), cache-monotonic and reversible",
+    )
+    wr.add_argument(
+        "--retention",
+        type=float,
+        default=0.05,
+        metavar="RATE",
+        help="live fact-retention meter: sample this fraction of requests and score fact "
+        "recall on your own traffic (`distil retention --live`). On by default at 0.05 — "
+        "unlike --shadow it costs NO extra tokens (in-process scan) and stores only "
+        "counts, never content; --retention 0 disables",
     )
     wr.add_argument(
         "--shadow",
