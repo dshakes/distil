@@ -209,17 +209,42 @@ def test_manifests_agree_on_version_and_name() -> None:
     assert spec["name"] in marker, f"server.json name {spec['name']!r} not in README marker"
 
 
+def _npm_version(pep440: str) -> str:
+    """The npm-semver spelling of a PEP 440 version.
+
+    Finals are identical in both schemes, so this is the identity for them. A
+    prerelease is not: PEP 440 writes ``1.38.0rc1`` and npm requires a hyphenated
+    prerelease, ``1.38.0-rc.1``. Demanding byte-equality with pyproject therefore
+    forced package.json to hold a string npm considers invalid — harmless only
+    because release.yml skips `publish-npm` for rc tags, which is a trap waiting for
+    whoever changes that. Translating keeps the anti-drift guarantee (the version is
+    still pinned to pyproject) while leaving the manifest valid at every point.
+    """
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:(a|b|rc)(\d+))?", pep440)
+    if match is None or match.group(2) is None:
+        return pep440
+    return f"{match.group(1)}-{match.group(2)}.{match.group(3)}"
+
+
+def test_npm_version_translation() -> None:
+    assert _npm_version("1.38.0") == "1.38.0"
+    assert _npm_version("1.38.0rc1") == "1.38.0-rc.1"
+    assert _npm_version("2.0.0b3") == "2.0.0-b.3"
+
+
 def test_npm_package_version_matches() -> None:
     """The npm wrapper is a published surface with a version badge in the README,
     and nothing was checking it. It drifted to 1.27.0 in-repo while the registry
     still served 1.25.0 and PyPI was on 1.33.1 — a badge advertising a build nine
     releases old. Same failure class as server.json: a manifest promises a version
     and nothing verifies the promise.
+
+    Pinned to pyproject's version in npm's own spelling — see `_npm_version`.
     """
     pkg = json.loads((ROOT / "packaging" / "npm" / "package.json").read_text())
-    version = _pyproject()["project"]["version"]
-    assert pkg["version"] == version, (
-        f"packaging/npm/package.json is {pkg['version']}, package is {version} — "
+    expected = _npm_version(_pyproject()["project"]["version"])
+    assert pkg["version"] == expected, (
+        f"packaging/npm/package.json is {pkg['version']}, expected {expected} — "
         "bump it with the other manifests at release time"
     )
     assert pkg["name"] == _pyproject()["project"]["name"]
