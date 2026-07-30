@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — recall, and a number a stranger can check
+## [1.38.0] — recall, and a number a stranger can check
 
 Every quality gate distil shipped until now was graded on **our** corpus against
 **our** oracle. The statistics were rigorous; the external validity was zero — a
