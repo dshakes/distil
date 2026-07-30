@@ -191,6 +191,34 @@ refuses to start or end mid-token. The probe set is smaller and cleaner as a res
 true / 0 lost**, and the measured value of reversibility from 12.3% to **9.8%**. The
 earlier number was inflated by junk probes; this one is the honest one.
 
+### 9. The HTML transform is certified (added after 1.38.0)
+
+§7 shipped the transform default-on while noting it had no corpus coverage. That was
+debt, and ADR 0003/0004 are explicit that a new content type is certified before it goes
+default-on — so `corpus/web-research.json` now carries it: a 4-turn web-research agent
+whose tool results are real HTML documents, chrome and all, with the graded DECISION
+inside the `<article>`. It certifies at 89.8% savings, and an extractor patched to
+swallow `<article>` drops `match_rate` to 0.0, so the fixture can fail.
+
+Two things it taught immediately.
+
+**The synthetic oracle compares markup, not meaning.** `DeterministicRunner` splits each
+*line* on `DECISION:` and compares the remainder as an exact string. With a document
+minified onto one line, the baseline remainder drags the following markup along
+(`…fetching.</p></article><aside class=`) while the extracted text does not — a
+divergence about tags, not about the decision. The fixture puts the marker alone on its
+line so the gate measures what it means to. Worth remembering before reading any future
+divergence on markup-bearing content as a real one.
+
+**The retention headline is fact-weighted, so corpus composition moves it.** Adding this
+trajectory took the corpus from 417 facts to 1083 and the reversibility figure from 9.8%
+to 62.6% — not because anything improved, but because `web-research` alone contributes
+666 facts at 4.4% visible, HTML being dense in `href` URLs that extraction drops as
+navigation. The other seven still read 90.2% visible. One fixture can now swing the
+headline, which is a genuine weakness of quoting a single number; a macro-average over
+trajectories, or the per-bucket breakdown the report already prints, would be more
+robust. Until that changes, the number should always be quoted with its corpus.
+
 ## Consequences
 
 - distil can state a quality claim checkable against data the reader already trusts.

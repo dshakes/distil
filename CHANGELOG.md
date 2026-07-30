@@ -3,6 +3,37 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **An HTML trajectory in the certification corpus** (`corpus/web-research.json`). 1.38.0
+  shipped the HTML transform default-on in the serving path while every corpus
+  trajectory carried logs, JSON or prose — so `distil bench` never routed a byte through
+  `compress/htmlx.py` and the transform was certified by nothing. ADR 0003/0004 set the
+  precedent that a new content type is certified before it goes default-on; this pays
+  that debt.
+
+  A 4-turn web-research agent whose tool results are real HTML documents: chrome the
+  extractor must strip (script, style, nav, cookie banner, aside, footer) wrapped around
+  an `<article>` carrying the DECISION the oracle grades. It certifies at **89.8%
+  savings**, and it has teeth — an extractor patched to swallow `<article>` drops
+  `match_rate` to 0.0 and fails the gate.
+
+### Changed
+
+- **The corpus-wide retention headline moved, because the corpus changed.** With the
+  HTML trajectory the figures read **1083 facts, 37.4% visible, 100% true, 0 lost**, so
+  reversibility scores **62.6%** rather than 1.38.0's 9.8%.
+
+  This is composition, not improvement, and it is worth being blunt about: the number is
+  *fact-weighted*, and `web-research` alone contributes 666 of the 1083 facts at 4.4%
+  visible — HTML pages are dense in `href` URLs, which extraction drops as navigation and
+  which stay recoverable behind the handle. The other seven trajectories still read 90.2%
+  visible and a 9.8% gap. A single fixture can now swing the headline, which is a real
+  weakness of quoting one number; the per-bucket breakdown the report prints is the more
+  honest read.
+
 ## [1.38.0] — recall, and a number a stranger can check
 
 Every quality gate distil shipped until now was graded on **our** corpus against

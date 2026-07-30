@@ -1,0 +1,209 @@
+{
+  "id": "web-research",
+  "model": "claude-opus-4-8",
+  "_note": "A 4-turn headless web-research agent whose tool results are raw HTML documents, not logs or JSON. It exists because the HTML transform (compress/htmlx.py) ships default-on in the serving path while every other corpus trajectory carries content it never touches \u2014 so `distil bench` certified the transform against nothing. Each page wraps its answer in an <article> and surrounds it with the chrome extraction is meant to drop (script, style, nav, cookie banner, aside, footer). The DECISION the oracle grades lives in the article body, so if extraction ever swallows the article the decision vanishes and the gate fails.",
+  "turns": [
+    {
+      "index": 0,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous web-research agent with a headless browser. You answer questions about live documentation by fetching pages and reading their content.\nOperating rules:\n- Fetch a page before citing it; never answer from memory alone.\n- Prefer the canonical docs origin over blog mirrors.\n- A page's navigation, cookie banner and footer are chrome, not evidence.\nDECISION: when a fetched page answers the question, cite it and stop fetching."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- fetch_url(url: string) -> {\"status\": int, \"content_type\": string, \"body\": string}\n- search(query: string, k: int) -> {\"results\": [{\"title\",\"url\",\"snippet\"}]}\n- cite(url: string, quote: string) -> {\"ok\": bool}\nNotes: fetch_url returns the raw response body. For text/html that is the full\ndocument including script, style and navigation markup.\nDECISION: call cite() exactly once, with the URL whose body contained the answer."
+        },
+        {
+          "id": "obs-0",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "fetch_url(\"https://docs.example.com/api/rate-limits\") -> 200 text/html\n<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Rate limits</title><script>window.__ANALYTICS__={id:'UA-000000',queue:[]};window.__ANALYTICS__.queue.push({e:0,t:'pageview'});window.__ANALYTICS__.queue.push({e:1,t:'pageview'});window.__ANALYTICS__.queue.push({e:2,t:'pageview'});window.__ANALYTICS__.queue.push({e:3,t:'pageview'});window.__ANALYTICS__.queue.push({e:4,t:'pageview'});window.__ANALYTICS__.queue.push({e:5,t:'pageview'});window.__ANALYTICS__.queue.push({e:6,t:'pageview'});window.__ANALYTICS__.queue.push({e:7,t:'pageview'});window.__ANALYTICS__.queue.push({e:8,t:'pageview'});window.__ANALYTICS__.queue.push({e:9,t:'pageview'});window.__ANALYTICS__.queue.push({e:10,t:'pageview'});window.__ANALYTICS__.queue.push({e:11,t:'pageview'});window.__ANALYTICS__.queue.push({e:12,t:'pageview'});window.__ANALYTICS__.queue.push({e:13,t:'pageview'});window.__ANALYTICS__.queue.push({e:14,t:'pageview'});window.__ANALYTICS__.queue.push({e:15,t:'pageview'});window.__ANALYTICS__.queue.push({e:16,t:'pageview'});window.__ANALYTICS__.queue.push({e:17,t:'pageview'});window.__ANALYTICS__.queue.push({e:18,t:'pageview'});window.__ANALYTICS__.queue.push({e:19,t:'pageview'});window.__ANALYTICS__.queue.push({e:20,t:'pageview'});window.__ANALYTICS__.queue.push({e:21,t:'pageview'});window.__ANALYTICS__.queue.push({e:22,t:'pageview'});window.__ANALYTICS__.queue.push({e:23,t:'pageview'});window.__ANALYTICS__.queue.push({e:24,t:'pageview'});window.__ANALYTICS__.queue.push({e:25,t:'pageview'});window.__ANALYTICS__.queue.push({e:26,t:'pageview'});window.__ANALYTICS__.queue.push({e:27,t:'pageview'});window.__ANALYTICS__.queue.push({e:28,t:'pageview'});window.__ANALYTICS__.queue.push({e:29,t:'pageview'});window.__ANALYTICS__.queue.push({e:30,t:'pageview'});window.__ANALYTICS__.queue.push({e:31,t:'pageview'});window.__ANALYTICS__.queue.push({e:32,t:'pageview'});window.__ANALYTICS__.queue.push({e:33,t:'pageview'});window.__ANALYTICS__.queue.push({e:34,t:'pageview'});window.__ANALYTICS__.queue.push({e:35,t:'pageview'});window.__ANALYTICS__.queue.push({e:36,t:'pageview'});window.__ANALYTICS__.queue.push({e:37,t:'pageview'});window.__ANALYTICS__.queue.push({e:38,t:'pageview'});window.__ANALYTICS__.queue.push({e:39,t:'pageview'});</script><style>.c-0{margin:0px;padding:0px;color:#300}.c-1{margin:1px;padding:1px;color:#311}.c-2{margin:2px;padding:2px;color:#322}.c-3{margin:3px;padding:3px;color:#333}.c-4{margin:4px;padding:4px;color:#344}.c-5{margin:5px;padding:5px;color:#355}.c-6{margin:6px;padding:6px;color:#366}.c-7{margin:7px;padding:7px;color:#377}.c-8{margin:8px;padding:8px;color:#388}.c-9{margin:9px;padding:9px;color:#399}.c-10{margin:10px;padding:10px;color:#300}.c-11{margin:11px;padding:11px;color:#311}.c-12{margin:12px;padding:12px;color:#322}.c-13{margin:13px;padding:13px;color:#333}.c-14{margin:14px;padding:14px;color:#344}.c-15{margin:15px;padding:15px;color:#355}.c-16{margin:16px;padding:16px;color:#366}.c-17{margin:17px;padding:17px;color:#377}.c-18{margin:18px;padding:18px;color:#388}.c-19{margin:19px;padding:19px;color:#399}.c-20{margin:20px;padding:20px;color:#300}.c-21{margin:21px;padding:21px;color:#311}.c-22{margin:22px;padding:22px;color:#322}.c-23{margin:23px;padding:23px;color:#333}.c-24{margin:24px;padding:24px;color:#344}.c-25{margin:25px;padding:25px;color:#355}.c-26{margin:26px;padding:26px;color:#366}.c-27{margin:27px;padding:27px;color:#377}.c-28{margin:28px;padding:28px;color:#388}.c-29{margin:29px;padding:29px;color:#399}.c-30{margin:30px;padding:30px;color:#300}.c-31{margin:31px;padding:31px;color:#311}.c-32{margin:32px;padding:32px;color:#322}.c-33{margin:33px;padding:33px;color:#333}.c-34{margin:34px;padding:34px;color:#344}.c-35{margin:35px;padding:35px;color:#355}.c-36{margin:36px;padding:36px;color:#366}.c-37{margin:37px;padding:37px;color:#377}.c-38{margin:38px;padding:38px;color:#388}.c-39{margin:39px;padding:39px;color:#399}</style></head><body><nav class=\"site-nav\"><ul><li><a href=\"/docs/rate-limits/section-0\">Section 0 of the manual</a></li><li><a href=\"/docs/rate-limits/section-1\">Section 1 of the manual</a></li><li><a href=\"/docs/rate-limits/section-2\">Section 2 of the manual</a></li><li><a href=\"/docs/rate-limits/section-3\">Section 3 of the manual</a></li><li><a href=\"/docs/rate-limits/section-4\">Section 4 of the manual</a></li><li><a href=\"/docs/rate-limits/section-5\">Section 5 of the manual</a></li><li><a href=\"/docs/rate-limits/section-6\">Section 6 of the manual</a></li><li><a href=\"/docs/rate-limits/section-7\">Section 7 of the manual</a></li><li><a href=\"/docs/rate-limits/section-8\">Section 8 of the manual</a></li><li><a href=\"/docs/rate-limits/section-9\">Section 9 of the manual</a></li><li><a href=\"/docs/rate-limits/section-10\">Section 10 of the manual</a></li><li><a href=\"/docs/rate-limits/section-11\">Section 11 of the manual</a></li><li><a href=\"/docs/rate-limits/section-12\">Section 12 of the manual</a></li><li><a href=\"/docs/rate-limits/section-13\">Section 13 of the manual</a></li><li><a href=\"/docs/rate-limits/section-14\">Section 14 of the manual</a></li><li><a href=\"/docs/rate-limits/section-15\">Section 15 of the manual</a></li><li><a href=\"/docs/rate-limits/section-16\">Section 16 of the manual</a></li><li><a href=\"/docs/rate-limits/section-17\">Section 17 of the manual</a></li></ul></nav><div class=\"cookie-banner\"><p>We use cookies to improve your experience.</p><button>Accept all</button><button>Reject non-essential</button></div><article><header><h1>Rate limits</h1></header><p>Every API key is subject to a per-minute request ceiling and a per-day token ceiling. The two are enforced independently.</p><p>The default tier allows 4000 requests per minute. Exceeding it returns HTTP 429 with a Retry-After header measured in seconds.</p><p>Burst traffic is smoothed over a 10 second window, so a short spike above the ceiling does not necessarily produce a 429.</p><p>\nDECISION: the documented default is 4000 requests per minute, so cite https://docs.example.com/api/rate-limits and stop fetching.\n</p></article><aside class=\"related\"><h3>Related</h3><ul><li><a href=\"/r/0\">Related page 0</a></li><li><a href=\"/r/1\">Related page 1</a></li><li><a href=\"/r/2\">Related page 2</a></li><li><a href=\"/r/3\">Related page 3</a></li><li><a href=\"/r/4\">Related page 4</a></li><li><a href=\"/r/5\">Related page 5</a></li><li><a href=\"/r/6\">Related page 6</a></li><li><a href=\"/r/7\">Related page 7</a></li><li><a href=\"/r/8\">Related page 8</a></li><li><a href=\"/r/9\">Related page 9</a></li><li><a href=\"/r/10\">Related page 10</a></li><li><a href=\"/r/11\">Related page 11</a></li></ul></aside><footer><p>Copyright 2026. All rights reserved. Terms of service. Privacy policy. Status page. Careers.</p></footer></body></html>"
+        },
+        {
+          "id": "doc-0",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.62): 'Choosing a Frontend Framework in 2026' \u2014 a survey of rendering strategies, hydration cost and bundle budgets across the major frameworks. Discusses islands architecture and streaming SSR. No mention of API limits, retries, pagination or error taxonomies."
+        },
+        {
+          "id": "user-0",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "What is the default per-minute request ceiling?"
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous web-research agent with a headless browser. You answer questions about live documentation by fetching pages and reading their content.\nOperating rules:\n- Fetch a page before citing it; never answer from memory alone.\n- Prefer the canonical docs origin over blog mirrors.\n- A page's navigation, cookie banner and footer are chrome, not evidence.\nDECISION: when a fetched page answers the question, cite it and stop fetching."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- fetch_url(url: string) -> {\"status\": int, \"content_type\": string, \"body\": string}\n- search(query: string, k: int) -> {\"results\": [{\"title\",\"url\",\"snippet\"}]}\n- cite(url: string, quote: string) -> {\"ok\": bool}\nNotes: fetch_url returns the raw response body. For text/html that is the full\ndocument including script, style and navigation markup.\nDECISION: call cite() exactly once, with the URL whose body contained the answer."
+        },
+        {
+          "id": "hist-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: fetched the rate-limits page and read the ceiling from the article body; the navigation and cookie banner carried no evidence."
+        },
+        {
+          "id": "obs-1",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "fetch_url(\"https://docs.example.com/api/retries\") -> 200 text/html\n<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Retry semantics</title><script>window.__ANALYTICS__={id:'UA-000000',queue:[]};window.__ANALYTICS__.queue.push({e:0,t:'pageview'});window.__ANALYTICS__.queue.push({e:1,t:'pageview'});window.__ANALYTICS__.queue.push({e:2,t:'pageview'});window.__ANALYTICS__.queue.push({e:3,t:'pageview'});window.__ANALYTICS__.queue.push({e:4,t:'pageview'});window.__ANALYTICS__.queue.push({e:5,t:'pageview'});window.__ANALYTICS__.queue.push({e:6,t:'pageview'});window.__ANALYTICS__.queue.push({e:7,t:'pageview'});window.__ANALYTICS__.queue.push({e:8,t:'pageview'});window.__ANALYTICS__.queue.push({e:9,t:'pageview'});window.__ANALYTICS__.queue.push({e:10,t:'pageview'});window.__ANALYTICS__.queue.push({e:11,t:'pageview'});window.__ANALYTICS__.queue.push({e:12,t:'pageview'});window.__ANALYTICS__.queue.push({e:13,t:'pageview'});window.__ANALYTICS__.queue.push({e:14,t:'pageview'});window.__ANALYTICS__.queue.push({e:15,t:'pageview'});window.__ANALYTICS__.queue.push({e:16,t:'pageview'});window.__ANALYTICS__.queue.push({e:17,t:'pageview'});window.__ANALYTICS__.queue.push({e:18,t:'pageview'});window.__ANALYTICS__.queue.push({e:19,t:'pageview'});window.__ANALYTICS__.queue.push({e:20,t:'pageview'});window.__ANALYTICS__.queue.push({e:21,t:'pageview'});window.__ANALYTICS__.queue.push({e:22,t:'pageview'});window.__ANALYTICS__.queue.push({e:23,t:'pageview'});window.__ANALYTICS__.queue.push({e:24,t:'pageview'});window.__ANALYTICS__.queue.push({e:25,t:'pageview'});window.__ANALYTICS__.queue.push({e:26,t:'pageview'});window.__ANALYTICS__.queue.push({e:27,t:'pageview'});window.__ANALYTICS__.queue.push({e:28,t:'pageview'});window.__ANALYTICS__.queue.push({e:29,t:'pageview'});window.__ANALYTICS__.queue.push({e:30,t:'pageview'});window.__ANALYTICS__.queue.push({e:31,t:'pageview'});window.__ANALYTICS__.queue.push({e:32,t:'pageview'});window.__ANALYTICS__.queue.push({e:33,t:'pageview'});window.__ANALYTICS__.queue.push({e:34,t:'pageview'});window.__ANALYTICS__.queue.push({e:35,t:'pageview'});window.__ANALYTICS__.queue.push({e:36,t:'pageview'});window.__ANALYTICS__.queue.push({e:37,t:'pageview'});window.__ANALYTICS__.queue.push({e:38,t:'pageview'});window.__ANALYTICS__.queue.push({e:39,t:'pageview'});</script><style>.c-0{margin:0px;padding:0px;color:#300}.c-1{margin:1px;padding:1px;color:#311}.c-2{margin:2px;padding:2px;color:#322}.c-3{margin:3px;padding:3px;color:#333}.c-4{margin:4px;padding:4px;color:#344}.c-5{margin:5px;padding:5px;color:#355}.c-6{margin:6px;padding:6px;color:#366}.c-7{margin:7px;padding:7px;color:#377}.c-8{margin:8px;padding:8px;color:#388}.c-9{margin:9px;padding:9px;color:#399}.c-10{margin:10px;padding:10px;color:#300}.c-11{margin:11px;padding:11px;color:#311}.c-12{margin:12px;padding:12px;color:#322}.c-13{margin:13px;padding:13px;color:#333}.c-14{margin:14px;padding:14px;color:#344}.c-15{margin:15px;padding:15px;color:#355}.c-16{margin:16px;padding:16px;color:#366}.c-17{margin:17px;padding:17px;color:#377}.c-18{margin:18px;padding:18px;color:#388}.c-19{margin:19px;padding:19px;color:#399}.c-20{margin:20px;padding:20px;color:#300}.c-21{margin:21px;padding:21px;color:#311}.c-22{margin:22px;padding:22px;color:#322}.c-23{margin:23px;padding:23px;color:#333}.c-24{margin:24px;padding:24px;color:#344}.c-25{margin:25px;padding:25px;color:#355}.c-26{margin:26px;padding:26px;color:#366}.c-27{margin:27px;padding:27px;color:#377}.c-28{margin:28px;padding:28px;color:#388}.c-29{margin:29px;padding:29px;color:#399}.c-30{margin:30px;padding:30px;color:#300}.c-31{margin:31px;padding:31px;color:#311}.c-32{margin:32px;padding:32px;color:#322}.c-33{margin:33px;padding:33px;color:#333}.c-34{margin:34px;padding:34px;color:#344}.c-35{margin:35px;padding:35px;color:#355}.c-36{margin:36px;padding:36px;color:#366}.c-37{margin:37px;padding:37px;color:#377}.c-38{margin:38px;padding:38px;color:#388}.c-39{margin:39px;padding:39px;color:#399}</style></head><body><nav class=\"site-nav\"><ul><li><a href=\"/docs/retries/section-0\">Section 0 of the manual</a></li><li><a href=\"/docs/retries/section-1\">Section 1 of the manual</a></li><li><a href=\"/docs/retries/section-2\">Section 2 of the manual</a></li><li><a href=\"/docs/retries/section-3\">Section 3 of the manual</a></li><li><a href=\"/docs/retries/section-4\">Section 4 of the manual</a></li><li><a href=\"/docs/retries/section-5\">Section 5 of the manual</a></li><li><a href=\"/docs/retries/section-6\">Section 6 of the manual</a></li><li><a href=\"/docs/retries/section-7\">Section 7 of the manual</a></li><li><a href=\"/docs/retries/section-8\">Section 8 of the manual</a></li><li><a href=\"/docs/retries/section-9\">Section 9 of the manual</a></li><li><a href=\"/docs/retries/section-10\">Section 10 of the manual</a></li><li><a href=\"/docs/retries/section-11\">Section 11 of the manual</a></li><li><a href=\"/docs/retries/section-12\">Section 12 of the manual</a></li><li><a href=\"/docs/retries/section-13\">Section 13 of the manual</a></li><li><a href=\"/docs/retries/section-14\">Section 14 of the manual</a></li><li><a href=\"/docs/retries/section-15\">Section 15 of the manual</a></li><li><a href=\"/docs/retries/section-16\">Section 16 of the manual</a></li><li><a href=\"/docs/retries/section-17\">Section 17 of the manual</a></li><li><a href=\"/docs/retries/section-18\">Section 18 of the manual</a></li><li><a href=\"/docs/retries/section-19\">Section 19 of the manual</a></li><li><a href=\"/docs/retries/section-20\">Section 20 of the manual</a></li><li><a href=\"/docs/retries/section-21\">Section 21 of the manual</a></li></ul></nav><div class=\"cookie-banner\"><p>We use cookies to improve your experience.</p><button>Accept all</button><button>Reject non-essential</button></div><article><header><h1>Retry semantics</h1></header><p>Clients should retry idempotent requests on 429 and on 5xx, using exponential backoff with jitter.</p><p>The Retry-After header, when present, overrides the client's own backoff schedule and must be honoured exactly.</p><p>Non-idempotent requests must not be retried automatically without an idempotency key, or the operation may be applied twice.</p><p>\nDECISION: Retry-After overrides client backoff, so cite https://docs.example.com/api/retries and stop fetching.\n</p></article><aside class=\"related\"><h3>Related</h3><ul><li><a href=\"/r/0\">Related page 0</a></li><li><a href=\"/r/1\">Related page 1</a></li><li><a href=\"/r/2\">Related page 2</a></li><li><a href=\"/r/3\">Related page 3</a></li><li><a href=\"/r/4\">Related page 4</a></li><li><a href=\"/r/5\">Related page 5</a></li><li><a href=\"/r/6\">Related page 6</a></li><li><a href=\"/r/7\">Related page 7</a></li><li><a href=\"/r/8\">Related page 8</a></li><li><a href=\"/r/9\">Related page 9</a></li><li><a href=\"/r/10\">Related page 10</a></li><li><a href=\"/r/11\">Related page 11</a></li></ul></aside><footer><p>Copyright 2026. All rights reserved. Terms of service. Privacy policy. Status page. Careers.</p></footer></body></html>"
+        },
+        {
+          "id": "doc-1",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.58): 'A Field Guide to Colour Contrast' \u2014 how to pick accessible palettes, with worked examples for text on tinted backgrounds and a note on APCA versus WCAG 2 contrast maths. Unrelated to the HTTP question under investigation."
+        },
+        {
+          "id": "user-1",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "Should a client's own backoff win over Retry-After?"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous web-research agent with a headless browser. You answer questions about live documentation by fetching pages and reading their content.\nOperating rules:\n- Fetch a page before citing it; never answer from memory alone.\n- Prefer the canonical docs origin over blog mirrors.\n- A page's navigation, cookie banner and footer are chrome, not evidence.\nDECISION: when a fetched page answers the question, cite it and stop fetching."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- fetch_url(url: string) -> {\"status\": int, \"content_type\": string, \"body\": string}\n- search(query: string, k: int) -> {\"results\": [{\"title\",\"url\",\"snippet\"}]}\n- cite(url: string, quote: string) -> {\"ok\": bool}\nNotes: fetch_url returns the raw response body. For text/html that is the full\ndocument including script, style and navigation markup.\nDECISION: call cite() exactly once, with the URL whose body contained the answer."
+        },
+        {
+          "id": "hist-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: fetched the rate-limits page and read the ceiling from the article body; the navigation and cookie banner carried no evidence."
+        },
+        {
+          "id": "hist-1",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: fetched the retries page; Retry-After is authoritative over local backoff when the header is present."
+        },
+        {
+          "id": "obs-2",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "fetch_url(\"https://docs.example.com/api/pagination\") -> 200 text/html\n<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Pagination</title><script>window.__ANALYTICS__={id:'UA-000000',queue:[]};window.__ANALYTICS__.queue.push({e:0,t:'pageview'});window.__ANALYTICS__.queue.push({e:1,t:'pageview'});window.__ANALYTICS__.queue.push({e:2,t:'pageview'});window.__ANALYTICS__.queue.push({e:3,t:'pageview'});window.__ANALYTICS__.queue.push({e:4,t:'pageview'});window.__ANALYTICS__.queue.push({e:5,t:'pageview'});window.__ANALYTICS__.queue.push({e:6,t:'pageview'});window.__ANALYTICS__.queue.push({e:7,t:'pageview'});window.__ANALYTICS__.queue.push({e:8,t:'pageview'});window.__ANALYTICS__.queue.push({e:9,t:'pageview'});window.__ANALYTICS__.queue.push({e:10,t:'pageview'});window.__ANALYTICS__.queue.push({e:11,t:'pageview'});window.__ANALYTICS__.queue.push({e:12,t:'pageview'});window.__ANALYTICS__.queue.push({e:13,t:'pageview'});window.__ANALYTICS__.queue.push({e:14,t:'pageview'});window.__ANALYTICS__.queue.push({e:15,t:'pageview'});window.__ANALYTICS__.queue.push({e:16,t:'pageview'});window.__ANALYTICS__.queue.push({e:17,t:'pageview'});window.__ANALYTICS__.queue.push({e:18,t:'pageview'});window.__ANALYTICS__.queue.push({e:19,t:'pageview'});window.__ANALYTICS__.queue.push({e:20,t:'pageview'});window.__ANALYTICS__.queue.push({e:21,t:'pageview'});window.__ANALYTICS__.queue.push({e:22,t:'pageview'});window.__ANALYTICS__.queue.push({e:23,t:'pageview'});window.__ANALYTICS__.queue.push({e:24,t:'pageview'});window.__ANALYTICS__.queue.push({e:25,t:'pageview'});window.__ANALYTICS__.queue.push({e:26,t:'pageview'});window.__ANALYTICS__.queue.push({e:27,t:'pageview'});window.__ANALYTICS__.queue.push({e:28,t:'pageview'});window.__ANALYTICS__.queue.push({e:29,t:'pageview'});window.__ANALYTICS__.queue.push({e:30,t:'pageview'});window.__ANALYTICS__.queue.push({e:31,t:'pageview'});window.__ANALYTICS__.queue.push({e:32,t:'pageview'});window.__ANALYTICS__.queue.push({e:33,t:'pageview'});window.__ANALYTICS__.queue.push({e:34,t:'pageview'});window.__ANALYTICS__.queue.push({e:35,t:'pageview'});window.__ANALYTICS__.queue.push({e:36,t:'pageview'});window.__ANALYTICS__.queue.push({e:37,t:'pageview'});window.__ANALYTICS__.queue.push({e:38,t:'pageview'});window.__ANALYTICS__.queue.push({e:39,t:'pageview'});</script><style>.c-0{margin:0px;padding:0px;color:#300}.c-1{margin:1px;padding:1px;color:#311}.c-2{margin:2px;padding:2px;color:#322}.c-3{margin:3px;padding:3px;color:#333}.c-4{margin:4px;padding:4px;color:#344}.c-5{margin:5px;padding:5px;color:#355}.c-6{margin:6px;padding:6px;color:#366}.c-7{margin:7px;padding:7px;color:#377}.c-8{margin:8px;padding:8px;color:#388}.c-9{margin:9px;padding:9px;color:#399}.c-10{margin:10px;padding:10px;color:#300}.c-11{margin:11px;padding:11px;color:#311}.c-12{margin:12px;padding:12px;color:#322}.c-13{margin:13px;padding:13px;color:#333}.c-14{margin:14px;padding:14px;color:#344}.c-15{margin:15px;padding:15px;color:#355}.c-16{margin:16px;padding:16px;color:#366}.c-17{margin:17px;padding:17px;color:#377}.c-18{margin:18px;padding:18px;color:#388}.c-19{margin:19px;padding:19px;color:#399}.c-20{margin:20px;padding:20px;color:#300}.c-21{margin:21px;padding:21px;color:#311}.c-22{margin:22px;padding:22px;color:#322}.c-23{margin:23px;padding:23px;color:#333}.c-24{margin:24px;padding:24px;color:#344}.c-25{margin:25px;padding:25px;color:#355}.c-26{margin:26px;padding:26px;color:#366}.c-27{margin:27px;padding:27px;color:#377}.c-28{margin:28px;padding:28px;color:#388}.c-29{margin:29px;padding:29px;color:#399}.c-30{margin:30px;padding:30px;color:#300}.c-31{margin:31px;padding:31px;color:#311}.c-32{margin:32px;padding:32px;color:#322}.c-33{margin:33px;padding:33px;color:#333}.c-34{margin:34px;padding:34px;color:#344}.c-35{margin:35px;padding:35px;color:#355}.c-36{margin:36px;padding:36px;color:#366}.c-37{margin:37px;padding:37px;color:#377}.c-38{margin:38px;padding:38px;color:#388}.c-39{margin:39px;padding:39px;color:#399}</style></head><body><nav class=\"site-nav\"><ul><li><a href=\"/docs/pagination/section-0\">Section 0 of the manual</a></li><li><a href=\"/docs/pagination/section-1\">Section 1 of the manual</a></li><li><a href=\"/docs/pagination/section-2\">Section 2 of the manual</a></li><li><a href=\"/docs/pagination/section-3\">Section 3 of the manual</a></li><li><a href=\"/docs/pagination/section-4\">Section 4 of the manual</a></li><li><a href=\"/docs/pagination/section-5\">Section 5 of the manual</a></li><li><a href=\"/docs/pagination/section-6\">Section 6 of the manual</a></li><li><a href=\"/docs/pagination/section-7\">Section 7 of the manual</a></li><li><a href=\"/docs/pagination/section-8\">Section 8 of the manual</a></li><li><a href=\"/docs/pagination/section-9\">Section 9 of the manual</a></li><li><a href=\"/docs/pagination/section-10\">Section 10 of the manual</a></li><li><a href=\"/docs/pagination/section-11\">Section 11 of the manual</a></li><li><a href=\"/docs/pagination/section-12\">Section 12 of the manual</a></li><li><a href=\"/docs/pagination/section-13\">Section 13 of the manual</a></li><li><a href=\"/docs/pagination/section-14\">Section 14 of the manual</a></li></ul></nav><div class=\"cookie-banner\"><p>We use cookies to improve your experience.</p><button>Accept all</button><button>Reject non-essential</button></div><article><header><h1>Pagination</h1></header><p>List endpoints return a cursor in the next_cursor field. An absent or null cursor means the final page has been reached.</p><p>Page size defaults to 100 items and may be raised to 1000 with the limit parameter. Larger pages cost proportionally more tokens to read.</p><p>Cursors are opaque and expire after 24 hours; a stale cursor returns 400.</p><p>\nDECISION: a null next_cursor terminates the walk, so cite https://docs.example.com/api/pagination and stop fetching.\n</p></article><aside class=\"related\"><h3>Related</h3><ul><li><a href=\"/r/0\">Related page 0</a></li><li><a href=\"/r/1\">Related page 1</a></li><li><a href=\"/r/2\">Related page 2</a></li><li><a href=\"/r/3\">Related page 3</a></li><li><a href=\"/r/4\">Related page 4</a></li><li><a href=\"/r/5\">Related page 5</a></li><li><a href=\"/r/6\">Related page 6</a></li><li><a href=\"/r/7\">Related page 7</a></li><li><a href=\"/r/8\">Related page 8</a></li><li><a href=\"/r/9\">Related page 9</a></li><li><a href=\"/r/10\">Related page 10</a></li><li><a href=\"/r/11\">Related page 11</a></li></ul></aside><footer><p>Copyright 2026. All rights reserved. Terms of service. Privacy policy. Status page. Careers.</p></footer></body></html>"
+        },
+        {
+          "id": "doc-2",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.55): 'Notes on Office Espresso' \u2014 grind size, dose and yield for a shared office machine, with a table of extraction times. Included by the retriever on a spurious keyword overlap with 'limits'."
+        },
+        {
+          "id": "user-2",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "How do I know I have walked every page?"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous web-research agent with a headless browser. You answer questions about live documentation by fetching pages and reading their content.\nOperating rules:\n- Fetch a page before citing it; never answer from memory alone.\n- Prefer the canonical docs origin over blog mirrors.\n- A page's navigation, cookie banner and footer are chrome, not evidence.\nDECISION: when a fetched page answers the question, cite it and stop fetching."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- fetch_url(url: string) -> {\"status\": int, \"content_type\": string, \"body\": string}\n- search(query: string, k: int) -> {\"results\": [{\"title\",\"url\",\"snippet\"}]}\n- cite(url: string, quote: string) -> {\"ok\": bool}\nNotes: fetch_url returns the raw response body. For text/html that is the full\ndocument including script, style and navigation markup.\nDECISION: call cite() exactly once, with the URL whose body contained the answer."
+        },
+        {
+          "id": "hist-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: fetched the rate-limits page and read the ceiling from the article body; the navigation and cookie banner carried no evidence."
+        },
+        {
+          "id": "hist-1",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: fetched the retries page; Retry-After is authoritative over local backoff when the header is present."
+        },
+        {
+          "id": "hist-2",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: fetched the pagination page; termination is signalled by a null cursor rather than by an empty item list."
+        },
+        {
+          "id": "obs-3",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "fetch_url(\"https://docs.example.com/api/errors\") -> 200 text/html\n<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Error codes</title><script>window.__ANALYTICS__={id:'UA-000000',queue:[]};window.__ANALYTICS__.queue.push({e:0,t:'pageview'});window.__ANALYTICS__.queue.push({e:1,t:'pageview'});window.__ANALYTICS__.queue.push({e:2,t:'pageview'});window.__ANALYTICS__.queue.push({e:3,t:'pageview'});window.__ANALYTICS__.queue.push({e:4,t:'pageview'});window.__ANALYTICS__.queue.push({e:5,t:'pageview'});window.__ANALYTICS__.queue.push({e:6,t:'pageview'});window.__ANALYTICS__.queue.push({e:7,t:'pageview'});window.__ANALYTICS__.queue.push({e:8,t:'pageview'});window.__ANALYTICS__.queue.push({e:9,t:'pageview'});window.__ANALYTICS__.queue.push({e:10,t:'pageview'});window.__ANALYTICS__.queue.push({e:11,t:'pageview'});window.__ANALYTICS__.queue.push({e:12,t:'pageview'});window.__ANALYTICS__.queue.push({e:13,t:'pageview'});window.__ANALYTICS__.queue.push({e:14,t:'pageview'});window.__ANALYTICS__.queue.push({e:15,t:'pageview'});window.__ANALYTICS__.queue.push({e:16,t:'pageview'});window.__ANALYTICS__.queue.push({e:17,t:'pageview'});window.__ANALYTICS__.queue.push({e:18,t:'pageview'});window.__ANALYTICS__.queue.push({e:19,t:'pageview'});window.__ANALYTICS__.queue.push({e:20,t:'pageview'});window.__ANALYTICS__.queue.push({e:21,t:'pageview'});window.__ANALYTICS__.queue.push({e:22,t:'pageview'});window.__ANALYTICS__.queue.push({e:23,t:'pageview'});window.__ANALYTICS__.queue.push({e:24,t:'pageview'});window.__ANALYTICS__.queue.push({e:25,t:'pageview'});window.__ANALYTICS__.queue.push({e:26,t:'pageview'});window.__ANALYTICS__.queue.push({e:27,t:'pageview'});window.__ANALYTICS__.queue.push({e:28,t:'pageview'});window.__ANALYTICS__.queue.push({e:29,t:'pageview'});window.__ANALYTICS__.queue.push({e:30,t:'pageview'});window.__ANALYTICS__.queue.push({e:31,t:'pageview'});window.__ANALYTICS__.queue.push({e:32,t:'pageview'});window.__ANALYTICS__.queue.push({e:33,t:'pageview'});window.__ANALYTICS__.queue.push({e:34,t:'pageview'});window.__ANALYTICS__.queue.push({e:35,t:'pageview'});window.__ANALYTICS__.queue.push({e:36,t:'pageview'});window.__ANALYTICS__.queue.push({e:37,t:'pageview'});window.__ANALYTICS__.queue.push({e:38,t:'pageview'});window.__ANALYTICS__.queue.push({e:39,t:'pageview'});</script><style>.c-0{margin:0px;padding:0px;color:#300}.c-1{margin:1px;padding:1px;color:#311}.c-2{margin:2px;padding:2px;color:#322}.c-3{margin:3px;padding:3px;color:#333}.c-4{margin:4px;padding:4px;color:#344}.c-5{margin:5px;padding:5px;color:#355}.c-6{margin:6px;padding:6px;color:#366}.c-7{margin:7px;padding:7px;color:#377}.c-8{margin:8px;padding:8px;color:#388}.c-9{margin:9px;padding:9px;color:#399}.c-10{margin:10px;padding:10px;color:#300}.c-11{margin:11px;padding:11px;color:#311}.c-12{margin:12px;padding:12px;color:#322}.c-13{margin:13px;padding:13px;color:#333}.c-14{margin:14px;padding:14px;color:#344}.c-15{margin:15px;padding:15px;color:#355}.c-16{margin:16px;padding:16px;color:#366}.c-17{margin:17px;padding:17px;color:#377}.c-18{margin:18px;padding:18px;color:#388}.c-19{margin:19px;padding:19px;color:#399}.c-20{margin:20px;padding:20px;color:#300}.c-21{margin:21px;padding:21px;color:#311}.c-22{margin:22px;padding:22px;color:#322}.c-23{margin:23px;padding:23px;color:#333}.c-24{margin:24px;padding:24px;color:#344}.c-25{margin:25px;padding:25px;color:#355}.c-26{margin:26px;padding:26px;color:#366}.c-27{margin:27px;padding:27px;color:#377}.c-28{margin:28px;padding:28px;color:#388}.c-29{margin:29px;padding:29px;color:#399}.c-30{margin:30px;padding:30px;color:#300}.c-31{margin:31px;padding:31px;color:#311}.c-32{margin:32px;padding:32px;color:#322}.c-33{margin:33px;padding:33px;color:#333}.c-34{margin:34px;padding:34px;color:#344}.c-35{margin:35px;padding:35px;color:#355}.c-36{margin:36px;padding:36px;color:#366}.c-37{margin:37px;padding:37px;color:#377}.c-38{margin:38px;padding:38px;color:#388}.c-39{margin:39px;padding:39px;color:#399}</style></head><body><nav class=\"site-nav\"><ul><li><a href=\"/docs/errors/section-0\">Section 0 of the manual</a></li><li><a href=\"/docs/errors/section-1\">Section 1 of the manual</a></li><li><a href=\"/docs/errors/section-2\">Section 2 of the manual</a></li><li><a href=\"/docs/errors/section-3\">Section 3 of the manual</a></li><li><a href=\"/docs/errors/section-4\">Section 4 of the manual</a></li><li><a href=\"/docs/errors/section-5\">Section 5 of the manual</a></li><li><a href=\"/docs/errors/section-6\">Section 6 of the manual</a></li><li><a href=\"/docs/errors/section-7\">Section 7 of the manual</a></li><li><a href=\"/docs/errors/section-8\">Section 8 of the manual</a></li><li><a href=\"/docs/errors/section-9\">Section 9 of the manual</a></li><li><a href=\"/docs/errors/section-10\">Section 10 of the manual</a></li><li><a href=\"/docs/errors/section-11\">Section 11 of the manual</a></li><li><a href=\"/docs/errors/section-12\">Section 12 of the manual</a></li><li><a href=\"/docs/errors/section-13\">Section 13 of the manual</a></li><li><a href=\"/docs/errors/section-14\">Section 14 of the manual</a></li><li><a href=\"/docs/errors/section-15\">Section 15 of the manual</a></li><li><a href=\"/docs/errors/section-16\">Section 16 of the manual</a></li><li><a href=\"/docs/errors/section-17\">Section 17 of the manual</a></li><li><a href=\"/docs/errors/section-18\">Section 18 of the manual</a></li><li><a href=\"/docs/errors/section-19\">Section 19 of the manual</a></li></ul></nav><div class=\"cookie-banner\"><p>We use cookies to improve your experience.</p><button>Accept all</button><button>Reject non-essential</button></div><article><header><h1>Error codes</h1></header><p>Every error response carries a machine-readable type field alongside the human-readable message. Match on type, never on message text.</p><p>The invalid_request_error type indicates a client mistake that will not succeed on retry. The api_error type indicates a server fault that will.</p><p>Error messages are not part of the stable interface and change without notice between releases.</p><p>\nDECISION: match on the type field rather than message text, so cite https://docs.example.com/api/errors and stop fetching.\n</p></article><aside class=\"related\"><h3>Related</h3><ul><li><a href=\"/r/0\">Related page 0</a></li><li><a href=\"/r/1\">Related page 1</a></li><li><a href=\"/r/2\">Related page 2</a></li><li><a href=\"/r/3\">Related page 3</a></li><li><a href=\"/r/4\">Related page 4</a></li><li><a href=\"/r/5\">Related page 5</a></li><li><a href=\"/r/6\">Related page 6</a></li><li><a href=\"/r/7\">Related page 7</a></li><li><a href=\"/r/8\">Related page 8</a></li><li><a href=\"/r/9\">Related page 9</a></li><li><a href=\"/r/10\">Related page 10</a></li><li><a href=\"/r/11\">Related page 11</a></li></ul></aside><footer><p>Copyright 2026. All rights reserved. Terms of service. Privacy policy. Status page. Careers.</p></footer></body></html>"
+        },
+        {
+          "id": "doc-3",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.61): 'Migrating a Monolith to a Modular Monolith' \u2014 module boundaries, transactional integrity and the cost of premature service extraction. Architectural, not operational; nothing about the API surface being researched."
+        },
+        {
+          "id": "user-3",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "Should I branch on the error message string?"
+        }
+      ]
+    }
+  ]
+}

@@ -36,6 +36,11 @@
       "file": "finance-reconcile.json",
       "domain": "finance",
       "title": "Invoice/payment reconciliation with exception"
+    },
+    {
+      "file": "web-research.json",
+      "domain": "web-research",
+      "title": "HTML documentation research (exercises the HTML transform)"
     }
   ],
   "live_only": [

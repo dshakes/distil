@@ -190,7 +190,12 @@ must appear in that handle's restore bytes. Two numbers fall out —
     true recall    = (retained + recoverable) / total     (the information bound)
 
 — and the gap between them is what reversibility buys. On the committed corpus:
-**100% true recall, 90.2% visible, 0 lost** — reversibility is worth 9.8% recall.
+**100% true recall, 37.4% visible, 0 lost** — reversibility is worth 62.6% recall. That
+headline is *fact-weighted*, so corpus composition moves it: the `web-research`
+trajectory alone contributes 666 of the 1083 facts at 4.4% visible, because HTML pages
+are dense in `href` URLs that extraction drops as navigation. Excluding it the other
+seven read 90.2% visible and a 9.8% gap. Quote the number with its corpus, or read the
+per-bucket breakdown the report prints.
 
 ```
 distil retention                 # corpus (zero cost, offline) — a CI gate
