@@ -218,7 +218,7 @@ class RetentionReport:
         """Fact tallies per corpus domain, in first-seen order."""
         out: dict[str, Tally] = {}
         for p in self.probes:
-            tally = out.setdefault(p.domain or "(uncategorised)", Tally())
+            tally = out.setdefault(p.domain or "(no domain)", Tally())
             for dim in p.dims.values():
                 tally.add(dim)
         return out
@@ -864,7 +864,22 @@ def _bar_char() -> str:
     return "█"
 
 
+_LABEL_W = 14
+
+
+def _fit(label: str) -> str:
+    """Clamp a row label to the column width.
+
+    Python's `{x:<14}` pads but never truncates, so a custom corpus domain longer than
+    the column (`vision/ui-automation`) would shove every later column right and stop
+    the table being a table. The marker is ASCII on purpose: `…` has no cp1252 code
+    point and would resurrect the Windows UnicodeEncodeError this report already had.
+    """
+    return label if len(label) <= _LABEL_W else label[: _LABEL_W - 1] + "+"
+
+
 def _row(label: str, tally: Tally) -> str:
+    label = _fit(label)
     if not tally.total:
         return f"  {label:<14}       n/a (0 facts)"
     bar = _bar_char() * round(tally.recall * 20)

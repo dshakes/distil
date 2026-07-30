@@ -390,6 +390,43 @@ def test_corpus_macro_is_reported_and_beats_micro_for_stability() -> None:
     assert set(payload["by_domain"]) >= {"web-research", "coding"}
 
 
+def test_long_domain_labels_do_not_break_the_table() -> None:
+    """Audit finding. `{x:<14}` pads but never truncates, so a custom corpus domain
+    longer than the column would shove every later column right. The clamp marker must
+    stay ASCII — `…` has no cp1252 code point and would resurrect the Windows crash."""
+    from distil.retention import RetentionReport, _fit, format_report
+
+    assert _fit("coding") == "coding"
+    assert _fit("exactly14chars") == "exactly14chars"  # boundary: untouched
+    assert _fit("vision/ui-automation") == "vision/ui-aut+"
+    assert len(_fit("vision/ui-automation")) == 14
+
+    rendered = format_report(
+        RetentionReport(
+            probes=[_probe("vision/ui-automation", 10, 5, 5), _probe("coding", 10, 10, 0)]
+        )
+    )
+    # `_row` lays out "  " + 14-wide label + right-aligned recall, so the numeric
+    # column always begins at index 16. Check that directly rather than hunting for a
+    # "%" — bucket labels like "50%-75%" contain one, and so does the closing prose.
+    rows = [ln for ln in rendered.splitlines() if ln[2:16].strip() in {"vision/ui-aut+", "coding"}]
+    assert len(rows) == 2, rendered
+    for line in rows:
+        assert line[16:23].strip().endswith("%"), f"column drifted: {line!r}"
+    # The clamp marker itself must be cp1252-safe. (The full report legitimately
+    # carries U+2588 bars under a UTF-8 console; that path is covered by
+    # test_report_encodes_on_a_windows_console, which patches stdout.)
+    _fit("vision/ui-automation").encode("cp1252")
+
+
+def test_blocks_without_a_domain_get_a_label_that_fits() -> None:
+    from distil.retention import RetentionReport
+
+    report = RetentionReport(probes=[_probe("", 4, 4, 0)])
+    (label,) = report.by_domain()
+    assert label == "(no domain)" and len(label) <= 14
+
+
 def test_report_encodes_on_a_windows_console() -> None:
     """U+2588 is not in cp1252, so printing the bar to a stock Windows console raised
     UnicodeEncodeError and took down the retention CI gate on windows-latest while
