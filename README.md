@@ -155,10 +155,10 @@ You don't need byte-equivalence — you need **decision-equivalence**: your agen
 
 ## ⚡ Prove the numbers yourself — no API key
 
-Don't take the table above on faith. `distil bench` re-certifies savings *and* decision-equivalence on a bundled 7-domain corpus, offline, in seconds — the same gate that runs in CI. How we evaluate — and why a compression ratio without a task-success delta is meaningless — is written up in [docs/EVALUATION.md](docs/EVALUATION.md), including our own negative result:
+Don't take the table above on faith. `distil bench` re-certifies savings *and* decision-equivalence on a bundled 8-domain corpus, offline, in seconds — the same gate that runs in CI. How we evaluate — and why a compression ratio without a task-success delta is meaningless — is written up in [docs/EVALUATION.md](docs/EVALUATION.md), including our own negative result:
 
 ```bash
-uvx --from distil-llm distil bench      # certify savings + quality across 7 domains, in seconds
+uvx --from distil-llm distil bench      # certify savings + quality across 8 domains, in seconds
 distil verify                           # byte-fidelity: every compression is exactly reversible
 distil validate                         # adversarial real-path gate: invariants on hostile inputs
 distil retention                        # fact recall: what stays visible vs expand-recoverable
@@ -202,7 +202,7 @@ aggregate: distil cuts $0.14212 -> $0.10610 (25.3% cheaper) reversibly; 5761 tok
 GATE: PASS — every trajectory certified non-inferior; aggressive rejected on all.
 ```
 
-<p align="center"><img src="docs/assets/domains.svg" alt="measured across 7 domains" width="100%"/></p>
+<p align="center"><img src="docs/assets/domains.svg" alt="measured across 8 domains" width="100%"/></p>
 
 > **Why trust the number?** Token-savings numbers are easy to fake — measure quality at *low* compression, advertise savings at *high* compression. Distil refuses that: accuracy and compression are measured on the **same** trajectories, and a strategy that can't pass non-inferiority doesn't ship.
 > ```
@@ -284,6 +284,26 @@ client = wrap(anthropic.Anthropic())   # compresses the request, keeps the cache
 | LiteLLM | `distil.integrations.litellm.compress(kwargs)` | [`examples/python_litellm.py`](examples/python_litellm.py) |
 | LangChain | `distil.integrations.langchain.compress_messages(msgs)` | — |
 | LangGraph | `pre_model_hook=pre_model_hook()` (compresses graph state before the model node) | [`examples/python_langgraph.py`](examples/python_langgraph.py) |
+
+### LangChain / LangGraph — `langchain-distil`
+
+Listed in LangChain's own [community middleware integrations](https://docs.langchain.com/oss/python/integrations/providers/all_providers). If you came from there, this is the package:
+
+```bash
+pip install langchain-distil
+```
+
+```python
+from langchain_distil import compress_messages, pre_model_hook, as_runnable
+
+msgs = compress_messages(msgs)                 # compress a message list in place of the call
+graph = create_react_agent(..., pre_model_hook=pre_model_hook())   # LangGraph: before the model node
+chain = as_runnable() | llm                    # or drop it into a chain (lazy langchain-core import)
+```
+
+Tool and function messages get the reversible Tier-1 digest, human and system messages are Tier-0 lossless, and **assistant messages are never rewritten** — a model's own words are not distil's to edit. Every digest is byte-exact recoverable. Pass `verbatim=True` for Tier-0-only when no recovery tool is available.
+
+It is a thin wrapper over the hooks in the table above, so it inherits the same certified compression path — nothing is re-implemented. `distil-llm` is a dependency; you do not install both by hand.
 
 ---
 
@@ -561,7 +581,7 @@ Every number reproduces from the bundled corpus (`distil bench`, no key). The no
 
 <p align="center">
 <code>pipx install distil-llm && distil bench</code><br/>
-<sub>certified savings across 7 domains in ~10 seconds — zero API key, zero runtime deps</sub>
+<sub>certified savings across 8 domains in ~10 seconds — zero API key, zero runtime deps</sub>
 </p>
 
 <p align="center">

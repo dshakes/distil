@@ -82,9 +82,28 @@
   <main class="content" id="content" tabindex="-1">
 
     <h1>LangChain <span class="g">&times; Distil</span></h1>
-    <p class="lead">Set the provider base URL on the chat model. The JS package uses <code>anthropicApiUrl</code>; the Python one takes the standard client kwargs.</p>
+    <p class="lead">Two routes. The <strong>middleware package</strong> compresses the message list in your own process &mdash; no proxy, no network hop. The <strong>proxy</strong> needs no code change at all beyond a base URL. Pick one; they are not meant to be stacked.</p>
 
-    <h2 id="setup">Setup</h2>
+    <h2 id="middleware">Middleware &mdash; <code>langchain-distil</code></h2>
+    <p>Listed in LangChain&rsquo;s own <a href="https://docs.langchain.com/oss/python/integrations/providers/all_providers">community middleware integrations</a>. If you arrived from there, this is the package.</p>
+
+<pre class="term"><span class="d">$ pip install langchain-distil</span>
+
+<span class="k">from</span> langchain_distil <span class="k">import</span> compress_messages, pre_model_hook, as_runnable
+
+<span class="d"># 1. compress a message list directly</span>
+msgs = compress_messages(msgs)
+
+<span class="d"># 2. LangGraph: compress graph state before the model node</span>
+graph = create_react_agent(model, tools, pre_model_hook=pre_model_hook())
+
+<span class="d"># 3. or drop it into a chain (langchain-core is imported lazily)</span>
+chain = as_runnable() | llm</pre>
+
+    <p>Tool and function messages get the reversible Tier-1 digest, human and system messages are Tier-0 lossless, and <strong>assistant messages are never rewritten</strong> &mdash; a model&rsquo;s own words are not distil&rsquo;s to edit. Every digest is byte-exact recoverable through <code>distil_expand</code>. Pass <code>verbatim=True</code> for Tier-0 only, which is the right choice when no recovery tool is wired up.</p>
+    <p>It is a thin wrapper over <code>distil.integrations.langchain</code> and <code>distil.integrations.langgraph</code>, so it inherits the same certified compression path rather than re-implementing it. <code>distil-llm</code> comes along as a dependency &mdash; you do not install both by hand.</p>
+
+    <h2 id="setup">Setup &mdash; the proxy route</h2>
     <p>Start the proxy against the provider this SDK talks to, then point the client at it. Nothing else in your code changes.</p>
 
 <pre class="term"><span class="d">$ distil proxy --port 8788 --upstream https://api.anthropic.com &amp;</span>

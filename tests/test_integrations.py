@@ -120,3 +120,59 @@ def pre_model_hook_empty():
     from distil.integrations.langgraph import pre_model_hook
 
     return pre_model_hook()({"foo": "bar"}) == {}
+
+
+# ---------------------------------------------------------------------------
+# The langchain-distil wrapper contract.
+#
+# `langchain-distil` is published separately and listed in LangChain's own community
+# middleware integrations, but it is a thin wrapper: it imports these three symbols
+# from this repo and re-exports them. Rename or re-signature any of them and the
+# published package breaks at import time, for users who installed it on LangChain's
+# recommendation — with nothing in this repo going red. Same failure class as the
+# server.json registry entry and the npm badge: a promise nothing verifies.
+# ---------------------------------------------------------------------------
+
+
+def test_langchain_distil_imports_still_resolve() -> None:
+    """The exact import lines in langchain_distil/__init__.py."""
+    from distil.integrations.langchain import compress_messages
+    from distil.integrations.langgraph import compress_state, pre_model_hook
+
+    assert callable(compress_messages)
+    assert callable(compress_state)
+    assert callable(pre_model_hook)
+
+
+def test_langchain_distil_call_signatures_are_stable() -> None:
+    """The wrapper calls these with keyword arguments; losing one breaks it."""
+    import inspect
+
+    from distil.integrations.langchain import compress_messages
+    from distil.integrations.langgraph import compress_state, pre_model_hook
+
+    assert "verbatim" in inspect.signature(compress_messages).parameters
+    for fn in (compress_state, pre_model_hook):
+        params = inspect.signature(fn).parameters
+        assert "verbatim" in params and "key" in params, fn.__name__
+
+
+def test_langchain_distil_wrapper_behaviour() -> None:
+    """Reproduce what `as_runnable()` does — compress a message list — without
+    requiring langchain-core, which the wrapper imports lazily for exactly this
+    reason."""
+    from distil.integrations.langchain import compress_messages
+
+    class _Msg:
+        def __init__(self, content: str, type_: str) -> None:
+            self.content = content
+            self.type = type_
+
+        def model_copy(self, update: dict) -> "_Msg":
+            return _Msg(update.get("content", self.content), self.type)
+
+    big = "\n".join(f"2026-07-30 INFO worker-{i} latency_ms={i} ok" for i in range(300))
+    out = compress_messages([_Msg("check the logs", "human"), _Msg(big, "tool")])
+    assert len(out) == 2
+    assert len(out[-1].content) < len(big), "tool message should have been digested"
+    assert out[0].content == "check the logs", "human message must not be rewritten"
