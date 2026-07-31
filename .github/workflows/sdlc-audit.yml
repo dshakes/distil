@@ -1,12 +1,30 @@
-# Auditor (Codex) — independent cross-audit. Runs automatically when a PR opens (an
-# independent second opinion to the Claude reviewer) and on demand via the `agent:audit`
-# label. Read-only; posts Codex's verdict as a PR comment. Needs secret OPENAI_API_KEY.
-# Not on `synchronize`, so the fix loop's pushes don't re-spend Codex credits each round.
+# Auditor (Codex) — independent cross-audit. Runs when a PR opens, when a human pushes
+# to it, and on demand via the `agent:audit` label. Read-only; posts Codex's verdict as
+# a PR comment. Needs secret OPENAI_API_KEY.
+#
+# `synchronize` is in the list because leaving it out meant the auditor only ever saw the
+# commit that CONTAINED a bug: it reviewed, a fix was pushed, and the fix shipped
+# unaudited unless someone remembered the label. That is backwards — a fix to a Blocking
+# finding deserves at least the scrutiny of the code that caused it. Twice in one day
+# (#69, #70) Codex found a real bug and the correction went in unreviewed.
+#
+# The original reason for excluding it still stands and is preserved below: the SDLC
+# auto-fix loop pushes a commit per round, and auditing each one re-spends Codex credits
+# for no added signal — the loop is already gated by the reviewer. So bot pushes are
+# filtered in the job condition rather than by dropping the event.
 name: "sdlc · audit (Codex)"
 
 on:
   pull_request:
-    types: [opened, reopened, labeled]
+    types: [opened, reopened, synchronize, labeled]
+
+# One audit per PR. `synchronize` makes rapid pushes possible, and without this an
+# older run can finish LAST and post a verdict — clean or blocking — against a commit
+# that has already been superseded. Cancelling in flight also stops a push storm from
+# spending Codex credits on commits nobody will merge. (Audit finding on #71.)
+concurrency:
+  group: sdlc-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,9 +32,28 @@ permissions:
 
 jobs:
   audit:
-    # Auto on open/reopen, or on the agent:audit label. (label.name is null on open events.)
-    # dependabot-actor runs get Dependabot's (empty) secret store — agent can't auth, so skip
-    if: github.actor != 'dependabot[bot]' && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
+    # Three independent guards, each for its own reason:
+    #
+    # 1. dependabot never audits — those runs get Dependabot's (empty) secret store, so the
+    #    agent cannot auth at all. This is about capability, not cost.
+    # 2. On `synchronize` only, bot pushes are skipped: the SDLC fix loop commits once per
+    #    round and auditing each re-spends Codex credits for no added signal, since the loop
+    #    is already gated by the reviewer. Scoped to synchronize deliberately — a blanket
+    #    bot exclusion would also stop auditing PRs *opened* by Renovate, Copilot, release
+    #    bots and the like, which are dependency and generated-code changes and among the
+    #    most worth a second opinion. (Audit finding on #71: the first version of this
+    #    filter made exactly that mistake.)
+    # 3. A label only triggers an audit when it is `agent:audit`. (label.name is null on
+    #    open events, hence the action check first.)
+    #
+    # Residual: the fix loop falls back to SDLC_BOT_TOKEN when SDLC_APP_ID is unset, and a
+    # PAT pushes under its owner's name rather than a `[bot]` actor, so in that
+    # configuration the loop's rounds WILL be audited. The App path is the documented one;
+    # noted so the cost is a known trade rather than a surprise.
+    if: >-
+      github.actor != 'dependabot[bot]'
+      && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
+      && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
