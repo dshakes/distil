@@ -5,6 +5,20 @@ All notable changes to Distil are documented here. Format loosely follows
 
 ## [1.39.0] — certify the HTML transform, and a headline one fixture cannot swing
 
+### Documentation
+
+- **`langchain-distil` is now named in this repo.** LangChain merged
+  [langchain-ai/docs#4943](https://github.com/langchain-ai/docs/pull/4943), listing the package in its
+  community middleware integrations with `docs_url` pointing here — and the README,
+  `docs/langchain.html` and `docs/integrations.html` mentioned it exactly zero times. A reader
+  clicking through from LangChain landed on a page that never named the package they had just
+  been told to install. All three now carry install and usage for the real entry points
+  (`compress_messages`, `pre_model_hook`, `as_runnable`), and three contract tests pin the
+  symbols the published wrapper imports, so renaming one can no longer break it silently.
+- **The corpus is eight domains, and the site said seven** — 42 stale claims across 16 files,
+  caused by this release's own `web-research` trajectory. `domains.svg` gained the row (89.8%,
+  PASS, 428 pruned), the viewBox to fit it, and the animation stagger the other seven have.
+
 ### Added
 
 - **An HTML trajectory in the certification corpus** (`corpus/web-research.json`). 1.38.0
