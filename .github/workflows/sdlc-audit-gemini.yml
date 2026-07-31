@@ -1,7 +1,9 @@
 # Auditor (Gemini) — third cross-model audit. Runs when a PR opens, when a human pushes
 # to it, and on demand via the `agent:audit` label. An independent third opinion
 # alongside the Claude reviewer and the Codex auditor. Read-only; posts Gemini's verdict
-# as a PR comment. Needs secret GEMINI_API_KEY — skips cleanly (no failure) when absent.
+# as a PR comment. Needs secret GEMINI_API_KEY: absent on a same-repo PR that is a
+# misconfiguration and fails; absent on a fork PR it skips green, because GitHub
+# withholds secrets from those runs by design.
 #
 # `synchronize` is in the list for the reason given in sdlc-audit.yml (#71): without it
 # the auditor only ever saw the commit that CONTAINED a bug, and the fix shipped
