@@ -197,21 +197,27 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          cd packaging/npm
+          V="$(node -p "require('./package.json').version")"
+          # Idempotency first, and deliberately BEFORE the token gate: re-cutting a
+          # release for a version already on npm has nothing to publish, so it must
+          # neither fail nor require a credential. `npm view` reads a public package
+          # without auth. (Audit finding on #69 — the token gate as first written
+          # would have failed a re-run that had no work to do.)
+          if npm view "distil-llm@$V" version >/dev/null 2>&1; then
+            echo "distil-llm@$V already on npm — nothing to do"
+            exit 0
+          fi
+          # Past here there IS something to publish, so a missing token is a real
+          # failure rather than a shrug.
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::error::NPM_TOKEN is not set, so this release cannot publish to npm."
+            echo "::error::NPM_TOKEN is not set, so distil-llm@$V cannot be published."
             echo "::error::Failing rather than skipping: a silent skip here left the"
             echo "::error::registry fourteen releases behind while every run stayed green."
             echo "::error::Add an npm *automation* token as the NPM_TOKEN repo secret"
             echo "::error::(a Publish/classic token still triggers 2FA and fails EOTP),"
             echo "::error::and ensure the package's Publishing access allows tokens."
             exit 1
-          fi
-          cd packaging/npm
-          V="$(node -p "require('./package.json').version")"
-          # Re-running a release for a version already on npm must not fail the run.
-          if npm view "distil-llm@$V" version >/dev/null 2>&1; then
-            echo "distil-llm@$V already on npm — nothing to do"
-            exit 0
           fi
           npm publish --provenance --access public
 
