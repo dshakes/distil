@@ -21,7 +21,19 @@ on:
 # and silently reduce three opinions to whichever finished first.
 concurrency:
   group: sdlc-audit-gemini-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # Cancel ONLY when this run will actually audit. Workflow-level concurrency is
+  # evaluated BEFORE the job-level `if`, so a run whose job will be skipped — a bot
+  # `synchronize`, an unrelated label — still joins the group. With a bare
+  # `cancel-in-progress: true` it would kill a valid audit already in flight and then
+  # skip, leaving the PR with no verdict at all: the precise opposite of the coverage
+  # this trigger exists to add. (Audit finding on #72; #71 shipped with it.)
+  #
+  # The predicate is the job's `if`, deliberately duplicated rather than referenced —
+  # workflow-level concurrency cannot see job outputs. Keep the two in step.
+  cancel-in-progress: >-
+    ${{ github.actor != 'dependabot[bot]'
+    && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
+    && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit') }}
 
 permissions:
   contents: read
