@@ -3,6 +3,47 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.39.1] — the release path, hardened and then actually run
+
+**The installed package is unchanged.** Every commit since 1.39.0 touches
+`.github/workflows/` or `packaging/homebrew/distil.rb`, neither of which ships in the
+wheel — `distil/` and the bundled corpus are byte-identical to 1.39.0. Nothing about
+compression, the proxy, or the CLI is different, and there is no reason to upgrade for
+behaviour. It is cut so the hardened publish path executes against a version that is not
+yet on PyPI, npm, or the tap, rather than waiting to find out during a release that
+matters.
+
+### Fixed — publish jobs that reported success while doing nothing
+
+- **A missing `NPM_TOKEN` now fails the release** instead of exiting 0 behind a warning.
+  That silent skip is how npm sat on 1.25.0 while PyPI reached 1.39.0 — fourteen
+  releases, each green, publishing nothing, while the README carried an npm badge and an
+  `npm i distil-llm` instruction aimed at the stale build. The registry now holds exactly
+  `1.25.0` and `1.39.0`, which is the evidence.
+- **A missing `TAP_TOKEN` now fails the release** for the same reason, behind an even
+  quieter `::notice::`. It worked only because the token happened to be set.
+- Both check idempotency **before** demanding a credential, so re-cutting a release with
+  nothing to publish neither fails nor needs one. For the tap that comparison covers the
+  url, the `sha256` **and** the version: a re-cut tag keeps the version and changes the
+  hash, and matching on version alone would have skipped repairing a formula whose
+  `brew install` fails its checksum.
+- A tarball fetch failure now says *"does the tag exist?"* instead of a bare `exit 56` —
+  the guard existed but was unreachable under `set -euo pipefail`.
+
+### Fixed — auditors that never saw the fix
+
+- **Both cross-audits now run on `synchronize`.** They triggered on open only, so an
+  auditor reviewed the commit that *contained* a bug and never the correction, unless
+  someone applied the `agent:audit` label by hand. Bot pushes are skipped only on
+  `synchronize` (the fix loop's rounds); PRs *opened* by Renovate, Copilot and release
+  bots still audit, because a blanket bot exclusion silently withdraws coverage from
+  dependency and generated-code changes.
+- **Concurrency is job-level, not workflow-level.** A workflow-level group is joined by
+  the run before the job's `if` is evaluated, so an event the job will skip still takes a
+  slot — cancelling the audit in flight, and evicting a queued one, since GitHub keeps a
+  single pending run per group. The PR ends with no verdict, which reads exactly like a
+  clean one. A skipped job never joins the group at all.
+
 ## [1.39.0] — certify the HTML transform, and a headline one fixture cannot swing
 
 ### Documentation
