@@ -1,13 +1,18 @@
-# Auditor (Gemini) — third cross-model audit. Runs automatically when a PR opens (an
-# independent third opinion alongside the Claude reviewer and Codex auditor) and on
-# demand via the `agent:audit` label. Read-only; posts Gemini's verdict as a PR comment.
-# Needs secret GEMINI_API_KEY — skips cleanly (no failure) when it is absent.
-# Not on `synchronize`, so the fix loop's pushes don't re-spend Gemini credits each round.
+# Auditor (Gemini) — third cross-model audit. Runs when a PR opens, when a human pushes
+# to it, and on demand via the `agent:audit` label. An independent third opinion
+# alongside the Claude reviewer and the Codex auditor. Read-only; posts Gemini's verdict
+# as a PR comment. Needs secret GEMINI_API_KEY — skips cleanly (no failure) when absent.
+#
+# `synchronize` is in the list for the reason given in sdlc-audit.yml (#71): without it
+# the auditor only ever saw the commit that CONTAINED a bug, and the fix shipped
+# unreviewed unless someone remembered the label. The cost that originally justified
+# leaving it out is filtered in the job condition instead — see there.
 name: "sdlc · audit (Gemini)"
 
 on:
   pull_request:
-    types: [opened, reopened, labeled]
+    types: [opened, reopened, synchronize, labeled]
+
 
 permissions:
   contents: read
@@ -15,10 +20,34 @@ permissions:
 
 jobs:
   audit-gemini:
-    # Auto on open/reopen, or on the agent:audit label. (label.name is null on open events.)
-    # dependabot-actor runs get Dependabot's (empty) secret store — agent can't auth, so skip
-    if: github.actor != 'dependabot[bot]' && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
+    # Same three guards as sdlc-audit.yml, for the same reasons:
+    #  1. dependabot never audits — empty secret store, the agent cannot auth at all.
+    #  2. bot pushes are skipped ONLY on `synchronize` (the SDLC fix loop's per-round
+    #     commits). Scoped deliberately: a blanket bot exclusion would also stop auditing
+    #     PRs *opened* by Renovate, Copilot and release bots, which are exactly the
+    #     dependency and generated-code changes a third opinion is worth having on.
+    #  3. a label triggers only when it is `agent:audit` (label.name is null on opens).
+    if: >-
+      github.actor != 'dependabot[bot]'
+      && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
+      && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
     runs-on: ubuntu-latest
+    # Job level, NOT workflow level. A workflow-level group is joined by the RUN, before
+    # the `if` above is evaluated, so an event this job will skip — a bot `synchronize`,
+    # an unrelated label — still takes a slot: it can cancel the audit in flight, and
+    # because GitHub keeps only one PENDING run per group it can also evict a queued one.
+    # Either way the PR ends up with no verdict, which is worse than the gap `synchronize`
+    # was added to close, because a missing audit is indistinguishable from a clean one.
+    #
+    # A skipped job never joins the group at all, so the whole class is gone by
+    # construction rather than by an expression that has to enumerate the skip cases.
+    # (Audit findings on #72, twice — the first attempt guarded `cancel-in-progress`
+    # with the job's own predicate, which still left the pending-slot eviction open.)
+    #
+    # The group name is per-workflow so the two auditors never cancel each other.
+    concurrency:
+      group: sdlc-audit-gemini-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       # Secrets aren't readable in a job-level `if`, so gate every later step on this
       # first step's output — absent key means the job completes green as a no-op.

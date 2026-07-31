@@ -18,13 +18,6 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, labeled]
 
-# One audit per PR. `synchronize` makes rapid pushes possible, and without this an
-# older run can finish LAST and post a verdict — clean or blocking — against a commit
-# that has already been superseded. Cancelling in flight also stops a push storm from
-# spending Codex credits on commits nobody will merge. (Audit finding on #71.)
-concurrency:
-  group: sdlc-audit-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -55,6 +48,22 @@ jobs:
       && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
       && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
     runs-on: ubuntu-latest
+    # Job level, NOT workflow level. A workflow-level group is joined by the RUN, before
+    # the `if` above is evaluated, so an event this job will skip — a bot `synchronize`,
+    # an unrelated label — still takes a slot: it can cancel the audit in flight, and
+    # because GitHub keeps only one PENDING run per group it can also evict a queued one.
+    # Either way the PR ends up with no verdict, which is worse than the gap `synchronize`
+    # was added to close, because a missing audit is indistinguishable from a clean one.
+    #
+    # A skipped job never joins the group at all, so the whole class is gone by
+    # construction rather than by an expression that has to enumerate the skip cases.
+    # (Audit findings on #72, twice — the first attempt guarded `cancel-in-progress`
+    # with the job's own predicate, which still left the pending-slot eviction open.)
+    #
+    # The group name is per-workflow so the two auditors never cancel each other.
+    concurrency:
+      group: sdlc-audit-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
