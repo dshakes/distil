@@ -13,27 +13,6 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, labeled]
 
-# One Gemini audit per PR, so a rapid push cannot leave an older run to finish last and
-# post a verdict against a superseded commit.
-#
-# The group name is deliberately NOT the one sdlc-audit.yml uses: concurrency groups are
-# shared across workflows, so a common name would make the two auditors cancel each other
-# and silently reduce three opinions to whichever finished first.
-concurrency:
-  group: sdlc-audit-gemini-${{ github.event.pull_request.number }}
-  # Cancel ONLY when this run will actually audit. Workflow-level concurrency is
-  # evaluated BEFORE the job-level `if`, so a run whose job will be skipped — a bot
-  # `synchronize`, an unrelated label — still joins the group. With a bare
-  # `cancel-in-progress: true` it would kill a valid audit already in flight and then
-  # skip, leaving the PR with no verdict at all: the precise opposite of the coverage
-  # this trigger exists to add. (Audit finding on #72; #71 shipped with it.)
-  #
-  # The predicate is the job's `if`, deliberately duplicated rather than referenced —
-  # workflow-level concurrency cannot see job outputs. Keep the two in step.
-  cancel-in-progress: >-
-    ${{ github.actor != 'dependabot[bot]'
-    && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
-    && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit') }}
 
 permissions:
   contents: read
@@ -53,6 +32,22 @@ jobs:
       && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
       && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
     runs-on: ubuntu-latest
+    # Job level, NOT workflow level. A workflow-level group is joined by the RUN, before
+    # the `if` above is evaluated, so an event this job will skip — a bot `synchronize`,
+    # an unrelated label — still takes a slot: it can cancel the audit in flight, and
+    # because GitHub keeps only one PENDING run per group it can also evict a queued one.
+    # Either way the PR ends up with no verdict, which is worse than the gap `synchronize`
+    # was added to close, because a missing audit is indistinguishable from a clean one.
+    #
+    # A skipped job never joins the group at all, so the whole class is gone by
+    # construction rather than by an expression that has to enumerate the skip cases.
+    # (Audit findings on #72, twice — the first attempt guarded `cancel-in-progress`
+    # with the job's own predicate, which still left the pending-slot eviction open.)
+    #
+    # The group name is per-workflow so the two auditors never cancel each other.
+    concurrency:
+      group: sdlc-audit-gemini-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       # Secrets aren't readable in a job-level `if`, so gate every later step on this
       # first step's output — absent key means the job completes green as a no-op.
