@@ -308,14 +308,14 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="Distil — Compression with a quality contract"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 7 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="Distil — Compression with a quality contract"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 7 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
@@ -651,10 +651,10 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
 
 <section id="domains"><div class="wrap">
   <div class="seyebrow">Coverage</div>
-  <h2>Measured across 7 domains <span class="g">— the same gate, not one example</span><a class="hlink" href="#domains" aria-label="Link to section: Measured across 7 domains — the same gate, not one example">#</a></h2>
+  <h2>Measured across 8 domains <span class="g">— the same gate, not one example</span><a class="hlink" href="#domains" aria-label="Link to section: Measured across 8 domains — the same gate, not one example">#</a></h2>
   <p class="lead">A strategy isn't trustworthy because it works once. <code>distil bench</code> certifies
     every domain — ops, coding, support, research, data, devops, finance — or it doesn't ship.</p>
-  <img loading="lazy" src="assets/domains.svg" alt="Bar chart of lossless savings across 7 domains, all passing the decision-equivalence gate: ops/sre 32.8%, coding 25.5%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 22.8%, finance 24.9%; aggregate 25.3% cheaper reversibly across 5,761 prunable tokens" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
+  <img loading="lazy" src="assets/domains.svg" alt="Bar chart of lossless savings across 8 domains, all passing the decision-equivalence gate: ops/sre 32.8%, coding 25.5%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 22.8%, finance 24.9%; aggregate 25.3% cheaper reversibly across 5,761 prunable tokens" style="width:100%;border:1px solid var(--line);border-radius:16px"/>
 </div></section>
 
 <section id="tiers"><div class="wrap">
@@ -754,7 +754,7 @@ client = wrap(anthropic.Anthropic())  <span class="d"># compresses + keeps the c
     see the eval. Published quality numbers in this space are typically measured at far lower
     compression than the headline workload ratios — so the two figures don't describe the same
     run. Distil's answer isn't a bigger number; it's a <b>gate</b>: the accuracy claim and the
-    compression are measured on the <i>same</i> trajectories across <b>7 domains</b>, and a
+    compression are measured on the <i>same</i> trajectories across <b>8 domains</b>, and a
     strategy that can't pass non-inferiority doesn't ship. The default tokenizer is an offline
     heuristic (ratios robust, dollars approximate); <code>--tokenizer anthropic</code> and
     <code>--runner anthropic</code> make it billing-grade against the real model.

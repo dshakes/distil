@@ -8,14 +8,14 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="Integrations — Distil"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 7 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/integrations.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="Integrations — Distil"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 7 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -479,6 +479,21 @@ agent = create_react_agent(model, tools, pre_model_hook=pre_model_hook())</pre>
     <code>compress_messages()</code> (LangChain), and <code>pre_model_hook()</code> (LangGraph) are
     framework-free and unit-tested. The LangGraph hook returns only the updated message list, so
     every other state field is left intact.</p>
+
+    <h3>LangChain / LangGraph as a package &mdash; <code>langchain-distil</code></h3>
+    <p>The two hooks above are also published as a standalone package, listed in LangChain&rsquo;s own
+    <a href="https://docs.langchain.com/oss/python/integrations/providers/all_providers">community middleware
+    integrations</a>. It is a thin wrapper over exactly those hooks &mdash; same certified compression path,
+    nothing re-implemented &mdash; and it pulls <code>distil-llm</code> in as a dependency.</p>
+    <pre class="term"><span class="d">$ pip install langchain-distil</span>
+
+<span class="c">from</span> langchain_distil <span class="c">import</span> compress_messages, pre_model_hook, as_runnable
+
+msgs  = compress_messages(msgs)                                   <span class="d"># a message list</span>
+graph = create_react_agent(model, tools, pre_model_hook=pre_model_hook())  <span class="d"># LangGraph state</span>
+chain = as_runnable() | llm                                       <span class="d"># or a chain step</span></pre>
+    <p><code>as_runnable()</code> imports <code>langchain-core</code> lazily, so importing the package never
+    requires it. See <a href="langchain.html">LangChain &times; Distil</a> for the full page.</p>
 
     <hr/>
 
