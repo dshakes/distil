@@ -284,14 +284,33 @@ jobs:
           # url/sha to "v" and break `brew install` for everyone.
           [ -n "$VER" ] || { echo "::error::RELEASE_VERSION is empty — refusing to touch the tap"; exit 1; }
 
-          # Idempotency first, and deliberately BEFORE the token gate: a re-cut whose
-          # tap already names this version has nothing to push, so it must neither
-          # fail nor require a credential. A brew tap is necessarily public, so this
-          # reads anonymously. Same ordering as publish-npm's `npm view` pre-check,
-          # which an audit on #69 showed has to come first.
+          # Hash the tarball before anything else: it is a public download needing no
+          # credential, and the idempotency check below has to compare against it.
+          # Assign inside `if` so errexit does not kill the step before the message:
+          # under `set -euo pipefail` a 404 from curl aborted the script outright, which
+          # made the guard below unreachable and reported a bare `exit 56`.
+          if ! SHA="$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VER}.tar.gz" | shasum -a 256 | cut -d' ' -f1)"; then
+            echo "::error::could not fetch the v${VER} source tarball — does the tag exist?"
+            exit 1
+          fi
+          [ -n "$SHA" ] || { echo "::error::could not hash the v${VER} tarball"; exit 1; }
+
+          # Idempotency, deliberately BEFORE the token gate: a re-cut whose tap is
+          # already in the exact state this job would write has nothing to push, so it
+          # must neither fail nor require a credential. A brew tap is necessarily
+          # public, so this reads anonymously. Ordering follows the audit on #69.
+          #
+          # All THREE fields must match, not just the version. A tag re-cut changes the
+          # tarball hash for the same version number, so a formula naming v$VER with a
+          # stale sha256 is broken — `brew install` fails its checksum — and is exactly
+          # the case that needs the repair below. Matching on version alone would skip
+          # it and call that success. (Audit finding on #70.)
           TAP_FORMULA="https://raw.githubusercontent.com/dshakes/homebrew-tap/main/Formula/distil.rb"
-          if curl -fsSL "$TAP_FORMULA" 2>/dev/null | grep -q "version \"${VER}\""; then
-            echo "tap already at ${VER} — nothing to do"
+          CURRENT="$(curl -fsSL "$TAP_FORMULA" 2>/dev/null || true)"
+          if printf '%s' "$CURRENT" | grep -q "archive/refs/tags/v${VER}\.tar\.gz" \
+             && printf '%s' "$CURRENT" | grep -q "sha256 \"${SHA}\"" \
+             && printf '%s' "$CURRENT" | grep -q "version \"${VER}\""; then
+            echo "tap already at ${VER} with a matching url and sha256 — nothing to do"
             exit 0
           fi
 
@@ -307,8 +326,6 @@ jobs:
             echo "::error::Add a repo secret TAP_TOKEN with push access to dshakes/homebrew-tap."
             exit 1
           fi
-          SHA="$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VER}.tar.gz" | shasum -a 256 | cut -d' ' -f1)"
-          [ -n "$SHA" ] || { echo "::error::could not hash the v${VER} tarball"; exit 1; }
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/dshakes/homebrew-tap" tap
           cd tap
           python3 - "$VER" "$SHA" <<'PY'
