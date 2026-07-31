@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [1.38.1] — certify the HTML transform, and a headline one fixture cannot swing
+## [1.39.0] — certify the HTML transform, and a headline one fixture cannot swing
 
 ### Added
 
