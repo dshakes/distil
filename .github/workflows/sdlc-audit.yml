@@ -18,25 +18,41 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, labeled]
 
+# One audit per PR. `synchronize` makes rapid pushes possible, and without this an
+# older run can finish LAST and post a verdict — clean or blocking — against a commit
+# that has already been superseded. Cancelling in flight also stops a push storm from
+# spending Codex credits on commits nobody will merge. (Audit finding on #71.)
+concurrency:
+  group: sdlc-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
   audit:
-    # Auto on open/reopen and on human pushes, or on the agent:audit label. (label.name is
-    # null on open events.) Bot actors are excluded for two separate reasons that happen to
-    # share a filter: dependabot runs get Dependabot's (empty) secret store so the agent
-    # cannot auth at all, and the SDLC fix loop pushes a commit per round — auditing every
-    # one of those re-spends Codex credits for no added signal, which is why `synchronize`
-    # was originally left out of the trigger entirely.
+    # Three independent guards, each for its own reason:
     #
-    # Residual: the loop falls back to SDLC_BOT_TOKEN when SDLC_APP_ID is unset, and a PAT
-    # pushes under its owner's name rather than a `[bot]` actor. In that configuration the
-    # loop's rounds WILL be audited. The App path is the documented one; this is noted so
-    # the cost is a known trade rather than a surprise.
+    # 1. dependabot never audits — those runs get Dependabot's (empty) secret store, so the
+    #    agent cannot auth at all. This is about capability, not cost.
+    # 2. On `synchronize` only, bot pushes are skipped: the SDLC fix loop commits once per
+    #    round and auditing each re-spends Codex credits for no added signal, since the loop
+    #    is already gated by the reviewer. Scoped to synchronize deliberately — a blanket
+    #    bot exclusion would also stop auditing PRs *opened* by Renovate, Copilot, release
+    #    bots and the like, which are dependency and generated-code changes and among the
+    #    most worth a second opinion. (Audit finding on #71: the first version of this
+    #    filter made exactly that mistake.)
+    # 3. A label only triggers an audit when it is `agent:audit`. (label.name is null on
+    #    open events, hence the action check first.)
+    #
+    # Residual: the fix loop falls back to SDLC_BOT_TOKEN when SDLC_APP_ID is unset, and a
+    # PAT pushes under its owner's name rather than a `[bot]` actor, so in that
+    # configuration the loop's rounds WILL be audited. The App path is the documented one;
+    # noted so the cost is a known trade rather than a surprise.
     if: >-
-      !endsWith(github.actor, '[bot]')
+      github.actor != 'dependabot[bot]'
+      && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
       && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
     runs-on: ubuntu-latest
     steps:
