@@ -163,19 +163,23 @@ jobs:
 #    add PUBLISH_TO_PYPI = true
 # 3. Push a tag (vX.Y.Z). No API token is ever stored — auth is OIDC.
 
-  # The npm wrapper — the README carries an npm version badge, but nothing ever
-  # published it after the first manual push: the registry served 1.25.0 while
-  # the repo said 1.27.0 and PyPI was on 1.33.1. A badge that advertises a build
-  # nine releases old is worse than no badge.
+  # The npm wrapper — the README carries an npm version badge and an
+  # `npm i distil-llm` instruction, so a stale registry hands Node users an old
+  # build while every other surface is current.
   #
-  # Dormant until an NPM_TOKEN secret exists (an automation token from
-  # npmjs.com → Access Tokens). Until then the release is unaffected and the
-  # version can no longer drift silently: tests/test_packaging_smoke.py and the
-  # release.sh preflight both pin packaging/npm/package.json to pyproject.
+  # This job used to `exit 0` when NPM_TOKEN was absent, warning into a GREEN run.
+  # That is how the registry sat on 1.25.0 while PyPI reached 1.39.0 — fourteen
+  # releases, each reporting success, publishing nothing. The versions on npm are
+  # literally ['1.25.0', '1.39.0']: everything between was skipped, silently.
+  #
+  # So a missing token is now a hard failure. The precedent is publish-pypi, which
+  # is dormant behind an explicit opt-in and then fails for real; skipping quietly
+  # is not one of its states either. Forks are excluded at the `if:` rather than
+  # inside the step, so they never run it and never see a false failure.
   publish-npm:
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ !contains(needs.build.outputs.version, 'rc') }}
+    if: ${{ !contains(needs.build.outputs.version, 'rc') && github.repository == 'dshakes/distil' }}
     permissions:
       contents: read
       # `npm publish --provenance` signs via OIDC, exactly like publish-pypi's
@@ -193,17 +197,27 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::warning::NPM_TOKEN not set — skipping npm publish. The README's npm"
-            echo "::warning::badge will keep showing the last published version."
-            exit 0
-          fi
           cd packaging/npm
           V="$(node -p "require('./package.json').version")"
-          # Re-running a release for a version already on npm must not fail the run.
+          # Idempotency first, and deliberately BEFORE the token gate: re-cutting a
+          # release for a version already on npm has nothing to publish, so it must
+          # neither fail nor require a credential. `npm view` reads a public package
+          # without auth. (Audit finding on #69 — the token gate as first written
+          # would have failed a re-run that had no work to do.)
           if npm view "distil-llm@$V" version >/dev/null 2>&1; then
             echo "distil-llm@$V already on npm — nothing to do"
             exit 0
+          fi
+          # Past here there IS something to publish, so a missing token is a real
+          # failure rather than a shrug.
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN is not set, so distil-llm@$V cannot be published."
+            echo "::error::Failing rather than skipping: a silent skip here left the"
+            echo "::error::registry fourteen releases behind while every run stayed green."
+            echo "::error::Add an npm *automation* token as the NPM_TOKEN repo secret"
+            echo "::error::(a Publish/classic token still triggers 2FA and fails EOTP),"
+            echo "::error::and ensure the package's Publishing access allows tokens."
+            exit 1
           fi
           npm publish --provenance --access public
 
