@@ -174,18 +174,24 @@ jobs:
               # green job asserting something false, which is the failure this repo
               # keeps finding.
               echo "::warning::Fix pushed to $HEAD_REF, but NOTHING will re-validate it."
-              echo "::warning::Pushes made with GITHUB_TOKEN do not trigger workflow runs,"
-              echo "::warning::so no reviewer, audit or gate will see this commit and the"
-              echo "::warning::auto-fix loop stops here. Configure SDLC_APP_ID +"
-              echo "::warning::SDLC_APP_PRIVATE_KEY (preferred) or the SDLC_BOT_TOKEN secret."
+              echo "::warning::No usable bot credential was available, so the push fell back"
+              echo "::warning::to GITHUB_TOKEN — and GitHub raises no workflow events for"
+              echo "::warning::those, so no reviewer, audit or gate sees this commit."
+              echo "::warning::Either no credential is configured (SDLC_APP_ID +"
+              echo "::warning::SDLC_APP_PRIVATE_KEY, or SDLC_BOT_TOKEN), or the App token"
+              echo "::warning::step failed to mint one — it runs under continue-on-error, so"
+              echo "::warning::check its log before assuming the secrets are missing."
               # shellcheck disable=SC2016  # the backticks below are markdown code
               # spans in a PR comment, not shell expansions.
               gh pr comment "$PR" --body "$(printf '%s\n' \
                 '⚠️ **Auto-fix pushed, but nothing re-ran.**' '' \
                 "A fix was committed to \`$HEAD_REF\`, and then no checks re-ran against it." \
-                'GitHub raises no workflow events for pushes authenticated with `GITHUB_TOKEN`,' \
-                'and neither `SDLC_APP_ID` nor `SDLC_BOT_TOKEN` is configured — so the reviewer,' \
-                'the cross-audits and the gate matrix have **not** seen this commit.' '' \
+                'No usable bot credential was available, so the push fell back to' \
+                '`GITHUB_TOKEN` — and GitHub raises no workflow events for those, so the' \
+                'reviewer, the cross-audits and the gate matrix have **not** seen it.' '' \
+                'Either no credential is configured (`SDLC_APP_ID` + `SDLC_APP_PRIVATE_KEY`,' \
+                'or `SDLC_BOT_TOKEN`), **or** the App-token step failed to mint one — it runs' \
+                'under `continue-on-error`, so check its log before assuming a missing secret.' '' \
                 'It is unvalidated, `agent:needs-fix` is still on this PR, and the loop cannot' \
                 'continue on its own. Re-run the checks by hand, or configure a bot credential' \
                 'so the loop closes itself.')" >/dev/null 2>&1 || true
