@@ -1,7 +1,9 @@
 # Auditor (Gemini) — third cross-model audit. Runs when a PR opens, when a human pushes
 # to it, and on demand via the `agent:audit` label. An independent third opinion
 # alongside the Claude reviewer and the Codex auditor. Read-only; posts Gemini's verdict
-# as a PR comment. Needs secret GEMINI_API_KEY — skips cleanly (no failure) when absent.
+# as a PR comment. Needs secret GEMINI_API_KEY: absent on a same-repo PR that is a
+# misconfiguration and fails; absent on a fork PR it skips green, because GitHub
+# withholds secrets from those runs by design.
 #
 # `synchronize` is in the list for the reason given in sdlc-audit.yml (#71): without it
 # the auditor only ever saw the commit that CONTAINED a bug, and the fix shipped
@@ -55,13 +57,34 @@ jobs:
         id: key
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # GitHub withholds secrets from `pull_request` runs raised by a fork, so an
+          # absent key there is by design, not misconfiguration. Only a same-repo PR can
+          # tell the two apart — and failing every external contributor's PR to enforce
+          # our own config would be a self-inflicted wound.
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
+          set -euo pipefail
           if [ -n "$GEMINI_API_KEY" ]; then
             echo "present=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "present=false" >>"$GITHUB_OUTPUT"
-            echo "GEMINI_API_KEY not set — skipping the Gemini cross-audit."
+            exit 0
           fi
+          if [ "$SAME_REPO" != "true" ]; then
+            echo "present=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::fork PR — GitHub withholds secrets from these runs, so the"
+            echo "::notice::Gemini cross-audit is skipped by design. Codex and the Claude"
+            echo "::notice::reviewer still cover this PR."
+            exit 0
+          fi
+          # Same-repo PR: the key should have been there. Skipping quietly would leave a
+          # green job that audited nothing, which is indistinguishable from a clean audit
+          # — the exact shape that let npm sit fourteen releases behind (#69).
+          echo "::error::GEMINI_API_KEY is not set, so the Gemini cross-audit cannot run."
+          echo "::error::Failing rather than skipping: a green job that audited nothing"
+          echo "::error::reads exactly like one that found nothing, and this repo has"
+          echo "::error::already lost a package publish to that shape."
+          echo "::error::Add GEMINI_API_KEY as a repo secret, or delete this workflow if"
+          echo "::error::the third opinion is no longer wanted."
+          exit 1
       # Check out the BASE commit — our own reviewed code. The PR's tree is NEVER placed
       # on disk, so nothing the CLI auto-loads from a workspace (GEMINI.md as agent
       # context, .env, .gemini/settings.json whose mcpServers it spawns as processes,
