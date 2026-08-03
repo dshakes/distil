@@ -73,10 +73,31 @@ jobs:
           EXTRA: ${{ vars.SDLC_TRIGGER_BOTS }}
         run: |
           set -uo pipefail
-          # Humans are already gated by GitHub: applying a label needs triage or write.
+          # Non-bot actors are NOT waved through on the strength of "they could label it".
+          # Labelling needs only TRIAGE; this job pushes code. A triage collaborator (or a
+          # machine-user PAT, which has no [bot] suffix and would otherwise dodge the bot
+          # allowlist entirely) must not be able to launder a label into contents:write.
+          # Require what the job actually exercises. role_name triage/read map to legacy
+          # permission "read"; maintain maps to "write" — so admin|write is the right cut.
           case "$ACTOR" in
             *'[bot]') ;;
-            *) echo "Actor '$ACTOR' is not a bot — already permission-gated by GitHub."; exit 0 ;;
+            *)
+              perm="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || true)"
+              case "$perm" in
+                admin|write)
+                  echo "Actor '$ACTOR' holds '$perm' on this repo."
+                  exit 0 ;;
+                "")
+                  echo "::error::Could not read '$ACTOR''s permission on $GITHUB_REPOSITORY."
+                  echo "::error::Refusing rather than assuming. This is usually a token scope"
+                  echo "::error::problem, not an untrusted actor — check the API response."
+                  exit 1 ;;
+                *)
+                  echo "::error::'$ACTOR' holds '$perm', which allows labelling but not pushing."
+                  echo "::error::This job has contents:write and pushes to the PR branch, so a"
+                  echo "::error::label must not be enough to drive it. Nothing has been run."
+                  exit 1 ;;
+              esac ;;
           esac
           # `github-actions[bot]` is the actor for EVERY workflow in this repo that uses
           # GITHUB_TOKEN — it is not one identity, it is "in-repo automation". Trusting it
