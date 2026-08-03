@@ -227,7 +227,10 @@ jobs:
               # single-branch refspec it updates only FETCH_HEAD, so the rebase below would
               # target a STALE tip and the retry would be rejected identically. Verified
               # both ways in a scratch repo — bare: stale, explicit: fresh.
-              git fetch -q origin "+$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+              # Source side fully qualified as refs/heads/: a tag sharing the branch's name
+              # otherwise wins the lookup, and the rebase silently targets the tag's commit
+              # instead of the branch tip. Verified — unqualified resolves to the tag.
+              git fetch -q origin "+refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
               if ! git rebase -q "origin/$HEAD_REF"; then
                 git rebase --abort >/dev/null 2>&1 || true
                 echo "::error::The fix conflicts with a newer commit on $HEAD_REF. Rebase"
