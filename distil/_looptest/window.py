@@ -1,8 +1,6 @@
 """Scratch module used to prove the SDLC auto-fix loop closes end to end.
 
-Throwaway branch. Round 2 re-introduces a defect so the Reviewer flags BLOCKING
-again — this time with SDLC_TRIGGER_BOTS deleted, so the authorize gate must
-recognise the App by its own identity rather than by a hand-set allowlist.
+Throwaway branch; delete afterwards. It must never reach main.
 """
 
 from __future__ import annotations
@@ -24,7 +22,14 @@ def mean_of_tail(values: list[int], size: int) -> float:
 
 
 def rolling_max(values: list[int], size: int) -> list[int]:
-    """Max over each sliding window of width `size`."""
-    # BUG: range end is off by one so the final window is never emitted, and a
-    # size larger than the input silently yields [] instead of one full-span max.
-    return [max(values[i : i + size]) for i in range(len(values) - size)]
+    """Max over each sliding window of width `size`.
+
+    Returns one entry per window; if `size` is at least as long as `values`,
+    the single full-span max is returned. Non-positive `size` or empty
+    `values` yields an empty list.
+    """
+    if size <= 0 or not values:
+        return []
+    if size >= len(values):
+        return [max(values)]
+    return [max(values[i : i + size]) for i in range(len(values) - size + 1)]
