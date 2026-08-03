@@ -34,6 +34,38 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       MAX: ${{ vars.SDLC_MAX_FIX_ROUNDS || 3 }}
     steps:
+      # First step on purpose: refuse before the App token is minted or any code is
+      # checked out. `allowed_bots: "*"` below tells claude-code-action not to refuse a
+      # bot-initiated run, but it says nothing about WHICH bot — and this job carries
+      # contents:write, a push back to the PR branch, and Edit/Write tools. Without this,
+      # an App holding only issues:write (enough to apply a label) could drive a
+      # contents:write agent. That is the escalation being closed.
+      #
+      # It FAILS rather than skips. A silent skip here would be indistinguishable from
+      # "the loop is idle", which is the exact failure mode this repo keeps shipping.
+      - name: Authorize the trigger actor
+        env:
+          ACTOR: ${{ github.actor }}                                    # login → via env, never inlined
+          ALLOWED: ${{ vars.SDLC_TRIGGER_BOTS || 'github-actions[bot]' }}
+        run: |
+          set -uo pipefail
+          # Humans are already gated by GitHub: applying a label needs triage/write.
+          case "$ACTOR" in
+            *'[bot]') ;;
+            *) echo "Actor '$ACTOR' is not a bot — already permission-gated by GitHub."; exit 0 ;;
+          esac
+          if printf '%s' "$ALLOWED" | tr ',' '\n' \
+               | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+               | grep -qxF "$ACTOR"; then
+            echo "Actor '$ACTOR' is on the SDLC_TRIGGER_BOTS allowlist."
+            exit 0
+          fi
+          echo "::error::'$ACTOR' is not authorised to trigger the auto-fixer."
+          echo "::error::This job holds contents:write, Edit/Write tools and pushes to the PR"
+          echo "::error::branch, so only named bots may drive it. Nothing has been run."
+          echo "::error::If this is your SDLC bot, add it to the repo variable:"
+          echo "::error::  gh variable set SDLC_TRIGGER_BOTS -R $GITHUB_REPOSITORY --body '$ALLOWED,$ACTOR'"
+          exit 1
       # Org-wide bot identity (optional): a GitHub App installed on the org mints a short-lived
       # token to push the fix (which is what chains the re-review). Falls back to SDLC_BOT_TOKEN.
       - name: Mint GitHub App token
