@@ -28,6 +28,17 @@ jobs:
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Deliberately NO `allowed_bots`. It would guard a path that cannot execute:
+          # sdlc-classify applies `domain:ui` using `github.token` (see sdlc-classify.yml,
+          # GH_TOKEN), and GitHub raises no workflow events for that token — so the
+          # `labeled` event never fires and this job never starts. Measured, not assumed:
+          # across distil/compass/lantern/kage this workflow has run 0 times in 198
+          # triggers, and lantern alone has 26 PRs carrying `domain:ui`.
+          #
+          # If the classifier is ever switched to an App/PAT token so the chain works,
+          # this job WILL start seeing a bot actor and will need a guard — use the actor
+          # allowlist from sdlc-fix.yml, not a bare "*". This job holds issues:write,
+          # pull-requests:write and spends model budget.
           # claude-code-action v1.0.134+ does an app-token exchange that requires a token
           # (or a workflow matching the default branch); pass the built-in one explicitly.
           github_token: ${{ github.token }}

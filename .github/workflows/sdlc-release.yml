@@ -30,6 +30,12 @@ jobs:
           # Subscription token (no API credits); for a pay-per-use key use:
           #   anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Deliberately NO `allowed_bots` here. Nothing in this repo applies
+          # `agent:release` — it is a human-only label — so a bot guard would buy
+          # nothing, while this job holds `contents: write`, a write token and
+          # Edit/Write tools. Allowing bots would let anything able to label a PR
+          # reach a branch-mutating agent. If a bot is ever taught to release, add
+          # that specific login, not "*".
           github_token: ${{ secrets.SDLC_BOT_TOKEN || github.token }}
           prompt: |
             You are **Releaser** (agent:release) in an autonomous SDLC pipeline, preparing a
