@@ -69,6 +69,7 @@ jobs:
         env:
           ACTOR: ${{ github.actor }}          # a login → via env, never inlined
           APP_ID: ${{ vars.SDLC_APP_ID }}     # empty when no App is configured
+          APP_SLUG: ${{ steps.apptoken.outputs.app-slug }}  # empty if the mint failed/skipped
           EXTRA: ${{ vars.SDLC_TRIGGER_BOTS }}
         run: |
           set -uo pipefail
@@ -77,6 +78,13 @@ jobs:
             *'[bot]') ;;
             *) echo "Actor '$ACTOR' is not a bot — already permission-gated by GitHub."; exit 0 ;;
           esac
+          # `github-actions[bot]` is the actor for EVERY workflow in this repo that uses
+          # GITHUB_TOKEN — it is not one identity, it is "in-repo automation". Trusting it
+          # is a deliberate boundary, not an oversight: making a repo workflow apply
+          # `agent:needs-fix` means editing .github/workflows, which needs write access and
+          # has to survive review + qa on a protected main. It is also required for the
+          # no-App path (sdlc-ci-fix and sdlc-control both label with github.token). Narrow
+          # this only when every label-capable workflow here is no longer trusted.
           allowed="github-actions[bot]${EXTRA:+,$EXTRA}"
           if printf '%s' "$allowed" | tr ',' '\n' \
                | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
@@ -84,14 +92,24 @@ jobs:
             echo "Actor '$ACTOR' is on the allowlist ($allowed)."
             exit 0
           fi
-          # Resolve the actor against the CONFIGURED App, not against the mint's output.
-          # The mint runs under continue-on-error by design, so keying authorization off
-          # steps.apptoken would deny a legitimate App bot every time the mint hiccups —
-          # converting the deliberate fallback into a hard stop. /apps/{slug} needs no App
-          # JWT, so this answers "is this the App this repo is configured with?" even when
-          # the mint just failed. The %\[bot\] escaping is load-bearing: unescaped, [bot]
-          # is a glob character class matching one of b/o/t, the login's last character is
-          # ']', nothing matches, and the suffix is left ON — so the lookup would ask for
+          # Path 1 — the mint succeeded and told us which App it minted for. Works for
+          # PRIVATE Apps, which the public lookup below cannot resolve.
+          if [ -n "$APP_SLUG" ] && [ "$ACTOR" = "${APP_SLUG}[bot]" ]; then
+            echo "Actor '$ACTOR' is the App that minted this run's token."
+            exit 0
+          fi
+          # Path 2 — the mint failed or was skipped (it runs under continue-on-error by
+          # design, so the SDLC_BOT_TOKEN/github.token fallback stays real). Resolve the
+          # actor against the CONFIGURED App instead: /apps/{slug} needs no App JWT, so
+          # this still answers "is this the App this repo is configured with?".
+          #
+          # The two paths cover each other: private App + working mint → path 1; public
+          # App + failed mint → path 2. Only private App AND failed mint needs
+          # SDLC_TRIGGER_BOTS, and the denial below says so.
+          #
+          # The %\[bot\] escaping is load-bearing: unescaped, [bot] is a glob character
+          # class matching one of b/o/t, the login's last character is ']', nothing
+          # matches, and the suffix is left ON — so the lookup would ask for
           # /apps/distil-sdlc[bot], 404, and deny a legitimate App. Verified both ways.
           if [ -n "$APP_ID" ]; then
             slug="${ACTOR%\[bot\]}"
@@ -108,9 +126,11 @@ jobs:
           if [ -z "$APP_ID" ]; then
             echo "::error::No SDLC_APP_ID is set, so no App could be matched either."
           else
-            echo "::error::It is also not the App in SDLC_APP_ID ($APP_ID) — either it is a"
-            echo "::error::different bot, or /apps/$slug was unreadable (a PRIVATE App cannot"
-            echo "::error::be resolved this way). Do not assume the former."
+            echo "::error::It is also not the App in SDLC_APP_ID ($APP_ID). Either it is a"
+            echo "::error::different bot, OR this is a PRIVATE App and the token mint also"
+            echo "::error::failed — /apps/$slug cannot resolve a private App, and the mint"
+            echo "::error::runs under continue-on-error, so check that step's log before"
+            echo "::error::assuming the actor is unauthorised."
           fi
           echo "::error::If '$ACTOR' should be allowed:"
           echo "::error::  gh variable set SDLC_TRIGGER_BOTS -R $GITHUB_REPOSITORY --body '$ACTOR'"
