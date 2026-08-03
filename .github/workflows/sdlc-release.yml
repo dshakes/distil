@@ -30,6 +30,11 @@ jobs:
           # Subscription token (no API credits); for a pay-per-use key use:
           #   anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # `agent:release` may be applied by a bot as well as a human, and
+          # claude-code-action refuses bot-initiated runs unless told otherwise
+          # ("Workflow initiated by non-human actor"). Same gated-label, same-repo
+          # reasoning as sdlc-fix.yml — allow bots so the label works either way.
+          allowed_bots: "*"
           github_token: ${{ secrets.SDLC_BOT_TOKEN || github.token }}
           prompt: |
             You are **Releaser** (agent:release) in an autonomous SDLC pipeline, preparing a

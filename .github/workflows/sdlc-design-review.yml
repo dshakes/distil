@@ -28,6 +28,13 @@ jobs:
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The trigger label `domain:ui` is applied by sdlc-classify, i.e. by a bot — so
+          # the actor here is a Bot and claude-code-action refuses bot-initiated runs
+          # unless told otherwise ("Workflow initiated by non-human actor"). That is not
+          # hypothetical: it is what killed the one bot-triggered reviewer run in compass
+          # (run 29543490666) until `allowed_bots` was added there. The trigger is our own
+          # gated label on a same-repo PR, so allow bots.
+          allowed_bots: "*"
           # claude-code-action v1.0.134+ does an app-token exchange that requires a token
           # (or a workflow matching the default branch); pass the built-in one explicitly.
           github_token: ${{ github.token }}
