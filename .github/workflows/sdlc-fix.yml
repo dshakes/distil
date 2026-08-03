@@ -67,8 +67,8 @@ jobs:
       # loop is idle" — the exact failure mode this repo keeps shipping.
       - name: Authorize the trigger actor
         env:
-          ACTOR: ${{ github.actor }}                       # a login → via env, never inlined
-          APP_SLUG: ${{ steps.apptoken.outputs.app-slug }} # empty when no App is configured
+          ACTOR: ${{ github.actor }}          # a login → via env, never inlined
+          APP_ID: ${{ vars.SDLC_APP_ID }}     # empty when no App is configured
           EXTRA: ${{ vars.SDLC_TRIGGER_BOTS }}
         run: |
           set -uo pipefail
@@ -77,20 +77,42 @@ jobs:
             *'[bot]') ;;
             *) echo "Actor '$ACTOR' is not a bot — already permission-gated by GitHub."; exit 0 ;;
           esac
-          allowed="github-actions[bot]"
-          [ -n "$APP_SLUG" ] && allowed="$allowed,${APP_SLUG}[bot]"
-          [ -n "$EXTRA" ]    && allowed="$allowed,$EXTRA"
+          allowed="github-actions[bot]${EXTRA:+,$EXTRA}"
           if printf '%s' "$allowed" | tr ',' '\n' \
                | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
                | grep -qxF "$ACTOR"; then
-            echo "Actor '$ACTOR' is authorised (allowlist: $allowed)."
+            echo "Actor '$ACTOR' is on the allowlist ($allowed)."
             exit 0
+          fi
+          # Resolve the actor against the CONFIGURED App, not against the mint's output.
+          # The mint runs under continue-on-error by design, so keying authorization off
+          # steps.apptoken would deny a legitimate App bot every time the mint hiccups —
+          # converting the deliberate fallback into a hard stop. /apps/{slug} needs no App
+          # JWT, so this answers "is this the App this repo is configured with?" even when
+          # the mint just failed. The %\[bot\] escaping is load-bearing: unescaped, [bot]
+          # is a glob character class matching one of b/o/t, the login's last character is
+          # ']', nothing matches, and the suffix is left ON — so the lookup would ask for
+          # /apps/distil-sdlc[bot], 404, and deny a legitimate App. Verified both ways.
+          if [ -n "$APP_ID" ]; then
+            slug="${ACTOR%\[bot\]}"
+            got="$(gh api "/apps/$slug" --jq .id 2>/dev/null || true)"
+            if [ -n "$got" ] && [ "$got" = "$APP_ID" ]; then
+              echo "Actor '$ACTOR' is the App configured in SDLC_APP_ID ($APP_ID)."
+              exit 0
+            fi
           fi
           echo "::error::'$ACTOR' is not authorised to trigger the auto-fixer."
           echo "::error::This job holds contents:write, Edit/Write tools and pushes to the PR"
           echo "::error::branch, so only named bots may drive it. Nothing has been run."
-          echo "::error::Authorised: $allowed"
-          echo "::error::If '$ACTOR' should be allowed, add it:"
+          echo "::error::Allowlisted: $allowed"
+          if [ -z "$APP_ID" ]; then
+            echo "::error::No SDLC_APP_ID is set, so no App could be matched either."
+          else
+            echo "::error::It is also not the App in SDLC_APP_ID ($APP_ID) — either it is a"
+            echo "::error::different bot, or /apps/$slug was unreadable (a PRIVATE App cannot"
+            echo "::error::be resolved this way). Do not assume the former."
+          fi
+          echo "::error::If '$ACTOR' should be allowed:"
           echo "::error::  gh variable set SDLC_TRIGGER_BOTS -R $GITHUB_REPOSITORY --body '$ACTOR'"
           exit 1
       - name: Round cap
