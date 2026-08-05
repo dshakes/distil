@@ -53,6 +53,27 @@ class FidelityReport:
         return self.state.stale + self.hedges.overclaimed + self.plan.dropped_work
 
 
+_DECISION = "DECISION:"
+
+
+def _decisions(blocks: Iterable[str]) -> set[str]:
+    """The decisions a turn's context asserts, per the corpus `DECISION:` convention.
+
+    Same oracle the bench gate uses. It is synthetic — a marker in fixture text, not a
+    model's actual next action — and that limit is reported as provenance rather than
+    left for a reader to assume otherwise.
+    """
+    out: set[str] = set()
+    for text in blocks:
+        for line in (text or "").splitlines():
+            head, sep, tail = line.partition(_DECISION)
+            if sep:
+                cleaned = tail.strip()
+                if cleaned:
+                    out.add(cleaned)
+    return out
+
+
 def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
     """Score every turn of every trajectory, with real compression in the loop."""
     comp = compressor or Tier1Reversible()
@@ -96,9 +117,18 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
             signals.append(
                 propagation.TurnSignal(
                     fidelity=min(local_state.fidelity, hd.fidelity, local_plan.pending_recall),
-                    decision_changed=bool(
-                        local_state.stale or hd.overclaimed or local_plan.dropped_work
-                    ),
+                    # A REAL decision signal, from the same `DECISION:` oracle the bench
+                    # gate uses — not a re-badged probe failure.
+                    #
+                    # The first version derived this from `stale or overclaimed or
+                    # dropped_work`, which made the whole analysis circular: lift then
+                    # correlated probe failures with probe failures, lag 0 was high by
+                    # construction, and the gate could report "propagation" without a
+                    # single decision changing. This repo already refuses that
+                    # conflation elsewhere (`conformal.render_grader` insists the
+                    # synthetic oracle is "NOT a model") and the same standard applies
+                    # here.
+                    decision_changed=_decisions(originals) != _decisions(compressed),
                 )
             )
             traj_original.extend(originals)

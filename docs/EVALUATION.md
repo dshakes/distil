@@ -375,6 +375,18 @@ Lift ≈ 1 across all lags means errors stay local — which is the claim distil
 wants to make about its conservative tier, and it is a claim the profile can
 actually support.
 
+**The decision signal must be independent of the probes.** It comes from the same
+`DECISION:` oracle the bench gate uses, comparing baseline against compressed. An
+early version derived it from the probes' own failures (`stale or overclaimed or
+dropped_work`), which made the analysis circular: lift then correlated probe
+failures with themselves, lag 0 was elevated by construction, and the gate could
+report propagation without a single decision having changed. Found by cross-audit;
+the contract is now stated on `TurnSignal` itself so it cannot quietly regress.
+
+On the bundled corpus the reversible tier changes **zero** decisions, so the tool
+reports *"nothing to propagate, and nothing tested"* rather than "no propagation" —
+a vacuous truth should not be dressed as an earned result.
+
 **Two limits, stated in the module's own output.** First, this is association,
 not causation: a turn-3 drop and a turn-9 change can share a cause. Second,
 periodic workloads alias — a retry cadence that drops fidelity every k turns and

@@ -52,10 +52,19 @@ _MIN_EXPOSED = 10
 
 @dataclass
 class TurnSignal:
-    """One turn's observation: how well it compressed, and whether behaviour changed."""
+    """One turn's observation: how well it compressed, and whether behaviour changed.
+
+    ``decision_changed`` MUST come from an independent decision oracle — a real
+    baseline-vs-compressed comparison of what the agent would do. It must NOT be
+    derived from the fidelity probes, however tempting: feeding a probe failure in as
+    the "decision" makes the whole analysis circular. Lift then measures the
+    correlation of probe failures with themselves, lag 0 is elevated by construction,
+    and the verdict can fire without a single decision having changed. An early
+    version of the caller did exactly that; this note exists so it is not repeated.
+    """
 
     fidelity: float  # 1.0 = nothing lost this turn
-    decision_changed: bool
+    decision_changed: bool  # from a decision oracle, NOT from a fidelity probe
 
 
 @dataclass
@@ -154,11 +163,15 @@ def format_report(report: PropagationReport) -> str:
         lines.append(
             f"  lag {lag.lag}: {lag.changed:>3}/{lag.exposed:<3} changed   lift {lag.lift:5.2f}{marker}"
         )
-    verdict = (
-        "damage is arriving in LATER turns — compression errors are propagating"
-        if report.propagates
-        else "no measurable propagation — errors stay local to their turn"
-    )
+    if report.base_rate == 0.0:
+        # Nothing changed, so nothing propagated — but saying "no propagation" here
+        # would dress a vacuous truth as an earned result. The analysis had no events
+        # to work with and should say so.
+        verdict = "no decisions changed at all — nothing to propagate, and nothing tested"
+    elif report.propagates:
+        verdict = "damage is arriving in LATER turns — compression errors are propagating"
+    else:
+        verdict = "no measurable propagation — errors stay local to their turn"
     lines.append(f"  verdict: {verdict}")
     lines.append("  (association, not causation: shared difficulty can produce the same profile)")
     return "\n".join(lines)

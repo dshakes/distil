@@ -161,3 +161,44 @@ class TestReporting:
             "silent_failure_share",
         }
         assert "secret" not in str(d), "counts only — never a path"
+
+
+class TestAuditFindings:
+    """Regressions for the three defects the cross-audit found on PR #81."""
+
+    def test_failed_operations_are_not_recorded(self) -> None:
+        """A failed tool call asserts nothing about workspace state.
+
+        Before this, `rm missing.py` with `exit: 1` was scored as a successful DELETE,
+        which made the ledger a record of ATTEMPTS. A compressor could then be
+        penalised for dropping a deletion that never happened.
+        """
+        failed = 'Bash(command="rm missing.py")\n-> {"stdout": "rm: No such file or directory", "exit": 1}'
+        assert build_ledger([failed]).state == {}
+
+    def test_successful_operations_still_recorded(self) -> None:
+        ok = 'Bash(command="rm real.py")\n-> {"stdout": "", "exit": 0}'
+        assert build_ledger([ok]).state == {"real.py": Op.DELETE}
+
+    def test_ok_false_counts_as_failure(self) -> None:
+        assert build_ledger(['Write(file_path="a.py")\n-> {"ok": false}']).state == {}
+
+    def test_extensionless_artifacts_are_visible(self) -> None:
+        """Dockerfile, Makefile, LICENSE and dotfiles are among the most-edited files
+        in a real repo, and every one of them was invisible to the gate."""
+        for text, path, op in (
+            ("rm ./Dockerfile", "Dockerfile", Op.DELETE),
+            ('Edit(file_path="Makefile")', "Makefile", Op.MODIFY),
+            ("created .env", ".env", Op.CREATE),
+            ("deleted LICENSE", "LICENSE", Op.DELETE),
+        ):
+            assert (path, op) in extract_ops(text), f"{path} must be tracked"
+
+    def test_ignorecase_does_not_turn_prose_into_artifacts(self) -> None:
+        """re.IGNORECASE makes `[A-Z]` match lowercase, which turned every bare word
+        into a file. The capitalisation guard is scoped with `(?-i:...)` so the
+        enclosing flag cannot silently disable it."""
+        assert extract_ops("created something and removed nothing") == []
+        assert extract_ops("added a thing and deleted another") == []
+        # ...while a genuinely capitalised name still matches under the same flag
+        assert ("README", Op.DELETE) in extract_ops("DELETED README")

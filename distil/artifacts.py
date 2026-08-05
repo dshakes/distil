@@ -59,8 +59,39 @@ _STRENGTH = {Op.READ: 0, Op.CREATE: 1, Op.MODIFY: 2, Op.DELETE: 3}
 
 # A path-ish token. Deliberately stricter than retention's _PATH_RE: that one is tuned
 # for recall over any path-shaped string, while a state ledger keyed on false positives
-# would report phantom churn. Requires a file extension or a leading ./ ~/ or /.
-_PATH = r"(?:(?:~|\.{1,2})?/)?(?:[\w.-]+/)*[\w-]+\.[A-Za-z][\w]{0,9}"
+# would report phantom churn.
+#
+# Three shapes, because requiring an extension made the most-edited files in a real
+# repository invisible to the gate — `Dockerfile`, `Makefile`, `LICENSE`, `.env`,
+# `.gitignore` all matched nothing:
+#   1. anything with an extension            src/app.py, a/b/c.tar.gz
+#   2. a dotfile                             .env, .gitignore
+#   3. a Capitalised extensionless filename   Dockerfile, Makefile, LICENSE, README
+# Shape 3 is capitalised on purpose: lowercase bare words would swallow ordinary prose
+# ("created something"), and a ledger full of English is worse than one missing a file.
+_WITH_EXT = r"(?:[\w.-]+/)*[\w-]+\.[A-Za-z][\w]{0,9}"
+_DOTFILE = r"(?:[\w.-]+/)*\.[A-Za-z][\w.-]{1,20}"
+# `(?-i:...)` is load-bearing. Several patterns below compile with re.I, and under
+# IGNORECASE the class `[A-Z]` matches lowercase too — which turned every bare word
+# into an artifact: "created something and removed nothing" produced two phantom file
+# operations. The scoped flag pins case-sensitivity to this class regardless of how
+# the enclosing pattern is compiled.
+_BARE_CAP = r"(?:[\w.-]+/)*(?-i:[A-Z][A-Za-z]{2,19})"
+_PATH = rf"(?:(?:~|\.{{1,2}})?/)?(?:{_WITH_EXT}|{_DOTFILE}|{_BARE_CAP})"
+
+# Markers that a tool call did NOT do what it said. Without these the ledger records
+# ATTEMPTS rather than state: `rm missing.py` followed by `exit: 1` was scored as a
+# successful DELETE, so a compressor could be penalised for dropping a deletion that
+# never happened — or credited for preserving one.
+_FAILED_RE = re.compile(
+    r'"exit"\s*:\s*[1-9]'
+    r"|\bexit(?:\s+code)?[ =:]+[1-9]"
+    r"|\bNo such file or directory\b"
+    r"|\bPermission denied\b"
+    r'|"ok"\s*:\s*false'
+    r"|\b(?:command|operation) failed\b",
+    re.I,
+)
 
 # Verb -> Op. Matched against the text of tool calls and their narration. Each entry is
 # (regex, op); the path is group "p".
@@ -109,8 +140,13 @@ class Ledger:
 
 
 def extract_ops(text: str) -> list[tuple[str, Op]]:
-    """Every (path, op) asserted by one block of text, in no particular order."""
-    if not text:
+    """Every (path, op) *successfully* asserted by one block of text.
+
+    A tool call that failed asserts nothing about workspace state. Blocks carrying a
+    failure marker are skipped entirely rather than parsed, so the ledger records what
+    happened rather than what was attempted.
+    """
+    if not text or _FAILED_RE.search(text):
         return []
     found: list[tuple[str, Op]] = []
     for pattern, op in _PATTERNS:

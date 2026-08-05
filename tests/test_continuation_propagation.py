@@ -145,3 +145,56 @@ class TestPropagation:
         rep = analyse([TurnSignal(0.5, False)] * 5)
         assert all(lag.lift == 0.0 for lag in rep.lags)
         assert rep.propagates is False
+
+
+class TestPropagationInputDiscipline:
+    """The Blocking finding from PR #81's cross-audit.
+
+    `decision_changed` must come from a decision oracle. Deriving it from the fidelity
+    probes makes the analysis circular: lift correlates probe failures with themselves,
+    lag 0 is elevated by construction, and the gate can fire without a single decision
+    having changed.
+    """
+
+    def test_zero_base_rate_says_nothing_was_tested(self) -> None:
+        """Vacuous truth must not be dressed as an earned result."""
+        rep = analyse([TurnSignal(0.5, False)] * 12)
+        out = format_report(rep)
+        assert "nothing to propagate, and nothing tested" in out
+        assert "no measurable propagation" not in out, "that would overclaim the result"
+
+    def test_the_contract_is_documented_on_the_input(self) -> None:
+        # Whitespace-normalised: the docstring is reflowed by the formatter, and a test
+        # that breaks on rewrapping is testing the formatter, not the contract.
+        doc = " ".join((TurnSignal.__doc__ or "").split())
+        assert "MUST come from an independent decision oracle" in doc
+        assert "not be derived from the fidelity probes" in doc.lower()
+
+
+class TestDecisionOracle:
+    def test_extracts_decision_markers(self) -> None:
+        from distil.fidelityprobes import _decisions
+
+        assert _decisions(["noise\nDECISION: stop and report\nmore"]) == {"stop and report"}
+
+    def test_change_is_detected(self) -> None:
+        from distil.fidelityprobes import _decisions
+
+        assert _decisions(["DECISION: a"]) != _decisions(["DECISION: b"])
+
+    def test_no_marker_is_empty_not_an_error(self) -> None:
+        from distil.fidelityprobes import _decisions
+
+        assert _decisions(["no marker here", ""]) == set()
+
+    def test_signal_is_not_derived_from_probes(self) -> None:
+        """A turn with probe damage but an unchanged decision must report no change."""
+        from distil.corpus import load_corpus
+        from distil.fidelityprobes import run
+
+        rep = run(load_corpus())
+        assert rep.hedges.overclaimed > 0, "there IS probe damage on the corpus"
+        assert rep.prop is not None
+        assert rep.prop.base_rate == 0.0, (
+            "yet no decision changed — proving the signal is independent of the probes"
+        )
