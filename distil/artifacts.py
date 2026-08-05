@@ -333,7 +333,16 @@ def _iter_tool_texts(messages: Any) -> list[str]:
         # ledger to DELETE when the operation was a write. Order and pairing were
         # both already fixed; this was the third way the same text could be
         # mis-counted.
-        if isinstance(content, str) and content and msg.get("role") != "tool":
+        # Only the ASSISTANT's own narration reports what happened. A user message
+        # ("Please inspect: cat src/app.py") is a REQUEST, not an observation — but
+        # it was parsed as a completed read, so compressing the request away
+        # reported a lost artifact when no workspace state had ever changed. System
+        # prompts have the same problem: they routinely name files as instructions.
+        if (
+            isinstance(content, str)
+            and content
+            and msg.get("role") not in ("tool", "user", "system")
+        ):
             out.append(content)
         # --- OpenAI Chat Completions ------------------------------------------
         # `assistant.tool_calls` sits BESIDE `content`, not inside it, so a purely
@@ -399,7 +408,9 @@ def _iter_tool_texts(messages: Any) -> list[str]:
                 results[str(block.get("tool_use_id", ""))] = _flatten(block.get("content"))
                 out.append(_RESULT_SLOT + str(block.get("tool_use_id", "")))
             elif btype == "text":
-                out.append(_flatten(block.get("text")))
+                # Same rule as above: only the assistant narrates outcomes.
+                if msg.get("role") not in ("user", "system"):
+                    out.append(_flatten(block.get("text")))
 
     resolved: list[str] = []
     for item in out:

@@ -1,0 +1,145 @@
+"""Every documented alternative must actually fire.
+
+Two Blocking findings in this PR were the same bug in different places: a `\\b`
+positioned where it can never match, so one alternative of an alternation silently
+never fired. `[x]` checkboxes were invisible to the continuation probe; `Objective:`
+never produced an obligation, leaving `dropped_work` at zero for a dropped task.
+
+Both were found by an auditor trying a marker I had not tried. Fixing the reported
+instance and leaving its neighbours is how that class survives, so this file
+enumerates EVERY alternative of EVERY alternation in the probe modules and asserts
+each one matches something.
+
+A probe whose pattern silently never fires reports a perfect score on text it never
+parsed — which is the failure mode the probes themselves exist to catch.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from distil.artifacts import Op, extract_ops
+from distil.continuation import Status, extract_obligations
+from distil.overclaim import _HEDGE_CLASSES, extract_claims
+
+
+class TestContinuationMarkers:
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "- [ ] add the serialiser now",
+            "- TODO: add the serialiser now",
+            "- FIXME: add the serialiser now",
+            "- NEXT: add the serialiser now",
+            "- REMAINING: add the serialiser now",
+            "- PENDING: add the serialiser now",
+            "STILL need to add the serialiser",
+            "STILL to add the serialiser now",
+        ],
+    )
+    def test_every_pending_marker_fires(self, text: str) -> None:
+        obs = extract_obligations(text)
+        assert obs, f"no obligation extracted from {text!r}"
+        assert any(o.status is Status.PENDING for o in obs)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "- [x] added the parser today",
+            "- [X] added the parser today",
+            "- DONE: added the parser today",
+            "- COMPLETE: added the parser today",
+            "- COMPLETED: added the parser today",
+            "- FIXED: added the parser today",
+            "- ✓ added the parser today",
+            "- ✔ added the parser today",
+        ],
+    )
+    def test_every_done_marker_fires(self, text: str) -> None:
+        obs = extract_obligations(text)
+        assert obs, f"no obligation extracted from {text!r}"
+        assert any(o.status is Status.DONE for o in obs)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Your task is to add the retry wrapper",
+            "Your task is add the retry wrapper",
+            "The goal is to migrate the billing module",
+            "The goal is migrate the billing module",
+            "Objective: ship the parser rewrite",
+            "You must remove the legacy client",
+        ],
+    )
+    def test_every_goal_marker_fires(self, text: str) -> None:
+        assert extract_obligations(text), f"no obligation extracted from {text!r}"
+
+
+class TestArtifactVerbs:
+    @pytest.mark.parametrize(
+        "text,op",
+        [
+            ('Write(file_path="src/a.py")', Op.CREATE),
+            ('Edit(file_path="src/a.py")', Op.MODIFY),
+            ('Read(file_path="src/a.py")', Op.READ),
+            ("rm src/a.py", Op.DELETE),
+            ("rm -rf src/a.py", Op.DELETE),
+            ("git rm src/a.py", Op.DELETE),
+            ("cat src/a.py", Op.READ),
+            ("head src/a.py", Op.READ),
+            ("tail src/a.py", Op.READ),
+            ("less src/a.py", Op.READ),
+            ("touch src/a.py", Op.CREATE),
+            ("created src/a.py", Op.CREATE),
+            ("wrote src/a.py", Op.CREATE),
+            ("added src/a.py", Op.CREATE),
+            ("generated src/a.py", Op.CREATE),
+            ("modified src/a.py", Op.MODIFY),
+            ("edited src/a.py", Op.MODIFY),
+            ("updated src/a.py", Op.MODIFY),
+            ("patched src/a.py", Op.MODIFY),
+            ("changed src/a.py", Op.MODIFY),
+            ("deleted src/a.py", Op.DELETE),
+            ("removed src/a.py", Op.DELETE),
+            ("dropped src/a.py", Op.DELETE),
+            ("unlinked src/a.py", Op.DELETE),
+            ("read src/a.py", Op.READ),
+            ("opened src/a.py", Op.READ),
+            ("examined src/a.py", Op.READ),
+            ("inspected src/a.py", Op.READ),
+            ("viewed src/a.py", Op.READ),
+            ("+++ b/src/a.py", Op.MODIFY),
+        ],
+    )
+    def test_every_verb_fires(self, text: str, op: Op) -> None:
+        assert ("src/a.py", op) in extract_ops(text), f"{text!r} did not yield {op}"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "src/a.py",
+            "a/b/c.tar.gz",
+            "x.test.tsx",
+            ".env",
+            ".gitignore",
+            "Dockerfile",
+            "Makefile",
+            "LICENSE",
+        ],
+    )
+    def test_every_documented_path_shape_fires(self, path: str) -> None:
+        assert any(p == path for p, _ in extract_ops(f"created {path}")), f"{path!r} invisible"
+
+
+class TestHedgeClasses:
+    def test_every_hedge_term_fires(self) -> None:
+        """Each term in each class must bind to an anchor. A term that never
+        matches makes its whole class partially blind, and the resulting
+        overclaim rate is quietly wrong rather than obviously broken."""
+        dead: list[tuple[str, str]] = []
+        for cls, terms in _HEDGE_CLASSES.items():
+            for term in terms:
+                claims = extract_claims(f"the timeout is {term} 4000 ms")
+                if not any(c.hedge_class == cls for c in claims):
+                    dead.append((cls, term))
+        assert not dead, f"hedge terms that never fire: {dead}"

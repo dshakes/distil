@@ -107,7 +107,19 @@ def fingerprint(entries: Iterable[Any]) -> str:
                 # never do. Sorting by the key (not the text) keeps the hash
                 # independent of manifest ORDERING while staying sensitive to the
                 # order that actually changes the answer.
-                parts.append((str(traj.id), t_i, b_i, str(block.id), block.text))
+                # Metadata is part of what was graded, not decoration.
+                # `strategies.distil` branches on `stability` to decide what it
+                # compresses at all, and output grading branches on `kind`. Two
+                # corpora with identical TEXT but different kind/stability produce
+                # different metrics — so hashing text alone let them share a
+                # fingerprint, which is precisely the confusion this field exists
+                # to prevent.
+                meta = (
+                    f"{getattr(block.kind, 'value', block.kind)}"
+                    f"\x1f{getattr(block.stability, 'value', block.stability)}"
+                    f"\x1f{int(bool(getattr(block, 'decision_relevant', False)))}"
+                )
+                parts.append((str(traj.id), t_i, b_i, str(block.id), f"{meta}\x1f{block.text}"))
     for traj_id, t_i, b_i, block_id, text in sorted(parts, key=lambda p: p[:4]):
         h.update(f"{traj_id}\x1f{t_i}\x1f{b_i}\x1f{block_id}\x1f{text}".encode("utf-8", "replace"))
         h.update(b"\x1e")

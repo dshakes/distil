@@ -525,3 +525,35 @@ class TestFailureScope:
 
     def test_ordinary_extraction_unaffected(self) -> None:
         assert ("src/app.py", Op.CREATE) in extract_ops("created src/app.py")
+
+
+class TestOnlyObservedActionsCount:
+    """Round-7 finding: a user's REQUEST was parsed as a completed operation.
+
+    `Please inspect: cat src/app.py` registered a READ, so compressing the request
+    away reported a lost artifact when no workspace state had ever changed. Only
+    the assistant's narration and actual tool calls/results report outcomes.
+    """
+
+    def test_user_request_is_not_an_operation(self) -> None:
+        msgs = [{"role": "user", "content": "Please inspect: cat src/app.py"}]
+        assert measure_live(msgs, [{"role": "user", "content": "x"}]).total == 0
+
+    def test_system_prompt_naming_files_is_not_an_operation(self) -> None:
+        msgs = [{"role": "system", "content": "Never edit src/generated.py directly"}]
+        assert measure_live(msgs, msgs).total == 0
+
+    def test_assistant_narration_still_counts(self) -> None:
+        msgs = [{"role": "assistant", "content": "cat src/app.py"}]
+        assert measure_live(msgs, msgs).total == 1
+
+    def test_tool_result_under_a_user_role_still_counts(self) -> None:
+        """Anthropic delivers tool_result inside a `user` message — that is a
+        RESULT, not a request, and must not be filtered out with user prose."""
+        msgs = [
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "z", "content": "deleted a.py"}],
+            }
+        ]
+        assert measure_live(msgs, msgs).total == 1

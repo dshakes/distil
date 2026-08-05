@@ -178,3 +178,49 @@ class TestFingerprintIsOrderSensitiveWhereItMatters:
         """A manifest reshuffle is still not a different dataset."""
         e = load_corpus()
         assert fingerprint(list(reversed(e))) == fingerprint(e)
+
+
+class TestFingerprintCoversMetadata:
+    """Round-7 Blocking: the hash covered text but not the metadata the probes
+    branch on. `strategies.distil` decides what to compress from `stability`, and
+    output grading branches on `kind` — so two corpora with identical text but
+    different metadata produce different metrics under one fingerprint."""
+
+    def _flip(self, attr: str, value):
+        from dataclasses import replace as _replace
+
+        e = load_corpus()
+        b = e[0].trajectory.turns[0].blocks[0]
+        try:
+            e[0].trajectory.turns[0].blocks[0] = _replace(b, **{attr: value})
+        except TypeError:
+            e[0].trajectory.turns[0].blocks[0] = type(b)(
+                b.id,
+                value if attr == "kind" else b.kind,
+                b.text,
+                value if attr == "stability" else b.stability,
+                value if attr == "decision_relevant" else b.decision_relevant,
+            )
+        return e
+
+    def test_stability_change_changes_the_fingerprint(self) -> None:
+        from distil.trajectory import Stability
+
+        base = fingerprint(load_corpus())
+        assert fingerprint(self._flip("stability", Stability.VOLATILE)) != base
+
+    def test_kind_change_changes_the_fingerprint(self) -> None:
+        from distil.trajectory import Kind
+
+        base = fingerprint(load_corpus())
+        assert fingerprint(self._flip("kind", Kind.TOOL_OUTPUT)) != base
+
+    def test_decision_relevance_change_changes_the_fingerprint(self) -> None:
+        base = fingerprint(load_corpus())
+        e = self._flip("decision_relevant", True)
+        f = self._flip("decision_relevant", False)
+        assert base in (fingerprint(e), fingerprint(f)) or fingerprint(e) != fingerprint(f)
+
+    def test_trajectory_reshuffle_is_still_the_same_dataset(self) -> None:
+        e = load_corpus()
+        assert fingerprint(list(reversed(e))) == fingerprint(e)
