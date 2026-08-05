@@ -1,0 +1,237 @@
+{
+  "id": "agent-worklog",
+  "model": "claude-opus-4-8",
+  "_note": "A 4-turn coding agent that creates, edits, reads and deletes files while maintaining a running [x]/[ ] plan and hedging some of its findings. It exists because the artifact-state, continuation and overclaim probes ship default-on while the rest of the corpus contains 4 file operations and 0 stated obligations between them \u2014 so all three reported a perfect score against almost no evidence. In particular the create-then-delete of net/legacy_retry.py is the phantom-file case: if compression keeps the creation and drops the deletion, string recall stays 100% while artifact state fidelity goes to 0.",
+  "turns": [
+    {
+      "index": 0,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous coding agent working in a Python repository. You keep a running plan and update it as you go.\nOperating rules:\n- Re-read a file before editing it; never edit from memory.\n- Keep the plan current: mark items [x] as they complete.\n- State uncertainty explicitly rather than guessing.\nDECISION: when the plan has no remaining [ ] items, stop and report."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- Read(file_path: string) -> {\"content\": string}\n- Write(file_path: string, content: string) -> {\"ok\": bool}\n- Edit(file_path: string, old: string, new: string) -> {\"ok\": bool}\n- Bash(command: string) -> {\"stdout\": string, \"exit\": int}\nDECISION: prefer Edit over Write when the file already exists."
+        },
+        {
+          "id": "plan-0",
+          "kind": "history",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "PLAN\n- [ ] add a retry wrapper in net/retry.py\n- [ ] wire it into net/client.py\n- [ ] delete the dead net/legacy_retry.py\n- [ ] add a regression test"
+        },
+        {
+          "id": "obs-0",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "Write(file_path=\"net/retry.py\", content=\"def with_retry(fn, attempts=3): ...\")\n-> {\"ok\": true}\nCreated net/retry.py with an exponential backoff helper. Measured a baseline of approximately 4200 ms for the failing call path; the variance suggests this may be a race rather than a fixed timeout.\nDECISION: the wrapper exists, so mark it done and move to wiring."
+        },
+        {
+          "id": "doc-0",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.59): 'Choosing a Logging Library' \u2014 a comparison of structured logging backends, sink fan-out and sampling. Nothing about retries or the client under change."
+        },
+        {
+          "id": "user-0",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "Start on the retry work."
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous coding agent working in a Python repository. You keep a running plan and update it as you go.\nOperating rules:\n- Re-read a file before editing it; never edit from memory.\n- Keep the plan current: mark items [x] as they complete.\n- State uncertainty explicitly rather than guessing.\nDECISION: when the plan has no remaining [ ] items, stop and report."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- Read(file_path: string) -> {\"content\": string}\n- Write(file_path: string, content: string) -> {\"ok\": bool}\n- Edit(file_path: string, old: string, new: string) -> {\"ok\": bool}\n- Bash(command: string) -> {\"stdout\": string, \"exit\": int}\nDECISION: prefer Edit over Write when the file already exists."
+        },
+        {
+          "id": "hist-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: created the retry wrapper and confirmed the baseline latency."
+        },
+        {
+          "id": "plan-1",
+          "kind": "history",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "PLAN\n- [x] add a retry wrapper in net/retry.py\n- [ ] wire it into net/client.py\n- [ ] delete the dead net/legacy_retry.py\n- [ ] add a regression test"
+        },
+        {
+          "id": "obs-1",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "Read(file_path=\"net/client.py\")\n-> {\"content\": \"class Client: def fetch(self): ...\"}\nEdit(file_path=\"net/client.py\", old=\"def fetch\", new=\"@with_retry\\n    def fetch\")\n-> {\"ok\": true}\nWrite(file_path=\"net/scratch_bench.py\", content=\"# throwaway timing harness\")\n-> {\"ok\": true}\nModified net/client.py to route fetch through the wrapper, and created net/scratch_bench.py as a throwaway timing harness. Roughly 12 call sites were affected; at least 3 of them are in tests.\nDECISION: wiring is complete, so mark it done and remove the dead module."
+        },
+        {
+          "id": "doc-1",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.55): 'Kubernetes Pod Disruption Budgets Explained' \u2014 voluntary vs involuntary disruption and rollout safety. Unrelated to this module."
+        },
+        {
+          "id": "user-1",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "Good \u2014 now wire it in."
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous coding agent working in a Python repository. You keep a running plan and update it as you go.\nOperating rules:\n- Re-read a file before editing it; never edit from memory.\n- Keep the plan current: mark items [x] as they complete.\n- State uncertainty explicitly rather than guessing.\nDECISION: when the plan has no remaining [ ] items, stop and report."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- Read(file_path: string) -> {\"content\": string}\n- Write(file_path: string, content: string) -> {\"ok\": bool}\n- Edit(file_path: string, old: string, new: string) -> {\"ok\": bool}\n- Bash(command: string) -> {\"stdout\": string, \"exit\": int}\nDECISION: prefer Edit over Write when the file already exists."
+        },
+        {
+          "id": "hist-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: created the retry wrapper and confirmed the baseline latency."
+        },
+        {
+          "id": "hist-1",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: wired the wrapper into the client's fetch path."
+        },
+        {
+          "id": "plan-2",
+          "kind": "history",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "PLAN\n- [x] add a retry wrapper in net/retry.py\n- [x] wire it into net/client.py\n- [ ] delete the dead net/legacy_retry.py\n- [ ] add a regression test"
+        },
+        {
+          "id": "obs-2",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "Bash(command=\"rm net/legacy_retry.py\")\n-> {\"stdout\": \"\", \"exit\": 0}\nDeleted net/legacy_retry.py \u2014 nothing imports it any more, confirmed with grep. The old module reportedly handled a case the new one does not, but I could not reproduce it.\nDECISION: the dead module is gone, so mark it done and write the test."
+        },
+        {
+          "id": "doc-2",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.61): 'A Short History of Semantic Versioning' \u2014 pre-release identifiers and range syntax. Not applicable here."
+        },
+        {
+          "id": "user-2",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "Clean up the dead module."
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "blocks": [
+        {
+          "id": "system",
+          "kind": "system",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "You are an autonomous coding agent working in a Python repository. You keep a running plan and update it as you go.\nOperating rules:\n- Re-read a file before editing it; never edit from memory.\n- Keep the plan current: mark items [x] as they complete.\n- State uncertainty explicitly rather than guessing.\nDECISION: when the plan has no remaining [ ] items, stop and report."
+        },
+        {
+          "id": "tools",
+          "kind": "tools",
+          "stability": "stable",
+          "decision_relevant": true,
+          "text": "AVAILABLE TOOLS (json schema, abbreviated):\n- Read(file_path: string) -> {\"content\": string}\n- Write(file_path: string, content: string) -> {\"ok\": bool}\n- Edit(file_path: string, old: string, new: string) -> {\"ok\": bool}\n- Bash(command: string) -> {\"stdout\": string, \"exit\": int}\nDECISION: prefer Edit over Write when the file already exists."
+        },
+        {
+          "id": "hist-0",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: created the retry wrapper and confirmed the baseline latency."
+        },
+        {
+          "id": "hist-1",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: wired the wrapper into the client's fetch path."
+        },
+        {
+          "id": "hist-2",
+          "kind": "history",
+          "stability": "settling",
+          "decision_relevant": false,
+          "text": "assistant: removed the legacy retry module after confirming no importers."
+        },
+        {
+          "id": "plan-3",
+          "kind": "history",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "PLAN\n- [x] add a retry wrapper in net/retry.py\n- [x] wire it into net/client.py\n- [x] delete the dead net/legacy_retry.py\n- [ ] add a regression test"
+        },
+        {
+          "id": "obs-3",
+          "kind": "tool_output",
+          "stability": "volatile",
+          "decision_relevant": true,
+          "text": "Write(file_path=\"tests/test_retry.py\", content=\"def test_retries(): ...\")\n-> {\"ok\": true}\nBash(command=\"rm net/scratch_bench.py\")\n-> {\"stdout\": \"\", \"exit\": 0}\nCreated tests/test_retry.py covering the backoff path, and deleted net/scratch_bench.py now that the timing work is done. The suite runs in about 1800 ms locally.\nDECISION: every plan item is complete, so stop and report."
+        },
+        {
+          "id": "doc-3",
+          "kind": "retrieved",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "RETRIEVED (speculative context, similarity=0.57): 'Designing Office Wifi' \u2014 AP placement and channel planning. Included on a spurious overlap with 'client'."
+        },
+        {
+          "id": "user-3",
+          "kind": "user",
+          "stability": "volatile",
+          "decision_relevant": false,
+          "text": "Finish with a test."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+"""Continuation and error-propagation probes."""
+
+from __future__ import annotations
+
+from distil.continuation import (
+    ContinuationProbe,
+    Status,
+    extract_obligations,
+    format_probe,
+    score_texts,
+)
+from distil.propagation import TurnSignal, analyse, format_report
+
+
+class TestObligationExtraction:
+    def test_todo_is_pending(self) -> None:
+        obs = extract_obligations("- TODO: wire the retry path into the client")
+        assert {o.status for o in obs} == {Status.PENDING}
+
+    def test_checkbox_states(self) -> None:
+        obs = extract_obligations("- [x] added the parser\n- [ ] add the serialiser")
+        assert {o.status for o in obs} == {Status.DONE, Status.PENDING}
+
+    def test_stated_goal_is_pending(self) -> None:
+        obs = extract_obligations("Your task is to migrate the billing module to v2")
+        assert any(o.status is Status.PENDING for o in obs)
+
+    def test_short_items_ignored(self) -> None:
+        assert extract_obligations("TODO: x") == set()
+
+    def test_reflow_does_not_change_identity(self) -> None:
+        """Compression rewraps lists; that must not read as lost work."""
+        a = extract_obligations("- TODO: wire the retry path into the client module")
+        b = extract_obligations("- TODO: wire the retry path into the\n  client module today")
+        assert {o.key for o in a} == {o.key for o in b}
+
+
+class TestContinuationScoring:
+    def test_all_work_preserved(self) -> None:
+        t = "- [ ] add the serialiser\n- [x] added the parser"
+        p = score_texts(t, t)
+        assert p.pending_recall == 1.0 and p.done_recall == 1.0 and p.flips == 0
+
+    def test_dropped_pending_work_is_the_silent_failure(self) -> None:
+        original = "- [x] added the parser\n- [ ] add the serialiser"
+        compressed = "- [x] added the parser"
+        p = score_texts(original, compressed)
+        assert p.dropped_work == 1
+        assert p.pending_recall == 0.0
+        assert p.done_recall == 1.0, "keeping finished work while dropping remaining work"
+
+    def test_dropped_done_work_is_cheap(self) -> None:
+        p = score_texts(
+            "- [x] added the parser\n- [ ] add the serialiser", "- [ ] add the serialiser"
+        )
+        assert p.pending_recall == 1.0 and p.dropped_work == 0
+
+    def test_status_flip_counted_separately(self) -> None:
+        p = score_texts("- [ ] add the serialiser", "- [x] add the serialiser")
+        assert p.flips == 1
+        assert p.pending_kept == 0, "a flipped item is not a kept item"
+
+    def test_vacuous_when_no_obligations(self) -> None:
+        p = score_texts("just prose", "just prose")
+        assert p.pending_recall == 1.0 and p.pending_total == 0
+
+    def test_to_dict_content_free(self) -> None:
+        d = score_texts("- [ ] deploy secretservice to prod", "").to_dict()
+        assert "secretservice" not in str(d)
+
+    def test_format_names_the_consequence(self) -> None:
+        out = format_probe(ContinuationProbe(pending_total=2, pending_kept=1))
+        assert "without doing it" in out
+
+    def test_format_nothing_to_grade(self) -> None:
+        assert "nothing to grade" in format_probe(ContinuationProbe())
+
+
+def _signals(n: int, *, drops: set[int], changes: set[int]) -> list[TurnSignal]:
+    return [TurnSignal(0.5 if i in drops else 1.0, i in changes) for i in range(n)]
+
+
+class TestPropagation:
+    def test_flat_profile_when_errors_are_local(self) -> None:
+        # Drops and changes co-occur, and the drops are spaced further apart than
+        # max_lag so nothing aliases. This is the "errors stay local" shape.
+        at = {0, 7, 16, 27}
+        rep = analyse(_signals(35, drops=at, changes=at))
+        assert rep.propagates is False
+
+    def test_periodic_workload_aliases_and_the_module_admits_it(self) -> None:
+        """A documented limit, pinned so it cannot regress into a silent claim.
+
+        Period-3 drops with period-3 changes and NO causal link still light up lag 3.
+        The verdict is elevated; the docstring tells the reader why not to trust it.
+        """
+        # 12 repeats so the aliased lag clears the minimum-exposure floor; with
+        # fewer, the module correctly refuses to assert anything either way.
+        sig = [TurnSignal(1.0, False), TurnSignal(0.5, True), TurnSignal(1.0, False)] * 12
+        assert analyse(sig).propagates is True, "aliasing is real; do not pretend otherwise"
+        import distil.propagation as mod
+
+        assert "alias" in (mod.__doc__ or "").lower(), "the limit must be documented"
+
+    def test_detects_delayed_damage(self) -> None:
+        # Every drop is followed two turns later by a decision change.
+        sig: list[TurnSignal] = []
+        for _ in range(12):
+            sig.append(TurnSignal(0.5, False))
+            sig.append(TurnSignal(1.0, False))
+            sig.append(TurnSignal(1.0, True))
+        rep = analyse(sig)
+        assert rep.propagates is True
+        assert rep.worst is not None and rep.worst.lag == 2
+
+    def test_lag_zero_alone_is_not_propagation(self) -> None:
+        """Same-turn co-incidence must not be reported as downstream damage."""
+        at = {0, 7, 16, 27}
+        rep = analyse(_signals(35, drops=at, changes=at))
+        lag0 = next(lag for lag in rep.lags if lag.lag == 0)
+        assert lag0.lift > 1.25, "lag 0 is strongly associated by construction"
+        assert rep.propagates is False, "yet lag 0 alone must not trip the verdict"
+
+    def test_requires_minimum_exposure(self) -> None:
+        # One lucky coincidence must not trip the verdict.
+        sig = [TurnSignal(1.0, False)] * 8 + [TurnSignal(0.5, False), TurnSignal(1.0, True)]
+        assert analyse(sig).propagates is False
+
+    def test_empty_input(self) -> None:
+        rep = analyse([])
+        assert rep.turns == 0 and rep.worst is None
+        assert "no turns" in format_report(rep)
+
+    def test_report_discloses_the_causal_limit(self) -> None:
+        sig = [TurnSignal(0.5, False), TurnSignal(1.0, True)] * 5
+        out = format_report(analyse(sig))
+        assert "association, not causation" in out, "the metric must state its own limit"
+
+    def test_to_dict_shape(self) -> None:
+        d = analyse([TurnSignal(1.0, False)] * 3).to_dict()
+        assert set(d) == {"turns", "base_rate", "propagates", "lags"}
+        assert isinstance(d["lags"], list)
+
+    def test_zero_base_rate_does_not_divide_by_zero(self) -> None:
+        rep = analyse([TurnSignal(0.5, False)] * 5)
+        assert all(lag.lift == 0.0 for lag in rep.lags)
+        assert rep.propagates is False

@@ -41,6 +41,11 @@
       "file": "web-research.json",
       "domain": "web-research",
       "title": "HTML documentation research (exercises the HTML transform)"
+    },
+    {
+      "file": "agent-worklog.json",
+      "domain": "agent-worklog",
+      "title": "Coding agent worklog (exercises artifact-state, continuation, overclaim)"
     }
   ],
   "live_only": [

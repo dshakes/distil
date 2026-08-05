@@ -20,6 +20,7 @@ from distil.retention import (
     probe_block,
     run,
 )
+from distil.corpus import load_corpus
 from distil.trajectory import Block, Kind, Stability
 
 
@@ -379,7 +380,11 @@ def test_corpus_macro_is_reported_and_beats_micro_for_stability() -> None:
     report = run()
     macro = report.macro()
     overall = report.overall()
-    assert macro.domains == 8
+    # Derived from the manifest, not hardcoded: pinning the literal count made adding a
+    # trajectory look like a retention regression, which is a test failing for a reason
+    # it was never written to detect.
+    assert macro.domains == len({e.domain for e in load_corpus()})
+    assert macro.domains >= 8, "the corpus must stay broad enough for macro to mean something"
     assert macro.recall == 1.0 and overall.lost == 0
     # web-research carries 61% of the facts, so fact-weighting inflates the gap.
     assert macro.gap < (overall.recall - overall.visible_recall)

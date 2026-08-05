@@ -2515,6 +2515,39 @@ def cmd_retention(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fidelity(args: argparse.Namespace) -> int:
+    """State probes: artifact state, overclaim, continuation, error propagation.
+
+    `retention` asks whether a fact is still there. This asks the questions that
+    survive a yes — whether the file's *state* is right, whether a value kept its
+    uncertainty, whether the agent still knows what is left to do.
+    """
+
+    from .fidelityprobes import format_report, run
+
+    entries = load_corpus(args.corpus) if args.corpus else load_corpus()
+    rep = run(entries)
+    print(json.dumps(rep.to_dict(), indent=2) if args.json else format_report(rep))
+
+    # Gate on SILENT failures only. Plain loss is loud — the agent can see the gap —
+    # and `retention --max-lost` already owns it. Gating it twice would make one
+    # regression fail two checks and obscure which property actually broke.
+    limit = args.max_silent
+    if limit is not None and rep.silent_failures > limit:
+        print(
+            f"\nFAIL: {rep.silent_failures} silent failures > --max-silent {limit}"
+            f"  (stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
+            f" dropped-work={rep.plan.dropped_work})"
+        )
+        return 1
+    if args.no_propagation and rep.prop and rep.prop.propagates:
+        worst = rep.prop.worst
+        lag = worst.lag if worst else "?"
+        print(f"\nFAIL: error propagation detected at lag {lag} (--no-propagation)")
+        return 1
+    return 0
+
+
 def _retention_dataset(args: argparse.Namespace) -> int:
     """Grade against a public benchmark's third-party answer key."""
 
@@ -2862,6 +2895,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="how retrieved docs reach the agent: json tool result (production) or bare prose",
     )
     rt.set_defaults(func=cmd_retention)
+
+    fp = sub.add_parser(
+        "fidelity",
+        help="state probes: artifact state, overclaim, continuation, propagation "
+        "(zero cost, offline)",
+    )
+    fp.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
+    fp.add_argument("--json", action="store_true", help="machine-readable report")
+    fp.add_argument(
+        "--max-silent",
+        type=int,
+        help="exit 1 if more than this many SILENT failures (stale artifacts + "
+        "overclaimed values + dropped work). Loud loss is gated by `retention "
+        "--max-lost`, not here.",
+    )
+    fp.add_argument(
+        "--no-propagation",
+        action="store_true",
+        help="exit 1 if a compression error at one turn is associated with a "
+        "behaviour change at a later turn",
+    )
+    fp.set_defaults(func=cmd_fidelity)
 
     bn = sub.add_parser(
         "benchmark",
