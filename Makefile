@@ -1,4 +1,4 @@
-.PHONY: help test gate bench verify retention holdout build pyz docker clean lint
+.PHONY: help test gate bench verify retention fidelity holdout build pyz docker clean lint
 
 help:  ## Show this help
 	@grep -E '^[a-z]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'

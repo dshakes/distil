@@ -47,8 +47,8 @@ Or individually:
 ### 1. `distil bench` — decision equivalence
 
 ```bash
-uv run distil bench                    # 9-domain corpus, deterministic oracle
-uv run distil bench --runner anthropic # graded by a real model (needs a key, costs money)
+uv run distil bench                        # 9-domain corpus, deterministic oracle
+uv run distil conformal --runner anthropic # graded by a real model (needs a key, costs money)
 ```
 
 Fails if compression changes a decision the oracle can detect. This is the
@@ -180,7 +180,8 @@ exists because a green unit suite kept coexisting with real-traffic bugs.
 ```bash
 uv run distil certify           # conformal risk certificate at a chosen alpha
 uv run distil shadow-stats      # live decision-equivalence from wrap --shadow
-uv run distil certify-trajectories   # offline trajectory-risk certificate
+uv run distil certify-trajectories runs.jsonl  # offline trajectory-risk certificate
+                                # runs.jsonl: {task_id, full_success, compressed_success} per line
 ```
 
 `certify` runs Learn-Then-Test and Conformal Risk Control to pick the most
@@ -198,7 +199,7 @@ workload shifts.
 Nothing here uploads content. The live meters store counts only.
 
 ```bash
-distil wrap --shadow claude    # collect real decision-equivalence data
+distil wrap --shadow 0.1 -- claude  # collect real decision-equivalence data (10% of turns)
 distil retention --live        # fact recall on your traffic
 distil shadow-stats            # what shadow mode measured
 ```
