@@ -36,7 +36,13 @@ _HEDGE_CLASSES: dict[str, tuple[str, ...]] = {
     "modal": ("may", "might", "could", "possibly", "perhaps", "potentially", "likely", "probably"),
     "seem": ("appears", "appear", "seems", "seem", "suggests", "suggest", "indicates", "indicate"),
     "attrib": ("reportedly", "allegedly", "according to", "claimed", "purportedly", "said to"),
-    "bound": ("at least", "at most", "up to", "no more than", "no fewer than", "under", "over"),
+    # Bounds are split by DIRECTION. Sharing one class made "at least 3 retries" ->
+    # "at most 3 retries" score as preserved hedging, because both terms mapped to the
+    # same label — a floor silently inverted into a ceiling, which is the strongest
+    # possible claim change short of dropping the hedge outright. Grouping exists to
+    # forgive synonyms, not antonyms.
+    "bound_lower": ("at least", "no fewer than", "over"),
+    "bound_upper": ("at most", "up to", "no more than", "under"),
     "partial": (
         "some",
         "several",
@@ -50,6 +56,10 @@ _HEDGE_CLASSES: dict[str, tuple[str, ...]] = {
     ),
     "unsure": ("unclear", "unknown", "uncertain", "not sure", "unconfirmed", "tbd", "estimated"),
 }
+
+# Classes whose meanings are opposites rather than synonyms. Substituting one for the
+# other is a reversal, not a reshaping, and is scored as such.
+_OPPOSED: dict[str, str] = {"bound_lower": "bound_upper", "bound_upper": "bound_lower"}
 
 # Longest-first so "at least" wins over "least", and "not sure" over "sure".
 _ALL_HEDGES: tuple[tuple[str, str], ...] = tuple(
@@ -90,15 +100,17 @@ class Claim:
 class OverclaimProbe:
     """Hedge outcomes for one comparison.
 
-    ``preserved + overclaimed == total`` — every hedged claim in the source either
-    kept some hedge of its class or did not. ``underclaimed`` is counted separately
-    because it is not a subset of the source's claims.
+    ``preserved + overclaimed + inverted == total`` — every hedged claim in the source
+    either kept a hedge of its class, lost its hedging, or had it reversed.
+    ``underclaimed`` is counted separately because it is not a subset of the source's
+    claims.
     """
 
     total: int = 0
     preserved: int = 0
     overclaimed: int = 0
     underclaimed: int = 0
+    inverted: int = 0
 
     @property
     def fidelity(self) -> float:
@@ -115,6 +127,7 @@ class OverclaimProbe:
         self.preserved += other.preserved
         self.overclaimed += other.overclaimed
         self.underclaimed += other.underclaimed
+        self.inverted += other.inverted
 
     def to_dict(self) -> dict[str, float | int]:
         return {
@@ -122,6 +135,7 @@ class OverclaimProbe:
             "preserved": self.preserved,
             "overclaimed": self.overclaimed,
             "underclaimed": self.underclaimed,
+            "inverted": self.inverted,
             "fidelity": round(self.fidelity, 4),
             "overclaim_rate": round(self.overclaim_rate, 4),
         }
@@ -231,6 +245,14 @@ def score(original: str, compressed: str) -> OverclaimProbe:
         elif _anchor_survives(claim.anchor, compressed) and not classes:
             # the value survived, its hedging did not — the overclaim case
             probe.overclaimed += 1
+        elif classes and _OPPOSED.get(claim.hedge_class) in classes:
+            # Hedged, but in the OPPOSITE direction: "at least 3 retries" became
+            # "at most 3 retries". Treating that as "still hedged" scored a reversed
+            # claim as faithful — worse than dropping the hedge, because a floor read
+            # as a ceiling is a confident wrong bound rather than a visible gap.
+            # Counted separately for the same reason `continuation` reports status
+            # flips apart from recall: averaging it away hides which way the error went.
+            probe.inverted += 1
         elif classes:
             # hedged, but with a different class. Still hedged: not an overclaim.
             probe.preserved += 1
@@ -253,6 +275,11 @@ def format_probe(probe: OverclaimProbe) -> str:
         f"  overclaimed             {probe.overclaim_rate:6.1%}  ({probe.overclaimed})"
         "  <- value kept, uncertainty dropped",
     ]
+    if probe.inverted:
+        lines.append(
+            f"  inverted bounds         {probe.inverted:>6}       "
+            "  <- floor read as ceiling; worse than a dropped hedge"
+        )
     if probe.underclaimed:
         lines.append(
             f"  underclaimed            {probe.underclaimed:>6}       "

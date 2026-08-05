@@ -121,6 +121,29 @@ _PATTERNS: tuple[tuple[re.Pattern[str], Op], ...] = (
     # Diff headers — the most reliable modify signal there is.
     (re.compile(rf"^\+\+\+ b/(?P<p>{_PATH})", re.M), Op.MODIFY),
     (re.compile(rf"^diff --git a/{_PATH} b/(?P<p>{_PATH})", re.M), Op.MODIFY),
+    # `apply_patch` envelopes — the edit format used by Codex and several agent
+    # harnesses. Absent these, an entire agent family's file operations were invisible
+    # and the probe scored its trajectories as a workspace it had never touched.
+    (re.compile(rf"^\*\*\*\s*Add File:\s*(?P<p>{_PATH})", re.M | re.I), Op.CREATE),
+    (re.compile(rf"^\*\*\*\s*Delete File:\s*(?P<p>{_PATH})", re.M | re.I), Op.DELETE),
+    (re.compile(rf"^\*\*\*\s*Update File:\s*(?P<p>{_PATH})", re.M | re.I), Op.MODIFY),
+    # In-place edit and shell redirects. `>` must not be preceded by `-`, or the `->`
+    # of a Python type hint in written source reads as a redirect into its return type
+    # (`-> Dict` would register a create of "Dict"). Requiring whitespace before the
+    # operator excludes both `->` and `2>&1`.
+    (re.compile(rf"\bsed\s+-i\S*\s+(?:'[^']*'\s+|\"[^\"]*\"\s+)?(?P<p>{_PATH})"), Op.MODIFY),
+    (re.compile(rf"(?:^|\s)>>\s*(?P<p>{_PATH})", re.M), Op.MODIFY),
+    (re.compile(rf"(?:^|\s)>(?!>)\s*(?P<p>{_PATH})", re.M), Op.CREATE),
+)
+
+# Verbs that name TWO paths and assign each a different op. These cannot live in
+# `_PATTERNS`, which yields one path per match: `mv old.py new.py` is a delete *and* a
+# create, and scoring it as either alone leaves the ledger describing a workspace that
+# never existed. `mv` also matches inside `git mv`, so that needs no separate entry.
+_PAIR_PATTERNS: tuple[tuple[re.Pattern[str], Op, Op], ...] = (
+    (re.compile(rf"\bmv\s+(?:-\S+\s+)*(?P<s>{_PATH})\s+(?P<d>{_PATH})"), Op.DELETE, Op.CREATE),
+    # `cp` leaves the source in place, so the source is only ever a read.
+    (re.compile(rf"\bcp\s+(?:-\S+\s+)*(?P<s>{_PATH})\s+(?P<d>{_PATH})"), Op.READ, Op.CREATE),
 )
 
 
@@ -147,11 +170,20 @@ class Ledger:
 def extract_ops(text: str) -> list[tuple[str, Op]]:
     """Every (path, op) *successfully* asserted by one block of text.
 
-    A tool call that failed asserts nothing about workspace state. Blocks carrying a
-    failure marker are skipped entirely rather than parsed, so the ledger records what
-    happened rather than what was attempted.
+    A tool call that failed asserts nothing about workspace state, so text carrying a
+    failure marker is skipped rather than parsed: the ledger records what happened,
+    not what was attempted.
+
+    That inference only applies to UNSTRUCTURED text, where success and failure are
+    tangled in the same prose ("rm failed: No such file"). A structured call whose
+    result `_iter_tool_texts` has already adjudicated arrives pre-marked, and is not
+    re-scanned. Re-deriving a verdict that was already computed correctly is what
+    caused two separate false-skip bugs — see :data:`_ADJUDICATED`.
     """
-    if not text or _FAILED_RE.search(_outcome_of(text)):
+    scan = not text.startswith(_ADJUDICATED)
+    if not scan:
+        text = text[len(_ADJUDICATED) :]
+    if not text or (scan and _FAILED_RE.search(text)):
         return []
     found: list[tuple[str, Op]] = []
     for pattern, op in _PATTERNS:
@@ -159,23 +191,14 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
             path = _canonical(m.group("p"))
             if path:
                 found.append((path, op))
+    # Two-path verbs: the source and destination take DIFFERENT ops from one match.
+    for pattern, src_op, dst_op in _PAIR_PATTERNS:
+        for m in pattern.finditer(text):
+            for group, op in (("s", src_op), ("d", dst_op)):
+                path = _canonical(m.group(group))
+                if path:
+                    found.append((path, op))
     return found
-
-
-def _outcome_of(text: str) -> str:
-    """The part of a block that reports an OUTCOME, for failure detection.
-
-    Scanning the whole block matched failure phrases inside a call's own arguments:
-    `Write(file_path="tests/test_errors.py", content="No such file or directory")`
-    was skipped entirely, so a coding agent writing an error fixture — an everyday
-    act — silently vanished from the ledger and the totals went falsely green.
-
-    When a result is present it follows the `->` delimiter, so only that tail is
-    evidence about success. With no delimiter the whole text is the outcome (plain
-    narration like "rm failed: No such file"), and is scanned as before.
-    """
-    marker = text.rfind("->")
-    return text[marker + 2 :] if marker != -1 else text
 
 
 def _canonical(path: str) -> str:
@@ -309,6 +332,24 @@ def format_probe(probe: StateProbe) -> str:
 # joined without losing its position. Chosen to be unmatchable by any real content.
 _CALL_SLOT = "\x00call\x00"
 _RESULT_SLOT = "\x00result\x00"
+# Marks a tool call whose result has ALREADY been checked for failure, against the
+# result alone — the only text that is evidence about success.
+#
+# The verdict has to cross this boundary as a flag, because re-deriving it from the
+# emitted string is not possible without guessing, and both guesses were wrong:
+#
+#   * joining the pair as `call -> result` and scanning the whole thing skipped a
+#     successful `Write(file_path="t.py", content="No such file or directory")` — an
+#     agent writing an error fixture vanished from the ledger;
+#   * scanning only after the last `->` fixed that but made the delimiter ambiguous,
+#     because written Python source contains `->` in every type hint. A successful
+#     write of `def run() -> int: ... sys.exit(1)` had its own body read as a failed
+#     outcome and was skipped too.
+#
+# Both are the same mistake: a verdict computed correctly, thrown away, and recovered
+# by string heuristic from text that legitimately contains the delimiter. Control
+# characters cannot occur in tool arguments or source, so the flag is unambiguous.
+_ADJUDICATED = "\x00ok\x00"
 
 
 def _iter_tool_texts(messages: Any) -> list[str]:
@@ -422,16 +463,20 @@ def _iter_tool_texts(messages: Any) -> list[str]:
             result = results.get(call_id, "")
             call_text = calls.get(call_id, "")
             # The CALL states which operation was attempted; the RESULT states only
-            # whether it succeeded. So a successful result's text is dropped rather
-            # than scanned: joining them let result narration override the call, and
-            # because the strongest op wins within a block, a Write whose result
-            # mentioned "deleted a.py" folded the ledger to DELETE. A failing result
-            # IS kept, because `extract_ops` rejects the whole block on a failure
-            # marker — which is exactly the outcome wanted there.
+            # whether it succeeded. So the failure check runs HERE, against the result
+            # alone, and the result text is then dropped: joining them let result
+            # narration override the call, and because the strongest op wins within a
+            # block, a Write whose result mentioned "deleted a.py" folded the ledger
+            # to DELETE.
+            #
+            # A failed call asserts nothing about workspace state, so it is dropped
+            # outright — identical to what `extract_ops` did with it, minus a string
+            # round-trip that could not survive contact with real content.
+            if not call_text:
+                continue
             if result and _FAILED_RE.search(result):
-                resolved.append(f"{call_text}\n-> {result}")
-            else:
-                resolved.append(call_text)
+                continue
+            resolved.append(_ADJUDICATED + call_text)
         elif item.startswith(_RESULT_SLOT):
             # Already consumed at its call's position; emit only if orphaned, since an
             # orphan result still describes state ("deleted old/x.json").

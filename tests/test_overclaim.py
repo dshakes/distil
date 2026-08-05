@@ -34,7 +34,7 @@ class TestExtraction:
     def test_longest_hedge_wins(self) -> None:
         # "at least" must not be shredded into the "bound" term "least" plus noise,
         # nor "not sure" into "sure".
-        assert any(c.hedge_class == "bound" for c in extract_claims("at least 5 retries"))
+        assert any(c.hedge_class == "bound_lower" for c in extract_claims("at least 5 retries"))
 
     def test_tilde_is_a_hedge(self) -> None:
         assert any(c.hedge_class == "approx" for c in extract_claims("~4000 ms"))
@@ -112,6 +112,49 @@ class TestReporting:
             "preserved",
             "overclaimed",
             "underclaimed",
+            "inverted",
             "fidelity",
             "overclaim_rate",
         }
+
+
+class TestDirectionalBounds:
+    """A reversed bound is not "still hedged".
+
+    Grouping synonyms exists so a legitimate reshaping ("approximately" -> "about")
+    is not scored as damage. Antonyms were caught by the same net: "at least 3" and
+    "at most 3" shared one class, so a floor silently inverted into a ceiling scored
+    as PRESERVED — a confident wrong bound reported as faithful.
+    """
+
+    def test_lower_to_upper_is_an_inversion(self) -> None:
+        p = score("the runner will retry at least 3 times", "the runner will retry at most 3 times")
+        assert (p.inverted, p.preserved, p.overclaimed) == (1, 0, 0)
+
+    def test_upper_to_lower_is_an_inversion(self) -> None:
+        p = score("latency stays under 200 ms", "latency stays over 200 ms")
+        assert p.inverted == 1
+
+    def test_same_direction_synonym_is_still_preserved(self) -> None:
+        p = score("retry at least 3 times", "retry no fewer than 3 times")
+        assert (p.preserved, p.inverted) == (1, 0)
+
+    def test_dropping_the_hedge_is_still_an_overclaim_not_an_inversion(self) -> None:
+        p = score("retry at least 3 times", "retry 3 times")
+        assert (p.overclaimed, p.inverted) == (1, 0)
+
+    def test_unrelated_class_substitution_is_not_an_inversion(self) -> None:
+        p = score("retry at least 3 times", "retry may 3 times")
+        assert (p.preserved, p.inverted) == (1, 0)
+
+    def test_the_three_outcomes_partition_the_total(self) -> None:
+        p = score(
+            "retry at least 3 times and wait about 500 ms and cap at most 9 workers",
+            "retry at most 3 times and wait 500 ms and cap at most 9 workers",
+        )
+        assert p.preserved + p.overclaimed + p.inverted == p.total
+
+    def test_inversion_is_reported(self) -> None:
+        from distil.overclaim import format_probe
+
+        assert "inverted" in format_probe(OverclaimProbe(total=2, preserved=1, inverted=1))

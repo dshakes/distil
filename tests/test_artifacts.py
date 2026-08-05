@@ -7,7 +7,10 @@ this module is that those are different failures with different blast radii.
 
 from __future__ import annotations
 
+import json
+
 from distil.artifacts import (
+    _ADJUDICATED,
     Op,
     StateProbe,
     build_ledger,
@@ -292,7 +295,11 @@ class TestThirdAuditRound:
             },
             {"role": "assistant", "content": [{"type": "text", "text": "deleted a.py"}]},
         ]
-        assert _iter_tool_texts(msgs) == ['Write(file_path="a.py")', "deleted a.py"]
+        # The call arrives pre-adjudicated (see `_ADJUDICATED`); narration does not.
+        assert [t.replace(_ADJUDICATED, "") for t in _iter_tool_texts(msgs)] == [
+            'Write(file_path="a.py")',
+            "deleted a.py",
+        ]
         assert build_ledger(_iter_tool_texts(msgs)).state == {"a.py": Op.DELETE}
 
     def test_ordering_fix_did_not_break_failure_pairing(self) -> None:
@@ -503,24 +510,61 @@ def _iter_tool_texts_for(msgs: list[dict]) -> list[str]:
 
 
 class TestFailureScope:
-    """Round-6 Blocking: failure phrases matched inside a call's own arguments.
+    """Failure evidence comes from the RESULT, never from the call's own arguments.
 
-    `Write(file_path="tests/test_errors.py", content="No such file or directory")`
-    was skipped whole, so a coding agent writing an error fixture vanished from the
-    ledger and totals went falsely green.
+    This has now been wrong twice, and the second time the test was the reason it
+    shipped. Round 6 fixed "failure phrase inside the arguments" by scanning only the
+    text after a `->` delimiter, and the regression test built that delimiter BY HAND:
+
+        'Write(file_path="tests/test_errors.py", ...)\\n-> {"ok": true}'
+
+    Nothing in the live path ever produced that string — successful calls were emitted
+    with no delimiter at all — so the test passed against a shape that did not exist
+    while real traffic stayed broken. A probe that reports a false 100% is the exact
+    failure this module is for, so every case here goes through `measure_live`, the
+    entry point real traffic uses.
     """
 
+    @staticmethod
+    def _live(name: str, args: dict, result: str) -> int:
+        msgs = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args)},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": result},
+        ]
+        return measure_live(msgs, msgs).total
+
     def test_error_text_in_call_arguments_does_not_suppress_the_op(self) -> None:
-        t = (
-            'Write(file_path="tests/test_errors.py", content="No such file or directory")\n'
-            '-> {"ok": true}'
-        )
-        assert ("tests/test_errors.py", Op.CREATE) in extract_ops(t)
+        """An agent writing an error fixture is an everyday act, not a failure."""
+        args = {"file_path": "tests/test_errors.py", "content": "No such file or directory"}
+        assert self._live("Write", args, '{"ok": true}') == 1
+
+    def test_written_source_containing_a_type_hint_is_not_an_outcome(self) -> None:
+        """`->` is not a delimiter: every Python type hint contains one.
+
+        Scanning after the LAST `->` read this file's own body as the tool's result,
+        so a successful write of ordinary typed Python with any error handling in it
+        was scored as a failed call and dropped.
+        """
+        src = "def run() -> int:\n    if bad:\n        sys.exit(1)\n    return 0\n"
+        assert self._live("Write", {"file_path": "run.py", "content": src}, '{"ok": true}') == 1
 
     def test_failure_in_the_result_still_suppresses(self) -> None:
-        assert extract_ops('Bash(command="rm x.py")\n-> {"exit": 1}') == []
+        assert self._live("Bash", {"command": "rm x.py"}, '{"exit": 1}') == 0
+
+    def test_failure_in_the_result_suppresses_even_with_clean_arguments(self) -> None:
+        assert self._live("Write", {"file_path": "b.py"}, "Permission denied") == 0
 
     def test_narration_failure_without_a_delimiter_still_suppresses(self) -> None:
+        """Unstructured text has no call/result split, so it is still inferred."""
         assert extract_ops("rm failed: No such file or directory for y.py") == []
 
     def test_ordinary_extraction_unaffected(self) -> None:

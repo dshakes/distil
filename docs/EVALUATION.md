@@ -334,11 +334,22 @@ agent has been handed a precise figure where the source offered an estimate. The
 hedge *was* the information.
 
 `distil.overclaim` groups hedges into classes (`approx`, `modal`, `seem`,
-`attrib`, `bound`, `partial`, `unsure`) so a legitimate reshaping
-("approximately" → "about") is not scored as distortion — only the
-*disappearance* of hedging is. Direction is asymmetric and both are counted:
-**overclaim** (hedge dropped) makes an agent over-confident and is gated;
-**underclaim** (hedge added) makes it over-cautious and is merely reported.
+`attrib`, `bound_lower`, `bound_upper`, `partial`, `unsure`) so a legitimate
+reshaping ("approximately" → "about") is not scored as distortion. Direction is
+asymmetric and each way is counted separately: **overclaim** (hedge dropped)
+makes an agent over-confident and is gated; **underclaim** (hedge added) makes
+it over-cautious and is merely reported.
+
+Bounds are split by direction because grouping exists to forgive synonyms, not
+antonyms. With `at least` and `at most` in one class, `"retry at least 3 times"`
+→ `"retry at most 3 times"` scored as **preserved** — a floor silently inverted
+into a ceiling, read as faithful. That is worse than a dropped hedge: a dropped
+hedge leaves a visible gap, an inverted one leaves a confident wrong bound. It
+is reported as its own outcome (`inverted`) rather than folded into the
+overclaim rate, for the same reason `continuation` reports status flips apart
+from recall — averaging a direction-changing failure into a rate hides which way
+the error went. So every graded claim lands in exactly one of three buckets:
+`preserved + overclaimed + inverted == total`.
 
 The framing follows work on information fidelity in compressed financial
 analysis ([arXiv:2606.29251](https://arxiv.org/pdf/2606.29251)), which finds

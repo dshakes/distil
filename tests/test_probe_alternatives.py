@@ -109,10 +109,40 @@ class TestArtifactVerbs:
             ("inspected src/a.py", Op.READ),
             ("viewed src/a.py", Op.READ),
             ("+++ b/src/a.py", Op.MODIFY),
+            # apply_patch envelopes — the edit format used by Codex and several other
+            # agent harnesses. Missing these made an entire agent family's file
+            # operations invisible, so their trajectories scored as an untouched
+            # workspace.
+            ("*** Add File: src/a.py", Op.CREATE),
+            ("*** Delete File: src/a.py", Op.DELETE),
+            ("*** Update File: src/a.py", Op.MODIFY),
+            ("sed -i 's/x/y/' src/a.py", Op.MODIFY),
+            ("echo hi > src/a.py", Op.CREATE),
+            ("echo hi >> src/a.py", Op.MODIFY),
         ],
     )
     def test_every_verb_fires(self, text: str, op: Op) -> None:
         assert ("src/a.py", op) in extract_ops(text), f"{text!r} did not yield {op}"
+
+    @pytest.mark.parametrize(
+        "text,src_op,dst_op",
+        [
+            ("mv src/a.py src/b.py", Op.DELETE, Op.CREATE),
+            ("git mv src/a.py src/b.py", Op.DELETE, Op.CREATE),
+            ("cp src/a.py src/b.py", Op.READ, Op.CREATE),
+        ],
+    )
+    def test_two_path_verbs_assign_both_ends(self, text: str, src_op: Op, dst_op: Op) -> None:
+        """`mv old new` is a delete AND a create. Scoring either end alone leaves the
+        ledger describing a workspace that never existed."""
+        ops = extract_ops(text)
+        assert ("src/a.py", src_op) in ops, f"{text!r} lost the source op"
+        assert ("src/b.py", dst_op) in ops, f"{text!r} lost the destination op"
+
+    def test_a_type_hint_is_not_a_shell_redirect(self) -> None:
+        """`>` after `-` is the tail of `->`, not a redirect. Without the guard,
+        `-> Dict` registered a create of a file named "Dict"."""
+        assert extract_ops("def f() -> Dict:") == []
 
     @pytest.mark.parametrize(
         "path",
@@ -143,3 +173,17 @@ class TestHedgeClasses:
                 if not any(c.hedge_class == cls for c in claims):
                     dead.append((cls, term))
         assert not dead, f"hedge terms that never fire: {dead}"
+
+    def test_opposed_classes_are_real_and_symmetric(self) -> None:
+        """Every opposed pair must name classes that exist and point at each other.
+
+        A typo here fails open: the lookup misses, the inversion falls through to the
+        "still hedged" branch, and a reversed bound is scored as faithful — silently,
+        which is the failure mode these probes exist to catch.
+        """
+        from distil.overclaim import _OPPOSED
+
+        for cls, opposite in _OPPOSED.items():
+            assert cls in _HEDGE_CLASSES, f"{cls!r} is not a hedge class"
+            assert opposite in _HEDGE_CLASSES, f"{opposite!r} is not a hedge class"
+            assert _OPPOSED[opposite] == cls, f"{cls!r}/{opposite!r} is not symmetric"
