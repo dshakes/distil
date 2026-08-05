@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from distil.artifacts import (
     _ADJUDICATED,
     Op,
@@ -629,3 +631,30 @@ class TestFailureIsAdjudicatedPerOperation:
 
     def test_intra_line_ops_still_fold_to_the_strongest(self) -> None:
         assert build_ledger(["cat a.py && rm a.py"]).state == {"a.py": Op.DELETE}
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "mv a.py b.py\n-> exit: 1",
+            'cp a.py b.py\n-> {"ok": false}',
+            'mv "a.py" "b.py"\n-> Permission denied',
+        ],
+    )
+    def test_a_failed_pair_verb_records_neither_end(self, text: str) -> None:
+        """Two ops from one match share a start, so they must share a window.
+
+        `mv old new` yields a delete AND a create from a single regex match, both at
+        the same position. Ending the first op's window at the second op's start made
+        it zero characters wide — nothing to find a failure marker in — so a failed
+        `mv` correctly dropped the create and still recorded a phantom DELETE of a
+        file that was never moved. A phantom delete is the exact failure this module
+        was written to catch, produced by the module itself.
+        """
+        assert extract_ops(text) == [], f"{text!r} recorded a phantom operation"
+
+    def test_a_successful_pair_verb_still_records_both_ends(self) -> None:
+        ops = extract_ops("mv a.py b.py\n-> exit: 0")
+        assert ("a.py", Op.DELETE) in ops and ("b.py", Op.CREATE) in ops
+
+    def test_a_failed_pair_verb_does_not_erase_the_next_operation(self) -> None:
+        assert extract_ops("mv a.py b.py -> exit: 1\ntouch z.py") == [("z.py", Op.CREATE)]

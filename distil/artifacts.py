@@ -251,7 +251,14 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
     found.sort(key=lambda f: f[0])
     kept: list[tuple[str, Op]] = []
     for i, (start, path, op) in enumerate(found):
-        end = found[i + 1][0] if i + 1 < len(found) else len(text)
+        # The window runs to the next op at a STRICTLY LATER position. Two ops can
+        # share one: `mv old.py new.py` yields a delete and a create from a single
+        # match, so both carry the same start. Ending the first window at the second
+        # op's start made it empty — zero characters to find a failure marker in — so
+        # a failed `mv` dropped the create and still recorded a phantom DELETE of a
+        # file that was never moved. Ops asserted at the same position are asserted
+        # by the same command and share its outcome.
+        end = next((s for s, _, _ in found[i + 1 :] if s > start), len(text))
         if _FAILED_RE.search(text, start, end):
             continue
         kept.append((path, op))
