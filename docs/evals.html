@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Evaluation — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Evaluation — Distil"/>
+<meta property="og:description" content="How distil is evaluated: decision equivalence, tri-state fact recall, four state probes, conformal risk certificates — and the negative results we publish."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/evals.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Evaluation — Distil"/>
+<meta name="twitter:description" content="How distil is evaluated: decision equivalence, tri-state fact recall, four state probes, conformal risk certificates — and the negative results we publish."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="corpus.html" class="active" aria-current="page">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">    <h1>Evaluation</h1>
+    <p class="lede">Every compressor asks you to trust it. This page is what distil measures instead — including the numbers that make distil look worse, because a suite that only ever produces good news is a suite nobody should believe.</p>
+
+    <h2 id="why">Why compression ratio is not a result</h2>
+    <p>Token reduction and task success are not linearly related, and the relationship can cliff-edge. <a href="https://arxiv.org/pdf/2605.11051">One study</a> found 4× compression collapsing SWE-bench resolution from 86% to 7% — not a decline, a cliff.</p>
+    <p>We hit it ourselves. <b>E7</b> ran the full SWE-bench Verified agent loop under distil's <em>aggressive</em> tier and measured real resolution: <b>52% → 16%</b>. The reversible tier held (56% vs 52% full-context). Per-step decision-equivalence had already passed. End-to-end task success still cratered.</p>
+    <p>We publish E7 as evidence, not confession. It is why the shipped default is the conservative tier rather than the one that wins a compression-ratio leaderboard.</p>
+    <p><b>The rule that follows:</b> every compression claim reports token savings <em>and</em> a task-success delta together, at the setting we actually ship. A ratio with no success number beside it is an invitation to find the cliff in production.</p>
+
+    <p><img src="assets/eval-stack.svg" alt="Distil's evaluation stack: five per-commit gates — bench for decision equivalence, verify for byte fidelity, retention for fact recall, fidelity for state fidelity, validate for adversarial invariants — under a conformal risk certificate, with external-validity checks and a versioned record for every run." width="100%" loading="lazy"/></p>
+
+    <h2 id="layers">Five layers, five different questions</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Question</th><th>Command</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td>Decision equivalence</td><td>Does the agent's next action change?</td><td><code>distil bench</code></td><td>free</td></tr>
+        <tr><td>Byte fidelity</td><td>Is every compression exactly reversible?</td><td><code>distil verify</code></td><td>free</td></tr>
+        <tr><td>Fact recall</td><td>Which facts stay visible, recoverable, lost?</td><td><code>distil retention</code></td><td>free</td></tr>
+        <tr><td>State fidelity</td><td>Does a <em>yes</em> on recall actually mean anything?</td><td><code>distil fidelity</code></td><td>free</td></tr>
+        <tr><td>Adversarial</td><td>Do the invariants hold on hostile input?</td><td><code>distil validate</code></td><td>free</td></tr>
+      </tbody>
+    </table>
+    <p>All five are offline, need no API key, and run in seconds. That is deliberate: <b>a gate you skip because it costs money is not a gate.</b> All five run per-commit in CI.</p>
+
+    <h2 id="phantom">The case recall cannot see</h2>
+    <p><img src="assets/phantom-file.svg" alt="A file created at turn 2 and deleted at turn 4. When compression drops turn 4 every path token remains, so string recall reads 100 percent, but artifact-state fidelity reads 0 percent — the failure is stale (present but wrong) rather than lost." width="100%" loading="lazy"/></p>
+    <p>Recall asks <em>"is the fact still there"</em>. Here is a trajectory where the answer is yes and the agent is still broken:</p>
+    <pre class="term">turn 2   Write(file_path="net/scratch_bench.py")
+turn 4   rm net/scratch_bench.py</pre>
+    <p>Compress away turn 4. Every path token is still present — <b>string recall reads 100%</b> — while the agent now believes a file exists that does not, and will plan around it. Nothing in the transcript says otherwise.</p>
+    <p><code>distil fidelity</code> folds tool calls into a file-state ledger and grades the <em>final state</em>, splitting two outcomes that presence metrics conflate:</p>
+    <table>
+      <thead><tr><th>Outcome</th><th>Meaning</th><th>Severity</th></tr></thead>
+      <tbody>
+        <tr><td><code>exact</code></td><td>final state preserved</td><td>—</td></tr>
+        <tr><td><code>lost</code></td><td>path absent</td><td><b>loud</b> — the agent can see the gap</td></tr>
+        <tr><td><code>stale</code></td><td>path present, <b>wrong state</b></td><td><b>silent</b> — the agent acts on a false belief</td></tr>
+      </tbody>
+    </table>
+    <p>These are never averaged into one accuracy figure, because <b>a compressor that drops a whole file history is safer than one that preserves half of it.</b> On the case above: string recall 100%, state fidelity 0%.</p>
+    <p><a href="https://factory.ai/news/evaluating-compression">Factory.ai</a> measured every method they tested at <b>2.19–2.45 / 5.0</b> on this axis across 36,611 production engineering messages. Presence-based metrics are structurally unable to detect it — the string is present.</p>
+
+    <h2 id="probes">Three more things recall misses</h2>
+    <p><b>Overclaim.</b> <code>"approximately 4200 ms"</code> → <code>"4200 ms"</code>. Byte-identical value, and every recall metric scores it perfect — but the agent has been handed a precision the source never asserted. The hedge <em>was</em> the information. Hedges are grouped into classes so reshaping (<code>approximately</code> → <code>about</code>) is not penalised; only the disappearance of hedging is. Direction is asymmetric: overclaim is gated, underclaim only reported.</p>
+    <p><b>Continuation.</b> Whether the agent still knows what is <em>left to do</em>. Dropping a completed item is cheap — work gets redone. Dropping a pending one is silent: the work is skipped and success is reported anyway.</p>
+    <p><b>Propagation.</b> Whether a loss at turn <em>k</em> shows up as a behaviour change at turn <em>k+n</em>, as a lag-lift profile. Two limits are printed in the tool's own output: it is association rather than causation, and periodic workloads alias at multiples of their period.</p>
+
+    <h2 id="numbers">The numbers, on the shipped tier</h2>
+    <pre class="term"><span class="d">$ distil fidelity</span>
+artifact-state fidelity   100.0%  (7/7 artifacts intact)
+  stale (wrong state)       0.0%  (0)
+  lost  (absent)            0.0%  (0)
+
+hedge fidelity             94.7%  (162/171 claims kept their hedging)
+  overclaimed               5.7%  (9)  &lt;- value kept, uncertainty dropped
+
+pending-work recall       100.0%  (2/2 remaining items still visible)
+
+error propagation  (36 turns, base decision-change rate 0.0%)
+  verdict: no decisions changed at all — nothing to propagate, and nothing tested
+
+OUTPUT surface — past answers digested on re-entry (the other half of the bill)
+  (6 blocks changed by digestion, 4 facts removed from them — the graded evidence)
+  artifact state         100.0%  (7/7)   stale 0
+  hedge fidelity         100.0%  (6/6)   overclaimed 0
+  pending-work recall    100.0%  (2/2)   dropped 0
+
+silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
+    <p><b>Those 9 overclaims are real, and we ship the number rather than tune it away.</b> Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact this is <em>not</em> recoverable in practice: a missing fact prompts the agent to expand, a missing hedge gives it no reason to look.</p>
+    <p>So the CI gate is <code>--max-silent 15</code>, not <code>0</code>. Gating at zero would assert a property the compressor does not have. The band fails a regression that doubles it — and fails an improvement too, forcing the number to be re-read rather than drifting.</p>
+
+    <h2 id="record">Every run is a record, not a number</h2>
+    <p><code>--json</code> emits an envelope, validated against a <a href="https://github.com/dshakes/distil/blob/main/schemas/eval-record.schema.json">published JSON Schema</a> on every test run:</p>
+    <pre class="term">{
+  "schema":  "distil.eval/1",
+  "subject": { "compressor": "serving", "module": "distil.compress.strategies" },
+  "dataset": { "trajectories": 9, "fingerprint": "sha256:051b836358932883" },
+  "grader":  { "kind": "deterministic",
+               "detail": "synthetic DECISION: oracle — NOT a model" },
+  "metrics": { ... },
+  "gates":   [ { "name": "max_silent", "threshold": 15, "observed": 9,
+                 "passed": true, "rationale": "..." } ],
+  "passed":  true
+}</pre>
+    <ul>
+      <li><b>fingerprint</b> — order-independent content hash of exactly what was graded. Adding a trajectory changes every number; without this that reads as a compressor regression.</li>
+      <li><b>grader</b> — a synthetic oracle is never reported as a model. That conflation is what makes a result look stronger than it is.</li>
+      <li><b>gates</b> — threshold, observed value, outcome <em>and rationale</em>. A bound with no reason attached is one somebody "fixes" later without knowing what it protected. An <b>empty</b> gate list is explicitly not a pass: nothing was checked.</li>
+    </ul>
+
+    <h2 id="live">On your own traffic</h2>
+    <p>The offline gates are graded on <em>our</em> corpus against <em>our</em> oracle — rigorous, but not checkable by you. Two things close that:</p>
+    <pre class="term"><span class="d"># graded against a PUBLIC benchmark's answer key, not ours</span>
+distil retention --dataset hotpotqa
+
+<span class="d"># A/B on YOUR traffic, with an A/A control</span>
+distil wrap --shadow claude
+distil shadow-stats --record</pre>
+    <p>Shadow mode replays the same compressed request to measure the <b>grader's own disagreement with itself</b> (A/A), then subtracts that floor from the A/B divergence. Without it you would read sampling noise as compression harm. <code>--record</code> emits the same envelope as the offline gates, so a live result is as attributable as a corpus one — with a traffic-window descriptor in place of a content hash, because live traffic has none and must never grow one.</p>
+    <p>Everything here is content-free. The meters store counts; no prompt, path or tool output leaves your machine.</p>
+
+    <h2 id="found">What the probes found in our own work</h2>
+    <p>An eval suite's real test is whether it catches its authors. These are recorded in full in <a href="https://github.com/dshakes/distil/blob/main/docs/PAPER.md">the paper</a>:</p>
+    <ul>
+      <li><b>The corpus was certifying nothing.</b> Across eight trajectories: 4 file operations and 0 stated obligations. All three state probes reported 100% against almost no evidence — the same shape as the HTML transform reporting 0% savings before any trajectory carried HTML. A coverage test now fails if the corpus stops carrying enough to grade.</li>
+      <li><b>The harness graded no-ops at 100%.</b> The compressors take a list of blocks; the runner passed strings, every call raised, and a blanket exception handler substituted the original — so each input was compared against itself. The handler is gone: a compressor that cannot run now fails the gate.</li>
+      <li><b>The overclaim metric produced 24 false findings before 9 real ones.</b> Three false-positive classes, each found by inspecting instances rather than trusting the aggregate.</li>
+      <li><b>The gate graded a surface users never receive.</b> It compressed every block with a bare tier; the serving path leaves the stable prefix untouched and compresses only the volatile tail. Found by cross-audit.</li>
+    </ul>
+    <p>Each of those is a failure the probes exist to detect, occurring in the probes. We publish them because the alternative — a suite that has never been wrong — is the less trustworthy artifact.</p>
+
+    <h2 id="run">Run it yourself</h2>
+    <pre class="term"><span class="d">$ uvx --from distil-llm distil bench</span>      <span class="d"># ~10s, no API key</span>
+<span class="d">$ uvx --from distil-llm distil fidelity</span>   <span class="d"># the state probes</span>
+<span class="d">$ make gate</span>                              <span class="d"># everything CI runs</span></pre>
+    <p>Full methodology in <a href="https://github.com/dshakes/distil/blob/main/docs/EVALUATION.md">EVALUATION.md</a>; step-by-step instructions in <a href="https://github.com/dshakes/distil/blob/main/docs/RUNNING-EVALS.md">RUNNING-EVALS.md</a>.</p>
+
+<div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

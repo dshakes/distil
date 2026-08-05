@@ -921,14 +921,125 @@ def cmd_dissect(args: argparse.Namespace) -> int:
     return 0
 
 
+# Floor below which a live change-rate gate cannot conclude anything. Matches the
+# n=10 precedent in ShadowLedger.aa_agreement.
+_MIN_SHADOW_SAMPLES = 10
+
+
 def cmd_shadow_stats(args: argparse.Namespace) -> int:
     """Show the live decision-equivalence measured by shadow mode on real traffic."""
     from .shadow import ShadowCounters, ShadowLedger
+
+    # Asking for the gate is asking for the record. The gate was evaluated only inside
+    # the `--record` branch, so `shadow-stats --max-change-rate 0.01` on its own
+    # printed the usual table and exited 0 — no gate ran, and a CI job that believed
+    # it was gated was not. That is the vacuous-gate failure this command already
+    # refuses for an empty ledger, arriving through the argument parser instead.
+    # Implying `--record` rather than erroring is the useful direction: the record is
+    # the gate's evidence, and a threshold with no visible observation cannot be
+    # audited anyway.
+    if getattr(args, "max_change_rate", None) is not None:
+        args.record = True
 
     # Default to the current signature algorithm so these numbers match the status
     # line verdict; --all reads every row (incl. old-version) for auditing.
     led = ShadowLedger.load(current_only=not getattr(args, "all", False))
     _ctrs = ShadowCounters.load()
+
+    if getattr(args, "record", False):
+        # Same envelope as `distil fidelity --json`, so a live result is as
+        # attributable as an offline one. `--json` keeps its original flat shape:
+        # it is an existing contract and breaking it to add provenance would be a
+        # worse trade than carrying two formats.
+        from .evalrecord import SCHEMA, EvalRecord, Gate, describe_env, describe_grader
+        from .shadow import SIG_VERSION
+
+        rate = led.rate()
+        adjusted = led.adjusted_rate() if led.aa_agreement() is not None else None
+        gates: list[Gate] = []
+        if getattr(args, "max_change_rate", None) is not None:
+            # Gate on the ADJUSTED rate when an A/A baseline exists: the raw rate
+            # includes the grader's own sampling noise, and gating on it would fail
+            # a compressor for the grader's variance.
+            observed = adjusted if adjusted is not None else rate
+            # A rate computed from too few samples is not a rate. On a FRESH ledger
+            # this gate emitted samples=0, rate=0.0, passed=true and exited 0 — it
+            # certified live decision-equivalence with no evidence at all, which is
+            # the same "an empty check is not a pass" failure `EvalRecord.passed`
+            # already refuses for gates. `ShadowLedger.aa_agreement` sets the
+            # precedent at n=10: "a baseline built on a handful of coin flips is
+            # worse than none". Below the floor the gate FAILS rather than passing
+            # or silently disappearing, because a CI job asking to be gated must not
+            # be told "fine" by a ledger that has never seen traffic.
+            enough = led.samples >= _MIN_SHADOW_SAMPLES
+            gates.append(
+                Gate(
+                    name="max_change_rate",
+                    threshold=args.max_change_rate,
+                    observed=round(observed, 6),
+                    passed=enough and observed <= args.max_change_rate,
+                    rationale=(
+                        f"INCONCLUSIVE — {led.samples} samples is below the floor of "
+                        f"{_MIN_SHADOW_SAMPLES}; a rate off that few observations is "
+                        "not a rate, so the gate fails rather than certifying nothing"
+                        if not enough
+                        else "A/A-adjusted decision-change rate on live traffic"
+                        if adjusted is not None
+                        else "RAW rate — no A/A baseline yet, so grader noise is included"
+                    ),
+                )
+            )
+        record = EvalRecord(
+            schema=SCHEMA,
+            run={
+                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "duration_ms": None,
+                "env": describe_env(),
+            },
+            subject={"compressor": "serving", "module": "distil.proxy"},
+            # The live analogue of a dataset fingerprint. Live traffic has no content
+            # hash — and must not grow one — so the window is described by the counts
+            # and the signature algorithm that scopes them. Two shadow runs are only
+            # comparable when both match.
+            dataset={
+                "name": "live-traffic",
+                "samples": led.samples,
+                "aa_samples": led.aa_samples,
+                "signature_version": SIG_VERSION,
+                "scope": "current-signature" if not getattr(args, "all", False) else "all-versions",
+                "fingerprint": f"sig{SIG_VERSION}:n={led.samples}+aa{led.aa_samples}",
+            },
+            grader=describe_grader("live-model-ab"),
+            metrics={
+                "samples": led.samples,
+                "changes": led.changes,
+                "decision_change_rate": rate,
+                "decision_equivalence": 1 - rate,
+                "aa_samples": led.aa_samples,
+                "aa_self_agreement": led.aa_agreement(),
+                "adjusted_change_rate": adjusted,
+                "adjusted_equivalence": (1 - adjusted) if adjusted is not None else None,
+            },
+            gates=gates,
+        )
+        print(json.dumps(record.to_dict(), indent=2))
+        if gates and not record.passed:
+            g = gates[0]
+            if led.samples < _MIN_SHADOW_SAMPLES:
+                print(
+                    f"\nFAIL: only {led.samples} shadow samples "
+                    f"(floor {_MIN_SHADOW_SAMPLES}) — nothing to certify. "
+                    "Collect traffic with `distil wrap --shadow`.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"\nFAIL: live change rate {g.observed} > --max-change-rate {g.threshold}",
+                    file=sys.stderr,
+                )
+            return 1
+        return 0
+
     if getattr(args, "json", False):
         print(
             json.dumps(
@@ -2515,6 +2626,132 @@ def cmd_retention(args: argparse.Namespace) -> int:
     return 0
 
 
+class _ServingSurface:
+    """Names what `distil fidelity` actually grades, for the record's `subject`.
+
+    Not a compressor — a label. The gate runs `strategies.distil` on the input side
+    and `output.digest_output_blocks` on the output side; reporting a bare tier here
+    would misattribute the result.
+    """
+
+    __module__ = "distil.compress.strategies"
+
+
+def cmd_fidelity(args: argparse.Namespace) -> int:
+    """State probes: artifact state, overclaim, continuation, error propagation.
+
+    `retention` asks whether a fact is still there. This asks the questions that
+    survive a yes — whether the file's *state* is right, whether a value kept its
+    uncertainty, whether the agent still knows what is left to do.
+    """
+
+    import time
+
+    from .evalrecord import Gate, build
+    from .fidelityprobes import format_report, run
+
+    entries = list(load_corpus(args.corpus) if args.corpus else load_corpus())
+    started = time.time()
+    # Do NOT pass a compressor: `run()` then uses the SERVING surface
+    # (`strategies.distil` for input, `digest_output_blocks` for output). Passing
+    # `Tier1Reversible()` here silently routed the gate down the test-double branch,
+    # so the audit fix that made `run()` grade the shipped surface never reached the
+    # command CI actually invokes, and the output surface was skipped entirely. The
+    # library was right and the entry point was wrong, which is the worst shape for
+    # this bug to take: every direct-call check passed.
+    rep = run(entries)
+
+    # Gates are recorded whether or not the operator asked for them, with the
+    # threshold and the observed value side by side. A gate whose bound is invisible
+    # cannot be audited, and "passed" with no threshold next to it is not evidence.
+    gates: list[Gate] = []
+    if args.max_silent is not None:
+        gates.append(
+            Gate(
+                name="max_silent",
+                threshold=args.max_silent,
+                observed=rep.silent_failures,
+                passed=rep.silent_failures <= args.max_silent,
+                rationale=(
+                    "stale artifacts + overclaimed values + dropped work — the failures "
+                    "an agent cannot see. Loud loss is gated by `retention --max-lost`."
+                ),
+            )
+        )
+    if args.no_propagation:
+        propagates = bool(rep.prop and rep.prop.propagates)
+        # With no decision changes at all there is nothing for a loss to propagate
+        # INTO, so the lag profile has no events to measure and the report says so
+        # verbatim: "nothing to propagate, and nothing tested". A gate that returns
+        # passed=true there certifies precisely what the report calls untested.
+        #
+        # This is the fourth place the same rule has had to be applied — after
+        # `EvalRecord.passed` (empty gate list), the shadow sample floor, and the
+        # unscored output surface. An absent measurement is never a pass.
+        tested = bool(rep.prop and rep.prop.base_rate > 0.0)
+        gates.append(
+            Gate(
+                name="no_propagation",
+                threshold=None,
+                observed=int(propagates),
+                passed=tested and not propagates,
+                rationale=(
+                    "INCONCLUSIVE — zero decision changes on this corpus, so there are "
+                    "no events for a loss to propagate into and nothing was measured"
+                    if not tested
+                    else "a fidelity loss at turn k associated with a decision change at "
+                    "a later turn; association only, and periodic workloads alias"
+                ),
+            )
+        )
+
+    if args.json:
+        record = build(
+            metrics=rep.to_dict(),
+            entries=entries,
+            compressor=_ServingSurface(),
+            grader="deterministic",
+            gates=gates,
+            started=started,
+        )
+        print(json.dumps(record.to_dict(), indent=2))
+    else:
+        print(format_report(rep))
+
+    # Gate on SILENT failures only. Plain loss is loud — the agent can see the gap —
+    # and `retention --max-lost` already owns it. Gating it twice would make one
+    # regression fail two checks and obscure which property actually broke.
+    # Diagnostics go to stderr under --json. Printing them after the document made
+    # stdout unparseable exactly when a gate failed — the moment a CI job most needs
+    # to read the record.
+    out = sys.stderr if args.json else sys.stdout
+
+    limit = args.max_silent
+    if limit is not None and rep.silent_failures > limit:
+        print(
+            f"\nFAIL: {rep.silent_failures} silent failures > --max-silent {limit}"
+            f"  (stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
+            f" dropped-work={rep.plan.dropped_work})",
+            file=out,
+        )
+        return 1
+    if args.no_propagation:
+        if rep.prop and rep.prop.propagates:
+            worst = rep.prop.worst
+            lag = worst.lag if worst else "?"
+            print(f"\nFAIL: error propagation detected at lag {lag} (--no-propagation)", file=out)
+            return 1
+        if not (rep.prop and rep.prop.base_rate > 0.0):
+            print(
+                "\nFAIL: --no-propagation is INCONCLUSIVE — zero decision changes on this "
+                "corpus, so nothing could propagate and nothing was measured. Asking for "
+                "this gate on a corpus with no decision changes certifies nothing.",
+                file=out,
+            )
+            return 1
+    return 0
+
+
 def _retention_dataset(args: argparse.Namespace) -> int:
     """Grade against a public benchmark's third-party answer key."""
 
@@ -2863,6 +3100,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rt.set_defaults(func=cmd_retention)
 
+    fp = sub.add_parser(
+        "fidelity",
+        help="state probes: artifact state, overclaim, continuation, propagation "
+        "(zero cost, offline)",
+    )
+    fp.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
+    fp.add_argument("--json", action="store_true", help="machine-readable report")
+    fp.add_argument(
+        "--max-silent",
+        type=int,
+        help="exit 1 if more than this many SILENT failures (stale artifacts + "
+        "overclaimed values + dropped work). Loud loss is gated by `retention "
+        "--max-lost`, not here.",
+    )
+    fp.add_argument(
+        "--no-propagation",
+        action="store_true",
+        help="exit 1 if a compression error at one turn is associated with a "
+        "behaviour change at a later turn",
+    )
+    fp.set_defaults(func=cmd_fidelity)
+
     bn = sub.add_parser(
         "benchmark",
         help="head-to-head vs competing techniques on the same gate + cost model",
@@ -3044,7 +3303,22 @@ def build_parser() -> argparse.ArgumentParser:
     ss = sub.add_parser(
         "shadow-stats", help="show live decision-equivalence measured by shadow mode"
     )
-    ss.add_argument("--json", action="store_true", help="machine-readable output")
+    ss.add_argument("--json", action="store_true", help="machine-readable output (flat)")
+    ss.add_argument(
+        "--record",
+        action="store_true",
+        help="emit a full eval record (schema + provenance + gates), the same "
+        "envelope as `distil fidelity --json`. `--json` keeps its original flat "
+        "shape so existing consumers are not broken.",
+    )
+    ss.add_argument(
+        "--max-change-rate",
+        type=float,
+        help="exit 1 if the A/A-adjusted live decision-change rate exceeds this "
+        "(0-1). Implies --record, since the record carries the gate's evidence. "
+        "Gates on the ADJUSTED rate where an A/A baseline exists, so a compressor "
+        "is not failed for the grader's own variance.",
+    )
     ss.add_argument(
         "--all",
         action="store_true",

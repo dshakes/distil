@@ -84,6 +84,19 @@ jobs:
       # by construction, so ANY unrecoverable fact is a real regression.
       - name: Fact-retention gate (recall on the corpus)
         run: uv run distil retention --max-lost 0
+      # The questions that survive a "yes" on recall: is the file's STATE right (not
+      # just its name present), did values keep their uncertainty, does the agent still
+      # know what is left to do. Gates on SILENT failures only — the ones an agent
+      # cannot see — because loud loss is already the gate above and failing one
+      # regression in two places obscures which property broke.
+      #
+      # The bound is 15, not 0, and that is a measurement rather than a concession:
+      # Tier-1 digests spans behind restore handles, and a digested hedged sentence can
+      # keep its value while losing its qualifier. 9 on the current corpus. Gating at 0
+      # would assert a property the compressor does not have; the band fails a
+      # regression that doubles it. See docs/EVALUATION.md section 6.2.
+      - name: Fidelity gate (artifact state, overclaim, continuation, propagation)
+        run: uv run distil fidelity --max-silent 15
       # Everything above imports distil from the source tree. This builds the wheel,
       # installs it clean, and drives the console scripts + server.json launch spec the
       # way a user's MCP client does — the boundary that shipped a broken registry

@@ -281,7 +281,182 @@ are `href` URLs, which extraction drops as navigation. True recall stays 100% be
 they are recoverable, but **visible** recall on that dimension is low (4.8% overall on
 the Wikipedia page). That is a tunable with a number attached now, not an unknown.
 
-## 6. How to reproduce
+## 6. Beyond recall: the four state probes
+
+Recall answers "is the fact still there". It cannot answer the questions that
+survive a yes, and those are where long-horizon agents actually break. Four
+probes cover them, each scored per turn against that turn's own original — so
+they need no answer key and run on live traffic as well as the corpus.
+
+Run them all with `distil fidelity`.
+
+### 6.1 Artifact state — the phantom file
+
+The `artifacts` dimension in §5 checks whether a path *string* survived. That is
+a weaker question than it looks. Consider:
+
+    turn 2   Write(file_path="net/scratch_bench.py")
+    turn 4   rm net/scratch_bench.py
+
+Compress away turn 4 and every path token is still present — string recall reads
+100% — while the agent now believes a file exists that does not. It will plan
+around it, and nothing in the transcript says otherwise.
+
+`distil.artifacts` folds tool calls into a ground-truth file-state ledger and
+grades the **final state** of each artifact, splitting failure into two classes
+that string recall conflates:
+
+| outcome | meaning | severity |
+|---|---|---|
+| `exact` | final state preserved | — |
+| `lost` | path absent | loud: the agent can see the gap |
+| `stale` | path present, **wrong state** | silent: the agent acts on a false belief |
+
+`stale` is reported as its own rate, never averaged into an accuracy number,
+because a compressor that drops a whole file history is safer than one that
+preserves half of it. `silent_failure_share` is the share of all errors that
+fail confidently — the number to watch when tuning.
+
+Factory.ai's probe study over 36,611 production engineering messages found this
+unsolved: every method they tested scored 2.19–2.45 out of 5.0 on knowing which
+files were created, modified or examined
+([factory.ai](https://factory.ai/news/evaluating-compression)). distil measures
+it directly because trajectories already carry the tool calls needed to build
+the ledger deterministically.
+
+### 6.2 Overclaim — the dropped hedge
+
+    original    "the timeout is approximately 4200 ms"
+    compressed  "the timeout is 4200 ms"
+
+Every recall metric scores that perfect; the number is byte-identical. But the
+agent has been handed a precise figure where the source offered an estimate. The
+hedge *was* the information.
+
+`distil.overclaim` groups hedges into classes (`approx`, `modal`, `seem`,
+`attrib`, `bound_lower`, `bound_upper`, `partial`, `unsure`) so a legitimate
+reshaping ("approximately" → "about") is not scored as distortion. Direction is
+asymmetric and each way is counted separately: **overclaim** (hedge dropped)
+makes an agent over-confident and is gated; **underclaim** (hedge added) makes
+it over-cautious and is merely reported.
+
+Bounds are split by direction because grouping exists to forgive synonyms, not
+antonyms. With `at least` and `at most` in one class, `"retry at least 3 times"`
+→ `"retry at most 3 times"` scored as **preserved** — a floor silently inverted
+into a ceiling, read as faithful. That is worse than a dropped hedge: a dropped
+hedge leaves a visible gap, an inverted one leaves a confident wrong bound. It
+is reported as its own outcome (`inverted`) rather than folded into the
+overclaim rate, for the same reason `continuation` reports status flips apart
+from recall — averaging a direction-changing failure into a rate hides which way
+the error went. So every graded claim lands in exactly one of three buckets:
+`preserved + overclaimed + inverted == total`.
+
+The framing follows work on information fidelity in compressed financial
+analysis ([arXiv:2606.29251](https://arxiv.org/pdf/2606.29251)), which finds
+overclaim changes downstream decisions independently of factual recall.
+
+### 6.3 Continuation — the dropped task
+
+Recall asks about facts; decision-equivalence asks about the next action.
+Neither asks whether the agent still knows *what is left to do*.
+
+`distil.continuation` folds `[ ]` / `[x]` items and stated goals into a final
+obligation status, then grades what survived. The asymmetry is the same shape as
+§6.1: dropping a **done** item is cheap (work gets redone), dropping a
+**pending** item is silent (work is skipped and success is reported anyway), and
+flipping a status is worst.
+
+`pending_recall` is the headline. `dropped_work` is the silent-skip count.
+
+The fold is ordered, not a set union: a plan legitimately evolves, and treating
+turn 1's `[ ] wire it up` and turn 3's `[x] wire it up` as two obligations would
+report the agent's own progress as compression damage.
+
+### 6.4 Error propagation — the delayed failure
+
+Every other probe scores one turn against its own original. That measures
+incidence and misses consequence: a fact dropped at turn 3 does no visible damage
+until turn 9.
+
+`distil.propagation` computes, for each lag L,
+
+    lift(L) = P(decision changed at t | fidelity dropped at t−L) / P(decision changed)
+
+Lift ≈ 1 across all lags means errors stay local — which is the claim distil
+wants to make about its conservative tier, and it is a claim the profile can
+actually support.
+
+**The decision signal must be independent of the probes.** It comes from the same
+`DECISION:` oracle the bench gate uses, comparing baseline against compressed. An
+early version derived it from the probes' own failures (`stale or overclaimed or
+dropped_work`), which made the analysis circular: lift then correlated probe
+failures with themselves, lag 0 was elevated by construction, and the gate could
+report propagation without a single decision having changed. Found by cross-audit;
+the contract is now stated on `TurnSignal` itself so it cannot quietly regress.
+
+On the bundled corpus the reversible tier changes **zero** decisions, so the tool
+reports *"nothing to propagate, and nothing tested"* rather than "no propagation" —
+a vacuous truth should not be dressed as an earned result.
+
+**Two limits, stated in the module's own output.** First, this is association,
+not causation: a turn-3 drop and a turn-9 change can share a cause. Second,
+periodic workloads alias — a retry cadence that drops fidelity every k turns and
+changes decision every k turns lights up every lag that is a multiple of k with
+no propagation at all. Lag 0 is excluded from the verdict, since same-turn
+co-incidence is not downstream damage.
+
+### 6.5 What the probes found: the corpus was certifying nothing
+
+Running these over the corpus as it stood produced **4 file operations and 0
+stated obligations** across all eight trajectories. All three state probes
+reported 100% — against almost no evidence.
+
+That is the same failure mode as §5.3, where HTML was compressing 0% because no
+trajectory carried any. `corpus/agent-worklog.json` closes it: a coding agent
+that creates, edits, reads and deletes files while maintaining a `[x]`/`[ ]`
+plan and hedging some findings. It deliberately contains a **create-then-delete**
+pair, so the phantom-file case is representable rather than hypothetical.
+
+A test pins this (`test_corpus_actually_exercises_every_probe`): if the corpus
+ever stops carrying enough state transitions, hedged claims or plan items to
+grade, the suite fails rather than reporting a green nobody earned.
+
+### 6.6 Gates
+
+`distil fidelity` gates on **silent** failures only:
+
+```
+distil fidelity --max-silent 0      # stale + overclaimed + inverted + dropped work
+distil fidelity --no-propagation    # fail if damage arrives in later turns
+```
+
+Loud loss is not gated here — `distil retention --max-lost` already owns it, and
+gating one regression twice obscures which property broke.
+
+### 6.7 How distil compares
+
+| capability | surface-similarity evals (ROUGE/F1/BLEU/embeddings) | distil |
+|---|---|---|
+| output text resembles baseline | ✅ | not measured — a poor proxy for agent behaviour |
+| fact recall | partial (n-gram overlap) | ✅ tri-state, with **verified** recoverability |
+| decision equivalence | ✗ | ✅ live shadow mode, majority-of-3 + A/A control |
+| artifact **state** | ✗ | ✅ ledger-based, stale vs lost separated |
+| overclaim / distortion | ✗ | ✅ hedge classes, direction-aware |
+| continuation | ✗ | ✅ ordered obligation fold |
+| error propagation | ✗ | ✅ lag-lift, with aliasing disclosed |
+| statistical guarantee | ✗ | ✅ LTT + CRC, distribution-free finite-sample |
+| drift | ✗ | ✅ anytime-valid betting e-process |
+| multilingual | varies | ✅ CJK-aware extraction and matching |
+
+Lexical-overlap metrics are the standard summarization stack and they are the
+wrong instrument here: two outputs can score 0.9 ROUGE-L and produce different
+tool calls, or 0.4 and produce identical ones. Factory.ai make the same point
+from production data, and a 2026 survey of context compression for LLM agents
+argues for exactly the axes above — information density, temporal consistency,
+error propagation — over end-task success alone
+([preprint](https://www.preprints.org/frontend/manuscript/098fda1d1490b8885d002521dbc08afa/download_pub)).
+
+## 7. How to reproduce
 
 - `distil shadow-stats` — live decision-equivalence, raw/baseline/adjusted
   decomposition, from real traffic collected by `distil wrap --shadow`.
@@ -295,3 +470,8 @@ the Wikipedia page). That is a tunable with a number attached now, not an unknow
   real agent traces graded by a real model, avoiding the circularity of
   self-graded `DECISION:` markers.
 - `BENCHMARKS.md` — the live-graded head-to-head numbers and how they're run.
+- `distil fidelity` — the four state probes of §6 over the corpus. Offline, zero
+  API cost, seconds to run. `--json` for machine-readable output, `--max-silent`
+  and `--no-propagation` to gate.
+- `benchmarks/gen_agent_worklog.py` — regenerates the trajectory that gives those
+  probes something to grade; edit it rather than the JSON.

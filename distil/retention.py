@@ -71,9 +71,17 @@ DIMENSIONS = ("numerics", "artifacts", "errors")
 # the unit and would false-match "invoices=889", the second is not a fact at all. They
 # also cannot satisfy a right-boundary test, which is what surfaced this while
 # tightening `_in_recovery` for the audit finding.
+# The label is `[^\W\d]` (a Unicode letter or underscore, never a digit) rather than
+# `[A-Za-z_]`: with the ASCII class, a CJK-labelled fact such as `超时=4000` was not
+# extracted at all, so the harness reported perfect recall on text whose facts it had
+# never looked for. Silent under-counting is the worst failure mode a metric can have.
+# The unit suffix accepts CJK too, so `4000毫秒` is one fact rather than a bare `4000`.
 _NUMERIC_RE = re.compile(
-    r"(?<![\w:.-])[A-Za-z_][\w.-]{0,24}\"?[ =:]{1,3}\d+(?:\.\d+)?[A-Za-z%]*(?![\w:.-])"
+    r"(?<![\w:.-])[^\W\d][\w.-]{0,24}\"?[ =:]{1,3}\d+(?:\.\d+)?[A-Za-z%぀-ヿ一-鿿]*(?![\w:.-])"
 )
+# Han, kana, and the CJK-adjacent blocks. Used to pick a matching strategy, never to
+# decide what counts as a fact.
+_CJK_RE = re.compile(r"[　-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ]")
 _URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+")
 _PATH_RE = re.compile(r"(?:~/|\.{1,2}/|/)?(?:[\w.-]+/){2,}[\w.@-]+")
 # Requires at least one a-f, so decimal runs (timestamps, row counts) are not
@@ -89,6 +97,9 @@ _NORMALIZE_RE = re.compile(r"[^\w./-]+")
 _NUMERIC_SPLIT_RE = re.compile(r"(.+?)[\"' =:]+(\d+(?:\.\d+)?)$")
 
 _MIN_TARGET_LEN = 4
+# CJK is denser per character: two han characters carry about as much as an English
+# word, so the 4-char floor would discard most real CJK facts before scoring them.
+_MIN_CJK_TARGET_LEN = 2
 _ERROR_PREFIX_LEN = 160
 # Below this, compression is effectively an identity transform and any recall number
 # it produces is arithmetic, not evidence. Gates must refuse to pass on it.
@@ -254,10 +265,15 @@ class RetentionReport:
         }
 
 
+def _min_len(value: str) -> int:
+    """Length floor for treating a match as a probe-able fact, per script."""
+    return _MIN_CJK_TARGET_LEN if _CJK_RE.search(value) else _MIN_TARGET_LEN
+
+
 def extract_targets(text: str) -> dict[str, set[str]]:
     """Pull probe-able facts out of an ORIGINAL block, per dimension."""
     targets: dict[str, set[str]] = {name: set() for name in DIMENSIONS}
-    targets["numerics"] = {m for m in _NUMERIC_RE.findall(text) if len(m) >= _MIN_TARGET_LEN}
+    targets["numerics"] = {m for m in _NUMERIC_RE.findall(text) if len(m) >= _min_len(m)}
     for pattern in _ARTIFACT_RES:
         targets["artifacts"].update(m for m in pattern.findall(text) if len(m) >= _MIN_TARGET_LEN)
     for line in text.splitlines():
@@ -282,6 +298,14 @@ def _in_recovery(value: str, recovery: str) -> bool:
     """
     if not value or not recovery:
         return False
+    if _CJK_RE.search(value):
+        # CJK is written without spaces and its characters are `\w`, so BOTH boundary
+        # tests below are unsatisfiable inside CJK text: `4000毫秒` sits between two
+        # word characters in `超时4000毫秒です` and would be scored lost while plainly
+        # present. Substring containment IS the correct token test for a script with
+        # no word boundaries. The `_MIN_CJK_TARGET_LEN` floor keeps this from being
+        # loose: two han characters are a real token, not a coincidence.
+        return len(value) >= _MIN_CJK_TARGET_LEN and value in recovery
     if len(value) < _MIN_TARGET_LEN:
         # Very short values ("12", "5") still slip through punctuation boundaries —
         # "12" is a token inside "file-12.csv". Require real whitespace/string edges so

@@ -600,6 +600,124 @@ digestion---the condition the serving-path recency carve-out prevents. Includes 
 \texttt{fetchurl} misdiagnosis correction: the URL was never in context; the model
 constructed it from a digested prose excerpt.
 
+## The evaluation stack (audit, August 2026)
+
+An audit of this paper against the shipped code found three substantial evaluation
+capabilities described nowhere in it. They are recorded here because a paper that
+omits half its own measurement apparatus overstates the parts it does describe.
+
+**Fact-level recall with verified recoverability** (`distil retention`). Decision
+equivalence asks whether the next action changed; it cannot say what was lost when
+the action happened to be unchanged. Recall is scored in three states rather than
+two: **retained** (visible to the model), **recoverable** (absent from the prompt
+but obtainable through one `distil_expand` call, *verified* by checking that the
+handle present in that block's compressed text expands to bytes containing the
+fact), and **lost**. The gap between visible and true recall is the measured value
+of reversibility — 21.4 points as a macro average across domains. Macro, not micro:
+the fact-weighted figure is set by whichever domain carries the most probes, and a
+single HTML fixture moved it from 9.8% to 62.6% without the compressor changing at
+all. A headline one fixture can swing is not measuring the compressor.
+
+**Live decision-equivalence with a self-agreement control** (shadow mode). The
+offline gates are graded on our corpus against our oracle. Shadow mode replays real
+traffic through both the compressed and original contexts and compares the model's
+next action, and — critically — also replays the *same* compressed request twice to
+measure the grader's disagreement with itself (A/A). The A/A rate is the floor
+below which an A/B divergence is sampling noise rather than compression harm;
+subtracting it is what makes the adjusted figure meaningful. Without the control,
+an A/B rate of 18.7% reads as harm when the grader's own floor accounts for it. The
+counters are content-free.
+
+**External validity through third-party answer keys** (`distil retention --dataset`).
+Everything above is self-graded. Grading against HotpotQA's gold supporting
+sentences amid eight distractor paragraphs, next to a truncation baseline tuned to
+distil's own savings on the same case, is the one number a reader can check without
+trusting our fixtures or our oracle.
+
+**Both priced surfaces.** distil compresses what the model reads *and* what its own
+past answers cost when they re-enter as history. The state probes below initially
+graded only the former; since output digestion targets assistant/history blocks,
+which the serving strategy deliberately leaves untouched, an entire priced surface
+had no fidelity coverage. Both are now graded by the same probes and gated together.
+
+**Records, not numbers.** Every eval emits a versioned record carrying a dataset
+fingerprint, the compressor identity, grader provenance, and each gate's threshold
+beside its observed value — validated against a published JSON Schema. Two runs
+reporting the same rate are not comparable without it, and a synthetic oracle
+reported as a model is the conflation that makes a certificate look stronger than
+it is.
+
+## Recent additions (August 2026)
+
+**§ "Beyond recall: state fidelity"** (new subsection): recall is a necessary but
+insufficient measure of whether compression preserved what an agent needs. Four
+probes are added, each targeting a failure that survives a perfect recall score.
+
+*Artifact state.* The standard artifact metric asks whether a path string survived.
+A trajectory that creates `f` at turn *k* and deletes it at turn *k+n* can lose the
+deletion while retaining every path token: string recall reads 100% and the agent
+plans around a file that no longer exists. We fold tool calls into a ground-truth
+file-state ledger and grade the *final* state, separating **stale** (path present,
+state wrong — the agent proceeds on a false belief) from **lost** (path absent — the
+agent can observe the gap). We report these separately rather than as one accuracy
+figure, because a compressor that drops an entire file history is safer than one
+that preserves half of it. Factory.ai report every method they evaluated scoring
+2.19–2.45 / 5.0 on this axis over 36,611 production messages; presence-based metrics
+are structurally unable to detect the failure, since the string is present.
+
+*Overclaim.* Compression that preserves a value while dropping its qualifier —
+"approximately 4200 ms" → "4200 ms" — is scored as perfect by every recall metric,
+yet hands the agent a precision the source did not assert. We group hedges into
+classes so that reshaping ("approximately" → "about") is not penalised, and count
+only the disappearance of hedging. The direction is asymmetric: overclaim
+(confidence added) is gated, underclaim (caution added) is reported. This follows
+work on information fidelity in compressed financial analysis, which finds overclaim
+alters downstream decisions independently of factual recall.
+
+*Continuation and propagation.* Whether the agent still knows what remains to be
+done, folded in turn order so that a plan's legitimate progress is not scored as
+damage; and whether a fidelity loss at turn *k* is associated with a behaviour
+change at turn *k+L*, reported as a lag-lift profile. We state two limits in the
+tool's own output: the profile is associational, and periodic workloads alias at
+multiples of their period.
+
+**Negative results from building the probes.** Three are worth recording, because
+each is a failure mode the probes were built to detect, occurring in the probes
+themselves.
+
+1. *The corpus certified nothing.* Across all eight trajectories the corpus
+   contained 4 file operations and 0 stated obligations; all three state probes
+   reported 100% against essentially no evidence. This is the same failure as the
+   HTML transform reporting 0% savings before an HTML-bearing trajectory existed. A
+   coverage test now fails if the corpus stops carrying enough state transitions,
+   hedged claims or plan items to grade.
+
+2. *The harness graded no-ops.* The compressors take a list of blocks; an early
+   version of the probe runner passed strings, every call raised, a blanket
+   exception handler substituted the original, and each input was compared against
+   itself at 100% fidelity. The handler was removed: a compressor that cannot run
+   now fails the gate, since a probe that silently grades a no-op is worse than
+   absent.
+
+3. *The overclaim metric produced 24 false findings before 9 real ones.* Three
+   distinct false-positive classes, each identified by inspecting instances rather
+   than trusting the aggregate: anchors matching digits inside larger numbers,
+   proximity binding computed over a whole block (compression shifts offsets, so
+   bindings flip on text that never changed), and a substring survival test that
+   credited a one-character anchor reappearing in unrelated structured output.
+   Structured-data lines are now excluded — hedging is a natural-language act, and a
+   JSON field asserts nothing.
+
+**Measured result.** On the bundled corpus under the shipped reversible tier:
+artifact-state fidelity 100% (7/7, zero stale, zero lost); pending-work recall 100%
+with zero status flips; hedge fidelity 94.7% (162/171), with **9 genuine
+overclaims**. The overclaims occur only on blocks that materially changed, and arise
+where a digested span retains a value but not its qualifier. Unlike a lost fact this
+is not recoverable in practice: a missing fact prompts the agent to expand, whereas a
+missing hedge gives it no reason to. The gate is set at the measured band rather than
+at zero, so that a regression fails and an improvement also forces the bound to be
+re-examined.
+
 ## Reproducing
 
 ```bash

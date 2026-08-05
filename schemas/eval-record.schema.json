@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dshakes/distil/schemas/eval-record.schema.json",
+  "title": "distil eval record",
+  "description": "The envelope emitted by `distil fidelity --json`. Metrics alone are numbers nobody can reproduce or compare; this adds the provenance that makes one a result. Versioned so a consumer detects a shape change instead of silently mis-parsing it.",
+  "type": "object",
+  "required": [
+    "schema",
+    "run",
+    "subject",
+    "dataset",
+    "grader",
+    "metrics",
+    "gates",
+    "passed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "pattern": "^distil\\.eval/[0-9]+$",
+      "description": "Schema identifier and major version. A consumer MUST reject a major version it does not know."
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "at",
+        "env"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "type": "string",
+          "description": "UTC ISO-8601 second precision."
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "env": {
+          "type": "object",
+          "required": [
+            "distil",
+            "python",
+            "platform"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "distil": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "implementation": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "description": "What was graded. A fidelity number without this is unattributable.",
+      "required": [
+        "compressor",
+        "module"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "compressor": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        }
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "description": "What it was graded against.",
+      "required": [
+        "name",
+        "fingerprint"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "trajectories": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:[A-Za-z0-9+=_.-]+$",
+          "description": "Scheme-prefixed identifier for exactly what was graded. Offline corpora use an order-independent content hash (`sha256:...`). Live traffic has no content hash and must never grow one, so it uses a traffic-window descriptor (`sig3:n=797+aa405`) \u2014 same role, different evidence. Two runs are only comparable when this matches."
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aa_samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "signature_version": {
+          "type": "integer"
+        },
+        "scope": {
+          "type": "string"
+        }
+      }
+    },
+    "grader": {
+      "type": "object",
+      "description": "Who produced the decision signal. A synthetic oracle must never be reported as a model.",
+      "required": [
+        "kind",
+        "detail"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Probe results. Open by design: probes are added over time and a consumer should not break when one appears.",
+      "additionalProperties": true
+    },
+    "gates": {
+      "type": "array",
+      "description": "Every threshold that was checked, with what was observed against it. An EMPTY array means nothing was checked, which is not a pass.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "threshold",
+          "observed",
+          "passed"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": [
+              "number",
+              "integer",
+              "null"
+            ],
+            "description": "null for a boolean gate that has no numeric bound."
+          },
+          "observed": {
+            "type": [
+              "number",
+              "integer"
+            ]
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why this bound and not zero. A threshold with no reason attached is one somebody 'fixes' later without knowing what it protected."
+          }
+        }
+      }
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "True only if at least one gate ran and every gate passed. An empty `gates` array yields false."
+    }
+  }
+}
