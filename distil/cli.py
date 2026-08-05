@@ -2669,15 +2669,27 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
         )
     if args.no_propagation:
         propagates = bool(rep.prop and rep.prop.propagates)
+        # With no decision changes at all there is nothing for a loss to propagate
+        # INTO, so the lag profile has no events to measure and the report says so
+        # verbatim: "nothing to propagate, and nothing tested". A gate that returns
+        # passed=true there certifies precisely what the report calls untested.
+        #
+        # This is the fourth place the same rule has had to be applied — after
+        # `EvalRecord.passed` (empty gate list), the shadow sample floor, and the
+        # unscored output surface. An absent measurement is never a pass.
+        tested = bool(rep.prop and rep.prop.base_rate > 0.0)
         gates.append(
             Gate(
                 name="no_propagation",
                 threshold=None,
                 observed=int(propagates),
-                passed=not propagates,
+                passed=tested and not propagates,
                 rationale=(
-                    "a fidelity loss at turn k associated with a decision change at a "
-                    "later turn; association only, and periodic workloads alias"
+                    "INCONCLUSIVE — zero decision changes on this corpus, so there are "
+                    "no events for a loss to propagate into and nothing was measured"
+                    if not tested
+                    else "a fidelity loss at turn k associated with a decision change at "
+                    "a later turn; association only, and periodic workloads alias"
                 ),
             )
         )
@@ -2712,11 +2724,20 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
             file=out,
         )
         return 1
-    if args.no_propagation and rep.prop and rep.prop.propagates:
-        worst = rep.prop.worst
-        lag = worst.lag if worst else "?"
-        print(f"\nFAIL: error propagation detected at lag {lag} (--no-propagation)", file=out)
-        return 1
+    if args.no_propagation:
+        if rep.prop and rep.prop.propagates:
+            worst = rep.prop.worst
+            lag = worst.lag if worst else "?"
+            print(f"\nFAIL: error propagation detected at lag {lag} (--no-propagation)", file=out)
+            return 1
+        if not (rep.prop and rep.prop.base_rate > 0.0):
+            print(
+                "\nFAIL: --no-propagation is INCONCLUSIVE — zero decision changes on this "
+                "corpus, so nothing could propagate and nothing was measured. Asking for "
+                "this gate on a corpus with no decision changes certifies nothing.",
+                file=out,
+            )
+            return 1
     return 0
 
 
