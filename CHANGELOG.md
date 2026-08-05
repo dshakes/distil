@@ -3,6 +3,55 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.40.0] — what recall cannot see
+
+Four state probes, both priced surfaces, and every result as a reproducible record.
+
+`distil retention` answers "is the fact still there". `distil fidelity` answers the
+questions that survive a yes:
+
+- **artifact state** — is the file's final STATE right, or only its name present?
+  `stale` (present, wrong) is reported apart from `lost` (absent), because a
+  compressor that drops a whole file history is safer than one that preserves half
+  of it: the first leaves a gap the agent can see, the second leaves a false belief
+  it acts on.
+- **overclaim** — did the value keep its uncertainty? `"approximately 4200 ms"` →
+  `"4200 ms"` is a distortion every recall metric scores perfect. Reversing a bound
+  (`at least 3` → `at most 3`) is reported separately as `inverted`.
+- **continuation** — does the agent still know what is left to do?
+- **propagation** — does a loss at turn *k* show up as a changed decision at *k+n*?
+
+Both halves of the bill are graded: what the model READS, and what its own past
+answers cost when they re-enter as history.
+
+`--json` now emits an **eval record** rather than bare metrics — schema version,
+dataset fingerprint, subject identity, grader provenance, and gates carrying
+threshold, observation and outcome. A number nobody can reproduce or compare is a
+number nobody should act on. The schema ships at `schemas/eval-record.schema.json`
+and is validated against real output.
+
+**Measured on the shipped reversible tier:** artifact state 100% (7/7), hedge
+fidelity 94.7% (162/171) with 9 genuine overclaims, pending-work recall 100%,
+output surface 6 blocks digested with 4 facts removed and 0 silent failures. CI
+gates at `--max-silent 15` — the *measured* band, not zero, because gating at zero
+would assert a property the compressor does not have.
+
+The rule these probes enforce is that **no gate may pass without evidence**, and
+the cross-audit found it broken in six places — each one green, each one measuring
+nothing: an empty gate list, a fresh shadow ledger, an unscored output surface, a
+propagation profile with no events, a threshold accepted without running, and a
+probe with a zero denominator. All six now fail rather than certify. Three sweeps
+close the classes underneath: every alternative of every alternation must fire, no
+gate may certify an evidence-free input, and every `distil …` command printed in
+the docs must actually parse.
+
+Also in this release: the SDLC auto-fix loop closes end-to-end (#74–#80). A
+`GITHUB_TOKEN` push raises no workflow events, which had silently broken three
+chains.
+
+Upgrading is safe and additive — no behaviour of the compressor, proxy or CLI
+changes. `distil fidelity` is new; every existing command keeps its output shape.
+
 ## [1.39.1] — the release path, hardened and then actually run
 
 **The installed package is unchanged.** Every commit since 1.39.0 touches
