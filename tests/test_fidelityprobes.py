@@ -179,10 +179,18 @@ class TestCLI:
     def test_default_run_exits_zero(self) -> None:
         assert self._run().returncode == 0
 
-    def test_json_is_parseable(self) -> None:
+    def test_json_emits_a_record_with_metrics_nested(self) -> None:
+        """--json emits the full eval record, not bare metrics.
+
+        The metrics moved under `metrics` when the provenance envelope landed; a
+        consumer reading the old shape should fail loudly here rather than silently
+        find no keys it recognises.
+        """
         out = self._run("--json")
         assert out.returncode == 0
-        assert set(json.loads(out.stdout)) >= {"artifact_state", "overclaim", "continuation"}
+        d = json.loads(out.stdout)
+        assert d["schema"].startswith("distil.eval/")
+        assert set(d["metrics"]) >= {"artifact_state", "overclaim", "continuation"}
 
     def test_max_silent_gate_fails_when_it_should(self) -> None:
         """--max-silent 0 must FAIL today: the shipped tier drops some hedging.

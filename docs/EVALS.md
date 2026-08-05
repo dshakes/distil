@@ -104,6 +104,57 @@ claims** on the corpus, so `--max-silent 0` fails today. That is a real measured
 property, not a bug in the gate — see EVALUATION.md §6.2. CI gates at the measured
 band.
 
+### The eval record — what `--json` emits
+
+`--json` does not emit bare metrics. It emits a **record**: the metrics plus the
+five things you need to reproduce or compare them.
+
+```jsonc
+{
+  "schema": "distil.eval/1",          // so a consumer knows when the shape changed
+  "run":     { "at": "...", "duration_ms": 218,
+               "env": { "distil": "1.39.1", "python": "3.9.25", "platform": "darwin-arm64" } },
+  "subject": { "compressor": "Tier1Reversible", "module": "distil.compress.tier1" },
+  "dataset": { "name": "corpus", "trajectories": 9,
+               "domains": [...],
+               "fingerprint": "sha256:46f4baccbd591b42" },
+  "grader":  { "kind": "deterministic",
+               "detail": "synthetic DECISION: oracle — NOT a model" },
+  "metrics": { "artifact_state": {...}, "overclaim": {...}, ... },
+  "gates":   [ { "name": "max_silent", "threshold": 15, "observed": 9,
+                 "passed": true, "rationale": "..." } ],
+  "passed":  true
+}
+```
+
+Why each field earns its place:
+
+- **`schema`** — a consumer can detect a shape change instead of silently
+  mis-parsing it.
+- **`dataset.fingerprint`** — a content hash of exactly what was graded, stable
+  across load order. Adding a trajectory changes the numbers; without this that
+  looks like a compressor regression. This distinction has already caught a test
+  in this repo failing for a reason it was never written to detect.
+- **`subject`** — "94.3% hedge fidelity" means nothing without knowing which
+  compressor produced it.
+- **`grader`** — follows the norm set by `conformal.render_grader`: a synthetic
+  oracle is never reported as a model, because that conflation is what makes a
+  result look stronger than it is.
+- **`gates`** — threshold, observed value and outcome together. A gate whose bound
+  is invisible cannot be audited, and `"passed": true` with no threshold beside it
+  is not evidence. An **empty** gate list is explicitly *not* a pass: nothing was
+  checked.
+
+Under `--json`, failure diagnostics go to **stderr**, so stdout stays parseable at
+exactly the moment CI most needs to read it.
+
+```bash
+uv run distil fidelity --json --max-silent 15 | jq '.gates'
+uv run distil fidelity --json --max-silent 15 | jq -r '.dataset.fingerprint'
+```
+
+---
+
 ### 5. `distil validate` — adversarial invariants
 
 ```bash

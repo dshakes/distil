@@ -2523,27 +2523,83 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
     uncertainty, whether the agent still knows what is left to do.
     """
 
+    import time
+
+    from .compress.tier1 import Tier1Reversible
+    from .evalrecord import Gate, build
     from .fidelityprobes import format_report, run
 
-    entries = load_corpus(args.corpus) if args.corpus else load_corpus()
-    rep = run(entries)
-    print(json.dumps(rep.to_dict(), indent=2) if args.json else format_report(rep))
+    entries = list(load_corpus(args.corpus) if args.corpus else load_corpus())
+    started = time.time()
+    compressor = Tier1Reversible()
+    rep = run(entries, compressor=compressor)
+
+    # Gates are recorded whether or not the operator asked for them, with the
+    # threshold and the observed value side by side. A gate whose bound is invisible
+    # cannot be audited, and "passed" with no threshold next to it is not evidence.
+    gates: list[Gate] = []
+    if args.max_silent is not None:
+        gates.append(
+            Gate(
+                name="max_silent",
+                threshold=args.max_silent,
+                observed=rep.silent_failures,
+                passed=rep.silent_failures <= args.max_silent,
+                rationale=(
+                    "stale artifacts + overclaimed values + dropped work — the failures "
+                    "an agent cannot see. Loud loss is gated by `retention --max-lost`."
+                ),
+            )
+        )
+    if args.no_propagation:
+        propagates = bool(rep.prop and rep.prop.propagates)
+        gates.append(
+            Gate(
+                name="no_propagation",
+                threshold=None,
+                observed=int(propagates),
+                passed=not propagates,
+                rationale=(
+                    "a fidelity loss at turn k associated with a decision change at a "
+                    "later turn; association only, and periodic workloads alias"
+                ),
+            )
+        )
+
+    if args.json:
+        record = build(
+            metrics=rep.to_dict(),
+            entries=entries,
+            compressor=compressor,
+            grader="deterministic",
+            gates=gates,
+            started=started,
+        )
+        print(json.dumps(record.to_dict(), indent=2))
+    else:
+        print(format_report(rep))
 
     # Gate on SILENT failures only. Plain loss is loud — the agent can see the gap —
     # and `retention --max-lost` already owns it. Gating it twice would make one
     # regression fail two checks and obscure which property actually broke.
+    # Diagnostics go to stderr under --json. Printing them after the document made
+    # stdout unparseable exactly when a gate failed — the moment a CI job most needs
+    # to read the record.
+    out = sys.stderr if args.json else sys.stdout
+
     limit = args.max_silent
     if limit is not None and rep.silent_failures > limit:
         print(
             f"\nFAIL: {rep.silent_failures} silent failures > --max-silent {limit}"
             f"  (stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
-            f" dropped-work={rep.plan.dropped_work})"
+            f" dropped-work={rep.plan.dropped_work})",
+            file=out,
         )
         return 1
     if args.no_propagation and rep.prop and rep.prop.propagates:
         worst = rep.prop.worst
         lag = worst.lag if worst else "?"
-        print(f"\nFAIL: error propagation detected at lag {lag} (--no-propagation)")
+        print(f"\nFAIL: error propagation detected at lag {lag} (--no-propagation)", file=out)
         return 1
     return 0
 
