@@ -6,7 +6,13 @@ help:  ## Show this help
 test:  ## Run the full test suite
 	uv run --with pytest python -m pytest -q
 
-gate: bench verify retention  ## Run the full CI gate (non-inferiority + byte-fidelity + recall)
+gate: bench verify retention fidelity  ## Run the full CI gate (non-inferiority + byte-fidelity + recall + state probes)
+
+fidelity:  ## State probes: artifact state, overclaim, continuation, propagation
+	# Gated at the measured band, not 0: the reversible tier drops hedging on a
+	# small number of claims (docs/EVALUATION.md section 6.2). Gating at 0 would
+	# assert a property the code does not have.
+	uv run distil fidelity --max-silent 15
 
 bench:  ## Corpus-wide non-inferiority gate
 	uv run distil bench

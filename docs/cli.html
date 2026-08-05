@@ -368,6 +368,39 @@ VALIDATE: <span class="g">PASS</span> — 60/60 checks across 12 adversarial cas
 
     <hr/>
 
+    <!-- fidelity -->
+    <h2 id="fidelity">distil fidelity</h2>
+    <p><strong>The questions that survive a "yes" on recall.</strong> <code>retention</code> asks whether a fact is still there. Four probes ask what a yes does not settle — and each targets a failure that scores <em>perfect</em> on every recall metric.</p>
+
+    <p>The clearest case is a phantom file. A trajectory creates <code>net/scratch_bench.py</code> at turn 2 and deletes it at turn 4. Compress away turn 4 and every path token is still present, so string recall reads <strong>100%</strong> — while the agent now believes a file exists that does not, and will plan around it. <code>fidelity</code> folds tool calls into a file-state ledger and grades the <em>final state</em>:</p>
+    <ul>
+      <li><strong>artifact state</strong> — splits <code>stale</code> (path present, state wrong — the agent acts confidently on a falsehood) from <code>lost</code> (path absent — the agent can see the gap). These are reported separately, never averaged: dropping a whole file history is safer than preserving half of it.</li>
+      <li><strong>overclaim</strong> — <code>"approximately 4200 ms"</code> → <code>"4200 ms"</code>. The value is byte-identical; the uncertainty is gone. The hedge <em>was</em> the information.</li>
+      <li><strong>continuation</strong> — does the agent still know what is <em>left to do</em>? Dropping a completed item is cheap; dropping a pending one is silent.</li>
+      <li><strong>propagation</strong> — does a loss at turn <em>k</em> show up as a behaviour change at turn <em>k+n</em>? Reported as a lag profile, with its own limits stated in the output.</li>
+    </ul>
+
+    <p><code>--max-silent</code> gates on <em>silent</em> failures only — <code>stale + overclaimed + dropped work</code>. Loud loss stays <code>retention --max-lost</code>'s job; gating one regression in two places obscures which property broke.</p>
+
+    <pre class="term"><span class="d">$ distil fidelity</span>
+Fidelity probes — 9 trajectories, 36 turns
+
+artifact-state fidelity   100.0%  (7/7 artifacts intact)
+  stale (wrong state)       0.0%  (0)  &lt;- agent acts on a false belief
+  lost  (absent)            0.0%  (0)  &lt;- agent knows it does not know
+
+hedge fidelity             94.3%  (148/157 claims kept their hedging)
+  overclaimed               5.7%  (9)  &lt;- value kept, uncertainty dropped
+
+pending-work recall       100.0%  (1/1 remaining items still visible)
+  completed-work recall   100.0%  (3/3)
+
+silent failures (stale + overclaimed + dropped work): 9</pre>
+
+    <p>Those 9 overclaims are real and we report them rather than tuning them away: Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact it is not recoverable in practice — a missing fact prompts the agent to expand, a missing hedge gives it no reason to. CI gates at the measured band, so a regression fails <em>and</em> a fix forces the bound to be re-read.</p>
+
+    <hr/>
+
     <!-- holdout -->
     <h2 id="holdout">distil holdout</h2>
     <p>Holdout A/B savings measurement. Partitions the corpus into a control group (held out, not counted toward the headline) and a treatment group, reports savings with a bootstrap 95% confidence interval.</p>
@@ -1068,6 +1101,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <h2>Full CI gate</h2>
     <pre class="term"><span class="d">$ make gate</span>
 <span class="d"># Runs: tests + corpus non-inferiority (distil bench) + byte-fidelity (distil verify)</span>
+<span class="d">#       + fact recall (distil retention) + state probes (distil fidelity)</span>
 
 pytest ... 181 passed in 4.2s
 corpus gate: <span class="g">PASS</span>

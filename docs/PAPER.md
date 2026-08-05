@@ -600,6 +600,77 @@ digestion---the condition the serving-path recency carve-out prevents. Includes 
 \texttt{fetchurl} misdiagnosis correction: the URL was never in context; the model
 constructed it from a digested prose excerpt.
 
+## Recent additions (August 2026)
+
+**§ "Beyond recall: state fidelity"** (new subsection): recall is a necessary but
+insufficient measure of whether compression preserved what an agent needs. Four
+probes are added, each targeting a failure that survives a perfect recall score.
+
+*Artifact state.* The standard artifact metric asks whether a path string survived.
+A trajectory that creates `f` at turn *k* and deletes it at turn *k+n* can lose the
+deletion while retaining every path token: string recall reads 100% and the agent
+plans around a file that no longer exists. We fold tool calls into a ground-truth
+file-state ledger and grade the *final* state, separating **stale** (path present,
+state wrong — the agent proceeds on a false belief) from **lost** (path absent — the
+agent can observe the gap). We report these separately rather than as one accuracy
+figure, because a compressor that drops an entire file history is safer than one
+that preserves half of it. Factory.ai report every method they evaluated scoring
+2.19–2.45 / 5.0 on this axis over 36,611 production messages; presence-based metrics
+are structurally unable to detect the failure, since the string is present.
+
+*Overclaim.* Compression that preserves a value while dropping its qualifier —
+"approximately 4200 ms" → "4200 ms" — is scored as perfect by every recall metric,
+yet hands the agent a precision the source did not assert. We group hedges into
+classes so that reshaping ("approximately" → "about") is not penalised, and count
+only the disappearance of hedging. The direction is asymmetric: overclaim
+(confidence added) is gated, underclaim (caution added) is reported. This follows
+work on information fidelity in compressed financial analysis, which finds overclaim
+alters downstream decisions independently of factual recall.
+
+*Continuation and propagation.* Whether the agent still knows what remains to be
+done, folded in turn order so that a plan's legitimate progress is not scored as
+damage; and whether a fidelity loss at turn *k* is associated with a behaviour
+change at turn *k+L*, reported as a lag-lift profile. We state two limits in the
+tool's own output: the profile is associational, and periodic workloads alias at
+multiples of their period.
+
+**Negative results from building the probes.** Three are worth recording, because
+each is a failure mode the probes were built to detect, occurring in the probes
+themselves.
+
+1. *The corpus certified nothing.* Across all eight trajectories the corpus
+   contained 4 file operations and 0 stated obligations; all three state probes
+   reported 100% against essentially no evidence. This is the same failure as the
+   HTML transform reporting 0% savings before an HTML-bearing trajectory existed. A
+   coverage test now fails if the corpus stops carrying enough state transitions,
+   hedged claims or plan items to grade.
+
+2. *The harness graded no-ops.* The compressors take a list of blocks; an early
+   version of the probe runner passed strings, every call raised, a blanket
+   exception handler substituted the original, and each input was compared against
+   itself at 100% fidelity. The handler was removed: a compressor that cannot run
+   now fails the gate, since a probe that silently grades a no-op is worse than
+   absent.
+
+3. *The overclaim metric produced 24 false findings before 9 real ones.* Three
+   distinct false-positive classes, each identified by inspecting instances rather
+   than trusting the aggregate: anchors matching digits inside larger numbers,
+   proximity binding computed over a whole block (compression shifts offsets, so
+   bindings flip on text that never changed), and a substring survival test that
+   credited a one-character anchor reappearing in unrelated structured output.
+   Structured-data lines are now excluded — hedging is a natural-language act, and a
+   JSON field asserts nothing.
+
+**Measured result.** On the bundled corpus under the shipped reversible tier:
+artifact-state fidelity 100% (7/7, zero stale, zero lost); pending-work recall 100%
+with zero status flips; hedge fidelity 94.3% (148/157), with **9 genuine
+overclaims**. The overclaims occur only on blocks that materially changed, and arise
+where a digested span retains a value but not its qualifier. Unlike a lost fact this
+is not recoverable in practice: a missing fact prompts the agent to expand, whereas a
+missing hedge gives it no reason to. The gate is set at the measured band rather than
+at zero, so that a regression fails and an improvement also forces the bound to be
+re-examined.
+
 ## Reproducing
 
 ```bash
