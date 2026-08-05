@@ -930,6 +930,17 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
     """Show the live decision-equivalence measured by shadow mode on real traffic."""
     from .shadow import ShadowCounters, ShadowLedger
 
+    # Asking for the gate is asking for the record. The gate was evaluated only inside
+    # the `--record` branch, so `shadow-stats --max-change-rate 0.01` on its own
+    # printed the usual table and exited 0 — no gate ran, and a CI job that believed
+    # it was gated was not. That is the vacuous-gate failure this command already
+    # refuses for an empty ledger, arriving through the argument parser instead.
+    # Implying `--record` rather than erroring is the useful direction: the record is
+    # the gate's evidence, and a threshold with no visible observation cannot be
+    # audited anyway.
+    if getattr(args, "max_change_rate", None) is not None:
+        args.record = True
+
     # Default to the current signature algorithm so these numbers match the status
     # line verdict; --all reads every row (incl. old-version) for auditing.
     led = ShadowLedger.load(current_only=not getattr(args, "all", False))
@@ -3303,9 +3314,10 @@ def build_parser() -> argparse.ArgumentParser:
     ss.add_argument(
         "--max-change-rate",
         type=float,
-        help="with --record: exit 1 if the A/A-adjusted live decision-change rate "
-        "exceeds this (0-1). Gates on the ADJUSTED rate where an A/A baseline "
-        "exists, so a compressor is not failed for the grader's own variance.",
+        help="exit 1 if the A/A-adjusted live decision-change rate exceeds this "
+        "(0-1). Implies --record, since the record carries the gate's evidence. "
+        "Gates on the ADJUSTED rate where an A/A baseline exists, so a compressor "
+        "is not failed for the grader's own variance.",
     )
     ss.add_argument(
         "--all",

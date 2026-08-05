@@ -123,3 +123,22 @@ class TestEveryFailureClassReachesAGate:
             output=SurfaceProbe(hedges=OverclaimProbe(total=1, inverted=1)),
         )
         assert r.silent_failures == 2
+
+
+class TestAskingForAGateRunsAGate:
+    """`shadow-stats --max-change-rate 0.01` printed the table and exited 0.
+
+    The gate was evaluated only inside the `--record` branch, so a CI job passing the
+    threshold alone believed it was gated and was not. Same vacuous-gate failure as
+    the four above, arriving through the argument parser rather than through empty
+    evidence.
+    """
+
+    def test_the_threshold_alone_still_gates(self) -> None:
+        out = _cli("shadow-stats", "--max-change-rate", "0.01", home=tempfile.mkdtemp())
+        assert out.returncode == 1, "a requested gate must run"
+        gate = next(g for g in json.loads(out.stdout)["gates"] if g["name"] == "max_change_rate")
+        assert gate["passed"] is False and "INCONCLUSIVE" in gate["rationale"]
+
+    def test_no_threshold_still_exits_zero(self) -> None:
+        assert _cli("shadow-stats", home=tempfile.mkdtemp()).returncode == 0

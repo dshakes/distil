@@ -219,26 +219,43 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
     result `_iter_tool_texts` has already adjudicated arrives pre-marked, and is not
     re-scanned. Re-deriving a verdict that was already computed correctly is what
     caused two separate false-skip bugs — see :data:`_ADJUDICATED`.
+
+    Adjudication is PER OPERATION, not per block. A coding-agent block routinely
+    carries several tool calls, and rejecting the whole block on one failure marker
+    dropped every successful operation beside the failed one: a block creating `a.py`
+    and failing to create `b.py` recorded neither, so `a.py` was never graded and a
+    compressor could lose it for free. Each operation is judged on the text from
+    where it is asserted up to where the next one is — the span that actually reports
+    its outcome.
     """
     scan = not text.startswith(_ADJUDICATED)
     if not scan:
         text = text[len(_ADJUDICATED) :]
-    if not text or (scan and _FAILED_RE.search(text)):
+    if not text:
         return []
-    found: list[tuple[str, Op]] = []
+    found: list[tuple[int, str, Op]] = []
     for pattern, op in _PATTERNS:
         for m in pattern.finditer(text):
             path = _canonical(m.group("p"))
             if path:
-                found.append((path, op))
+                found.append((m.start(), path, op))
     # Two-path verbs: the source and destination take DIFFERENT ops from one match.
     for pattern, src_op, dst_op in _PAIR_PATTERNS:
         for m in pattern.finditer(text):
             for group, op in (("s", src_op), ("d", dst_op)):
                 path = _canonical(m.group(group))
                 if path:
-                    found.append((path, op))
-    return found
+                    found.append((m.start(), path, op))
+    if not scan:
+        return [(path, op) for _, path, op in found]
+    found.sort(key=lambda f: f[0])
+    kept: list[tuple[str, Op]] = []
+    for i, (start, path, op) in enumerate(found):
+        end = found[i + 1][0] if i + 1 < len(found) else len(text)
+        if _FAILED_RE.search(text, start, end):
+            continue
+        kept.append((path, op))
+    return kept
 
 
 def _canonical(path: str) -> str:

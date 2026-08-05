@@ -601,3 +601,31 @@ class TestOnlyObservedActionsCount:
             }
         ]
         assert measure_live(msgs, msgs).total == 1
+
+
+class TestFailureIsAdjudicatedPerOperation:
+    """One failed call must not erase the successful ones beside it.
+
+    Rejecting a whole block on any failure marker was the safe-looking choice and it
+    was wrong: coding-agent blocks routinely carry several tool calls, so a block that
+    created `a.py` and failed to create `b.py` recorded NEITHER. `a.py` then never
+    entered the ledger, was never graded, and a compressor could drop it for free —
+    an undercount that makes the fidelity number look clean by measuring less.
+    """
+
+    def test_a_failure_does_not_erase_its_neighbour(self) -> None:
+        t = 'Write(file_path="a.py") -> {"ok": true}\nWrite(file_path="b.py") -> {"ok": false}'
+        assert extract_ops(t) == [("a.py", Op.CREATE)]
+
+    def test_only_the_failing_operation_is_dropped(self) -> None:
+        t = "created x.py\nrm y.py -> exit: 1\ntouch z.py"
+        assert extract_ops(t) == [("x.py", Op.CREATE), ("z.py", Op.CREATE)]
+
+    def test_a_lone_failure_still_suppresses(self) -> None:
+        assert extract_ops('Bash(command="rm missing.py")\n-> {"exit": 1}') == []
+
+    def test_a_lone_success_is_still_recorded(self) -> None:
+        assert extract_ops('Bash(command="rm real.py")\n-> {"exit": 0}') == [("real.py", Op.DELETE)]
+
+    def test_intra_line_ops_still_fold_to_the_strongest(self) -> None:
+        assert build_ledger(["cat a.py && rm a.py"]).state == {"a.py": Op.DELETE}
