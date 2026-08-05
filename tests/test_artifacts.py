@@ -834,3 +834,62 @@ class TestOutcomeReprsAreNotToolCalls:
         """
         text = f'Write(file_path="a.py", content="{content}")'
         assert ("a.py", Op.CREATE) in extract_ops(text), f"{content!r} suppressed a real write"
+
+
+class TestOnlyRecognisedInvocationsGetArgumentImmunity:
+    """The set of heads whose arguments are exempt from the failure scan is CLOSED.
+
+    Deciding which `Name(...)` is an invocation by inspecting its field names is a
+    guess over untrusted transcript text, and three consecutive audit rounds leaked
+    something through it: an exception repr, then a result wrapper, then a generic
+    envelope — each recording a FAILED operation as real workspace state.
+
+    So the question is inverted. Not "is this a result?" (unbounded, wrong by
+    default) but "is this one of the few invocations we recognise?" Everything else
+    is scanned in full, which at worst under-records a real operation as `lost` — the
+    loud, honest failure — instead of inventing state that never existed.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'ToolCall(name="Bash", arguments={"command":"rm x.py"}, content="No such file or directory")',
+            'FunctionCall(name="Bash", arguments="rm x.py No such file or directory")',
+            'Message(role="tool", content="rm x.py: No such file or directory")',
+            'CalledProcessError(returncode=1, cmd="rm x.py", stderr="No such file or directory")',
+            'Envelope(payload="rm x.py", detail="Permission denied")',
+            'Wrapper(inner="rm x.py", note="operation failed")',
+        ],
+    )
+    def test_an_unrecognised_head_is_scanned_in_full(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text[:56]!r} recorded a failed op as state"
+
+    @pytest.mark.parametrize(
+        "text,path,op",
+        [
+            ('Write(file_path="a.py", content="No such file or directory")', "a.py", Op.CREATE),
+            ('Edit(file_path="a.py", new="Permission denied")', "a.py", Op.MODIFY),
+            ('Bash(command="rm x.py", note="No such file or directory")', "x.py", Op.DELETE),
+        ],
+    )
+    def test_a_recognised_invocation_keeps_argument_immunity(
+        self, text: str, path: str, op: Op
+    ) -> None:
+        assert (path, op) in extract_ops(text)
+
+    def test_an_outcome_field_revokes_immunity_even_for_a_known_head(self) -> None:
+        """Belt and braces: the allowlist bounds the guess, the outcome-field check
+        still catches a known head that is reporting rather than invoking."""
+        assert extract_ops('Bash(command="rm x.py", output="No such file or directory")') == []
+
+    def test_the_allowlist_is_the_documented_one(self) -> None:
+        from distil.artifacts import _INVOCATION_HEADS
+
+        assert _INVOCATION_HEADS == {
+            "write",
+            "edit",
+            "read",
+            "bash",
+            "multiedit",
+            "notebookedit",
+        }, "widening this set is a safety decision, not a refactor"

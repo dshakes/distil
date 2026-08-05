@@ -270,7 +270,23 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
     return kept
 
 
-_CALL_HEAD = re.compile(r"\w+\s*\(")
+# Only these heads may have their arguments excluded from the failure scan. A CLOSED
+# set, because the open version cost three separate regressions in a row.
+#
+# The rule being enforced is narrow: a tool INVOCATION states what was attempted, so
+# its arguments are inputs and cannot report failure. Deciding which `Name(...)` is an
+# invocation by inspecting its field names is a guess over untrusted transcript text,
+# and every guess leaked something through — an exception repr
+# (`CalledProcessError(returncode=1, ...)`), then a result wrapper
+# (`ToolCall(name=..., content="No such file...")`), each recording a FAILED operation
+# as real workspace state.
+#
+# So the question is inverted. Instead of asking "is this a result?" (unbounded, and
+# wrong by default), ask "is this one of the handful of invocations we recognise?"
+# Anything else is scanned in full — which at worst under-records a real operation as
+# `lost`, the loud, honest failure, rather than inventing state that was never there.
+_INVOCATION_HEADS = frozenset({"write", "edit", "read", "bash", "multiedit", "notebookedit"})
+_CALL_HEAD = re.compile(r"(\w+)\s*\(")
 # Field names that report an OUTCOME rather than an input. A `Name(...)` carrying any
 # of them is a result or exception repr, not a tool invocation, so its arguments ARE
 # evidence about success and must stay in the failure scan.
@@ -313,6 +329,8 @@ def _call_spans(text: str) -> list[tuple[int, int]]:
     """
     spans: list[tuple[int, int]] = []
     for m in _CALL_HEAD.finditer(text):
+        if m.group(1).lower() not in _INVOCATION_HEADS:
+            continue  # not a recognised invocation: its text is scanned in full
         i, depth, quote, esc = m.end(), 1, "", False
         bare: list[str] = []  # argument text OUTSIDE quotes — where field NAMES live
         while i < len(text) and depth:
