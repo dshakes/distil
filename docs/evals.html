@@ -93,6 +93,8 @@
     <p>We publish E7 as evidence, not confession. It is why the shipped default is the conservative tier rather than the one that wins a compression-ratio leaderboard.</p>
     <p><b>The rule that follows:</b> every compression claim reports token savings <em>and</em> a task-success delta together, at the setting we actually ship. A ratio with no success number beside it is an invitation to find the cliff in production.</p>
 
+    <p><img src="assets/eval-stack.svg" alt="Distil's evaluation stack: five per-commit gates — bench for decision equivalence, verify for byte fidelity, retention for fact recall, fidelity for state fidelity, validate for adversarial invariants — under a conformal risk certificate, with external-validity checks and a versioned record for every run." width="100%" loading="lazy"/></p>
+
     <h2 id="layers">Five layers, five different questions</h2>
     <table>
       <thead><tr><th>Layer</th><th>Question</th><th>Command</th><th>Cost</th></tr></thead>
@@ -107,6 +109,7 @@
     <p>All five are offline, need no API key, and run in seconds. That is deliberate: <b>a gate you skip because it costs money is not a gate.</b> All five run per-commit in CI.</p>
 
     <h2 id="phantom">The case recall cannot see</h2>
+    <p><img src="assets/phantom-file.svg" alt="A file created at turn 2 and deleted at turn 4. When compression drops turn 4 every path token remains, so string recall reads 100 percent, but artifact-state fidelity reads 0 percent — the failure is stale (present but wrong) rather than lost." width="100%" loading="lazy"/></p>
     <p>Recall asks <em>"is the fact still there"</em>. Here is a trajectory where the answer is yes and the agent is still broken:</p>
     <pre class="term">turn 2   Write(file_path="net/scratch_bench.py")
 turn 4   rm net/scratch_bench.py</pre>

@@ -600,6 +600,53 @@ digestion---the condition the serving-path recency carve-out prevents. Includes 
 \texttt{fetchurl} misdiagnosis correction: the URL was never in context; the model
 constructed it from a digested prose excerpt.
 
+## The evaluation stack (audit, August 2026)
+
+An audit of this paper against the shipped code found three substantial evaluation
+capabilities described nowhere in it. They are recorded here because a paper that
+omits half its own measurement apparatus overstates the parts it does describe.
+
+**Fact-level recall with verified recoverability** (`distil retention`). Decision
+equivalence asks whether the next action changed; it cannot say what was lost when
+the action happened to be unchanged. Recall is scored in three states rather than
+two: **retained** (visible to the model), **recoverable** (absent from the prompt
+but obtainable through one `distil_expand` call, *verified* by checking that the
+handle present in that block's compressed text expands to bytes containing the
+fact), and **lost**. The gap between visible and true recall is the measured value
+of reversibility — 21.4 points as a macro average across domains. Macro, not micro:
+the fact-weighted figure is set by whichever domain carries the most probes, and a
+single HTML fixture moved it from 9.8% to 62.6% without the compressor changing at
+all. A headline one fixture can swing is not measuring the compressor.
+
+**Live decision-equivalence with a self-agreement control** (shadow mode). The
+offline gates are graded on our corpus against our oracle. Shadow mode replays real
+traffic through both the compressed and original contexts and compares the model's
+next action, and — critically — also replays the *same* compressed request twice to
+measure the grader's disagreement with itself (A/A). The A/A rate is the floor
+below which an A/B divergence is sampling noise rather than compression harm;
+subtracting it is what makes the adjusted figure meaningful. Without the control,
+an A/B rate of 18.7% reads as harm when the grader's own floor accounts for it. The
+counters are content-free.
+
+**External validity through third-party answer keys** (`distil retention --dataset`).
+Everything above is self-graded. Grading against HotpotQA's gold supporting
+sentences amid eight distractor paragraphs, next to a truncation baseline tuned to
+distil's own savings on the same case, is the one number a reader can check without
+trusting our fixtures or our oracle.
+
+**Both priced surfaces.** distil compresses what the model reads *and* what its own
+past answers cost when they re-enter as history. The state probes below initially
+graded only the former; since output digestion targets assistant/history blocks,
+which the serving strategy deliberately leaves untouched, an entire priced surface
+had no fidelity coverage. Both are now graded by the same probes and gated together.
+
+**Records, not numbers.** Every eval emits a versioned record carrying a dataset
+fingerprint, the compressor identity, grader provenance, and each gate's threshold
+beside its observed value — validated against a published JSON Schema. Two runs
+reporting the same rate are not comparable without it, and a synthetic oracle
+reported as a model is the conflation that makes a certificate look stronger than
+it is.
+
 ## Recent additions (August 2026)
 
 **§ "Beyond recall: state fidelity"** (new subsection): recall is a necessary but

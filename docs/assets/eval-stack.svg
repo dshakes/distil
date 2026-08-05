@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Distil's evaluation stack — five layers, each answering a different question</title>
+  <desc id="d">Five gates run per commit, offline and free. Bench asks whether the agent's next action changes. Verify asks whether compression is byte-reversible. Retention asks which facts stay visible, are expand-recoverable, or are lost. Fidelity asks the four questions that survive a yes on recall: artifact state, overclaim, continuation and propagation. Validate asks whether invariants hold on hostile input. Above them, conformal risk control and drift detection provide a distribution-free statistical certificate. Below, every run emits a versioned record carrying a dataset fingerprint, compressor identity, grader provenance and each gate's threshold beside its observed value.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+    <radialGradient id="vig" cx="0.74" cy="-0.05" r="0.85"><stop offset="0" stop-color="#1a1640" stop-opacity="0.55"/><stop offset="1" stop-color="#06070b" stop-opacity="0"/></radialGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.025"/></pattern>
+  </defs>
+
+  <rect width="1200" height="620" fill="url(#bg)"/>
+  <rect width="1200" height="620" fill="url(#dots)"/>
+  <rect width="1200" height="620" fill="url(#vig)"/>
+
+  <text x="48" y="52" fill="#e8eaf2" font-size="25" font-weight="700">The evaluation stack</text>
+  <text x="48" y="78" fill="#8b93a8" font-size="14">Five gates. Each answers a question the one before it cannot. All offline, all free, all per-commit.</text>
+
+  <!-- statistical layer -->
+  <rect x="48" y="104" width="1104" height="66" rx="12" fill="url(#card)" stroke="#8b7bff" stroke-opacity="0.28"/>
+  <text x="70" y="132" fill="#b9a8ff" font-size="12" font-weight="700" letter-spacing="1.2">STATISTICAL CERTIFICATE</text>
+  <text x="70" y="154" fill="#c9cfdd" font-size="13">Learn-Then-Test + Conformal Risk Control — P(risk ≤ α) ≥ 1−δ, distribution-free, finite-sample &#183; anytime-valid drift test on live traffic</text>
+
+  <!-- the five gates -->
+  <g>
+    <rect x="48" y="192" width="212" height="196" rx="12" fill="url(#card)" stroke="#5ad1c9" stroke-opacity="0.3"/>
+    <text x="68" y="222" fill="#5ad1c9" font-size="13" font-weight="700">distil bench</text>
+    <text x="68" y="248" fill="#e8eaf2" font-size="14" font-weight="600">Decision</text>
+    <text x="68" y="266" fill="#e8eaf2" font-size="14" font-weight="600">equivalence</text>
+    <text x="68" y="294" fill="#8b93a8" font-size="12">Does the agent's</text>
+    <text x="68" y="311" fill="#8b93a8" font-size="12">next action change?</text>
+    <text x="68" y="352" fill="#6f7688" font-size="11">The headline gate.</text>
+    <text x="68" y="368" fill="#6f7688" font-size="11">Non-inferiority.</text>
+
+    <rect x="272" y="192" width="212" height="196" rx="12" fill="url(#card)" stroke="#5ad1c9" stroke-opacity="0.3"/>
+    <text x="292" y="222" fill="#5ad1c9" font-size="13" font-weight="700">distil verify</text>
+    <text x="292" y="248" fill="#e8eaf2" font-size="14" font-weight="600">Byte fidelity</text>
+    <text x="292" y="294" fill="#8b93a8" font-size="12">Is every compression</text>
+    <text x="292" y="311" fill="#8b93a8" font-size="12">exactly reversible?</text>
+    <text x="292" y="352" fill="#6f7688" font-size="11">No flags. It holds</text>
+    <text x="292" y="368" fill="#6f7688" font-size="11">or it does not.</text>
+
+    <rect x="496" y="192" width="212" height="196" rx="12" fill="url(#card)" stroke="#5ad1c9" stroke-opacity="0.3"/>
+    <text x="516" y="222" fill="#5ad1c9" font-size="13" font-weight="700">distil retention</text>
+    <text x="516" y="248" fill="#e8eaf2" font-size="14" font-weight="600">Fact recall</text>
+    <text x="516" y="294" fill="#8b93a8" font-size="12">retained &#183; recoverable</text>
+    <text x="516" y="311" fill="#8b93a8" font-size="12">&#183; lost</text>
+    <text x="516" y="352" fill="#6f7688" font-size="11">The gap = the measured</text>
+    <text x="516" y="368" fill="#6f7688" font-size="11">value of reversibility.</text>
+
+    <rect x="720" y="192" width="212" height="196" rx="12" fill="url(#card)" stroke="#8b7bff" stroke-opacity="0.55"/>
+    <text x="740" y="222" fill="#b9a8ff" font-size="13" font-weight="700">distil fidelity</text>
+    <text x="740" y="248" fill="#e8eaf2" font-size="14" font-weight="600">State fidelity</text>
+    <text x="740" y="294" fill="#8b93a8" font-size="12">What survives a</text>
+    <text x="740" y="311" fill="#8b93a8" font-size="12">&#8220;yes&#8221; on recall</text>
+    <text x="740" y="352" fill="#6f7688" font-size="11">Four probes, both</text>
+    <text x="740" y="368" fill="#6f7688" font-size="11">priced surfaces.</text>
+
+    <rect x="944" y="192" width="208" height="196" rx="12" fill="url(#card)" stroke="#5ad1c9" stroke-opacity="0.3"/>
+    <text x="964" y="222" fill="#5ad1c9" font-size="13" font-weight="700">distil validate</text>
+    <text x="964" y="248" fill="#e8eaf2" font-size="14" font-weight="600">Adversarial</text>
+    <text x="964" y="294" fill="#8b93a8" font-size="12">Do invariants hold</text>
+    <text x="964" y="311" fill="#8b93a8" font-size="12">on hostile input?</text>
+    <text x="964" y="352" fill="#6f7688" font-size="11">Catches what a green</text>
+    <text x="964" y="368" fill="#6f7688" font-size="11">unit suite misses.</text>
+  </g>
+
+  <!-- external validity -->
+  <rect x="48" y="410" width="546" height="76" rx="12" fill="url(#card)" stroke="#5ad19a" stroke-opacity="0.3"/>
+  <text x="70" y="438" fill="#5ad19a" font-size="12" font-weight="700" letter-spacing="1.2">CHECKABLE BY YOU</text>
+  <text x="70" y="460" fill="#c9cfdd" font-size="13">retention --dataset hotpotqa — graded against someone else's answer key</text>
+  <text x="70" y="478" fill="#8b93a8" font-size="12">shadow-stats — A/B on your traffic, with an A/A control for the grader's own noise</text>
+
+  <rect x="606" y="410" width="546" height="76" rx="12" fill="url(#card)" stroke="#8b7bff" stroke-opacity="0.3"/>
+  <text x="628" y="438" fill="#b9a8ff" font-size="12" font-weight="700" letter-spacing="1.2">EVERY RUN IS A RECORD</text>
+  <text x="628" y="460" fill="#c9cfdd" font-size="13">schema &#183; dataset fingerprint &#183; compressor &#183; grader provenance &#183; gates</text>
+  <text x="628" y="478" fill="#8b93a8" font-size="12">Validated against a published JSON Schema. A number nobody can reproduce is not a result.</text>
+
+  <!-- the rule -->
+  <rect x="48" y="508" width="1104" height="72" rx="12" fill="#12151f" stroke="url(#g)" stroke-opacity="0.5"/>
+  <text x="70" y="538" fill="#e8eaf2" font-size="15" font-weight="600">Every claim reports token savings AND a task-success delta, at the setting we ship.</text>
+  <text x="70" y="562" fill="#8b93a8" font-size="13">A ratio with no success number beside it is an invitation to find the cliff in production. Ours was E7: 52% → 16% under the aggressive tier.</text>
+</svg>
