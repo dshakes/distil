@@ -921,6 +921,11 @@ def cmd_dissect(args: argparse.Namespace) -> int:
     return 0
 
 
+# Floor below which a live change-rate gate cannot conclude anything. Matches the
+# n=10 precedent in ShadowLedger.aa_agreement.
+_MIN_SHADOW_SAMPLES = 10
+
+
 def cmd_shadow_stats(args: argparse.Namespace) -> int:
     """Show the live decision-equivalence measured by shadow mode on real traffic."""
     from .shadow import ShadowCounters, ShadowLedger
@@ -946,14 +951,28 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
             # includes the grader's own sampling noise, and gating on it would fail
             # a compressor for the grader's variance.
             observed = adjusted if adjusted is not None else rate
+            # A rate computed from too few samples is not a rate. On a FRESH ledger
+            # this gate emitted samples=0, rate=0.0, passed=true and exited 0 — it
+            # certified live decision-equivalence with no evidence at all, which is
+            # the same "an empty check is not a pass" failure `EvalRecord.passed`
+            # already refuses for gates. `ShadowLedger.aa_agreement` sets the
+            # precedent at n=10: "a baseline built on a handful of coin flips is
+            # worse than none". Below the floor the gate FAILS rather than passing
+            # or silently disappearing, because a CI job asking to be gated must not
+            # be told "fine" by a ledger that has never seen traffic.
+            enough = led.samples >= _MIN_SHADOW_SAMPLES
             gates.append(
                 Gate(
                     name="max_change_rate",
                     threshold=args.max_change_rate,
                     observed=round(observed, 6),
-                    passed=observed <= args.max_change_rate,
+                    passed=enough and observed <= args.max_change_rate,
                     rationale=(
-                        "A/A-adjusted decision-change rate on live traffic"
+                        f"INCONCLUSIVE — {led.samples} samples is below the floor of "
+                        f"{_MIN_SHADOW_SAMPLES}; a rate off that few observations is "
+                        "not a rate, so the gate fails rather than certifying nothing"
+                        if not enough
+                        else "A/A-adjusted decision-change rate on live traffic"
                         if adjusted is not None
                         else "RAW rate — no A/A baseline yet, so grader noise is included"
                     ),
@@ -995,10 +1014,18 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
         print(json.dumps(record.to_dict(), indent=2))
         if gates and not record.passed:
             g = gates[0]
-            print(
-                f"\nFAIL: live change rate {g.observed} > --max-change-rate {g.threshold}",
-                file=sys.stderr,
-            )
+            if led.samples < _MIN_SHADOW_SAMPLES:
+                print(
+                    f"\nFAIL: only {led.samples} shadow samples "
+                    f"(floor {_MIN_SHADOW_SAMPLES}) — nothing to certify. "
+                    "Collect traffic with `distil wrap --shadow`.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"\nFAIL: live change rate {g.observed} > --max-change-rate {g.threshold}",
+                    file=sys.stderr,
+                )
             return 1
         return 0
 

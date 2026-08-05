@@ -310,7 +310,14 @@ def _iter_tool_texts(messages: Any) -> list[str]:
         if not isinstance(msg, dict):
             continue
         content = msg.get("content")
-        if isinstance(content, str) and content:
+        # A `role:"tool"` message IS a result and is consumed at its call's position
+        # below. Emitting its string content here as ordinary text too parsed it
+        # TWICE: a `Write(file_path="a.py")` whose result text read "deleted a.py"
+        # produced both the joined pair AND a standalone "deleted a.py", folding the
+        # ledger to DELETE when the operation was a write. Order and pairing were
+        # both already fixed; this was the third way the same text could be
+        # mis-counted.
+        if isinstance(content, str) and content and msg.get("role") != "tool":
             out.append(content)
         # --- OpenAI Chat Completions ------------------------------------------
         # `assistant.tool_calls` sits BESIDE `content`, not inside it, so a purely
@@ -387,7 +394,17 @@ def _iter_tool_texts(messages: Any) -> list[str]:
             # the operation happened.
             result = results.get(call_id, "")
             call_text = calls.get(call_id, "")
-            resolved.append(f"{call_text}\n-> {result}" if result else call_text)
+            # The CALL states which operation was attempted; the RESULT states only
+            # whether it succeeded. So a successful result's text is dropped rather
+            # than scanned: joining them let result narration override the call, and
+            # because the strongest op wins within a block, a Write whose result
+            # mentioned "deleted a.py" folded the ledger to DELETE. A failing result
+            # IS kept, because `extract_ops` rejects the whole block on a failure
+            # marker — which is exactly the outcome wanted there.
+            if result and _FAILED_RE.search(result):
+                resolved.append(f"{call_text}\n-> {result}")
+            else:
+                resolved.append(call_text)
         elif item.startswith(_RESULT_SLOT):
             # Already consumed at its call's position; emit only if orphaned, since an
             # orphan result still describes state ("deleted old/x.json").

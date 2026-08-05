@@ -424,3 +424,79 @@ class TestProviderShapes:
             }
         ]
         assert measure_live(msgs, msgs).total == 1
+
+
+class TestCallIsAuthoritative:
+    """Fifth-round Blocking finding.
+
+    A `role:"tool"` string result was appended as ordinary text AND joined at its
+    call's position, so the same text was parsed twice. Worse, joining let the
+    RESULT's narration override the CALL's operation: because the strongest op wins
+    within a block, a Write whose result mentioned "deleted a.py" folded to DELETE.
+
+    The rule: the call states WHICH operation; the result states only WHETHER it
+    succeeded.
+    """
+
+    def _openai(self, name: str, args: str, result: str) -> list[dict]:
+        return [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": name, "arguments": args}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": result},
+        ]
+
+    def test_result_is_not_parsed_twice(self) -> None:
+        from distil.artifacts import _iter_tool_texts
+
+        msgs = self._openai("Write", '{"file_path": "a.py"}', "deleted a.py")
+        texts = _iter_tool_texts(msgs)
+        assert len(texts) == 1, f"result parsed more than once: {texts}"
+
+    def test_result_narration_cannot_override_the_call(self) -> None:
+        msgs = self._openai("Write", '{"file_path": "a.py"}', "deleted a.py")
+        assert build_ledger(_iter_tool_texts_for(msgs)).state == {"a.py": Op.CREATE}
+
+    def test_failing_result_still_rejects_the_operation(self) -> None:
+        msgs = self._openai("Write", '{"file_path": "b.py"}', "Permission denied")
+        assert build_ledger(_iter_tool_texts_for(msgs)).state == {}
+
+    def test_orphan_result_still_describes_state(self) -> None:
+        msgs = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "z", "content": "deleted orphan.json"}
+                ],
+            }
+        ]
+        assert build_ledger(_iter_tool_texts_for(msgs)).state == {"orphan.json": Op.DELETE}
+
+    def test_anthropic_shell_delete_unaffected(self) -> None:
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Bash",
+                        "input": {"command": "rm c.py"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": '{"exit": 0}'}],
+            },
+        ]
+        assert build_ledger(_iter_tool_texts_for(msgs)).state == {"c.py": Op.DELETE}
+
+
+def _iter_tool_texts_for(msgs: list[dict]) -> list[str]:
+    from distil.artifacts import _iter_tool_texts
+
+    return _iter_tool_texts(msgs)

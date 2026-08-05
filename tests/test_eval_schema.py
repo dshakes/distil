@@ -185,3 +185,46 @@ class TestShadowRecordValidates:
         d = json.loads(out.stdout)
         assert "schema" not in d, "--json must keep its original flat shape"
         assert {"samples", "changes", "decision_change_rate"} <= set(d)
+
+
+class TestShadowGateNeedsEvidence:
+    """Fifth-round Blocking finding: the live gate certified with zero samples.
+
+    On a fresh ledger it emitted samples=0, rate=0.0, passed=true, exit 0 — the
+    same "an empty check is not a pass" failure `EvalRecord.passed` already refuses
+    for gates, reintroduced in the shadow path.
+    """
+
+    def _fresh(self, *args: str) -> subprocess.CompletedProcess[str]:
+        import os
+        import tempfile
+
+        env = dict(os.environ)
+        env["DISTIL_HOME"] = tempfile.mkdtemp()
+        return subprocess.run(
+            [sys.executable, "-m", "distil.cli", "shadow-stats", "--record", *args],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_zero_samples_fails_the_gate(self) -> None:
+        out = self._fresh("--max-change-rate", "0.01")
+        d = json.loads(out.stdout)
+        assert d["dataset"]["samples"] == 0
+        gate = next(g for g in d["gates"] if g["name"] == "max_change_rate")
+        assert gate["passed"] is False, "a rate off zero observations is not a rate"
+        assert out.returncode == 1
+        assert "nothing to certify" in out.stderr
+
+    def test_the_reason_is_recorded_not_just_the_verdict(self) -> None:
+        d = json.loads(self._fresh("--max-change-rate", "0.01").stdout)
+        gate = next(g for g in d["gates"] if g["name"] == "max_change_rate")
+        assert "INCONCLUSIVE" in gate["rationale"]
+
+    def test_record_still_validates_against_the_schema(self) -> None:
+        errs = _validate(json.loads(self._fresh("--max-change-rate", "0.01").stdout), _schema())
+        assert errs == [], "\n".join(errs)
+
+    def test_no_gate_requested_still_exits_zero(self) -> None:
+        assert self._fresh().returncode == 0
