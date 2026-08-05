@@ -426,7 +426,7 @@ grade, the suite fails rather than reporting a green nobody earned.
 `distil fidelity` gates on **silent** failures only:
 
 ```
-distil fidelity --max-silent 0      # stale + overclaimed + dropped work
+distil fidelity --max-silent 0      # stale + overclaimed + inverted + dropped work
 distil fidelity --no-propagation    # fail if damage arrives in later turns
 ```
 

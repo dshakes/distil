@@ -381,7 +381,7 @@ VALIDATE: <span class="g">PASS</span> — 60/60 checks across 12 adversarial cas
       <li><strong>propagation</strong> — does a loss at turn <em>k</em> show up as a behaviour change at turn <em>k+n</em>? Reported as a lag profile, with its own limits stated in the output.</li>
     </ul>
 
-    <p><code>--max-silent</code> gates on <em>silent</em> failures only — <code>stale + overclaimed + dropped work</code>. Loud loss stays <code>retention --max-lost</code>'s job; gating one regression in two places obscures which property broke.</p>
+    <p><code>--max-silent</code> gates on <em>silent</em> failures only — <code>stale + overclaimed + inverted + dropped work</code>. Loud loss stays <code>retention --max-lost</code>'s job; gating one regression in two places obscures which property broke.</p>
 
     <pre class="term"><span class="d">$ distil fidelity</span>
 Fidelity probes — 9 trajectories, 36 turns
@@ -396,7 +396,7 @@ hedge fidelity             94.3%  (148/157 claims kept their hedging)
 pending-work recall       100.0%  (1/1 remaining items still visible)
   completed-work recall   100.0%  (3/3)
 
-silent failures (stale + overclaimed + dropped work): 9</pre>
+silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
 
     <p>Those 9 overclaims are real and we report them rather than tuning them away: Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact it is not recoverable in practice — a missing fact prompts the agent to expand, a missing hedge gives it no reason to. CI gates at the measured band, so a regression fails <em>and</em> a fix forces the bound to be re-read.</p>
 

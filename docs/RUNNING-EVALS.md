@@ -94,12 +94,15 @@ Four probes, described in [EVALUATION.md §6](EVALUATION.md):
 - **artifact state** — is the file's final state right, or just its name present?
   Splits `stale` (present, wrong — silent) from `lost` (absent — loud).
 - **overclaim** — did the value keep its uncertainty? `"approximately 4200 ms"`
-  → `"4200 ms"` is a distortion every recall metric scores as perfect.
+  → `"4200 ms"` is a distortion every recall metric scores as perfect. Reversing a
+  bound (`"at least 3"` → `"at most 3"`) is reported separately as `inverted`,
+  because a dropped hedge leaves a visible gap and a reversed one leaves a
+  confident wrong number.
 - **continuation** — does the agent still know what is left to do?
 - **propagation** — does a loss at turn *k* show up as a change at turn *k+n*?
 
-**On `--max-silent`.** It counts `stale + overclaimed + dropped_work` — the failures
-an agent cannot see. Loud loss is deliberately *not* gated here; `retention
+**On `--max-silent`.** It counts `stale + overclaimed + inverted + dropped_work` —
+the failures an agent cannot see. Loud loss is deliberately *not* gated here; `retention
 --max-lost` owns it, and gating one regression in two places obscures which
 property actually broke.
 

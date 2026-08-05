@@ -145,7 +145,7 @@ pending-work recall       100.0%  (1/1 remaining items still visible)
 error propagation  (36 turns, base decision-change rate 0.0%)
   verdict: no decisions changed at all — nothing to propagate, and nothing tested
 
-silent failures (stale + overclaimed + dropped work): 9</pre>
+silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
     <p><b>Those 9 overclaims are real, and we ship the number rather than tune it away.</b> Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact this is <em>not</em> recoverable in practice: a missing fact prompts the agent to expand, a missing hedge gives it no reason to look.</p>
     <p>So the CI gate is <code>--max-silent 15</code>, not <code>0</code>. Gating at zero would assert a property the compressor does not have. The band fails a regression that doubles it — and fails an improvement too, forcing the number to be re-read rather than drifting.</p>
 
