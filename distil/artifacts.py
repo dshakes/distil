@@ -271,6 +271,26 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
 
 
 _CALL_HEAD = re.compile(r"\w+\s*\(")
+# Field names that report an OUTCOME rather than an input. A `Name(...)` carrying any
+# of them is a result or exception repr, not a tool invocation, so its arguments ARE
+# evidence about success and must stay in the failure scan.
+#
+# Without this, excluding a call's arguments turned every failed operation into
+# workspace state:
+#
+#   CalledProcessError(returncode=1, cmd="rm missing.py", stderr="No such file...")
+#
+# recorded `missing.py` as a successful DELETE — a ledger of ATTEMPTS, which is the
+# first bug this module ever had, reintroduced by the fix for the second.
+#
+# The asymmetry decides the default: missing a real operation is loud and shows up as
+# `lost`, while recording a failed one is silent and shows up as confident wrong state.
+# So an ambiguous call is SCANNED, not excluded.
+_OUTCOME_FIELD = re.compile(
+    r"\b(?:returncode|return_code|exit_?code|exit|status|ok|success|error|err|stderr|"
+    r"stdout|result|output|traceback|exception)\s*[=:]",
+    re.I,
+)
 
 
 def _call_spans(text: str) -> list[tuple[int, int]]:
@@ -294,6 +314,7 @@ def _call_spans(text: str) -> list[tuple[int, int]]:
     spans: list[tuple[int, int]] = []
     for m in _CALL_HEAD.finditer(text):
         i, depth, quote, esc = m.end(), 1, "", False
+        bare: list[str] = []  # argument text OUTSIDE quotes — where field NAMES live
         while i < len(text) and depth:
             ch = text[i]
             if esc:
@@ -305,12 +326,19 @@ def _call_spans(text: str) -> list[tuple[int, int]]:
                     quote = ""
             elif ch in "\"'":
                 quote = ch
-            elif ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
+            else:
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                bare.append(ch)
             i += 1
-        if not depth:  # balanced; an unterminated call is not a span
+        # An outcome field must be a field NAME, so it is looked for outside quotes
+        # only. Scanning the raw span instead let a VALUE decide: writing a file whose
+        # content is "exit: 1" read as a call reporting its own exit status, and the
+        # successful write vanished — the same class of bug as scanning arguments for
+        # failure phrases, one level down.
+        if not depth and not _OUTCOME_FIELD.search("".join(bare)):
             spans.append((m.start(), i))
     return spans
 

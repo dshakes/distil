@@ -768,3 +768,69 @@ class TestCallArgumentsAreNotOutcomeEvidence:
         text = 'Write(content=") not the end")X'
         spans = _call_spans(text)
         assert len(spans) == 1 and text[spans[0][1] :] == "X"
+
+
+class TestOutcomeReprsAreNotToolCalls:
+    """A `Name(...)` that reports a RESULT is evidence, not an invocation.
+
+    Excluding a call's arguments from the failure scan fixed a real bug and created a
+    worse one: an exception repr is also `Name(...)`, so
+
+        CalledProcessError(returncode=1, cmd="rm missing.py", stderr="No such file...")
+
+    recorded `missing.py` as a successful DELETE. That is a ledger of ATTEMPTS — the
+    first bug this module ever had, reintroduced by the fix for the second.
+
+    The tie-break is the asymmetry the whole module rests on: missing a real operation
+    is loud (`lost`), recording a failed one is silent (confident wrong state). So a
+    call carrying outcome-shaped fields is SCANNED, never excluded.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'CalledProcessError(returncode=1, cmd="rm missing.py", stderr="No such file or directory")',
+            'Result(command="rm missing.py", ok=false, error="Permission denied")',
+            'ToolError(tool="Bash", cmd="rm gone.py", exit=1)',
+            'Response(status=500, cmd="rm x.py", error="operation failed")',
+            'Outcome(cmd="rm x.py", exit_code=2, stdout="No such file or directory")',
+        ],
+    )
+    def test_a_failed_outcome_repr_asserts_nothing(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text[:60]!r} recorded a failed op as state"
+
+    @pytest.mark.parametrize(
+        "text,path,op",
+        [
+            ('Write(file_path="a.py", content="No such file or directory")', "a.py", Op.CREATE),
+            ('Write(file_path="a.py", content="Permission denied")', "a.py", Op.CREATE),
+            ('Bash(command="rm x.py", note="No such file or directory")', "x.py", Op.DELETE),
+        ],
+    )
+    def test_input_fields_are_still_not_outcome_evidence(
+        self, text: str, path: str, op: Op
+    ) -> None:
+        """The original fix must survive: a content/note argument is not a result."""
+        assert (path, op) in extract_ops(text)
+
+    def test_an_outcome_field_suppresses_the_span_not_the_parse(self) -> None:
+        from distil.artifacts import _call_spans
+
+        assert _call_spans('Write(file_path="a.py")'), "a pure invocation is a span"
+        assert not _call_spans('Err(cmd="x", returncode=1)'), "an outcome repr is not"
+
+    @pytest.mark.parametrize(
+        "content",
+        ["exit: 1", "ok: false", "returncode: 2", "error: Permission denied"],
+    )
+    def test_an_outcome_word_inside_a_VALUE_is_not_a_field(self, content: str) -> None:
+        """A field NAME decides; a value never does.
+
+        Looking for outcome fields in the raw span let a written file's own content
+        vote: `Write(file_path="a.py", content="exit: 1")` read as a call reporting
+        its exit status, and the successful write vanished. That is the same bug as
+        scanning arguments for failure phrases, one level down — so the field scan
+        runs outside quotes only.
+        """
+        text = f'Write(file_path="a.py", content="{content}")'
+        assert ("a.py", Op.CREATE) in extract_ops(text), f"{content!r} suppressed a real write"
