@@ -500,3 +500,28 @@ def _iter_tool_texts_for(msgs: list[dict]) -> list[str]:
     from distil.artifacts import _iter_tool_texts
 
     return _iter_tool_texts(msgs)
+
+
+class TestFailureScope:
+    """Round-6 Blocking: failure phrases matched inside a call's own arguments.
+
+    `Write(file_path="tests/test_errors.py", content="No such file or directory")`
+    was skipped whole, so a coding agent writing an error fixture vanished from the
+    ledger and totals went falsely green.
+    """
+
+    def test_error_text_in_call_arguments_does_not_suppress_the_op(self) -> None:
+        t = (
+            'Write(file_path="tests/test_errors.py", content="No such file or directory")\n'
+            '-> {"ok": true}'
+        )
+        assert ("tests/test_errors.py", Op.CREATE) in extract_ops(t)
+
+    def test_failure_in_the_result_still_suppresses(self) -> None:
+        assert extract_ops('Bash(command="rm x.py")\n-> {"exit": 1}') == []
+
+    def test_narration_failure_without_a_delimiter_still_suppresses(self) -> None:
+        assert extract_ops("rm failed: No such file or directory for y.py") == []
+
+    def test_ordinary_extraction_unaffected(self) -> None:
+        assert ("src/app.py", Op.CREATE) in extract_ops("created src/app.py")

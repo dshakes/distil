@@ -151,7 +151,7 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
     failure marker are skipped entirely rather than parsed, so the ledger records what
     happened rather than what was attempted.
     """
-    if not text or _FAILED_RE.search(text):
+    if not text or _FAILED_RE.search(_outcome_of(text)):
         return []
     found: list[tuple[str, Op]] = []
     for pattern, op in _PATTERNS:
@@ -160,6 +160,22 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
             if path:
                 found.append((path, op))
     return found
+
+
+def _outcome_of(text: str) -> str:
+    """The part of a block that reports an OUTCOME, for failure detection.
+
+    Scanning the whole block matched failure phrases inside a call's own arguments:
+    `Write(file_path="tests/test_errors.py", content="No such file or directory")`
+    was skipped entirely, so a coding agent writing an error fixture — an everyday
+    act — silently vanished from the ledger and the totals went falsely green.
+
+    When a result is present it follows the `->` delimiter, so only that tail is
+    evidence about success. With no delimiter the whole text is the outcome (plain
+    narration like "rm failed: No such file"), and is scanned as before.
+    """
+    marker = text.rfind("->")
+    return text[marker + 2 :] if marker != -1 else text
 
 
 def _canonical(path: str) -> str:

@@ -52,8 +52,15 @@ _DONE_RE = re.compile(
     re.I,
 )
 # A stated goal is an obligation that is never "done" until the task ends.
+# The trailing `\b` must not sit after an alternative that ENDS in punctuation. For
+# `objective:` it landed after the colon, where the next character is a space — no
+# word boundary exists there, so `Objective: add retry wrapper` matched nothing and a
+# dropped objective left `dropped_work` at zero. This is the same misplaced-`\b` bug
+# already fixed above for `[x]` checkboxes; the boundary belongs on the word-shaped
+# alternatives only.
 _GOAL_RE = re.compile(
-    r"\b(?:your task is(?:\s+to)?|the goal is(?:\s+to)?|objective:|you must)\b[:.\s-]*(?P<t>.+)",
+    r"(?:\b(?:your task is(?:\s+to)?|the goal is(?:\s+to)?|you must)\b|\bobjective:)"
+    r"[:.\s-]*(?P<t>.+)",
     re.I,
 )
 

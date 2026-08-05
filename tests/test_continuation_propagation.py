@@ -228,3 +228,30 @@ class TestThirdAuditRound:
         first = extract_obligations(blk)
         for _ in range(20):
             assert extract_obligations(blk) == first
+
+
+class TestGoalMarkers:
+    """Round-6 Blocking: `Objective:` never matched.
+
+    The trailing `\\b` landed after the colon, where the next character is a space —
+    no boundary exists there. A dropped objective left `dropped_work` at zero, so the
+    gate silently undercounted pending work. Same misplaced-`\\b` bug already fixed
+    for `[x]` checkboxes in this file.
+    """
+
+    def test_objective_marker_is_extracted(self) -> None:
+        obs = extract_obligations("Objective: add retry wrapper now")
+        assert [o.status for o in obs] == [Status.PENDING]
+
+    def test_every_documented_goal_marker_works(self) -> None:
+        for text in (
+            "Your task is to add the retry wrapper",
+            "The goal is to migrate the billing module",
+            "Objective: ship the parser rewrite",
+            "You must remove the legacy client",
+        ):
+            assert extract_obligations(text), f"no obligation from: {text!r}"
+
+    def test_dropping_an_objective_is_counted(self) -> None:
+        p = score_texts("Objective: add retry wrapper now", "unrelated prose")
+        assert p.dropped_work == 1, "a dropped objective must register as lost work"
