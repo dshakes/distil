@@ -95,3 +95,31 @@ class TestTheRuleIsDocumentedWhereItIsEnforced:
         from distil.evalrecord import EvalRecord
 
         assert "empty gate list is not a pass" in (EvalRecord.passed.__doc__ or "")
+
+
+class TestEveryFailureClassReachesAGate:
+    """A failure class no gate counts is a failure class nobody is protected from.
+
+    `inverted` was added as a distinct outcome (a floor read as a ceiling) but the
+    silent-failure total summed only stale + overclaimed + dropped_work, so an
+    inverted bound could not move `--max-silent` at all. That is the same shape as
+    the four vacuous gates above: the number exists, the gate ignores it, and the
+    run comes back green.
+    """
+
+    def test_an_inverted_bound_counts_as_a_silent_failure(self) -> None:
+        from distil.fidelityprobes import SurfaceProbe
+        from distil.overclaim import OverclaimProbe
+
+        s = SurfaceProbe(hedges=OverclaimProbe(total=1, inverted=1))
+        assert s.silent_failures == 1, "an inverted bound must reach the gate"
+
+    def test_the_report_total_counts_it_on_both_surfaces(self) -> None:
+        from distil.fidelityprobes import FidelityReport, SurfaceProbe
+        from distil.overclaim import OverclaimProbe
+
+        r = FidelityReport(
+            hedges=OverclaimProbe(total=1, inverted=1),
+            output=SurfaceProbe(hedges=OverclaimProbe(total=1, inverted=1)),
+        )
+        assert r.silent_failures == 2

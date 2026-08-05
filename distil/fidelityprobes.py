@@ -12,10 +12,10 @@ Each is scored per turn against that turn's own original, so the suite runs on a
 trajectory without an answer key — the same property that lets the live meter run on
 real traffic.
 
-The gates are asymmetric on purpose. `stale` artifacts, `overclaimed` values and
-`dropped_work` are *silent* failures: the agent proceeds confidently on a false
-belief and nothing in the transcript says so. They gate at zero by default. Plain
-loss is loud — the agent can see the gap — so it is reported but not gated here;
+The gates are asymmetric on purpose. `stale` artifacts, `overclaimed` and
+`inverted` values and `dropped_work` are *silent* failures: the agent proceeds
+confidently on a false belief and nothing in the transcript says so. Plain loss is
+loud — the agent can see the gap — so it is reported but not gated here;
 :mod:`distil.retention` already owns that number.
 """
 
@@ -44,7 +44,12 @@ class SurfaceProbe:
 
     @property
     def silent_failures(self) -> int:
-        return self.state.stale + self.hedges.overclaimed + self.plan.dropped_work
+        return (
+            self.state.stale
+            + self.hedges.overclaimed
+            + self.hedges.inverted
+            + self.plan.dropped_work
+        )
 
     def to_dict(self) -> dict[str, Any]:
         if not self.scored:
@@ -99,6 +104,7 @@ class FidelityReport:
         return (
             self.state.stale
             + self.hedges.overclaimed
+            + self.hedges.inverted
             + self.plan.dropped_work
             + self.output.silent_failures
         )
@@ -271,7 +277,7 @@ def format_report(report: FidelityReport) -> str:
         f"  ({o.plan.pending_kept}/{o.plan.pending_total})   dropped {o.plan.dropped_work}",
         "",
         f"silent failures, BOTH surfaces: {report.silent_failures}"
-        f"  (input {report.state.stale + report.hedges.overclaimed + report.plan.dropped_work},"
+        f"  (input {report.state.stale + report.hedges.overclaimed + report.hedges.inverted + report.plan.dropped_work},"
         f" output {o.silent_failures})",
     ]
     return "\n".join(lines)
