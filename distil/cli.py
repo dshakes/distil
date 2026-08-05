@@ -771,8 +771,18 @@ def _apply_subscription_safe_default(args: argparse.Namespace) -> None:
         args.lossless_only = True
         print(
             "distil: subscription detected → lossless-only (safe default; no lossy digest "
-            "without a recovery tool). Add --expand for max recoverable compression, or "
-            "--verbatim for byte-exact. Override: DISTIL_SUBSCRIPTION=0.",
+            "without a recovery tool).\n"
+            "  What this costs: lossless-only is Tier-0 only, which on real agent traffic "
+            "saves ~0-2%\n"
+            "  rather than the 30-60% the recoverable digest reaches. That is the whole "
+            "product, off.\n"
+            "  Turn it on permanently:  distil default --mode expand\n"
+            "  Or per run:              --expand   (injects distil_expand, so every digest "
+            "stub is\n"
+            "                                       recoverable and nothing is irreversibly "
+            "lost)\n"
+            "  Byte-exact instead:      --verbatim        Override detection: "
+            "DISTIL_SUBSCRIPTION=0",
             file=_sys.stderr,
         )
 

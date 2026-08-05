@@ -121,6 +121,12 @@ class TestOutputSurvivesALegacyConsole:
             capture_output=True,
             text=True,
             env=env,
+            # Decode with the SAME encoding the child was told to write. Without this
+            # the parent falls back to its own locale — cp1252 on a Windows runner —
+            # so a UTF-8 child's `—` arrives as `â€”` and the glyph assertion fails on
+            # a report that rendered perfectly. That is the test mis-reading the
+            # output, not the CLI mis-writing it.
+            encoding=encoding,
             errors="replace",
         )
 
@@ -139,3 +145,35 @@ class TestOutputSurvivesALegacyConsole:
         r = self._run(tmp_path, "utf-8")
         assert r.returncode == 0
         assert "→" in r.stdout, "utf-8 must still get the real glyphs"
+
+
+class TestTheSubscriptionDefaultStatesItsCost:
+    """The safe default silently costs the entire product's value.
+
+    A subscription session runs lossless-only so no digest is left unrecoverable —
+    correct. But it is Tier-0 only, which measured ~0.4% on this repo's own ledger
+    against 30-60% for the recoverable digest. The old notice named `--expand` without
+    saying what not using it costs, and never mentioned the PERSISTENT opt-in, so the
+    remedy had to be remembered on every invocation.
+
+    A default that quietly turns the product off has to say so.
+    """
+
+    def test_the_notice_quantifies_the_cost_and_names_the_persistent_fix(self) -> None:
+        import inspect
+
+        from distil.cli import _apply_subscription_safe_default
+
+        src = inspect.getsource(_apply_subscription_safe_default)
+        assert "What this costs" in src, "the notice must say what the default costs"
+        assert "distil default --mode expand" in src, "and name the persistent opt-in"
+        assert "--expand" in src and "--verbatim" in src, "both escapes stay documented"
+
+    def test_the_persistent_mode_is_a_real_choice(self) -> None:
+        """`distil default --mode expand` must actually be accepted, or the notice
+        sends users to a command that errors."""
+        from distil.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["default", "--mode", "expand"])
+        assert args.mode == "expand"
