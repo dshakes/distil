@@ -106,7 +106,7 @@ the failures an agent cannot see. Loud loss is deliberately *not* gated here; `r
 --max-lost` owns it, and gating one regression in two places obscures which
 property actually broke.
 
-The shipped reversible tier currently reports **9 overclaims out of 165 hedged
+The shipped reversible tier currently reports **9 overclaims out of 171 hedged
 claims** on the corpus, so `--max-silent 0` fails today. That is a real measured
 property, not a bug in the gate — see EVALUATION.md §6.2. CI gates at the measured
 band.
@@ -124,7 +124,7 @@ five things you need to reproduce or compare them.
   "subject": { "compressor": "Tier1Reversible", "module": "distil.compress.tier1" },
   "dataset": { "name": "corpus", "trajectories": 9,
                "domains": [...],
-               "fingerprint": "sha256:129fb36b4cf78a70" },
+               "fingerprint": "sha256:051b836358932883" },
   "grader":  { "kind": "deterministic",
                "detail": "synthetic DECISION: oracle — NOT a model" },
   "metrics": { "artifact_state": {...}, "overclaim": {...}, ... },
@@ -142,7 +142,7 @@ Why each field earns its place:
   across load order. Adding a trajectory changes the numbers; without this that
   looks like a compressor regression. This distinction has already caught a test
   in this repo failing for a reason it was never written to detect.
-- **`subject`** — "94.5% hedge fidelity" means nothing without knowing which
+- **`subject`** — "94.7% hedge fidelity" means nothing without knowing which
   compressor produced it.
 - **`grader`** — follows the norm set by `conformal.render_grader`: a synthetic
   oracle is never reported as a model, because that conflation is what makes a

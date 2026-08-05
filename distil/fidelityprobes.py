@@ -244,18 +244,26 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
                 digested, _restore = digest_output_blocks(blocks)
                 out_orig.extend(b.text for b in blocks)
                 out_small.extend(b.text for b in digested)
-            report.output.changed_blocks += sum(1 for o, c in zip(out_orig, out_small) if o != c)
-            # State and plan fold ACROSS turns, so they need the whole trajectory:
-            # a file created in turn 2 and deleted in turn 4 has no final state
-            # otherwise. Overclaim is per-block, so it is scored only on blocks the
-            # digest actually changed — scoring identical pairs adds a guaranteed
-            # 100% to the denominator, which drags the rate toward 1.0 with
-            # non-evidence and hides a real overclaim among the padding.
-            report.output.state.add(artifacts.score(out_orig, out_small))
-            report.output.plan.add(continuation.score(out_orig, out_small))
-            for o, c in zip(out_orig, out_small):
-                if o != c:
-                    report.output.hedges.add(overclaim.score(o, c))
+            # EVERY probe on this surface sees only the blocks the digest changed.
+            # Feeding untouched blocks to state and plan looked safe — they fold
+            # across turns, so more context reads as more correctness — but identical
+            # evidence on both sides can only MASK a difference, never reveal one: an
+            # untouched block carrying the same artifact re-asserts its state in both
+            # ledgers, so a fact lost from a digested block folds back to matching.
+            # In the limit the surface reported perfect fidelity from evidence the
+            # transform had never touched. Restricting to changed blocks preserves
+            # cross-turn folding AMONG them, which is the surface actually being
+            # graded, and is strictly more sensitive.
+            changed = [(o, c) for o, c in zip(out_orig, out_small) if o != c]
+            report.output.changed_blocks += len(changed)
+            report.output.state.add(
+                artifacts.score([o for o, _ in changed], [c for _, c in changed])
+            )
+            report.output.plan.add(
+                continuation.score([o for o, _ in changed], [c for _, c in changed])
+            )
+            for o, c in changed:
+                report.output.hedges.add(overclaim.score(o, c))
 
     # A surface whose transform changed nothing was not measured, it was echoed. Every
     # probe on it compares text to itself and returns 100% by construction — the exact

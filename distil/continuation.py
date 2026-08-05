@@ -103,27 +103,40 @@ def extract_obligations(text: str) -> list[Obligation]:
     """
     if not text:
         return []
-    out: list[Obligation] = []
+    # Both scans record WHERE they matched, and the merge is by position. Goals used
+    # to be appended in a second pass, which put every one of them after every
+    # checklist item regardless of where it appeared. So:
+    #
+    #     Objective: migrate billing module to v2
+    #     - [x] migrate billing module to v2
+    #
+    # folded to PENDING — `_fold` lets the last entry win, and the objective from
+    # line 1 arrived last. Completed work read as outstanding, and a compressor that
+    # dropped the completion line scored as though nothing was lost. "In document
+    # order" was already the documented contract; only the goal pass broke it.
+    found: list[tuple[int, Obligation]] = []
     seen: set[Obligation] = set()
-    for line in text.splitlines():
+
+    def _add(pos: int, body: str, status: Status) -> None:
+        if len(body) >= _MIN_OBLIGATION:
+            o = Obligation(_key(body), status)
+            if o not in seen:
+                seen.add(o)
+                found.append((pos, o))
+
+    offset = 0
+    for line in text.splitlines(keepends=True):
         for pattern, status in ((_DONE_RE, Status.DONE), (_PENDING_RE, Status.PENDING)):
             m = pattern.match(line)
             if m:
-                body = m.group("t").strip()
-                if len(body) >= _MIN_OBLIGATION:
-                    o = Obligation(_key(body), status)
-                    if o not in seen:
-                        seen.add(o)
-                        out.append(o)
+                _add(offset, m.group("t").strip(), status)
                 break
+        offset += len(line)
     for m in _GOAL_RE.finditer(text):
-        body = m.group("t").strip().split("\n")[0]
-        if len(body) >= _MIN_OBLIGATION:
-            o = Obligation(_key(body), Status.PENDING)
-            if o not in seen:
-                seen.add(o)
-                out.append(o)
-    return out
+        _add(m.start(), m.group("t").strip().split("\n")[0], Status.PENDING)
+
+    found.sort(key=lambda p: p[0])
+    return [o for _, o in found]
 
 
 @dataclass

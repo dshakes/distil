@@ -122,7 +122,7 @@ QUESTIONS = [
 # hedged claim, and a plan item. Anything less and the surface is exercised but not
 # actually measured on the properties it reports.
 HISTORY = [
-    "assistant: created the retry wrapper in net/retry.py; it caps attempts at approximately 3 for now.\n"
+    "assistant: created net/retry.py, a retry wrapper capping attempts at approximately 3 for now.\n"
     "\n"
     "What it does:\n"
     "  - wraps the transport call in a bounded retry with jittered backoff\n"
@@ -133,7 +133,7 @@ HISTORY = [
     "sampled a handful of requests, so treat that as indicative and not measured.\n"
     "\n"
     "- [ ] wire the wrapper into the client fetch path",
-    "assistant: wired the wrapper into the client's fetch path in net/client.py; this likely covers 2 of the call sites.\n"
+    "assistant: modified net/client.py to route fetch through the wrapper; this likely covers 2 of the call sites.\n"
     "\n"
     "Changes:\n"
     "  - fetch() now calls through the retry wrapper instead of the raw transport\n"
@@ -145,7 +145,7 @@ HISTORY = [
     "\n"
     "- [x] wire the wrapper into the client fetch path\n"
     "- [ ] remove the legacy retry module",
-    "assistant: removed the legacy retry module at net/legacy_retry.py after finding at most 1 stale reference.\n"
+    "assistant: deleted net/legacy_retry.py after finding at most 1 stale reference.\n"
     "\n"
     "Before deleting I checked for importers:\n"
     "  - grepped the tree for legacy_retry and found no live references\n"

@@ -658,3 +658,56 @@ class TestFailureIsAdjudicatedPerOperation:
 
     def test_a_failed_pair_verb_does_not_erase_the_next_operation(self) -> None:
         assert extract_ops("mv a.py b.py -> exit: 1\ntouch z.py") == [("z.py", Op.CREATE)]
+
+
+class TestOpenAIResponsesFlatItems:
+    """Responses API items are FLAT list entries, not nested under `content`.
+
+    Reading only the nested shape meant a whole Responses trajectory produced no tool
+    text: `measure_live` returned total=0, fidelity=1.0 — a perfect score on a
+    workspace it never looked at. Identical to the silent-green failure already fixed
+    once for Chat Completions' `tool_calls`, in the sibling shape nobody re-checked.
+    """
+
+    @staticmethod
+    def _flat(ok: bool) -> list[dict]:
+        return [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "Write",
+                "arguments": '{"file_path": "a.py"}',
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "c1",
+                "output": '{"ok": true}' if ok else '{"ok": false}',
+            },
+        ]
+
+    def test_flat_items_are_graded(self) -> None:
+        msgs = self._flat(True)
+        assert measure_live(msgs, msgs).total == 1
+
+    def test_a_failed_flat_call_is_still_rejected(self) -> None:
+        msgs = self._flat(False)
+        assert measure_live(msgs, msgs).total == 0
+
+    def test_dropping_the_delete_still_reads_as_stale(self) -> None:
+        original = [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "Write",
+                "arguments": '{"file_path": "a.py"}',
+            },
+            {"type": "function_call_output", "call_id": "c1", "output": '{"ok": true}'},
+            {
+                "type": "function_call",
+                "call_id": "c2",
+                "name": "Bash",
+                "arguments": '{"command": "rm a.py"}',
+            },
+            {"type": "function_call_output", "call_id": "c2", "output": '{"exit": 0}'},
+        ]
+        assert measure_live(original, original[:2]).stale == 1

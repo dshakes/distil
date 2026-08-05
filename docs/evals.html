@@ -137,7 +137,7 @@ artifact-state fidelity   100.0%  (7/7 artifacts intact)
   stale (wrong state)       0.0%  (0)
   lost  (absent)            0.0%  (0)
 
-hedge fidelity             94.5%  (156/165 claims kept their hedging)
+hedge fidelity             94.7%  (162/171 claims kept their hedging)
   overclaimed               5.7%  (9)  &lt;- value kept, uncertainty dropped
 
 pending-work recall       100.0%  (2/2 remaining items still visible)
@@ -147,9 +147,9 @@ error propagation  (36 turns, base decision-change rate 0.0%)
 
 OUTPUT surface — past answers digested on re-entry (the other half of the bill)
   (6 blocks changed by digestion — the graded evidence)
-  artifact state         100.0%  (7/7)   stale 0
+  artifact state          75.0%  (3/4)   stale 0
   hedge fidelity         100.0%  (6/6)   overclaimed 0
-  pending-work recall    100.0%  (2/2)   dropped 0
+  pending-work recall    100.0%  (1/1)   dropped 0
 
 silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
     <p><b>Those 9 overclaims are real, and we ship the number rather than tune it away.</b> Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact this is <em>not</em> recoverable in practice: a missing fact prompts the agent to expand, a missing hedge gives it no reason to look.</p>
@@ -160,7 +160,7 @@ silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
     <pre class="term">{
   "schema":  "distil.eval/1",
   "subject": { "compressor": "serving", "module": "distil.compress.strategies" },
-  "dataset": { "trajectories": 9, "fingerprint": "sha256:129fb36b4cf78a70" },
+  "dataset": { "trajectories": 9, "fingerprint": "sha256:051b836358932883" },
   "grader":  { "kind": "deterministic",
                "detail": "synthetic DECISION: oracle — NOT a model" },
   "metrics": { ... },

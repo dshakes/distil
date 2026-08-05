@@ -255,3 +255,32 @@ class TestGoalMarkers:
     def test_dropping_an_objective_is_counted(self) -> None:
         p = score_texts("Objective: add retry wrapper now", "unrelated prose")
         assert p.dropped_work == 1, "a dropped objective must register as lost work"
+
+
+class TestObligationsAreMergedInDocumentOrder:
+    """A goal stated BEFORE a completion must not outrank it.
+
+    Goals were collected in a second pass and appended, so every goal landed after
+    every checklist item regardless of position. `Objective: X` followed by `- [x] X`
+    folded to PENDING, because `_fold` lets the last entry win and the objective from
+    line 1 arrived last. Finished work read as outstanding — and a compressor that
+    dropped the completion scored as having lost nothing.
+    """
+
+    def test_a_goal_before_a_completion_folds_to_done(self) -> None:
+        from distil.continuation import Status, _fold
+
+        text = "Objective: migrate billing module to v2\n- [x] migrate billing module to v2"
+        assert _fold([text]) == {"migrate billing module to v2": Status.DONE}
+
+    def test_a_goal_after_a_completion_still_reopens_it(self) -> None:
+        from distil.continuation import Status, _fold
+
+        text = "- [x] migrate billing module to v2\nObjective: migrate billing module to v2"
+        assert _fold([text]) == {"migrate billing module to v2": Status.PENDING}
+
+    def test_extraction_order_matches_the_documented_contract(self) -> None:
+        from distil.continuation import Status, extract_obligations
+
+        text = "Objective: migrate billing module to v2\n- [x] migrate billing module to v2"
+        assert [o.status for o in extract_obligations(text)] == [Status.PENDING, Status.DONE]

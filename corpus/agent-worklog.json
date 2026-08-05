@@ -72,7 +72,7 @@
           "kind": "history",
           "stability": "settling",
           "decision_relevant": false,
-          "text": "assistant: created the retry wrapper in net/retry.py; it caps attempts at approximately 3 for now.\n\nWhat it does:\n  - wraps the transport call in a bounded retry with jittered backoff\n  - caps total attempts at 3, which should hold for the p99 case\n  - leaves the timeout budget alone; that is roughly 4200 ms today\n\nBaseline latency looks approximately unchanged in the smoke run, though I only\nsampled a handful of requests, so treat that as indicative and not measured.\n\n- [ ] wire the wrapper into the client fetch path"
+          "text": "assistant: created net/retry.py, a retry wrapper capping attempts at approximately 3 for now.\n\nWhat it does:\n  - wraps the transport call in a bounded retry with jittered backoff\n  - caps total attempts at 3, which should hold for the p99 case\n  - leaves the timeout budget alone; that is roughly 4200 ms today\n\nBaseline latency looks approximately unchanged in the smoke run, though I only\nsampled a handful of requests, so treat that as indicative and not measured.\n\n- [ ] wire the wrapper into the client fetch path"
         },
         {
           "id": "plan-1",
@@ -126,14 +126,14 @@
           "kind": "history",
           "stability": "settling",
           "decision_relevant": false,
-          "text": "assistant: created the retry wrapper in net/retry.py; it caps attempts at approximately 3 for now.\n\nWhat it does:\n  - wraps the transport call in a bounded retry with jittered backoff\n  - caps total attempts at 3, which should hold for the p99 case\n  - leaves the timeout budget alone; that is roughly 4200 ms today\n\nBaseline latency looks approximately unchanged in the smoke run, though I only\nsampled a handful of requests, so treat that as indicative and not measured.\n\n- [ ] wire the wrapper into the client fetch path"
+          "text": "assistant: created net/retry.py, a retry wrapper capping attempts at approximately 3 for now.\n\nWhat it does:\n  - wraps the transport call in a bounded retry with jittered backoff\n  - caps total attempts at 3, which should hold for the p99 case\n  - leaves the timeout budget alone; that is roughly 4200 ms today\n\nBaseline latency looks approximately unchanged in the smoke run, though I only\nsampled a handful of requests, so treat that as indicative and not measured.\n\n- [ ] wire the wrapper into the client fetch path"
         },
         {
           "id": "hist-1",
           "kind": "history",
           "stability": "settling",
           "decision_relevant": false,
-          "text": "assistant: wired the wrapper into the client's fetch path in net/client.py; this likely covers 2 of the call sites.\n\nChanges:\n  - fetch() now calls through the retry wrapper instead of the raw transport\n  - retry budget is shared per request, not per hop\n  - error classification is unchanged, so callers see the same exceptions\n\nThe pagination path in myapp/pagination.py probably needs the same treatment,\nbut I have not confirmed whether it goes through fetch() at all.\n\n- [x] wire the wrapper into the client fetch path\n- [ ] remove the legacy retry module"
+          "text": "assistant: modified net/client.py to route fetch through the wrapper; this likely covers 2 of the call sites.\n\nChanges:\n  - fetch() now calls through the retry wrapper instead of the raw transport\n  - retry budget is shared per request, not per hop\n  - error classification is unchanged, so callers see the same exceptions\n\nThe pagination path in myapp/pagination.py probably needs the same treatment,\nbut I have not confirmed whether it goes through fetch() at all.\n\n- [x] wire the wrapper into the client fetch path\n- [ ] remove the legacy retry module"
         },
         {
           "id": "plan-2",
@@ -187,21 +187,21 @@
           "kind": "history",
           "stability": "settling",
           "decision_relevant": false,
-          "text": "assistant: created the retry wrapper in net/retry.py; it caps attempts at approximately 3 for now.\n\nWhat it does:\n  - wraps the transport call in a bounded retry with jittered backoff\n  - caps total attempts at 3, which should hold for the p99 case\n  - leaves the timeout budget alone; that is roughly 4200 ms today\n\nBaseline latency looks approximately unchanged in the smoke run, though I only\nsampled a handful of requests, so treat that as indicative and not measured.\n\n- [ ] wire the wrapper into the client fetch path"
+          "text": "assistant: created net/retry.py, a retry wrapper capping attempts at approximately 3 for now.\n\nWhat it does:\n  - wraps the transport call in a bounded retry with jittered backoff\n  - caps total attempts at 3, which should hold for the p99 case\n  - leaves the timeout budget alone; that is roughly 4200 ms today\n\nBaseline latency looks approximately unchanged in the smoke run, though I only\nsampled a handful of requests, so treat that as indicative and not measured.\n\n- [ ] wire the wrapper into the client fetch path"
         },
         {
           "id": "hist-1",
           "kind": "history",
           "stability": "settling",
           "decision_relevant": false,
-          "text": "assistant: wired the wrapper into the client's fetch path in net/client.py; this likely covers 2 of the call sites.\n\nChanges:\n  - fetch() now calls through the retry wrapper instead of the raw transport\n  - retry budget is shared per request, not per hop\n  - error classification is unchanged, so callers see the same exceptions\n\nThe pagination path in myapp/pagination.py probably needs the same treatment,\nbut I have not confirmed whether it goes through fetch() at all.\n\n- [x] wire the wrapper into the client fetch path\n- [ ] remove the legacy retry module"
+          "text": "assistant: modified net/client.py to route fetch through the wrapper; this likely covers 2 of the call sites.\n\nChanges:\n  - fetch() now calls through the retry wrapper instead of the raw transport\n  - retry budget is shared per request, not per hop\n  - error classification is unchanged, so callers see the same exceptions\n\nThe pagination path in myapp/pagination.py probably needs the same treatment,\nbut I have not confirmed whether it goes through fetch() at all.\n\n- [x] wire the wrapper into the client fetch path\n- [ ] remove the legacy retry module"
         },
         {
           "id": "hist-2",
           "kind": "history",
           "stability": "settling",
           "decision_relevant": false,
-          "text": "assistant: removed the legacy retry module at net/legacy_retry.py after finding at most 1 stale reference.\n\nBefore deleting I checked for importers:\n  - grepped the tree for legacy_retry and found no live references\n  - the only hit was a comment in net/client.py, now stale\n  - at most one caller could have been missed if it imports dynamically\n\nI also deleted net/scratch_bench.py, which was a throwaway harness I added\nearlier in this session and is no longer useful.\n\n- [x] remove the legacy retry module\n- [ ] add a regression test for the retry path"
+          "text": "assistant: deleted net/legacy_retry.py after finding at most 1 stale reference.\n\nBefore deleting I checked for importers:\n  - grepped the tree for legacy_retry and found no live references\n  - the only hit was a comment in net/client.py, now stale\n  - at most one caller could have been missed if it imports dynamically\n\nI also deleted net/scratch_bench.py, which was a throwaway harness I added\nearlier in this session and is no longer useful.\n\n- [x] remove the legacy retry module\n- [ ] add a regression test for the retry path"
         },
         {
           "id": "plan-3",

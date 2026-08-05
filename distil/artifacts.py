@@ -468,9 +468,17 @@ def _iter_tool_texts(messages: Any) -> list[str]:
             out.append(_RESULT_SLOT + rid)
             continue
 
-        if not isinstance(content, list):
-            continue
-        for block in content:
+        # The OpenAI Responses API puts items FLAT in the `input`/`output` list, not
+        # nested under a message's `content`. Reading only the nested shape meant a
+        # Responses trajectory produced no tool text at all: `measure_live` returned
+        # total=0, fidelity=1.0 — a perfect score on a workspace it never looked at,
+        # which is the identical silent-green failure already fixed once for OpenAI
+        # Chat Completions' `tool_calls`. This repo's own adapter tests use the flat
+        # shape, so it is the documented form, not an edge case.
+        blocks = content if isinstance(content, list) else []
+        if msg.get("type") in ("function_call", "function_call_output", "tool_use", "tool_result"):
+            blocks = [msg]
+        for block in blocks:
             if not isinstance(block, dict):
                 continue
             btype = block.get("type")
