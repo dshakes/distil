@@ -125,11 +125,39 @@ class TestArtifactVerbs:
         assert ("src/a.py", op) in extract_ops(text), f"{text!r} did not yield {op}"
 
     @pytest.mark.parametrize(
+        "text,op",
+        [
+            ('rm "src/a.py"', Op.DELETE),
+            ("rm 'src/a.py'", Op.DELETE),
+            ('git rm "src/a.py"', Op.DELETE),
+            ('cat "src/a.py"', Op.READ),
+            ('touch "src/a.py"', Op.CREATE),
+            ('deleted "src/a.py"', Op.DELETE),
+            ('created "src/a.py"', Op.CREATE),
+            ("sed -i 's/x/y/' \"src/a.py\"", Op.MODIFY),
+            ('echo hi > "src/a.py"', Op.CREATE),
+        ],
+    )
+    def test_quoted_paths_are_not_invisible(self, text: str, op: Op) -> None:
+        """Agents quote paths in shell commands as a habit, and every quoted form
+        matched nothing at all — the operation was simply absent from the ledger.
+
+        A silently skipped operation is the worst outcome this probe has: the file
+        keeps whatever state it had before, and the compressor is graded as having
+        preserved it perfectly.
+        """
+        assert ("src/a.py", op) in extract_ops(text), f"{text!r} was silently skipped"
+
+    @pytest.mark.parametrize(
         "text,src_op,dst_op",
         [
             ("mv src/a.py src/b.py", Op.DELETE, Op.CREATE),
             ("git mv src/a.py src/b.py", Op.DELETE, Op.CREATE),
             ("cp src/a.py src/b.py", Op.READ, Op.CREATE),
+            # Quoted: the closing quote sits BETWEEN the two paths, so the separator
+            # has to tolerate it or only the source end matches.
+            ('mv "src/a.py" "src/b.py"', Op.DELETE, Op.CREATE),
+            ("cp 'src/a.py' 'src/b.py'", Op.READ, Op.CREATE),
         ],
     )
     def test_two_path_verbs_assign_both_ends(self, text: str, src_op: Op, dst_op: Op) -> None:
