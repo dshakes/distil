@@ -111,10 +111,52 @@ QUESTIONS = [
     "Finish with a test.",
 ]
 
+# A past assistant answer, as it actually re-enters context on the next turn: long.
+# These were one-line summaries, which made them unrepresentative of the thing output
+# digestion exists to compress AND left the output surface untestable — the digest only
+# touches HISTORY blocks of >= 6 lines, every block here was 5, so `distil fidelity`
+# reported a scored output surface that had never digested anything. The probe was
+# grading untouched text against itself at a guaranteed 100%.
+#
+# Each entry carries what the three output-surface probes need: a file operation, a
+# hedged claim, and a plan item. Anything less and the surface is exercised but not
+# actually measured on the properties it reports.
 HISTORY = [
-    "assistant: created the retry wrapper and confirmed the baseline latency.",
-    "assistant: wired the wrapper into the client's fetch path.",
-    "assistant: removed the legacy retry module after confirming no importers.",
+    "assistant: created the retry wrapper in net/retry.py; it caps attempts at approximately 3 for now.\n"
+    "\n"
+    "What it does:\n"
+    "  - wraps the transport call in a bounded retry with jittered backoff\n"
+    "  - caps total attempts at 3, which should hold for the p99 case\n"
+    "  - leaves the timeout budget alone; that is roughly 4200 ms today\n"
+    "\n"
+    "Baseline latency looks approximately unchanged in the smoke run, though I only\n"
+    "sampled a handful of requests, so treat that as indicative and not measured.\n"
+    "\n"
+    "- [ ] wire the wrapper into the client fetch path",
+    "assistant: wired the wrapper into the client's fetch path in net/client.py; this likely covers 2 of the call sites.\n"
+    "\n"
+    "Changes:\n"
+    "  - fetch() now calls through the retry wrapper instead of the raw transport\n"
+    "  - retry budget is shared per request, not per hop\n"
+    "  - error classification is unchanged, so callers see the same exceptions\n"
+    "\n"
+    "The pagination path in myapp/pagination.py probably needs the same treatment,\n"
+    "but I have not confirmed whether it goes through fetch() at all.\n"
+    "\n"
+    "- [x] wire the wrapper into the client fetch path\n"
+    "- [ ] remove the legacy retry module",
+    "assistant: removed the legacy retry module at net/legacy_retry.py after finding at most 1 stale reference.\n"
+    "\n"
+    "Before deleting I checked for importers:\n"
+    "  - grepped the tree for legacy_retry and found no live references\n"
+    "  - the only hit was a comment in net/client.py, now stale\n"
+    "  - at most one caller could have been missed if it imports dynamically\n"
+    "\n"
+    "I also deleted net/scratch_bench.py, which was a throwaway harness I added\n"
+    "earlier in this session and is no longer useful.\n"
+    "\n"
+    "- [x] remove the legacy retry module\n"
+    "- [ ] add a regression test for the retry path",
 ]
 
 

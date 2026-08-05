@@ -710,7 +710,7 @@ themselves.
 
 **Measured result.** On the bundled corpus under the shipped reversible tier:
 artifact-state fidelity 100% (7/7, zero stale, zero lost); pending-work recall 100%
-with zero status flips; hedge fidelity 94.3% (148/157), with **9 genuine
+with zero status flips; hedge fidelity 94.5% (156/165), with **9 genuine
 overclaims**. The overclaims occur only on blocks that materially changed, and arise
 where a digested span retains a value but not its qualifier. Unlike a lost fact this
 is not recoverable in practice: a missing fact prompts the agent to expand, whereas a

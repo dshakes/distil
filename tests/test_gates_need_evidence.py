@@ -142,3 +142,48 @@ class TestAskingForAGateRunsAGate:
 
     def test_no_threshold_still_exits_zero(self) -> None:
         assert _cli("shadow-stats", home=tempfile.mkdtemp()).returncode == 0
+
+
+class TestTheOutputSurfaceIsActuallyExercised:
+    """The output surface reported 100% on blocks digestion never touched.
+
+    `digest_output_blocks` only digests HISTORY blocks of >= 6 lines. Every history
+    block in the corpus was 5 lines, so 0 of 238 blocks changed — and the surface
+    still reported `scored: true`, 7/7 artifacts and 179/179 hedges preserved. Those
+    were real percentages computed over untouched input-side text: a guaranteed 100%
+    that reads exactly like a clean result.
+
+    Two things have to hold, and a test for either alone lets the other rot:
+    the transform must change something, and each probe must have something of its
+    own kind to grade.
+    """
+
+    def test_digestion_changes_blocks_on_the_bundled_corpus(self) -> None:
+        from distil.corpus import load_corpus
+        from distil.output import digest_output_blocks
+
+        changed = 0
+        for entry in load_corpus():
+            for turn in entry.trajectory.turns:
+                blocks = list(turn.blocks)
+                digested, _ = digest_output_blocks(blocks)
+                changed += sum(1 for a, b in zip(blocks, digested) if a.text != b.text)
+        assert changed > 0, "no block is digestible: the output surface grades nothing"
+
+    def test_every_output_probe_has_a_real_denominator(self) -> None:
+        from distil.corpus import load_corpus
+        from distil.fidelityprobes import run
+
+        out = run(load_corpus()).output
+        assert out.scored is True and out.changed_blocks > 0
+        # A zero denominator makes the probe return 1.0 by definition.
+        assert out.state.total > 0, "artifact probe graded nothing on the output surface"
+        assert out.hedges.total > 0, "hedge probe graded nothing on the output surface"
+        assert out.plan.pending_total > 0, "plan probe graded nothing on the output surface"
+
+    def test_an_untouched_surface_is_reported_unscored(self) -> None:
+        """The guard itself: if digestion stops firing, say so rather than score it."""
+        from distil.fidelityprobes import SurfaceProbe
+
+        s = SurfaceProbe(scored=False, reason="nothing digestible")
+        assert s.to_dict() == {"scored": False, "reason": "nothing digestible"}

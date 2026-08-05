@@ -41,6 +41,13 @@ class SurfaceProbe:
     # nobody earned, and indistinguishable from a clean result. `scored` makes the
     # difference explicit in the payload rather than leaving it to be inferred.
     scored: bool = True
+    # Why it was not scored. "Unscored" and "clean" must never look alike in the
+    # payload, and a reader cannot act on the difference without being told which.
+    reason: str = ""
+    # How many blocks the surface's transform actually CHANGED. A surface that
+    # changed nothing is comparing text to itself, and every probe on it returns
+    # 100% by construction — see `scored`.
+    changed_blocks: int = 0
 
     @property
     def silent_failures(self) -> int:
@@ -53,13 +60,10 @@ class SurfaceProbe:
 
     def to_dict(self) -> dict[str, Any]:
         if not self.scored:
-            return {
-                "scored": False,
-                "reason": "a custom compressor was supplied; output digestion is the "
-                "serving path's own transform and cannot be attributed to it",
-            }
+            return {"scored": False, "reason": self.reason}
         return {
             "scored": True,
+            "changed_blocks": self.changed_blocks,
             "artifact_state": self.state.to_dict(),
             "overclaim": self.hedges.to_dict(),
             "continuation": self.plan.to_dict(),
@@ -154,6 +158,10 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
     report = FidelityReport()
     if compressor is not None:
         report.output.scored = False
+        report.output.reason = (
+            "a custom compressor was supplied; output digestion is the serving path's "
+            "own transform and cannot be attributed to it"
+        )
     # Propagation is analysed PER TRAJECTORY and aggregated. Accumulating every
     # trajectory into one sequence let a fidelity drop in the last turn of one
     # trajectory be scored as causing a decision change in the first turn of the
@@ -236,13 +244,50 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
                 digested, _restore = digest_output_blocks(blocks)
                 out_orig.extend(b.text for b in blocks)
                 out_small.extend(b.text for b in digested)
+            report.output.changed_blocks += sum(1 for o, c in zip(out_orig, out_small) if o != c)
+            # State and plan fold ACROSS turns, so they need the whole trajectory:
+            # a file created in turn 2 and deleted in turn 4 has no final state
+            # otherwise. Overclaim is per-block, so it is scored only on blocks the
+            # digest actually changed — scoring identical pairs adds a guaranteed
+            # 100% to the denominator, which drags the rate toward 1.0 with
+            # non-evidence and hides a real overclaim among the padding.
             report.output.state.add(artifacts.score(out_orig, out_small))
             report.output.plan.add(continuation.score(out_orig, out_small))
             for o, c in zip(out_orig, out_small):
-                report.output.hedges.add(overclaim.score(o, c))
+                if o != c:
+                    report.output.hedges.add(overclaim.score(o, c))
 
+    # A surface whose transform changed nothing was not measured, it was echoed. Every
+    # probe on it compares text to itself and returns 100% by construction — the exact
+    # "green against nothing" this module gates against elsewhere. On the bundled
+    # corpus that is the live case, not a hypothetical: `digest_output_blocks` only
+    # touches HISTORY blocks of at least six lines, and all 58 history blocks are
+    # shorter, so 0 of 238 blocks changed while the surface reported 7/7 artifacts and
+    # 179/179 hedges preserved. Those numbers were real arithmetic over untouched
+    # input-side text, and they read exactly like a clean result.
+    if compressor is None and not report.output.changed_blocks:
+        report.output.scored = False
+        report.output.reason = (
+            "output digestion changed no blocks on this corpus — `digest_output_blocks` "
+            "only digests HISTORY blocks of >= 6 lines and none qualify, so there is "
+            "nothing to grade. Not a pass: a surface that was never exercised cannot "
+            "report fidelity."
+        )
     report.prop = propagation.analyse_many(per_traj)
     return report
+
+
+def _surface_line(label: str, total: int, rate: float, kept: int, bad_label: str, bad: int) -> str:
+    """One probe's line, refusing to print a percentage it did not measure.
+
+    A probe with a zero denominator returns 1.0 by definition, so `0/0` rendered as
+    `100.0%` — a perfect score on nothing, sitting in a column beside scores that were
+    real. This is the same failure as an unscored SURFACE, one level down: the surface
+    was exercised, but this particular property had nothing in it to grade.
+    """
+    if not total:
+        return f"  {label:<22}  not measured  (0 graded — nothing of this kind survived to compare)"
+    return f"  {label:<22} {rate:6.1%}  ({kept}/{total})   {bad_label} {bad}"
 
 
 def format_report(report: FidelityReport) -> str:
@@ -261,7 +306,8 @@ def format_report(report: FidelityReport) -> str:
     if not o.scored:
         lines += [
             "",
-            "OUTPUT surface — NOT SCORED (custom compressor supplied)",
+            "OUTPUT surface — NOT SCORED",
+            f"  {o.reason}",
             "",
             f"silent failures, input surface only: {report.silent_failures}",
         ]
@@ -269,12 +315,26 @@ def format_report(report: FidelityReport) -> str:
     lines += [
         "",
         "OUTPUT surface — past answers digested on re-entry (the other half of the bill)",
-        f"  artifact state          {o.state.fidelity:6.1%}  ({o.state.exact}/{o.state.total})"
-        f"   stale {o.state.stale}",
-        f"  hedge fidelity          {o.hedges.fidelity:6.1%}  ({o.hedges.preserved}/{o.hedges.total})"
-        f"   overclaimed {o.hedges.overclaimed}",
-        f"  pending-work recall     {o.plan.pending_recall:6.1%}"
-        f"  ({o.plan.pending_kept}/{o.plan.pending_total})   dropped {o.plan.dropped_work}",
+        f"  ({o.changed_blocks} blocks changed by digestion — the graded evidence)",
+        _surface_line(
+            "artifact state", o.state.total, o.state.fidelity, o.state.exact, "stale", o.state.stale
+        ),
+        _surface_line(
+            "hedge fidelity",
+            o.hedges.total,
+            o.hedges.fidelity,
+            o.hedges.preserved,
+            "overclaimed",
+            o.hedges.overclaimed,
+        ),
+        _surface_line(
+            "pending-work recall",
+            o.plan.pending_total,
+            o.plan.pending_recall,
+            o.plan.pending_kept,
+            "dropped",
+            o.plan.dropped_work,
+        ),
         "",
         f"silent failures, BOTH surfaces: {report.silent_failures}"
         f"  (input {report.state.stale + report.hedges.overclaimed + report.hedges.inverted + report.plan.dropped_work},"
