@@ -347,7 +347,14 @@ def format_report(report: FidelityReport) -> str:
         "",
         "OUTPUT surface — past answers digested on re-entry (the other half of the bill)",
         f"  ({o.changed_blocks} blocks changed by digestion, "
-        f"{o.at_risk_facts} facts removed from them — the graded evidence)",
+        f"{o.at_risk_facts} facts removed from them — the graded evidence)"
+        + (
+            ""
+            if o.at_risk_facts
+            else "\n  NOTE: digestion removed no artifact or plan facts, so the state and plan"
+            "\n  figures below come entirely from blocks it never touched — true, but not"
+            "\n  evidence about the transform."
+        ),
         _surface_line(
             "artifact state", o.state.total, o.state.fidelity, o.state.exact, "stale", o.state.stale
         ),

@@ -24,7 +24,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 
 
 def _cli(*args: str, home: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -37,8 +36,8 @@ def _cli(*args: str, home: str | None = None) -> subprocess.CompletedProcess[str
 
 
 class TestEveryGateRefusesToCertifyNothing:
-    def test_shadow_change_rate_with_no_samples(self) -> None:
-        out = _cli("shadow-stats", "--record", "--max-change-rate", "0.01", home=tempfile.mkdtemp())
+    def test_shadow_change_rate_with_no_samples(self, tmp_path) -> None:
+        out = _cli("shadow-stats", "--record", "--max-change-rate", "0.01", home=str(tmp_path))
         gate = next(g for g in json.loads(out.stdout)["gates"] if g["name"] == "max_change_rate")
         assert gate["passed"] is False
         assert out.returncode == 1
@@ -82,9 +81,9 @@ class TestGatesStillPassOnRealEvidence:
     def test_max_silent_fails_below_it(self) -> None:
         assert _cli("fidelity", "--max-silent", "0").returncode == 1
 
-    def test_no_gate_requested_exits_zero(self) -> None:
+    def test_no_gate_requested_exits_zero(self, tmp_path) -> None:
         assert _cli("fidelity").returncode == 0
-        assert _cli("shadow-stats", "--record", home=tempfile.mkdtemp()).returncode == 0
+        assert _cli("shadow-stats", "--record", home=str(tmp_path)).returncode == 0
 
 
 class TestTheRuleIsDocumentedWhereItIsEnforced:
@@ -134,14 +133,14 @@ class TestAskingForAGateRunsAGate:
     evidence.
     """
 
-    def test_the_threshold_alone_still_gates(self) -> None:
-        out = _cli("shadow-stats", "--max-change-rate", "0.01", home=tempfile.mkdtemp())
+    def test_the_threshold_alone_still_gates(self, tmp_path) -> None:
+        out = _cli("shadow-stats", "--max-change-rate", "0.01", home=str(tmp_path))
         assert out.returncode == 1, "a requested gate must run"
         gate = next(g for g in json.loads(out.stdout)["gates"] if g["name"] == "max_change_rate")
         assert gate["passed"] is False and "INCONCLUSIVE" in gate["rationale"]
 
-    def test_no_threshold_still_exits_zero(self) -> None:
-        assert _cli("shadow-stats", home=tempfile.mkdtemp()).returncode == 0
+    def test_no_threshold_still_exits_zero(self, tmp_path) -> None:
+        assert _cli("shadow-stats", home=str(tmp_path)).returncode == 0
 
 
 class TestTheOutputSurfaceIsActuallyExercised:

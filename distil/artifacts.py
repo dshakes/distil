@@ -249,6 +249,7 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
     if not scan:
         return [(path, op) for _, path, op in found]
     found.sort(key=lambda f: f[0])
+    spans = _call_spans(text)
     kept: list[tuple[str, Op]] = []
     for i, (start, path, op) in enumerate(found):
         # The window runs to the next op at a STRICTLY LATER position. Two ops can
@@ -259,10 +260,67 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
         # file that was never moved. Ops asserted at the same position are asserted
         # by the same command and share its outcome.
         end = next((s for s, _, _ in found[i + 1 :] if s > start), len(text))
-        if _FAILED_RE.search(text, start, end):
+        # Evidence starts after the call that asserted the op, so its own arguments
+        # cannot condemn it. `max` keeps the window from running backwards when the
+        # next op sits inside the same call.
+        scan_from = min(max(start, _outcome_start(start, spans)), end)
+        if _FAILED_RE.search(text, scan_from, end):
             continue
         kept.append((path, op))
     return kept
+
+
+_CALL_HEAD = re.compile(r"\w+\s*\(")
+
+
+def _call_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of `Name(...)` tool calls, as (start, index-after-closing-paren).
+
+    A call's ARGUMENTS are not evidence about its outcome. Without this, a successful
+    `Write(file_path="a.py", content="No such file or directory")` was dropped from
+    the ledger, because the failure scan ran over the op's own arguments — a coding
+    agent writing an error fixture, silently unrecorded.
+
+    The live path does not need this: `_iter_tool_texts` knows the real call/result
+    boundary and marks the pair adjudicated. This is the OFFLINE path, where raw
+    transcript text is all there is.
+
+    Deliberately a PARSE, not a heuristic. Two earlier attempts recovered this
+    boundary by searching for a `->` delimiter, and both shipped bugs: the delimiter
+    is absent on success, and present in every Python type hint. Paren depth with
+    quote tracking has no such ambiguity — it either balances or it does not, and an
+    unbalanced call yields no span rather than a guess.
+    """
+    spans: list[tuple[int, int]] = []
+    for m in _CALL_HEAD.finditer(text):
+        i, depth, quote, esc = m.end(), 1, "", False
+        while i < len(text) and depth:
+            ch = text[i]
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif quote:
+                if ch == quote:
+                    quote = ""
+            elif ch in "\"'":
+                quote = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            i += 1
+        if not depth:  # balanced; an unterminated call is not a span
+            spans.append((m.start(), i))
+    return spans
+
+
+def _outcome_start(start: int, spans: list[tuple[int, int]]) -> int:
+    """Where an op's outcome evidence begins: after the call that asserted it."""
+    for s_start, s_end in spans:
+        if s_start <= start < s_end:
+            return s_end
+    return start
 
 
 def _canonical(path: str) -> str:

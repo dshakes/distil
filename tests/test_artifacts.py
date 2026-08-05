@@ -711,3 +711,60 @@ class TestOpenAIResponsesFlatItems:
             {"type": "function_call_output", "call_id": "c2", "output": '{"exit": 0}'},
         ]
         assert measure_live(original, original[:2]).stale == 1
+
+
+class TestCallArgumentsAreNotOutcomeEvidence:
+    """A call's own arguments cannot condemn it.
+
+    `Write(file_path="a.py", content="No such file or directory")` returned no op:
+    the failure scan ran over the op's own arguments, so an agent writing an error
+    fixture went unrecorded and artifact-state fidelity looked green by measuring
+    less. The live path never had this — `_iter_tool_texts` knows the real call/result
+    boundary — but `fidelityprobes.run()` scores raw transcript text, where it bit.
+
+    The boundary is PARSED (paren depth, quote-aware), not guessed. Two earlier
+    attempts searched for a `->` delimiter and both shipped bugs, so the cases below
+    pin the parse: quotes and parens inside arguments, and failures that must still
+    suppress.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'Write(file_path="a.py", content="No such file or directory")',
+            'Write(file_path="a.py", content="No such file or directory")\n-> {"ok": true}',
+            'Write(file_path="a.py", content="Permission denied")',
+            'Write(file_path="a.py", content="a ) paren and \\" quote")',
+            'Write(file_path="a.py", content="exit: 1")',
+        ],
+    )
+    def test_a_failure_phrase_in_arguments_does_not_suppress(self, text: str) -> None:
+        assert ("a.py", Op.CREATE) in extract_ops(text), f"{text!r} was wrongly suppressed"
+
+    def test_an_op_nested_in_a_call_ignores_its_sibling_argument(self) -> None:
+        t = 'Bash(command="rm x.py", note="No such file or directory")'
+        assert ("x.py", Op.DELETE) in extract_ops(t)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'Write(file_path="b.py")\n-> {"ok": false}',
+            'Bash(command="rm missing.py")\n-> {"exit": 1}',
+            'Bash(command="rm missing.py")\n-> Permission denied',
+        ],
+    )
+    def test_a_failure_after_the_call_still_suppresses(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text!r} should assert nothing"
+
+    def test_an_unbalanced_call_is_not_treated_as_a_span(self) -> None:
+        """Malformed text must degrade to the old behaviour, never crash or over-reach."""
+        from distil.artifacts import _call_spans
+
+        assert _call_spans('Write(file_path="a.py"') == []
+
+    def test_call_spans_are_quote_aware(self) -> None:
+        from distil.artifacts import _call_spans
+
+        text = 'Write(content=") not the end")X'
+        spans = _call_spans(text)
+        assert len(spans) == 1 and text[spans[0][1] :] == "X"

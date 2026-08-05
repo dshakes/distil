@@ -261,10 +261,13 @@
           <div class="hero-sub">
             Summed from <b id="hero-machines">&mdash;</b> that opted in and have actually reported
             savings, calibration-corrected, never estimated. It's an
-            <b>exact cumulative</b>, summed fresh on every read — the digits move only when a real
+            <b>exact cumulative</b> (exact meaning <i>never projected forward</i> — the
+            underlying token counts are calibrated against each install's billed usage
+            and carry that calibration's error bar), summed fresh on every read — the digits move only when a real
             heartbeat or census (content-free, every ~5&nbsp;min) reports genuinely more saved, and
             <b>sit static while everyone idles</b>. No per-day projection, no invented growth. Worth
             <b id="hero-notional">&mdash;</b> at metered API rates.
+            <div id="hero-pace" class="hero-caveat" hidden></div>
             <div id="hero-sample" class="hero-caveat" hidden></div>
           </div>
         </div>
@@ -290,7 +293,7 @@
     <div class="astats">
       <div class="astat pu"><div class="n" id="t-active">–</div><div class="l">Active installs &middot; 30d</div><div class="foot"><b id="t-contributing">–</b> reporting savings &middot; <span id="t-active-foot">opt-in census &middot; one per machine</span></div></div>
       <div class="astat hl"><div class="n" id="t-dollars-real">–</div><div class="l">Real $ saved &middot; metered</div><div class="foot">plus <b id="t-notional">–</b> notional API-rate value from flat-rate subscriptions</div></div>
-      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered <b>download events</b> (incl. CI &amp; upgrades) — not unique users; the census tile is the provable-users number</div></div>
+      <div class="astat"><div class="n" id="t-real">–</div><div class="l">PyPI installs / month</div><div class="foot">bot-filtered <b>download events</b> (incl. CI &amp; upgrades) — not unique users; the census tile is the provable-users number. Filtering is a heuristic (no OS reported = bot), so this is a <b>lower bound</b> on real clients</div></div>
       <div class="astat"><div class="n" id="t-shapes">–</div><div class="l">API shapes seen</div><div class="foot">distinct SDK wire formats across the fleet — Anthropic / OpenAI / Gemini</div></div>
     </div>
 
@@ -594,6 +597,27 @@
       set("rate-day", "community total · " + ago(ageSec) + " · no rate projection");
     }
     set("hero-notional", "$" + commas(s.dollars_notional || 0) + " (notional)");
+    // A cumulative says what was saved once, not what is being saved now, and a
+    // reader takes a big total as a live rate unless told otherwise. `rate_per_sec`
+    // is MEASURED between the last two reports (not a lifetime average and not a
+    // projection), so it can answer "and today?" honestly. It is never added to the
+    // total.
+    (function () {
+      var el = document.getElementById("hero-pace");
+      if (!el) return;
+      var perSec = Number(s.rate_per_sec || 0);
+      var perDay = perSec * 86400;
+      if (!(perDay > 0)) {
+        el.innerHTML = "Currently saving <b>nothing measurable</b> — the total above is "
+          + "cumulative, not a live rate.";
+      } else {
+        el.innerHTML = "Currently saving <b>" + human(Math.round(perDay)) + " tokens/day</b> "
+          + "across reporting installs — measured between the last two reports, never "
+          + "projected and never added to the total above. A cumulative is history, not a "
+          + "current rate.";
+      }
+      el.hidden = false;
+    })();
     sparkline(s.history);
 
     // trust ring

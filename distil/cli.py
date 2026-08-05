@@ -290,6 +290,29 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             f"{round(s.total_distil_tokens * _f):,}  (−{trimmed * 100:.1f}%)"
         )
     print(f"total tokens saved:   {round(s.total_tokens_saved * _f):,}")
+    # A lifetime figure is history, and it gets read as current performance. On this
+    # ledger the two differ by two orders of magnitude: a subscription session runs
+    # lossless-only by default (no lossy digest without a recovery tool), so the
+    # compression a reader infers from the lifetime line is not the one they are
+    # getting. Print the recent window whenever it disagrees, and name the reason.
+    _recent = ledger.summary(since=time.time() - 7 * 86400)
+    if _recent.runs and _recent.total_baseline_tokens:
+        _recent_trim = 1 - _recent.total_distil_tokens / _recent.total_baseline_tokens
+        if s.total_baseline_tokens:
+            _life_trim = 1 - s.total_distil_tokens / s.total_baseline_tokens
+            if abs(_life_trim - _recent_trim) > 0.05:
+                print(
+                    f"  last 7 days:        −{_recent_trim * 100:.1f}% over {_recent.runs:,} runs "
+                    f"(lifetime −{_life_trim * 100:.1f}% — the lifetime figure is history, "
+                    "not your current rate)"
+                )
+                if _recent_trim < 0.05:
+                    print(
+                        "  ↳ near-zero compression usually means lossless-only/verbatim: a "
+                        "subscription\n    session defaults there so no digest is left "
+                        "unrecoverable. `--expand` restores the\n    recoverable Tier-1 digest "
+                        "(injects distil_expand, so nothing is irreversibly lost)."
+                    )
     if s.legacy_records:
         print(
             f"  ⚠ includes {s.legacy_records:,} record(s) from pre-1.10 accounting — "
@@ -2729,9 +2752,15 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
     limit = args.max_silent
     if limit is not None and rep.silent_failures > limit:
         print(
+            # Every component of the total, or the diagnostic contradicts the number
+            # above it: an inverted bound or an output-surface regression printed a
+            # nonzero total beside all-zero parts, and whoever had to debug that was
+            # given a gate that would not say what tripped it.
             f"\nFAIL: {rep.silent_failures} silent failures > --max-silent {limit}"
-            f"  (stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
-            f" dropped-work={rep.plan.dropped_work})",
+            f"\n  input : stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
+            f" inverted={rep.hedges.inverted} dropped-work={rep.plan.dropped_work}"
+            f"\n  output: {rep.output.silent_failures}"
+            + ("" if rep.output.scored else "  (surface not scored)"),
             file=out,
         )
         return 1
