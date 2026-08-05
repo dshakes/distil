@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from . import artifacts, continuation, overclaim, propagation
-from .compress.tier1 import Tier1Reversible
+from .compress import strategies
 
 
 @dataclass
@@ -74,14 +74,38 @@ def _decisions(blocks: Iterable[str]) -> set[str]:
     return out
 
 
+def _serving_surface(blocks: list[Any], turn: int) -> list[Any]:
+    """Compress the way distil actually serves.
+
+    `strategies.distil` leaves every non-VOLATILE block untouched and runs Tier-1/0
+    on the volatile tail only. Calling `Tier1Reversible()` over the whole turn — as
+    the first version of this runner did — grades a surface no user is ever served:
+    it can fail on stable-prefix behaviour that never happens in production, or pass
+    on volatile-tail behaviour it never actually exercised.
+
+    A gate is only worth having if it grades the thing that ships.
+    """
+    return strategies.distil(blocks, turn)
+
+
 def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
-    """Score every turn of every trajectory, with real compression in the loop."""
-    comp = compressor or Tier1Reversible()
+    """Score every turn of every trajectory, with real compression in the loop.
+
+    `compressor` accepts a `compress(blocks) -> CompressResult` object for tests that
+    need a specific failure mode. Default is the SERVING strategy, not a bare tier.
+    """
     report = FidelityReport()
-    signals: list[propagation.TurnSignal] = []
+    # Propagation is analysed PER TRAJECTORY and aggregated. Accumulating every
+    # trajectory into one sequence let a fidelity drop in the last turn of one
+    # trajectory be scored as causing a decision change in the first turn of the
+    # next — a lag across a boundary no causal path crosses. Cross-audit reproduced
+    # a corpus of independent one-turn trajectories reporting `propagates=True`
+    # purely from those seams.
+    per_traj: list[list[propagation.TurnSignal]] = []
 
     for entry in entries:
         report.trajectories += 1
+        signals: list[propagation.TurnSignal] = []
         # Artifact state and plan state are CROSS-TURN properties: a file created at
         # turn 2 and deleted at turn 4 only has a final state when both turns are in
         # scope. Scoring turn-by-turn would report the lost delete as a missing path
@@ -102,7 +126,11 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
             # 100% fidelity. There is deliberately no try/except here now: a
             # compressor that cannot run must fail the gate loudly, because a probe
             # that silently grades a no-op is worse than no probe at all.
-            compressed = [b.text for b in comp.compress(list(turn.blocks)).blocks]
+            if compressor is None:
+                out_blocks = _serving_surface(list(turn.blocks), turn.index)
+            else:
+                out_blocks = compressor.compress(list(turn.blocks)).blocks
+            compressed = [b.text for b in out_blocks]
 
             hd = overclaim.OverclaimProbe()
             for original, small in zip(originals, compressed):
@@ -136,8 +164,9 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
 
         report.state.add(artifacts.score(traj_original, traj_compressed))
         report.plan.add(continuation.score(traj_original, traj_compressed))
+        per_traj.append(signals)
 
-    report.prop = propagation.analyse(signals)
+    report.prop = propagation.analyse_many(per_traj)
     return report
 
 

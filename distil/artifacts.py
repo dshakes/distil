@@ -287,10 +287,14 @@ def format_probe(probe: StateProbe) -> str:
 def _iter_tool_texts(messages: Any) -> list[str]:
     """Tool calls AND results from a provider payload, oldest first.
 
-    Both halves matter: the call says what was attempted, the result says whether it
-    happened. Reading only results misses a delete whose output was empty.
+    Both halves matter, and they must be JOINED: the call says what was attempted,
+    the result says whether it happened. Reading only results misses a delete whose
+    output was empty; reading them as independent strings records every failed
+    attempt as a completed state change.
     """
     out: list[str] = []
+    calls: dict[str, str] = {}
+    results: dict[str, str] = {}
     for msg in messages or []:
         if not isinstance(msg, dict):
             continue
@@ -312,11 +316,28 @@ def _iter_tool_texts(messages: Any) -> list[str]:
                     rendered = ", ".join(
                         f'{k}="{v}"' for k, v in args.items() if isinstance(v, (str, int))
                     )
-                    out.append(f"{name}({rendered})")
-            elif btype in ("tool_result", "text"):
-                out.append(
-                    _flatten(block.get("content") if btype == "tool_result" else block.get("text"))
-                )
+                    # Keyed by tool_use_id so the RESULT can be joined to this CALL
+                    # below. Emitting them as two independent strings meant the
+                    # failure check never saw them together: a failed
+                    # `Write(file_path="a.py")` whose "Permission denied" arrived in a
+                    # separate tool_result block was still recorded as a successful
+                    # create, which is the "ledger of attempts" bug all over again in
+                    # the live path.
+                    calls[str(block.get("id", ""))] = f"{name}({rendered})"
+            elif btype == "tool_result":
+                results[str(block.get("tool_use_id", ""))] = _flatten(block.get("content"))
+            elif btype == "text":
+                out.append(_flatten(block.get("text")))
+
+    for call_id, call_text in calls.items():
+        # Call and its outcome as ONE unit, so `extract_ops` can reject the pair when
+        # the outcome says it failed. An unmatched call is emitted alone — the same
+        # optimistic reading as before, but now only when there is genuinely no
+        # result to consult.
+        result = results.pop(call_id, "")
+        out.append(f"{call_text}\n-> {result}" if result else call_text)
+    # Results whose call we never saw still describe state ("deleted old/x.json").
+    out.extend(results.values())
     return [t for t in out if t]
 
 

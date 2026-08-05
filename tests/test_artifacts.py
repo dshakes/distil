@@ -202,3 +202,68 @@ class TestAuditFindings:
         assert extract_ops("added a thing and deleted another") == []
         # ...while a genuinely capitalised name still matches under the same flag
         assert ("README", Op.DELETE) in extract_ops("DELETED README")
+
+
+class TestLivePairing:
+    """Second-round audit finding: a call and its result must be joined.
+
+    Rendering `tool_use` and `tool_result` as independent strings meant the failure
+    check never saw them together, so a provider-shaped failed Write was recorded as
+    a successful create — the "ledger of attempts" bug, in the live path.
+    """
+
+    def _msgs(self, outcome: str) -> list[dict]:
+        return [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Write",
+                        "input": {"file_path": "a.py"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": outcome}],
+            },
+        ]
+
+    def test_failed_call_records_nothing(self) -> None:
+        assert (
+            measure_live(self._msgs("Permission denied"), self._msgs("Permission denied")).total
+            == 0
+        )
+
+    def test_nonzero_exit_in_a_separate_result_block(self) -> None:
+        msgs = self._msgs('{"stdout": "", "exit": 1}')
+        assert measure_live(msgs, msgs).total == 0
+
+    def test_successful_call_still_records(self) -> None:
+        msgs = self._msgs('{"ok": true}')
+        assert measure_live(msgs, msgs).total == 1
+
+    def test_unmatched_call_is_still_read(self) -> None:
+        """No result to consult — read the call optimistically rather than lose it."""
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "x", "name": "Write", "input": {"file_path": "b.py"}}
+                ],
+            }
+        ]
+        assert measure_live(msgs, msgs).total == 1
+
+    def test_orphan_result_is_still_read(self) -> None:
+        msgs = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "z", "content": "deleted old/x.json"}
+                ],
+            }
+        ]
+        assert measure_live(msgs, msgs).total == 1

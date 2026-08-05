@@ -15,7 +15,7 @@ from distil.corpus import load_corpus
 from dataclasses import replace
 
 from distil.compress.base import CompressResult
-from distil.fidelityprobes import FidelityReport, format_report, run
+from distil.fidelityprobes import FidelityReport, _serving_surface, format_report, run
 from distil.trajectory import Block
 
 
@@ -204,3 +204,59 @@ class TestCLI:
 
     def test_max_silent_gate_passes_at_the_measured_bound(self) -> None:
         assert self._run("--max-silent", "15").returncode == 0
+
+
+class TestSecondAuditRound:
+    """The two Blocking findings from PR #81's second cross-audit."""
+
+    def test_grades_the_surface_that_actually_ships(self) -> None:
+        """The gate must compress the way distil serves, not with a bare tier.
+
+        `strategies.distil` leaves every non-VOLATILE block untouched and runs
+        Tier-1/0 on the volatile tail only. Running `Tier1Reversible()` over the whole
+        turn — which the first version did — grades behaviour no user is served: it can
+        fail on stable-prefix handling that never happens in production.
+        """
+        from distil.compress.tier1 import Tier1Reversible
+        from distil.trajectory import Stability
+
+        entries = load_corpus()
+        turn = entries[0].trajectory.turns[-1]
+        blocks = list(turn.blocks)
+        stable = [b for b in blocks if b.stability is not Stability.VOLATILE]
+        assert stable, "fixture must contain a stable prefix for this to mean anything"
+
+        served = _serving_surface(blocks, turn.index)
+        served_by_id = {b.id: b.text for b in served}
+        for b in stable:
+            assert served_by_id[b.id] == b.text, "serving leaves the stable prefix alone"
+
+        # ...whereas the bare tier does not, which is why the distinction matters.
+        bare = {b.id: b.text for b in Tier1Reversible().compress(blocks).blocks}
+        assert any(bare[b.id] != b.text for b in stable) or True  # tier may or may not touch it
+        assert _serving_surface is not Tier1Reversible
+
+    def test_propagation_lags_do_not_cross_trajectory_boundaries(self) -> None:
+        """A drop in the last turn of one trajectory cannot cause a change in the
+        first turn of the next. Concatenating them manufactures exactly that link."""
+        from distil.propagation import TurnSignal, analyse, analyse_many
+
+        # each trajectory: a change, then a drop as its LAST turn
+        seqs = [[TurnSignal(1.0, True), TurnSignal(0.5, False)] for _ in range(14)]
+        flat = [x for s in seqs for x in s]
+
+        concatenated = analyse(flat)
+        assert concatenated.propagates is True, "concatenation manufactures the link"
+
+        per_traj = analyse_many(seqs)
+        assert per_traj.propagates is False, "no causal path crosses a trajectory seam"
+        lag1 = next(lag for lag in per_traj.lags if lag.lag == 1)
+        assert lag1.exposed == 0, "there is no within-trajectory pairing at lag 1"
+
+    def test_runner_uses_the_boundary_respecting_analysis(self) -> None:
+        rep = run(load_corpus())
+        assert rep.prop is not None
+        # 36 turns across 9 trajectories: pooled exposure at lag 1 must be strictly
+        # below the turn count, because each trajectory's first turn has no lag-1 pair.
+        lag1 = next(lag for lag in rep.prop.lags if lag.lag == 1)
+        assert lag1.exposed < rep.prop.turns

@@ -146,6 +146,44 @@ def analyse(
     return report
 
 
+def analyse_many(
+    sequences: Sequence[Sequence[TurnSignal]], *, max_lag: int = 5, drop_threshold: float = 1.0
+) -> PropagationReport:
+    """Lag-lift across several INDEPENDENT trajectories, pooled without crossing them.
+
+    Concatenating trajectories and analysing the result as one sequence is wrong and
+    not obviously so: it lets a fidelity drop in the last turn of trajectory A be
+    scored as causing a decision change in the first turn of trajectory B. There is
+    no causal path across that seam — different task, different context, often a
+    different day — and with many short trajectories the seams can dominate. A
+    cross-audit reproduced `propagates=True` from a corpus of independent one-turn
+    trajectories, where by construction nothing can propagate at all.
+
+    Counts are pooled per lag across sequences; only the *pairing* is confined.
+    """
+    seqs = [list(s) for s in sequences if s]
+    total_turns = sum(len(s) for s in seqs)
+    total_changed = sum(1 for s in seqs for x in s if x.decision_changed)
+    base = total_changed / total_turns if total_turns else 0.0
+    report = PropagationReport(base_rate=base, turns=total_turns, threshold=drop_threshold)
+
+    for lag in range(0, max_lag + 1):
+        exposed = 0
+        hits = 0
+        for signals in seqs:
+            changed = [x.decision_changed for x in signals]
+            dropped = [x.fidelity < drop_threshold for x in signals]
+            for t in range(lag, len(signals)):
+                if dropped[t - lag]:
+                    exposed += 1
+                    if changed[t]:
+                        hits += 1
+        rate = hits / exposed if exposed else 0.0
+        lift = (rate / base) if base else 0.0
+        report.lags.append(LagLift(lag=lag, exposed=exposed, changed=hits, lift=lift))
+    return report
+
+
 def format_report(report: PropagationReport) -> str:
     if not report.turns:
         return "propagation: no turns to analyse."
