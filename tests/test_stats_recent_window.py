@@ -94,3 +94,48 @@ class TestRecentWindowIsShownWhenItDisagrees:
         out = _stats(tmp_path)
         assert "last 7 days" not in out
         assert "runs recorded" in out, "stats must still render"
+
+
+class TestOutputSurvivesALegacyConsole:
+    """`distil stats` crashed on a Windows console instead of degrading.
+
+    The savings line contains `→`, and `errors="strict"` on a cp1252 stream turns
+    that into a UnicodeEncodeError mid-render: exit 1, a traceback, and output cut
+    off after `runs recorded`. It only triggered once a ledger had baseline tokens,
+    and no test had ever written one — so the line never executed off UTF-8 and CI
+    was green on Windows for the whole life of the bug.
+
+    A reporting tool must never fail on the report.
+    """
+
+    def _run(self, home, encoding: str) -> subprocess.CompletedProcess[str]:
+        now = time.time()
+        _write_ledger(
+            home,
+            [(now - 40 * 86400, 1_000_000, 400_000)] * 20
+            + [(now - 2 * 86400, 1_000_000, 996_000)] * 20,
+        )
+        env = dict(os.environ, DISTIL_HOME=str(home), PYTHONIOENCODING=encoding)
+        return subprocess.run(
+            [sys.executable, "-m", "distil.cli", "stats"],
+            capture_output=True,
+            text=True,
+            env=env,
+            errors="replace",
+        )
+
+    def test_cp1252_console_renders_the_whole_report(self, tmp_path) -> None:
+        r = self._run(tmp_path, "cp1252")
+        assert r.returncode == 0, f"stats crashed on a legacy console:\n{r.stderr[-600:]}"
+        assert "total tokens saved" in r.stdout, "render stopped early"
+        assert "last 7 days" in r.stdout
+
+    def test_pure_ascii_console_renders_the_whole_report(self, tmp_path) -> None:
+        r = self._run(tmp_path, "ascii")
+        assert r.returncode == 0, f"stats crashed on an ascii console:\n{r.stderr[-600:]}"
+        assert "total tokens saved" in r.stdout
+
+    def test_utf8_is_unaffected(self, tmp_path) -> None:
+        r = self._run(tmp_path, "utf-8")
+        assert r.returncode == 0
+        assert "→" in r.stdout, "utf-8 must still get the real glyphs"

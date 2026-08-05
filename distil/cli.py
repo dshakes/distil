@@ -3764,6 +3764,31 @@ def main(argv: list[str] | None = None) -> int:
     except (ImportError, AttributeError, ValueError):
         pass
 
+    # A legacy console (Windows cp1252) cannot encode the glyphs this CLI prints —
+    # `→` in the savings line, `−`, `↳`, `⚠`, `≈` elsewhere — and the default
+    # `errors="strict"` turns that into a UnicodeEncodeError mid-render. `distil
+    # stats` did not degrade on such a console, it CRASHED with a traceback, and only
+    # once a ledger had baseline tokens: no test had ever written one, so the line
+    # never executed off UTF-8.
+    #
+    # `errors="replace"` keeps the console's own encoding (forcing UTF-8 onto cp1252
+    # trades a crash for mojibake) and costs at most a `?` for a handful of
+    # decorative characters. A reporting tool must never fail on the report.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            if (
+                _stream
+                and _stream.encoding
+                and _stream.encoding.lower()
+                not in (
+                    "utf-8",
+                    "utf8",
+                )
+            ):
+                _stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+        except Exception:
+            pass  # a wrapped/non-reconfigurable stream is not worth failing over
+
     args = build_parser().parse_args(argv)
     try:
         rc = args.func(args)
