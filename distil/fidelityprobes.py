@@ -36,13 +36,25 @@ class SurfaceProbe:
     state: artifacts.StateProbe = field(default_factory=artifacts.StateProbe)
     hedges: overclaim.OverclaimProbe = field(default_factory=overclaim.OverclaimProbe)
     plan: continuation.ContinuationProbe = field(default_factory=continuation.ContinuationProbe)
+    # False when this surface was never scored. An unscored surface previously
+    # reported 100% on every probe and contributed 0 silent failures — a green
+    # nobody earned, and indistinguishable from a clean result. `scored` makes the
+    # difference explicit in the payload rather than leaving it to be inferred.
+    scored: bool = True
 
     @property
     def silent_failures(self) -> int:
         return self.state.stale + self.hedges.overclaimed + self.plan.dropped_work
 
     def to_dict(self) -> dict[str, Any]:
+        if not self.scored:
+            return {
+                "scored": False,
+                "reason": "a custom compressor was supplied; output digestion is the "
+                "serving path's own transform and cannot be attributed to it",
+            }
         return {
+            "scored": True,
             "artifact_state": self.state.to_dict(),
             "overclaim": self.hedges.to_dict(),
             "continuation": self.plan.to_dict(),
@@ -134,6 +146,8 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
     need a specific failure mode. Default is the SERVING strategy, not a bare tier.
     """
     report = FidelityReport()
+    if compressor is not None:
+        report.output.scored = False
     # Propagation is analysed PER TRAJECTORY and aggregated. Accumulating every
     # trajectory into one sequence let a fidelity drop in the last turn of one
     # trajectory be scored as causing a decision change in the first turn of the
@@ -238,6 +252,14 @@ def format_report(report: FidelityReport) -> str:
     if report.prop:
         lines += ["", propagation.format_report(report.prop)]
     o = report.output
+    if not o.scored:
+        lines += [
+            "",
+            "OUTPUT surface — NOT SCORED (custom compressor supplied)",
+            "",
+            f"silent failures, input surface only: {report.silent_failures}",
+        ]
+        return "\n".join(lines)
     lines += [
         "",
         "OUTPUT surface — past answers digested on re-entry (the other half of the bill)",

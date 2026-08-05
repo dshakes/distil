@@ -309,3 +309,36 @@ class TestTheShippedCommandGradesTheShippedSurface:
         )
         gate = next(g for g in d["gates"] if g["name"] == "max_silent")
         assert gate["observed"] == expected, "the gate must count both priced surfaces"
+
+
+class TestUnscoredSurfaceIsNotGreen:
+    """Fourth-round finding: an unscored surface reported 100% on every probe and
+    contributed zero silent failures — a green nobody earned, indistinguishable
+    from a clean result."""
+
+    def test_custom_compressor_marks_output_unscored(self) -> None:
+        from distil.compress.base import CompressResult
+
+        class _Noop:
+            def compress(self, blocks: list[Block]) -> CompressResult:
+                return CompressResult(blocks=blocks, restore={})
+
+        rep = run(load_corpus(), compressor=_Noop())
+        d = rep.output.to_dict()
+        assert d["scored"] is False
+        assert "artifact_state" not in d, "an unscored surface must not emit metrics"
+        assert "reason" in d
+
+    def test_default_run_does_score_it(self) -> None:
+        rep = run(load_corpus())
+        assert rep.output.scored is True
+        assert rep.output.to_dict()["artifact_state"]["total"] > 0
+
+    def test_format_says_not_scored(self) -> None:
+        from distil.compress.base import CompressResult
+
+        class _Noop:
+            def compress(self, blocks: list[Block]) -> CompressResult:
+                return CompressResult(blocks=blocks, restore={})
+
+        assert "NOT SCORED" in format_report(run(load_corpus(), compressor=_Noop()))

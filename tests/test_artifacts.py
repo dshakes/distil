@@ -330,3 +330,97 @@ class TestThirdAuditRound:
 
     def test_single_extension_still_works(self) -> None:
         assert ("src/app.py", Op.CREATE) in extract_ops("created src/app.py")
+
+
+class TestProviderShapes:
+    """Fourth-round Blocking finding.
+
+    `_iter_tool_texts` only read Anthropic `content` blocks. A purely structured
+    OpenAI turn produced no text at all, so the probe reported total=0, fidelity=1.0
+    — a perfect score on a workspace it never looked at. Silent AND green is the
+    worst failure mode this metric can have. `distil.retention` already normalises
+    OpenAI shapes; this brings the ledger into line.
+    """
+
+    def test_openai_chat_completions_tool_calls(self) -> None:
+        msgs = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "Write", "arguments": '{"file_path": "a.py"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": '{"ok": true}'},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {"name": "Bash", "arguments": '{"command": "rm a.py"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c2", "content": '{"exit": 0}'},
+        ]
+        p = measure_live(msgs, msgs[:2])  # the delete turn compressed away
+        assert p.total == 1, "OpenAI tool_calls must be visible to the ledger"
+        assert p.stale == 1, "keeping the create and dropping the delete is stale"
+
+    def test_openai_responses_function_call(self) -> None:
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "function_call",
+                        "call_id": "f1",
+                        "name": "Write",
+                        "arguments": '{"file_path": "b.py"}',
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "function_call_output", "call_id": "f1", "output": '{"ok": true}'}
+                ],
+            },
+        ]
+        assert measure_live(msgs, msgs).total == 1
+
+    def test_openai_failed_call_is_still_rejected(self) -> None:
+        msgs = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "Write", "arguments": '{"file_path": "a.py"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "Permission denied"},
+        ]
+        assert measure_live(msgs, msgs).total == 0
+
+    def test_anthropic_shape_is_unchanged(self) -> None:
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Write",
+                        "input": {"file_path": "c.py"},
+                    }
+                ],
+            }
+        ]
+        assert measure_live(msgs, msgs).total == 1

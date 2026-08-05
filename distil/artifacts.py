@@ -310,15 +310,44 @@ def _iter_tool_texts(messages: Any) -> list[str]:
         if not isinstance(msg, dict):
             continue
         content = msg.get("content")
-        if isinstance(content, str):
+        if isinstance(content, str) and content:
             out.append(content)
+        # --- OpenAI Chat Completions ------------------------------------------
+        # `assistant.tool_calls` sits BESIDE `content`, not inside it, so a purely
+        # structured OpenAI turn produced no text at all and the probe reported
+        # total=0, fidelity=1.0 — a perfect score on a workspace it never looked at.
+        # That is the worst possible failure for this metric: silent, and green.
+        # `distil.retention` already normalises OpenAI shapes; this now matches.
+        for call in msg.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            fn = call.get("function") or {}
+            name = str(fn.get("name", ""))
+            calls[str(call.get("id", ""))] = f"{name}({_args_text(fn.get('arguments'))})"
+            out.append(_CALL_SLOT + str(call.get("id", "")))
+        if msg.get("role") == "tool":
+            rid = str(msg.get("tool_call_id", ""))
+            results[rid] = content if isinstance(content, str) else _flatten(content)
+            out.append(_RESULT_SLOT + rid)
             continue
+
         if not isinstance(content, list):
             continue
         for block in content:
             if not isinstance(block, dict):
                 continue
             btype = block.get("type")
+            # --- OpenAI Responses API ------------------------------------------
+            if btype == "function_call":
+                cid = str(block.get("call_id", block.get("id", "")))
+                calls[cid] = f"{block.get('name', '')}({_args_text(block.get('arguments'))})"
+                out.append(_CALL_SLOT + cid)
+                continue
+            if btype == "function_call_output":
+                cid = str(block.get("call_id", ""))
+                results[cid] = _flatten(block.get("output"))
+                out.append(_RESULT_SLOT + cid)
+                continue
             if btype == "tool_use":
                 # the call: name plus its arguments, rendered so _PATTERNS can see it
                 name = str(block.get("name", ""))
@@ -368,6 +397,24 @@ def _iter_tool_texts(messages: Any) -> list[str]:
         else:
             resolved.append(item)
     return [t for t in resolved if t]
+
+
+def _args_text(arguments: Any) -> str:
+    """Render a tool call's arguments so `_PATTERNS` can see the paths in them.
+
+    OpenAI passes them as a JSON *string*; Anthropic as a dict. Both end up in the
+    same `k="v"` shape the extraction patterns already match.
+    """
+    if isinstance(arguments, str):
+        import json as _json
+
+        try:
+            arguments = _json.loads(arguments)
+        except Exception:
+            return arguments
+    if isinstance(arguments, dict):
+        return ", ".join(f'{k}="{v}"' for k, v in arguments.items() if isinstance(v, (str, int)))
+    return ""
 
 
 def _flatten(node: Any) -> str:
