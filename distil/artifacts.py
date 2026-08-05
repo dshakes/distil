@@ -83,6 +83,14 @@ _DOTFILE = r"(?:[\w.-]+/)*\.[A-Za-z][\w.-]{1,20}"
 # the enclosing pattern is compiled.
 _BARE_CAP = r"(?:[\w.-]+/)*(?-i:[A-Z][A-Za-z]{2,19})"
 _PATH = rf"(?:(?:~|\.{{1,2}})?/)?(?:{_WITH_EXT}|{_DOTFILE}|{_BARE_CAP})"
+# `_PATH` without the bare-capitalised-word form, for contexts where the surrounding
+# syntax is too weak to tell a path from an ordinary word. `>` is the case that forced
+# this: it is a shell redirect, but it is also the comparison operator, and prose is
+# full of `Rate > Burst`. Allowing `_BARE_CAP` after it put 19 phantom artifacts
+# ("Accept", "Error", "The") into a 7-artifact corpus — every one of them scored as a
+# perfectly preserved file, which is the silent-and-green failure this module exists to
+# detect. A redirect target is a real filename; `Makefile > x` is not a thing.
+_PATH_FILE = rf"(?:(?:~|\.{{1,2}})?/)?(?:{_WITH_EXT}|{_DOTFILE})"
 
 # Markers that a tool call did NOT do what it said. Without these the ledger records
 # ATTEMPTS rather than state: `rm missing.py` followed by `exit: 1` was scored as a
@@ -127,13 +135,28 @@ _PATTERNS: tuple[tuple[re.Pattern[str], Op], ...] = (
     (re.compile(rf"^\*\*\*\s*Add File:\s*(?P<p>{_PATH})", re.M | re.I), Op.CREATE),
     (re.compile(rf"^\*\*\*\s*Delete File:\s*(?P<p>{_PATH})", re.M | re.I), Op.DELETE),
     (re.compile(rf"^\*\*\*\s*Update File:\s*(?P<p>{_PATH})", re.M | re.I), Op.MODIFY),
-    # In-place edit and shell redirects. `>` must not be preceded by `-`, or the `->`
-    # of a Python type hint in written source reads as a redirect into its return type
-    # (`-> Dict` would register a create of "Dict"). Requiring whitespace before the
-    # operator excludes both `->` and `2>&1`.
+    # In-place edit and shell redirects. `>` is the hardest character in this file: it
+    # is a redirect, the comparison operator, a markdown quote marker, an HTML tag
+    # close, and a CSS child combinator, and agent transcripts contain all five. Each
+    # guard here bought back a phantom artifact measured on the real corpus:
+    #
+    #   `[^\s>-]`   a redirect has a command before it on the line; a blockquote does
+    #               not (`> Some note` created a file named "Some"). Excluding `-`
+    #               keeps a type hint's `->` from redirecting into its return type;
+    #               excluding `>` keeps `>>` out of the single-redirect rule.
+    #   `\s+`       CSS `>.c-0` and HTML `>Rate limits` have no space after the
+    #               operator; shell redirects conventionally do.
+    #   `_PATH_FILE` a redirect target is a filename, not a bare word — this alone
+    #               removed 18 phantoms ("Accept", "Error", "The") from prose
+    #               comparisons like `Rate > Burst`.
+    #
+    # Together these are clean on the corpus. The deliberate cost is `cmd >out.txt`
+    # with no space, which goes unrecorded: a missed operation is a visible gap, and a
+    # phantom one is a silent wrong state. This module exists because those are not
+    # the same failure.
     (re.compile(rf"\bsed\s+-i\S*\s+(?:'[^']*'\s+|\"[^\"]*\"\s+)?(?P<p>{_PATH})"), Op.MODIFY),
-    (re.compile(rf"(?:^|\s)>>\s*(?P<p>{_PATH})", re.M), Op.MODIFY),
-    (re.compile(rf"(?:^|\s)>(?!>)\s*(?P<p>{_PATH})", re.M), Op.CREATE),
+    (re.compile(rf"[^\s>-]\s*>>\s+(?P<p>{_PATH_FILE})", re.M), Op.MODIFY),
+    (re.compile(rf"[^\s>-]\s*>(?!>)\s+(?P<p>{_PATH_FILE})", re.M), Op.CREATE),
 )
 
 # Verbs that name TWO paths and assign each a different op. These cannot live in

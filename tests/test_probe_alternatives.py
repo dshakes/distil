@@ -139,10 +139,53 @@ class TestArtifactVerbs:
         assert ("src/a.py", src_op) in ops, f"{text!r} lost the source op"
         assert ("src/b.py", dst_op) in ops, f"{text!r} lost the destination op"
 
-    def test_a_type_hint_is_not_a_shell_redirect(self) -> None:
-        """`>` after `-` is the tail of `->`, not a redirect. Without the guard,
-        `-> Dict` registered a create of a file named "Dict"."""
-        assert extract_ops("def f() -> Dict:") == []
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "def f() -> Dict:",  # a type hint is not a redirect into its return type
+            "> Some note in a markdown quote",  # a blockquote has no command before it
+            "  > Indented quote about Dockerfile",
+            ">> Nested quote text",
+            "curl https://x 2>&1",  # stderr redirect names no path
+            "if Rate > Burst:",  # the comparison operator, not a redirect
+            "Accept > 100 requests",
+            "<style>.row>.c-0{gap:0}</style>",  # CSS child combinator
+            "<title>Rate limits</title>",  # HTML tag close
+        ],
+    )
+    def test_redirect_lookalikes_create_no_artifact(self, text: str) -> None:
+        """`>` is a redirect, a comparison, a quote marker, a tag close and a CSS
+        combinator, and agent transcripts contain all five.
+
+        Every case here was measured producing a phantom artifact on the real corpus:
+        adding the redirect verbs took a 7-artifact corpus to 26, inventing files
+        named "Accept", "Error", "The" and ".c-0" — each then scored as perfectly
+        preserved. A probe that reports fidelity on files no agent ever touched is
+        exactly the silent-and-green failure this module exists to detect.
+        """
+        assert extract_ops(text) == [], f"{text!r} invented an artifact"
+
+    def test_the_corpus_yields_only_its_real_artifacts(self) -> None:
+        """The measurement that caught the phantoms, kept as the guard.
+
+        Per-pattern unit tests all passed while the corpus ledger was wrong, because
+        the phantoms came from text no unit test contained. This asserts the whole
+        pipeline against the whole corpus.
+        """
+        from distil.artifacts import build_ledger
+        from distil.corpus import load_corpus
+
+        texts = [b.text for e in load_corpus() for t in e.trajectory.turns for b in t.blocks]
+        paths = set(build_ledger(texts).state)
+        assert paths == {
+            "myapp/pagination.py",
+            "net/client.py",
+            "net/legacy_retry.py",
+            "net/retry.py",
+            "net/scratch_bench.py",
+            "pagination.py",
+            "tests/test_retry.py",
+        }, f"ledger drifted from the corpus's real artifacts: {sorted(paths)}"
 
     @pytest.mark.parametrize(
         "path",
