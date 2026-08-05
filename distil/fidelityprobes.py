@@ -48,6 +48,13 @@ class SurfaceProbe:
     # changed nothing is comparing text to itself, and every probe on it returns
     # 100% by construction — see `scored`.
     changed_blocks: int = 0
+    # Facts (artifact ops, obligations) that the transform actually removed from a
+    # block. Cross-turn probes are scored over the whole served context, so a high
+    # score can otherwise come entirely from blocks the transform never touched.
+    # This is the honest denominator for "did the transform put anything at risk",
+    # and it answers that WITHOUT shrinking the ledger — shrinking it flips the
+    # dangerous stale case into the harmless lost one and lets the gate pass.
+    at_risk_facts: int = 0
 
     @property
     def silent_failures(self) -> int:
@@ -64,6 +71,7 @@ class SurfaceProbe:
         return {
             "scored": True,
             "changed_blocks": self.changed_blocks,
+            "at_risk_facts": self.at_risk_facts,
             "artifact_state": self.state.to_dict(),
             "overclaim": self.hedges.to_dict(),
             "continuation": self.plan.to_dict(),
@@ -244,24 +252,39 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
                 digested, _restore = digest_output_blocks(blocks)
                 out_orig.extend(b.text for b in blocks)
                 out_small.extend(b.text for b in digested)
-            # EVERY probe on this surface sees only the blocks the digest changed.
-            # Feeding untouched blocks to state and plan looked safe — they fold
-            # across turns, so more context reads as more correctness — but identical
-            # evidence on both sides can only MASK a difference, never reveal one: an
-            # untouched block carrying the same artifact re-asserts its state in both
-            # ledgers, so a fact lost from a digested block folds back to matching.
-            # In the limit the surface reported perfect fidelity from evidence the
-            # transform had never touched. Restricting to changed blocks preserves
-            # cross-turn folding AMONG them, which is the surface actually being
-            # graded, and is strictly more sensitive.
             changed = [(o, c) for o, c in zip(out_orig, out_small) if o != c]
             report.output.changed_blocks += len(changed)
-            report.output.state.add(
-                artifacts.score([o for o, _ in changed], [c for _, c in changed])
+            # Cross-turn folds are scored over the FULL served context, because that
+            # is what the model is handed: unchanged blocks stay in the prompt and
+            # keep asserting state.
+            #
+            # Scoring only the changed blocks — which is where this landed for one
+            # commit — makes the probe blind to the failure it exists for. Take an
+            # untouched block saying `created a.py` and a digested one whose elided
+            # middle said `deleted a.py`. The served context now asserts the create
+            # and not the delete, so the agent believes a live file exists: STALE,
+            # silent, the dangerous case. Dropping the untouched block hides the
+            # create, and the same input scores LOST — loud, harmless, and worth
+            # zero silent failures, so `--max-silent` passes a silent regression.
+            #
+            #   full context  -> total=1 stale=1 lost=0  silent share 1.00
+            #   changed only  -> total=1 stale=0 lost=1  silent share 0.00
+            #
+            # The concern that motivated the narrower version is real too — a surface
+            # can otherwise report 100% from evidence the transform never touched —
+            # but the answer to it is a denominator, not a smaller ledger. See
+            # `at_risk_facts`. Overclaim is per-block and stays restricted to changed
+            # blocks: identical pairs there are padding, not context.
+            report.output.at_risk_facts += sum(
+                len(set(artifacts.extract_ops(o)) - set(artifacts.extract_ops(c)))
+                + len(
+                    set(continuation.extract_obligations(o))
+                    - set(continuation.extract_obligations(c))
+                )
+                for o, c in changed
             )
-            report.output.plan.add(
-                continuation.score([o for o, _ in changed], [c for _, c in changed])
-            )
+            report.output.state.add(artifacts.score(out_orig, out_small))
+            report.output.plan.add(continuation.score(out_orig, out_small))
             for o, c in changed:
                 report.output.hedges.add(overclaim.score(o, c))
 
@@ -323,7 +346,8 @@ def format_report(report: FidelityReport) -> str:
     lines += [
         "",
         "OUTPUT surface — past answers digested on re-entry (the other half of the bill)",
-        f"  ({o.changed_blocks} blocks changed by digestion — the graded evidence)",
+        f"  ({o.changed_blocks} blocks changed by digestion, "
+        f"{o.at_risk_facts} facts removed from them — the graded evidence)",
         _surface_line(
             "artifact state", o.state.total, o.state.fidelity, o.state.exact, "stale", o.state.stale
         ),

@@ -342,3 +342,43 @@ class TestUnscoredSurfaceIsNotGreen:
                 return CompressResult(blocks=blocks, restore={})
 
         assert "NOT SCORED" in format_report(run(load_corpus(), compressor=_Noop()))
+
+
+class TestOutputSurfaceSeesSilentStaleness:
+    """The output gate must catch a phantom file, not relabel it as harmless loss.
+
+    Cross-turn folds are scored over the FULL served context. For one commit they
+    were scored over only the blocks digestion changed, which reads as the safer
+    choice and is the opposite: it hides the untouched block that keeps asserting
+    the create, so the same input scores LOST (loud, 0 silent failures) instead of
+    STALE (silent, gated). `--max-silent` would then pass a workspace-state
+    regression — the precise failure this module exists to catch, in the module
+    itself.
+    """
+
+    _UNCHANGED = "created a.py"
+    _ORIG = "assistant: cleanup notes\n\nDetails:\n  - deleted a.py\n  - tidied logs\n  - x\n  - y\n- [ ] next"
+    _DIGESTED = "assistant: cleanup notes\n\nDetails:\n<< +4 lines, handle=abc >>\n- [ ] next"
+
+    def test_full_context_reports_stale_and_counts_it_as_silent(self) -> None:
+        from distil import artifacts
+
+        p = artifacts.score([self._UNCHANGED, self._ORIG], [self._UNCHANGED, self._DIGESTED])
+        assert (p.stale, p.lost) == (1, 0), "the served context still asserts the create"
+        assert p.silent_failure_share == 1.0
+
+    def test_scoring_only_changed_blocks_would_have_hidden_it(self) -> None:
+        """Pinning the wrong answer so the regression cannot come back quietly."""
+        from distil import artifacts
+
+        p = artifacts.score([self._ORIG], [self._DIGESTED])
+        assert (p.stale, p.lost) == (0, 1), "narrowing the ledger relabels stale as lost"
+        assert p.silent_failure_share == 0.0, "and a relabelled failure stops being gated"
+
+    def test_at_risk_facts_is_reported_as_the_evidence(self) -> None:
+        """The denominator that answers 'did the transform put anything at risk',
+        without shrinking the ledger to get it."""
+        out = run(load_corpus()).output
+        assert out.scored is True
+        assert out.changed_blocks > 0 and out.at_risk_facts > 0
+        assert out.to_dict()["at_risk_facts"] == out.at_risk_facts

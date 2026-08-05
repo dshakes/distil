@@ -146,10 +146,10 @@ error propagation  (36 turns, base decision-change rate 0.0%)
   verdict: no decisions changed at all — nothing to propagate, and nothing tested
 
 OUTPUT surface — past answers digested on re-entry (the other half of the bill)
-  (6 blocks changed by digestion — the graded evidence)
-  artifact state          75.0%  (3/4)   stale 0
+  (6 blocks changed by digestion, 4 facts removed from them — the graded evidence)
+  artifact state         100.0%  (7/7)   stale 0
   hedge fidelity         100.0%  (6/6)   overclaimed 0
-  pending-work recall    100.0%  (1/1)   dropped 0
+  pending-work recall    100.0%  (2/2)   dropped 0
 
 silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
     <p><b>Those 9 overclaims are real, and we ship the number rather than tune it away.</b> Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact this is <em>not</em> recoverable in practice: a missing fact prompts the agent to expand, a missing hedge gives it no reason to look.</p>
