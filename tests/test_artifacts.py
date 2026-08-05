@@ -267,3 +267,66 @@ class TestLivePairing:
             }
         ]
         assert measure_live(msgs, msgs).total == 1
+
+
+class TestThirdAuditRound:
+    def test_live_texts_are_emitted_in_document_order(self) -> None:
+        """Buffering calls and appending them after text reversed the fold.
+
+        `Write(a.py)` then a later `deleted a.py` folded as delete-then-create, so the
+        final state read EXISTS when the transcript ends with it deleted.
+        """
+        from distil.artifacts import _iter_tool_texts
+
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Write",
+                        "input": {"file_path": "a.py"},
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"type": "text", "text": "deleted a.py"}]},
+        ]
+        assert _iter_tool_texts(msgs) == ['Write(file_path="a.py")', "deleted a.py"]
+        assert build_ledger(_iter_tool_texts(msgs)).state == {"a.py": Op.DELETE}
+
+    def test_ordering_fix_did_not_break_failure_pairing(self) -> None:
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Write",
+                        "input": {"file_path": "b.py"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": "Permission denied"}
+                ],
+            },
+        ]
+        assert measure_live(msgs, msgs).total == 0
+
+    def test_multi_dot_filenames_are_one_artifact(self) -> None:
+        """`c.tar.gz` extracted as `c.tar` — truncating names and potentially
+        merging two distinct files into one ledger entry."""
+        for text, want in (
+            ("created a/b/c.tar.gz", "a/b/c.tar.gz"),
+            ("created foo.bar.py", "foo.bar.py"),
+            ("created x.test.tsx", "x.test.tsx"),
+            ("created api.spec.ts", "api.spec.ts"),
+        ):
+            assert want in [p for p, _ in extract_ops(text)], f"{text} -> expected {want}"
+
+    def test_single_extension_still_works(self) -> None:
+        assert ("src/app.py", Op.CREATE) in extract_ops("created src/app.py")

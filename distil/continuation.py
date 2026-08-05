@@ -80,23 +80,42 @@ def _key(text: str) -> str:
     return " ".join(words[:_KEY_WORDS])
 
 
-def extract_obligations(text: str) -> set[Obligation]:
-    """Pending and completed work items stated anywhere in a block."""
+def extract_obligations(text: str) -> list[Obligation]:
+    """Pending and completed work items stated in a block, IN DOCUMENT ORDER.
+
+    A list, not a set. `_fold` derives final status by letting later entries win, and
+    a set has no "later" — so a single block holding
+
+        - [ ] wire the endpoint handler
+        - [x] wire the endpoint handler
+
+    folded to whichever status set iteration happened to yield last. It resolved to
+    `pending` in one checkout and would resolve to `done` in another: a metric whose
+    value depends on hash ordering. Normal checklist updates were mis-scored, and the
+    gate built on them was non-deterministic.
+    """
     if not text:
-        return set()
-    out: set[Obligation] = set()
+        return []
+    out: list[Obligation] = []
+    seen: set[Obligation] = set()
     for line in text.splitlines():
         for pattern, status in ((_DONE_RE, Status.DONE), (_PENDING_RE, Status.PENDING)):
             m = pattern.match(line)
             if m:
                 body = m.group("t").strip()
                 if len(body) >= _MIN_OBLIGATION:
-                    out.add(Obligation(_key(body), status))
+                    o = Obligation(_key(body), status)
+                    if o not in seen:
+                        seen.add(o)
+                        out.append(o)
                 break
     for m in _GOAL_RE.finditer(text):
         body = m.group("t").strip().split("\n")[0]
         if len(body) >= _MIN_OBLIGATION:
-            out.add(Obligation(_key(body), Status.PENDING))
+            o = Obligation(_key(body), Status.PENDING)
+            if o not in seen:
+                seen.add(o)
+                out.append(o)
     return out
 
 

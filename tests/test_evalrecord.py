@@ -154,3 +154,27 @@ class TestCLIEmitsTheRecord:
         gate = next(g for g in d["gates"] if g["name"] == "max_silent")
         assert gate["passed"] is False
         assert d["passed"] is False
+
+
+class TestFingerprintIsOrderSensitiveWhereItMatters:
+    """Third-round audit finding.
+
+    The artifact and continuation probes fold IN ORDER: a create-then-delete and a
+    delete-then-create are different final states. Hashing an order-blind bag of
+    blocks let two corpora with genuinely different metrics share a fingerprint —
+    the one thing the field must never do.
+    """
+
+    def test_turn_order_changes_the_fingerprint(self) -> None:
+        base = fingerprint(load_corpus())
+        e = load_corpus()
+        e[0].trajectory.turns[0], e[0].trajectory.turns[1] = (
+            e[0].trajectory.turns[1],
+            e[0].trajectory.turns[0],
+        )
+        assert fingerprint(e) != base, "reordered turns produce different metrics"
+
+    def test_trajectory_order_does_not(self) -> None:
+        """A manifest reshuffle is still not a different dataset."""
+        e = load_corpus()
+        assert fingerprint(list(reversed(e))) == fingerprint(e)

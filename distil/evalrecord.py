@@ -92,16 +92,24 @@ def fingerprint(entries: Iterable[Any]) -> str:
     fail earlier in this repo's history for a reason it was never written to detect.
     """
     h = hashlib.sha256()
-    parts: list[str] = []
+    parts: list[tuple[str, int, int, str, str]] = []
     for entry in entries:
         traj = getattr(entry, "trajectory", None)
         if traj is None:
             continue
-        for turn in traj.turns:
-            for block in turn.blocks:
-                parts.append(f"{traj.id}\x1f{block.id}\x1f{block.text}")
-    for part in sorted(parts):
-        h.update(part.encode("utf-8", "replace"))
+        for t_i, turn in enumerate(traj.turns):
+            for b_i, block in enumerate(turn.blocks):
+                # Turn and block POSITION are part of the identity. The artifact and
+                # continuation probes fold in order — a create-then-delete and a
+                # delete-then-create are different final states — so hashing an
+                # order-blind bag of blocks let two corpora with genuinely different
+                # metrics share a fingerprint, which is the one thing the field must
+                # never do. Sorting by the key (not the text) keeps the hash
+                # independent of manifest ORDERING while staying sensitive to the
+                # order that actually changes the answer.
+                parts.append((str(traj.id), t_i, b_i, str(block.id), block.text))
+    for traj_id, t_i, b_i, block_id, text in sorted(parts, key=lambda p: p[:4]):
+        h.update(f"{traj_id}\x1f{t_i}\x1f{b_i}\x1f{block_id}\x1f{text}".encode("utf-8", "replace"))
         h.update(b"\x1e")
     return f"sha256:{h.hexdigest()[:16]}"
 

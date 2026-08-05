@@ -69,7 +69,12 @@ _STRENGTH = {Op.READ: 0, Op.CREATE: 1, Op.MODIFY: 2, Op.DELETE: 3}
 #   3. a Capitalised extensionless filename   Dockerfile, Makefile, LICENSE, README
 # Shape 3 is capitalised on purpose: lowercase bare words would swallow ordinary prose
 # ("created something"), and a ledger full of English is worse than one missing a file.
-_WITH_EXT = r"(?:[\w.-]+/)*[\w-]+\.[A-Za-z][\w]{0,9}"
+# `(?:\.ext)+` — one or more extension segments, so multi-dot names are ONE artifact.
+# With a single segment, `a/b/c.tar.gz` extracted as `a/b/c.tar` and `x.test.tsx` as
+# `x.test`, which both truncates real filenames and can merge two distinct files into
+# one ledger entry. Archives and `*.test.tsx` / `*.spec.ts` are common enough that the
+# comment above already claimed this worked.
+_WITH_EXT = r"(?:[\w.-]+/)*[\w-]+(?:\.[A-Za-z][\w]{0,9})+"
 _DOTFILE = r"(?:[\w.-]+/)*\.[A-Za-z][\w.-]{1,20}"
 # `(?-i:...)` is load-bearing. Several patterns below compile with re.I, and under
 # IGNORECASE the class `[A-Z]` matches lowercase too — which turned every bare word
@@ -284,6 +289,12 @@ def format_probe(probe: StateProbe) -> str:
     return "\n".join(lines)
 
 
+# Sentinels marking where a call/result sat in the document, so the pair can be
+# joined without losing its position. Chosen to be unmatchable by any real content.
+_CALL_SLOT = "\x00call\x00"
+_RESULT_SLOT = "\x00result\x00"
+
+
 def _iter_tool_texts(messages: Any) -> list[str]:
     """Tool calls AND results from a provider payload, oldest first.
 
@@ -323,22 +334,40 @@ def _iter_tool_texts(messages: Any) -> list[str]:
                     # separate tool_result block was still recorded as a successful
                     # create, which is the "ledger of attempts" bug all over again in
                     # the live path.
+                    # Placeholder holds the CALL'S POSITION in the document; the
+                    # result is spliced in below. Buffering calls and appending them
+                    # after the text ran the ledger out of order: `Write(a.py)` then
+                    # a later `deleted a.py` folded as delete-then-create, so the
+                    # final state read EXISTS when the transcript ends with it
+                    # deleted. A ledger of final state that ignores order is not a
+                    # ledger of final state.
                     calls[str(block.get("id", ""))] = f"{name}({rendered})"
+                    out.append(_CALL_SLOT + str(block.get("id", "")))
             elif btype == "tool_result":
                 results[str(block.get("tool_use_id", ""))] = _flatten(block.get("content"))
+                out.append(_RESULT_SLOT + str(block.get("tool_use_id", "")))
             elif btype == "text":
                 out.append(_flatten(block.get("text")))
 
-    for call_id, call_text in calls.items():
-        # Call and its outcome as ONE unit, so `extract_ops` can reject the pair when
-        # the outcome says it failed. An unmatched call is emitted alone — the same
-        # optimistic reading as before, but now only when there is genuinely no
-        # result to consult.
-        result = results.pop(call_id, "")
-        out.append(f"{call_text}\n-> {result}" if result else call_text)
-    # Results whose call we never saw still describe state ("deleted old/x.json").
-    out.extend(results.values())
-    return [t for t in out if t]
+    resolved: list[str] = []
+    for item in out:
+        if item.startswith(_CALL_SLOT):
+            call_id = item[len(_CALL_SLOT) :]
+            # Call joined to its outcome so `extract_ops` can reject the pair when the
+            # outcome says it failed. Emitted at the CALL's position, which is where
+            # the operation happened.
+            result = results.get(call_id, "")
+            call_text = calls.get(call_id, "")
+            resolved.append(f"{call_text}\n-> {result}" if result else call_text)
+        elif item.startswith(_RESULT_SLOT):
+            # Already consumed at its call's position; emit only if orphaned, since an
+            # orphan result still describes state ("deleted old/x.json").
+            rid = item[len(_RESULT_SLOT) :]
+            if rid not in calls:
+                resolved.append(results.get(rid, ""))
+        else:
+            resolved.append(item)
+    return [t for t in resolved if t]
 
 
 def _flatten(node: Any) -> str:

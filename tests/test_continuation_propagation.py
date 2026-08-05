@@ -26,7 +26,7 @@ class TestObligationExtraction:
         assert any(o.status is Status.PENDING for o in obs)
 
     def test_short_items_ignored(self) -> None:
-        assert extract_obligations("TODO: x") == set()
+        assert extract_obligations("TODO: x") == []
 
     def test_reflow_does_not_change_identity(self) -> None:
         """Compression rewraps lists; that must not read as lost work."""
@@ -198,3 +198,33 @@ class TestDecisionOracle:
         assert rep.prop.base_rate == 0.0, (
             "yet no decision changed — proving the signal is independent of the probes"
         )
+
+
+class TestThirdAuditRound:
+    def test_same_block_checklist_update_is_deterministic(self) -> None:
+        """`extract_obligations` returned a set, so `_fold` had no 'later'.
+
+        A block holding both states of one item folded to whichever status hash
+        ordering happened to yield last — `pending` in one checkout, `done` in
+        another. A metric whose value depends on hash ordering is not a metric.
+        """
+        from distil.continuation import Status, _fold, extract_obligations
+
+        blk = "- [ ] wire the endpoint handler\n- [x] wire the endpoint handler"
+        assert isinstance(extract_obligations(blk), list), "must preserve document order"
+        assert _fold([blk]) == {"wire the endpoint handler": Status.DONE}
+
+    def test_reverse_order_gives_the_other_answer(self) -> None:
+        """Order must actually drive the result, not merely be preserved."""
+        from distil.continuation import Status, _fold
+
+        blk = "- [x] wire the endpoint handler\n- [ ] wire the endpoint handler"
+        assert _fold([blk]) == {"wire the endpoint handler": Status.PENDING}
+
+    def test_extraction_is_stable_across_runs(self) -> None:
+        from distil.continuation import extract_obligations
+
+        blk = "- [ ] alpha item here\n- [x] beta item here\n- [ ] gamma item here"
+        first = extract_obligations(blk)
+        for _ in range(20):
+            assert extract_obligations(blk) == first
