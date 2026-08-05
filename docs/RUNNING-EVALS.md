@@ -4,8 +4,12 @@ Every gate here is **offline and free** unless the section says otherwise. No AP
 key, no network, seconds to run. That is deliberate: a gate you skip because it
 costs money is not a gate.
 
-For *why* these are the metrics — and why compression ratio alone is meaningless —
-see [EVALUATION.md](EVALUATION.md). This file is how to run them.
+**This file is HOW to run the evals.** For **WHY** these are the metrics — why a
+compression ratio without a task-success delta is meaningless, why `stale` is
+reported apart from `lost`, what our own negative results showed — see
+[EVALUATION.md](EVALUATION.md).
+
+(The two filenames were close enough to confuse; this one was `EVALS.md`.)
 
 ---
 

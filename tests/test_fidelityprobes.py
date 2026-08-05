@@ -157,6 +157,9 @@ class TestReporting:
             "overclaim",
             "continuation",
             "propagation",
+            # distil prices BOTH sides; a report covering only the input surface
+            # would let an output-digestion regression pass a whole-system gate.
+            "output_surface",
         }
 
     def test_format_mentions_silent_failures(self) -> None:
@@ -260,3 +263,49 @@ class TestSecondAuditRound:
         # below the turn count, because each trajectory's first turn has no lag-1 pair.
         lag1 = next(lag for lag in rep.prop.lags if lag.lag == 1)
         assert lag1.exposed < rep.prop.turns
+
+
+class TestTheShippedCommandGradesTheShippedSurface:
+    """The gap that made every direct-call check pass while the gate was wrong.
+
+    `run()` was fixed to use the serving surface, but `cmd_fidelity` kept passing
+    `Tier1Reversible()` explicitly — routing the gate down the test-double branch. So
+    the audit fix never reached the command CI invokes, and the output surface was
+    skipped entirely. Verifying the library instead of the entry point is what hid it.
+
+    These assert through the CLI, on purpose.
+    """
+
+    def _cli(self, *args: str) -> dict:
+        out = subprocess.run(
+            [sys.executable, "-m", "distil.cli", "fidelity", "--json", *args],
+            capture_output=True,
+            text=True,
+        )
+        assert out.returncode in (0, 1), out.stderr
+        return json.loads(out.stdout)
+
+    def test_cli_grades_the_output_surface(self) -> None:
+        """0/0 here means output digestion was never run."""
+        d = self._cli("--max-silent", "15")
+        surface = d["metrics"]["output_surface"]
+        assert surface["artifact_state"]["total"] > 0, "output surface was not graded"
+        assert surface["overclaim"]["total"] > 0, "output surface was not graded"
+
+    def test_cli_attributes_the_result_to_the_serving_surface(self) -> None:
+        d = self._cli("--max-silent", "15")
+        assert d["subject"]["module"].endswith("strategies"), (
+            "the record must not attribute a serving-surface result to a bare tier"
+        )
+
+    def test_cli_silent_failures_cover_both_surfaces(self) -> None:
+        d = self._cli("--max-silent", "15")
+        m = d["metrics"]
+        expected = (
+            m["artifact_state"]["stale"]
+            + m["overclaim"]["overclaimed"]
+            + m["continuation"]["dropped_work"]
+            + m["output_surface"]["silent_failures"]
+        )
+        gate = next(g for g in d["gates"] if g["name"] == "max_silent")
+        assert gate["observed"] == expected, "the gate must count both priced surfaces"

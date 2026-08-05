@@ -929,6 +929,79 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
     # line verdict; --all reads every row (incl. old-version) for auditing.
     led = ShadowLedger.load(current_only=not getattr(args, "all", False))
     _ctrs = ShadowCounters.load()
+
+    if getattr(args, "record", False):
+        # Same envelope as `distil fidelity --json`, so a live result is as
+        # attributable as an offline one. `--json` keeps its original flat shape:
+        # it is an existing contract and breaking it to add provenance would be a
+        # worse trade than carrying two formats.
+        from .evalrecord import SCHEMA, EvalRecord, Gate, describe_env, describe_grader
+        from .shadow import SIG_VERSION
+
+        rate = led.rate()
+        adjusted = led.adjusted_rate() if led.aa_agreement() is not None else None
+        gates: list[Gate] = []
+        if getattr(args, "max_change_rate", None) is not None:
+            # Gate on the ADJUSTED rate when an A/A baseline exists: the raw rate
+            # includes the grader's own sampling noise, and gating on it would fail
+            # a compressor for the grader's variance.
+            observed = adjusted if adjusted is not None else rate
+            gates.append(
+                Gate(
+                    name="max_change_rate",
+                    threshold=args.max_change_rate,
+                    observed=round(observed, 6),
+                    passed=observed <= args.max_change_rate,
+                    rationale=(
+                        "A/A-adjusted decision-change rate on live traffic"
+                        if adjusted is not None
+                        else "RAW rate — no A/A baseline yet, so grader noise is included"
+                    ),
+                )
+            )
+        record = EvalRecord(
+            schema=SCHEMA,
+            run={
+                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "duration_ms": None,
+                "env": describe_env(),
+            },
+            subject={"compressor": "serving", "module": "distil.proxy"},
+            # The live analogue of a dataset fingerprint. Live traffic has no content
+            # hash — and must not grow one — so the window is described by the counts
+            # and the signature algorithm that scopes them. Two shadow runs are only
+            # comparable when both match.
+            dataset={
+                "name": "live-traffic",
+                "samples": led.samples,
+                "aa_samples": led.aa_samples,
+                "signature_version": SIG_VERSION,
+                "scope": "current-signature" if not getattr(args, "all", False) else "all-versions",
+                "fingerprint": f"sig{SIG_VERSION}:n={led.samples}+aa{led.aa_samples}",
+            },
+            grader=describe_grader("live-model-ab"),
+            metrics={
+                "samples": led.samples,
+                "changes": led.changes,
+                "decision_change_rate": rate,
+                "decision_equivalence": 1 - rate,
+                "aa_samples": led.aa_samples,
+                "aa_self_agreement": led.aa_agreement(),
+                "adjusted_change_rate": adjusted,
+                "adjusted_equivalence": (1 - adjusted) if adjusted is not None else None,
+            },
+            gates=gates,
+        )
+        print(json.dumps(record.to_dict(), indent=2))
+        if gates and not record.passed:
+            g = gates[0]
+            print(
+                f"\nFAIL: live change rate {g.observed} > --max-change-rate {g.threshold}",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
+
     if getattr(args, "json", False):
         print(
             json.dumps(
@@ -2515,6 +2588,17 @@ def cmd_retention(args: argparse.Namespace) -> int:
     return 0
 
 
+class _ServingSurface:
+    """Names what `distil fidelity` actually grades, for the record's `subject`.
+
+    Not a compressor — a label. The gate runs `strategies.distil` on the input side
+    and `output.digest_output_blocks` on the output side; reporting a bare tier here
+    would misattribute the result.
+    """
+
+    __module__ = "distil.compress.strategies"
+
+
 def cmd_fidelity(args: argparse.Namespace) -> int:
     """State probes: artifact state, overclaim, continuation, error propagation.
 
@@ -2525,14 +2609,19 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
 
     import time
 
-    from .compress.tier1 import Tier1Reversible
     from .evalrecord import Gate, build
     from .fidelityprobes import format_report, run
 
     entries = list(load_corpus(args.corpus) if args.corpus else load_corpus())
     started = time.time()
-    compressor = Tier1Reversible()
-    rep = run(entries, compressor=compressor)
+    # Do NOT pass a compressor: `run()` then uses the SERVING surface
+    # (`strategies.distil` for input, `digest_output_blocks` for output). Passing
+    # `Tier1Reversible()` here silently routed the gate down the test-double branch,
+    # so the audit fix that made `run()` grade the shipped surface never reached the
+    # command CI actually invokes, and the output surface was skipped entirely. The
+    # library was right and the entry point was wrong, which is the worst shape for
+    # this bug to take: every direct-call check passed.
+    rep = run(entries)
 
     # Gates are recorded whether or not the operator asked for them, with the
     # threshold and the observed value side by side. A gate whose bound is invisible
@@ -2570,7 +2659,7 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
         record = build(
             metrics=rep.to_dict(),
             entries=entries,
-            compressor=compressor,
+            compressor=_ServingSurface(),
             grader="deterministic",
             gates=gates,
             started=started,
@@ -3155,7 +3244,21 @@ def build_parser() -> argparse.ArgumentParser:
     ss = sub.add_parser(
         "shadow-stats", help="show live decision-equivalence measured by shadow mode"
     )
-    ss.add_argument("--json", action="store_true", help="machine-readable output")
+    ss.add_argument("--json", action="store_true", help="machine-readable output (flat)")
+    ss.add_argument(
+        "--record",
+        action="store_true",
+        help="emit a full eval record (schema + provenance + gates), the same "
+        "envelope as `distil fidelity --json`. `--json` keeps its original flat "
+        "shape so existing consumers are not broken.",
+    )
+    ss.add_argument(
+        "--max-change-rate",
+        type=float,
+        help="with --record: exit 1 if the A/A-adjusted live decision-change rate "
+        "exceeds this (0-1). Gates on the ADJUSTED rate where an A/A baseline "
+        "exists, so a compressor is not failed for the grader's own variance.",
+    )
     ss.add_argument(
         "--all",
         action="store_true",

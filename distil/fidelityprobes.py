@@ -26,6 +26,28 @@ from typing import Any, Iterable
 
 from . import artifacts, continuation, overclaim, propagation
 from .compress import strategies
+from .output import digest_output_blocks
+
+
+@dataclass
+class SurfaceProbe:
+    """The three state probes, scored against one compression surface."""
+
+    state: artifacts.StateProbe = field(default_factory=artifacts.StateProbe)
+    hedges: overclaim.OverclaimProbe = field(default_factory=overclaim.OverclaimProbe)
+    plan: continuation.ContinuationProbe = field(default_factory=continuation.ContinuationProbe)
+
+    @property
+    def silent_failures(self) -> int:
+        return self.state.stale + self.hedges.overclaimed + self.plan.dropped_work
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_state": self.state.to_dict(),
+            "overclaim": self.hedges.to_dict(),
+            "continuation": self.plan.to_dict(),
+            "silent_failures": self.silent_failures,
+        }
 
 
 @dataclass
@@ -36,6 +58,13 @@ class FidelityReport:
     hedges: overclaim.OverclaimProbe = field(default_factory=overclaim.OverclaimProbe)
     plan: continuation.ContinuationProbe = field(default_factory=continuation.ContinuationProbe)
     prop: propagation.PropagationReport | None = None
+    # distil compresses BOTH sides of the bill. `strategies.distil` shrinks what the
+    # model READS (volatile tail); `output.digest_output_blocks` shrinks what its own
+    # past ANSWERS cost when they re-enter as history. The probes above graded only
+    # the first — and since output digestion targets assistant/history blocks, which
+    # the serving strategy deliberately leaves alone, an entire priced surface was
+    # going ungraded. Same three probes, second surface.
+    output: SurfaceProbe = field(default_factory=SurfaceProbe)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,12 +74,22 @@ class FidelityReport:
             "overclaim": self.hedges.to_dict(),
             "continuation": self.plan.to_dict(),
             "propagation": self.prop.to_dict() if self.prop else None,
+            "output_surface": self.output.to_dict(),
         }
 
     @property
     def silent_failures(self) -> int:
-        """Every failure the agent cannot see. The number that should be zero."""
-        return self.state.stale + self.hedges.overclaimed + self.plan.dropped_work
+        """Every failure the agent cannot see, across BOTH priced surfaces.
+
+        Counting only the input surface would let a regression in output digestion
+        pass a gate named for the whole system.
+        """
+        return (
+            self.state.stale
+            + self.hedges.overclaimed
+            + self.plan.dropped_work
+            + self.output.silent_failures
+        )
 
 
 _DECISION = "DECISION:"
@@ -166,6 +205,22 @@ def run(entries: Iterable[Any], *, compressor: Any = None) -> FidelityReport:
         report.plan.add(continuation.score(traj_original, traj_compressed))
         per_traj.append(signals)
 
+        # --- the OTHER priced surface -------------------------------------------
+        # Output-on-re-entry digestion, graded with the same three probes. Runs over
+        # the whole trajectory because artifact and plan state are cross-turn.
+        if compressor is None:
+            out_orig: list[str] = []
+            out_small: list[str] = []
+            for turn in entry.trajectory.turns:
+                blocks = list(turn.blocks)
+                digested, _restore = digest_output_blocks(blocks)
+                out_orig.extend(b.text for b in blocks)
+                out_small.extend(b.text for b in digested)
+            report.output.state.add(artifacts.score(out_orig, out_small))
+            report.output.plan.add(continuation.score(out_orig, out_small))
+            for o, c in zip(out_orig, out_small):
+                report.output.hedges.add(overclaim.score(o, c))
+
     report.prop = propagation.analyse_many(per_traj)
     return report
 
@@ -182,8 +237,19 @@ def format_report(report: FidelityReport) -> str:
     ]
     if report.prop:
         lines += ["", propagation.format_report(report.prop)]
+    o = report.output
     lines += [
         "",
-        f"silent failures (stale + overclaimed + dropped work): {report.silent_failures}",
+        "OUTPUT surface — past answers digested on re-entry (the other half of the bill)",
+        f"  artifact state          {o.state.fidelity:6.1%}  ({o.state.exact}/{o.state.total})"
+        f"   stale {o.state.stale}",
+        f"  hedge fidelity          {o.hedges.fidelity:6.1%}  ({o.hedges.preserved}/{o.hedges.total})"
+        f"   overclaimed {o.hedges.overclaimed}",
+        f"  pending-work recall     {o.plan.pending_recall:6.1%}"
+        f"  ({o.plan.pending_kept}/{o.plan.pending_total})   dropped {o.plan.dropped_work}",
+        "",
+        f"silent failures, BOTH surfaces: {report.silent_failures}"
+        f"  (input {report.state.stale + report.hedges.overclaimed + report.plan.dropped_work},"
+        f" output {o.silent_failures})",
     ]
     return "\n".join(lines)
