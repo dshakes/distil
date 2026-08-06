@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 460" role="img"
+     aria-labelledby="bpTitle bpDesc" font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif">
+  <title id="bpTitle">Evidence versus control in a compression benchmark suite</title>
+  <desc id="bpDesc">An animated comparison of two benchmark cases. On the left, a thin-payload GSM8K
+    question of about 48 bytes barely shrinks when compressed, so its unchanged score is a control. On the
+    right, a BFCL tool schema of about 640 bytes compresses to roughly 61 bytes with every function name
+    intact, while truncation at the same savings loses every name — which is evidence about compression
+    quality.</desc>
+
+  <style>
+    .bg    { fill: #0b0f17; }
+    .card  { fill: #121826; stroke: #26314a; stroke-width: 1; }
+    .lbl   { fill: #e6ecf7; font-size: 15px; font-weight: 600; }
+    .sub   { fill: #93a3bd; font-size: 12px; }
+    .mono  { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: 11px; fill: #b9c6dd; }
+    .good  { fill: #3ddc97; } .warn { fill: #f2c14e; } .bad { fill: #ff6b6b; }
+    .note  { fill: #7f8ea8; font-size: 11.5px; }
+    .tag   { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
+    .barbg { fill: #1a2133; }
+    @media (prefers-color-scheme: light) {
+      .bg { fill:#fff } .card { fill:#f7f9fc; stroke:#d7dfea }
+      .lbl { fill:#0d1526 } .sub { fill:#4a5a73 } .mono { fill:#35435c }
+      .note { fill:#5b6b85 } .barbg { fill:#e6ecf4 }
+    }
+    :root[data-theme="light"] .bg { fill:#fff } :root[data-theme="light"] .card { fill:#f7f9fc; stroke:#d7dfea }
+    :root[data-theme="light"] .lbl { fill:#0d1526 } :root[data-theme="light"] .sub { fill:#4a5a73 }
+    :root[data-theme="light"] .mono { fill:#35435c } :root[data-theme="light"] .note { fill:#5b6b85 }
+    :root[data-theme="light"] .barbg { fill:#e6ecf4 }
+    :root[data-theme="dark"] .bg { fill:#0b0f17 } :root[data-theme="dark"] .card { fill:#121826; stroke:#26314a }
+    :root[data-theme="dark"] .lbl { fill:#e6ecf7 } :root[data-theme="dark"] .sub { fill:#93a3bd }
+    :root[data-theme="dark"] .mono { fill:#b9c6dd } :root[data-theme="dark"] .note { fill:#7f8ea8 }
+    :root[data-theme="dark"] .barbg { fill:#1a2133 }
+    @media (prefers-reduced-motion: reduce) { animate { display: none } .motion { opacity: 1 !important } }
+  </style>
+
+  <rect class="bg" width="880" height="460" rx="10"/>
+  <text class="lbl" x="28" y="36" font-size="17">Not every benchmark can prove what a compression table implies</text>
+  <text class="sub" x="28" y="58">Same suite, same run — only one of these two rows is evidence.</text>
+
+  <!-- ============================ CONTROL ============================ -->
+  <rect class="card" x="28" y="80" width="390" height="300" rx="9"/>
+  <path d="M28 89a9 9 0 0 1 9-9h372a9 9 0 0 1 9 9v25H28z" fill="#3a2f12"/>
+  <text class="tag warn" x="44" y="101">THIN PAYLOAD · CONTROL</text>
+  <text class="lbl" x="44" y="138">gsm8k</text>
+
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.06;0.12;0.9;0.96;1"/>
+    <rect x="44" y="152" width="358" height="26" rx="4" class="barbg"/>
+    <text class="mono" x="54" y="169">Janet has 16 eggs and sells 3. How many left?</text>
+  </g>
+
+  <!-- compression bar: 48B -> 45B, visibly almost nothing -->
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.16;0.22;0.9;0.96;1"/>
+    <text class="sub" x="44" y="204">compressible payload</text>
+    <rect x="44" y="212" width="358" height="14" rx="3" class="barbg"/>
+    <rect x="44" y="212" height="14" rx="3" fill="#f2c14e" opacity="0.85">
+      <animate attributeName="width" dur="9s" repeatCount="indefinite"
+               calcMode="spline" keySplines="0 0 1 1;0.3 0 0.2 1;0 0 1 1;0 0 1 1"
+               values="358;358;336;336;358" keyTimes="0;0.24;0.34;0.94;1"/>
+    </rect>
+    <text class="mono warn" x="44" y="244">48 B  →  45 B</text>
+  </g>
+
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.34;0.40;0.9;0.96;1"/>
+    <text class="sub warn" x="44" y="282">Score unchanged ✓</text>
+    <text class="note" x="44" y="304">…which proves the compressor left an incompressible</text>
+    <text class="note" x="44" y="322">prompt alone. That is a control, not a demonstration.</text>
+    <text class="note" x="44" y="348">Reporting it as evidence is how a benchmark table</text>
+    <text class="note" x="44" y="366">comes to look stronger than its data.</text>
+  </g>
+
+  <!-- ============================ EVIDENCE ============================ -->
+  <rect class="card" x="462" y="80" width="390" height="300" rx="9"/>
+  <path d="M462 89a9 9 0 0 1 9-9h372a9 9 0 0 1 9 9v25H462z" fill="#10322a"/>
+  <text class="tag good" x="478" y="101">RICH PAYLOAD · EVIDENCE</text>
+  <text class="lbl" x="478" y="138">bfcl</text>
+
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.40;0.46;0.9;0.96;1"/>
+    <rect x="478" y="152" width="358" height="52" rx="4" class="barbg"/>
+    <text class="mono" x="488" y="169">{ "name": "calculate_triangle_area",</text>
+    <text class="mono" x="488" y="185">  "description": "…", "parameters": {…} }</text>
+    <text class="mono" x="488" y="201">  × N tool schemas</text>
+  </g>
+
+  <!-- compression bar: 640B -> 61B, dramatic -->
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.48;0.54;0.9;0.96;1"/>
+    <text class="sub" x="478" y="230">compressible payload</text>
+    <rect x="478" y="238" width="358" height="14" rx="3" class="barbg"/>
+    <rect x="478" y="238" height="14" rx="3" fill="#3ddc97" opacity="0.9">
+      <animate attributeName="width" dur="9s" repeatCount="indefinite"
+               calcMode="spline" keySplines="0 0 1 1;0.3 0 0.2 1;0 0 1 1;0 0 1 1"
+               values="358;358;34;34;358" keyTimes="0;0.56;0.68;0.94;1"/>
+    </rect>
+    <text class="mono good" x="478" y="270">640 B  →  61 B   ·   ~90% saved</text>
+  </g>
+
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.68;0.73;0.9;0.96;1"/>
+    <text class="sub good" x="478" y="300">every function name intact ✓</text>
+  </g>
+
+  <g class="motion" opacity="0">
+    <animate attributeName="opacity" dur="9s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.76;0.81;0.9;0.96;1"/>
+    <text class="sub bad" x="478" y="324">truncation at the same savings: 0 names survive ✗</text>
+    <text class="note" x="478" y="346">The model cannot call a function it can no longer see —</text>
+    <text class="note" x="478" y="364">a failure no QA benchmark detects, because QA never</text>
+    <text class="note" x="478" y="382">asks the model to act.</text>
+  </g>
+
+  <text class="note" x="28" y="418">A run that grades only controls exits 1. A benchmark that cannot be fetched is a FAILED row, never a silent skip —</text>
+  <text class="note" x="28" y="436">a suite that drops what it could not load reports a clean sheet for a run that measured less than it claimed.</text>
+</svg>

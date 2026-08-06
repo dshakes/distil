@@ -655,6 +655,121 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_suite(args: argparse.Namespace) -> int:
+    """Run the public-benchmark suite: third-party ground truth, zero marginal cost."""
+    from . import benchsuite
+
+    tiers = sorted({int(t) for t in (args.tier or [1])})
+    report = benchsuite.run(
+        tiers, n=args.n, offline=args.offline, names=args.only.split(",") if args.only else None
+    )
+    out = sys.stderr if args.json else sys.stdout
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(benchsuite.format_report(report))
+
+    # A benchmark that could not be graded is a failure of the run, not a neutral
+    # skip: reporting green for a suite that measured less than it claimed is the
+    # vacuous-gate failure this repo gates against everywhere else.
+    if report.failed:
+        # A fetch failure is an upstream outage, not a compression regression, and a
+        # required gate that fails on a third party's 504 teaches people to ignore
+        # it. `--allow-unavailable` (used by CI) downgrades it to a loud warning —
+        # never a silent skip, and never a pass: the "no rich evidence" check below
+        # still fails the run if the outage took out everything that could testify.
+        # An unknown NAME is a typo in the invocation, not an outage — downgrading it
+        # meant `--only bfcl,hotptoqa --allow-unavailable` silently graded one
+        # benchmark and exited 0. Only transport failures are tolerable.
+        # Only an availability failure may be waited out. A typo, a schema drift, or
+        # an exception from our own adapter/scoring code is a defect, and CI passes
+        # `--allow-unavailable` — so without this split an internal TypeError in one
+        # benchmark exited 0 whenever another rich benchmark happened to pass.
+        ours = [r for r in report.failed if r.failure != "unavailable"]
+        if ours:
+            print(
+                "\nFAIL: "
+                + "; ".join(f"{r.name}: {r.error[:70]}" for r in ours)
+                + "\n  (not an outage — a benchmark that cannot be loaded or scored for any "
+                "reason\n   other than availability is a defect here, and --allow-unavailable "
+                "does not cover it)",
+                file=out,
+            )
+            return 1
+        label = "WARN" if args.allow_unavailable else "FAIL"
+        print(
+            f"\n{label}: {len(report.failed)} benchmark(s) could not be graded "
+            f"({', '.join(r.name for r in report.failed)})",
+            file=out,
+        )
+        if not args.allow_unavailable:
+            return 1
+    if args.max_lost is not None and report.total_lost > args.max_lost:
+        print(
+            f"\nFAIL: {report.total_lost} unrecoverable gold facts > --max-lost {args.max_lost}",
+            file=out,
+        )
+        return 1
+    if not report.evidence:
+        print(
+            "\nFAIL: no rich-payload benchmark graded — controls alone cannot show "
+            "compression quality",
+            file=out,
+        )
+        return 1
+    # Always on, no flag required. A rich benchmark that graded cases and recalled
+    # nothing is a broken run, not a low score, and exiting 0 because nobody passed a
+    # threshold is the vacuous gate this repo refuses everywhere else.
+    if report.unmeasured:
+        print(
+            f"\nFAIL: {', '.join(r.name for r in report.unmeasured)} graded cases but had no "
+            "golds to grade them against — 100% over zero facts is not a result",
+            file=out,
+        )
+        return 1
+    if report.collapsed:
+        print(
+            f"\nFAIL: {', '.join(r.name for r in report.collapsed)} graded cases and "
+            "recalled nothing — total loss on a rich payload",
+            file=out,
+        )
+        return 1
+    if report.idle:
+        print(
+            f"\nFAIL: {', '.join(r.name for r in report.idle)} — compression did not engage; "
+            "100% recall over an identity function proves nothing",
+            file=out,
+        )
+        return 1
+    for flag, attr, counter, label in (
+        (args.min_answer_recall, "answer_recall", "answer_graded", "answer"),
+        (args.min_support_recall, "support_recall", "support_facts", "support"),
+    ):
+        if flag is None:
+            continue
+        # Only rows that HAVE golds in this dimension can satisfy its threshold.
+        # BFCL grades no answer spans and reports answer_recall=1.0 over zero — so
+        # `--min-answer-recall 0.95` passed on it vacuously, and with an outage
+        # tolerated it could be the only row left.
+        scoped = [r for r in report.evidence if getattr(r, counter)]
+        if not scoped:
+            print(
+                f"\nFAIL: --min-{label}-recall was requested but no benchmark graded a "
+                f"single {label} gold — the threshold had nothing to test",
+                file=out,
+            )
+            return 1
+        below = [r for r in scoped if getattr(r, attr) < flag]
+        if below:
+            print(
+                f"\nFAIL: {label} recall below {flag:.0%} on "
+                + ", ".join(f"{r.name} ({getattr(r, attr):.1%})" for r in below),
+                file=out,
+            )
+            return 1
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Adversarial real-path validation: drive the compressor against a battery of diverse and
     hostile inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and assert the
@@ -2842,7 +2957,25 @@ def _retention_dataset(args: argparse.Namespace) -> int:
         if not rep.engaged:
             print(f"\nFAIL: compression did not engage ({rep.savings:.1%}) — recall proves nothing")
             return 1
-        answer, _ = DatasetReport._answer_recall(rep.scores, with_recovery=True)
+        answer, graded = DatasetReport._answer_recall(rep.scores, with_recovery=True)
+        # A recall over zero graded answers is 1.0 and satisfies any bound. Some
+        # benchmarks grade no answer spans at all — BFCL's gold is a function call,
+        # which never appears in the tool schema — so `--min-recall 0.99` passed on
+        # them having tested nothing. Support recall is offered as the alternative
+        # rather than silently substituted, because the two measure different things.
+        if not graded:
+            support, facts = DatasetReport._support_recall(rep.scores, with_recovery=True)
+            print(
+                "\nFAIL: --min-recall was requested but this benchmark graded no answer "
+                "spans, so the bound tested nothing"
+                + (
+                    f" (it does grade {facts} support facts at {support:.1%} — use "
+                    "--min-support-recall)"
+                    if facts
+                    else ""
+                )
+            )
+            return 1
         if answer < args.min_recall:
             print(f"\nFAIL: answer recall {answer:.1%} < --min-recall {args.min_recall:.1%}")
             return 1
@@ -3267,6 +3400,41 @@ def build_parser() -> argparse.ArgumentParser:
 
     ve = sub.add_parser("verify", help="byte-fidelity gate: reversibility + append-only (phase 6)")
     ve.set_defaults(func=cmd_verify)
+
+    su = sub.add_parser(
+        "suite", help="public-benchmark suite (third-party ground truth, no API key, no spend)"
+    )
+    su.add_argument(
+        "--tier",
+        action="append",
+        type=int,
+        choices=(1, 2, 3),
+        help="tier to run; repeatable (default: 1). 1=tool+retrieval, 2=hard payloads, 3=controls",
+    )
+    su.add_argument("--only", help="comma-separated benchmark names, overriding --tier")
+    su.add_argument("-n", type=int, help="cases per benchmark (default: each dataset's own)")
+    su.add_argument("--offline", action="store_true", help="cached rows only (no network)")
+    su.add_argument(
+        "--allow-unavailable",
+        action="store_true",
+        help="treat an upstream fetch failure as a warning, not a gate failure "
+        "(quality thresholds still apply; a run with no rich evidence still fails)",
+    )
+    su.add_argument("--json", action="store_true", help="machine-readable report")
+    su.add_argument(
+        "--max-lost", type=int, help="exit 1 if more than this many gold facts are unrecoverable"
+    )
+    su.add_argument(
+        "--min-answer-recall",
+        type=float,
+        help="exit 1 if any RICH benchmark's answer recall falls below this (0-1)",
+    )
+    su.add_argument(
+        "--min-support-recall",
+        type=float,
+        help="exit 1 if any RICH benchmark's support recall falls below this (0-1)",
+    )
+    su.set_defaults(func=cmd_suite)
 
     va = sub.add_parser("validate", help="adversarial real-path gate: invariants on hostile inputs")
     va.set_defaults(func=cmd_validate)

@@ -155,6 +155,18 @@ silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
     <p><b>Those 9 overclaims are real, and we ship the number rather than tune it away.</b> Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact this is <em>not</em> recoverable in practice: a missing fact prompts the agent to expand, a missing hedge gives it no reason to look.</p>
     <p>So the CI gate is <code>--max-silent 15</code>, not <code>0</code>. Gating at zero would assert a property the compressor does not have. The band fails a regression that doubles it — and fails an improvement too, forcing the number to be re-read rather than drifting.</p>
 
+    <h2 id="public">Public benchmarks — falsifiable by a stranger</h2>
+    <p>Every other number on this page is graded against distil's own corpus. Rigorous, and <em>unfalsifiable by someone who doesn't trust us</em>. <code>distil suite</code> closes that: twelve public benchmarks whose answer keys were written by other people.</p>
+    <p><b>It costs nothing to run.</b> Grading is deterministic recall against the answer key — no model in the loop, no API key, no spend. Suites that grade with an LLM judge cost real money per tier, which makes them something you run before a launch rather than before a merge. This one is wired into <code>make gate</code> and the CI gate job.</p>
+    <img src="assets/benchmark-payload.svg" alt="Two benchmark cases compared: a thin-payload GSM8K question with nothing to compress, labelled a control, beside a rich-payload BFCL tool schema whose compression result is evidence." style="width:100%;max-width:880px;height:auto;margin:1.5rem 0">
+    <p><b>The payload column is the important one.</b> A GSM8K case is a one-line word problem: there is nothing in it to compress, so an unchanged score proves the compressor left it alone. That is a <em>control</em>. Only rich-payload rows — tool schemas, retrieved passages, long-form narrative, code — can demonstrate compression quality. A run that grades only controls exits 1.</p>
+    <p><code>bfcl</code> leads tier 1 deliberately. Berkeley Function Calling compresses the <b>tool schema</b> and checks that every name the gold call is built from — the function and each argument it passes — survives compression: the failure an agent proxy is most likely to cause and least likely to notice, because no QA benchmark ever asks the model to <em>act</em>. The gold call itself is not graded as an answer — it never appears in the schema text, and checking whether a model still emits it would need a model in the loop, which would stop this suite running in the CI gate. What is measured is stated exactly.</p>
+<pre>uv run distil suite --tier 1              # tool-calling + retrieval
+uv run distil suite --tier 1 --tier 2     # add the harder payloads
+uv run distil suite --only bfcl -n 50     # one benchmark
+uv run distil suite --json --max-lost 0   # gate</pre>
+    <p>A benchmark that cannot be fetched is reported as a FAILED row and exits 1 — never dropped. A suite that silently skips what it could not load reports a clean sheet for a run that measured less than it claimed.</p>
+
     <h2 id="record">Every run is a record, not a number</h2>
     <p><code>--json</code> emits an envelope, validated against a <a href="https://github.com/dshakes/distil/blob/main/schemas/eval-record.schema.json">published JSON Schema</a> on every test run:</p>
     <pre class="term">{

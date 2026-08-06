@@ -1,8 +1,13 @@
 # Running distil's evals
 
-Every gate here is **offline and free** unless the section says otherwise. No API
-key, no network, seconds to run. That is deliberate: a gate you skip because it
-costs money is not a gate.
+Every gate here is **free** unless the section says otherwise: no API key, no model
+in the loop, seconds to run. That is deliberate — a gate you skip because it costs
+money is not a gate.
+
+Most are fully offline. The exception is `distil suite`, which fetches public
+benchmark rows over HTTP the first time and caches them; after that it runs offline
+too, and `--offline` forces cached-only. It still spends nothing, because grading is
+deterministic rather than judged by a model.
 
 **This file is HOW to run the evals.** For **WHY** these are the metrics — why a
 compression ratio without a task-success delta is meaningless, why `stale` is
@@ -26,7 +31,7 @@ uv run distil --help
 
 ---
 
-## The five gates
+## The six gates
 
 Run all of them the way CI does:
 
@@ -43,6 +48,7 @@ Or individually:
 | `distil retention` | Which facts stay visible, recoverable, or lost? | free, ~2s |
 | `distil fidelity` | Do state, hedging and plan survive? | free, ~3s |
 | `distil validate` | Do the invariants hold on hostile input? | free, ~15s |
+| `distil suite` | Does it hold on PUBLIC benchmarks? | free, first run fetches |
 
 ### 1. `distil bench` — decision equivalence
 
@@ -162,6 +168,74 @@ uv run distil fidelity --json --max-silent 15 | jq -r '.dataset.fingerprint'
 
 ---
 
+### 6. `distil suite` — public benchmarks, third-party ground truth
+
+```bash
+uv run distil suite --tier 1              # tool-calling + retrieval (the evidence)
+uv run distil suite --tier 1 --tier 2     # add the harder payloads
+uv run distil suite --tier 3              # the thin-payload controls
+uv run distil suite --only bfcl -n 50     # one benchmark
+uv run distil suite --tier 1 --offline    # cached rows only, no network
+uv run distil suite --json --max-lost 0   # gate on unrecoverable golds
+uv run distil suite --min-answer-recall 0.95 --min-support-recall 0.95
+```
+
+**A collapse always fails, flag or no flag.** A rich benchmark that graded cases and
+recalled *nothing* is a broken run, not a low score, so the suite exits 1 on it even
+with no threshold passed. `--max-lost` counts unrecoverable golds of **both** kinds —
+answers and support facts — because benchmarks like SQuAD carry no support facts at
+all, and counting only those made the gate structurally unable to see an answer
+regression.
+
+Twelve public benchmarks whose answer keys were written by someone else, so a
+stranger can falsify our numbers against data they already trust.
+
+**It costs nothing.** Grading is deterministic recall against the answer key — no
+model in the loop, no API key, no spend. Suites that grade with an LLM judge cost
+real money per tier, which makes them something you run before a launch rather than
+before a merge. This one is wired into `make gate` and the CI gate job (tier 1, n=25).
+
+**Payload class is reported with every row, and it is the most important column.**
+
+| class | meaning | examples |
+|---|---|---|
+| `rich` | real context to compress — **evidence** | `bfcl`, `hotpotqa`, `msmarco`, `narrativeqa`, `squad`, `codesearchnet`, `humaneval` |
+| `thin` | a one-line question with nothing to compress — **control** | `gsm8k`, `mmlu`, `arc`, `truthfulqa`, `triviaqa` |
+
+A GSM8K case is a word problem; there is nothing in it to compress, so an unchanged
+score proves the compressor left it alone. That is a control, not a demonstration.
+Only `rich` rows can show compression quality, and a run that grades **only**
+controls exits 1 rather than reporting a clean sheet.
+
+`bfcl` leads tier 1 deliberately. Berkeley Function Calling compresses the **tool
+schema** and checks that every name the gold call is built from — the function and
+each argument it passes — survives compression. That is the failure an agent proxy
+is most likely to cause and least likely to notice, because no QA benchmark ever
+asks the model to *act*: a schema can keep `calculate_triangle_area` and lose the
+`base` parameter, and the call cannot be formed at all.
+
+Measured over 100 cases: **91.4% savings, 385 gold names, 4 lost (99.0% retained)**.
+Names are de-duplicated — the function name arrives from both the schema and the
+gold call, and counting it twice inflated an earlier 478/99.2% figure. Names nested inside a
+gold argument object are graded too — `conditions={"department": …}` contributes
+all three, not just `conditions`.
+Most survive as *recoverable* rather than visible (2.3% visible) — they sit behind
+expand handles, which is what the reversible tier is supposed to do.
+
+The gold call itself is **not** graded as an answer. It never appears in the schema
+text, so a text-recall grader cannot see it, and checking whether a model still
+emits it would need a model in the loop — which would make this suite cost money
+and stop it running in CI. What is measured is stated exactly: the names the call
+depends on.
+
+A benchmark that cannot be fetched is reported as a FAILED row and exits 1. It is
+never dropped: a suite that silently skips what it could not load reports a clean
+sheet for a run that measured less than it claimed.
+
+*Not wired:* LongBench — upstream ships it only as a `data.zip`, with no rows API
+and no per-task files, so there is no stdlib-only path to it that keeps distil's
+zero-dependency promise.
+
 ### 5. `distil validate` — adversarial invariants
 
 ```bash
@@ -237,3 +311,12 @@ reason a green result means something.
 All five gates run per-commit. The workflow is `.github/workflows/ci.yml`; the
 same commands work locally, which is the point — `make gate` before pushing and
 CI should tell you nothing new.
+
+**Known limitation of the BFCL number.** Recall is scored by `retention`'s generic
+matcher, which anchors on non-word boundaries — right for prose, loose for short
+identifiers. A lost argument `id` can still be credited if `"id"` appears as a key
+elsewhere in the schema, so the figure is an **upper bound** on name retention for
+short identifiers. Tightening it by quoting the identifiers was tried and broke the
+recoverable-match path (recall fell to 2.9%, which measures the matcher rather than
+the compressor), so identifier-aware matching is deferred rather than shipped
+half-working. The CI band is set with this in mind.
