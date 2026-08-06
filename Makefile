@@ -6,13 +6,18 @@ help:  ## Show this help
 test:  ## Run the full test suite
 	uv run --with pytest python -m pytest -q
 
-gate: bench verify retention fidelity  ## Run the full CI gate (non-inferiority + byte-fidelity + recall + state probes)
+gate: bench verify retention fidelity suite  ## Run the full CI gate (non-inferiority + byte-fidelity + recall + state probes)
 
 fidelity:  ## State probes: artifact state, overclaim, continuation, propagation
 	# Gated at the measured band, not 0: the reversible tier drops hedging on a
 	# small number of claims (docs/EVALUATION.md section 6.2). Gating at 0 would
 	# assert a property the code does not have.
 	uv run distil fidelity --max-silent 15
+
+suite:  ## Public benchmarks (third-party ground truth). First run fetches + caches.
+	# Zero API spend: grading is deterministic recall, not an LLM judge. Tier 1 is
+	# the payload an agent proxy actually risks breaking — tool schemas and retrieval.
+	uv run distil suite --tier 1 -n 25
 
 bench:  ## Corpus-wide non-inferiority gate
 	uv run distil bench

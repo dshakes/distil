@@ -330,3 +330,69 @@ class TestFetchStopsAtTheRequestedCount:
             {"BFCL_v3_simple.json": q, "possible_answer/BFCL_v3_simple.json": gt},
         )
         assert len(datasets._fetch_bfcl(datasets.SPECS["bfcl"], 3)) == 3
+
+
+class TestCaseIdsAreStableAcrossProcesses:
+    """`hash()` on a str is salted per interpreter.
+
+    Ids built from it changed on every invocation, which quietly broke the contract
+    stated at the top of `datasets.py`: sampling is deterministic so "the number you
+    publish is the number a reader reproduces". Two runs of the same benchmark could
+    not be diffed by case.
+    """
+
+    def test_the_same_input_gives_the_same_id(self) -> None:
+        a = datasets._stable_id("gsm8k", "Janet has 16 eggs?")
+        b = datasets._stable_id("gsm8k", "Janet has 16 eggs?")
+        assert a == b and a.startswith("gsm8k-")
+
+    def test_different_inputs_differ(self) -> None:
+        assert datasets._stable_id("x", "one") != datasets._stable_id("x", "two")
+
+    def test_ids_survive_a_fresh_interpreter(self) -> None:
+        """The real test: a NEW process, where the hash salt is different."""
+        import subprocess
+        import sys
+
+        code = "from distil import datasets; print(datasets._stable_id('t', 'seed'))"
+        seen = {
+            subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout
+            for _ in range(3)
+        }
+        assert len(seen) == 1, f"id drifted across processes: {seen}"
+
+    def test_no_adapter_still_uses_a_salted_hash(self) -> None:
+        """Guard the whole class, not the four instances that were found."""
+        import pathlib
+
+        src = pathlib.Path(datasets.__file__).read_text(encoding="utf-8")
+        assert "abs(hash(" not in src, "a salted hash in an id breaks reproducibility"
+
+    def test_every_adapter_produces_distinct_ids_for_distinct_cases(self) -> None:
+        """A collision makes two different cases indistinguishable in a diff.
+
+        One was shipped here: a regex meant to swap the id builder deleted the seed
+        instead, so every MMLU case in a subject became `mmlu-algebra-`. The id
+        looked plausible and the tests passed, because nothing asserted uniqueness.
+        """
+        rows = {
+            datasets._mmlu: [
+                {"question": f"Q{i}", "subject": "algebra", "choices": ["a", "b"], "answer": 0}
+                for i in range(3)
+            ],
+            datasets._gsm8k: [{"question": f"Q{i}", "answer": f"r\n#### {i}"} for i in range(3)],
+            datasets._truthfulqa: [
+                {"question": f"Q{i}", "best_answer": "a", "correct_answers": []} for i in range(3)
+            ],
+            datasets._codesearchnet: [
+                {
+                    "func_name": "f",
+                    "func_code_string": f"def f{i}(): pass",
+                    "func_documentation_string": "d",
+                }
+                for i in range(3)
+            ],
+        }
+        for adapter, batch in rows.items():
+            ids = {c.id for c in (adapter(r) for r in batch) if c}
+            assert len(ids) == len(batch), f"{adapter.__name__} collided: {ids}"

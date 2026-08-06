@@ -10,7 +10,8 @@ Two design choices separate it from the benchmark suites this space usually ship
 answer key, so a tier is a few HTTP GETs and some string work — no model in the loop,
 no API key, no spend cap to blow. Suites that grade with an LLM judge cost real money
 per tier, which makes them something you run before a launch rather than before a
-merge; a gate you skip because it costs money is not a gate. Ours runs in CI.
+merge; a gate you skip because it costs money is not a gate. This one is wired
+into `make gate` and the CI gate job.
 
 **It refuses to average controls with evidence.** Benchmarks differ enormously in how
 much *compressible payload* they carry, and tables usually hide it. A GSM8K case is a

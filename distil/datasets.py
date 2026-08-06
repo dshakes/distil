@@ -237,6 +237,20 @@ def _squad(row: dict[str, Any]) -> GroundTruthCase | None:
     )
 
 
+def _stable_id(prefix: str, seed: str) -> str:
+    """A case id that is the same in every process, run and machine.
+
+    `hash()` on a str is salted per interpreter, so ids drifted between runs — and
+    this module's contract, stated at the top of the file, is that sampling is
+    deterministic so "the number you publish is the number a reader reproduces".
+    An id that changes on every invocation quietly breaks that for anyone diffing
+    two runs.
+    """
+    import hashlib
+
+    return f"{prefix}-{hashlib.sha256(seed.encode('utf-8', 'replace')).hexdigest()[:12]}"
+
+
 def _first_text(value: Any) -> str:
     """First non-empty string from a str / list / dict shape, at any nesting depth.
 
@@ -270,7 +284,7 @@ def _gsm8k(row: dict[str, Any]) -> GroundTruthCase | None:
     # The rationale is the only compressible span, and it is what must survive for
     # the arithmetic to be re-derivable.
     return GroundTruthCase(
-        id=f"gsm8k-{abs(hash(question)) % 10**8}",
+        id=_stable_id("gsm8k", question),
         question=question,
         docs=[("problem", question), ("rationale", rationale)],
         answer=answer,
@@ -286,7 +300,7 @@ def _truthfulqa(row: dict[str, Any]) -> GroundTruthCase | None:
         return None
     correct = row.get("correct_answers") or []
     return GroundTruthCase(
-        id=f"truthfulqa-{abs(hash(question)) % 10**8}",
+        id=_stable_id("truthfulqa", question),
         question=question,
         docs=[("question", question)],
         answer=answer,
@@ -305,7 +319,7 @@ def _mmlu(row: dict[str, Any]) -> GroundTruthCase | None:
         return None
     body = "\n".join(f"{chr(65 + i)}. {c}" for i, c in enumerate(choices))
     return GroundTruthCase(
-        id=f"mmlu-{row.get('subject', '')}-{abs(hash(question)) % 10**8}",
+        id=_stable_id(f"mmlu-{row.get('subject', '')}", question),
         question=question,
         docs=[(str(row.get("subject") or "mmlu"), f"{question}\n{body}")],
         answer=str(choices[idx]).strip(),
@@ -324,7 +338,7 @@ def _arc(row: dict[str, Any]) -> GroundTruthCase | None:
     answer = str(texts[labels.index(key)]).strip()
     body = "\n".join(f"{lab}. {txt}" for lab, txt in zip(labels, texts))
     return GroundTruthCase(
-        id=str(row.get("id") or f"arc-{abs(hash(question)) % 10**8}"),
+        id=str(row.get("id") or _stable_id("arc", question)),
         question=question,
         docs=[("choices", f"{question}\n{body}")],
         answer=answer,
@@ -341,7 +355,7 @@ def _humaneval(row: dict[str, Any]) -> GroundTruthCase | None:
     if not prompt or not entry:
         return None
     return GroundTruthCase(
-        id=str(row.get("task_id") or f"humaneval-{abs(hash(prompt)) % 10**8}"),
+        id=str(row.get("task_id") or _stable_id("humaneval", prompt)),
         question=f"Implement {entry}",
         docs=[(str(row.get("task_id") or "humaneval"), prompt)],
         answer=entry,
@@ -364,7 +378,7 @@ def _msmarco(row: dict[str, Any]) -> GroundTruthCase | None:
     # `is_selected` marks the passage the answer came from: the span that must survive.
     support = [str(t) for t, sel in zip(texts, selected) if sel]
     return GroundTruthCase(
-        id=str(row.get("query_id") or f"msmarco-{abs(hash(query)) % 10**8}"),
+        id=str(row.get("query_id") or _stable_id("msmarco", query)),
         question=query,
         docs=docs,
         answer=answer,
@@ -380,7 +394,7 @@ def _triviaqa(row: dict[str, Any]) -> GroundTruthCase | None:
     if not question or not answer:
         return None
     return GroundTruthCase(
-        id=str(row.get("question_id") or f"triviaqa-{abs(hash(question)) % 10**8}"),
+        id=str(row.get("question_id") or _stable_id("triviaqa", question)),
         question=question,
         docs=[("question", question)],
         answer=answer,
@@ -399,7 +413,7 @@ def _narrativeqa(row: dict[str, Any]) -> GroundTruthCase | None:
     if not text or not question or not answer:
         return None
     return GroundTruthCase(
-        id=str(document.get("id") or f"narrativeqa-{abs(hash(question)) % 10**8}"),
+        id=str(document.get("id") or _stable_id("narrativeqa", question)),
         question=question,
         docs=[(str(summary.get("title") or "summary"), text)],
         answer=answer,
@@ -415,7 +429,7 @@ def _codesearchnet(row: dict[str, Any]) -> GroundTruthCase | None:
     if not code or not doc or not name:
         return None
     return GroundTruthCase(
-        id=f"csn-{abs(hash(code)) % 10**8}",
+        id=_stable_id("csn", code),
         question=f"What does {name} do?",
         docs=[(str(row.get("func_path_in_repository") or name), code)],
         answer=doc,
@@ -461,7 +475,7 @@ def _bfcl(row: dict[str, Any]) -> GroundTruthCase | None:
             if isinstance(args, dict):
                 names.extend(str(a) for a in args)
     return GroundTruthCase(
-        id=str(row.get("id") or f"bfcl-{abs(hash(question)) % 10**8}"),
+        id=str(row.get("id") or _stable_id("bfcl", question)),
         question=question,
         docs=[("tool-schemas", schema)],
         answer=json.dumps(truth, sort_keys=True),

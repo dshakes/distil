@@ -31,7 +31,7 @@ uv run distil --help
 
 ---
 
-## The five gates
+## The six gates
 
 Run all of them the way CI does:
 
@@ -48,6 +48,7 @@ Or individually:
 | `distil retention` | Which facts stay visible, recoverable, or lost? | free, ~2s |
 | `distil fidelity` | Do state, hedging and plan survive? | free, ~3s |
 | `distil validate` | Do the invariants hold on hostile input? | free, ~15s |
+| `distil suite` | Does it hold on PUBLIC benchmarks? | free, first run fetches |
 
 ### 1. `distil bench` — decision equivalence
 
@@ -167,7 +168,7 @@ uv run distil fidelity --json --max-silent 15 | jq -r '.dataset.fingerprint'
 
 ---
 
-### 5. `distil suite` — public benchmarks, third-party ground truth
+### 6. `distil suite` — public benchmarks, third-party ground truth
 
 ```bash
 uv run distil suite --tier 1              # tool-calling + retrieval (the evidence)
@@ -192,7 +193,7 @@ stranger can falsify our numbers against data they already trust.
 **It costs nothing.** Grading is deterministic recall against the answer key — no
 model in the loop, no API key, no spend. Suites that grade with an LLM judge cost
 real money per tier, which makes them something you run before a launch rather than
-before a merge. This one runs in CI.
+before a merge. This one is wired into `make gate` and the CI gate job (tier 1, n=25).
 
 **Payload class is reported with every row, and it is the most important column.**
 

@@ -97,6 +97,12 @@ jobs:
       # regression that doubles it. See docs/EVALUATION.md section 6.2.
       - name: Fidelity gate (artifact state, overclaim, continuation, propagation)
         run: uv run distil fidelity --max-silent 15
+      - name: public benchmark suite (third-party ground truth, no API spend)
+        # Small n keeps it quick; the point is that the gate RUNS, not that it grades
+        # every case. It fetches rows from the HF datasets-server on a cold cache, so
+        # it is the one gate here that touches the network — and it fails loudly
+        # rather than silently skipping if that is unavailable.
+        run: uv run distil suite --tier 1 -n 25
       # Everything above imports distil from the source tree. This builds the wheel,
       # installs it clean, and drives the console scripts + server.json launch spec the
       # way a user's MCP client does — the boundary that shipped a broken registry
