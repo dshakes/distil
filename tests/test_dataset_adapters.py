@@ -526,3 +526,40 @@ class TestBfclGradesNestedArgumentNames:
         assert case is not None
         assert "Science" not in case.support
         assert {"f", "dept"} <= set(case.support)
+
+    def test_offline_accepts_a_short_but_complete_cache(self, monkeypatch, tmp_path) -> None:
+        """The online path learned that a short split can be whole; offline had not.
+
+        After one successful fetch of a genuinely short benchmark, `--offline` failed
+        as "insufficient cache" instead of grading the split it already had.
+        """
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        cache = tmp_path / "datasets"
+        cache.mkdir(parents=True)
+        (cache / "bfcl.jsonl").write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "id": f"s{i}",
+                        "question": [[{"content": "q"}]],
+                        "function": [{"name": "f"}],
+                        "ground_truth": [{"f": {"a": [1]}}],
+                    }
+                )
+                for i in range(3)
+            )
+            + "\n"
+        )
+        with pytest.raises(datasets.DatasetUnavailable):
+            datasets.load("bfcl", 100, offline=True)  # short AND unmarked: still fatal
+
+        datasets._mark_complete("bfcl")
+        assert len(datasets.load("bfcl", 100, offline=True)) == 3
+
+    def test_an_empty_cache_is_still_fatal_offline(self, monkeypatch, tmp_path) -> None:
+        """The marker cannot conjure evidence: no rows is no rows."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        (tmp_path / "datasets").mkdir(parents=True)
+        datasets._mark_complete("bfcl")
+        with pytest.raises(datasets.DatasetUnavailable):
+            datasets.load("bfcl", 10, offline=True)

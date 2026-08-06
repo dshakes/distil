@@ -818,7 +818,12 @@ def load(name: str, n: int | None = None, *, offline: bool = False) -> list[Grou
 
     if offline:
         rows = _read_cache(spec.name)[:want]
-        if len(rows) < want:
+        # A short cache is fine when it is the WHOLE split. The online path already
+        # knows that — it records `.complete` at end-of-split so a 3-row benchmark
+        # asked for 100 stops re-fetching — but offline still demanded `want` rows,
+        # so the same benchmark failed as "insufficient cache" the moment the network
+        # was taken away. One path learned the fact and the other did not.
+        if len(rows) < want and not (rows and _is_complete(spec.name)):
             raise DatasetUnavailable(
                 f"{spec.name}: offline mode has {len(rows)} cached rows, need {want} "
                 f"(run once without --offline to populate {_cache_path(spec.name)})"
