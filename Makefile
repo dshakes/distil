@@ -20,7 +20,7 @@ suite:  ## Public benchmarks (third-party ground truth). First run fetches + cac
 	# Gated at the MEASURED band on RICH rows only: bfcl support 0.964, hotpotqa and
 	# squad 1.000 at n=25. Controls are excluded by construction — gsm8k loses 17
 	# bare-number answers here, which says nothing about compression.
-	uv run distil suite --tier 1 -n 25 --min-answer-recall 0.95 --min-support-recall 0.95
+	uv run distil suite --tier 1 -n 25 --min-answer-recall 0.95 --min-support-recall 0.95 --allow-unavailable
 
 bench:  ## Corpus-wide non-inferiority gate
 	uv run distil bench

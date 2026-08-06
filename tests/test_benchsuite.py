@@ -479,3 +479,60 @@ class TestTheCiGateHasARealThreshold:
         assert row.ok, row.error
         assert row.requested == default_n, "a default run must know what it asked for"
         assert not row.short, "enough rows were cached"
+
+
+class TestAnOutageIsNotARegression:
+    """A third party's 504 is not a compression regression.
+
+    The suite was added to the required CI gate and immediately failed it on
+    `bfcl: HTTP Error 504` from the HuggingFace CDN. A required gate that fails on
+    someone else's uptime teaches people to ignore it — but downgrading a fetch
+    failure to silence would recreate the vacuous pass. So it warns loudly, and the
+    run still fails if the outage took out everything that could testify.
+    """
+
+    def test_unavailable_is_a_warning_when_allowed(self, seeded) -> None:
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            [
+                "suite",
+                "--only",
+                f"{seeded['rich']},nope",
+                "-n",
+                "3",
+                "--offline",
+                "--allow-unavailable",
+            ]
+        )
+        assert cmd_suite(args) == 0, "a graded rich benchmark survives one outage"
+
+    def test_unavailable_still_fails_without_the_flag(self, seeded) -> None:
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            ["suite", "--only", f"{seeded['rich']},nope", "-n", "3", "--offline"]
+        )
+        assert cmd_suite(args) == 1, "strict by default: a local run must not hide it"
+
+    def test_a_total_outage_still_fails_even_when_allowed(self) -> None:
+        """No rich evidence graded means nothing testified — the flag cannot rescue it."""
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            ["suite", "--only", "nope,also-nope", "--offline", "--allow-unavailable"]
+        )
+        assert cmd_suite(args) == 1
+
+    def test_the_ci_gate_tolerates_an_outage_but_keeps_its_thresholds(self) -> None:
+        import pathlib
+
+        line = next(
+            ln
+            for ln in pathlib.Path(".github/workflows/ci.yml").read_text().splitlines()
+            if "distil suite" in ln
+        )
+        assert "--allow-unavailable" in line
+        assert "--min-answer-recall" in line and "--min-support-recall" in line, (
+            "tolerating an outage must not mean dropping the quality bar"
+        )

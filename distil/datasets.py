@@ -501,9 +501,28 @@ def _fetch_bfcl(spec: "_Spec", want: int) -> list[dict[str, Any]]:
         return rows[:want]
 
     def _lines(path: str) -> list[dict[str, Any]]:
-        req = urllib.request.Request(f"{_BFCL_BASE}/{path}", headers={"User-Agent": _UA})
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
-            body = resp.read().decode("utf-8", "replace")
+        # Same retry/backoff the rows API gets. Without it a single transient 504
+        # from the CDN failed the whole gate — which is how a quality gate ends up
+        # measuring a third party's uptime instead of the compressor.
+        url = f"{_BFCL_BASE}/{path}"
+        body = ""
+        last: Exception | None = None
+        for attempt in range(_ATTEMPTS):
+            req = urllib.request.Request(url, headers={"User-Agent": _UA})
+            try:
+                with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
+                    body = resp.read().decode("utf-8", "replace")
+                break
+            except urllib.error.HTTPError as exc:
+                last = exc
+                if exc.code not in _RETRY_STATUS:
+                    raise
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                last = exc
+            if attempt < _ATTEMPTS - 1:
+                time.sleep(_BACKOFF * (2**attempt))
+        else:
+            raise DatasetUnavailable(f"{spec.name}: {url} unreachable after {_ATTEMPTS}: {last}")
         out = []
         for line in body.splitlines():
             line = line.strip()

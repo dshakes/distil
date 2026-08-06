@@ -673,11 +673,19 @@ def cmd_suite(args: argparse.Namespace) -> int:
     # skip: reporting green for a suite that measured less than it claimed is the
     # vacuous-gate failure this repo gates against everywhere else.
     if report.failed:
+        # A fetch failure is an upstream outage, not a compression regression, and a
+        # required gate that fails on a third party's 504 teaches people to ignore
+        # it. `--allow-unavailable` (used by CI) downgrades it to a loud warning —
+        # never a silent skip, and never a pass: the "no rich evidence" check below
+        # still fails the run if the outage took out everything that could testify.
+        label = "WARN" if args.allow_unavailable else "FAIL"
         print(
-            f"\nFAIL: {len(report.failed)} benchmark(s) could not be graded",
+            f"\n{label}: {len(report.failed)} benchmark(s) could not be graded "
+            f"({', '.join(r.name for r in report.failed)})",
             file=out,
         )
-        return 1
+        if not args.allow_unavailable:
+            return 1
     if args.max_lost is not None and report.total_lost > args.max_lost:
         print(
             f"\nFAIL: {report.total_lost} unrecoverable gold facts > --max-lost {args.max_lost}",
@@ -3351,6 +3359,12 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("--only", help="comma-separated benchmark names, overriding --tier")
     su.add_argument("-n", type=int, help="cases per benchmark (default: each dataset's own)")
     su.add_argument("--offline", action="store_true", help="cached rows only (no network)")
+    su.add_argument(
+        "--allow-unavailable",
+        action="store_true",
+        help="treat an upstream fetch failure as a warning, not a gate failure "
+        "(quality thresholds still apply; a run with no rich evidence still fails)",
+    )
     su.add_argument("--json", action="store_true", help="machine-readable report")
     su.add_argument(
         "--max-lost", type=int, help="exit 1 if more than this many gold facts are unrecoverable"
