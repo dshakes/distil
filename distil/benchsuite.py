@@ -58,6 +58,11 @@ class BenchRow:
     support_recall: float
     lost: int
     error: str = ""
+    # Why the row failed. Only `unavailable` — a transport or cache problem — may be
+    # downgraded to a warning: an outage is not a compression regression. A `bug`
+    # (any other exception, or a schema drift that leaves no adaptable rows) is our
+    # own defect and must never be waited out.
+    failure: str = ""  # "" | "unavailable" | "bug"
     # What was asked for, when that differs from what was graded. A split can end
     # early or an adapter can drop malformed rows; either way `-n 100` graded on 7
     # cases is a different measurement, and hiding that makes a thin run look full.
@@ -101,6 +106,7 @@ class BenchRow:
             "support_recall": round(self.support_recall, 4),
             "lost": self.lost,
             "error": self.error,
+            "failure": self.failure,
         }
 
 
@@ -211,7 +217,9 @@ def run(
         try:
             payload = datasets.payload_class(name)
         except datasets.DatasetUnavailable as exc:
-            report.rows.append(BenchRow(name, "?", 0, 0.0, 0.0, 0.0, 0, error=str(exc)))
+            report.rows.append(
+                BenchRow(name, "?", 0, 0.0, 0.0, 0.0, 0, error=str(exc), failure="bug")
+            )
             continue
         try:
             # The effective request size: `n` when given, else the spec's own
@@ -244,8 +252,24 @@ def run(
                 )
             )
         except Exception as exc:  # noqa: BLE001 - every failure must surface as a row
+            # A DatasetUnavailable from transport or an empty cache is availability.
+            # Anything else — a TypeError in an adapter, a scoring bug — is ours, and
+            # so is a DatasetUnavailable that means the upstream shape changed.
+            availability = isinstance(exc, datasets.DatasetUnavailable) and not (
+                "survived adaptation" in str(exc) or "unknown dataset" in str(exc)
+            )
             report.rows.append(
-                BenchRow(name, payload, 0, 0.0, 0.0, 0.0, 0, error=f"{type(exc).__name__}: {exc}")
+                BenchRow(
+                    name,
+                    payload,
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0,
+                    error=f"{type(exc).__name__}: {exc}",
+                    failure="unavailable" if availability else "bug",
+                )
             )
     report.duration_s = time.time() - started
     return report

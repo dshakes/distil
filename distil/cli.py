@@ -681,10 +681,18 @@ def cmd_suite(args: argparse.Namespace) -> int:
         # An unknown NAME is a typo in the invocation, not an outage — downgrading it
         # meant `--only bfcl,hotptoqa --allow-unavailable` silently graded one
         # benchmark and exited 0. Only transport failures are tolerable.
-        unknown = [r for r in report.failed if "unknown dataset" in r.error]
-        if unknown:
+        # Only an availability failure may be waited out. A typo, a schema drift, or
+        # an exception from our own adapter/scoring code is a defect, and CI passes
+        # `--allow-unavailable` — so without this split an internal TypeError in one
+        # benchmark exited 0 whenever another rich benchmark happened to pass.
+        ours = [r for r in report.failed if r.failure != "unavailable"]
+        if ours:
             print(
-                f"\nFAIL: unknown benchmark(s): {', '.join(r.name for r in unknown)}",
+                "\nFAIL: "
+                + "; ".join(f"{r.name}: {r.error[:70]}" for r in ours)
+                + "\n  (not an outage — a benchmark that cannot be loaded or scored for any "
+                "reason\n   other than availability is a defect here, and --allow-unavailable "
+                "does not cover it)",
                 file=out,
             )
             return 1

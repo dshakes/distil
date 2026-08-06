@@ -651,3 +651,59 @@ class TestAnUnknownNameIsNotAnOutage:
             ]
         )
         assert cmd_suite(args) == 1
+
+
+class TestOnlyAvailabilityCanBeWaitedOut:
+    """`--allow-unavailable` covers a CDN, never our own defect.
+
+    `benchsuite.run` catches broad `Exception` so every failure surfaces as a row.
+    That meant a `TypeError` in an adapter, or a schema drift leaving no adaptable
+    rows, was downgraded exactly like a 504 — and CI passes the flag, so an internal
+    regression exited 0 whenever another rich benchmark happened to pass.
+    """
+
+    def test_a_scoring_bug_is_not_downgradeable(self, seeded, monkeypatch) -> None:
+        import distil.retention as rt
+        from distil.cli import build_parser, cmd_suite
+
+        def _boom(*a, **k):
+            raise TypeError("scoring bug")
+
+        monkeypatch.setattr(rt, "score_dataset", _boom)
+        args = build_parser().parse_args(
+            ["suite", "--only", seeded["rich"], "-n", "3", "--offline", "--allow-unavailable"]
+        )
+        assert cmd_suite(args) == 1, "our own exception must never be waited out"
+
+    def test_a_transport_failure_is_downgradeable(self, seeded) -> None:
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            [
+                "suite",
+                "--only",
+                f"{seeded['rich']},msmarco",
+                "-n",
+                "3",
+                "--offline",
+                "--allow-unavailable",
+            ]
+        )
+        assert cmd_suite(args) == 0
+
+    def test_schema_drift_is_a_defect_not_an_outage(self, monkeypatch, tmp_path) -> None:
+        """`no rows survived adaptation` means the upstream shape changed. Waiting
+        does not fix that."""
+        import json
+
+        home = tmp_path / "datasets"
+        home.mkdir(parents=True)
+        (home / "gsm8k.jsonl").write_text(json.dumps({"unexpected": "shape"}) + "\n")
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        report = benchsuite.run(names=["gsm8k"], n=1, offline=True)
+        assert report.rows[0].failure == "bug", report.rows[0].error
+
+    def test_failure_kind_reaches_the_json(self, seeded) -> None:
+        report = benchsuite.run(names=[seeded["rich"], "msmarco"], n=3, offline=True)
+        kinds = {r["name"]: r["failure"] for r in report.to_dict()["rows"]}
+        assert kinds[seeded["rich"]] == "" and kinds["msmarco"] == "unavailable"
