@@ -255,8 +255,11 @@ def run(
             # A DatasetUnavailable from transport or an empty cache is availability.
             # Anything else — a TypeError in an adapter, a scoring bug — is ours, and
             # so is a DatasetUnavailable that means the upstream shape changed.
-            availability = isinstance(exc, datasets.DatasetUnavailable) and not (
-                "survived adaptation" in str(exc) or "unknown dataset" in str(exc)
+            # By TYPE, not by message. `DatasetSchemaError` is a subclass, so the
+            # order matters: a schema/join failure is ours, a plain
+            # `DatasetUnavailable` is availability, anything else is ours.
+            availability = isinstance(exc, datasets.DatasetUnavailable) and not isinstance(
+                exc, datasets.DatasetSchemaError
             )
             report.rows.append(
                 BenchRow(

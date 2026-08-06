@@ -413,3 +413,72 @@ class TestCaseIdsAreStableAcrossProcesses:
         assert case is not None
         assert case.support == sorted(set(case.support)), "duplicate golds inflate recall"
         assert case.support.count("calc") == 1
+
+
+class TestSchemaDriftIsADefectNotAnOutage:
+    """Classified by TYPE, because matching message substrings kept missing one.
+
+    A join failure raised `DatasetUnavailable` whose text matched neither of the two
+    phrases the classifier looked for, so upstream schema drift in BFCL was labelled
+    an outage — and CI tolerates outages, so a broken adapter would have warned and
+    exited 0.
+    """
+
+    def test_schema_error_is_still_caught_as_unavailable(self) -> None:
+        assert issubclass(datasets.DatasetSchemaError, datasets.DatasetUnavailable)
+
+    def test_an_unjoinable_bfcl_is_a_schema_error(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        q = json.dumps({"id": "a", "question": [[{"content": "x"}]], "function": [{"name": "f"}]})
+        TestBfclTransport._fake_http(
+            monkeypatch,
+            {"BFCL_v3_simple.json": q, "possible_answer/BFCL_v3_simple.json": ""},
+        )
+        with pytest.raises(datasets.DatasetSchemaError):
+            datasets._fetch_bfcl(datasets.SPECS["bfcl"], 5)
+
+    def test_an_unknown_name_is_a_schema_error(self) -> None:
+        with pytest.raises(datasets.DatasetSchemaError):
+            datasets.load("not-a-benchmark", 1)
+
+
+class TestAShortSplitStopsHittingTheNetwork:
+    """`len(rows) >= want` can never hold for a split smaller than the request.
+
+    A 50-row benchmark asked for 100 therefore re-fetched on every single run, and
+    the offline promise quietly did not apply to it. End-of-split is now recorded.
+    """
+
+    def test_end_of_split_is_marked_and_then_served_from_cache(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        rows = "\n".join(
+            json.dumps(
+                {
+                    "id": f"s{i}",
+                    "question": [[{"content": f"q{i}"}]],
+                    "function": [{"name": "f"}],
+                }
+            )
+            for i in range(3)
+        )
+        gt = "\n".join(json.dumps({"id": f"s{i}", "ground_truth": [{"f": {}}]}) for i in range(3))
+        TestBfclTransport._fake_http(
+            monkeypatch,
+            {"BFCL_v3_simple.json": rows, "possible_answer/BFCL_v3_simple.json": gt},
+        )
+        assert len(datasets._fetch_bfcl(datasets.SPECS["bfcl"], 100)) == 3
+        assert datasets._is_complete("bfcl"), "a short split must record that it is whole"
+
+        import urllib.request
+
+        monkeypatch.setattr(
+            urllib.request,
+            "urlopen",
+            lambda *a, **k: pytest.fail("a complete cache must not touch the network"),
+        )
+        assert len(datasets._fetch_bfcl(datasets.SPECS["bfcl"], 100)) == 3
+
+    def test_an_incomplete_cache_still_refetches(self, monkeypatch, tmp_path) -> None:
+        """Without the marker the cache is only trusted when it already has enough."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        assert not datasets._is_complete("bfcl")

@@ -52,7 +52,24 @@ _UA = "distil-llm (+https://github.com/dshakes/distil)"
 
 
 class DatasetUnavailable(RuntimeError):
-    """Raised when a benchmark cannot be loaded. Never swallowed into a pass."""
+    """Raised when a benchmark cannot be loaded. Never swallowed into a pass.
+
+    Plain `DatasetUnavailable` means AVAILABILITY — transport, timeout, an empty
+    cache in offline mode. Those pass with time and may be tolerated by a CI gate.
+    """
+
+
+class DatasetSchemaError(DatasetUnavailable):
+    """The data arrived and did not fit — a defect here, not an outage.
+
+    Kept as a subclass so existing `except DatasetUnavailable` handlers still catch
+    it, but distinguishable by TYPE. The previous split matched two substrings of the
+    message, so a third phrasing — "no question joined to a ground truth" — was
+    classified as an outage and, since CI tolerates outages, a broken upstream join
+    would have been downgraded to a warning and exited 0. Enumerating messages is the
+    same guessing that has cost this repo several bugs; the raise site knows which
+    kind it is, so it says so.
+    """
 
 
 @dataclass
@@ -84,6 +101,28 @@ def _home() -> Path:
 
 def _cache_path(name: str) -> Path:
     return _home() / "datasets" / f"{name}.jsonl"
+
+
+def _complete_marker(name: str) -> Path:
+    """Marks a cache that holds the WHOLE split.
+
+    The cache test was `len(rows) >= want`, which a split smaller than the request
+    can never satisfy — so a 50-row benchmark asked for 100 hit the network on every
+    single run, forever, and the offline promise quietly did not apply to it. When a
+    fetch ends because the split ran out, that fact is recorded, and the cache is
+    then authoritative no matter how large the request is.
+    """
+    return _home() / "datasets" / f"{name}.complete"
+
+
+def _mark_complete(name: str) -> None:
+    marker = _complete_marker(name)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("1", encoding="utf-8")
+
+
+def _is_complete(name: str) -> bool:
+    return _complete_marker(name).exists()
 
 
 def _read_cache(name: str) -> list[dict[str, Any]]:
@@ -142,7 +181,7 @@ def _get(url: str) -> dict[str, Any]:
 def _fetch_rows(spec: _Spec, want: int) -> list[dict[str, Any]]:
     """Fetch `want` rows, paging the 100-row cap, warm-starting from the cache."""
     rows = _read_cache(spec.name)
-    if len(rows) >= want:
+    if len(rows) >= want or (rows and _is_complete(spec.name)):
         return rows[:want]
 
     while len(rows) < want:
@@ -159,13 +198,15 @@ def _fetch_rows(spec: _Spec, want: int) -> list[dict[str, Any]]:
         payload = _get(f"{_ROWS_API}?{query}")
         batch = payload.get("rows")
         if not isinstance(batch, list) or not batch:
-            break  # split exhausted
+            _mark_complete(spec.name)  # split exhausted: this cache is the whole thing
+            break
         for item in batch:
             row = item.get("row") if isinstance(item, dict) else None
             if isinstance(row, dict):
                 rows.append(row)
         if len(batch) < length:
-            break  # server returned a short page: end of split
+            _mark_complete(spec.name)  # short page: end of split
+            break
 
     if not rows:
         raise DatasetUnavailable(f"{spec.name}: datasets-server returned no rows")
@@ -511,7 +552,7 @@ def _fetch_bfcl(spec: "_Spec", want: int) -> list[dict[str, Any]]:
     join are dropped rather than scored as passes.
     """
     rows = _read_cache(spec.name)
-    if len(rows) >= want:
+    if len(rows) >= want or (rows and _is_complete(spec.name)):
         return rows[:want]
 
     def _lines(path: str) -> list[dict[str, Any]]:
@@ -564,7 +605,9 @@ def _fetch_bfcl(spec: "_Spec", want: int) -> list[dict[str, Any]]:
         if len(rows) >= want:
             break
     if not rows:
-        raise DatasetUnavailable(f"{spec.name}: no question joined to a ground truth")
+        raise DatasetSchemaError(f"{spec.name}: no question joined to a ground truth")
+    if len(rows) < want:
+        _mark_complete(spec.name)  # every joinable row is here; there are no more
     _write_cache(spec.name, rows)
     return rows[:want]
 
@@ -734,7 +777,7 @@ def payload_class(name: str) -> str:
     """
     spec = SPECS.get(name)
     if spec is None:
-        raise DatasetUnavailable(f"unknown dataset {name!r}")
+        raise DatasetSchemaError(f"unknown dataset {name!r}")
     return spec.payload
 
 
@@ -749,7 +792,7 @@ def load(name: str, n: int | None = None, *, offline: bool = False) -> list[Grou
     """
     spec = SPECS.get(name)
     if spec is None:
-        raise DatasetUnavailable(f"unknown dataset {name!r} (have: {', '.join(sorted(SPECS))})")
+        raise DatasetSchemaError(f"unknown dataset {name!r} (have: {', '.join(sorted(SPECS))})")
     want = spec.default_n if n is None else n
     if want <= 0:
         raise DatasetUnavailable(f"n must be positive, got {want}")
@@ -781,7 +824,7 @@ def load(name: str, n: int | None = None, *, offline: bool = False) -> list[Grou
             cases = [case for case in (spec.adapt(row) for row in rows) if case is not None]
 
     if not cases:
-        raise DatasetUnavailable(
+        raise DatasetSchemaError(
             f"{spec.name}: no rows survived adaptation (upstream shape change?)"
         )
     # A shortfall is NOT an error: a split legitimately ends, and that is a documented,
