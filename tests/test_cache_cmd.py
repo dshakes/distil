@@ -8,6 +8,7 @@ session nobody measured. It has to fail instead.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -15,11 +16,23 @@ import pytest
 
 
 def _run(home, *args: str):
+    """Inherit the real environment and override only what the test controls.
+
+    An earlier version built a minimal env from scratch — `{"PATH": "/usr/bin:/bin",
+    "HOME": ...}`. That is POSIX-shaped in two ways at once: Windows resolves the home
+    directory from USERPROFILE rather than HOME, and that PATH names directories that do
+    not exist there. The CLI could not start, so every assertion in this file compared
+    its expected string against `RuntimeError: Could not determine home directory.`
+
+    `DISTIL_HOME` is the only isolation these tests actually need — conftest already
+    points it at a fresh directory, and the fixture writes the ledger under it.
+    """
+    env = {**os.environ, "DISTIL_HOME": str(home / ".distil")}
     return subprocess.run(
         [sys.executable, "-m", "distil.cli", "cache", *args],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(home), "DISTIL_HOME": str(home / ".distil")},
+        env=env,
     )
 
 
