@@ -3,6 +3,93 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.41.0] — what the cache bought, and what a name is worth
+
+Three things of the same shape: a claim distil could make but not show, and a number
+that was true for the wrong reason.
+
+### `distil cache` — the observability half of cache alignment
+
+distil already *prevented* prefix drift by construction. `strategies.distil` compresses
+the volatile tail and leaves every stable block byte-identical, so compression cannot be
+the cause of a cache miss. What was missing was any way to **show** it — and any way to
+name the case distil cannot fix: a caller whose own system prompt carries a timestamp.
+
+The report deliberately mixes two kinds of number. Cache reads and writes come from the
+provider's own `usage` — ground truth about money. Prefix drift is distil's diagnosis of
+why, from a content-free hash of the stable blocks it sent. It never prints one without
+the other, because a diagnosis with no measurement behind it is a guess.
+
+```
+requests        3
+cache reads     31,614 tokens  (billed at a discount)
+cache writes    15,819 tokens  (billed at a surcharge)
+hit ratio       66.6% of cacheable tokens were reads
+prefix drift    1 of 2 turns changed the stable prefix (50%)
+```
+
+Verified live on both the streaming and non-streaming paths: the prefix held across a
+turn append, then a session id prepended to the system prompt forced a re-create. The
+turn the hash flagged is the turn the provider re-billed — derived independently,
+agreeing. Only `system`, `tools` and `tool_choice` are hashed: a conversation growing is
+not drift, and a warning that fires on every healthy turn is one people switch off.
+
+The proxy now records `usage_cache_read` and `usage_cache_create` separately. Summed,
+they cannot tell a working cache from a thrashing one — a write is a surcharge, a read a
+discount, and a prefix that drifts every turn writes forever and never reads.
+
+With no proxied requests, `distil cache` exits non-zero rather than printing a
+reassuring zero. A cache report over no data reads as a clean bill of health for a
+session nobody measured.
+
+New: [docs/CACHE.md](docs/CACHE.md), including the one cache feature deliberately **not**
+shipped — a response cache — and the three reasons why.
+
+### BFCL was being scored as prose
+
+Its golds are bare code names; the generic matcher anchors on non-word boundaries. On
+the n=25 sample that credited **11 of 85 golds by accident** — `'a'` matching inside
+`"tool-schemas"`.
+
+Names are now matched as **identifiers**: a quoted JSON token, tolerating one level of
+escaping. The escaping is the part that makes it work — a tool schema is JSON nested
+inside a JSON payload, so its quotes arrive as `\"base\"`. An earlier attempt requiring
+a bare `"base"` read **2.9%** on a payload where every name was plainly present; that
+number measured the matcher, not the compressor. This removes the "upper bound" caveat
+that shipped with 1.40.0.
+
+Support recall is now **100.0%** — and the report says what that means. **Visible recall
+is 0%**: the schema sits behind a restore handle, one `distil_expand` away. At matched
+savings (89.3% vs 90.1%) truncation keeps **0 of 70** names; distil keeps all 70, none of
+them on screen. The table prints `visible → true support: bfcl 0%→100%` rather than the
+flattering figure alone, because a reader who assumes the model can *see* a schema it
+must first expand has been misled by numbers that are each individually correct.
+
+Fifteen golds BFCL genuinely names `a`, `b`, `c` are excluded **and counted**. A
+one-letter token occurs in almost any English text, so it can be neither credited nor
+failed honestly — the same treatment as an abstractive answer. A recall computed against
+a quietly reduced denominator is an inflated result.
+
+### `make gate` was weaker than CI
+
+CI ran `distil validate`; the Makefile did not. A local green gate promised a push it
+could not deliver — the one thing that target exists to prevent. Added, along with a test
+that compares the two by invoked subcommand and fails naming the missing one.
+
+### Also
+
+- Three tests fetched BFCL **live** to assert on `--min-recall` gate logic. Seven CI
+  runners hitting the same endpoint produced an HTTP 429, and the assertion degraded into
+  comparing its expected string against a rate-limit message. A red gate meaning "a third
+  party throttled us" trains people to re-run until green. They run offline now.
+- `eval-stack.svg` still said five gates and omitted `distil suite`. Rebuilt animated,
+  six gates lighting in run order.
+- `phantom-file.svg` and `cache-delta.svg` animated — the deletion is struck through and
+  dimmed, and the two re-read bars race at true relative scale. Both resolve to their end
+  state under `prefers-reduced-motion`.
+- `cli.html` never got a `suite` section from 1.40.0. Added, with `cache`.
+- `evals.html` was marking Corpus as the active nav page.
+
 ## [1.40.1] — the numbers, corrected
 
 Bug fixes and honest reporting. No compressor, proxy or CLI behaviour changes; the
