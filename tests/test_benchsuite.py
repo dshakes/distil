@@ -223,7 +223,11 @@ class TestTheSuiteCannotPassOnACollapse:
 
     def test_a_collapsed_rich_benchmark_is_detected(self) -> None:
         report = benchsuite.SuiteReport(
-            rows=[benchsuite.BenchRow("bfcl", "rich", 100, 0.9, 0.0, 0.0, 0)]
+            rows=[
+                benchsuite.BenchRow(
+                    "bfcl", "rich", 100, 0.9, 0.0, 0.0, 0, answer_graded=100, support_facts=50
+                )
+            ]
         )
         assert [r.name for r in report.collapsed] == ["bfcl"]
         assert report.to_dict()["collapsed"] == ["bfcl"]
@@ -323,3 +327,52 @@ class TestAShortfallIsVisible:
     def test_a_real_run_records_what_was_requested(self, seeded) -> None:
         report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
         assert report.rows[0].requested == 3 and not report.rows[0].short
+
+
+class TestCollapseUsesOnlyMeasuredDimensions:
+    """A recall over zero golds is vacuously 1.0, and that made the guard blind.
+
+    `retention` returns support_recall=1.0 when there are no support facts, so a
+    SQuAD-shaped benchmark at 0% ANSWER recall satisfied "both recalls zero" only in
+    the answer dimension and escaped. That is the identical blind spot fixed one
+    property earlier in the loss count — reintroduced, and caught by the reviewer.
+    """
+
+    def test_squad_shaped_collapse_is_caught(self) -> None:
+        """No support facts at all: the answer dimension is the only witness."""
+        row = benchsuite.BenchRow(
+            "squad", "rich", 100, 0.9, 0.0, 1.0, 100, answer_graded=100, support_facts=0
+        )
+        assert [r.name for r in benchsuite.SuiteReport(rows=[row]).collapsed] == ["squad"]
+
+    def test_support_only_collapse_is_caught(self) -> None:
+        """BFCL grades no answer spans; support (function names) is the witness."""
+        row = benchsuite.BenchRow(
+            "bfcl", "rich", 100, 0.9, 1.0, 0.0, 50, answer_graded=0, support_facts=50
+        )
+        assert [r.name for r in benchsuite.SuiteReport(rows=[row]).collapsed] == ["bfcl"]
+
+    def test_a_healthy_row_is_not_flagged(self) -> None:
+        row = benchsuite.BenchRow(
+            "bfcl", "rich", 100, 0.9, 1.0, 1.0, 0, answer_graded=100, support_facts=50
+        )
+        assert benchsuite.SuiteReport(rows=[row]).collapsed == []
+
+    def test_a_row_with_nothing_measured_is_not_a_collapse(self) -> None:
+        """Zero golds of either kind means nothing testified — not a failure, and not
+        a pass either. It is reported as graded-nothing rather than collapsed."""
+        row = benchsuite.BenchRow("x", "rich", 100, 0.9, 1.0, 1.0, 0)
+        assert benchsuite.SuiteReport(rows=[row]).collapsed == []
+
+    def test_one_measured_dimension_at_zero_is_enough(self) -> None:
+        """Partial evidence still convicts: if the only graded dimension is zero, the
+        run collapsed regardless of what the ungraded one vacuously reports."""
+        row = benchsuite.BenchRow(
+            "m", "rich", 10, 0.9, 0.0, 1.0, 10, answer_graded=10, support_facts=0
+        )
+        assert [r.name for r in benchsuite.SuiteReport(rows=[row]).collapsed] == ["m"]
+
+    def test_counts_reach_the_json(self, seeded) -> None:
+        report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
+        blob = report.to_dict()["rows"][0]
+        assert "answer_graded" in blob and "support_facts" in blob

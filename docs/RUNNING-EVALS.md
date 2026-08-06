@@ -1,8 +1,13 @@
 # Running distil's evals
 
-Every gate here is **offline and free** unless the section says otherwise. No API
-key, no network, seconds to run. That is deliberate: a gate you skip because it
-costs money is not a gate.
+Every gate here is **free** unless the section says otherwise: no API key, no model
+in the loop, seconds to run. That is deliberate — a gate you skip because it costs
+money is not a gate.
+
+Most are fully offline. The exception is `distil suite`, which fetches public
+benchmark rows over HTTP the first time and caches them; after that it runs offline
+too, and `--offline` forces cached-only. It still spends nothing, because grading is
+deterministic rather than judged by a model.
 
 **This file is HOW to run the evals.** For **WHY** these are the metrics — why a
 compression ratio without a task-success delta is meaningless, why `stale` is

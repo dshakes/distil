@@ -61,6 +61,11 @@ class BenchRow:
     # early or an adapter can drop malformed rows; either way `-n 100` graded on 7
     # cases is a different measurement, and hiding that makes a thin run look full.
     requested: int = 0
+    # How many golds of each kind were actually GRADED. A recall over zero golds is
+    # vacuously 1.0, so without these counts a dimension nobody measured looks like a
+    # dimension that passed.
+    answer_graded: int = 0
+    support_facts: int = 0
 
     @property
     def short(self) -> bool:
@@ -76,6 +81,8 @@ class BenchRow:
             "payload": self.payload,
             "cases": self.cases,
             "requested": self.requested,
+            "answer_graded": self.answer_graded,
+            "support_facts": self.support_facts,
             "short": self.short,
             "savings": round(self.savings, 4),
             "answer_recall": round(self.answer_recall, 4),
@@ -116,11 +123,23 @@ class SuiteReport:
         returned nothing usable, or the loader handed it nothing to grade. It must
         never exit 0 just because no threshold flag happened to be passed.
         """
-        return [
-            r
-            for r in self.evidence
-            if r.cases and r.answer_recall <= 0.0 and r.support_recall <= 0.0
-        ]
+        out: list[BenchRow] = []
+        for r in self.evidence:
+            if not r.cases:
+                continue
+            # Only dimensions with golds to grade can testify. `retention` returns a
+            # recall of 1.0 over zero facts, so a SQuAD-shaped benchmark — which has
+            # no support facts at all — reported support_recall=1.0 and escaped a
+            # requirement that BOTH recalls be zero. That is the same blind spot just
+            # fixed in the loss count, one property over.
+            measured = []
+            if r.answer_graded:
+                measured.append(r.answer_recall)
+            if r.support_facts:
+                measured.append(r.support_recall)
+            if measured and max(measured) <= 0.0:
+                out.append(r)
+        return out
 
     @property
     def total_lost(self) -> int:
@@ -172,6 +191,8 @@ def run(
                     payload=payload,
                     cases=len(cases),
                     requested=n or 0,
+                    answer_graded=int(_num(graded, "answer_graded")),
+                    support_facts=int(_num(graded, "support_facts")),
                     savings=_num(graded, "savings"),
                     answer_recall=_num(graded, "answer_recall"),
                     support_recall=_num(graded, "support_recall"),
