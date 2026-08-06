@@ -214,9 +214,11 @@ is most likely to cause and least likely to notice, because no QA benchmark ever
 asks the model to *act*: a schema can keep `calculate_triangle_area` and lose the
 `base` parameter, and the call cannot be formed at all.
 
-Measured over 100 cases: **91.4% savings, 378 gold names, 4 lost (98.9% retained)**.
+Measured over 100 cases: **91.4% savings, 385 gold names, 4 lost (99.0% retained)**.
 Names are de-duplicated — the function name arrives from both the schema and the
-gold call, and counting it twice inflated the earlier 478/99.2% figure.
+gold call, and counting it twice inflated an earlier 478/99.2% figure. Names nested inside a
+gold argument object are graded too — `conditions={"department": …}` contributes
+all three, not just `conditions`.
 Most survive as *recoverable* rather than visible (2.3% visible) — they sit behind
 expand handles, which is what the reversible tier is supposed to do.
 

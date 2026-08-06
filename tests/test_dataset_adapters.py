@@ -482,3 +482,47 @@ class TestAShortSplitStopsHittingTheNetwork:
         """Without the marker the cache is only trusted when it already has enough."""
         monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
         assert not datasets._is_complete("bfcl")
+
+
+class TestBfclGradesNestedArgumentNames:
+    """A gold call can nest argument objects, and those names must be graded too.
+
+    Only top-level keys were collected, so `db_fetch_records(conditions={...})` was
+    checked for `conditions` and not for `department` or `school` inside it.
+    Compression could drop those schema fields and the tier-1 gate would still pass —
+    the opposite of what this benchmark exists to prove. Two of the first 100 real
+    BFCL rows have exactly this shape.
+    """
+
+    def test_nested_keys_are_collected(self) -> None:
+        case = datasets._bfcl(
+            {
+                "id": "x",
+                "question": [[{"content": "q"}]],
+                "function": [{"name": "db_fetch_records", "parameters": {}}],
+                "ground_truth": [
+                    {
+                        "db_fetch_records": {
+                            "conditions": [{"department": ["Science"], "school": ["Bluebird HS"]}]
+                        }
+                    }
+                ],
+            }
+        )
+        assert case is not None
+        assert {"db_fetch_records", "conditions", "department", "school"} <= set(case.support)
+
+    def test_values_are_not_mistaken_for_names(self) -> None:
+        """Only keys are names. A value like "Science" is data, and grading it would
+        inflate the fact count with strings the schema never has to contain."""
+        case = datasets._bfcl(
+            {
+                "id": "x",
+                "question": [[{"content": "q"}]],
+                "function": [{"name": "f", "parameters": {}}],
+                "ground_truth": [{"f": {"dept": ["Science"]}}],
+            }
+        )
+        assert case is not None
+        assert "Science" not in case.support
+        assert {"f", "dept"} <= set(case.support)

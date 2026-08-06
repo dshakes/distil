@@ -521,13 +521,32 @@ def _bfcl(row: dict[str, Any]) -> GroundTruthCase | None:
     for fn in functions:
         if isinstance(fn, dict) and fn.get("name"):
             seen.add(str(fn["name"]))
+
+    def _arg_names(node: Any) -> None:
+        """Every argument name at any depth.
+
+        Recording only top-level keys left nested objects ungraded: a real gold call
+        like `db_fetch_records(conditions={"department": ..., "school": ...})` was
+        checked for `conditions` and not for the two names inside it. Compression
+        could drop those schema fields and the tier-1 gate would still pass, which is
+        the opposite of what this benchmark is here to prove.
+        """
+        if isinstance(node, dict):
+            for key, value in node.items():
+                seen.add(str(key))
+                _arg_names(value)
+        elif isinstance(node, list):
+            for item in node:
+                _arg_names(item)
+
     for call in truth if isinstance(truth, list) else []:
         if not isinstance(call, dict):
             continue
         for fn_name, args in call.items():
             seen.add(str(fn_name))
-            if isinstance(args, dict):
-                seen.update(str(a) for a in args)
+            _arg_names(args)
+    # Argument VALUES are not names — only keys are collected above, and a value that
+    # happens to be a dict contributes its keys, not its contents.
     names = sorted(seen)
     return GroundTruthCase(
         id=str(row.get("id") or _stable_id("bfcl", question)),
