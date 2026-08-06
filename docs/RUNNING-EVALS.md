@@ -308,15 +308,38 @@ reason a green result means something.
 
 ## CI
 
-All five gates run per-commit. The workflow is `.github/workflows/ci.yml`; the
+All six gates run per-commit (`make gate` = bench, verify, retention, fidelity,
+validate, suite). The workflow is `.github/workflows/ci.yml`; the
 same commands work locally, which is the point — `make gate` before pushing and
 CI should tell you nothing new.
 
-**Known limitation of the BFCL number.** Recall is scored by `retention`'s generic
-matcher, which anchors on non-word boundaries — right for prose, loose for short
-identifiers. A lost argument `id` can still be credited if `"id"` appears as a key
-elsewhere in the schema, so the figure is an **upper bound** on name retention for
-short identifiers. Tightening it by quoting the identifiers was tried and broke the
-recoverable-match path (recall fell to 2.9%, which measures the matcher rather than
-the compressor), so identifier-aware matching is deferred rather than shipped
-half-working. The CI band is set with this in mind.
+**How the BFCL number is matched.** BFCL's golds are bare code names, so they are
+scored as **identifiers**, not as prose: a name counts only where it appears as a
+quoted JSON token. The generic prose matcher anchors on non-word boundaries, which
+credited a lost argument `unit` for the word `units` elsewhere in the schema — on the
+n=25 sample that was **11 of 85 golds credited by accident** (`'a'` matched inside
+`"tool-schemas"`).
+
+The escaping is the part that makes it work. A tool schema is JSON nested inside a
+JSON payload, so the schema's own quotes arrive escaped: the text contains `\"base\"`,
+never `"base"`. An earlier attempt required a bare `"base"` and read **2.9%** on a
+payload where every name was plainly present — measuring the matcher rather than the
+compressor. The rule tolerates one level of escaping, and the result is **100.0%**
+support recall (0 retained, 70 recoverable — the schema sits behind a restore handle,
+which is exactly what the reversible tier is for).
+
+**The 100% is TRUE recall, and the suite says so.** Visible support recall on BFCL is
+**0%** — the schema sits behind a restore handle, one `distil_expand` away. Against the
+matched-savings truncation baseline (89.3% vs distil's 90.1%) the contrast is total:
+truncation keeps **0 of 70** names with nothing to recover from, distil keeps all 70 but
+none on screen. The report prints `visible → true support: bfcl 0%→100%` rather than the
+flattering figure alone; a reader who assumes the model can *see* a schema it must first
+expand has been misled by numbers that are each individually correct.
+
+**Fifteen golds are excluded and counted.** BFCL's gold calls genuinely name arguments
+`a`, `b`, `c` (quadratic coefficients). A one-letter token occurs in almost any English
+text, so it can be neither credited nor failed honestly — the same problem as HotpotQA's
+abstractive yes/no answers, and it gets the same treatment: excluded from the
+denominator and reported (`support_unadjudicable`), printed under the table rather than
+left implicit. A recall computed against a quietly reduced denominator is an inflated
+result.

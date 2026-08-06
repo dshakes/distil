@@ -1,4 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="cdT cdD">
+  <title id="cdT">Cache-delta coding on the read, edit, re-read hot path</title>
+  <desc id="cdD">An animated timeline. At turn 3 a coding agent reads a 1063-token file. At turn 7 it edits one function. At turn 8 it re-reads the same file, and the two possible outcomes race side by side: exact-dedup sees a file that is no longer identical and re-sends all 1063 tokens, while distil sends a reference plus a diff of the single changed hunk for 161. 85 percent of the re-read is elided, reversibly, and the cached prefix stays byte-identical so prompt-cache hits survive.</desc>
+  <style>
+    /* The two bars racing IS the argument, so they resolve to their final widths for
+       anyone who asked the OS to stop animating — never mid-grow. */
+    @media (prefers-reduced-motion: reduce) {
+      animate { display: none }
+      .cdbeat { opacity: 1 !important }
+    }
+  </style>
   <defs>
     <linearGradient id="cdbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <linearGradient id="cdg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
@@ -15,58 +25,71 @@
   <!-- timeline rail -->
   <line x1="70" y1="120" x2="1130" y2="120" stroke="#252c3e" stroke-width="2"/>
   <g font-size="11.5" fill="#5b6177" font-weight="600" text-anchor="middle">
-    <circle cx="190" cy="120" r="5" fill="#8b7bff"/><text x="190" y="100">turn 3 · read</text>
-    <circle cx="470" cy="120" r="5" fill="#8b7bff"/><text x="470" y="100">turn 7 · edit</text>
-    <circle cx="800" cy="120" r="5" fill="#5ad1c9"/><text x="800" y="100">turn 8 · RE-READ</text>
+    <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.02;0.07;0.93;0.98;1"/><circle cx="190" cy="120" r="5" fill="#8b7bff"/><text x="190" y="100">turn 3 · read</text></g>
+    <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.16;0.21;0.93;0.98;1"/><circle cx="470" cy="120" r="5" fill="#8b7bff"/><text x="470" y="100">turn 7 · edit</text></g>
+    <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.30;0.35;0.93;0.98;1"/><circle cx="800" cy="120" r="5" fill="#5ad1c9"/><text x="800" y="100">turn 8 · RE-READ</text>
+      <circle cx="800" cy="120" r="5" fill="none" stroke="#5ad1c9" stroke-width="1.5" opacity="0">
+        <animate attributeName="r" dur="11s" repeatCount="indefinite" values="5;5;16;5;5" keyTimes="0;0.34;0.40;0.44;1"/>
+        <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;0.9;0;0" keyTimes="0;0.34;0.37;0.44;1"/>
+      </circle>
+    </g>
   </g>
 
   <!-- read card -->
-  <g transform="translate(96,150)"><rect width="188" height="86" rx="13" fill="url(#cdcard)" stroke="#252c3e" filter="url(#cdsh)"/>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.05;0.10;0.93;0.98;1"/><g transform="translate(96,150)"><rect width="188" height="86" rx="13" fill="url(#cdcard)" stroke="#252c3e" filter="url(#cdsh)"/>
     <text x="16" y="28" font-size="12.5" font-weight="700" fill="#eef0f5">file.py</text>
     <text x="16" y="48" font-size="10.5" fill="#8b91a3">full contents</text>
     <rect x="16" y="58" width="156" height="14" rx="4" fill="#1b2030"/><rect x="16" y="58" width="156" height="14" rx="4" fill="#8b7bff" opacity="0.5"/>
     <text x="172" y="48" font-size="11" text-anchor="end" fill="#5ad1c9">1063 tok</text>
-  </g>
+  </g></g>
 
   <!-- edit card -->
-  <g transform="translate(388,150)"><rect width="160" height="86" rx="13" fill="url(#cdcard)" stroke="#252c3e" filter="url(#cdsh)"/>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.19;0.24;0.93;0.98;1"/><g transform="translate(388,150)"><rect width="160" height="86" rx="13" fill="url(#cdcard)" stroke="#252c3e" filter="url(#cdsh)"/>
     <text x="16" y="28" font-size="12.5" font-weight="700" fill="#eef0f5">Edit file.py</text>
     <text x="16" y="48" font-size="10.5" fill="#8b91a3">one function</text>
     <text x="16" y="68" font-size="10.5" fill="#ff8a6b">changed</text>
-  </g>
+  </g></g>
 
   <!-- re-read: two outcomes -->
-  <text x="660" y="172" font-size="11" font-weight="700" letter-spacing="1.5" fill="#5b6177">RE-READ — TWO WAYS</text>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.40;0.45;0.93;0.98;1"/><text x="660" y="172" font-size="11" font-weight="700" letter-spacing="1.5" fill="#5b6177">RE-READ — TWO WAYS</text></g>
 
   <!-- naive / exact-dedup -->
-  <g transform="translate(660,186)"><rect width="220" height="70" rx="12" fill="#0e1320" stroke="#3a2330"/>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.46;0.51;0.93;0.98;1"/><g transform="translate(660,186)"><rect width="220" height="70" rx="12" fill="#0e1320" stroke="#3a2330"/>
     <text x="14" y="26" font-size="11.5" font-weight="700" fill="#ff8a6b">exact-dedup (competitors)</text>
     <text x="14" y="45" font-size="10.5" fill="#9aa1b3">not identical → re-sends whole file</text>
-    <rect x="14" y="52" width="192" height="9" rx="3" fill="#ff8a6b" opacity="0.55"/>
+    <rect x="14" y="52" width="192" height="9" rx="3" fill="#ff8a6b" opacity="0.55">
+      <animate attributeName="width" dur="11s" repeatCount="indefinite" calcMode="spline"
+               keySplines="0 0 1 1;0.25 0 0.2 1;0 0 1 1;0 0 1 1"
+               values="0;0;192;192;0" keyTimes="0;0.52;0.66;0.93;1"/>
+    </rect>
     <text x="206" y="26" font-size="11" text-anchor="end" fill="#ff8a6b">1063</text>
-  </g>
+  </g></g>
   <!-- distil cache-delta -->
-  <g transform="translate(660,268)"><rect width="220" height="70" rx="12" fill="#0e1320" stroke="#23402f"/>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.48;0.53;0.93;0.98;1"/><g transform="translate(660,268)"><rect width="220" height="70" rx="12" fill="#0e1320" stroke="#23402f"/>
     <text x="14" y="26" font-size="11.5" font-weight="700" fill="#5ad19a">distil cache-delta</text>
     <text x="14" y="45" font-size="10.5" fill="#9aa1b3">reference + diff of the one hunk</text>
-    <rect x="14" y="52" width="28" height="9" rx="3" fill="#5ad19a"/>
+    <rect x="14" y="52" width="28" height="9" rx="3" fill="#5ad19a">
+      <animate attributeName="width" dur="11s" repeatCount="indefinite" calcMode="spline"
+               keySplines="0 0 1 1;0.25 0 0.2 1;0 0 1 1;0 0 1 1"
+               values="0;0;28;28;0" keyTimes="0;0.52;0.66;0.93;1"/>
+    </rect>
     <text x="206" y="26" font-size="11" text-anchor="end" fill="#5ad19a">161</text>
-  </g>
+  </g></g>
 
   <!-- arrows from re-read node -->
-  <g fill="none" stroke="#5b6177" stroke-width="1.5"><path d="M800,128 C800,160 700,170 658,200" marker-end="url(#cdar)"/><path d="M800,128 C800,210 700,270 658,294" marker-end="url(#cdar)"/></g>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.42;0.47;0.93;0.98;1"/><g fill="none" stroke="#5b6177" stroke-width="1.5"><path d="M800,128 C800,160 700,170 658,200" marker-end="url(#cdar)"/><path d="M800,128 C800,210 700,270 658,294" marker-end="url(#cdar)"/></g></g>
 
   <!-- savings callout -->
-  <g transform="translate(916,196)"><rect width="236" height="142" rx="15" fill="url(#cdcard)" stroke="url(#cdg)" stroke-width="1.4" filter="url(#cdsh)"/>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.68;0.73;0.93;0.98;1"/><g transform="translate(916,196)"><rect width="236" height="142" rx="15" fill="url(#cdcard)" stroke="url(#cdg)" stroke-width="1.4" filter="url(#cdsh)"/>
     <text x="118" y="40" text-anchor="middle" font-size="34" font-weight="800" fill="url(#cdg)">85%</text>
     <text x="118" y="62" text-anchor="middle" font-size="11" fill="#8b91a3">of the re-read elided</text>
     <text x="118" y="92" text-anchor="middle" font-size="10.5" fill="#cdd3e2">902 tokens saved · reversible</text>
     <text x="118" y="112" text-anchor="middle" font-size="10.5" fill="#cdd3e2">via <tspan fill="#eef0f5" font-weight="600">distil_expand</tspan></text>
     <text x="118" y="130" text-anchor="middle" font-size="10" fill="#5b6177">decision-equivalent</text>
-  </g>
+  </g></g>
 
   <!-- footer principle -->
-  <g transform="translate(70,372)"><rect width="1060" height="44" rx="12" fill="#0b0d15" stroke="#1b2030"/>
+  <g class="cdbeat" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.78;0.83;0.93;0.98;1"/><g transform="translate(70,372)"><rect width="1060" height="44" rx="12" fill="#0b0d15" stroke="#1b2030"/>
     <text x="20" y="28" font-size="12.5" fill="#8b91a3"><tspan fill="#5ad1c9" font-weight="700">cache-monotonic:</tspan> only the volatile suffix is touched — the cached prefix stays byte-identical, so prompt-cache hits survive. The prior version is still in context, so reference + diff is decision-equivalent.</text>
-  </g>
+  </g></g>
 </svg>

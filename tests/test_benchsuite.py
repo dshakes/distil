@@ -74,6 +74,28 @@ def seeded():
     return {"rich": "bfcl", "thin": "gsm8k"}
 
 
+# SQuAD in its real shape: an answer span that IS present in the context, which is what
+# makes it the control for "a benchmark with gradeable answers".
+SQUAD_ROWS = [
+    {
+        "id": f"sq_{i}",
+        "question": f"What is the capital of country {i}?",
+        "context": (
+            f"Country {i} is a nation in the region. Its capital is Cityname{i}, "
+            "founded long ago. " + "Additional descriptive filler sentence. " * 20
+        ),
+        "answers": {"text": [f"Cityname{i}"], "answer_start": [0]},
+    }
+    for i in range(5)
+]
+
+
+@pytest.fixture
+def squad_seeded():
+    _seed("squad", SQUAD_ROWS)
+    return "squad"
+
+
 class TestPayloadClassification:
     """Only rich-payload benchmarks can demonstrate compression quality."""
 
@@ -719,22 +741,73 @@ class TestRetentionMinRecallNeedsSomethingToTest:
     """
 
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        """Always `--offline`: these assert on GATE LOGIC, not on reachability.
+
+        They fetched BFCL live, so when seven CI runners hit the HuggingFace endpoint
+        at once one got HTTP 429 and the assertion read `'tested nothing' in 'FAIL:
+        ... Too Many Requests'`. A red gate that means "a third party rate-limited us"
+        teaches people to re-run until green, which is how a real failure gets waved
+        through. The rows come from the seeded cache instead.
+        """
         return subprocess.run(
-            [sys.executable, "-m", "distil.cli", "retention", *args],
+            [sys.executable, "-m", "distil.cli", "retention", "--offline", *args],
             capture_output=True,
             text=True,
         )
 
-    def test_min_recall_fails_when_no_answers_were_graded(self) -> None:
+    def test_min_recall_fails_when_no_answers_were_graded(self, seeded) -> None:
         out = self._run("--dataset", "bfcl", "-n", "5", "--min-recall", "0.99")
         assert out.returncode == 1, "a bound that tested nothing must not pass"
         assert "tested nothing" in out.stdout + out.stderr
 
-    def test_the_failure_points_at_the_dimension_that_does_exist(self) -> None:
+    def test_the_failure_points_at_the_dimension_that_does_exist(self, seeded) -> None:
         out = self._run("--dataset", "bfcl", "-n", "5", "--min-recall", "0.99")
         assert "support facts" in out.stdout + out.stderr, (
             "tell the caller which dimension this benchmark can actually gate on"
         )
 
-    def test_a_benchmark_with_answers_still_gates_normally(self) -> None:
+    def test_a_benchmark_with_answers_still_gates_normally(self, squad_seeded) -> None:
+        """The control: a benchmark that DOES grade answers must still pass the bound,
+        or the check above would be satisfied by `--min-recall` simply always failing."""
         assert self._run("--dataset", "squad", "-n", "5", "--min-recall", "0.9").returncode == 0
+
+
+class TestVisibleVersusTrueRecall:
+    """The suite's recall columns include recovery. Where visible and true differ, the
+    report must say so — a reader who assumes the model can SEE 100% of a tool schema
+    that actually sits behind a restore handle has been misled by correct numbers."""
+
+    def _row(self, **kw):
+        return benchsuite.BenchRow(
+            name="bfcl",
+            payload="rich",
+            cases=25,
+            savings=0.9,
+            answer_recall=1.0,
+            support_recall=1.0,
+            lost=0,
+            support_facts=70,
+            **kw,
+        )
+
+    def test_a_gap_is_named_in_the_report(self) -> None:
+        report = benchsuite.SuiteReport(tiers=[1], rows=[self._row(support_recall_visible=0.0)])
+        text = benchsuite.format_report(report)
+        assert "visible → true support" in text
+        assert "0%→100%" in text
+
+    def test_no_gap_prints_nothing(self) -> None:
+        """Noise on every run trains people to skip the line that matters."""
+        report = benchsuite.SuiteReport(tiers=[1], rows=[self._row(support_recall_visible=1.0)])
+        assert "visible → true" not in benchsuite.format_report(report)
+
+    def test_the_split_survives_to_json(self) -> None:
+        row = self._row(support_recall_visible=0.0)
+        data = row.to_dict()
+        assert data["support_recall"] == 1.0 and data["support_recall_visible"] == 0.0
+
+    def test_unadjudicable_golds_are_printed(self) -> None:
+        report = benchsuite.SuiteReport(
+            tiers=[1], rows=[self._row(support_recall_visible=1.0, support_unadjudicable=15)]
+        )
+        assert "excluded from support: bfcl 15" in benchsuite.format_report(report)

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Prompt Caching — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Prompt Caching — Distil"/>
+<meta property="og:description" content="How distil behaves with provider prompt caching: why compression cannot break the stable prefix, what distil cache measures, and the one cache feature we deliberately do not ship."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/cache.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Prompt Caching — Distil"/>
+<meta name="twitter:description" content="How distil behaves with provider prompt caching: why compression cannot break the stable prefix, what distil cache measures, and the one cache feature we deliberately do not ship."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html" class="active" aria-current="page">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">    <h1>Prompt caching</h1>
+    <p class="lede">Provider prompt caching is the largest single lever on an agent's bill, and it is all-or-nothing: the stable prefix must be <b>byte-identical</b> between turns, or the whole cached span is re-billed at full price. One changed character at the front costs the entire prefix.</p>
+
+    <table>
+      <thead><tr><th>Provider</th><th>Cached input</th><th>How it is claimed</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic</td><td>~90% cheaper</td><td>explicit <code>cache_control</code> breakpoint</td></tr>
+        <tr><td>OpenAI</td><td>~50% cheaper</td><td>automatic, needs a ≥1024-token byte-identical prefix</td></tr>
+        <tr><td>Google</td><td>~75% cheaper</td><td>explicit <code>CachedContent</code>, ≥32k tokens</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="by-construction">Compression cannot break the prefix</h2>
+    <p>This is a property of the design, not a promise. <code>strategies.distil</code> compresses the <em>volatile tail</em> — the newest user turn and the freshest tool output — and leaves every stable block byte-for-byte untouched. If it ever rewrote a stable block, <code>distil verify</code> would fail on reversibility and <code>distil bench</code> on decision-equivalence, so the guarantee is enforced by the same gates as everything else.</p>
+    <p>Two further things distil does with the cache:</p>
+    <ul>
+      <li><b>Marks the boundary.</b> <code>adapters.anthropic.place_cache_control</code> places the breakpoint at the end of the stable prefix. A stable prefix nobody marked is a discount nobody claims.</li>
+      <li><b>Sends re-reads as deltas.</b> <code>--session-delta</code> keeps a per-session map of what has already been sent, so a file re-read after an edit goes as a diff rather than a fresh copy. Different lever, composes with the cache: the cache makes repeats cheap, the delta stops them being sent.</li>
+    </ul>
+
+    <h2 id="measure">What <code>distil cache</code> reports</h2>
+    <p>Deliberately two different kinds of number. Reads and writes come from the provider's own <code>usage</code> — ground truth about money. Drift is <em>our</em> diagnosis of why, from a content-free hash of the stable blocks we sent. A diagnosis with no measurement behind it is a guess, so the report never prints one without the other.</p>
+    <p>Three live requests, the third with a session id prepended to the system prompt:</p>
+<pre><code>requests        3
+cache reads     31,614 tokens  (billed at a discount)
+cache writes    15,819 tokens  (billed at a surcharge)
+uncached        40 tokens
+hit ratio       66.6% of cacheable tokens were reads
+prefix drift    1 of 2 turns changed the stable prefix (50%)
+                Each one re-bills the whole prefix. distil never rewrites a
+                stable block, so the cause is upstream: a timestamp or session
+                id in the system prompt, or a tool list whose order varies.</code></pre>
+    <p>The two halves are derived independently and agree: the turn our hash flagged is the turn the provider re-billed 15,819 tokens to re-create. Turns 1 and 2 read the cache <em>even though <code>messages</code> grew between them</em> — which is the property that matters. A conversation is supposed to grow, and a diagnostic that called that drift would fire on every healthy turn and be switched off within a day.</p>
+
+    <h3 id="misread">Two readings that are easy to misinterpret</h3>
+    <ul>
+      <li><b>“not reported by the provider”</b> means the response carried no cache usage at all — usually the prefix is under the model's minimum, or the client never sent a breakpoint. It does <em>not</em> mean a miss.</li>
+      <li><b>“no comparable pairs”</b> means fewer than two requests carried a prefix hash; rows written before 1.41 do not. That is not the same as no drift, and it says so rather than printing a reassuring zero.</li>
+    </ul>
+    <p>With no proxied requests at all, <code>distil cache</code> exits non-zero. A cache report over zero rows can print a perfectly plausible “0 drifts” and read as a clean bill of health for a session nobody measured.</p>
+
+    <h2 id="not-shipped">The one cache feature we deliberately do not ship</h2>
+    <p>A <b>response cache</b> — hash the request, serve a stored response, skip inference entirely. distil has no equivalent, and that is a decision rather than a gap:</p>
+    <ul>
+      <li><b>Agent contexts grow monotonically.</b> Every turn appends. Two requests being byte-identical is rare outside retries and replays, so the hit rate is lowest exactly where the bill is highest.</li>
+      <li><b>The correctness surface is sharp.</b> The key must include the system prompt, tool set, sampling config and output shape, or two requests with identical <code>messages</code> collide and the second caller is served the first's answer. That is a wrong-answer bug, not a slow one.</li>
+      <li><b>It is the wrong layer.</b> A compression proxy narrows what a request costs. Deciding a request need not run at all is the application's call, with the application's knowledge of staleness — and it can be built above distil without distil owning the risk.</li>
+    </ul>
+    <p class="note">Worth noting: the implementations we compared ship this off by default too.</p>
+
+    <h2 id="cold">Cold prefixes</h2>
+    <p>Byte-faithful forwarding only pays while the cache is warm. Once a session idles past the provider TTL (Anthropic 5 minutes, extended on each hit), resending the prefix verbatim buys nothing — which makes that the safe moment to rewrite it, since there is no warm cache left to destroy. distil's serving strategy is conservative here and does not recompact cold prefixes today; <code>distil cache</code> is what would tell you whether it is worth it for your traffic.</p>
+
+    <h2 id="commands">Checking your own setup</h2>
+<pre><code>distil cache                  # hit ratio + prefix drift over recent sessions
+distil cache --session &lt;sid&gt;  # one session
+distil cache --json           # machine-readable, for a CI check
+distil doctor                 # what the proxy is actually doing
+distil stats                  # savings, last-7-days rate beside lifetime
+distil proxy --session-delta  # cross-turn dedupe + cross-version deltas</code></pre>
+    <p><code>distil cache</code> reads the per-session request ledger, which only a wrap session writes. Run your agent under <code>distil wrap -- &lt;cmd&gt;</code> (or <code>distil default --always-on</code>), then re-run it.</p>
+    <p>If <code>distil stats</code> shows near-zero recent compression, the cause is usually mode rather than cache: a subscription session defaults to lossless-only, which is Tier-0 only. <code>distil default --mode expand</code> turns the recoverable digest on permanently.</p>
+</main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

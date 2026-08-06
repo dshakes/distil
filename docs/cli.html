@@ -60,6 +60,7 @@
         <li><a href="cli.html" class="active" aria-current="page">CLI Reference</a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
         <li><a href="corpus.html">Corpus</a></li>
         <li><a href="output.html">Output &amp; I/O</a></li>
       </ul>
@@ -399,6 +400,61 @@ pending-work recall       100.0%  (2/2 remaining items still visible)
 silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
 
     <p>Those 9 overclaims are real and we report them rather than tuning them away: Tier-1 digests spans behind restore handles, and a digested hedged sentence can keep its value while losing its qualifier. Unlike a lost fact it is not recoverable in practice — a missing fact prompts the agent to expand, a missing hedge gives it no reason to. CI gates at the measured band, so a regression fails <em>and</em> a fix forces the bound to be re-read.</p>
+
+    <hr/>
+
+    <!-- suite -->
+    <h2 id="suite">distil suite</h2>
+    <p><strong>Twelve public benchmarks, graded against someone else's answer key.</strong> No API key, no spend — grading is deterministic recall, not an LLM judge. Tier 1 is the payload an agent proxy actually risks breaking (tool schemas and retrieval); tier 2 adds hard payloads; tier 3 is controls.</p>
+
+    <p>The column that matters is <strong>payload class</strong>. A benchmark whose prompt is a 48-byte arithmetic question barely compresses, so its unchanged score proves the compressor left an incompressible prompt alone — a <em>control</em>, not a demonstration. Only <em>rich</em> rows carry evidence, and the gate thresholds apply to those alone. A run that grades nothing but controls exits 1 rather than reporting a clean sheet.</p>
+
+    <h3>Flags</h3>
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--tier</code></th><td><code>1</code></td><td>Repeatable. 1 = tool+retrieval, 2 = hard payloads, 3 = controls</td></tr>
+        <tr><th scope="row"><code>--only</code></th><td>—</td><td>Comma-separated benchmark names, overriding <code>--tier</code></td></tr>
+        <tr><th scope="row"><code>-n</code></th><td>dataset's own</td><td>Cases per benchmark</td></tr>
+        <tr><th scope="row"><code>--offline</code></th><td><code>false</code></td><td>Cached rows only (no network)</td></tr>
+        <tr><th scope="row"><code>--min-answer-recall</code></th><td>—</td><td>Gate on answer recall, rich rows only</td></tr>
+        <tr><th scope="row"><code>--min-support-recall</code></th><td>—</td><td>Gate on supporting-fact recall, rich rows only</td></tr>
+        <tr><th scope="row"><code>--allow-unavailable</code></th><td><code>false</code></td><td>Downgrade an upstream fetch failure to a warning. Never covers a defect in our own adapter or scoring — that still fails.</td></tr>
+      </tbody>
+    </table>
+
+    <p>A benchmark that cannot be fetched is a <strong>FAILED</strong> row, never a silent skip. A suite that quietly drops what it could not load reports a clean sheet for a run that measured less than it claimed.</p>
+
+    <hr/>
+
+    <!-- cache -->
+    <h2 id="cache">distil cache</h2>
+    <p><strong>What prompt caching actually bought, and where a stable prefix broke.</strong> Deliberately two different kinds of number: reads and writes come from the provider's own <code>usage</code> — ground truth about money — while prefix drift is distil's diagnosis of <em>why</em>, from a content-free hash of the stable blocks sent. It never prints one without the other.</p>
+
+    <pre class="term"><span class="d">$ distil cache</span>
+requests        3
+cache reads     31,614 tokens  (billed at a discount)
+cache writes    15,819 tokens  (billed at a surcharge)
+uncached        40 tokens
+hit ratio       66.6% of cacheable tokens were reads
+prefix drift    1 of 2 turns changed the stable prefix (50%)
+                Each one re-bills the whole prefix. distil never rewrites a
+                stable block, so the cause is upstream: a timestamp or session
+                id in the system prompt, or a tool list whose order varies.</pre>
+
+    <p>A conversation growing is <em>not</em> drift — only the stable blocks (<code>system</code>, <code>tools</code>, <code>tool_choice</code>) are hashed, because a diagnostic that fired on every appended turn would be switched off within a day.</p>
+
+    <h3>Flags</h3>
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--session</code></th><td>recent</td><td>One session id</td></tr>
+        <tr><th scope="row"><code>--sessions</code></th><td><code>5</code></td><td>How many recent sessions to fold in</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td><code>false</code></td><td>Machine-readable summary</td></tr>
+      </tbody>
+    </table>
+
+    <p>Reads the per-session request ledger, which only a wrap session writes. With no proxied requests it exits non-zero rather than printing a reassuring zero — a cache report over no data reads as a clean bill of health for a session nobody measured. See <a href="cache.html">Prompt Caching</a> for the full picture.</p>
 
     <hr/>
 
