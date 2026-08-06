@@ -498,7 +498,7 @@ class TestAnOutageIsNotARegression:
             [
                 "suite",
                 "--only",
-                f"{seeded['rich']},nope",
+                f"{seeded['rich']},msmarco",
                 "-n",
                 "3",
                 "--offline",
@@ -511,7 +511,7 @@ class TestAnOutageIsNotARegression:
         from distil.cli import build_parser, cmd_suite
 
         args = build_parser().parse_args(
-            ["suite", "--only", f"{seeded['rich']},nope", "-n", "3", "--offline"]
+            ["suite", "--only", f"{seeded['rich']},msmarco", "-n", "3", "--offline"]
         )
         assert cmd_suite(args) == 1, "strict by default: a local run must not hide it"
 
@@ -520,7 +520,7 @@ class TestAnOutageIsNotARegression:
         from distil.cli import build_parser, cmd_suite
 
         args = build_parser().parse_args(
-            ["suite", "--only", "nope,also-nope", "--offline", "--allow-unavailable"]
+            ["suite", "--only", "msmarco,narrativeqa", "--offline", "--allow-unavailable"]
         )
         assert cmd_suite(args) == 1
 
@@ -626,3 +626,28 @@ class TestCompressionMustActuallyEngage:
     def test_real_runs_report_engaged(self, seeded) -> None:
         report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
         assert report.rows[0].engaged is True and report.idle == []
+
+
+class TestAnUnknownNameIsNotAnOutage:
+    """`--allow-unavailable` tolerates a CDN, not a typo.
+
+    `--only bfcl,hotptoqa --allow-unavailable` graded one benchmark and exited 0,
+    silently omitting the one that was misspelled. An unknown name is a mistake in
+    the invocation and can never be waited out.
+    """
+
+    def test_a_typo_is_fatal_even_when_outages_are_allowed(self, seeded) -> None:
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            [
+                "suite",
+                "--only",
+                f"{seeded['rich']},hotptoqa",
+                "-n",
+                "3",
+                "--offline",
+                "--allow-unavailable",
+            ]
+        )
+        assert cmd_suite(args) == 1

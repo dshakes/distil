@@ -396,3 +396,20 @@ class TestCaseIdsAreStableAcrossProcesses:
         for adapter, batch in rows.items():
             ids = {c.id for c in (adapter(r) for r in batch) if c}
             assert len(ids) == len(batch), f"{adapter.__name__} collided: {ids}"
+
+    def test_bfcl_names_are_deduplicated(self) -> None:
+        """The function name arrives twice — from the schema and from the gold call.
+
+        Counting it twice inflated support recall, and CI now gates on that number.
+        """
+        case = datasets._bfcl(
+            {
+                "id": "x",
+                "question": [[{"content": "q"}]],
+                "function": [{"name": "calc", "parameters": {}}],
+                "ground_truth": [{"calc": {"base": [1]}}],
+            }
+        )
+        assert case is not None
+        assert case.support == sorted(set(case.support)), "duplicate golds inflate recall"
+        assert case.support.count("calc") == 1

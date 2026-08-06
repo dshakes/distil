@@ -214,7 +214,9 @@ is most likely to cause and least likely to notice, because no QA benchmark ever
 asks the model to *act*: a schema can keep `calculate_triangle_area` and lose the
 `base` parameter, and the call cannot be formed at all.
 
-Measured over 100 cases: **91.4% savings, 478 gold names, 4 lost (99.2% retained)**.
+Measured over 100 cases: **91.4% savings, 378 gold names, 4 lost (98.9% retained)**.
+Names are de-duplicated — the function name arrives from both the schema and the
+gold call, and counting it twice inflated the earlier 478/99.2% figure.
 Most survive as *recoverable* rather than visible (2.3% visible) — they sit behind
 expand handles, which is what the reversible tier is supposed to do.
 
@@ -307,3 +309,12 @@ reason a green result means something.
 All five gates run per-commit. The workflow is `.github/workflows/ci.yml`; the
 same commands work locally, which is the point — `make gate` before pushing and
 CI should tell you nothing new.
+
+**Known limitation of the BFCL number.** Recall is scored by `retention`'s generic
+matcher, which anchors on non-word boundaries — right for prose, loose for short
+identifiers. A lost argument `id` can still be credited if `"id"` appears as a key
+elsewhere in the schema, so the figure is an **upper bound** on name retention for
+short identifiers. Tightening it by quoting the identifiers was tried and broke the
+recoverable-match path (recall fell to 2.9%, which measures the matcher rather than
+the compressor), so identifier-aware matching is deferred rather than shipped
+half-working. The CI band is set with this in mind.

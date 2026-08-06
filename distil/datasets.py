@@ -463,17 +463,31 @@ def _bfcl(row: dict[str, Any]) -> GroundTruthCase | None:
     # a model still emits it would need a model in the loop — which would cost money
     # and make this suite something you run before a launch instead of before a merge.
     # What is measured is stated exactly: the names the call depends on.
-    names: list[str] = []
+    # De-duplicated bare identifiers.
+    #
+    # De-duplicated because the function name arrives twice — once from the schema
+    # and once from the gold call — and counting it twice inflated recall.
+    #
+    # KNOWN LIMITATION, and the CI band is set with it in mind: recall here is scored
+    # by `retention`'s generic matcher, which anchors on non-word boundaries. That is
+    # right for prose and loose for short identifiers — a lost argument `id` can still
+    # be credited if `"id"` appears as a key anywhere else in the schema. Quoting the
+    # identifiers to tighten it was tried and broke the recoverable-match path
+    # (recall fell to 2.9%, which measures the matcher rather than the compressor), so
+    # identifier-aware matching is deferred rather than shipped half-working. The
+    # number is therefore an UPPER bound on name retention for short identifiers.
+    seen: set[str] = set()
     for fn in functions:
         if isinstance(fn, dict) and fn.get("name"):
-            names.append(str(fn["name"]))
+            seen.add(str(fn["name"]))
     for call in truth if isinstance(truth, list) else []:
         if not isinstance(call, dict):
             continue
         for fn_name, args in call.items():
-            names.append(str(fn_name))
+            seen.add(str(fn_name))
             if isinstance(args, dict):
-                names.extend(str(a) for a in args)
+                seen.update(str(a) for a in args)
+    names = sorted(seen)
     return GroundTruthCase(
         id=str(row.get("id") or _stable_id("bfcl", question)),
         question=question,

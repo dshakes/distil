@@ -678,6 +678,16 @@ def cmd_suite(args: argparse.Namespace) -> int:
         # it. `--allow-unavailable` (used by CI) downgrades it to a loud warning —
         # never a silent skip, and never a pass: the "no rich evidence" check below
         # still fails the run if the outage took out everything that could testify.
+        # An unknown NAME is a typo in the invocation, not an outage — downgrading it
+        # meant `--only bfcl,hotptoqa --allow-unavailable` silently graded one
+        # benchmark and exited 0. Only transport failures are tolerable.
+        unknown = [r for r in report.failed if "unknown dataset" in r.error]
+        if unknown:
+            print(
+                f"\nFAIL: unknown benchmark(s): {', '.join(r.name for r in unknown)}",
+                file=out,
+            )
+            return 1
         label = "WARN" if args.allow_unavailable else "FAIL"
         print(
             f"\n{label}: {len(report.failed)} benchmark(s) could not be graded "
