@@ -694,6 +694,13 @@ def cmd_suite(args: argparse.Namespace) -> int:
     # Always on, no flag required. A rich benchmark that graded cases and recalled
     # nothing is a broken run, not a low score, and exiting 0 because nobody passed a
     # threshold is the vacuous gate this repo refuses everywhere else.
+    if report.unmeasured:
+        print(
+            f"\nFAIL: {', '.join(r.name for r in report.unmeasured)} graded cases but had no "
+            "golds to grade them against — 100% over zero facts is not a result",
+            file=out,
+        )
+        return 1
     if report.collapsed:
         print(
             f"\nFAIL: {', '.join(r.name for r in report.collapsed)} graded cases and "

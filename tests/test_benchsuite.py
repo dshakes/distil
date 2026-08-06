@@ -180,8 +180,8 @@ class TestControlsAloneCannotPass:
     def test_the_report_separates_evidence_from_controls(self) -> None:
         report = benchsuite.SuiteReport(
             rows=[
-                benchsuite.BenchRow("a", "rich", 5, 0.5, 1.0, 1.0, 0),
-                benchsuite.BenchRow("b", "thin", 5, 0.1, 1.0, 1.0, 0),
+                benchsuite.BenchRow("a", "rich", 5, 0.5, 1.0, 1.0, 0, support_facts=9),
+                benchsuite.BenchRow("b", "thin", 5, 0.1, 1.0, 1.0, 0, support_facts=9),
             ]
         )
         assert [r.name for r in report.evidence] == ["a"]
@@ -376,3 +376,62 @@ class TestCollapseUsesOnlyMeasuredDimensions:
         report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
         blob = report.to_dict()["rows"][0]
         assert "answer_graded" in blob and "support_facts" in blob
+
+
+class TestUnmeasuredIsNotEvidence:
+    """A recall over zero golds renders as 100%. It is not a result.
+
+    A rich row with cases but no golds of either kind graded nothing, yet counted as
+    evidence and exited 0 — the vacuous pass this suite exists to refuse, arriving
+    through the one row shape the collapse guard deliberately skips.
+    """
+
+    def test_a_row_with_no_golds_is_not_evidence(self) -> None:
+        row = benchsuite.BenchRow("x", "rich", 100, 0.9, 1.0, 1.0, 0)
+        report = benchsuite.SuiteReport(rows=[row])
+        assert report.evidence == []
+        assert [r.name for r in report.unmeasured] == ["x"]
+        assert report.to_dict()["unmeasured"] == ["x"]
+
+    def test_a_row_with_golds_is_evidence(self) -> None:
+        row = benchsuite.BenchRow(
+            "b", "rich", 100, 0.9, 1.0, 1.0, 0, answer_graded=0, support_facts=23
+        )
+        assert [r.name for r in benchsuite.SuiteReport(rows=[row]).evidence] == ["b"]
+
+    def test_the_cli_fails_on_an_unmeasured_rich_row(self, seeded, monkeypatch) -> None:
+        import distil.benchsuite as bs
+
+        real = bs.run
+
+        def _blank(*a, **k):
+            rep = real(*a, **k)
+            for row in rep.rows:
+                row.answer_graded = row.support_facts = 0
+            return rep
+
+        monkeypatch.setattr(bs, "run", _blank)
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            ["suite", "--only", seeded["rich"], "-n", "3", "--offline"]
+        )
+        assert cmd_suite(args) == 1
+
+
+class TestBfclGradesEveryNameTheCallNeeds:
+    def test_argument_names_are_required_to_survive(self) -> None:
+        from distil import datasets
+
+        case = datasets._bfcl(
+            {
+                "id": "s0",
+                "question": [[{"content": "area?"}]],
+                "function": [{"name": "calc_area", "parameters": {}}],
+                "ground_truth": [{"calc_area": {"base": [10], "height": [5]}}],
+            }
+        )
+        assert case is not None
+        assert set(case.support) >= {"calc_area", "base", "height"}, (
+            "a schema can keep the function name and lose the parameter it needs"
+        )

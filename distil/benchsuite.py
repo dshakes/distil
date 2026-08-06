@@ -72,6 +72,11 @@ class BenchRow:
         return bool(self.requested) and self.cases < self.requested
 
     @property
+    def measured(self) -> bool:
+        """True when at least one dimension had golds to grade."""
+        return bool(self.answer_graded or self.support_facts)
+
+    @property
     def ok(self) -> bool:
         return not self.error
 
@@ -108,8 +113,19 @@ class SuiteReport:
 
     @property
     def evidence(self) -> list[BenchRow]:
-        """Rich-payload rows — the only ones that can demonstrate compression quality."""
-        return [r for r in self.graded if r.payload == "rich"]
+        """Rich rows that actually MEASURED something.
+
+        A rich row with cases but no golds of either kind grades nothing, yet renders
+        as 100%/100% because a recall over zero is 1.0. Counting it as evidence
+        recreated the vacuous pass this whole suite exists to refuse, so it is
+        excluded here and surfaced as `unmeasured`.
+        """
+        return [r for r in self.graded if r.payload == "rich" and r.measured]
+
+    @property
+    def unmeasured(self) -> list[BenchRow]:
+        """Rich rows that graded cases but had no golds to grade them against."""
+        return [r for r in self.graded if r.payload == "rich" and r.cases and not r.measured]
 
     @property
     def controls(self) -> list[BenchRow]:
@@ -154,6 +170,7 @@ class SuiteReport:
             "control_benchmarks": len(self.controls),
             "total_lost": self.total_lost,
             "collapsed": [r.name for r in self.collapsed],
+            "unmeasured": [r.name for r in self.unmeasured],
             "failed": [r.name for r in self.failed],
         }
 

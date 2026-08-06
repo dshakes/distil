@@ -207,10 +207,21 @@ Only `rich` rows can show compression quality, and a run that grades **only**
 controls exits 1 rather than reporting a clean sheet.
 
 `bfcl` leads tier 1 deliberately. Berkeley Function Calling compresses the **tool
-schema** and checks the gold call still comes back — the failure an agent proxy is
-most likely to cause and least likely to notice, because no QA benchmark ever asks
-the model to *act*. On the schemas it reaches ~90% savings with every function name
-intact, where truncation at matched savings keeps none of them.
+schema** and checks that every name the gold call is built from — the function and
+each argument it passes — survives compression. That is the failure an agent proxy
+is most likely to cause and least likely to notice, because no QA benchmark ever
+asks the model to *act*: a schema can keep `calculate_triangle_area` and lose the
+`base` parameter, and the call cannot be formed at all.
+
+Measured over 100 cases: **91.4% savings, 478 gold names, 4 lost (99.2% retained)**.
+Most survive as *recoverable* rather than visible (2.3% visible) — they sit behind
+expand handles, which is what the reversible tier is supposed to do.
+
+The gold call itself is **not** graded as an answer. It never appears in the schema
+text, so a text-recall grader cannot see it, and checking whether a model still
+emits it would need a model in the loop — which would make this suite cost money
+and stop it running in CI. What is measured is stated exactly: the names the call
+depends on.
 
 A benchmark that cannot be fetched is reported as a FAILED row and exits 1. It is
 never dropped: a suite that silently skips what it could not load reports a clean

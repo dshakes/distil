@@ -439,8 +439,27 @@ def _bfcl(row: dict[str, Any]) -> GroundTruthCase | None:
     if not functions or not question or truth is None:
         return None
     schema = json.dumps(functions, indent=2, sort_keys=True)
-    # Every function NAME must survive: the model cannot call what it cannot see.
-    names = [str(f.get("name")) for f in functions if isinstance(f, dict) and f.get("name")]
+    # What must survive is every NAME the gold call is built from: the function, and
+    # each argument it passes. Requiring only the function name understated the test —
+    # a schema can keep `calculate_triangle_area` while losing the `base` parameter,
+    # and the model then cannot form the call at all.
+    #
+    # The gold CALL itself is deliberately not graded as an answer: it never appears
+    # in the schema text, so a text-recall grader cannot see it, and checking whether
+    # a model still emits it would need a model in the loop — which would cost money
+    # and make this suite something you run before a launch instead of before a merge.
+    # What is measured is stated exactly: the names the call depends on.
+    names: list[str] = []
+    for fn in functions:
+        if isinstance(fn, dict) and fn.get("name"):
+            names.append(str(fn["name"]))
+    for call in truth if isinstance(truth, list) else []:
+        if not isinstance(call, dict):
+            continue
+        for fn_name, args in call.items():
+            names.append(str(fn_name))
+            if isinstance(args, dict):
+                names.extend(str(a) for a in args)
     return GroundTruthCase(
         id=str(row.get("id") or f"bfcl-{abs(hash(question)) % 10**8}"),
         question=question,
@@ -556,7 +575,7 @@ SPECS: dict[str, _Spec] = {
         config="BFCL_v3_simple",
         split="",  # file repo, not a parquet split
         adapt=_bfcl,
-        description="Berkeley Function Calling: tool SCHEMAS compressed, gold call checked",
+        description="Berkeley Function Calling: tool SCHEMAS compressed, every name the gold call needs checked",
         default_n=100,
         fetch=_fetch_bfcl,
     ),

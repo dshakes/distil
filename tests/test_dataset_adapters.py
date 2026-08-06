@@ -140,9 +140,11 @@ class TestAdaptersMapRealRows:
         assert case is not None
         assert case.question == "Find the area", "chat turns nest two lists deep"
         assert "calculate_area" in case.docs[0][1], "the tool schema is the payload"
-        assert case.support == ["calculate_area"], (
-            "the model cannot call a function whose name did not survive"
-        )
+        # Every name the gold call is built from — the function AND each argument.
+        # Requiring only the function name understated the test: a schema can keep
+        # `calculate_area` while losing the `base` parameter, and the call cannot be
+        # formed at all.
+        assert set(case.support) == {"calculate_area", "base"}
 
 
 class TestAdaptersRejectMalformedRows:
