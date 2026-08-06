@@ -738,3 +738,44 @@ class TestRetentionMinRecallNeedsSomethingToTest:
 
     def test_a_benchmark_with_answers_still_gates_normally(self) -> None:
         assert self._run("--dataset", "squad", "-n", "5", "--min-recall", "0.9").returncode == 0
+
+
+class TestVisibleVersusTrueRecall:
+    """The suite's recall columns include recovery. Where visible and true differ, the
+    report must say so — a reader who assumes the model can SEE 100% of a tool schema
+    that actually sits behind a restore handle has been misled by correct numbers."""
+
+    def _row(self, **kw):
+        return benchsuite.BenchRow(
+            name="bfcl",
+            payload="rich",
+            cases=25,
+            savings=0.9,
+            answer_recall=1.0,
+            support_recall=1.0,
+            lost=0,
+            support_facts=70,
+            **kw,
+        )
+
+    def test_a_gap_is_named_in_the_report(self) -> None:
+        report = benchsuite.SuiteReport(tiers=[1], rows=[self._row(support_recall_visible=0.0)])
+        text = benchsuite.format_report(report)
+        assert "visible → true support" in text
+        assert "0%→100%" in text
+
+    def test_no_gap_prints_nothing(self) -> None:
+        """Noise on every run trains people to skip the line that matters."""
+        report = benchsuite.SuiteReport(tiers=[1], rows=[self._row(support_recall_visible=1.0)])
+        assert "visible → true" not in benchsuite.format_report(report)
+
+    def test_the_split_survives_to_json(self) -> None:
+        row = self._row(support_recall_visible=0.0)
+        data = row.to_dict()
+        assert data["support_recall"] == 1.0 and data["support_recall_visible"] == 0.0
+
+    def test_unadjudicable_golds_are_printed(self) -> None:
+        report = benchsuite.SuiteReport(
+            tiers=[1], rows=[self._row(support_recall_visible=1.0, support_unadjudicable=15)]
+        )
+        assert "excluded from support: bfcl 15" in benchsuite.format_report(report)

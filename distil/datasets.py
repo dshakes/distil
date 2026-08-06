@@ -656,6 +656,12 @@ class _Spec:
     # Some benchmarks are not served by the parquet rows API — BFCL is a plain file
     # repository. A spec may carry its own transport rather than be excluded for it.
     fetch: "Callable[[_Spec, int], list[dict[str, Any]]] | None" = None
+    # How a gold value should be matched in the compressed text. "phrase" is right for
+    # prose — a sentence or an answer span, matched at token boundaries. "identifier"
+    # is for benchmarks whose golds are bare code names: matched only as a quoted JSON
+    # token, so a lost argument `unit` is not credited by the word "units" elsewhere in
+    # the schema. See `retention._identifier_survives` for why escaping is tolerated.
+    match: str = "phrase"
 
 
 SPECS: dict[str, _Spec] = {
@@ -687,6 +693,7 @@ SPECS: dict[str, _Spec] = {
         description="Berkeley Function Calling: tool SCHEMAS compressed, every name the gold call needs checked",
         default_n=100,
         fetch=_fetch_bfcl,
+        match="identifier",
     ),
     # --- retrieval / RAG ----------------------------------------------------------
     "msmarco": _Spec(

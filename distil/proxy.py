@@ -1189,6 +1189,16 @@ def build_handler(
                     from . import calibration
 
                     calibration.record(str(model or "unknown"), _est, _billed_full)
+                _prefix_hash, _prefix_bytes = "", 0
+                if isinstance(body, dict):
+                    try:
+                        from . import prefix as _prefix
+
+                        _stable = {k: body[k] for k in _prefix.STABLE_KEYS if k in body}
+                        _rep = _prefix.analyse(None, _stable)
+                        _prefix_hash, _prefix_bytes = _rep.stable_hash, _rep.stable_bytes
+                    except Exception:  # noqa: BLE001 — a diagnostic must not drop the record
+                        pass
                 rec = {
                     "ts": time.time(),
                     "model": model,
@@ -1200,6 +1210,18 @@ def build_handler(
                     "usage_input_tokens": (usage or {}).get("input_tokens"),
                     "usage_output_tokens": (usage or {}).get("output_tokens"),
                     "usage_cache_tokens": _cache or None,
+                    # Split, because the sum cannot tell a working cache from a thrashing
+                    # one: a write is a 25% surcharge, a read a ~90% discount, and a prefix
+                    # that drifts every turn writes forever and never reads — which looks
+                    # identical to a healthy cache once the two are added together.
+                    "usage_cache_read": int(_u.get("cache_read_input_tokens", 0) or 0) or None,
+                    "usage_cache_create": int(_u.get("cache_creation_input_tokens", 0) or 0)
+                    or None,
+                    # Content-free fingerprint of the stable prefix we actually sent. Lets
+                    # `distil cache` say WHERE a prefix broke between two turns instead of
+                    # only that the provider re-billed it.
+                    "prefix_hash": _prefix_hash,
+                    "prefix_bytes": _prefix_bytes,
                     "expanded_handles": expanded_handles or [],
                     "mode": extras.get("x-distil-mode", "verbatim"),
                     "compressible_tokens": int(extras.get("x-distil-compressible-tokens", 0) or 0),

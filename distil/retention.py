@@ -416,6 +416,26 @@ def _phrase_survives(value: str, haystack: str, normalized: str) -> bool:
     return bool(norm) and norm in normalized
 
 
+# A code identifier is only meaningful as a whole token, so it is matched as a quoted
+# JSON key or string value rather than as free text. The optional backslashes are load-
+# bearing: a tool schema is JSON nested inside a JSON payload, so the schema's own quotes
+# arrive escaped (`\"base\"`). Requiring a bare `"base"` reads 0% on a payload where every
+# name is plainly present — which measures the matcher, not the compressor.
+_IDENT_TMPL = r'\\?"{}\\?"'
+
+# Below this an identifier cannot be adjudicated by any honest text rule: BFCL's gold
+# calls really do name arguments `a`, `b`, `c` (quadratic coefficients), and a one-letter
+# token occurs in almost any English text. Crediting it is meaningless and failing it is
+# unfair, so it is excluded from the graded set and COUNTED — the same treatment as an
+# abstractive answer, and for the same reason: a gold that cannot testify must not be
+# averaged in as though it had.
+_MIN_IDENT_LEN = 3
+
+
+def _identifier_survives(value: str, haystack: str) -> bool:
+    return re.search(_IDENT_TMPL.format(re.escape(value)), haystack) is not None
+
+
 @dataclass
 class CaseScore:
     """One benchmark question, scored against its third-party answer key."""
@@ -428,6 +448,10 @@ class CaseScore:
     support_total: int = 0
     support_retained: int = 0
     support_recoverable: int = 0
+    # Golds excluded from support_total because no text rule can adjudicate them (a
+    # one-letter identifier). Reported, never silently dropped: a suite that shrinks
+    # its own denominator without saying so reports a stronger result than it measured.
+    support_unadjudicable: int = 0
 
 
 @dataclass
@@ -490,6 +514,10 @@ class DatasetReport:
                 "support_facts": support_total,
                 "support_recall_visible": round(visible_support, 4),
                 "support_recall": round(true_support, 4),
+                # Golds no text rule can adjudicate, excluded from support_facts above.
+                # Carried so a reader can see the denominator this recall was computed
+                # against — a shrunk denominator nobody reports is an inflated result.
+                "support_unadjudicable": sum(s.support_unadjudicable for s in scores),
             }
 
         return {
@@ -527,7 +555,9 @@ def _payload_blocks(case: Any, shape: str) -> list[Block]:
     ]
 
 
-def _score_case(case: Any, *, shape: str, truncate_to: float | None = None) -> CaseScore:
+def _score_case(
+    case: Any, *, shape: str, truncate_to: float | None = None, match: str = "phrase"
+) -> CaseScore:
     """Compress one benchmark case's retrieved docs and score the answer key.
 
     `truncate_to` selects the baseline: a character-fraction truncation with NO
@@ -572,13 +602,29 @@ def _score_case(case: Any, *, shape: str, truncate_to: float | None = None) -> C
         if not answer_retained and recovery:
             answer_recoverable = _in_recovery(case.answer, recovery)
 
-    retained = recoverable = 0
-    gold = [s for s in case.support if _phrase_survives(s, original, original_norm)]
-    for sentence in gold:
-        if _phrase_survives(sentence, text, normalized):
-            retained += 1
-        elif _in_recovery(sentence, recovery):
-            recoverable += 1
+    retained = recoverable = unadjudicable = 0
+    if match == "identifier":
+        # Golds are bare code names, so both the "was it there to begin with" filter and
+        # the survival test use the identifier rule. Mixing rules across the two would
+        # grade against a denominator built by a different question than the numerator.
+        gold = []
+        for name in case.support:
+            if len(name) < _MIN_IDENT_LEN:
+                unadjudicable += 1
+            elif _identifier_survives(name, original):
+                gold.append(name)
+        for name in gold:
+            if _identifier_survives(name, text):
+                retained += 1
+            elif _identifier_survives(name, recovery):
+                recoverable += 1
+    else:
+        gold = [s for s in case.support if _phrase_survives(s, original, original_norm)]
+        for sentence in gold:
+            if _phrase_survives(sentence, text, normalized):
+                retained += 1
+            elif _in_recovery(sentence, recovery):
+                recoverable += 1
 
     return CaseScore(
         case_id=str(getattr(case, "id", "")),
@@ -589,6 +635,7 @@ def _score_case(case: Any, *, shape: str, truncate_to: float | None = None) -> C
         support_total=len(gold),
         support_retained=retained,
         support_recoverable=recoverable,
+        support_unadjudicable=unadjudicable,
     )
 
 
@@ -602,11 +649,24 @@ def score_dataset(cases: list[Any], dataset: str = "", *, shape: str = "json") -
     if shape not in ("json", "prose"):
         raise ValueError(f"shape must be 'json' or 'prose', got {shape!r}")
     label = dataset or (getattr(cases[0], "dataset", "") if cases else "")
+    # How a gold is matched is a property of the benchmark, not of the caller. Reading
+    # it from the spec keeps `distil suite` and `distil retention --dataset` scoring the
+    # same data the same way — two commands quietly grading by different rules is how a
+    # number comes to depend on which one you ran.
+    match = "phrase"
+    try:
+        from .datasets import SPECS
+
+        match = getattr(SPECS.get(label), "match", "phrase") or "phrase"
+    except ImportError:  # pragma: no cover — datasets is in-tree
+        pass
     report = DatasetReport(dataset=label, shape=shape)
     for case in cases:
-        score = _score_case(case, shape=shape)
+        score = _score_case(case, shape=shape, match=match)
         report.scores.append(score)
-        report.baseline.append(_score_case(case, shape=shape, truncate_to=1.0 - score.savings))
+        report.baseline.append(
+            _score_case(case, shape=shape, truncate_to=1.0 - score.savings, match=match)
+        )
     return report
 
 

@@ -72,6 +72,17 @@ class BenchRow:
     # dimension that passed.
     answer_graded: int = 0
     support_facts: int = 0
+    # Golds excluded from support_facts because no text rule can adjudicate them (a
+    # one-letter identifier such as BFCL's quadratic coefficients `a`, `b`, `c`). Shown
+    # in the report so the denominator behind a 100% is visible rather than implied.
+    support_unadjudicable: int = 0
+    # Recall WITHOUT an expand call — what the model can see for free. Distil's whole
+    # thesis is that these two numbers differ and the gap is what reversibility buys,
+    # so reporting only the recovery-inclusive figure here would hide the exact
+    # distinction the product exists to make. On BFCL they differ completely: the tool
+    # schema sits behind a restore handle, so support reads 0% visible / 100% true.
+    answer_recall_visible: float = 0.0
+    support_recall_visible: float = 0.0
     # Did compression actually do anything on this benchmark? `retention` calls a
     # recall of 100% over an identity function "the arithmetic of an identity
     # function", and the suite was dropping that signal — so a regression that turned
@@ -99,11 +110,14 @@ class BenchRow:
             "requested": self.requested,
             "answer_graded": self.answer_graded,
             "support_facts": self.support_facts,
+            "support_unadjudicable": self.support_unadjudicable,
             "engaged": self.engaged,
             "short": self.short,
             "savings": round(self.savings, 4),
             "answer_recall": round(self.answer_recall, 4),
             "support_recall": round(self.support_recall, 4),
+            "answer_recall_visible": round(self.answer_recall_visible, 4),
+            "support_recall_visible": round(self.support_recall_visible, 4),
             "lost": self.lost,
             "error": self.error,
             "failure": self.failure,
@@ -238,9 +252,12 @@ def run(
                     engaged=bool(getattr(graded, "engaged", True)),
                     answer_graded=int(_num(graded, "answer_graded")),
                     support_facts=int(_num(graded, "support_facts")),
+                    support_unadjudicable=int(_num(graded, "support_unadjudicable")),
                     savings=_num(graded, "savings"),
                     answer_recall=_num(graded, "answer_recall"),
                     support_recall=_num(graded, "support_recall"),
+                    answer_recall_visible=_num(graded, "answer_recall_visible"),
+                    support_recall_visible=_num(graded, "support_recall_visible"),
                     # Unrecoverable golds, counting BOTH kinds. Support-only counting
                     # made the gate blind on any benchmark with `support=[]` — SQuAD
                     # among them — so an answer regression scored zero loss.
@@ -317,8 +334,36 @@ def format_report(report: SuiteReport) -> str:
             f"  {row.name:<15}{row.payload:<9}{seen:>6}{row.savings:>9.1%}"
             f"{row.answer_recall:>9.1%}{row.support_recall:>9.1%}{row.lost:>6}"
         )
+    lines.append("  " + "-" * 64)
+    # answer/support above are TRUE recall — retained plus one expand call away. Where
+    # the two differ, say so: a reader who assumes the model sees 100% of a tool schema
+    # that is actually behind a restore handle has been told the wrong thing, even
+    # though every number printed is correct.
+    gapped = [
+        r for r in report.rows if r.ok and (r.support_recall - r.support_recall_visible) > 0.005
+    ]
+    if gapped:
+        detail = ", ".join(
+            f"{r.name} {r.support_recall_visible:.0%}\u2192{r.support_recall:.0%}" for r in gapped
+        )
+        lines += [
+            f"  visible \u2192 true support: {detail}",
+            "  (the columns above are TRUE recall: on screen, or one distil_expand away.",
+            "  The gap is what reversibility buys — a lossy compressor's visible number",
+            "  IS its true one, because it has nothing to recover from.)",
+        ]
+    # A recall computed against a reduced denominator has to say so where the recall is
+    # printed. Putting it only in the JSON would let the human-readable table show a
+    # 100% whose denominator is invisible.
+    excluded = [r for r in report.rows if r.support_unadjudicable]
+    if excluded:
+        detail = ", ".join(f"{r.name} {r.support_unadjudicable}" for r in excluded)
+        lines += [
+            f"  excluded from support: {detail}  (golds under 3 chars — a one-letter",
+            "  identifier occurs in almost any text, so it can be neither credited nor",
+            "  failed honestly. Counted here, never silently dropped.)",
+        ]
     lines += [
-        "  " + "-" * 64,
         "",
         f"evidence benchmarks (rich payload): {len(report.evidence)}   "
         f"controls (thin payload): {len(report.controls)}",

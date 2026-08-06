@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="t d">
   <title id="t">The phantom file — why string recall cannot see a broken agent</title>
-  <desc id="d">A trajectory creates net/scratch_bench.py at turn 2 and deletes it at turn 4. When compression drops turn 4, every path token is still present, so string-presence recall reads 100 percent. But the file's final state is now wrong: the agent believes a file exists that does not, and will plan around it. Artifact-state fidelity reads 0 percent. The failure is classed as stale — present but wrong — which is worse than lost, because a lost path is a gap the agent can see while a stale one is a false belief it acts on confidently.</desc>
+  <desc id="d">An animated trajectory creates net/scratch_bench.py at turn 2 and deletes it at turn 4. Compression drops turn 4 — the deletion line is struck through and fades — yet every path token is still present, so string-presence recall reads 100 percent. The file's final state is now wrong: the agent believes a file exists that does not, and will plan around it. Artifact-state fidelity reads 0 percent. The failure is classed as stale — present but wrong — which is worse than lost, because a lost path is a gap the agent can see while a stale one is a false belief it acts on confidently.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <radialGradient id="vig" cx="0.74" cy="-0.05" r="0.85"><stop offset="0" stop-color="#1a1640" stop-opacity="0.55"/><stop offset="1" stop-color="#06070b" stop-opacity="0"/></radialGradient>
@@ -8,6 +8,17 @@
     <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.025"/></pattern>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#6f7688"/></marker>
   </defs>
+  <style>
+    /* Motion carries the argument here: the deletion has to be SEEN leaving for the
+       phantom to land. Anyone who asked the OS to stop animating gets the end state,
+       which is why every beat resolves to opacity 1 rather than mid-fade. */
+    @media (prefers-reduced-motion: reduce) {
+      animate, animateTransform { display: none }
+      .beat { opacity: 1 !important }
+      .gone { opacity: 0.28 !important }
+      .strike { stroke-dashoffset: 0 !important }
+    }
+  </style>
 
   <rect width="1200" height="470" fill="url(#bg)"/>
   <rect width="1200" height="470" fill="url(#dots)"/>
@@ -16,42 +27,93 @@
   <text x="48" y="50" fill="#e8eaf2" font-size="25" font-weight="700">The phantom file</text>
   <text x="48" y="76" fill="#8b93a8" font-size="14">Every path token survives. Recall reads 100%. The agent is still wrong.</text>
 
-  <!-- original -->
+  <!-- ============ ORIGINAL ============ -->
   <rect x="48" y="104" width="486" height="212" rx="12" fill="url(#card)" stroke="#5ad19a" stroke-opacity="0.34"/>
   <text x="70" y="132" fill="#5ad19a" font-size="12" font-weight="700" letter-spacing="1.2">ORIGINAL TRAJECTORY</text>
-  <text x="70" y="166" fill="#c9cfdd" font-size="13" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">turn 2  Write(file_path="net/scratch_bench.py")</text>
-  <text x="70" y="192" fill="#6f7688" font-size="12">…</text>
-  <text x="70" y="218" fill="#c9cfdd" font-size="13" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">turn 4  rm net/scratch_bench.py</text>
-  <rect x="70" y="240" width="442" height="52" rx="8" fill="#0e1a14" stroke="#5ad19a" stroke-opacity="0.28"/>
-  <text x="86" y="262" fill="#8b93a8" font-size="12">ground-truth final state</text>
-  <text x="86" y="282" fill="#5ad19a" font-size="13" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">net/scratch_bench.py → DELETED</text>
 
-  <!-- arrow -->
-  <line x1="546" y1="210" x2="642" y2="210" stroke="#6f7688" stroke-width="2" marker-end="url(#ar)"/>
-  <text x="556" y="200" fill="#8b93a8" font-size="12">compress</text>
-  <text x="556" y="232" fill="#6f7688" font-size="11">turn 4 dropped</text>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.03;0.08;0.94;0.98;1"/>
+    <text x="70" y="166" fill="#c9cfdd" font-size="13" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">turn 2  Write(file_path="net/scratch_bench.py")</text>
+    <text x="70" y="192" fill="#6f7688" font-size="12">…</text>
+  </g>
 
-  <!-- compressed -->
+  <!-- turn 4: appears, then is struck through and dimmed — the dropped turn -->
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.10;0.15;0.94;0.98;1"/>
+    <g class="gone">
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+               values="1;1;0.28;0.28;1" keyTimes="0;0.30;0.38;0.94;1"/>
+      <text x="70" y="218" fill="#c9cfdd" font-size="13" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">turn 4  rm net/scratch_bench.py</text>
+    </g>
+    <line class="strike" x1="70" y1="214" x2="330" y2="214" stroke="#ff8a7a" stroke-width="1.6"
+          stroke-dasharray="260" stroke-dashoffset="260">
+      <animate attributeName="stroke-dashoffset" dur="12s" repeatCount="indefinite"
+               calcMode="spline" keySplines="0 0 1 1;0.3 0 0.2 1;0 0 1 1;0 0 1 1"
+               values="260;260;0;0;260" keyTimes="0;0.29;0.36;0.94;1"/>
+    </line>
+  </g>
+
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.16;0.21;0.94;0.98;1"/>
+    <rect x="70" y="240" width="442" height="52" rx="8" fill="#0e1a14" stroke="#5ad19a" stroke-opacity="0.28"/>
+    <text x="86" y="262" fill="#8b93a8" font-size="12">ground-truth final state</text>
+    <text x="86" y="282" fill="#5ad19a" font-size="13" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">net/scratch_bench.py → DELETED</text>
+  </g>
+
+  <!-- ============ COMPRESS ============ -->
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.36;0.42;0.94;0.98;1"/>
+    <line x1="546" y1="210" x2="642" y2="210" stroke="#6f7688" stroke-width="2" marker-end="url(#ar)"/>
+    <text x="556" y="200" fill="#8b93a8" font-size="12">compress</text>
+    <text x="556" y="232" fill="#6f7688" font-size="11">turn 4 dropped</text>
+  </g>
+
+  <!-- ============ COMPRESSED ============ -->
   <rect x="666" y="104" width="486" height="212" rx="12" fill="url(#card)" stroke="#ff8a7a" stroke-opacity="0.34"/>
   <text x="688" y="132" fill="#ff8a7a" font-size="12" font-weight="700" letter-spacing="1.2">AFTER COMPRESSION</text>
-  <text x="688" y="166" fill="#c9cfdd" font-size="13" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">turn 2  Write(file_path="net/scratch_bench.py")</text>
-  <text x="688" y="192" fill="#6f7688" font-size="12">…</text>
-  <text x="688" y="218" fill="#4b5162" font-size="13" font-style="italic">(the deletion is gone)</text>
-  <rect x="688" y="240" width="442" height="52" rx="8" fill="#1d1113" stroke="#ff8a7a" stroke-opacity="0.28"/>
-  <text x="704" y="262" fill="#8b93a8" font-size="12">what the agent now believes</text>
-  <text x="704" y="282" fill="#ff8a7a" font-size="13" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">net/scratch_bench.py → EXISTS</text>
 
-  <!-- the two readings -->
-  <rect x="48" y="338" width="546" height="98" rx="12" fill="#12151f" stroke="#5ad1c9" stroke-opacity="0.25"/>
-  <text x="70" y="366" fill="#8b93a8" font-size="12" font-weight="700" letter-spacing="1.2">STRING-PRESENCE RECALL</text>
-  <text x="70" y="404" fill="#5ad19a" font-size="30" font-weight="700">100%</text>
-  <text x="164" y="398" fill="#8b93a8" font-size="13">every path token is present,</text>
-  <text x="164" y="416" fill="#8b93a8" font-size="13">so nothing looks wrong</text>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.44;0.50;0.94;0.98;1"/>
+    <text x="688" y="166" fill="#c9cfdd" font-size="13" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">turn 2  Write(file_path="net/scratch_bench.py")</text>
+    <text x="688" y="192" fill="#6f7688" font-size="12">…</text>
+    <text x="688" y="218" fill="#4b5162" font-size="13" font-style="italic">(the deletion is gone)</text>
+  </g>
 
-  <rect x="606" y="338" width="546" height="98" rx="12" fill="#12151f" stroke="#ff8a7a" stroke-opacity="0.45"/>
-  <text x="628" y="366" fill="#8b93a8" font-size="12" font-weight="700" letter-spacing="1.2">ARTIFACT-STATE FIDELITY</text>
-  <text x="628" y="404" fill="#ff8a7a" font-size="30" font-weight="700">0%</text>
-  <text x="700" y="392" fill="#e8eaf2" font-size="13" font-weight="600">classed STALE, not LOST —</text>
-  <text x="700" y="410" fill="#8b93a8" font-size="13">a lost path is a gap the agent can see;</text>
-  <text x="700" y="428" fill="#8b93a8" font-size="13">a stale one is a false belief it acts on.</text>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.52;0.57;0.94;0.98;1"/>
+    <rect x="688" y="240" width="442" height="52" rx="8" fill="#1d1113" stroke="#ff8a7a" stroke-opacity="0.28">
+      <animate attributeName="stroke-opacity" dur="12s" repeatCount="indefinite"
+               values="0.28;0.28;0.9;0.28;0.9;0.28;0.28" keyTimes="0;0.58;0.62;0.66;0.70;0.74;1"/>
+    </rect>
+    <text x="704" y="262" fill="#8b93a8" font-size="12">what the agent now believes</text>
+    <text x="704" y="282" fill="#ff8a7a" font-size="13" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">net/scratch_bench.py → EXISTS</text>
+  </g>
+
+  <!-- ============ THE TWO READINGS ============ -->
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.68;0.74;0.94;0.98;1"/>
+    <rect x="48" y="338" width="546" height="98" rx="12" fill="#12151f" stroke="#5ad1c9" stroke-opacity="0.25"/>
+    <text x="70" y="366" fill="#8b93a8" font-size="12" font-weight="700" letter-spacing="1.2">STRING-PRESENCE RECALL</text>
+    <text x="70" y="404" fill="#5ad19a" font-size="30" font-weight="700">100%</text>
+    <text x="164" y="398" fill="#8b93a8" font-size="13">every path token is present,</text>
+    <text x="164" y="416" fill="#8b93a8" font-size="13">so nothing looks wrong</text>
+  </g>
+
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+             values="0;0;1;1;1;1" keyTimes="0;0.80;0.86;0.94;0.98;1"/>
+    <rect x="606" y="338" width="546" height="98" rx="12" fill="#12151f" stroke="#ff8a7a" stroke-opacity="0.45"/>
+    <text x="628" y="366" fill="#8b93a8" font-size="12" font-weight="700" letter-spacing="1.2">ARTIFACT-STATE FIDELITY</text>
+    <text x="628" y="404" fill="#ff8a7a" font-size="30" font-weight="700">0%</text>
+    <text x="700" y="392" fill="#e8eaf2" font-size="13" font-weight="600">classed STALE, not LOST —</text>
+    <text x="700" y="410" fill="#8b93a8" font-size="13">a lost path is a gap the agent can see;</text>
+    <text x="700" y="428" fill="#8b93a8" font-size="13">a stale one is a false belief it acts on.</text>
+  </g>
 </svg>

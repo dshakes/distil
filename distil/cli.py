@@ -655,6 +655,58 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cache(args: argparse.Namespace) -> int:
+    """Report what prompt caching actually bought, and where a prefix broke.
+
+    Deliberately two different kinds of number. Reads and writes come from the
+    provider's own `usage` — ground truth about money. Drift is our diagnosis of why,
+    from content-free prefix hashes the proxy records per request. A diagnosis with
+    no measurement behind it is a guess, so this never prints one without the other.
+    """
+    from . import prefix as _prefix
+    from .dissect import _read_jsonl
+    from .ledger import session_requests_path
+
+    paths = []
+    if args.session:
+        p = session_requests_path(args.session)
+        if p is None or not p.exists():
+            print(f"no request ledger for session {args.session}", file=sys.stderr)
+            return 1
+        paths = [p]
+    else:
+        base = session_requests_path("x")
+        if base is not None:
+            paths = sorted(
+                base.parent.glob("*.requests.jsonl"), key=lambda q: q.stat().st_mtime, reverse=True
+            )[: args.sessions]
+
+    records: list[dict[str, Any]] = []
+    for p in paths:
+        records.extend(_read_jsonl(p))
+    records.sort(key=lambda r: float(r.get("ts") or 0))
+
+    if not records:
+        # No data is not a clean bill of health, and printing a 0% drift summary over
+        # zero rows would be exactly the vacuous-pass this repo gates against.
+        print(
+            "no proxied requests recorded yet.\n"
+            "  `distil cache` reads the per-session request ledger, which only a wrap "
+            "session writes.\n"
+            "  Run your agent under `distil wrap -- <cmd>` (or `distil default "
+            "--always-on`), then re-run.",
+            file=sys.stderr,
+        )
+        return 1
+
+    summary = _prefix.summarise(records)
+    if args.json:
+        print(json.dumps(summary.to_dict(), indent=2))
+    else:
+        print(_prefix.format_summary(summary))
+    return 0
+
+
 def cmd_suite(args: argparse.Namespace) -> int:
     """Run the public-benchmark suite: third-party ground truth, zero marginal cost."""
     from . import benchsuite
@@ -3400,6 +3452,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     ve = sub.add_parser("verify", help="byte-fidelity gate: reversibility + append-only (phase 6)")
     ve.set_defaults(func=cmd_verify)
+
+    ca = sub.add_parser("cache", help="what prompt caching bought, and where a stable prefix broke")
+    ca.add_argument("--session", help="one session id (default: the most recent sessions)")
+    ca.add_argument(
+        "--sessions", type=int, default=5, help="how many recent sessions to fold in (default: 5)"
+    )
+    ca.add_argument("--json", action="store_true", help="machine-readable summary")
+    ca.set_defaults(func=cmd_cache)
 
     su = sub.add_parser(
         "suite", help="public-benchmark suite (third-party ground truth, no API key, no spend)"
