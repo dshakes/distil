@@ -57,6 +57,14 @@ class BenchRow:
     support_recall: float
     lost: int
     error: str = ""
+    # What was asked for, when that differs from what was graded. A split can end
+    # early or an adapter can drop malformed rows; either way `-n 100` graded on 7
+    # cases is a different measurement, and hiding that makes a thin run look full.
+    requested: int = 0
+
+    @property
+    def short(self) -> bool:
+        return bool(self.requested) and self.cases < self.requested
 
     @property
     def ok(self) -> bool:
@@ -67,6 +75,8 @@ class BenchRow:
             "name": self.name,
             "payload": self.payload,
             "cases": self.cases,
+            "requested": self.requested,
+            "short": self.short,
             "savings": round(self.savings, 4),
             "answer_recall": round(self.answer_recall, 4),
             "support_recall": round(self.support_recall, 4),
@@ -99,6 +109,20 @@ class SuiteReport:
         return [r for r in self.graded if r.payload == "thin"]
 
     @property
+    def collapsed(self) -> list[BenchRow]:
+        """Rich benchmarks that graded cases and recalled NOTHING.
+
+        A run like that is not a low score, it is a broken one — the compressor
+        returned nothing usable, or the loader handed it nothing to grade. It must
+        never exit 0 just because no threshold flag happened to be passed.
+        """
+        return [
+            r
+            for r in self.evidence
+            if r.cases and r.answer_recall <= 0.0 and r.support_recall <= 0.0
+        ]
+
+    @property
     def total_lost(self) -> int:
         return sum(r.lost for r in self.graded)
 
@@ -110,6 +134,7 @@ class SuiteReport:
             "evidence_benchmarks": len(self.evidence),
             "control_benchmarks": len(self.controls),
             "total_lost": self.total_lost,
+            "collapsed": [r.name for r in self.collapsed],
             "failed": [r.name for r in self.failed],
         }
 
@@ -146,12 +171,16 @@ def run(
                     name=name,
                     payload=payload,
                     cases=len(cases),
+                    requested=n or 0,
                     savings=_num(graded, "savings"),
                     answer_recall=_num(graded, "answer_recall"),
                     support_recall=_num(graded, "support_recall"),
+                    # Unrecoverable golds, counting BOTH kinds. Support-only counting
+                    # made the gate blind on any benchmark with `support=[]` — SQuAD
+                    # among them — so an answer regression scored zero loss.
                     lost=int(
-                        _num(graded, "support_facts")
-                        - _num(graded, "support_facts") * _num(graded, "support_recall")
+                        _num(graded, "support_facts") * (1 - _num(graded, "support_recall"))
+                        + _num(graded, "answer_graded") * (1 - _num(graded, "answer_recall"))
                         + 0.5
                     ),
                 )
@@ -198,8 +227,9 @@ def format_report(report: SuiteReport) -> str:
         if not row.ok:
             lines.append(f"  {row.name:<15}{'—':<9}{'FAILED':>6}   {row.error[:40]}")
             continue
+        seen = f"{row.cases}/{row.requested}" if row.short else str(row.cases)
         lines.append(
-            f"  {row.name:<15}{row.payload:<9}{row.cases:>6}{row.savings:>9.1%}"
+            f"  {row.name:<15}{row.payload:<9}{seen:>6}{row.savings:>9.1%}"
             f"{row.answer_recall:>9.1%}{row.support_recall:>9.1%}{row.lost:>6}"
         )
     lines += [
@@ -211,6 +241,14 @@ def format_report(report: SuiteReport) -> str:
         "  prompt alone. It is not evidence of compression quality — only the rich",
         "  rows can be that, and averaging the two overstates the suite.",
     ]
+    short = [r for r in report.graded if r.short]
+    if short:
+        lines.append(
+            "\n"
+            + ", ".join(f"{r.name} graded {r.cases}/{r.requested}" for r in short)
+            + " — split ended early or rows were unadaptable; the number is real but"
+            "\n  it is not the sample size you asked for."
+        )
     if report.failed:
         lines.append(
             f"\n{len(report.failed)} benchmark(s) could not be graded: "

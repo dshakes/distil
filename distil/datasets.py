@@ -699,8 +699,27 @@ def load(name: str, n: int | None = None, *, offline: bool = False) -> list[Grou
         rows = (spec.fetch or _fetch_rows)(spec, want)
 
     cases = [case for case in (spec.adapt(row) for row in rows) if case is not None]
+
+    # Adapters drop rows they cannot grade (missing answer key, upstream shape drift),
+    # so `want` rows in does not mean `want` cases out. Returning the short list
+    # honoured the letter of the request and broke the promise two lines up in this
+    # docstring: `-n 100` could quietly grade a handful of cases and still report a
+    # complete run. Backfill from further down the split, then fail if still short.
+    if len(cases) < want:
+        extra = min(want * 4, want + 400)
+        if not offline and extra > len(rows):
+            try:
+                rows = (spec.fetch or _fetch_rows)(spec, extra)
+            except DatasetUnavailable:
+                rows = rows  # keep what we have; the shortfall check below decides
+            cases = [case for case in (spec.adapt(row) for row in rows) if case is not None]
+
     if not cases:
         raise DatasetUnavailable(
             f"{spec.name}: no rows survived adaptation (upstream shape change?)"
         )
-    return cases
+    # A shortfall is NOT an error: a split legitimately ends, and that is a documented,
+    # tested behaviour. It must not be invisible either — `benchsuite` reports cases
+    # against what was requested, so a run graded on 7 of 100 says so rather than
+    # presenting itself as a complete one.
+    return cases[:want]

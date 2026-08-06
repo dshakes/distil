@@ -691,6 +691,30 @@ def cmd_suite(args: argparse.Namespace) -> int:
             file=out,
         )
         return 1
+    # Always on, no flag required. A rich benchmark that graded cases and recalled
+    # nothing is a broken run, not a low score, and exiting 0 because nobody passed a
+    # threshold is the vacuous gate this repo refuses everywhere else.
+    if report.collapsed:
+        print(
+            f"\nFAIL: {', '.join(r.name for r in report.collapsed)} graded cases and "
+            "recalled nothing — total loss on a rich payload",
+            file=out,
+        )
+        return 1
+    for flag, attr, label in (
+        (args.min_answer_recall, "answer_recall", "answer"),
+        (args.min_support_recall, "support_recall", "support"),
+    ):
+        if flag is None:
+            continue
+        below = [r for r in report.evidence if getattr(r, attr) < flag]
+        if below:
+            print(
+                f"\nFAIL: {label} recall below {flag:.0%} on "
+                + ", ".join(f"{r.name} ({getattr(r, attr):.1%})" for r in below),
+                file=out,
+            )
+            return 1
     return 0
 
 
@@ -3323,6 +3347,16 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("--json", action="store_true", help="machine-readable report")
     su.add_argument(
         "--max-lost", type=int, help="exit 1 if more than this many gold facts are unrecoverable"
+    )
+    su.add_argument(
+        "--min-answer-recall",
+        type=float,
+        help="exit 1 if any RICH benchmark's answer recall falls below this (0-1)",
+    )
+    su.add_argument(
+        "--min-support-recall",
+        type=float,
+        help="exit 1 if any RICH benchmark's support recall falls below this (0-1)",
     )
     su.set_defaults(func=cmd_suite)
 

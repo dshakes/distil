@@ -210,3 +210,116 @@ class TestReportRendering:
 
         assert benchsuite._num(_Odd(), "savings") == 0.0
         assert benchsuite._num(_Odd(), "missing_field") == 0.0
+
+
+class TestTheSuiteCannotPassOnACollapse:
+    """A rich benchmark that graded cases and recalled nothing is a BROKEN run.
+
+    Before this, `distil suite` exited 0 on it unless someone happened to pass a
+    threshold flag — and `--max-lost` could not catch it either, because loss counted
+    only support facts and benchmarks like SQuAD carry `support=[]`. So a total
+    answer regression scored zero loss and reported success.
+    """
+
+    def test_a_collapsed_rich_benchmark_is_detected(self) -> None:
+        report = benchsuite.SuiteReport(
+            rows=[benchsuite.BenchRow("bfcl", "rich", 100, 0.9, 0.0, 0.0, 0)]
+        )
+        assert [r.name for r in report.collapsed] == ["bfcl"]
+        assert report.to_dict()["collapsed"] == ["bfcl"]
+
+    def test_a_control_at_zero_is_not_a_collapse(self) -> None:
+        """Controls carry no compressible payload; they cannot demonstrate a collapse."""
+        report = benchsuite.SuiteReport(
+            rows=[benchsuite.BenchRow("gsm8k", "thin", 100, 0.0, 0.0, 0.0, 0)]
+        )
+        assert report.collapsed == []
+
+    def test_a_benchmark_with_no_cases_is_not_a_collapse(self) -> None:
+        report = benchsuite.SuiteReport(
+            rows=[benchsuite.BenchRow("bfcl", "rich", 0, 0.0, 0.0, 0.0, 0)]
+        )
+        assert report.collapsed == []
+
+    def test_the_cli_exits_one_on_a_collapse_with_no_flags(self, seeded, monkeypatch) -> None:
+        """No threshold flag passed — the guard must still fire."""
+        import distil.benchsuite as bs
+
+        real = bs.run
+
+        def _collapsed(*a, **k):
+            report = real(*a, **k)
+            for row in report.rows:
+                row.answer_recall = row.support_recall = 0.0
+            return report
+
+        monkeypatch.setattr(bs, "run", _collapsed)
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            ["suite", "--only", seeded["rich"], "-n", "3", "--offline"]
+        )
+        assert cmd_suite(args) == 1
+
+    def test_min_recall_flags_gate_rich_benchmarks(self) -> None:
+        from distil.cli import build_parser
+
+        args = build_parser().parse_args(["suite", "--min-answer-recall", "0.9"])
+        assert args.min_answer_recall == 0.9
+        args = build_parser().parse_args(["suite", "--min-support-recall", "0.8"])
+        assert args.min_support_recall == 0.8
+
+    def test_answer_loss_now_counts_toward_lost(self, seeded, monkeypatch) -> None:
+        """SQuAD-style benchmarks have `support=[]`; counting only support facts made
+        `--max-lost` structurally unable to see an answer regression."""
+        import distil.retention as rt
+
+        class _Report:
+            def to_dict(self):
+                return {
+                    "distil": {
+                        "savings": 0.9,
+                        "answer_recall": 0.5,
+                        "answer_graded": 10,
+                        "support_recall": 1.0,
+                        "support_facts": 0,
+                    }
+                }
+
+        monkeypatch.setattr(rt, "score_dataset", lambda *a, **k: _Report())
+        report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
+        assert report.rows[0].lost == 5, "half of 10 graded answers lost must count"
+
+
+class TestAShortfallIsVisible:
+    """`-n 100` graded on 7 cases is a different measurement.
+
+    A split legitimately ends early and an adapter legitimately drops an unusable
+    row — neither is an error, and `load()` documents that. But a thin run that
+    presents itself as a full one is how a suite overstates its sample size, so the
+    count is reported against what was asked for.
+    """
+
+    def test_a_short_row_knows_it_is_short(self) -> None:
+        row = benchsuite.BenchRow("bfcl", "rich", 7, 0.9, 1.0, 1.0, 0, requested=100)
+        assert row.short and row.to_dict()["short"] is True
+        assert row.to_dict()["requested"] == 100
+
+    def test_a_full_row_is_not_flagged(self) -> None:
+        assert not benchsuite.BenchRow("bfcl", "rich", 100, 0.9, 1.0, 1.0, 0, requested=100).short
+
+    def test_no_request_size_means_no_claim(self) -> None:
+        """Without -n the dataset's own default applies; there is nothing to be short of."""
+        assert not benchsuite.BenchRow("bfcl", "rich", 7, 0.9, 1.0, 1.0, 0).short
+
+    def test_the_report_names_the_shortfall(self) -> None:
+        report = benchsuite.SuiteReport(
+            rows=[benchsuite.BenchRow("bfcl", "rich", 7, 0.9, 1.0, 1.0, 0, requested=100)]
+        )
+        text = benchsuite.format_report(report)
+        assert "7/100" in text, "the table must show the shortfall inline"
+        assert "not the sample size you asked for" in text
+
+    def test_a_real_run_records_what_was_requested(self, seeded) -> None:
+        report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
+        assert report.rows[0].requested == 3 and not report.rows[0].short

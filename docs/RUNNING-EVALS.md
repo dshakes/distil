@@ -170,8 +170,16 @@ uv run distil suite --tier 1 --tier 2     # add the harder payloads
 uv run distil suite --tier 3              # the thin-payload controls
 uv run distil suite --only bfcl -n 50     # one benchmark
 uv run distil suite --tier 1 --offline    # cached rows only, no network
-uv run distil suite --json --max-lost 0   # gate
+uv run distil suite --json --max-lost 0   # gate on unrecoverable golds
+uv run distil suite --min-answer-recall 0.95 --min-support-recall 0.95
 ```
+
+**A collapse always fails, flag or no flag.** A rich benchmark that graded cases and
+recalled *nothing* is a broken run, not a low score, so the suite exits 1 on it even
+with no threshold passed. `--max-lost` counts unrecoverable golds of **both** kinds —
+answers and support facts — because benchmarks like SQuAD carry no support facts at
+all, and counting only those made the gate structurally unable to see an answer
+regression.
 
 Twelve public benchmarks whose answer keys were written by someone else, so a
 stranger can falsify our numbers against data they already trust.
