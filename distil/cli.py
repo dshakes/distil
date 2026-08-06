@@ -716,13 +716,32 @@ def cmd_suite(args: argparse.Namespace) -> int:
             file=out,
         )
         return 1
-    for flag, attr, label in (
-        (args.min_answer_recall, "answer_recall", "answer"),
-        (args.min_support_recall, "support_recall", "support"),
+    if report.idle:
+        print(
+            f"\nFAIL: {', '.join(r.name for r in report.idle)} — compression did not engage; "
+            "100% recall over an identity function proves nothing",
+            file=out,
+        )
+        return 1
+    for flag, attr, counter, label in (
+        (args.min_answer_recall, "answer_recall", "answer_graded", "answer"),
+        (args.min_support_recall, "support_recall", "support_facts", "support"),
     ):
         if flag is None:
             continue
-        below = [r for r in report.evidence if getattr(r, attr) < flag]
+        # Only rows that HAVE golds in this dimension can satisfy its threshold.
+        # BFCL grades no answer spans and reports answer_recall=1.0 over zero — so
+        # `--min-answer-recall 0.95` passed on it vacuously, and with an outage
+        # tolerated it could be the only row left.
+        scoped = [r for r in report.evidence if getattr(r, counter)]
+        if not scoped:
+            print(
+                f"\nFAIL: --min-{label}-recall was requested but no benchmark graded a "
+                f"single {label} gold — the threshold had nothing to test",
+                file=out,
+            )
+            return 1
+        below = [r for r in scoped if getattr(r, attr) < flag]
         if below:
             print(
                 f"\nFAIL: {label} recall below {flag:.0%} on "

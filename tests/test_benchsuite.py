@@ -536,3 +536,93 @@ class TestAnOutageIsNotARegression:
         assert "--min-answer-recall" in line and "--min-support-recall" in line, (
             "tolerating an outage must not mean dropping the quality bar"
         )
+
+
+class TestAThresholdMustHaveSomethingToTest:
+    """A recall of 1.0 over zero golds satisfies any threshold.
+
+    BFCL grades no answer spans, so `--min-answer-recall 0.95` passed on it
+    vacuously — and with an upstream outage tolerated, it could be the only row
+    left. A threshold is now scoped to rows that carry golds in that dimension, and
+    fails outright if none do.
+    """
+
+    def test_an_answer_threshold_fails_when_nothing_graded_answers(self, seeded) -> None:
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            [
+                "suite",
+                "--only",
+                seeded["rich"],
+                "-n",
+                "3",
+                "--offline",
+                "--min-answer-recall",
+                "0.95",
+            ]
+        )
+        assert cmd_suite(args) == 1, "BFCL grades no answers; the threshold tested nothing"
+
+    def test_a_support_threshold_passes_where_support_is_graded(self, seeded) -> None:
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            [
+                "suite",
+                "--only",
+                seeded["rich"],
+                "-n",
+                "3",
+                "--offline",
+                "--min-support-recall",
+                "0.5",
+            ]
+        )
+        assert cmd_suite(args) == 0
+
+
+class TestCompressionMustActuallyEngage:
+    """The deepest hole this suite had: it could certify no compression at all.
+
+    A regression that disables compression returns savings=0, perfect recall and
+    non-empty evidence, and passes every threshold. `retention` already names this —
+    "the arithmetic of an identity function" — and the suite was dropping the signal.
+    """
+
+    def test_an_idle_rich_row_is_detected(self) -> None:
+        row = benchsuite.BenchRow(
+            "bfcl", "rich", 10, 0.0, 1.0, 1.0, 0, support_facts=5, engaged=False
+        )
+        report = benchsuite.SuiteReport(rows=[row])
+        assert [r.name for r in report.idle] == ["bfcl"]
+        assert report.to_dict()["idle"] == ["bfcl"]
+
+    def test_an_engaged_row_is_not_idle(self) -> None:
+        row = benchsuite.BenchRow(
+            "bfcl", "rich", 10, 0.9, 1.0, 1.0, 0, support_facts=5, engaged=True
+        )
+        assert benchsuite.SuiteReport(rows=[row]).idle == []
+
+    def test_the_cli_fails_on_an_idle_benchmark(self, seeded, monkeypatch) -> None:
+        import distil.benchsuite as bs
+
+        real = bs.run
+
+        def _idle(*a, **k):
+            rep = real(*a, **k)
+            for row in rep.rows:
+                row.engaged = False
+            return rep
+
+        monkeypatch.setattr(bs, "run", _idle)
+        from distil.cli import build_parser, cmd_suite
+
+        args = build_parser().parse_args(
+            ["suite", "--only", seeded["rich"], "-n", "3", "--offline"]
+        )
+        assert cmd_suite(args) == 1, "no compression must never certify as a pass"
+
+    def test_real_runs_report_engaged(self, seeded) -> None:
+        report = benchsuite.run(names=[seeded["rich"]], n=3, offline=True)
+        assert report.rows[0].engaged is True and report.idle == []

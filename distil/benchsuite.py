@@ -67,6 +67,11 @@ class BenchRow:
     # dimension that passed.
     answer_graded: int = 0
     support_facts: int = 0
+    # Did compression actually do anything on this benchmark? `retention` calls a
+    # recall of 100% over an identity function "the arithmetic of an identity
+    # function", and the suite was dropping that signal — so a regression that turned
+    # compression OFF returned savings=0, perfect recall, and passed every threshold.
+    engaged: bool = True
 
     @property
     def short(self) -> bool:
@@ -89,6 +94,7 @@ class BenchRow:
             "requested": self.requested,
             "answer_graded": self.answer_graded,
             "support_facts": self.support_facts,
+            "engaged": self.engaged,
             "short": self.short,
             "savings": round(self.savings, 4),
             "answer_recall": round(self.answer_recall, 4),
@@ -122,6 +128,12 @@ class SuiteReport:
         excluded here and surfaced as `unmeasured`.
         """
         return [r for r in self.graded if r.payload == "rich" and r.measured]
+
+    @property
+    def idle(self) -> list[BenchRow]:
+        """Rich rows where compression did nothing. 100% recall over an identity
+        function is arithmetic, not fidelity — and it would pass every threshold."""
+        return [r for r in self.graded if r.payload == "rich" and r.cases and not r.engaged]
 
     @property
     def unmeasured(self) -> list[BenchRow]:
@@ -172,6 +184,7 @@ class SuiteReport:
             "total_lost": self.total_lost,
             "collapsed": [r.name for r in self.collapsed],
             "unmeasured": [r.name for r in self.unmeasured],
+            "idle": [r.name for r in self.idle],
             "failed": [r.name for r in self.failed],
         }
 
@@ -214,6 +227,7 @@ def run(
                     payload=payload,
                     cases=len(cases),
                     requested=want,
+                    engaged=bool(getattr(graded, "engaged", True)),
                     answer_graded=int(_num(graded, "answer_graded")),
                     support_facts=int(_num(graded, "support_facts")),
                     savings=_num(graded, "savings"),
