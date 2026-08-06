@@ -290,6 +290,49 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             f"{round(s.total_distil_tokens * _f):,}  (−{trimmed * 100:.1f}%)"
         )
     print(f"total tokens saved:   {round(s.total_tokens_saved * _f):,}")
+    # A lifetime figure is history, and it gets read as current performance. On this
+    # ledger the two differ by two orders of magnitude: a subscription session runs
+    # lossless-only by default (no lossy digest without a recovery tool), so the
+    # compression a reader infers from the lifetime line is not the one they are
+    # getting. Print the recent window whenever it disagrees, and name the reason.
+    _recent = ledger.summary(since=time.time() - 7 * 86400)
+    if _recent.runs and _recent.total_baseline_tokens:
+        _recent_trim = 1 - _recent.total_distil_tokens / _recent.total_baseline_tokens
+        if s.total_baseline_tokens:
+            _life_trim = 1 - s.total_distil_tokens / s.total_baseline_tokens
+
+            def _trim(frac: float) -> str:
+                """Render a trim fraction with the sign it actually has.
+
+                Hardcoding the `−` prefix printed `−-10.0%` when a window came out
+                LARGER than baseline, and a garbled number is worse than none: the
+                reader cannot tell whether it means -10% or +10%, which are opposite
+                outcomes.
+                """
+                return f"−{frac * 100:.1f}%" if frac >= 0 else f"+{-frac * 100:.1f}% LARGER"
+
+            if abs(_life_trim - _recent_trim) > 0.05:
+                print(
+                    f"  last 7 days:        {_trim(_recent_trim)} over {_recent.runs:,} runs "
+                    f"(lifetime {_trim(_life_trim)} — the lifetime figure is history, "
+                    "not your current rate)"
+                )
+                # Net EXPANSION is a different problem with a different answer, and
+                # `--expand` is the wrong advice for it — it would add more. Negative
+                # trim means overhead exceeded savings, so say that instead.
+                if _recent_trim < 0:
+                    print(
+                        "  ↳ context is coming out LARGER than baseline: transform overhead "
+                        "exceeded\n    savings on this traffic. `--verbatim` removes the "
+                        "overhead; `distil doctor`\n    reports what the proxy is actually doing."
+                    )
+                elif _recent_trim < 0.05:
+                    print(
+                        "  ↳ near-zero compression usually means lossless-only/verbatim: a "
+                        "subscription\n    session defaults there so no digest is left "
+                        "unrecoverable. `--expand` restores the\n    recoverable Tier-1 digest "
+                        "(injects distil_expand, so nothing is irreversibly lost)."
+                    )
     if s.legacy_records:
         print(
             f"  ⚠ includes {s.legacy_records:,} record(s) from pre-1.10 accounting — "
@@ -748,8 +791,18 @@ def _apply_subscription_safe_default(args: argparse.Namespace) -> None:
         args.lossless_only = True
         print(
             "distil: subscription detected → lossless-only (safe default; no lossy digest "
-            "without a recovery tool). Add --expand for max recoverable compression, or "
-            "--verbatim for byte-exact. Override: DISTIL_SUBSCRIPTION=0.",
+            "without a recovery tool).\n"
+            "  What this costs: lossless-only is Tier-0 only, which on real agent traffic "
+            "saves ~0-2%\n"
+            "  rather than the 30-60% the recoverable digest reaches. That is the whole "
+            "product, off.\n"
+            "  Turn it on permanently:  distil default --mode expand\n"
+            "  Or per run:              --expand   (injects distil_expand, so every digest "
+            "stub is\n"
+            "                                       recoverable and nothing is irreversibly "
+            "lost)\n"
+            "  Byte-exact instead:      --verbatim        Override detection: "
+            "DISTIL_SUBSCRIPTION=0",
             file=_sys.stderr,
         )
 
@@ -2729,9 +2782,15 @@ def cmd_fidelity(args: argparse.Namespace) -> int:
     limit = args.max_silent
     if limit is not None and rep.silent_failures > limit:
         print(
+            # Every component of the total, or the diagnostic contradicts the number
+            # above it: an inverted bound or an output-surface regression printed a
+            # nonzero total beside all-zero parts, and whoever had to debug that was
+            # given a gate that would not say what tripped it.
             f"\nFAIL: {rep.silent_failures} silent failures > --max-silent {limit}"
-            f"  (stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
-            f" dropped-work={rep.plan.dropped_work})",
+            f"\n  input : stale={rep.state.stale} overclaimed={rep.hedges.overclaimed}"
+            f" inverted={rep.hedges.inverted} dropped-work={rep.plan.dropped_work}"
+            f"\n  output: {rep.output.silent_failures}"
+            + ("" if rep.output.scored else "  (surface not scored)"),
             file=out,
         )
         return 1
@@ -3734,6 +3793,31 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     except (ImportError, AttributeError, ValueError):
         pass
+
+    # A legacy console (Windows cp1252) cannot encode the glyphs this CLI prints —
+    # `→` in the savings line, `−`, `↳`, `⚠`, `≈` elsewhere — and the default
+    # `errors="strict"` turns that into a UnicodeEncodeError mid-render. `distil
+    # stats` did not degrade on such a console, it CRASHED with a traceback, and only
+    # once a ledger had baseline tokens: no test had ever written one, so the line
+    # never executed off UTF-8.
+    #
+    # `errors="replace"` keeps the console's own encoding (forcing UTF-8 onto cp1252
+    # trades a crash for mojibake) and costs at most a `?` for a handful of
+    # decorative characters. A reporting tool must never fail on the report.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            if (
+                _stream
+                and _stream.encoding
+                and _stream.encoding.lower()
+                not in (
+                    "utf-8",
+                    "utf8",
+                )
+            ):
+                _stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+        except Exception:
+            pass  # a wrapped/non-reconfigurable stream is not worth failing over
 
     args = build_parser().parse_args(argv)
     try:

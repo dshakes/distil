@@ -249,6 +249,7 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
     if not scan:
         return [(path, op) for _, path, op in found]
     found.sort(key=lambda f: f[0])
+    spans = _call_spans(text)
     kept: list[tuple[str, Op]] = []
     for i, (start, path, op) in enumerate(found):
         # The window runs to the next op at a STRICTLY LATER position. Two ops can
@@ -258,11 +259,125 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
         # a failed `mv` dropped the create and still recorded a phantom DELETE of a
         # file that was never moved. Ops asserted at the same position are asserted
         # by the same command and share its outcome.
-        end = next((s for s, _, _ in found[i + 1 :] if s > start), len(text))
-        if _FAILED_RE.search(text, start, end):
+        # Evidence for an op begins after the call that asserted it, so the call's own
+        # arguments cannot condemn it. Ops sharing ONE call share that call's outcome,
+        # so the window must also END past its siblings — otherwise the first op in
+        # `Bash(command="rm a.py && touch b.py")` got the window [next_op, next_op),
+        # zero characters wide, and a failed command recorded a delete that never
+        # happened. With three ops in a call, two leaked. Same principle as ops sharing
+        # a position: one command, one outcome, one window.
+        boundary = max(start, _outcome_start(start, spans))
+        end = next((s for s, _, _ in found[i + 1 :] if s > boundary), len(text))
+        if _FAILED_RE.search(text, boundary, end):
             continue
         kept.append((path, op))
     return kept
+
+
+# Only these heads may have their arguments excluded from the failure scan. A CLOSED
+# set, because the open version cost three separate regressions in a row.
+#
+# The rule being enforced is narrow: a tool INVOCATION states what was attempted, so
+# its arguments are inputs and cannot report failure. Deciding which `Name(...)` is an
+# invocation by inspecting its field names is a guess over untrusted transcript text,
+# and every guess leaked something through — an exception repr
+# (`CalledProcessError(returncode=1, ...)`), then a result wrapper
+# (`ToolCall(name=..., content="No such file...")`), each recording a FAILED operation
+# as real workspace state.
+#
+# So the question is inverted. Instead of asking "is this a result?" (unbounded, and
+# wrong by default), ask "is this one of the handful of invocations we recognise?"
+# Anything else is scanned in full — which at worst under-records a real operation as
+# `lost`, the loud, honest failure, rather than inventing state that was never there.
+_INVOCATION_HEADS = frozenset(
+    # `apply_patch` belongs here for the same reason as the rest: its argument is a
+    # PATCH BODY, and a patch that adds an error-handling file legitimately contains
+    # "No such file or directory". Omitting it left the Codex-family edit format with
+    # exactly the under-recording this allowlist exists to fix — and `*** Add File:`
+    # envelopes are already parsed as ops, so the two halves disagreed.
+    {"write", "edit", "read", "bash", "multiedit", "notebookedit", "apply_patch"}
+)
+_CALL_HEAD = re.compile(r"(\w+)\s*\(")
+# Field names that report an OUTCOME rather than an input. A `Name(...)` carrying any
+# of them is a result or exception repr, not a tool invocation, so its arguments ARE
+# evidence about success and must stay in the failure scan.
+#
+# Without this, excluding a call's arguments turned every failed operation into
+# workspace state:
+#
+#   CalledProcessError(returncode=1, cmd="rm missing.py", stderr="No such file...")
+#
+# recorded `missing.py` as a successful DELETE — a ledger of ATTEMPTS, which is the
+# first bug this module ever had, reintroduced by the fix for the second.
+#
+# The asymmetry decides the default: missing a real operation is loud and shows up as
+# `lost`, while recording a failed one is silent and shows up as confident wrong state.
+# So an ambiguous call is SCANNED, not excluded.
+_OUTCOME_FIELD = re.compile(
+    r"\b(?:returncode|return_code|exit_?code|exit|status|ok|success|error|err|stderr|"
+    r"stdout|result|output|traceback|exception)\s*[=:]",
+    re.I,
+)
+
+
+def _call_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of `Name(...)` tool calls, as (start, index-after-closing-paren).
+
+    A call's ARGUMENTS are not evidence about its outcome. Without this, a successful
+    `Write(file_path="a.py", content="No such file or directory")` was dropped from
+    the ledger, because the failure scan ran over the op's own arguments — a coding
+    agent writing an error fixture, silently unrecorded.
+
+    The live path does not need this: `_iter_tool_texts` knows the real call/result
+    boundary and marks the pair adjudicated. This is the OFFLINE path, where raw
+    transcript text is all there is.
+
+    Deliberately a PARSE, not a heuristic. Two earlier attempts recovered this
+    boundary by searching for a `->` delimiter, and both shipped bugs: the delimiter
+    is absent on success, and present in every Python type hint. Paren depth with
+    quote tracking has no such ambiguity — it either balances or it does not, and an
+    unbalanced call yields no span rather than a guess.
+    """
+    spans: list[tuple[int, int]] = []
+    for m in _CALL_HEAD.finditer(text):
+        if m.group(1).lower() not in _INVOCATION_HEADS:
+            continue  # not a recognised invocation: its text is scanned in full
+        i, depth, quote, esc = m.end(), 1, "", False
+        bare: list[str] = []  # argument text OUTSIDE quotes — where field NAMES live
+        while i < len(text) and depth:
+            ch = text[i]
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif quote:
+                if ch == quote:
+                    quote = ""
+            elif ch in "\"'":
+                quote = ch
+            else:
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                bare.append(ch)
+            i += 1
+        # An outcome field must be a field NAME, so it is looked for outside quotes
+        # only. Scanning the raw span instead let a VALUE decide: writing a file whose
+        # content is "exit: 1" read as a call reporting its own exit status, and the
+        # successful write vanished — the same class of bug as scanning arguments for
+        # failure phrases, one level down.
+        if not depth and not _OUTCOME_FIELD.search("".join(bare)):
+            spans.append((m.start(), i))
+    return spans
+
+
+def _outcome_start(start: int, spans: list[tuple[int, int]]) -> int:
+    """Where an op's outcome evidence begins: after the call that asserted it."""
+    for s_start, s_end in spans:
+        if s_start <= start < s_end:
+            return s_end
+    return start
 
 
 def _canonical(path: str) -> str:

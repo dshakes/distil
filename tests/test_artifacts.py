@@ -711,3 +711,230 @@ class TestOpenAIResponsesFlatItems:
             {"type": "function_call_output", "call_id": "c2", "output": '{"exit": 0}'},
         ]
         assert measure_live(original, original[:2]).stale == 1
+
+
+class TestCallArgumentsAreNotOutcomeEvidence:
+    """A call's own arguments cannot condemn it.
+
+    `Write(file_path="a.py", content="No such file or directory")` returned no op:
+    the failure scan ran over the op's own arguments, so an agent writing an error
+    fixture went unrecorded and artifact-state fidelity looked green by measuring
+    less. The live path never had this — `_iter_tool_texts` knows the real call/result
+    boundary — but `fidelityprobes.run()` scores raw transcript text, where it bit.
+
+    The boundary is PARSED (paren depth, quote-aware), not guessed. Two earlier
+    attempts searched for a `->` delimiter and both shipped bugs, so the cases below
+    pin the parse: quotes and parens inside arguments, and failures that must still
+    suppress.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'Write(file_path="a.py", content="No such file or directory")',
+            'Write(file_path="a.py", content="No such file or directory")\n-> {"ok": true}',
+            'Write(file_path="a.py", content="Permission denied")',
+            'Write(file_path="a.py", content="a ) paren and \\" quote")',
+            'Write(file_path="a.py", content="exit: 1")',
+        ],
+    )
+    def test_a_failure_phrase_in_arguments_does_not_suppress(self, text: str) -> None:
+        assert ("a.py", Op.CREATE) in extract_ops(text), f"{text!r} was wrongly suppressed"
+
+    def test_an_op_nested_in_a_call_ignores_its_sibling_argument(self) -> None:
+        t = 'Bash(command="rm x.py", note="No such file or directory")'
+        assert ("x.py", Op.DELETE) in extract_ops(t)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'Write(file_path="b.py")\n-> {"ok": false}',
+            'Bash(command="rm missing.py")\n-> {"exit": 1}',
+            'Bash(command="rm missing.py")\n-> Permission denied',
+        ],
+    )
+    def test_a_failure_after_the_call_still_suppresses(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text!r} should assert nothing"
+
+    def test_an_unbalanced_call_is_not_treated_as_a_span(self) -> None:
+        """Malformed text must degrade to the old behaviour, never crash or over-reach."""
+        from distil.artifacts import _call_spans
+
+        assert _call_spans('Write(file_path="a.py"') == []
+
+    def test_call_spans_are_quote_aware(self) -> None:
+        from distil.artifacts import _call_spans
+
+        text = 'Write(content=") not the end")X'
+        spans = _call_spans(text)
+        assert len(spans) == 1 and text[spans[0][1] :] == "X"
+
+
+class TestOutcomeReprsAreNotToolCalls:
+    """A `Name(...)` that reports a RESULT is evidence, not an invocation.
+
+    Excluding a call's arguments from the failure scan fixed a real bug and created a
+    worse one: an exception repr is also `Name(...)`, so
+
+        CalledProcessError(returncode=1, cmd="rm missing.py", stderr="No such file...")
+
+    recorded `missing.py` as a successful DELETE. That is a ledger of ATTEMPTS — the
+    first bug this module ever had, reintroduced by the fix for the second.
+
+    The tie-break is the asymmetry the whole module rests on: missing a real operation
+    is loud (`lost`), recording a failed one is silent (confident wrong state). So a
+    call carrying outcome-shaped fields is SCANNED, never excluded.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'CalledProcessError(returncode=1, cmd="rm missing.py", stderr="No such file or directory")',
+            'Result(command="rm missing.py", ok=false, error="Permission denied")',
+            'ToolError(tool="Bash", cmd="rm gone.py", exit=1)',
+            'Response(status=500, cmd="rm x.py", error="operation failed")',
+            'Outcome(cmd="rm x.py", exit_code=2, stdout="No such file or directory")',
+        ],
+    )
+    def test_a_failed_outcome_repr_asserts_nothing(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text[:60]!r} recorded a failed op as state"
+
+    @pytest.mark.parametrize(
+        "text,path,op",
+        [
+            ('Write(file_path="a.py", content="No such file or directory")', "a.py", Op.CREATE),
+            ('Write(file_path="a.py", content="Permission denied")', "a.py", Op.CREATE),
+            ('Bash(command="rm x.py", note="No such file or directory")', "x.py", Op.DELETE),
+        ],
+    )
+    def test_input_fields_are_still_not_outcome_evidence(
+        self, text: str, path: str, op: Op
+    ) -> None:
+        """The original fix must survive: a content/note argument is not a result."""
+        assert (path, op) in extract_ops(text)
+
+    def test_an_outcome_field_suppresses_the_span_not_the_parse(self) -> None:
+        from distil.artifacts import _call_spans
+
+        assert _call_spans('Write(file_path="a.py")'), "a pure invocation is a span"
+        assert not _call_spans('Err(cmd="x", returncode=1)'), "an outcome repr is not"
+
+    @pytest.mark.parametrize(
+        "content",
+        ["exit: 1", "ok: false", "returncode: 2", "error: Permission denied"],
+    )
+    def test_an_outcome_word_inside_a_VALUE_is_not_a_field(self, content: str) -> None:
+        """A field NAME decides; a value never does.
+
+        Looking for outcome fields in the raw span let a written file's own content
+        vote: `Write(file_path="a.py", content="exit: 1")` read as a call reporting
+        its exit status, and the successful write vanished. That is the same bug as
+        scanning arguments for failure phrases, one level down — so the field scan
+        runs outside quotes only.
+        """
+        text = f'Write(file_path="a.py", content="{content}")'
+        assert ("a.py", Op.CREATE) in extract_ops(text), f"{content!r} suppressed a real write"
+
+
+class TestOnlyRecognisedInvocationsGetArgumentImmunity:
+    """The set of heads whose arguments are exempt from the failure scan is CLOSED.
+
+    Deciding which `Name(...)` is an invocation by inspecting its field names is a
+    guess over untrusted transcript text, and three consecutive audit rounds leaked
+    something through it: an exception repr, then a result wrapper, then a generic
+    envelope — each recording a FAILED operation as real workspace state.
+
+    So the question is inverted. Not "is this a result?" (unbounded, wrong by
+    default) but "is this one of the few invocations we recognise?" Everything else
+    is scanned in full, which at worst under-records a real operation as `lost` — the
+    loud, honest failure — instead of inventing state that never existed.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'ToolCall(name="Bash", arguments={"command":"rm x.py"}, content="No such file or directory")',
+            'FunctionCall(name="Bash", arguments="rm x.py No such file or directory")',
+            'Message(role="tool", content="rm x.py: No such file or directory")',
+            'CalledProcessError(returncode=1, cmd="rm x.py", stderr="No such file or directory")',
+            'Envelope(payload="rm x.py", detail="Permission denied")',
+            'Wrapper(inner="rm x.py", note="operation failed")',
+        ],
+    )
+    def test_an_unrecognised_head_is_scanned_in_full(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text[:56]!r} recorded a failed op as state"
+
+    @pytest.mark.parametrize(
+        "text,path,op",
+        [
+            ('Write(file_path="a.py", content="No such file or directory")', "a.py", Op.CREATE),
+            ('Edit(file_path="a.py", new="Permission denied")', "a.py", Op.MODIFY),
+            ('Bash(command="rm x.py", note="No such file or directory")', "x.py", Op.DELETE),
+        ],
+    )
+    def test_a_recognised_invocation_keeps_argument_immunity(
+        self, text: str, path: str, op: Op
+    ) -> None:
+        assert (path, op) in extract_ops(text)
+
+    def test_an_outcome_field_revokes_immunity_even_for_a_known_head(self) -> None:
+        """Belt and braces: the allowlist bounds the guess, the outcome-field check
+        still catches a known head that is reporting rather than invoking."""
+        assert extract_ops('Bash(command="rm x.py", output="No such file or directory")') == []
+
+    def test_the_allowlist_is_the_documented_one(self) -> None:
+        from distil.artifacts import _INVOCATION_HEADS
+
+        assert _INVOCATION_HEADS == {
+            "write",
+            "edit",
+            "read",
+            "bash",
+            "multiedit",
+            "notebookedit",
+            "apply_patch",
+        }, "widening this set is a safety decision, not a refactor"
+
+
+class TestOpsInOneCallShareItsOutcome:
+    """A shell call runs several operations and has ONE result.
+
+    Argument-immunity moved each op's window past its containing call, but the window
+    still ENDED at the next op's start — and for an op with a sibling inside the same
+    call, that is a window of zero characters. So the failure result was never
+    scanned:
+
+        Bash(command="rm a.py && touch b.py") -> exit: 1   recorded a.py as DELETED
+
+    With three ops in one call, two leaked. A failed command inventing a delete is
+    the phantom-file failure this module exists to catch, produced by the module.
+
+    One command, one outcome, one window — the same principle already applied to ops
+    that share a position (`mv old new`).
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'Bash(command="rm a.py && touch b.py")\n-> exit: 1',
+            'Bash(command="cat x.py; rm y.py; touch z.py")\n-> {"ok": false}',
+            'Bash(command="rm a.py && rm b.py && rm c.py")\n-> Permission denied',
+        ],
+    )
+    def test_a_failed_multi_op_call_records_nothing(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text[:50]!r} recorded ops from a failed command"
+
+    def test_a_successful_multi_op_call_records_every_op(self) -> None:
+        ops = extract_ops('Bash(command="rm a.py && touch b.py")\n-> exit: 0')
+        assert ("a.py", Op.DELETE) in ops and ("b.py", Op.CREATE) in ops
+
+    def test_a_failed_call_does_not_swallow_a_later_unrelated_op(self) -> None:
+        """The window must end at the next op OUTSIDE the call, not run to EOF."""
+        assert extract_ops('Bash(command="rm a.py && touch b.py")\n-> exit: 1\ncreated c.py') == [
+            ("c.py", Op.CREATE)
+        ]
+
+    def test_bare_intra_line_ops_are_unaffected(self) -> None:
+        """No call, no span — the original per-op windowing still applies."""
+        ops = extract_ops("cat a.py && rm a.py")
+        assert ("a.py", Op.READ) in ops and ("a.py", Op.DELETE) in ops
