@@ -894,3 +894,47 @@ class TestOnlyRecognisedInvocationsGetArgumentImmunity:
             "notebookedit",
             "apply_patch",
         }, "widening this set is a safety decision, not a refactor"
+
+
+class TestOpsInOneCallShareItsOutcome:
+    """A shell call runs several operations and has ONE result.
+
+    Argument-immunity moved each op's window past its containing call, but the window
+    still ENDED at the next op's start — and for an op with a sibling inside the same
+    call, that is a window of zero characters. So the failure result was never
+    scanned:
+
+        Bash(command="rm a.py && touch b.py") -> exit: 1   recorded a.py as DELETED
+
+    With three ops in one call, two leaked. A failed command inventing a delete is
+    the phantom-file failure this module exists to catch, produced by the module.
+
+    One command, one outcome, one window — the same principle already applied to ops
+    that share a position (`mv old new`).
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'Bash(command="rm a.py && touch b.py")\n-> exit: 1',
+            'Bash(command="cat x.py; rm y.py; touch z.py")\n-> {"ok": false}',
+            'Bash(command="rm a.py && rm b.py && rm c.py")\n-> Permission denied',
+        ],
+    )
+    def test_a_failed_multi_op_call_records_nothing(self, text: str) -> None:
+        assert extract_ops(text) == [], f"{text[:50]!r} recorded ops from a failed command"
+
+    def test_a_successful_multi_op_call_records_every_op(self) -> None:
+        ops = extract_ops('Bash(command="rm a.py && touch b.py")\n-> exit: 0')
+        assert ("a.py", Op.DELETE) in ops and ("b.py", Op.CREATE) in ops
+
+    def test_a_failed_call_does_not_swallow_a_later_unrelated_op(self) -> None:
+        """The window must end at the next op OUTSIDE the call, not run to EOF."""
+        assert extract_ops('Bash(command="rm a.py && touch b.py")\n-> exit: 1\ncreated c.py') == [
+            ("c.py", Op.CREATE)
+        ]
+
+    def test_bare_intra_line_ops_are_unaffected(self) -> None:
+        """No call, no span — the original per-op windowing still applies."""
+        ops = extract_ops("cat a.py && rm a.py")
+        assert ("a.py", Op.READ) in ops and ("a.py", Op.DELETE) in ops

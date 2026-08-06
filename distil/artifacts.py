@@ -259,12 +259,16 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
         # a failed `mv` dropped the create and still recorded a phantom DELETE of a
         # file that was never moved. Ops asserted at the same position are asserted
         # by the same command and share its outcome.
-        end = next((s for s, _, _ in found[i + 1 :] if s > start), len(text))
-        # Evidence starts after the call that asserted the op, so its own arguments
-        # cannot condemn it. `max` keeps the window from running backwards when the
-        # next op sits inside the same call.
-        scan_from = min(max(start, _outcome_start(start, spans)), end)
-        if _FAILED_RE.search(text, scan_from, end):
+        # Evidence for an op begins after the call that asserted it, so the call's own
+        # arguments cannot condemn it. Ops sharing ONE call share that call's outcome,
+        # so the window must also END past its siblings — otherwise the first op in
+        # `Bash(command="rm a.py && touch b.py")` got the window [next_op, next_op),
+        # zero characters wide, and a failed command recorded a delete that never
+        # happened. With three ops in a call, two leaked. Same principle as ops sharing
+        # a position: one command, one outcome, one window.
+        boundary = max(start, _outcome_start(start, spans))
+        end = next((s for s, _, _ in found[i + 1 :] if s > boundary), len(text))
+        if _FAILED_RE.search(text, boundary, end):
             continue
         kept.append((path, op))
     return kept
