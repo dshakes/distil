@@ -177,3 +177,42 @@ class TestTheSubscriptionDefaultStatesItsCost:
         parser = build_parser()
         args = parser.parse_args(["default", "--mode", "expand"])
         assert args.mode == "expand"
+
+
+class TestNegativeSavingsAreNotMisreported:
+    """A window can come out LARGER than baseline, and the report said `−-10.0%`.
+
+    A garbled number is worse than none — the reader cannot tell whether it means
+    -10% or +10%, which are opposite outcomes. Worse, the advice branch treated any
+    trim below 5% as "lossless-only, add --expand", which is exactly wrong when the
+    problem is net expansion: `--expand` would add more, not less.
+    """
+
+    def _expansion(self, home) -> str:
+        now = time.time()
+        _write_ledger(
+            home,
+            [(now - 40 * 86400, 1_000_000, 400_000)] * 20
+            + [(now - 2 * 86400, 1_000_000, 1_100_000)] * 20,
+        )
+        return _stats(home)
+
+    def test_the_sign_is_rendered_correctly(self, tmp_path) -> None:
+        out = self._expansion(tmp_path)
+        assert "−-" not in out, "a doubled sign makes the number unreadable"
+        assert "LARGER" in out, "expansion must be named as such"
+
+    def test_expand_is_not_recommended_for_expansion(self, tmp_path) -> None:
+        out = self._expansion(tmp_path)
+        assert "--expand" not in out, "--expand would add more overhead, not less"
+        assert "overhead" in out, "the actual cause must be named"
+
+    def test_a_normal_saving_window_still_reads_as_a_saving(self, tmp_path) -> None:
+        now = time.time()
+        _write_ledger(
+            tmp_path,
+            [(now - 40 * 86400, 1_000_000, 400_000)] * 20
+            + [(now - 2 * 86400, 1_000_000, 996_000)] * 20,
+        )
+        out = _stats(tmp_path)
+        assert "LARGER" not in out and "--expand" in out

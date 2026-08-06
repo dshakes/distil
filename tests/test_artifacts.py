@@ -892,4 +892,5 @@ class TestOnlyRecognisedInvocationsGetArgumentImmunity:
             "bash",
             "multiedit",
             "notebookedit",
+            "apply_patch",
         }, "widening this set is a safety decision, not a refactor"

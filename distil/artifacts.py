@@ -285,7 +285,14 @@ def extract_ops(text: str) -> list[tuple[str, Op]]:
 # wrong by default), ask "is this one of the handful of invocations we recognise?"
 # Anything else is scanned in full — which at worst under-records a real operation as
 # `lost`, the loud, honest failure, rather than inventing state that was never there.
-_INVOCATION_HEADS = frozenset({"write", "edit", "read", "bash", "multiedit", "notebookedit"})
+_INVOCATION_HEADS = frozenset(
+    # `apply_patch` belongs here for the same reason as the rest: its argument is a
+    # PATCH BODY, and a patch that adds an error-handling file legitimately contains
+    # "No such file or directory". Omitting it left the Codex-family edit format with
+    # exactly the under-recording this allowlist exists to fix — and `*** Add File:`
+    # envelopes are already parsed as ops, so the two halves disagreed.
+    {"write", "edit", "read", "bash", "multiedit", "notebookedit", "apply_patch"}
+)
 _CALL_HEAD = re.compile(r"(\w+)\s*\(")
 # Field names that report an OUTCOME rather than an input. A `Name(...)` carrying any
 # of them is a result or exception repr, not a tool invocation, so its arguments ARE

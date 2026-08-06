@@ -300,13 +300,33 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         _recent_trim = 1 - _recent.total_distil_tokens / _recent.total_baseline_tokens
         if s.total_baseline_tokens:
             _life_trim = 1 - s.total_distil_tokens / s.total_baseline_tokens
+
+            def _trim(frac: float) -> str:
+                """Render a trim fraction with the sign it actually has.
+
+                Hardcoding the `−` prefix printed `−-10.0%` when a window came out
+                LARGER than baseline, and a garbled number is worse than none: the
+                reader cannot tell whether it means -10% or +10%, which are opposite
+                outcomes.
+                """
+                return f"−{frac * 100:.1f}%" if frac >= 0 else f"+{-frac * 100:.1f}% LARGER"
+
             if abs(_life_trim - _recent_trim) > 0.05:
                 print(
-                    f"  last 7 days:        −{_recent_trim * 100:.1f}% over {_recent.runs:,} runs "
-                    f"(lifetime −{_life_trim * 100:.1f}% — the lifetime figure is history, "
+                    f"  last 7 days:        {_trim(_recent_trim)} over {_recent.runs:,} runs "
+                    f"(lifetime {_trim(_life_trim)} — the lifetime figure is history, "
                     "not your current rate)"
                 )
-                if _recent_trim < 0.05:
+                # Net EXPANSION is a different problem with a different answer, and
+                # `--expand` is the wrong advice for it — it would add more. Negative
+                # trim means overhead exceeded savings, so say that instead.
+                if _recent_trim < 0:
+                    print(
+                        "  ↳ context is coming out LARGER than baseline: transform overhead "
+                        "exceeded\n    savings on this traffic. `--verbatim` removes the "
+                        "overhead; `distil doctor`\n    reports what the proxy is actually doing."
+                    )
+                elif _recent_trim < 0.05:
                     print(
                         "  ↳ near-zero compression usually means lossless-only/verbatim: a "
                         "subscription\n    session defaults there so no digest is left "
