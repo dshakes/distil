@@ -120,7 +120,7 @@ five things you need to reproduce or compare them.
 {
   "schema": "distil.eval/1",          // so a consumer knows when the shape changed
   "run":     { "at": "...", "duration_ms": 218,
-               "env": { "distil": "1.40.0", "python": "3.9.25", "platform": "darwin-arm64" } },
+               "env": { "distil": "1.40.1", "python": "3.9.25", "platform": "darwin-arm64" } },
   "subject": { "compressor": "_ServingSurface", "module": "distil.compress.strategies" },
   "dataset": { "name": "corpus", "trajectories": 9,
                "domains": [...],
