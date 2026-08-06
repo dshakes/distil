@@ -2957,7 +2957,25 @@ def _retention_dataset(args: argparse.Namespace) -> int:
         if not rep.engaged:
             print(f"\nFAIL: compression did not engage ({rep.savings:.1%}) — recall proves nothing")
             return 1
-        answer, _ = DatasetReport._answer_recall(rep.scores, with_recovery=True)
+        answer, graded = DatasetReport._answer_recall(rep.scores, with_recovery=True)
+        # A recall over zero graded answers is 1.0 and satisfies any bound. Some
+        # benchmarks grade no answer spans at all — BFCL's gold is a function call,
+        # which never appears in the tool schema — so `--min-recall 0.99` passed on
+        # them having tested nothing. Support recall is offered as the alternative
+        # rather than silently substituted, because the two measure different things.
+        if not graded:
+            support, facts = DatasetReport._support_recall(rep.scores, with_recovery=True)
+            print(
+                "\nFAIL: --min-recall was requested but this benchmark graded no answer "
+                "spans, so the bound tested nothing"
+                + (
+                    f" (it does grade {facts} support facts at {support:.1%} — use "
+                    "--min-support-recall)"
+                    if facts
+                    else ""
+                )
+            )
+            return 1
         if answer < args.min_recall:
             print(f"\nFAIL: answer recall {answer:.1%} < --min-recall {args.min_recall:.1%}")
             return 1

@@ -707,3 +707,34 @@ class TestOnlyAvailabilityCanBeWaitedOut:
         report = benchsuite.run(names=[seeded["rich"], "msmarco"], n=3, offline=True)
         kinds = {r["name"]: r["failure"] for r in report.to_dict()["rows"]}
         assert kinds[seeded["rich"]] == "" and kinds["msmarco"] == "unavailable"
+
+
+class TestRetentionMinRecallNeedsSomethingToTest:
+    """The same vacuity, in the neighbouring command.
+
+    Adding BFCL to the shared dataset registry gave `retention --dataset` its first
+    benchmark that grades no answer spans — its gold is a function call, which never
+    appears in the tool schema. A recall over zero graded answers is 1.0, so
+    `--min-recall 0.99` passed having tested nothing.
+    """
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "distil.cli", "retention", *args],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_min_recall_fails_when_no_answers_were_graded(self) -> None:
+        out = self._run("--dataset", "bfcl", "-n", "5", "--min-recall", "0.99")
+        assert out.returncode == 1, "a bound that tested nothing must not pass"
+        assert "tested nothing" in out.stdout + out.stderr
+
+    def test_the_failure_points_at_the_dimension_that_does_exist(self) -> None:
+        out = self._run("--dataset", "bfcl", "-n", "5", "--min-recall", "0.99")
+        assert "support facts" in out.stdout + out.stderr, (
+            "tell the caller which dimension this benchmark can actually gate on"
+        )
+
+    def test_a_benchmark_with_answers_still_gates_normally(self) -> None:
+        assert self._run("--dataset", "squad", "-n", "5", "--min-recall", "0.9").returncode == 0
