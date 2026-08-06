@@ -237,6 +237,272 @@ def _squad(row: dict[str, Any]) -> GroundTruthCase | None:
     )
 
 
+def _first_text(value: Any) -> str:
+    """First non-empty string from a str / list / dict shape, at any nesting depth.
+
+    Benchmarks disagree on where the text lives: NarrativeQA uses ``{'text': ...}``,
+    BFCL nests chat turns two lists deep as ``[[{'role': ..., 'content': ...}]]``.
+    Both keys are tried, in that order, rather than one adapter per shape.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("text", "content"):
+            got = _first_text(value.get(key))
+            if got:
+                return got
+        return ""
+    if isinstance(value, list):
+        for item in value:
+            got = _first_text(item)
+            if got:
+                return got
+    return ""
+
+
+def _gsm8k(row: dict[str, Any]) -> GroundTruthCase | None:
+    """Grade-school math. The gold answer follows a `####` marker in the rationale."""
+    question = str(row.get("question") or "").strip()
+    rationale = str(row.get("answer") or "")
+    answer = rationale.split("####")[-1].strip() if "####" in rationale else ""
+    if not question or not answer:
+        return None
+    # The rationale is the only compressible span, and it is what must survive for
+    # the arithmetic to be re-derivable.
+    return GroundTruthCase(
+        id=f"gsm8k-{abs(hash(question)) % 10**8}",
+        question=question,
+        docs=[("problem", question), ("rationale", rationale)],
+        answer=answer,
+        support=[rationale.split("####")[0].strip()] if "####" in rationale else [],
+        dataset="gsm8k",
+    )
+
+
+def _truthfulqa(row: dict[str, Any]) -> GroundTruthCase | None:
+    question = str(row.get("question") or "").strip()
+    answer = str(row.get("best_answer") or "").strip()
+    if not question or not answer:
+        return None
+    correct = row.get("correct_answers") or []
+    return GroundTruthCase(
+        id=f"truthfulqa-{abs(hash(question)) % 10**8}",
+        question=question,
+        docs=[("question", question)],
+        answer=answer,
+        support=[str(c).strip() for c in correct if str(c).strip()][:3],
+        dataset="truthfulqa",
+    )
+
+
+def _mmlu(row: dict[str, Any]) -> GroundTruthCase | None:
+    question = str(row.get("question") or "").strip()
+    choices = row.get("choices") or []
+    idx = row.get("answer")
+    if not question or not isinstance(choices, list) or not isinstance(idx, int):
+        return None
+    if not 0 <= idx < len(choices):
+        return None
+    body = "\n".join(f"{chr(65 + i)}. {c}" for i, c in enumerate(choices))
+    return GroundTruthCase(
+        id=f"mmlu-{row.get('subject', '')}-{abs(hash(question)) % 10**8}",
+        question=question,
+        docs=[(str(row.get("subject") or "mmlu"), f"{question}\n{body}")],
+        answer=str(choices[idx]).strip(),
+        support=[str(choices[idx]).strip()],
+        dataset="mmlu",
+    )
+
+
+def _arc(row: dict[str, Any]) -> GroundTruthCase | None:
+    question = str(row.get("question") or "").strip()
+    choices = row.get("choices") or {}
+    texts, labels = choices.get("text") or [], choices.get("label") or []
+    key = str(row.get("answerKey") or "")
+    if not question or not texts or len(texts) != len(labels) or key not in labels:
+        return None
+    answer = str(texts[labels.index(key)]).strip()
+    body = "\n".join(f"{lab}. {txt}" for lab, txt in zip(labels, texts))
+    return GroundTruthCase(
+        id=str(row.get("id") or f"arc-{abs(hash(question)) % 10**8}"),
+        question=question,
+        docs=[("choices", f"{question}\n{body}")],
+        answer=answer,
+        support=[answer],
+        dataset="arc",
+    )
+
+
+def _humaneval(row: dict[str, Any]) -> GroundTruthCase | None:
+    """Code generation. The prompt (signature + docstring) is the payload that must
+    survive; the entry point is the checkable gold."""
+    prompt = str(row.get("prompt") or "")
+    entry = str(row.get("entry_point") or "").strip()
+    if not prompt or not entry:
+        return None
+    return GroundTruthCase(
+        id=str(row.get("task_id") or f"humaneval-{abs(hash(prompt)) % 10**8}"),
+        question=f"Implement {entry}",
+        docs=[(str(row.get("task_id") or "humaneval"), prompt)],
+        answer=entry,
+        support=[f"def {entry}"],
+        dataset="humaneval",
+    )
+
+
+def _msmarco(row: dict[str, Any]) -> GroundTruthCase | None:
+    """Ten retrieved passages per query — the closest public analogue of RAG traffic."""
+    passages = row.get("passages") or {}
+    texts = passages.get("passage_text") or []
+    selected = passages.get("is_selected") or []
+    answers = row.get("answers") or []
+    answer = _first_text(answers)
+    query = str(row.get("query") or "").strip()
+    if not texts or not answer or not query:
+        return None
+    docs = [(f"passage-{i}", str(t)) for i, t in enumerate(texts)]
+    # `is_selected` marks the passage the answer came from: the span that must survive.
+    support = [str(t) for t, sel in zip(texts, selected) if sel]
+    return GroundTruthCase(
+        id=str(row.get("query_id") or f"msmarco-{abs(hash(query)) % 10**8}"),
+        question=query,
+        docs=docs,
+        answer=answer,
+        support=support,
+        dataset="msmarco",
+    )
+
+
+def _triviaqa(row: dict[str, Any]) -> GroundTruthCase | None:
+    question = str(row.get("question") or "").strip()
+    ans = row.get("answer") or {}
+    answer = str(ans.get("value") or ans.get("normalized_value") or "").strip()
+    if not question or not answer:
+        return None
+    return GroundTruthCase(
+        id=str(row.get("question_id") or f"triviaqa-{abs(hash(question)) % 10**8}"),
+        question=question,
+        docs=[("question", question)],
+        answer=answer,
+        support=[answer],
+        dataset="triviaqa",
+    )
+
+
+def _narrativeqa(row: dict[str, Any]) -> GroundTruthCase | None:
+    """Book/film summaries — long-form narrative, the payload compression struggles on."""
+    document = row.get("document") or {}
+    summary = document.get("summary") or {}
+    text = str(summary.get("text") or "").strip()
+    question = _first_text(row.get("question"))
+    answer = _first_text(row.get("answers"))
+    if not text or not question or not answer:
+        return None
+    return GroundTruthCase(
+        id=str(document.get("id") or f"narrativeqa-{abs(hash(question)) % 10**8}"),
+        question=question,
+        docs=[(str(summary.get("title") or "summary"), text)],
+        answer=answer,
+        support=[answer],
+        dataset="narrativeqa",
+    )
+
+
+def _codesearchnet(row: dict[str, Any]) -> GroundTruthCase | None:
+    code = str(row.get("func_code_string") or "").strip()
+    doc = str(row.get("func_documentation_string") or "").strip()
+    name = str(row.get("func_name") or "").strip()
+    if not code or not doc or not name:
+        return None
+    return GroundTruthCase(
+        id=f"csn-{abs(hash(code)) % 10**8}",
+        question=f"What does {name} do?",
+        docs=[(str(row.get("func_path_in_repository") or name), code)],
+        answer=doc,
+        support=[doc],
+        dataset="codesearchnet",
+    )
+
+
+def _bfcl(row: dict[str, Any]) -> GroundTruthCase | None:
+    """Berkeley Function Calling Leaderboard.
+
+    The compressible payload is the TOOL SCHEMA, and the gold is the call the model
+    should emit. That makes this the one public benchmark that tests the thing an
+    agent proxy most risks breaking: compress a tool definition badly and the model
+    calls the wrong function, or the right one with wrong arguments — a failure no
+    QA benchmark can see, because QA never asks the model to *act*.
+    """
+    functions = row.get("function") or []
+    question = _first_text(row.get("question"))
+    truth = row.get("ground_truth")
+    if not functions or not question or truth is None:
+        return None
+    schema = json.dumps(functions, indent=2, sort_keys=True)
+    # Every function NAME must survive: the model cannot call what it cannot see.
+    names = [str(f.get("name")) for f in functions if isinstance(f, dict) and f.get("name")]
+    return GroundTruthCase(
+        id=str(row.get("id") or f"bfcl-{abs(hash(question)) % 10**8}"),
+        question=question,
+        docs=[("tool-schemas", schema)],
+        answer=json.dumps(truth, sort_keys=True),
+        support=names,
+        dataset="bfcl",
+    )
+
+
+_BFCL_BASE = (
+    "https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard/resolve/main"
+)
+
+
+def _fetch_bfcl(spec: "_Spec", want: int) -> list[dict[str, Any]]:
+    """BFCL ships as plain JSONL files, not a parquet dataset, so the rows API 500s.
+
+    Questions and ground truth live in separate files keyed by `id`, and a case is
+    only usable with both — an unanswered call cannot be graded, so rows that fail to
+    join are dropped rather than scored as passes.
+    """
+    rows = _read_cache(spec.name)
+    if len(rows) >= want:
+        return rows[:want]
+
+    def _lines(path: str) -> list[dict[str, Any]]:
+        req = urllib.request.Request(f"{_BFCL_BASE}/{path}", headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
+            body = resp.read().decode("utf-8", "replace")
+        out = []
+        for line in body.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return out
+
+    try:
+        questions = _lines(f"{spec.config}.json")
+        truth = {
+            str(t.get("id")): t.get("ground_truth")
+            for t in _lines(f"possible_answer/{spec.config}.json")
+        }
+    except (urllib.error.URLError, OSError) as exc:
+        raise DatasetUnavailable(f"{spec.name}: {exc}") from exc
+
+    rows = []
+    for item in questions:
+        gt = truth.get(str(item.get("id")))
+        if gt is not None:
+            rows.append({**item, "ground_truth": gt})
+        if len(rows) >= want:
+            break
+    if not rows:
+        raise DatasetUnavailable(f"{spec.name}: no question joined to a ground truth")
+    _write_cache(spec.name, rows)
+    return rows[:want]
+
+
 @dataclass(frozen=True)
 class _Spec:
     name: str
@@ -246,6 +512,22 @@ class _Spec:
     adapt: Callable[[dict[str, Any]], "GroundTruthCase | None"]
     description: str
     default_n: int
+    # How much COMPRESSIBLE payload a case carries — the single most important thing
+    # about a compression benchmark, and the thing benchmark tables usually hide.
+    #
+    # A suite that reports "GSM8K 0.870 -> 0.870, no loss" beside "SQuAD 97% at 19%
+    # compression" invites the reader to average them. They are not the same kind of
+    # evidence: a GSM8K case is a one-line word problem with nothing to compress, so
+    # an unchanged score there is a CONTROL — it proves the compressor did not corrupt
+    # a prompt it barely touched. Only `rich` cases, where the payload is retrieved
+    # documents or tool schemas, can demonstrate anything about compression quality.
+    #
+    # Both belong in the suite; conflating them is what makes a table look stronger
+    # than its data. So the class travels with the number everywhere it is reported.
+    payload: str = "rich"  # "rich" (real context to compress) | "thin" (control)
+    # Some benchmarks are not served by the parquet rows API — BFCL is a plain file
+    # repository. A spec may carry its own transport rather than be excluded for it.
+    fetch: "Callable[[_Spec, int], list[dict[str, Any]]] | None" = None
 
 
 SPECS: dict[str, _Spec] = {
@@ -267,11 +549,127 @@ SPECS: dict[str, _Spec] = {
         description="SQuAD v2 extractive QA: gold answer spans + unanswerable questions",
         default_n=100,
     ),
+    # --- tool use -----------------------------------------------------------------
+    "bfcl": _Spec(
+        name="bfcl",
+        hf_dataset="gorilla-llm/Berkeley-Function-Calling-Leaderboard",
+        config="BFCL_v3_simple",
+        split="",  # file repo, not a parquet split
+        adapt=_bfcl,
+        description="Berkeley Function Calling: tool SCHEMAS compressed, gold call checked",
+        default_n=100,
+        fetch=_fetch_bfcl,
+    ),
+    # --- retrieval / RAG ----------------------------------------------------------
+    "msmarco": _Spec(
+        name="msmarco",
+        hf_dataset="microsoft/ms_marco",
+        config="v2.1",
+        split="validation",
+        adapt=_msmarco,
+        description="MS MARCO: 10 retrieved passages per query, gold passage marked",
+        default_n=100,
+    ),
+    "narrativeqa": _Spec(
+        name="narrativeqa",
+        hf_dataset="deepmind/narrativeqa",
+        config="default",
+        split="validation",
+        adapt=_narrativeqa,
+        description="NarrativeQA: long book/film summaries — the long-form payload",
+        default_n=100,
+    ),
+    "codesearchnet": _Spec(
+        name="codesearchnet",
+        hf_dataset="code-search-net/code_search_net",
+        config="python",
+        split="test",
+        adapt=_codesearchnet,
+        description="CodeSearchNet: real functions, docstring as gold — code payload",
+        default_n=100,
+    ),
+    # --- controls -----------------------------------------------------------------
+    # Thin payload: a one-line question with nothing meaningful to compress. An
+    # unchanged score here does NOT demonstrate compression quality; it demonstrates
+    # the compressor left a prompt it barely touched alone. Reported as controls so
+    # the distinction survives into whatever table quotes them.
+    "gsm8k": _Spec(
+        name="gsm8k",
+        hf_dataset="openai/gsm8k",
+        config="main",
+        split="test",
+        adapt=_gsm8k,
+        description="GSM8K grade-school math (control: thin payload)",
+        default_n=100,
+        payload="thin",
+    ),
+    "truthfulqa": _Spec(
+        name="truthfulqa",
+        hf_dataset="truthfulqa/truthful_qa",
+        config="generation",
+        split="validation",
+        adapt=_truthfulqa,
+        description="TruthfulQA factual accuracy (control: thin payload)",
+        default_n=100,
+        payload="thin",
+    ),
+    "mmlu": _Spec(
+        name="mmlu",
+        hf_dataset="cais/mmlu",
+        config="all",
+        split="test",
+        adapt=_mmlu,
+        description="MMLU 57-subject knowledge (control: thin payload)",
+        default_n=100,
+        payload="thin",
+    ),
+    "arc": _Spec(
+        name="arc",
+        hf_dataset="allenai/ai2_arc",
+        config="ARC-Challenge",
+        split="test",
+        adapt=_arc,
+        description="ARC-Challenge science reasoning (control: thin payload)",
+        default_n=100,
+        payload="thin",
+    ),
+    "triviaqa": _Spec(
+        name="triviaqa",
+        hf_dataset="mandarjoshi/trivia_qa",
+        config="rc.nocontext",
+        split="validation",
+        adapt=_triviaqa,
+        description="TriviaQA factoid QA, no-context split (control: thin payload)",
+        default_n=100,
+        payload="thin",
+    ),
+    "humaneval": _Spec(
+        name="humaneval",
+        hf_dataset="openai/openai_humaneval",
+        config="openai_humaneval",
+        split="test",
+        adapt=_humaneval,
+        description="HumanEval code generation: signature+docstring payload",
+        default_n=164,
+    ),
 }
 
 
 def available() -> list[tuple[str, str]]:
     return [(spec.name, spec.description) for spec in SPECS.values()]
+
+
+def payload_class(name: str) -> str:
+    """ "rich" if a case carries real context to compress, "thin" if it is a control.
+
+    Exposed because every consumer that prints a benchmark number needs to print this
+    beside it. A suite that reports a thin-payload null result as evidence of
+    compression quality is overstating its own data.
+    """
+    spec = SPECS.get(name)
+    if spec is None:
+        raise DatasetUnavailable(f"unknown dataset {name!r}")
+    return spec.payload
 
 
 def load(name: str, n: int | None = None, *, offline: bool = False) -> list[GroundTruthCase]:
@@ -298,7 +696,7 @@ def load(name: str, n: int | None = None, *, offline: bool = False) -> list[Grou
                 f"(run once without --offline to populate {_cache_path(spec.name)})"
             )
     else:
-        rows = _fetch_rows(spec, want)
+        rows = (spec.fetch or _fetch_rows)(spec, want)
 
     cases = [case for case in (spec.adapt(row) for row in rows) if case is not None]
     if not cases:

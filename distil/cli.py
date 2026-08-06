@@ -655,6 +655,45 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_suite(args: argparse.Namespace) -> int:
+    """Run the public-benchmark suite: third-party ground truth, zero marginal cost."""
+    from . import benchsuite
+
+    tiers = sorted({int(t) for t in (args.tier or [1])})
+    report = benchsuite.run(
+        tiers, n=args.n, offline=args.offline, names=args.only.split(",") if args.only else None
+    )
+    out = sys.stderr if args.json else sys.stdout
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(benchsuite.format_report(report))
+
+    # A benchmark that could not be graded is a failure of the run, not a neutral
+    # skip: reporting green for a suite that measured less than it claimed is the
+    # vacuous-gate failure this repo gates against everywhere else.
+    if report.failed:
+        print(
+            f"\nFAIL: {len(report.failed)} benchmark(s) could not be graded",
+            file=out,
+        )
+        return 1
+    if args.max_lost is not None and report.total_lost > args.max_lost:
+        print(
+            f"\nFAIL: {report.total_lost} unrecoverable gold facts > --max-lost {args.max_lost}",
+            file=out,
+        )
+        return 1
+    if not report.evidence:
+        print(
+            "\nFAIL: no rich-payload benchmark graded — controls alone cannot show "
+            "compression quality",
+            file=out,
+        )
+        return 1
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Adversarial real-path validation: drive the compressor against a battery of diverse and
     hostile inputs (huge/unicode/nested/malformed/marker-injection/secret-looking) and assert the
@@ -3267,6 +3306,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     ve = sub.add_parser("verify", help="byte-fidelity gate: reversibility + append-only (phase 6)")
     ve.set_defaults(func=cmd_verify)
+
+    su = sub.add_parser(
+        "suite", help="public-benchmark suite (third-party ground truth, no API key, no spend)"
+    )
+    su.add_argument(
+        "--tier",
+        action="append",
+        type=int,
+        choices=(1, 2, 3),
+        help="tier to run; repeatable (default: 1). 1=tool+retrieval, 2=hard payloads, 3=controls",
+    )
+    su.add_argument("--only", help="comma-separated benchmark names, overriding --tier")
+    su.add_argument("-n", type=int, help="cases per benchmark (default: each dataset's own)")
+    su.add_argument("--offline", action="store_true", help="cached rows only (no network)")
+    su.add_argument("--json", action="store_true", help="machine-readable report")
+    su.add_argument(
+        "--max-lost", type=int, help="exit 1 if more than this many gold facts are unrecoverable"
+    )
+    su.set_defaults(func=cmd_suite)
 
     va = sub.add_parser("validate", help="adversarial real-path gate: invariants on hostile inputs")
     va.set_defaults(func=cmd_validate)

@@ -162,6 +162,51 @@ uv run distil fidelity --json --max-silent 15 | jq -r '.dataset.fingerprint'
 
 ---
 
+### 5. `distil suite` — public benchmarks, third-party ground truth
+
+```bash
+uv run distil suite --tier 1              # tool-calling + retrieval (the evidence)
+uv run distil suite --tier 1 --tier 2     # add the harder payloads
+uv run distil suite --tier 3              # the thin-payload controls
+uv run distil suite --only bfcl -n 50     # one benchmark
+uv run distil suite --tier 1 --offline    # cached rows only, no network
+uv run distil suite --json --max-lost 0   # gate
+```
+
+Twelve public benchmarks whose answer keys were written by someone else, so a
+stranger can falsify our numbers against data they already trust.
+
+**It costs nothing.** Grading is deterministic recall against the answer key — no
+model in the loop, no API key, no spend. Suites that grade with an LLM judge cost
+real money per tier, which makes them something you run before a launch rather than
+before a merge. This one runs in CI.
+
+**Payload class is reported with every row, and it is the most important column.**
+
+| class | meaning | examples |
+|---|---|---|
+| `rich` | real context to compress — **evidence** | `bfcl`, `hotpotqa`, `msmarco`, `narrativeqa`, `squad`, `codesearchnet`, `humaneval` |
+| `thin` | a one-line question with nothing to compress — **control** | `gsm8k`, `mmlu`, `arc`, `truthfulqa`, `triviaqa` |
+
+A GSM8K case is a word problem; there is nothing in it to compress, so an unchanged
+score proves the compressor left it alone. That is a control, not a demonstration.
+Only `rich` rows can show compression quality, and a run that grades **only**
+controls exits 1 rather than reporting a clean sheet.
+
+`bfcl` leads tier 1 deliberately. Berkeley Function Calling compresses the **tool
+schema** and checks the gold call still comes back — the failure an agent proxy is
+most likely to cause and least likely to notice, because no QA benchmark ever asks
+the model to *act*. On the schemas it reaches ~90% savings with every function name
+intact, where truncation at matched savings keeps none of them.
+
+A benchmark that cannot be fetched is reported as a FAILED row and exits 1. It is
+never dropped: a suite that silently skips what it could not load reports a clean
+sheet for a run that measured less than it claimed.
+
+*Not wired:* LongBench — upstream ships it only as a `data.zip`, with no rows API
+and no per-task files, so there is no stdlib-only path to it that keeps distil's
+zero-dependency promise.
+
 ### 5. `distil validate` — adversarial invariants
 
 ```bash
