@@ -1,4 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="Distil observability: per-request headers, per-session shadow stats, per-machine lifetime savings ledger, and the multi-tenant gateway dashboard">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="obT obD">
+  <title id="obT">Distil observability at four widening scopes</title>
+  <desc id="obD">Four panels revealing in turn, each scope wider than the last. Per request: content-free response headers on every compressed call. Per session: live shadow stats proving decision-equivalence on real traffic. Per machine: a lifetime savings ledger held in local JSON with no telemetry. Community: an opt-in federated leaderboard whose entries are HMAC-signed, so only certified totals are counted.</desc>
+  <style>
+    /* The scopes arrive left to right because the diagram's claim is that each one is
+       WIDER than the last — showing them at once loses the ordering that is the point.
+       Reduced motion gets all four, bar filled, number in place. */
+    @media (prefers-reduced-motion: reduce) { animate { display: none } .obeat { opacity: 1 !important } }
+  </style>
   <defs>
     <linearGradient id="obg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <linearGradient id="og" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
@@ -11,7 +19,7 @@
   <text x="48" y="48" font-size="22" font-weight="800" letter-spacing="-0.4" fill="#f2f3f7">Observability <tspan fill="#9aa0b2" font-weight="500" font-size="14">— savings you can see, at four widening scopes</tspan></text>
 
   <!-- scope 1: per request -->
-  <g transform="translate(48,86)">
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.02;0.07;0.93;0.98;1"/><g transform="translate(48,86)">
     <rect width="262" height="300" rx="16" fill="url(#ocard)" stroke="#2c344a"/>
     <text x="20" y="34" font-size="10" letter-spacing="2" font-weight="700" fill="#7d8cff">PER REQUEST</text>
     <text x="20" y="58" font-size="14" font-weight="700" fill="#eef0f5">Response headers</text>
@@ -25,10 +33,10 @@
     </g>
     <text x="20" y="246" font-size="10.5" fill="#727a92">curl -i … | grep x-distil</text>
     <text x="20" y="278" font-size="10.5" fill="#9aa0b2">content-free · no logging of bodies</text>
-  </g>
+  </g></g>
 
   <!-- scope 2: per session -->
-  <g transform="translate(330,86)">
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.20;0.25;0.93;0.98;1"/><g transform="translate(330,86)">
     <rect width="262" height="300" rx="16" fill="url(#ocard)" stroke="#2c344a"/>
     <text x="20" y="34" font-size="10" letter-spacing="2" font-weight="700" fill="#5ad1c9">PER SESSION</text>
     <text x="20" y="58" font-size="14" font-weight="700" fill="#eef0f5">Live shadow stats</text>
@@ -40,18 +48,24 @@
       <text x="20" y="198" fill="#9aa0b2">savings</text><text x="242" y="198" text-anchor="end" fill="#eef0f5">31.4%</text>
     </g>
     <rect x="20" y="220" width="222" height="7" rx="3.5" fill="#172033"/>
-    <rect x="20" y="220" width="70" height="7" rx="3.5" fill="#5ad19a"/>
+    <rect x="20" y="220" width="70" height="7" rx="3.5" fill="#5ad19a">
+      <animate attributeName="width" dur="12s" repeatCount="indefinite" calcMode="spline"
+               keySplines="0 0 1 1;0.3 0 0.2 1;0 0 1 1;0 0 1 1"
+               values="0;0;70;70;0" keyTimes="0;0.26;0.34;0.93;1"/>
+    </rect>
     <text x="20" y="262" font-size="10.5" fill="#727a92">streaming-aware · both-ways replay</text>
     <text x="20" y="284" font-size="10.5" fill="#9aa0b2">proves equivalence on real traffic</text>
-  </g>
+  </g></g>
 
   <!-- scope 3: per machine (lifetime ledger) — the highlight -->
-  <g transform="translate(612,86)">
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.38;0.43;0.93;0.98;1"/><g transform="translate(612,86)">
     <rect width="262" height="300" rx="16" fill="url(#ocard)" stroke="url(#og)" stroke-width="1.8"/>
     <text x="20" y="34" font-size="10" letter-spacing="2" font-weight="700" fill="#bcacff">PER MACHINE · LIFETIME</text>
     <text x="20" y="58" font-size="14" font-weight="700" fill="#eef0f5">Savings ledger</text>
     <text x="20" y="80" font-size="10.5" fill="#9aa0b2">distil leaderboard</text>
-    <text x="20" y="132" font-size="34" font-weight="800" fill="#6fe0aa" letter-spacing="-1">1,234,567</text>
+    <text x="20" y="132" font-size="34" font-weight="800" fill="#6fe0aa" letter-spacing="-1" opacity="0">
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+               values="0;0;1;1;1;1" keyTimes="0;0.44;0.49;0.93;0.98;1"/>1,234,567</text>
     <text x="20" y="150" font-size="10.5" fill="#9aa0b2">tokens saved, all-time</text>
     <g font-size="11">
       <text x="20" y="190" fill="#9aa0b2">≈ usd saved</text><text x="242" y="190" text-anchor="end" font-weight="700" fill="#eef0f5">$3.21</text>
@@ -59,10 +73,10 @@
       <text x="20" y="242" fill="#9aa0b2">avg compression</text><text x="242" y="242" text-anchor="end" fill="#eef0f5">31.4%</text>
     </g>
     <text x="20" y="278" font-size="10.5" fill="#727a92">local JSON · no telemetry · opt-out env</text>
-  </g>
+  </g></g>
 
   <!-- scope 4: community (federated, verifiable leaderboard) -->
-  <g transform="translate(894,86)">
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.56;0.61;0.93;0.98;1"/><g transform="translate(894,86)">
     <rect width="258" height="300" rx="16" fill="url(#ocard)" stroke="#2c344a"/>
     <text x="20" y="34" font-size="10" letter-spacing="2" font-weight="700" fill="#5ad19a">COMMUNITY · VERIFIABLE</text>
     <text x="20" y="58" font-size="14" font-weight="700" fill="#eef0f5">Federated leaderboard</text>
@@ -78,9 +92,9 @@
     </g>
     <text x="20" y="258" font-size="10.5" fill="#727a92">tamper-evident · certified-only totals</text>
     <text x="20" y="284" font-size="10.5" fill="#9aa0b2">content-free · opt-in · no telemetry by default</text>
-  </g>
+  </g></g>
 
-  <path d="M310,236 L330,236" fill="none" stroke="#5ad19a" stroke-width="1.6" marker-end="url(#oar)"/>
-  <path d="M592,236 L612,236" fill="none" stroke="#5ad19a" stroke-width="1.6" marker-end="url(#oar)"/>
-  <path d="M874,236 L894,236" fill="none" stroke="#5ad19a" stroke-width="1.6" marker-end="url(#oar)"/>
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.17;0.22;0.93;0.98;1"/><path d="M310,236 L330,236" fill="none" stroke="#5ad19a" stroke-width="1.6" marker-end="url(#oar)"/></g>
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.35;0.40;0.93;0.98;1"/><path d="M592,236 L612,236" fill="none" stroke="#5ad19a" stroke-width="1.6" marker-end="url(#oar)"/></g>
+  <g class="obeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.53;0.58;0.93;0.98;1"/><path d="M874,236 L894,236" fill="none" stroke="#5ad19a" stroke-width="1.6" marker-end="url(#oar)"/></g>
 </svg>

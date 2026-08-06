@@ -1,4 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" role="img" aria-label="Animated distil proof session: distil bench prints GATE PASS (every trajectory certified non-inferior); distil wrap -- claude routes with zero config; a live line shows 53% smaller, equivalence 100%; then the proof ledger closes with 1,284,551 to 601,204 tokens (53.2% smaller), cost $18.41 to $8.72 calibrated to billed usage, 0 shadow decision changes across 63 A/B samples, and 100% recoverable restore.">
+  <style>
+    /* This one plays ONCE and freezes rather than looping, so the usual
+       `animate { display: none }` would leave it permanently blank: every group starts
+       at opacity 0, the typed lines are revealed by zero-width clip rects, and the
+       result box is drawn by a dash offset. The guard therefore has to assert the END
+       state of each, not just stop the motion — a hero image that renders as an empty
+       terminal for anyone with reduced motion on is worse than one that animates. */
+    @media (prefers-reduced-motion: reduce) {
+      animate { display: none }
+      g[opacity="0"], rect[opacity="0"] { opacity: 1 }
+      clipPath rect { width: 760px }
+      rect[stroke-dashoffset] { stroke-dashoffset: 0 }
+    }
+  </style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <radialGradient id="vig" cx="0.82" cy="0.02" r="0.95"><stop offset="0" stop-color="#1a1640" stop-opacity="0.5"/><stop offset="1" stop-color="#06070b" stop-opacity="0"/></radialGradient>

@@ -1,4 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-label="Vision duplicate elision: an agent sends four screenshots — three byte-identical red CI tiles and one distinct green tile. Distil keeps the first red tile and the green tile verbatim and replaces the two repeated reds with recoverable references, so the model still sees every distinct image. Certified at 100 percent decision-equivalence against a live vision model.">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="vT vD">
+  <title id="vT">Vision duplicate elision</title>
+  <desc id="vD">An animated sequence. An agent sends four screenshots across four turns — three byte-identical red CI-failure tiles and one distinct green pass tile. The two repeated reds dim as they are elided. Distil keeps the first red and the green verbatim and replaces the repeats with recoverable references, so the model still receives every distinct image. Certified at 100 percent decision-equivalence against a live vision model.</desc>
+  <style>
+    /* The duplicates have to be seen DIMMING for the elision to read as "these two, and
+       only these two". Reduced motion leaves them dimmed and everything else in place. */
+    @media (prefers-reduced-motion: reduce) {
+      animate { display: none }
+      .vbeat { opacity: 1 !important }
+      .vdupe { opacity: 0.25 !important }
+    }
+  </style>
   <defs>
     <linearGradient id="vbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <linearGradient id="vg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
@@ -18,53 +29,53 @@
 
   <!-- Sent: 3 identical red tiles + 1 distinct green -->
   <g>
-    <rect x="48" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.02;0.06;0.93;0.98;1"/><rect x="48" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
     <text x="91" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
-    <text x="91" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 0</text>
+    <text x="91" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 0</text></g>
 
-    <rect x="146" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <g class="vbeat vdupe" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0.25;0.25;0" keyTimes="0;0.09;0.13;0.44;0.52;0.95;1"/><rect x="146" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
     <text x="189" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
-    <text x="189" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 1</text>
+    <text x="189" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 1</text></g>
 
-    <rect x="244" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <g class="vbeat vdupe" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0.25;0.25;0" keyTimes="0;0.16;0.20;0.44;0.52;0.95;1"/><rect x="244" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
     <text x="287" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
-    <text x="287" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 2</text>
+    <text x="287" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 2</text></g>
 
-    <rect x="342" y="120" width="86" height="86" rx="10" fill="#2a9c68" stroke="#3dc789" stroke-width="1.5"/>
+    <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.23;0.27;0.93;0.98;1"/><rect x="342" y="120" width="86" height="86" rx="10" fill="#2a9c68" stroke="#3dc789" stroke-width="1.5"/>
     <text x="385" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#04220f">CI: PASS</text>
-    <text x="385" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 3</text>
+    <text x="385" y="222" text-anchor="middle" font-size="10.5" fill="#7b8298">turn 3</text></g>
   </g>
-  <text x="48" y="256" font-size="12.5" fill="#9aa0b2">4 images &#183; ~5,600 input tokens &#183; three are <tspan fill="#e7e9ee" font-weight="600">byte-identical</tspan></text>
+  <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.28;0.32;0.93;0.98;1"/><text x="48" y="256" font-size="12.5" fill="#9aa0b2">4 images &#183; ~5,600 input tokens &#183; three are <tspan fill="#e7e9ee" font-weight="600">byte-identical</tspan></text></g>
 
   <!-- Pipeline -->
-  <line x1="452" y1="163" x2="524" y2="163" stroke="#7d8cff" stroke-width="2.6" marker-end="url(#varr)"/>
+  <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.34;0.38;0.93;0.98;1"/><line x1="452" y1="163" x2="524" y2="163" stroke="#7d8cff" stroke-width="2.6" marker-end="url(#varr)"/>
   <rect x="536" y="118" width="286" height="92" rx="14" fill="url(#vcard)" stroke="url(#vg)" stroke-width="1.6"/>
   <text x="679" y="148" text-anchor="middle" font-size="14" font-weight="800" fill="url(#vg)">duplicate elision</text>
   <text x="679" y="170" text-anchor="middle" font-size="11.5" fill="#9aa0b2">identity = exact base64 payload</text>
   <text x="679" y="190" text-anchor="middle" font-size="11.5" fill="#9aa0b2">never re-encoded, never downscaled</text>
-  <line x1="834" y1="163" x2="900" y2="163" stroke="#7d8cff" stroke-width="2.6" marker-end="url(#varr)"/>
+  <line x1="834" y1="163" x2="900" y2="163" stroke="#7d8cff" stroke-width="2.6" marker-end="url(#varr)"/></g>
 
   <!-- Received: first red kept, green kept, two references -->
   <g>
-    <rect x="912" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
+    <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.46;0.50;0.93;0.98;1"/><rect x="912" y="120" width="86" height="86" rx="10" fill="#cc3a21" stroke="#e05a44" stroke-width="1.5"/>
     <text x="955" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#2a0d07">CI: FAIL</text>
     <text x="955" y="222" text-anchor="middle" font-size="10.5" fill="#5ad19a">kept &#183; first sight</text>
 
     <rect x="1010" y="120" width="86" height="86" rx="10" fill="#2a9c68" stroke="#3dc789" stroke-width="1.5"/>
     <text x="1053" y="168" text-anchor="middle" font-size="11" font-weight="700" fill="#04220f">CI: PASS</text>
-    <text x="1053" y="222" text-anchor="middle" font-size="10.5" fill="#5ad19a">kept &#183; distinct</text>
+    <text x="1053" y="222" text-anchor="middle" font-size="10.5" fill="#5ad19a">kept &#183; distinct</text></g>
 
-    <rect x="912" y="248" width="184" height="34" rx="8" fill="#111726" stroke="#2a3650" stroke-dasharray="4 4"/>
-    <text x="1004" y="270" text-anchor="middle" font-size="10.5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="#8b91a1">2 &#215; &#171;image, handle=&#8230;&#187;</text>
+    <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.54;0.58;0.93;0.98;1"/><rect x="912" y="248" width="184" height="34" rx="8" fill="#111726" stroke="#2a3650" stroke-dasharray="4 4"/>
+    <text x="1004" y="270" text-anchor="middle" font-size="10.5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="#8b91a1">2 &#215; &#171;image, handle=&#8230;&#187;</text></g>
   </g>
-  <text x="912" y="304" font-size="12.5" fill="#9aa0b2">2 images &#183; every distinct one still seen</text>
+  <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.60;0.64;0.93;0.98;1"/><text x="912" y="304" font-size="12.5" fill="#9aa0b2">2 images &#183; every distinct one still seen</text>
   <text x="912" y="324" font-size="12.5" fill="#9aa0b2">recoverable byte-exact via</text>
-  <text x="912" y="342" font-size="12.5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="#5ad1c9">distil_expand</text>
+  <text x="912" y="342" font-size="12.5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="#5ad1c9">distil_expand</text></g>
 
   <!-- The claim -->
-  <rect x="48" y="292" width="800" height="62" rx="12" fill="#0f1326" stroke="#23284a"/>
+  <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.72;0.76;0.93;0.98;1"/><rect x="48" y="292" width="800" height="62" rx="12" fill="#0f1326" stroke="#23284a"/>
   <text x="70" y="316" font-size="13" font-weight="700" fill="#e7e9ee">Certified, not asserted</text>
-  <text x="70" y="338" font-size="12" fill="#9aa0b2">100% decision-equivalence vs a live vision model (A/A floor 100%, TOST p&lt;0.0001) &#183; the distinct set is never reduced</text>
+  <text x="70" y="338" font-size="12" fill="#9aa0b2">100% decision-equivalence vs a live vision model (A/A floor 100%, TOST p&lt;0.0001) &#183; the distinct set is never reduced</text></g>
 
-  <text x="48" y="380" font-size="11.5" fill="#7d8598">Only byte-identical payloads are elided &#183; the first occurrence is never touched &#183; url sources are never treated as duplicates &#183; DISTIL_VISION=0 disables</text>
+  <g class="vbeat" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.80;0.84;0.93;0.98;1"/><text x="48" y="380" font-size="11.5" fill="#7d8598">Only byte-identical payloads are elided &#183; the first occurrence is never touched &#183; url sources are never treated as duplicates &#183; DISTIL_VISION=0 disables</text></g>
 </svg>

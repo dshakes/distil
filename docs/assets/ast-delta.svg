@@ -1,4 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="adT adD">
+  <title id="adT">AST-structural delta: diffing by parsed structure rather than by lines</title>
+  <desc id="adD">An animated three-panel comparison. The prior version of a file sits in cached context with four top-level definitions. The re-read is reformatted and contains one real logic change. Each definition is fingerprinted with ast.dump, so the reflowed helper, the unchanged class, and the reordered imports all resolve to the same AST and are marked unchanged in turn; only def process, whose meaning changed, differs. The structural delta therefore sends one definition of three in full and references the rest, reversibly.</desc>
+  <style>
+    /* The verdicts land one at a time because the argument is cumulative: a reader has
+       to see reformatting NOT count, three times, before the 1-of-3 means anything.
+       Reduced motion gets every verdict already resolved. */
+    @media (prefers-reduced-motion: reduce) { animate { display: none } .adbeat { opacity: 1 !important } }
+  </style>
   <defs>
     <linearGradient id="adbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <linearGradient id="adg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
@@ -14,7 +22,7 @@
   <text x="48" y="76" font-size="13" fill="#8b91a3">Each top-level definition is fingerprinted with <tspan fill="#cdd3e2" font-family="ui-monospace,monospace">ast.dump</tspan> — invariant to whitespace, comments, and import order.</text>
 
   <!-- prior version -->
-  <g transform="translate(64,108)"><rect width="300" height="280" rx="14" fill="url(#adcard)" stroke="#252c3e" filter="url(#adsh)"/>
+  <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.02;0.06;0.94;0.98;1"/><g transform="translate(64,108)"><rect width="300" height="280" rx="14" fill="url(#adcard)" stroke="#252c3e" filter="url(#adsh)"/>
     <text x="18" y="30" font-size="12.5" font-weight="700" fill="#eef0f5">prior version <tspan fill="#5b6177" font-weight="500">(in cached context)</tspan></text>
     <g font-family="ui-monospace,monospace" font-size="11" fill="#9aa1b3">
       <rect x="16" y="46" width="268" height="46" rx="8" fill="#0e1320" stroke="#222a3e"/><text x="28" y="64" fill="#cdd3e2">def helper(x):</text><text x="28" y="82">    … 12 lines …</text>
@@ -22,24 +30,28 @@
       <rect x="16" y="154" width="268" height="46" rx="8" fill="#0e1320" stroke="#222a3e"/><text x="28" y="172" fill="#cdd3e2">class Config:</text><text x="28" y="190">    … 14 lines …</text>
       <rect x="16" y="208" width="268" height="30" rx="8" fill="#0e1320" stroke="#222a3e"/><text x="28" y="227" fill="#cdd3e2">import os, sys, json</text>
     </g>
-  </g>
+  </g></g>
 
   <!-- new version (reformatted + one logic change) -->
-  <g transform="translate(450,108)"><rect width="300" height="280" rx="14" fill="url(#adcard)" stroke="#252c3e" filter="url(#adsh)"/>
+  <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.18;0.22;0.94;0.98;1"/><g transform="translate(450,108)"><rect width="300" height="280" rx="14" fill="url(#adcard)" stroke="#252c3e" filter="url(#adsh)"/>
     <text x="18" y="30" font-size="12.5" font-weight="700" fill="#eef0f5">re-read <tspan fill="#ff8a6b" font-weight="500">(reformatted + 1 edit)</tspan></text>
     <g font-family="ui-monospace,monospace" font-size="11" fill="#9aa1b3">
-      <rect x="16" y="46" width="268" height="46" rx="8" fill="#0e1320" stroke="#2a3450"/><text x="28" y="64" fill="#cdd3e2">def helper(x):   # reflowed</text><text x="28" y="82" fill="#5ad19a">same AST → unchanged</text>
-      <rect x="16" y="100" width="268" height="46" rx="8" fill="#161226" stroke="#3a2f63"/><text x="28" y="118" fill="#cdd3e2">def process(data):</text><text x="28" y="136" fill="#b9a7ff">return [helper(d) * 2 …]  changed</text>
-      <rect x="16" y="154" width="268" height="46" rx="8" fill="#0e1320" stroke="#2a3450"/><text x="28" y="172" fill="#cdd3e2">class Config:</text><text x="28" y="190" fill="#5ad19a">same AST → unchanged</text>
-      <rect x="16" y="208" width="268" height="30" rx="8" fill="#0e1320" stroke="#2a3450"/><text x="28" y="227" fill="#5ad19a">imports reordered → unchanged</text>
+      <rect x="16" y="46" width="268" height="46" rx="8" fill="#0e1320" stroke="#2a3450"/><text x="28" y="64" fill="#cdd3e2">def helper(x):   # reflowed</text>
+      <rect x="16" y="100" width="268" height="46" rx="8" fill="#161226" stroke="#3a2f63"/><text x="28" y="118" fill="#cdd3e2">def process(data):</text>
+      <rect x="16" y="154" width="268" height="46" rx="8" fill="#0e1320" stroke="#2a3450"/><text x="28" y="172" fill="#cdd3e2">class Config:</text>
+      <rect x="16" y="208" width="268" height="30" rx="8" fill="#0e1320" stroke="#2a3450"/>
+      <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.26;0.30;0.94;0.98;1"/><text x="28" y="82" fill="#5ad19a">same AST → unchanged</text></g>
+      <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.34;0.38;0.94;0.98;1"/><text x="28" y="136" fill="#b9a7ff">return [helper(d) * 2 …]  changed</text></g>
+      <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.42;0.46;0.94;0.98;1"/><text x="28" y="190" fill="#5ad19a">same AST → unchanged</text></g>
+      <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.50;0.54;0.94;0.98;1"/><text x="28" y="227" fill="#5ad19a">imports reordered → unchanged</text></g>
     </g>
-  </g>
+  </g></g>
 
-  <line x1="372" y1="248" x2="442" y2="248" stroke="#6b7390" stroke-width="1.6" marker-end="url(#adar)"/>
-  <line x1="758" y1="248" x2="828" y2="248" stroke="#6b7390" stroke-width="1.6" marker-end="url(#adar)"/>
+  <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.14;0.18;0.94;0.98;1"/><line x1="372" y1="248" x2="442" y2="248" stroke="#6b7390" stroke-width="1.6" marker-end="url(#adar)"/></g>
+  <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.56;0.60;0.94;0.98;1"/><line x1="758" y1="248" x2="828" y2="248" stroke="#6b7390" stroke-width="1.6" marker-end="url(#adar)"/></g>
 
   <!-- the structural delta sent -->
-  <g transform="translate(836,108)"><rect width="300" height="280" rx="14" fill="url(#adcard)" stroke="url(#adg)" stroke-width="1.5" filter="url(#adsh)"/>
+  <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.60;0.64;0.94;0.98;1"/><g transform="translate(836,108)"><rect width="300" height="280" rx="14" fill="url(#adcard)" stroke="url(#adg)" stroke-width="1.5" filter="url(#adsh)"/>
     <text x="18" y="30" font-size="12.5" font-weight="800" fill="url(#adg)">structural delta sent</text>
     <g font-size="11.5">
       <rect x="16" y="44" width="268" height="58" rx="9" fill="#0e1320" stroke="#23402f"/>
@@ -53,7 +65,7 @@
     <text x="166" y="214" text-anchor="middle" font-size="30" font-weight="800" fill="url(#adg)">1 / 3 defs</text>
     <text x="166" y="234" text-anchor="middle" font-size="11" fill="#8b91a3">sent in full — the rest referenced</text>
     <text x="166" y="262" text-anchor="middle" font-size="10" fill="#5b6177">reversible via distil_expand · decision-equivalent</text>
-  </g>
+  </g></g>
 
-  <text x="600" y="416" text-anchor="middle" font-size="12.5" fill="#8b91a3">Textual diff explodes on the reformat; the structural delta isolates exactly the one definition whose <tspan fill="#eef0f5" font-weight="600">meaning</tspan> changed.</text>
+  <g class="adbeat" opacity="0"><animate attributeName="opacity" dur="13s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.76;0.80;0.94;0.98;1"/><text x="600" y="416" text-anchor="middle" font-size="12.5" fill="#8b91a3">Textual diff explodes on the reformat; the structural delta isolates exactly the one definition whose <tspan fill="#eef0f5" font-weight="600">meaning</tspan> changed.</text></g>
 </svg>

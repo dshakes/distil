@@ -1,4 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240" font-family="ui-sans-serif,Segoe UI,Inter,Roboto,sans-serif" role="img" aria-label="Distil — compression with a quality contract">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240" font-family="ui-sans-serif,Segoe UI,Inter,Roboto,sans-serif" role="img" aria-label="Distil — compression with a quality contract. Certified non-inferior: 42.0% versus 39.2% on SWE-bench.">
+  <style>
+    /* Restraint on purpose: this is the README hero, and a busy header is one people
+       scroll past. The only thing that moves is the mark's three bars, which already
+       encode compression by narrowing — animating them makes the metaphor legible
+       instead of decorating around it. Slow loop, no bounce, nothing under the text. */
+    @media (prefers-reduced-motion: reduce) { animate { display: none } }
+  </style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0a0b12"/><stop offset="1" stop-color="#06070a"/>
@@ -29,9 +36,24 @@
   <g transform="translate(23.5,8.5) scale(0.75)">
     <circle cx="128" cy="188" r="66" fill="url(#d-glow)"/>
     <g fill="url(#d-grad)">
-      <rect x="54" y="62" width="148" height="15" rx="7.5"/>
-      <rect x="74" y="92" width="108" height="15" rx="7.5"/>
-      <rect x="95" y="122" width="66" height="15" rx="7.5"/>
+      <rect x="54" y="62" width="148" height="15" rx="7.5">
+        <animate attributeName="width" dur="7s" repeatCount="indefinite"
+                 calcMode="spline" keySplines="0 0 1 1;0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1"
+                 values="148;148;148;148;148"
+                 keyTimes="0;0.06;0.26;0.80;1"/>
+      </rect>
+      <rect x="74" y="92" width="108" height="15" rx="7.5">
+        <animate attributeName="width" dur="7s" repeatCount="indefinite"
+                 calcMode="spline" keySplines="0 0 1 1;0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1"
+                 values="148;148;108;108;148"
+                 keyTimes="0;0.09;0.29;0.80;1"/>
+      </rect>
+      <rect x="95" y="122" width="66" height="15" rx="7.5">
+        <animate attributeName="width" dur="7s" repeatCount="indefinite"
+                 calcMode="spline" keySplines="0 0 1 1;0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1"
+                 values="148;148;66;66;148"
+                 keyTimes="0;0.12;0.32;0.80;1"/>
+      </rect>
     </g>
     <path d="M128 146 C150 178 160 190 160 204 a32 32 0 1 1 -64 0 c0-14 10-26 32-58 Z" fill="url(#d-grad)"/>
     <ellipse cx="117" cy="200" rx="10" ry="13" fill="#eafffb" fill-opacity=".8"/>
@@ -42,7 +64,10 @@
   <text x="207" y="180" font-size="16" fill="#8b91a1">Compress your agent's context — and <tspan fill="#c9cdd6" font-weight="600">prove its decisions don't change.</tspan></text>
   <g transform="translate(207,200)">
     <rect width="336" height="26" rx="13" fill="#0f1219" stroke="#1b1f2a"/>
-    <circle cx="17" cy="13" r="3.5" fill="#5ad19a"/>
+    <circle cx="17" cy="13" r="3.5" fill="#5ad19a">
+      <animate attributeName="opacity" dur="7s" repeatCount="indefinite"
+               values="1;0.45;1;1" keyTimes="0;0.10;0.20;1"/>
+    </circle>
     <text x="30" y="17" font-size="12" fill="#5ad1c9">certified non-inferior · 42.0% vs 39.2% on SWE-bench</text>
   </g>
 </svg>
