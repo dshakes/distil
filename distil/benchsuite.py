@@ -201,6 +201,11 @@ def run(
             report.rows.append(BenchRow(name, "?", 0, 0.0, 0.0, 0.0, 0, error=str(exc)))
             continue
         try:
+            # The effective request size: `n` when given, else the spec's own
+            # default. Recording 0 for a default run meant `short` could never be
+            # true there — and the default invocation is the one users are documented
+            # to run, so the shortfall signal was missing exactly where it mattered.
+            want = n or datasets.SPECS[name].default_n
             cases = datasets.load(name, n, offline=offline)
             graded = retention.score_dataset(cases, name)
             report.rows.append(
@@ -208,7 +213,7 @@ def run(
                     name=name,
                     payload=payload,
                     cases=len(cases),
-                    requested=n or 0,
+                    requested=want,
                     answer_graded=int(_num(graded, "answer_graded")),
                     support_facts=int(_num(graded, "support_facts")),
                     savings=_num(graded, "savings"),

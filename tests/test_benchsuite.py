@@ -435,3 +435,47 @@ class TestBfclGradesEveryNameTheCallNeeds:
         assert set(case.support) >= {"calc_area", "base", "height"}, (
             "a schema can keep the function name and lose the parameter it needs"
         )
+
+
+class TestTheCiGateHasARealThreshold:
+    """A gate that only fires on total collapse is a loader smoke test.
+
+    CI first ran `distil suite --tier 1 -n 25` with no thresholds, so an ordinary
+    regression with unrecoverable gold loss exited 0. The gate now carries the
+    MEASURED band on rich rows — and controls are excluded by construction, because
+    gsm8k loses 17 bare-number answers at n=25 and that says nothing about
+    compression.
+    """
+
+    def _gate_args(self, path: str) -> str:
+        import pathlib
+
+        return pathlib.Path(path).read_text(encoding="utf-8")
+
+    def test_ci_passes_recall_thresholds(self) -> None:
+        ci = self._gate_args(".github/workflows/ci.yml")
+        assert "distil suite" in ci
+        line = next(ln for ln in ci.splitlines() if "distil suite" in ln)
+        assert "--min-answer-recall" in line and "--min-support-recall" in line, (
+            "the CI gate must carry a threshold or it only catches a total collapse"
+        )
+
+    def test_make_gate_matches_ci(self) -> None:
+        mk = self._gate_args("Makefile")
+        line = next(ln for ln in mk.splitlines() if "distil suite" in ln)
+        assert "--min-answer-recall" in line and "--min-support-recall" in line
+
+    def test_a_default_run_records_the_spec_default_as_requested(self) -> None:
+        """`requested` was 0 without -n, so a default run could never report a
+        shortfall — and the default is the invocation users are told to run.
+
+        (An insufficient OFFLINE cache is a hard failure by existing design, not a
+        short row, so this seeds enough rows to let the run succeed.)
+        """
+        default_n = datasets.SPECS["bfcl"].default_n
+        _seed("bfcl", BFCL_ROWS * (default_n // len(BFCL_ROWS) + 1))
+        report = benchsuite.run(names=["bfcl"], offline=True)
+        row = report.rows[0]
+        assert row.ok, row.error
+        assert row.requested == default_n, "a default run must know what it asked for"
+        assert not row.short, "enough rows were cached"
