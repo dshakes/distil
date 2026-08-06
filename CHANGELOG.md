@@ -3,6 +3,46 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.40.1] — the numbers, corrected
+
+Bug fixes and honest reporting. No compressor, proxy or CLI behaviour changes; the
+1.40.0 eval suite is unchanged.
+
+**`distil stats` crashed on a legacy Windows console.** The savings line contains
+`→`, and Python's default `errors="strict"` turns that into a `UnicodeEncodeError`
+mid-render on a cp1252 terminal: exit 1, a traceback, output truncated. It only fired
+once a ledger had baseline tokens, so it had been invisible since the line was
+written. Streams now degrade with `errors="replace"` instead of failing — a
+reporting tool must never fail on the report.
+
+**A lifetime figure was being read as the current rate.** Validating the published
+adoption numbers against this repo's own ledger found both correct and both
+misleading the same way: `−20.4%` lifetime against `−0.4%` over the last 7 days, two
+orders of magnitude apart, with only the lifetime number shown. `distil stats` now
+prints the recent window whenever it disagrees, names the cause, and names the
+remedy. A window that comes out LARGER than baseline reads `+10.0% LARGER` rather
+than the previous `−-10.0%`, and gets advice for overhead rather than for
+lossless-only.
+
+**The subscription default never said what it costs.** A subscription session runs
+lossless-only so no digest is left unrecoverable — correct, and Tier-0 only, which
+measures ~0-2% against the 30-60% the recoverable digest reaches. The notice now
+leads with that cost and offers the persistent opt-in (`distil default --mode
+expand`) rather than only the per-run flag. **The default itself is unchanged.**
+
+**Offline artifact parsing.** A tool call's own ARGUMENTS no longer condemn it — a
+successful `Write(file_path="a.py", content="No such file or directory")` was
+recording nothing. The call boundary is parsed (paren depth, quote-aware) rather
+than guessed from a `->` delimiter, and only a closed set of recognised invocation
+heads gets that immunity, so an exception repr or a result wrapper is still read as
+evidence. Ops inside one call share its outcome, so a failed
+`Bash(command="rm a.py && touch b.py")` records neither. The live path was never
+affected: it knows the real call/result boundary.
+
+Also: `--max-silent` diagnostics name every component of their own total, the eval
+record's `subject` in the docs matches what the CLI emits, and an output surface
+that changed blocks but endangered no facts says so.
+
 ## [1.40.0] — what recall cannot see
 
 Four state probes, both priced surfaces, and every result as a reproducible record.
