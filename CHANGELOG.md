@@ -3,6 +3,46 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.41.1] — the diagrams, and the one nobody could turn off
+
+Documentation and accessibility only. No compressor, proxy or CLI behaviour changes.
+
+**Six diagrams were stills.** Each now carries the motion its own argument needs
+rather than a uniform fade: `ast-delta`'s three "same AST → unchanged" verdicts land
+one at a time, because the claim is cumulative — a reader has to watch reformatting
+fail to count, three times, before "1 / 3 defs" means anything. `io` sends a packet
+down each leg, because the point is that *both* directions are billed and a reader who
+only sees the outbound arrow half-remembers that. `vision`'s duplicate tiles dim as
+they are elided, so it reads as "these two, and only these two". `observability`
+reveals its four scopes left to right, because the claim is that each is *wider* than
+the last. `install` is a menu rather than an argument, so its cards simply deal in.
+`banner` is deliberately restrained — it is the README hero, and the only thing that
+moves is the mark's three bars, which already encode compression by narrowing.
+
+`logo`, `logo-lockup` and `og` stay static. A favicon that moves is a bug, and every
+social platform renders an OpenGraph card as a still — animating it risks the frame a
+scraper happens to capture being a half-drawn one.
+
+**`hero-terminal.svg` had twelve animations and no `prefers-reduced-motion` guard.**
+It had been on the landing page since the redesign, through an entire accessibility
+series, because nothing checked. It is also the awkward case: it plays once and
+freezes rather than looping, so the usual `animate { display: none }` would have left
+it permanently blank — every group starts at opacity 0, the typed lines are revealed
+by zero-width clip rects, and the result box is drawn by a dash offset. The guard
+asserts the end state of each. A hero that renders as an empty terminal for anyone
+with reduced motion enabled is worse than one that animates.
+
+**Four diagrams had no accessible name at all** — `cache-aware`, `cross-sdk`,
+`domains`, `head-to-head`. `<img alt>` names them on a page, but an SVG is also a
+document people open directly (GitHub renders `docs/assets/*.svg` as a page) and there
+`alt` does not exist. Titles and descriptions now travel with the files.
+
+**`tests/test_svg_assets.py`** makes all of it permanent: well-formed XML, a
+reduced-motion guard on anything that moves, `keyTimes` that start at 0 and end at 1
+and are non-decreasing, `values`/`keyTimes` counts that agree, and an accessible name.
+Both failure modes were verified to fail the test rather than assumed to. Static and
+unnamed assets are allowlisted with their reason, so the next one has to be argued for.
+
 ## [1.41.0] — what the cache bought, and what a name is worth
 
 Three things of the same shape: a claim distil could make but not show, and a number
