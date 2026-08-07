@@ -27,8 +27,8 @@
   <rect width="1200" height="480" fill="url(#dots)"/>
   <rect width="1200" height="480" fill="url(#vig)"/>
 
-  <text x="48" y="50" font-size="23" font-weight="800" letter-spacing="-0.3" fill="#f2f3f7">One proxy, every SDK.</text>
-  <text x="296" y="50" font-size="14" fill="#8b91a3">— point any client at the proxy, no code change</text>
+  <text x="48" y="50" font-size="23" font-weight="800" letter-spacing="-0.3" fill="#f2f3f7">One proxy, every SDK — or no proxy at all.</text>
+  <text x="296" y="50" font-size="14" fill="#8b91a3">— point any client at the proxy, or compress in-process with the library</text>
 
   <g font-size="10.5" letter-spacing="2" fill="#5b6177" text-anchor="middle" font-weight="600">
     <text x="195" y="98">CLIENTS</text><text x="615" y="98">PROXY</text><text x="1025" y="98">PROVIDERS</text>

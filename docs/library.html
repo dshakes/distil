@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Library API — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Library API — Distil"/>
+<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/library.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Library API — Distil"/>
+<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<!-- Top bar -->
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html" class="active" aria-current="page">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main content -->
+  <main class="content" id="content" tabindex="-1">
+    <h1>Library API</h1>
+    <p class="lede">Embed distil in your own agent — Python or TypeScript, in-process,
+    no proxy and no daemon.</p>
+
+    <div class="callout">
+      <b>The proxy is still the zero-config path</b>, and it is the one that reaches the
+      reversible <b>digest</b> tier. Reach for the library when you are <i>building</i> the
+      agent: you already hold the message list, and you want compression without a process
+      to keep alive — a serverless function, an edge worker, a CI job.
+    </div>
+
+    <h2>Python</h2>
+<pre><code>from distil import compress_messages, expand_handle
+
+result = compress_messages(messages)          # OpenAI/Anthropic-style dicts
+print(f"{result.saved_pct:.1f}% smaller")
+response = client.messages.create(model=..., messages=result.messages)
+
+original = expand_handle(result.handles[0])   # byte-exact, any time, any process</code></pre>
+
+    <p>Tool results get the reversible digest; user and system text get lossless
+    transforms only; <b>the model's own turns are never rewritten</b>. The input list is
+    never mutated, and unchanged messages come back by identity. Pass
+    <code>verbatim=True</code> for lossless-only with no handles.</p>
+
+    <p class="muted">Named <code>compress_messages</code>/<code>expand_handle</code> rather
+    than <code>compress</code>/<code>expand</code> because <code>distil.compress</code> and
+    <code>distil.expand</code> are modules. Python binds a submodule onto its parent on
+    import, so a top-level export with those names would resolve to the function in a fresh
+    interpreter and to the <i>module</i> in any program that had touched the submodule. A
+    test enumerates submodules and fails on any future collision.</p>
+
+    <h2>TypeScript</h2>
+<pre><code>import { compress } from "distil-llm";
+
+const r = compress(messages);                 // never mutates the input
+console.log(`${r.savedPct.toFixed(1)}% smaller`);</code></pre>
+
+    <p>And as Vercel AI SDK middleware:</p>
+<pre><code>import { wrapLanguageModel } from "ai";
+import { distilMiddleware } from "distil-llm";
+
+const model = wrapLanguageModel({ model: myModel, middleware: distilMiddleware() });</code></pre>
+
+    <p>The middleware implements <code>transformParams</code> only. Compression happens on
+    the way <i>in</i>; wrapping the response would mean rewriting the model's own output.
+    Tool results are handled in both the v5 (<code>output.value</code>) and v4
+    (<code>result</code>) shapes, so an SDK bump cannot silently stop compressing the
+    largest thing in an agent's context.</p>
+
+    <h2 id="tiers">The tier boundary — and why it is where it is</h2>
+
+    <table>
+      <tr><th>Path</th><th>Tier</th><th>Certificate</th></tr>
+      <tr><td><code>distil wrap</code></td><td>digest (reversible)</td><td>✅ covered</td></tr>
+      <tr><td>proxy / gateway</td><td>digest (reversible)</td><td>✅ covered</td></tr>
+      <tr><td>MCP server</td><td>digest (reversible)</td><td>✅ covered</td></tr>
+      <tr><td><b>in-process library</b></td><td><b>lossless only</b></td><td>n/a — nothing is elided</td></tr>
+    </table>
+
+    <p>The in-process libraries are lossless-tier on purpose. The digest mints
+    <b>restore handles</b> whose originals must live in one store shared with the proxy and
+    the MCP server — otherwise <code>expand</code> fails to resolve a handle the model can
+    see. It is also the tier the decision-equivalence certificate measures, so a second
+    implementation of it would be a second thing to certify, and nobody would notice when
+    the two drifted.</p>
+
+    <h2>The TypeScript port is held byte-identical</h2>
+
+    <p>A JS implementation that merely compressed <i>similarly</i> would hand you a
+    guarantee that does not describe the code you are running. So the port is checked
+    against the Python engine over a shared corpus, and CI fails on any divergence.</p>
+
+    <p>Where byte-identity is not achievable the port <b>declines</b> rather than emitting
+    output the certificate does not cover — Python renders an integral float as
+    <code>1.0</code> and JS renders it <code>1</code>; JS objects hoist integer-like keys.
+    Both are detected on the source and the text is left byte-exact. Tests assert the
+    declines <i>and</i> assert that safe cases still compress, so conformance cannot be
+    achieved by declining everything.</p>
+
+    <h2>Framework hooks</h2>
+    <table>
+      <tr><th>Framework</th><th>Entry point</th></tr>
+      <tr><td>LangChain</td><td><code>distil.integrations.langchain.compress_messages</code></td></tr>
+      <tr><td>LangGraph</td><td><code>distil.integrations.langgraph.pre_model_hook()</code></td></tr>
+      <tr><td>LiteLLM</td><td><code>distil.integrations.litellm.compress(kwargs)</code></td></tr>
+      <tr><td>Agno</td><td><code>distil.integrations.agno.compressed_model(model)</code></td></tr>
+      <tr><td>Strands</td><td><code>distil.integrations.strands.compressing_hook()</code></td></tr>
+      <tr><td>Vercel AI SDK</td><td><code>distilMiddleware()</code> (npm)</td></tr>
+    </table>
+
+    <p>Every one is <b>duck-typed and never imports its framework</b>. That is what keeps
+    distil a zero-dependency install, and it means a framework release cannot break the
+    integration.</p>
+
+    <h2>Runnable examples</h2>
+    <p>Each of these runs as-is:
+      <a href="https://github.com/dshakes/distil/blob/main/examples/python_library.py">python_library.py</a> ·
+      <a href="https://github.com/dshakes/distil/blob/main/examples/js_library.ts">js_library.ts</a> ·
+      <a href="https://github.com/dshakes/distil/blob/main/examples/js_ai_sdk_middleware.ts">js_ai_sdk_middleware.ts</a> ·
+      <a href="https://github.com/dshakes/distil/blob/main/examples/python_agno.py">python_agno.py</a> ·
+      <a href="https://github.com/dshakes/distil/blob/main/examples/python_strands.py">python_strands.py</a>
+    </p>
+<div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

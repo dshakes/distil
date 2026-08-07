@@ -117,3 +117,18 @@ With `distil proxy --session-delta` (cross-turn cache-delta coding), four more h
 | `x-distil-cache-refs: <n>` | Blocks replaced by a back-reference (exact or delta) |
 | `x-distil-cache-delta: <n>` | Of those, how many were cross-version diffs (re-read-after-edit) |
 | `x-distil-cache-tokens-saved: <n>` | Volatile (fresh-billed) tokens removed by delta coding |
+
+## Library API (no proxy, no daemon)
+
+| Example | Shows |
+|---|---|
+| [`python_library.py`](python_library.py) | `compress_messages` / `expand_handle`, byte-exact recovery across processes |
+| [`js_library.ts`](js_library.ts) | the same in TypeScript — byte-identical to the Python engine |
+| [`js_ai_sdk_middleware.ts`](js_ai_sdk_middleware.ts) | Vercel AI SDK `wrapLanguageModel` middleware |
+| [`python_agno.py`](python_agno.py) | Agno — message list or a wrapped model |
+| [`python_strands.py`](python_strands.py) | Strands — content blocks and tool results |
+
+The in-process libraries are **lossless-tier only**, deliberately: the reversible
+digest mints restore handles that must share one store with the proxy and the MCP
+server, and it is the tier the decision-equivalence certificate measures. Route
+through a proxy when you want the digest.
