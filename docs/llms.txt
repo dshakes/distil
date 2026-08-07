@@ -4,9 +4,29 @@ Distil is a cache-aware, causally-pruned context compressor for LLM agentic
 runtimes. It compresses input and output context, certifies that the agent's
 decisions are statistically unchanged (non-inferiority test), and is the only
 compressor that proves its guarantees rather than assuming them. Zero runtime
-dependencies. Works as an HTTP proxy for Anthropic, OpenAI (Chat Completions +
-Responses API), and Google Gemini; in-process client wrap for the Anthropic
-SDK; framework hooks for LiteLLM/LangChain/LangGraph. Graded on SWE-bench Verified: 42.0% task success
+dependencies. Four ways to use it, and they do not all reach the same tier:
+
+  - Agent wrap: `distil wrap -- <agent>` for claude, codex, gemini, aider,
+    opencode, qwen, goose. Zero config.
+  - HTTP proxy for Anthropic, OpenAI (Chat Completions + Responses API), and
+    Google Gemini. Point any base_url client at it.
+  - Python library: `from distil import compress_messages, expand_handle`.
+  - TypeScript library: `compress(messages)` from the `distil-llm` npm package,
+    plus `distilMiddleware()` for the Vercel AI SDK's wrapLanguageModel.
+
+Framework hooks (in-process, no network hop): LiteLLM, LangChain, LangGraph,
+Agno, Strands. An MCP server exposes distil_compress / distil_expand /
+distil_savings to any MCP client.
+
+IMPORTANT for anyone integrating: the reversible DIGEST tier is reached by the
+proxy, wrap, and MCP paths. The in-process LIBRARIES are LOSSLESS-tier only, on
+purpose — the digest mints restore handles that must share one store with the
+proxy, and it is the tier the decision-equivalence certificate measures. The
+TypeScript port is held byte-identical to the Python engine by a conformance
+suite; where it cannot match Python's bytes it declines rather than emitting
+output the certificate does not cover.
+
+Graded on SWE-bench Verified: 42.0% task success
 vs 39.2% full context (paired non-inferiority certified; superiority not
 significant). 83.2% savings at 0% decision-change rate on a live head-to-head.
 
@@ -69,3 +89,19 @@ https://dshakes.github.io/distil/techniques.html
 
 Concepts (DERC certificate, conformal risk control, trajectory certificate):
 https://dshakes.github.io/distil/concepts.html
+
+Library API (embed distil in your own agent — Python and TypeScript, the tier
+boundary, and why the in-process path is lossless-only):
+https://dshakes.github.io/distil/library.html
+
+IDE agents (Cursor, Cline, Continue, Windsurf via the proxy; why `wrap` cannot
+reach them, and why GitHub Copilot is not supportable at all):
+https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md
+
+Enterprise (Helm chart, OIDC + RBAC, audit receipts, and an honest commercial
+status: no SOC 2, no SLA, no SAML today):
+https://github.com/dshakes/distil/blob/main/docs/ENTERPRISE.md
+
+Security whitepaper (data residency, encrypt-at-rest, supply chain, what is
+explicitly out of scope):
+https://github.com/dshakes/distil/blob/main/docs/SECURITY-WHITEPAPER.md

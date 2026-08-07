@@ -209,3 +209,88 @@ def inspect_source(mod) -> str:
     import inspect as _inspect
 
     return _inspect.getsource(mod)
+
+
+# --- llms.txt and examples ----------------------------------------------------
+# llms.txt is how AI agents discover what distil can do, and it had gone stale
+# (still describing "framework hooks for LiteLLM/LangChain/LangGraph" long after
+# Agno, Strands, the library API and the TS port shipped). Same failure as the
+# README claims: a hand-maintained inventory drifts silently.
+
+LLMS_TXT = ROOT / "docs" / "llms.txt"
+EXAMPLES = ROOT / "examples"
+
+
+def test_llms_txt_lists_every_framework_integration():
+    text = LLMS_TXT.read_text(encoding="utf-8")
+    modules = {
+        p.stem for p in (ROOT / "distil" / "integrations").glob("*.py") if p.stem != "__init__"
+    }
+    missing = [m for m in modules if m.lower() not in text.lower()]
+    assert not missing, f"llms.txt omits shipped integrations: {sorted(missing)}"
+
+
+def test_llms_txt_lists_every_wrap_preset():
+    from distil.onboard import AGENT_PRESETS
+
+    text = LLMS_TXT.read_text(encoding="utf-8").lower()
+    missing = [a for a in AGENT_PRESETS if a not in text]
+    assert not missing, f"llms.txt omits wrap presets: {sorted(missing)}"
+
+
+def test_llms_txt_states_the_library_tier_boundary():
+    """The one thing an integrator must not get wrong.
+
+    In-process libraries are lossless-only; the digest tier comes from the proxy.
+    An agent reading llms.txt and wiring the library expecting digest-level
+    savings would conclude distil under-delivers.
+    """
+    text = LLMS_TXT.read_text(encoding="utf-8").lower()
+    assert "lossless" in text and "digest" in text
+    assert "certificate" in text
+
+
+def test_llms_txt_only_links_site_pages_that_exist():
+    text = LLMS_TXT.read_text(encoding="utf-8")
+    pages = set(re.findall(r"https://dshakes\.github\.io/distil/([a-z0-9-]+\.html)", text))
+    missing = sorted(p for p in pages if not (ROOT / "docs" / p).is_file())
+    assert not missing, f"llms.txt links site pages that do not exist: {missing}"
+
+
+def test_every_example_referenced_in_docs_exists():
+    """A README pointing at an example nobody wrote is a dead end at the worst moment."""
+    referenced = set()
+    for doc in (ROOT / "README.md", EXAMPLES / "README.md"):
+        referenced |= set(
+            re.findall(r"examples/([A-Za-z0-9_.-]+\.(?:py|ts))", doc.read_text("utf-8"))
+        )
+    missing = sorted(f for f in referenced if not (EXAMPLES / f).is_file())
+    assert not missing, f"docs reference examples that do not exist: {missing}"
+
+
+def test_new_library_examples_are_indexed():
+    """Writing an example nobody is pointed to wastes it."""
+    index = (EXAMPLES / "README.md").read_text(encoding="utf-8")
+    for name in ("python_library.py", "js_library.ts", "js_ai_sdk_middleware.ts"):
+        assert name in index, f"{name} exists but examples/README.md never mentions it"
+
+
+def test_site_search_index_covers_every_page():
+    """The index is generated; a stale one silently hides new documentation."""
+    index = json.loads((ROOT / "docs" / "search-index.json").read_text(encoding="utf-8"))
+    # Honour the builder's own exclusions rather than restating them here — a
+    # second copy of the rule is a second thing to keep in sync.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_bsi", ROOT / "scripts" / "build_search_index.py"
+    )
+    bsi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bsi)
+
+    indexed = {e["u"] for e in index}
+    pages = {p.name for p in (ROOT / "docs").glob("*.html")} - set(bsi.SKIP)
+    missing = sorted(pages - indexed)
+    assert not missing, (
+        f"search index is stale — run scripts/build_search_index.py. Missing: {missing}"
+    )

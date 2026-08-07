@@ -94,3 +94,51 @@ class TestEverySvg:
             return
         text = path.read_text(encoding="utf-8")
         assert "aria-label" in text or "aria-labelledby" in text, f"{path.name} has no name"
+
+
+# --- diagrams must not out-date the code -------------------------------------
+# A number baked into a diagram is the easiest claim in the project to forget:
+# it is not grep-able as prose and nobody re-reads an SVG. `integration-surface`
+# already drifted once — it said "6 agents" the day `goose` made it seven.
+
+
+def _svg_text(path: Path) -> str:
+    import re as _re
+
+    raw = path.read_text(encoding="utf-8")
+    inner = " ".join(_re.findall(r"<text[^>]*>(.*?)</text>", raw, _re.S))
+    return _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", "", inner))
+
+
+def test_no_diagram_claims_a_stale_agent_count():
+    import re as _re
+
+    from distil.onboard import AGENT_PRESETS
+
+    actual = len(AGENT_PRESETS)
+    for path in ASSETS:
+        for claimed in _re.findall(r"(\d+)\s+agents\b", _svg_text(path)):
+            assert int(claimed) == actual, (
+                f"{path.name} says '{claimed} agents' but AGENT_PRESETS has {actual}"
+            )
+
+
+def test_no_diagram_names_an_agent_that_has_no_preset():
+    """A diagram promising an agent distil cannot route is a support ticket."""
+    import re as _re
+
+    from distil.onboard import AGENT_PRESETS
+
+    known = set(AGENT_PRESETS) | {
+        # Named in diagrams as clients/providers rather than as wrap targets.
+        "cursor",
+        "copilot",
+        "cline",
+        "continue",
+        "windsurf",
+        "crewai",
+        "autogen",
+    }
+    for path in ASSETS:
+        for m in _re.findall(r"distil wrap -- ([a-z][a-z0-9-]*)", _svg_text(path)):
+            assert m in known, f"{path.name} shows `distil wrap -- {m}` with no such preset"

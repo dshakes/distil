@@ -84,6 +84,10 @@ Tool results get the reversible digest; user and system text get lossless transf
 
 <sub>Named `compress_messages`/`expand_handle` rather than `compress`/`expand` because `distil.compress` and `distil.expand` are modules — a top-level export sharing those names would resolve to the function or the module depending on unrelated import order.</sub>
 
+TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs.com/package/distil-llm), byte-identical to the Python engine. Full reference: **[Library API →](https://dshakes.github.io/distil/library.html)** · runnable examples: [`python_library.py`](examples/python_library.py) · [`js_library.ts`](examples/js_library.ts).
+
+**Maintain a framework?** [`docs/INTEGRATING.md`](docs/INTEGRATING.md) is the ~20 lines and the four rules — we would rather the integration live in your repo than ours.
+
 ---
 
 <h3 align="center" id="why-trust-it">Why trust it 📊</h3>

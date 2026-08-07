@@ -57,7 +57,7 @@ these are always welcome and always in scope:
 | | Why it is a good first change |
 |---|---|
 | **A new `wrap` preset** | One line in `distil/onboard.py:AGENT_PRESETS` plus the doc comment. The bar is a **published** env-var contract — a guessed variable ships a wrap that reports success and routes nothing, which is worse than no preset. Cursor/Copilot/Cline are excluded for exactly this reason; see `docs/IDE-AGENTS.md`. |
-| **A framework integration** | Copy `distil/integrations/agno.py`. The rule: duck-typed, never import the framework, so distil stays zero-dependency and a framework release cannot break us. |
+| **A framework integration** | [`docs/INTEGRATING.md`](docs/INTEGRATING.md) is the guide; copy `distil/integrations/agno.py`. The rule: duck-typed, never import the framework, so distil stays zero-dependency and a framework release cannot break us. |
 | **A corpus domain** | `distil bench` grades per domain. A new one with real (content-free) traffic makes every certificate broader. |
 | **A failing case for `distil validate`** | An input that breaks reversibility, inflates output, or leaks into telemetry. A reproduction is a contribution even without a fix. |
 | **Docs that were wrong** | Especially a claim that is no longer true. `tests/test_packaging_assets.py` pins the checkable ones; the rest need a human who noticed. |
