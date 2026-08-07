@@ -629,6 +629,7 @@ def test_metrics_never_emit_secrets_or_raw_content() -> None:
         ln.split("{")[0].split(" ")[0] for ln in out.splitlines() if ln and not ln.startswith("#")
     }
     assert names <= {
+        "distil_requests_rejected_total",
         "distil_requests_total",
         "distil_tokens_baseline_total",
         "distil_tokens_sent_total",
@@ -665,7 +666,14 @@ def test_metrics_label_injection_cannot_break_the_exposition() -> None:
     # No raw newline may survive: one metric == one line.
     assert "\nfake_metric" not in out, "a newline in a label broke out of its line"
     lines = [ln for ln in out.splitlines() if ln and not ln.startswith("#")]
-    assert len(lines) == 7, f"label injection forged extra series: {len(lines)} lines"
+    # Derived from the spec, not hardcoded: with one tenant, every declared metric
+    # contributes exactly one series (build_info included). A literal here goes
+    # stale the moment a metric is added, which hides the property being tested.
+    from distil.metrics import _SPEC
+
+    assert len(lines) == len(_SPEC), (
+        f"label injection forged extra series: {len(lines)} lines, {len(_SPEC)} declared"
+    )
 
     def labels_of(line: str) -> dict[str, str]:
         """Parse a label block the way a scraper does — honouring backslash

@@ -19,7 +19,13 @@ from pathlib import Path
 from .doctor import subscription_mode
 
 # Agent CLIs we know how to route, in priority order.
-_AGENTS = [("claude", "Claude Code"), ("codex", "Codex"), ("gemini", "Gemini CLI")]
+_AGENTS = [
+    ("claude", "Claude Code"),
+    ("codex", "Codex"),
+    ("gemini", "Gemini CLI"),
+    ("opencode", "OpenCode"),
+    ("qwen", "Qwen Code"),
+]
 _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 
 # Per-agent proxy presets for `distil wrap`.  Maps argv[0] basename → (env_var,
@@ -32,8 +38,22 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #   aider        — defaults to OpenAI mode; OPENAI_BASE_URL is the primary override
 #                  (aider docs: --openai-api-base / OPENAI_BASE_URL).  Users routing
 #                  Claude models should pass --env-var ANTHROPIC_BASE_URL explicitly.
+#   opencode     — OpenAI-compatible mode reads OPENAI_API_KEY + OPENAI_BASE_URL from
+#                  the environment, and env takes precedence over its config file
+#                  (OpenCode provider docs).
+#   qwen         — Qwen Code calls LLMs through the OpenAI SDK and documents
+#                  OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL explicitly
+#                  (Qwen Code README).
 #   cursor-agent — env var not publicly documented; left out rather than guessing.
 #                  Use --env-var to configure manually.
+#
+# DELIBERATELY ABSENT: cursor, copilot, cline, continue, windsurf. These are IDE
+# extensions, not CLIs — there is no argv to wrap and no documented env-var
+# contract, so `wrap` cannot reach them and a guessed variable would silently
+# route nothing while reporting success. Their supported path is the always-on
+# proxy plus the editor's own "custom base URL"/OpenAI-compatible setting; see
+# docs/IDE-AGENTS.md. Adding a preset here without a published contract is how
+# you ship a lie that looks like a feature.
 AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
     # cmd_name: (env_var, upstream_base_url, human_label)
     "claude": ("ANTHROPIC_BASE_URL", "https://api.anthropic.com", "Claude Code"),
@@ -44,6 +64,8 @@ AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
         "Gemini CLI",
     ),
     "aider": ("OPENAI_BASE_URL", "https://api.openai.com", "aider"),
+    "opencode": ("OPENAI_BASE_URL", "https://api.openai.com", "OpenCode"),
+    "qwen": ("OPENAI_BASE_URL", "https://api.openai.com", "Qwen Code"),
 }
 
 

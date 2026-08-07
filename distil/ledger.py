@@ -440,14 +440,29 @@ def _session_card(session: "LedgerSummary | None") -> str:
     if session is None or not session.runs or not session.total_baseline_tokens:
         return ""
     if session.total_tokens_saved > 0:
-        trimmed = (1 - session.total_distil_tokens / session.total_baseline_tokens) * 100
-        value, label = f"▼{_human(session.total_tokens_saved)}", f"{trimmed:.0f}% smaller"
+        trimmed = 1 - session.total_distil_tokens / session.total_baseline_tokens
+        value, label = f"▼{_human(session.total_tokens_saved)}", pct_smaller_label(trimmed)
     else:
         value, label = "✓ on", "waiting for a large read"
     return (
         f'<div class="card"><div class="l">This session</div>'
         f'<div class="v">{value}</div><div class="l">{label}</div></div>'
     )
+
+
+def pct_smaller_label(trimmed_fraction: float) -> str:
+    """Render a savings percentage without ever printing a broken-looking '0%'.
+
+    ``▼413 · 0% smaller`` is a real number next to a zero, and it reads as "this
+    tool is not working" — the most likely first-run uninstall trigger for anyone
+    whose traffic legitimately compresses to very little (mostly-system-prompt
+    requests, short tool outputs). Sub-1% savings are real; say so honestly at the
+    precision the number actually has.
+    """
+    pct = trimmed_fraction * 100
+    if pct <= 0:
+        return "0% smaller"
+    return "<1% smaller" if pct < 1 else f"{pct:.0f}% smaller"
 
 
 def _human(n: float) -> str:
@@ -506,7 +521,10 @@ def render_dashboard(
     if session is not None and session.runs and session.total_baseline_tokens:
         if session.total_tokens_saved > 0:
             st = 1 - session.total_distil_tokens / session.total_baseline_tokens
-            live = c("38;5;84", f"▼{_human(session.total_tokens_saved)} · {st * 100:.0f}% smaller")
+            live = c(
+                "38;5;84",
+                f"▼{_human(session.total_tokens_saved)} · {pct_smaller_label(st)}",
+            )
         else:
             # match the status line — never a broken-looking "▼0 −0%"
             live = c("38;5;84", "✓ on") + c("38;5;80", " · waiting for a large read")

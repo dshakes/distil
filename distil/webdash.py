@@ -168,7 +168,7 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     fetch("/data",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
       if(last!==null&&d.tokens_saved>last){var c=document.getElementById("card");c.classList.remove("flash");void c.offsetWidth;c.classList.add("flash");}
       last=d.tokens_saved;target=d.tokens_saved;
-      set("pct",d.pct+"%");
+      set("pct",pctLabel(d.baseline_tokens,d.distil_tokens));
       set("dollars",d.subscription?"$"+human(d.dollars_saved):"$"+human(d.dollars_saved));
       set("dollarslab",d.subscription?"$ saved · notional":"$ saved · billed");
       set("eq",d.equivalence.pct==null?"n/a":d.equivalence.pct+"%");
@@ -177,10 +177,20 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
       set("stamp","updated "+new Date(d.ts*1000).toLocaleTimeString());
       var now=Date.now();
       if(now-lastAnnounce>=30000){
-        liveEl.textContent=human(d.tokens_saved)+" tokens saved, "+d.pct+"% smaller, "+commas(d.runs)+" requests.";
+        liveEl.textContent=human(d.tokens_saved)+" tokens saved, "+pctLabel(d.baseline_tokens,d.distil_tokens)+" smaller, "+commas(d.runs)+" requests.";
         lastAnnounce=now;
       }
     }).catch(function(){});
+  }
+  // Mirrors ledger.pct_smaller_label: a real-but-tiny saving must never render
+  // as "0% smaller" — a number next to a zero reads as "this tool is broken".
+  // Derived from the raw counts rather than the rounded `pct`, because 0.04
+  // rounds to 0.0 server-side and the distinction is the whole point.
+  function pctLabel(base,sent){
+    if(!base||base<=0)return "0%";
+    var p=100*(base-sent)/base;
+    if(p<=0)return "0%";
+    return p<1?"<1%":Math.round(p)+"%";
   }
   function schedulePoll(){pollTimer=setInterval(poll,1000);}
   pauseBtn.addEventListener("click",function(){

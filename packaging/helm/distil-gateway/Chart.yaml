@@ -1,0 +1,25 @@
+apiVersion: v2
+name: distil-gateway
+description: >-
+  Multi-tenant distil gateway — compress agent context with a decision-equivalence
+  contract, with per-tenant quotas, rate limits, and Prometheus metrics.
+type: application
+# Chart version tracks the chart; appVersion tracks the distil release it defaults to.
+# Bump `version` on any template change, `appVersion` on a distil upgrade.
+version: 0.1.0
+appVersion: "1.41.2"
+home: https://dshakes.github.io/distil/
+sources:
+  - https://github.com/dshakes/distil
+keywords:
+  - llm
+  - context-compression
+  - prompt-compression
+  - gateway
+  - token-savings
+maintainers:
+  - name: dshakes
+    url: https://github.com/dshakes
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/containsSecurityUpdates: "false"

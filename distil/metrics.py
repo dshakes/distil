@@ -36,6 +36,11 @@ _SPEC: tuple[tuple[str, str, str], ...] = (
         "counter",
         "Value of saved tokens at the configured input price.",
     ),
+    (
+        "distil_requests_rejected_total",
+        "counter",
+        "Requests refused by a per-tenant quota (RPM or daily tokens), by tenant.",
+    ),
     ("distil_compression_ratio", "gauge", "Fraction of input tokens saved (0-1)."),
     ("distil_build_info", "gauge", "Build metadata; always 1, carries the version label."),
 )
@@ -77,6 +82,8 @@ def render(snapshot: dict[str, Any], *, version: str = "") -> str:
                 out.append(_line(name, row.get("tokens_baseline", 0), tenant=tenant))
             elif name == "distil_tokens_sent_total":
                 out.append(_line(name, row.get("tokens_compressed", 0), tenant=tenant))
+            elif name == "distil_requests_rejected_total":
+                out.append(_line(name, row.get("rejected_quota", 0), tenant=tenant))
             elif name == "distil_tokens_saved_total":
                 out.append(_line(name, row.get("tokens_saved", 0), tenant=tenant))
             elif name == "distil_dollars_saved_total":

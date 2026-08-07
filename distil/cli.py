@@ -1514,7 +1514,7 @@ def cmd_statusline(args: argparse.Namespace) -> int:
         elif recent.runs and recent.total_baseline_tokens and recent.total_tokens_saved > 0:
             trimmed = 1 - recent.total_distil_tokens / recent.total_baseline_tokens
             parts.append(c("1;38;5;84", f"▼{ledger._human(recent.total_tokens_saved)}"))
-            parts.append(c("38;5;80", f"{trimmed * 100:.0f}% smaller"))
+            parts.append(c("38;5;80", ledger.pct_smaller_label(trimmed)))
             if metered and recent.total_dollars_saved > 0:
                 parts.append(c("1;38;5;114", f"${recent.total_dollars_saved:,.2f}"))
         elif recent.runs and recent.total_baseline_tokens:
@@ -2338,6 +2338,23 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     if not upstream:
         upstream = "https://api.anthropic.com"
 
+    # A settings.json base URL outranks the environment we are about to set. If it
+    # names a DEAD port, every request the agent makes fails with a connection error
+    # that blames the provider — so refuse to start rather than hand the user an
+    # outage we could see coming. Observed in the field three times in one day.
+    from .precedence import check_claude_settings
+
+    _conflict = check_claude_settings(env_var)
+    if _conflict is not None:
+        if _conflict.fatal:
+            print(f"\n  ✗ distil wrap: {_conflict.message()}\n", file=sys.stderr)
+            print(
+                "    (override with DISTIL_IGNORE_SETTINGS_PRECEDENCE=1 if you know better)",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"  ⚠ {_conflict.message()}", file=sys.stderr)
+
     _apply_subscription_safe_default(args)
     from .proxy import wrap_run
 
@@ -2368,10 +2385,25 @@ def cmd_wrap(args: argparse.Namespace) -> int:
 
             mp = session_marker_path()
             if mp is not None and mp.exists() and mp.read_text(encoding="utf-8").strip() == "0":
+                # Name the cause we can actually verify before guessing at one we
+                # can't. The old text blamed "agent update?" and sent people to
+                # offboard when the real cause was our OWN settings.json entry
+                # outranking our OWN wrap.
+                from .precedence import check_claude_settings
+
+                conflict = check_claude_settings(env_var)
+                if conflict is not None:
+                    detail = f"{env_var} is pinned in {conflict.path.name} to "
+                    detail += f"{conflict.value}, which outranks the wrap's environment"
+                    if conflict.fatal:
+                        detail += " AND is not accepting connections"
+                    fix = "distil offboard  (or start the service: distil default --always-on)"
+                else:
+                    detail = f"{cmd_name} may have stopped honoring {env_var} (agent update?)"
+                    fix = "distil doctor"
                 print(
                     f"  warning: no requests flowed through distil this session — "
-                    f"{cmd_name} may have stopped honoring {env_var} "
-                    f"(agent update?). Run `distil doctor` to check.",
+                    f"{detail}. Fix: {fix}",
                     file=sys.stderr,
                 )
         except Exception:  # noqa: BLE001 — a tripwire must never break the wrap exit

@@ -168,6 +168,18 @@ def _check_session() -> Check:
     reqs = f"{s.runs} request{'s' if s.runs != 1 else ''}"
     if s.total_tokens_saved > 0:
         pct = (1 - s.total_distil_tokens / s.total_baseline_tokens) * 100
+        if pct < 1:
+            # "▼413 tokens saved (0% smaller)" reads as broken — a real number next
+            # to a zero. Say the small-but-real thing instead, with the reason, so a
+            # first-run user doesn't conclude distil is doing nothing and uninstall.
+            return Check(
+                "this session",
+                OK,
+                f"▼{s.total_tokens_saved:,} tokens saved (<1% so far) over {reqs}",
+                "savings come from LARGE tool output (file reads, logs). This traffic "
+                "is mostly system prompt + short outputs, which has little to trim — "
+                "▼ climbs once your agent reads big content.",
+            )
         return Check(
             "this session",
             OK,
@@ -206,11 +218,28 @@ def _check_live_routing() -> Check:
     running = bool(re.search(r"distil\s+(wrap|proxy|gateway)\b", out.stdout))
     if not running:
         return Check("live routing", INFO, "no distil wrap/proxy running (nothing to route)")
+    # Traffic is "did a request reach us", NOT "did we save anything on it".
+    # The savings ledger deliberately skips zero-saving windows (runtime.py: "a
+    # 0-row is noise"), so on traffic that legitimately compresses to ~nothing —
+    # a mostly-system-prompt request, a freshly compacted session — savings.jsonl
+    # never moves and this check used to report the proxy as bypassed while it was
+    # demonstrably serving requests. Every request writes a receipt regardless of
+    # savings, so the receipt log is the honest signal; the ledger stays in the
+    # max() because a wrap session that saved something is equally proof of life.
+    last_ts = 0.0
     try:
         _sid, last_ts = ledger.latest_session()
-        age_min = (time.time() - last_ts) / 60 if last_ts else 1e9
     except Exception:  # noqa: BLE001
-        age_min = 1e9
+        pass
+    try:
+        from . import receipts
+
+        p = receipts.receipts_path()
+        if p.exists():
+            last_ts = max(last_ts, p.stat().st_mtime)
+    except Exception:  # noqa: BLE001 — diagnosis must never crash the doctor
+        pass
+    age_min = (time.time() - last_ts) / 60 if last_ts else 1e9
     if age_min <= 5:
         return Check(
             "live routing", OK, f"wrapped agent live · traffic recorded {age_min:.0f}m ago"
