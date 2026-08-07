@@ -39,6 +39,10 @@ from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens as _gemini_count
 from .adapters.gemini import is_gemini_path
+from .authz import AuthzError as _AuthzError
+from .authz import identity_from_claims as _identity_from_claims
+from .authz import oidc_config_from_env as _oidc_config_from_env
+from .authz import verify_jwt as _verify_jwt
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
 from .httpguard import parse_content_length, safe_forward_path
 from .pricing import Pricing, get as pricing_get
@@ -50,6 +54,15 @@ from .proxy import (
     _warn_if_version_skew,
 )
 from .tokenizer import DEFAULT as _tokenizer
+
+
+class _OidcRejected(Exception):
+    """Raised after a 401 has already been sent for a rejected OIDC token.
+
+    Lets the auth path unwind without a second response being written — the 401
+    is already on the wire by the time this propagates.
+    """
+
 
 # Safe tenant label: bounded length, no markup / control characters.
 _TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -820,6 +833,37 @@ def build_gateway_handler(
                 return xdk, "x-distil-key"
             return None, None
 
+        def _identity_from_oidc(self):
+            """Verify an ``Authorization: Bearer <jwt>`` against configured OIDC.
+
+            Returns an Identity, or None when OIDC is not configured or no bearer
+            was presented. A bearer that IS presented but fails verification is a
+            hard 401 — never a fall-through to "unauthenticated but allowed".
+            """
+            cfg = _oidc_config_from_env()
+            if not cfg.get("issuer"):
+                return None  # OIDC disabled
+            auth = self.headers.get("Authorization", "")
+            if not auth.startswith("Bearer ") or auth.startswith("Bearer dsk-"):
+                return None
+            token = auth[len("Bearer ") :].strip()
+            try:
+                claims = _verify_jwt(
+                    token,
+                    secret=cfg["secret"],
+                    public_key_pem=cfg["public_key_pem"],
+                    issuer=cfg["issuer"],
+                    audience=cfg["audience"],
+                )
+            except _AuthzError as exc:
+                self._reject(401, f"OIDC token rejected: {exc}")
+                raise _OidcRejected from exc
+            return _identity_from_claims(
+                claims,
+                role_claim=cfg["role_claim"],
+                tenant_claim=cfg["tenant_claim"],
+            )
+
         def _check_inbound_auth(self) -> tuple[str | None, str | None] | None:
             """Validate the gateway key when auth is required.
 
@@ -846,6 +890,33 @@ def build_gateway_handler(
 
             raw_key, strip_hdr = self._extract_distil_key()
             if raw_key is None:
+                # No dsk- key. If OIDC is configured, a verified bearer JWT is an
+                # equally valid credential — additive, so enabling OIDC can never
+                # lock out a deployment that already runs on issued keys.
+                try:
+                    ident = self._identity_from_oidc()
+                except _OidcRejected:
+                    # 401 already written by the extractor; unwind cleanly rather
+                    # than letting the handler emit a second response.
+                    return ("", "")
+                if ident is not None:
+                    try:
+                        ident.require("operator")  # proxying is an operator action
+                    except _AuthzError as exc:
+                        self._reject(403, str(exc))
+                        return ("", "")
+                    if not _rl.check_rpm(ident.tenant, default_rpm):
+                        state.record_quota_rejection(ident.tenant)
+                        body = json.dumps({"error": "rate limit exceeded"}).encode()
+                        self._relay(
+                            429,
+                            {"Content-Type": "application/json"},
+                            body,
+                            {"Retry-After": "60"},
+                        )
+                        return ("", "")
+                    # Strip the bearer so the upstream never sees our IdP token.
+                    return (ident.tenant, "authorization")
                 self._reject(
                     401,
                     "gateway key required (Authorization: Bearer dsk-… or x-distil-key header)",

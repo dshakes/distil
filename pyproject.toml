@@ -44,6 +44,10 @@ onnx = ["onnxruntime>=1.17", "transformers>=4.40"]   # transformer keep-model in
 train = ["torch>=2.2", "transformers>=4.40", "onnx>=1.16", "onnxscript>=0.1", "sentencepiece>=0.2"]  # training + ONNX export
 async = ["aiohttp>=3.9"]                              # async high-concurrency proxy (distil.aproxy)
 otel = ["opentelemetry-api>=1.20"]                    # GenAI semantic-convention spans (distil.otel)
+# OIDC RS256 verification for the gateway. HS256 needs nothing (stdlib hmac);
+# this is only for asymmetric IdP signing keys. Without it an RS256 token is
+# REFUSED, never verified-by-skipping — see distil/authz.py.
+oidc = ["cryptography>=42.0"]
 # native = the Rust hot-path core (rust/distil-core); build with `maturin develop --release`
 
 [project.scripts]
