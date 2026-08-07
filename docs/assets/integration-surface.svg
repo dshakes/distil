@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" role="img" aria-labelledby="t d">
+  <title id="t">Four ways to run distil, and what each one gives you</title>
+  <desc id="d">Agent wrap, proxy, library, and MCP server. Wrap, proxy and MCP reach the reversible digest tier through the shared restore store and the decision-equivalence certificate. The in-process library is lossless-only and byte-identical to the Python engine, verified by a conformance suite.</desc>
+
+  <defs>
+    <style>
+      .bg    { fill: #0e1320; }
+      .card  { fill: #111726; stroke: #2a3650; stroke-width: 1; }
+      .card2 { fill: #111726; stroke: #2c344a; stroke-width: 1; }
+      .h     { fill: #eef0f5; font: 600 15px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .s     { fill: #9aa0b2; font: 400 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .m     { fill: #dbe0ee; font: 400 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .tiny  { fill: #7b8298; font: 400 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .lbl   { fill: #eef0f5; font: 600 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .flow  { stroke: #5ad1c9; stroke-width: 1.6; fill: none; }
+      .flow2 { stroke: #8b7bff; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+      .chipA { fill: #10241f; stroke: #5ad19a; stroke-width: 1; }
+      .chipB { fill: #1b1a2e; stroke: #8b7bff; stroke-width: 1; }
+      .okT   { fill: #5ad19a; font: 600 11px ui-sans-serif, system-ui, sans-serif; }
+      .vioT  { fill: #a99bff; font: 600 11px ui-sans-serif, system-ui, sans-serif; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5ad1c9"/>
+    </marker>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b7bff"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="960" height="420" rx="10"/>
+  <text class="h" x="28" y="34">Four ways to run distil</text>
+  <text class="s" x="28" y="54">Same engine. The difference is which tier you get — and what proves it.</text>
+
+  <!-- entry points -->
+  <g>
+    <rect class="card" x="28" y="80" width="196" height="70" rx="8"/>
+    <text class="lbl" x="44" y="104">Agent wrap</text>
+    <text class="m"   x="44" y="124">distil wrap -- claude</text>
+    <text class="tiny" x="44" y="140">zero config · 6 agents</text>
+  </g>
+  <g>
+    <rect class="card" x="28" y="164" width="196" height="70" rx="8"/>
+    <text class="lbl" x="44" y="188">Proxy / gateway</text>
+    <text class="m"   x="44" y="208">baseURL → :8788</text>
+    <text class="tiny" x="44" y="224">any language · any SDK</text>
+  </g>
+  <g>
+    <rect class="card" x="28" y="248" width="196" height="70" rx="8"/>
+    <text class="lbl" x="44" y="272">MCP server</text>
+    <text class="m"   x="44" y="292">distil mcp</text>
+    <text class="tiny" x="44" y="308">agent-driven recall</text>
+  </g>
+  <g>
+    <rect class="card2" x="28" y="332" width="196" height="70" rx="8"/>
+    <text class="lbl" x="44" y="356">In-process library</text>
+    <text class="m"   x="44" y="376">compress_messages()</text>
+    <text class="tiny" x="44" y="392">Python · TypeScript</text>
+  </g>
+
+  <!-- flows into the engine -->
+  <path class="flow"  d="M224 115 C 300 115, 320 200, 392 200" marker-end="url(#a)"/>
+  <path class="flow"  d="M224 199 C 310 199, 330 200, 392 200" marker-end="url(#a)"/>
+  <path class="flow"  d="M224 283 C 300 283, 320 210, 392 205" marker-end="url(#a)"/>
+  <path class="flow2" d="M224 367 C 320 367, 340 300, 392 268" marker-end="url(#a2)"/>
+
+  <!-- engine -->
+  <rect class="card" x="392" y="150" width="228" height="150" rx="10"/>
+  <text class="h"    x="412" y="178" style="font-size:14px">Compression engine</text>
+  <rect class="chipA" x="412" y="192" width="188" height="44" rx="6"/>
+  <text class="okT"  x="424" y="210">TIER-1 · reversible digest</text>
+  <text class="tiny" x="424" y="227">handles → shared restore store</text>
+  <rect class="chipB" x="412" y="244" width="188" height="44" rx="6"/>
+  <text class="vioT" x="424" y="262">TIER-0 · lossless</text>
+  <text class="tiny" x="424" y="279">JSON minify · run collapse</text>
+
+  <!-- guarantees -->
+  <rect class="card" x="676" y="96" width="256" height="104" rx="10"/>
+  <text class="h" x="696" y="122" style="font-size:14px">Decision-equivalence</text>
+  <text class="s" x="696" y="142">certificate</text>
+  <text class="tiny" x="696" y="164">Covers the digest tier. Cannot</text>
+  <text class="tiny" x="696" y="180">certify → falls back to full context.</text>
+
+  <rect class="card" x="676" y="216" width="256" height="104" rx="10"/>
+  <text class="h" x="696" y="242" style="font-size:14px">Conformance suite</text>
+  <text class="s" x="696" y="262">Python ↔ TypeScript</text>
+  <text class="tiny" x="696" y="284">Byte-identical Tier-0, or the port</text>
+  <text class="tiny" x="696" y="300">declines. Divergence fails CI.</text>
+
+  <path class="flow"  d="M620 200 C 646 200, 650 150, 676 148" marker-end="url(#a)"/>
+  <path class="flow2" d="M620 266 C 646 266, 650 268, 676 268" marker-end="url(#a2)"/>
+
+  <text class="tiny" x="28" y="416">Solid = reversible digest tier · dashed = lossless tier. The library is lossless-only on purpose: a second digest implementation would be a second thing to certify.</text>
+</svg>

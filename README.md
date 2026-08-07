@@ -32,6 +32,10 @@ pipx install distil-llm && distil onboard    # detects your agent + billing, wir
 ```
 
 <p align="center">
+  <img src="docs/assets/integration-surface.svg" alt="Four ways to run distil — agent wrap, proxy/gateway, MCP server, and the in-process library. Wrap, proxy and MCP reach the reversible digest tier, covered by the decision-equivalence certificate; the in-process library is lossless-only and byte-identical to the Python engine, enforced by a conformance suite." width="100%"/>
+</p>
+
+<p align="center">
   <img src="docs/assets/hero-terminal.svg" alt="Animated distil proof session: distil bench prints GATE: PASS (every trajectory certified non-inferior); distil wrap -- claude routes with zero config; a live line shows 53% smaller, equivalence 100%; then the proof ledger closes with 1,284,551 → 601,204 tokens (53.2% smaller), cost $18.41 → $8.72 calibrated to billed usage, 0 shadow decision changes across 63 A/B samples, 100% recoverable restore" width="84%"/>
 </p>
 
