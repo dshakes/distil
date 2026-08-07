@@ -2104,12 +2104,14 @@ def cmd_offboard(args: argparse.Namespace) -> int:
 
     from . import onboard
     from .setup import (
+        claude_settings_files,
         default_settings_path,
         detect_shell,
+        loopback_base_url,
         remove_managed,
         service_spec,
         service_unload_cmd,
-        unwire_settings_env,
+        unwire_base_url,
         unwire_statusline,
     )
 
@@ -2154,12 +2156,28 @@ def cmd_offboard(args: argparse.Namespace) -> int:
         st, msg = unwire_statusline(sp)
         print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
 
-    # 3b · the settings.json ANTHROPIC_BASE_URL that --always-on wires for IDE-
-    # launched Claude Code (VSCode, Cursor's Claude Code extension, ...), which
-    # never goes through a shell rc file and so isn't touched by step 1.
-    if sp.exists() and ask(f"Unwire distil's ANTHROPIC_BASE_URL from {sp}?"):
-        st, msg = unwire_settings_env(sp, "ANTHROPIC_BASE_URL", "http://127.0.0.1:8788")
-        print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
+    # 3b · the ANTHROPIC_BASE_URL that --always-on wires for IDE-launched Claude Code
+    # (VSCode, Cursor's Claude Code extension, ...), which never goes through a shell rc
+    # file and so isn't touched by step 1.
+    #
+    # This step had three bugs and each one alone was enough to leave the machine broken
+    # after a "successful" offboard: it read only ~/.claude/settings.json when Claude Code
+    # also merges project settings that OVERRIDE it; it matched the value against a
+    # hardcoded :8788, so any other port was judged foreign and kept; and it was gated on
+    # that one file existing, so a machine without it was asked nothing and cleaned
+    # nothing — anywhere. Sweep every file, match by shape, prompt only where there is
+    # something real to remove, and name the value so the answer is an informed one.
+    found_any = False
+    for bp in claude_settings_files():
+        val = loopback_base_url(bp)
+        if not val:
+            continue
+        found_any = True
+        if ask(f"Unwire ANTHROPIC_BASE_URL ({val}) from {bp}?"):
+            st, msg = unwire_base_url(bp)
+            print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
+    if not found_any:
+        print("  · no ANTHROPIC_BASE_URL wired in any Claude Code settings file")
 
     # 4 · local data (opt-in; it's the user's measured savings history)
     home = Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil")))

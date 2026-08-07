@@ -315,3 +315,86 @@ def test_doctor_reports_a_shadowed_base_url_as_shadowed(tmp_path, monkeypatch) -
     assert len(checks) == 2
     assert checks[0].status == doctor.FAIL and "project.json" in checks[0].name
     assert checks[1].status == doctor.INFO and "shadowed" in checks[1].detail
+
+
+# ── `distil offboard`, the command a leaving user actually runs ────────────────
+#
+# `default --undo` was only half the escape hatch. `offboard` is the documented way
+# out, and it had the same two defects plus a third of its own: it prompted off
+# `~/.claude/settings.json` existing, so on a machine without that file it asked
+# nothing and cleaned nothing — in any file. It then reported success and printed the
+# uninstall command, which is how a base URL outlived distil itself.
+
+
+def _offboard_args(**over):
+    base = dict(yes=True, no_interactive=True, purge=False)
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def test_offboard_clears_a_project_scoped_base_url(tmp_path, monkeypatch, capsys) -> None:
+    """The user's actual machine: the dead entry lived in a repo's settings.local.json,
+    on a port offboard never matched, while ~/.claude/settings.json did not exist."""
+    from distil import setup
+
+    proj = tmp_path / "repo" / ".claude"
+    proj.mkdir(parents=True)
+    local = proj / "settings.local.json"
+    local.write_text('{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:8788"}}\n')
+    home_settings = tmp_path / "home" / ".claude" / "settings.json"  # deliberately absent
+
+    monkeypatch.setattr(setup, "claude_settings_files", lambda cwd=None: [local, home_settings])
+    monkeypatch.setattr(setup, "default_settings_path", lambda: home_settings)
+    monkeypatch.setattr(setup, "detect_shell", lambda: ("zsh", tmp_path / ".zshrc"))
+    monkeypatch.setattr(setup, "service_spec", lambda *a, **k: (tmp_path / "absent.plist", "", ""))
+
+    assert cli.cmd_offboard(_offboard_args()) == 0
+    assert "ANTHROPIC_BASE_URL" not in local.read_text(), (
+        "offboard reported success and left the entry that was killing every session"
+    )
+
+
+def test_offboard_is_silent_when_there_is_nothing_to_unwire(tmp_path, monkeypatch, capsys) -> None:
+    """No base URL anywhere → say so once. The old code asked the user to confirm
+    removing something that was not there, then reported 'absent' after they said yes."""
+    from distil import setup
+
+    empty = tmp_path / "settings.json"
+    empty.write_text('{"permissions": {"allow": []}}\n')
+    monkeypatch.setattr(setup, "claude_settings_files", lambda cwd=None: [empty])
+    monkeypatch.setattr(setup, "default_settings_path", lambda: empty)
+    monkeypatch.setattr(setup, "detect_shell", lambda: ("zsh", tmp_path / ".zshrc"))
+    monkeypatch.setattr(setup, "service_spec", lambda *a, **k: (tmp_path / "absent.plist", "", ""))
+
+    assert cli.cmd_offboard(_offboard_args()) == 0
+    out = capsys.readouterr().out
+    assert "no ANTHROPIC_BASE_URL wired" in out
+    assert "Unwire ANTHROPIC_BASE_URL" not in out, "never prompt about nothing"
+
+
+def test_offboard_spares_a_real_gateway(tmp_path, monkeypatch) -> None:
+    """--yes must not become a licence to delete somebody's actual gateway."""
+    from distil import setup
+
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"env": {"ANTHROPIC_BASE_URL": "https://gateway.corp.example"}}\n')
+    monkeypatch.setattr(setup, "claude_settings_files", lambda cwd=None: [settings])
+    monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
+    monkeypatch.setattr(setup, "detect_shell", lambda: ("zsh", tmp_path / ".zshrc"))
+    monkeypatch.setattr(setup, "service_spec", lambda *a, **k: (tmp_path / "absent.plist", "", ""))
+
+    assert cli.cmd_offboard(_offboard_args()) == 0
+    assert "gateway.corp.example" in settings.read_text()
+
+
+def test_loopback_base_url_reads_without_writing(tmp_path) -> None:
+    from distil.setup import loopback_base_url
+
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"env": {"ANTHROPIC_BASE_URL": "http://localhost:9999"}}\n')
+    before = settings.read_text()
+    assert loopback_base_url(settings) == "http://localhost:9999"
+    assert settings.read_text() == before, "the probe that decides whether to prompt must not edit"
+    assert loopback_base_url(tmp_path / "nope.json") is None
+    settings.write_text("{ not json\n")
+    assert loopback_base_url(settings) is None

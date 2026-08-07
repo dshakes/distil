@@ -59,6 +59,27 @@ def claude_settings_files(cwd: Path | None = None) -> list[Path]:
     return list(dict.fromkeys(paths))  # dedupe, first (highest-precedence) wins
 
 
+def loopback_base_url(settings_path: Path) -> str | None:
+    """The loopback ``ANTHROPIC_BASE_URL`` in *settings_path*, or None.
+
+    Read-only, so a caller can ask "is there anything here?" before prompting.
+    ``offboard`` used to prompt off ``settings_path.exists()`` alone, which asked
+    about files holding nothing and — worse — asked about nothing at all when the
+    home file was absent, skipping every other file in the process.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    env = data.get("env") if isinstance(data, dict) else None
+    val = env.get("ANTHROPIC_BASE_URL") if isinstance(env, dict) else None
+    if not val or urlparse(str(val)).hostname not in ("127.0.0.1", "localhost", "::1"):
+        return None
+    return str(val)
+
+
 def unwire_base_url(settings_path: Path) -> tuple[str, str]:
     """Remove a **loopback** ``ANTHROPIC_BASE_URL`` from *settings_path*.
 
