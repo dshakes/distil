@@ -349,6 +349,52 @@ def _port_listening(host: str, port: int, timeout: float = 0.35) -> bool:
         return False
 
 
+def _base_url_checks() -> list[Check]:
+    """Run the base-URL guard over every settings file Claude Code merges.
+
+    Reading only ``~/.claude/settings.json`` let a dead base URL in a project's
+    ``.claude/settings.local.json`` — which takes *precedence* over the home file —
+    sit invisible to doctor while it broke every session started in that directory.
+    Only the winning entry is probed; the ones it shadows are reported as shadowed,
+    because fixing a loser changes nothing and sends the user in circles.
+    """
+    from .setup import claude_settings_files
+
+    out: list[Check] = []
+    winner: Path | None = None
+    for path in claude_settings_files():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            continue
+        env = data.get("env") if isinstance(data, dict) else None
+        if not (isinstance(env, dict) and env.get("ANTHROPIC_BASE_URL")):
+            continue
+        where = _short_path(path)
+        if winner is not None:
+            out.append(
+                Check(
+                    f"base URL ({where})",
+                    INFO,
+                    f"ANTHROPIC_BASE_URL → {env['ANTHROPIC_BASE_URL']} "
+                    f"(shadowed by {_short_path(winner)}, which wins)",
+                )
+            )
+            continue
+        winner = path
+        chk = _check_base_url(data)
+        if chk is not None:
+            out.append(Check(f"{chk.name} ({where})", chk.status, chk.detail, chk.hint))
+    return out
+
+
+def _short_path(path: Path) -> str:
+    try:
+        return "~/" + str(path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
+
+
 def _check_base_url(data: object) -> Check | None:
     """Guard against a dead ANTHROPIC_BASE_URL in settings.json.
 
@@ -368,7 +414,23 @@ def _check_base_url(data: object) -> Check | None:
         # distil only ever writes a loopback proxy; never probe foreign hosts.
         return Check("base URL", INFO, f"ANTHROPIC_BASE_URL → {base} (not a local distil proxy)")
     if _port_listening(host, port):
-        return Check("base URL", OK, f"ANTHROPIC_BASE_URL → {host}:{port} (listening)")
+        # "Listening" was the old bar, and it is too low: a proxy aimed at a wrong
+        # upstream binds the port and 404s every request. Claude Code skips model-name
+        # validation whenever ANTHROPIC_BASE_URL is set, so that surfaces as "there's an
+        # issue with the selected model" — a message that sends the user hunting the
+        # model. Probe the route, so doctor names the real fault.
+        from .setup import probe_routing
+
+        routed, detail = probe_routing(host, port, deadline=4.0)
+        if routed:
+            return Check("base URL", OK, f"ANTHROPIC_BASE_URL → {detail}")
+        return Check(
+            "base URL",
+            FAIL,
+            f"ANTHROPIC_BASE_URL → {detail}",
+            "every Claude Code session fails while this stands (often reported as "
+            "'an issue with the selected model'). Undo: distil default --always-on --undo",
+        )
     return Check(
         "base URL",
         FAIL,
@@ -386,9 +448,7 @@ def _check_claude_code() -> list[Check]:
         data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
     except (OSError, json.JSONDecodeError):
         data = {}
-    base_url = _check_base_url(data)
-    if base_url is not None:
-        out.append(base_url)
+    out.extend(_base_url_checks())
     sl = (data.get("statusLine") or {}).get("command", "") if isinstance(data, dict) else ""
     if "distil" in sl or "statusline.sh" in sl:
         out.append(Check("status line", OK, "wired into ~/.claude/settings.json"))

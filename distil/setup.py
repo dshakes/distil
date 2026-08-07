@@ -31,6 +31,74 @@ def default_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
+def claude_settings_files(cwd: Path | None = None) -> list[Path]:
+    """Every settings file Claude Code merges, highest precedence first.
+
+    ``doctor`` and ``--undo`` used to read only ``~/.claude/settings.json``. Claude
+    Code also reads *project*-scoped settings, and those **override** the user's —
+    so a dead ``ANTHROPIC_BASE_URL`` in a repo's ``.claude/settings.local.json`` is
+    invisible to a check that reads the home file, and survives every uninstall.
+    That is exactly how one stale port outlived ``distil default --undo`` and went
+    on killing every session started in that directory after distil was gone.
+
+    Includes non-existent paths: callers test for presence, and an undo that only
+    visits files it already knows about is the bug this exists to close.
+    """
+    home = Path.home()
+    paths = [
+        Path("/etc/claude-code/managed-settings.json")
+        if _is_windows() or not Path("/Library/Application Support").is_dir()
+        else Path("/Library/Application Support/ClaudeCode/managed-settings.json")
+    ]
+    start = (cwd or Path.cwd()).resolve()
+    for d in (start, *start.parents):
+        paths += [d / ".claude" / "settings.local.json", d / ".claude" / "settings.json"]
+        if d == home:
+            break
+    paths += [home / ".claude" / "settings.local.json", home / ".claude" / "settings.json"]
+    return list(dict.fromkeys(paths))  # dedupe, first (highest-precedence) wins
+
+
+def unwire_base_url(settings_path: Path) -> tuple[str, str]:
+    """Remove a **loopback** ``ANTHROPIC_BASE_URL`` from *settings_path*.
+
+    The port-exact :func:`unwire_settings_env` is not enough for undo: wire on one
+    port, undo without repeating ``--port``, and the entry is judged "foreign" and
+    left behind — an uninstall that reports success and leaves the machine broken.
+    Any ``127.0.0.1``/``localhost`` URL is distil's to clean up; a real remote host
+    is someone else's gateway and is left exactly as it is.
+
+    Returns ``(status, message)``: ``ok`` | ``absent`` | ``foreign`` | ``error``.
+    """
+    from urllib.parse import urlparse
+
+    if not settings_path.exists():
+        return ("absent", f"no settings file at {settings_path}")
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return ("error", f"{settings_path} is not valid JSON ({exc})")
+    if not isinstance(data, dict):
+        return ("error", f"{settings_path} is not a JSON object")
+
+    env = data.get("env")
+    existing = env.get("ANTHROPIC_BASE_URL") if isinstance(env, dict) else None
+    if not existing:
+        return ("absent", f"no ANTHROPIC_BASE_URL in {settings_path}")
+    if urlparse(str(existing)).hostname not in ("127.0.0.1", "localhost", "::1"):
+        return ("foreign", f"ANTHROPIC_BASE_URL is {existing!r} (not loopback) — left as-is")
+
+    settings_path.with_name(settings_path.name + ".bak").write_text(
+        settings_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    assert isinstance(env, dict)  # a truthy `existing` came out of that dict
+    del env["ANTHROPIC_BASE_URL"]
+    if not env:
+        del data["env"]
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return ("ok", f"removed ANTHROPIC_BASE_URL ({existing}) from {settings_path}")
+
+
 def wire_statusline(
     settings_path: Path, *, command: str = DEFAULT_COMMAND, force: bool = False
 ) -> tuple[str, str]:
@@ -350,6 +418,66 @@ def service_spec(port: int, mode: str) -> tuple[Path | None, str | None, str | N
         )
         return path, content, load
     return (None, None, None)
+
+
+def probe_routing(host: str, port: int, *, deadline: float = 10.0) -> tuple[bool, str]:
+    """Does the proxy at *host:port* actually SERVE ``/v1/messages``, or merely listen?
+
+    A listening socket proves nothing. A proxy pointed at the wrong upstream accepts
+    the connection and hands back that upstream's 404 for every request — and because
+    Claude Code skips model-name validation whenever ``ANTHROPIC_BASE_URL`` is set
+    (behind a gateway the provider defines the model names), the user sees "there's an
+    issue with the selected model" in every session on the machine. The error names the
+    wrong thing, so the search starts in the wrong place.
+
+    Credentials are deliberately omitted: an HTTP 401 is *proof* the request reached a
+    real messages handler, which is the only thing under test. Anything but a 404 means
+    routing works. We retry on connection errors only — a 404 is a definitive answer,
+    not a race — so a service that needs a second to bind still passes.
+    """
+    import time
+    import urllib.error
+    import urllib.request
+
+    payload = json.dumps(
+        {
+            "model": "claude-sonnet-5",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "."}],
+        }
+    ).encode()
+    url = f"http://{host}:{port}/v1/messages"
+    last = "no response"
+    end = time.monotonic() + deadline
+    while True:
+        req = urllib.request.Request(  # noqa: S310 — loopback only, built from our own port
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json", "anthropic-version": "2023-06-01"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=4) as resp:  # noqa: S310
+                code, headers = resp.status, resp.headers
+            break
+        except urllib.error.HTTPError as exc:  # 401/400 are answers, and good ones
+            code, headers = exc.code, exc.headers
+            break
+        except OSError as exc:  # refused / unbound / timed out — may still be starting
+            last = str(exc)
+            if time.monotonic() >= end:
+                return False, f"no response from {host}:{port} — {last}"
+            time.sleep(0.4)
+    if code == 404:
+        return False, (
+            f"{host}:{port} is listening but answered 404 for /v1/messages — it is not "
+            "routing (a wrong --upstream does exactly this)"
+        )
+    # Not required to pass: the headers ride on the compression path, and a proxy can be
+    # correctly routing before it has anything to compress. Reported when present because
+    # it upgrades "something answers" to "distil answers".
+    stamped = any(str(k).lower().startswith("x-distil-") for k in (headers or {}))
+    who = "distil" if stamped else "a proxy"
+    return True, f"{who} on {host}:{port} routes /v1/messages (HTTP {code})"
 
 
 def service_unload_cmd() -> str | None:

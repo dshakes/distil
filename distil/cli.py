@@ -1963,13 +1963,15 @@ def cmd_default(args: argparse.Namespace) -> int:
     from . import onboard
     from .setup import (
         alias_body,
+        claude_settings_files,
         default_settings_path,
         detect_shell,
         env_body,
+        probe_routing,
         remove_managed,
         service_spec,
         service_unload_cmd,
-        unwire_settings_env,
+        unwire_base_url,
         wire_settings_env,
         write_managed,
     )
@@ -1998,11 +2000,21 @@ def cmd_default(args: argparse.Namespace) -> int:
                 print(f"✓ removed proxy service {path}")
             except OSError:
                 pass
-        if agent == "claude":  # inverse of the settings.json wiring below
-            st2, msg2 = unwire_settings_env(
-                default_settings_path(), "ANTHROPIC_BASE_URL", f"http://127.0.0.1:{args.port}"
-            )
-            print(("✓ " if st2 in ("ok", "absent", "foreign") else "✗ ") + msg2)
+        if agent == "claude":
+            # Sweep EVERY settings file Claude Code merges, not just ~/.claude/settings.json,
+            # and match on "loopback" rather than on this run's --port. The old undo did the
+            # opposite on both counts, so an entry written on another port, or written into a
+            # project's .claude/settings.local.json (which overrides the home file), survived
+            # the uninstall and kept killing sessions after distil was gone from the machine.
+            cleaned = 0
+            for sp in claude_settings_files():
+                st2, msg2 = unwire_base_url(sp)
+                if st2 == "absent":
+                    continue  # the common case for most of these paths; saying so is noise
+                print(("✓ " if st2 in ("ok", "foreign") else "✗ ") + msg2)
+                cleaned += st2 == "ok"
+            if not cleaned:
+                print("✓ no ANTHROPIC_BASE_URL left in any Claude Code settings file")
         print(f"  open a new terminal (or: source {rc}) to finish")
         return 0
 
@@ -2020,6 +2032,22 @@ def cmd_default(args: argparse.Namespace) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"✓ wrote proxy service → {path}")
+        # Start, PROVE it routes, and only then wire the base URL. The old order wired
+        # first and reported success from `launchctl load`'s exit code, which means "the
+        # job was accepted" — not "the proxy serves requests". A proxy that binds the port
+        # and 404s (wrong --upstream, stale build) then took down every Claude Code session
+        # on the machine, disguised as "there's an issue with the selected model".
+        if load and not args.no_start:
+            ok = subprocess.run(load, shell=True).returncode == 0
+            print("  ✓ proxy service started" if ok else f"  ⚠ start it manually: {load}")
+        routed, detail = probe_routing("127.0.0.1", args.port)
+        if not routed:
+            print(f"\n✗ preflight failed — {detail}")
+            print("  Nothing was wired. Your existing setup is untouched.")
+            print(f"  See the error yourself:  distil proxy --{mode} --port {args.port}")
+            print("  Then re-run this command.")
+            return 1
+        print(f"✓ preflight: {detail}")
         _st, msg = write_managed(rc, env_body(args.port, shell=shell))
         print(f"✓ {msg}  (ANTHROPIC_BASE_URL → http://127.0.0.1:{args.port})")
         if agent == "claude":
@@ -2036,9 +2064,6 @@ def cmd_default(args: argparse.Namespace) -> int:
             print(f"{glyph2} {msg2}")
             if st2 == "conflict":
                 print(f"  re-run with: distil default --always-on --force  (backs up {sp} first)")
-        if load and not args.no_start:
-            ok = subprocess.run(load, shell=True).returncode == 0
-            print("  ✓ proxy service running" if ok else f"  ⚠ start it manually: {load}")
         print(
             f"\nEvery base-URL-honoring tool now routes through distil. Reload your shell (source {rc})."
         )
