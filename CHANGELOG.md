@@ -3,6 +3,56 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.41.2] — the escape hatch that wasn't, and a price nobody was charged
+
+**`distil default --always-on` took `launchctl load` returning 0 as proof the proxy
+worked.** It means *the job was accepted*, nothing more. On one real machine the proxy
+bound its port and 404'd every request — a `--upstream` pointed at a server that does
+not serve `/v1/messages` — and because Claude Code skips model-name validation whenever
+`ANTHROPIC_BASE_URL` is set, every session on that machine failed as "there's an issue
+with the selected model". The message sends you hunting the model. The fault was the
+base URL, and distil had written it.
+
+`probe_routing` now POSTs `/v1/messages` and demands anything but a 404 — a 401 is
+*proof*, because it means the request reached a real messages handler. `--always-on`
+starts the service, proves the route, and only then writes the base URL; a failed
+preflight wires nothing and exits 1. `doctor` probes the same way: "the port is
+listening" was the old bar, and it was already true the entire time everything was
+broken.
+
+**The second defect was worse, because it was the way out.** Both removal paths —
+`default --undo` and `offboard`, the command someone runs when they have had enough —
+looked only in `~/.claude/settings.json` and matched the entry against a port: `--undo`
+against the current `--port`, `offboard` against a hardcoded `:8788`. Claude Code also
+merges *project* settings, and those take **precedence** over the home file. `offboard`
+carried a third defect of its own: it prompted only if the home file existed, so on a
+machine without one it asked nothing and cleaned nothing, in any file — then reported
+success and printed the uninstall command.
+
+All of it was true of the same machine at once. A dead `127.0.0.1:8788` in a repo's
+`.claude/settings.local.json` survived uninstalling distil **entirely**, and went on
+killing every session started in that directory.
+
+`claude_settings_files()` enumerates every file Claude Code merges, in precedence
+order. `unwire_base_url()` cleans by shape — any loopback URL is ours — while leaving a
+real remote gateway (LiteLLM, Bedrock, a corporate egress) untouched even under
+`--yes`. `loopback_base_url()` is the read-only probe the prompt was missing, so
+`offboard` asks only where something is really there and names the value it found.
+`doctor` diagnoses the winning entry and reports the ones it shadows as shadowed,
+because fixing a loser changes nothing and sends you in circles.
+
+**`claude-opus-5` was not in the pricing catalog.** The catalog knew `claude-fable-5`
+and the Opus 4.x line but not the model actually serving traffic, so savings on it
+resolved to no price and rendered as $0 — under-reporting real work without ever
+failing. Now $5.00 / $25.00 per MTok. `claude-mythos-5` is deliberately absent: same
+$10/$50 as fable, but Project Glasswing only, so it would be a guess at a model most
+callers cannot reach.
+
+**`tests/conftest.py` sandboxes the new reach.** `--undo` and `offboard` can now
+rewrite Claude Code settings machine-wide, which is precisely why no test may keep it:
+a suite run from this repo would otherwise rewrite the developer's own `~/.claude` —
+the accident that started all of this.
+
 ## [1.41.1] — the diagrams, and the one nobody could turn off
 
 Documentation and accessibility only. No compressor, proxy or CLI behaviour changes.
