@@ -22,7 +22,16 @@ ASSETS = sorted((Path(__file__).resolve().parent.parent / "docs" / "assets").glo
 # Static on purpose. A favicon that moves is a bug, and every social platform renders
 # an OpenGraph card as a still image — animating it buys nothing and risks the frame a
 # scraper happens to capture being a half-drawn one.
-INTENTIONALLY_STATIC = {"logo.svg", "logo-lockup.svg", "og.svg"}
+INTENTIONALLY_STATIC = {
+    "logo.svg",
+    "logo-lockup.svg",
+    "og.svg",
+    # A structural map of the four entry points and which compression tier each
+    # reaches. Nothing about it happens over time — the reader compares boxes,
+    # and motion would only pull the eye along one path as if it were the
+    # recommended one. The other diagrams animate because they show a *process*.
+    "integration-surface.svg",
+}
 
 # The OpenGraph card is never in a reading order. It is fetched by scrapers and rendered
 # as a preview thumbnail beside link text that already says what the page is, so a name
