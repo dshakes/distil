@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="hhT hhD">
+  <title id="hhT">Distil against other context compressors</title>
+  <desc id="hhD">A three-axis comparison — token savings, decision-change rate and added latency — across distil and competing compressors. Savings alone is not a result: a compressor that saves more while changing what the agent decides has not helped.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <radialGradient id="vig" cx="0.78" cy="-0.05" r="0.9"><stop offset="0" stop-color="#1a1640" stop-opacity="0.5"/><stop offset="1" stop-color="#06070b" stop-opacity="0"/></radialGradient>

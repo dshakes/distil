@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="caT caD">
+  <title id="caT">Cache-aware compression versus naive recompression</title>
+  <desc id="caD">A comparison of two strategies across an agent's turns. Naive recompression rewrites the cached prefix every turn, so it sends fewer tokens yet costs more than not compressing at all — every turn is billed as a fresh cache write. Distil compresses only the volatile tail, leaving the cached prefix byte-identical, so prompt-cache hits survive and the savings are real.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <radialGradient id="vig" cx="0.74" cy="-0.05" r="0.85"><stop offset="0" stop-color="#1a1640" stop-opacity="0.55"/><stop offset="1" stop-color="#06070b" stop-opacity="0"/></radialGradient>

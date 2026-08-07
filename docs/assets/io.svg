@@ -1,4 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="ioT ioD">
+  <title id="ioT">Distil compresses both sides of the bill</title>
+  <desc id="ioD">An animated round trip. A request travels from your agent to the model along the upper path, where distil compresses the context with its lossless tiers, cache-aware placement and pruning, cutting input by about 30 percent. The response returns along the lower path, where distil shapes generation and digests re-entry, cutting output by about 72 percent with the answer preserved. Both directions are billed, and both are compressed.</desc>
+  <style>
+    /* A flow diagram earns a packet: the point is that BOTH directions are billed, and
+       a reader who only ever sees the outbound arrow half-remembers that. Reduced
+       motion leaves both paths fully drawn with their savings badges in place. */
+    @media (prefers-reduced-motion: reduce) {
+      animate, animateMotion { display: none }
+      .iobeat { opacity: 1 !important }
+      .iopath { stroke-dashoffset: 0 !important }
+      .iopacket { display: none }
+    }
+  </style>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <radialGradient id="vig" cx="0.74" cy="-0.05" r="0.85"><stop offset="0" stop-color="#1a1640" stop-opacity="0.55"/><stop offset="1" stop-color="#06070b" stop-opacity="0"/></radialGradient>
@@ -31,18 +44,40 @@
   <text x="1010" y="186" text-anchor="middle" font-size="20" font-weight="800" fill="url(#g)">Model</text>
   <text x="1010" y="206" text-anchor="middle" font-size="11" fill="#8b91a3">Claude / any LLM</text>
 
-  <path d="M300,165 C540,90 660,90 900,165" stroke="#6b7390" stroke-width="2" fill="none" marker-end="url(#ar)"/>
-  <text x="600" y="78" text-anchor="middle" font-size="9" font-weight="700" letter-spacing=".12em" fill="#5b6177">INPUT</text>
+  <path class="iopath" d="M300,165 C540,90 660,90 900,165" stroke="#6b7390" stroke-width="2" fill="none"
+        marker-end="url(#ar)" stroke-dasharray="700" stroke-dashoffset="700">
+    <animate attributeName="stroke-dashoffset" dur="10s" repeatCount="indefinite"
+             calcMode="spline" keySplines="0 0 1 1;0.3 0 0.2 1;0 0 1 1;0 0 1 1"
+             values="700;700;0;0;700" keyTimes="0;0.04;0.18;0.93;1"/>
+  </path>
+  <circle class="iopacket" r="4.5" fill="#8b7bff" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite"
+             values="0;0;1;1;0;0" keyTimes="0;0.06;0.09;0.20;0.23;1"/>
+    <animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1"
+                   keyTimes="0;0.06;0.22;1" calcMode="linear" path="M300,165 C540,90 660,90 900,165"/>
+  </circle>
+  <g class="iobeat" opacity="0"><animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.20;0.24;0.93;0.98;1"/><text x="600" y="78" text-anchor="middle" font-size="9" font-weight="700" letter-spacing=".12em" fill="#5b6177">INPUT</text>
   <text x="600" y="96" text-anchor="middle" font-size="13" font-weight="700" fill="#eef0f5">Distil compresses context</text>
-  <text x="600" y="112" text-anchor="middle" font-size="11" fill="#8b91a3">Tier-0/1 · cache-aware · pruning</text>
-  <rect x="505" y="124" width="190" height="24" rx="12" fill="#0e1320" stroke="#2a2550"/>
-  <text x="600" y="140" text-anchor="middle" font-size="12" font-weight="700" fill="#8b7bff">−30% input, losslessly</text>
+  <text x="600" y="112" text-anchor="middle" font-size="11" fill="#8b91a3">Tier-0/1 · cache-aware · pruning</text></g>
+  <g class="iobeat" opacity="0"><animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.28;0.32;0.93;0.98;1"/><rect x="505" y="124" width="190" height="24" rx="12" fill="#0e1320" stroke="#2a2550"/>
+  <text x="600" y="140" text-anchor="middle" font-size="12" font-weight="700" fill="#8b7bff">−30% input, losslessly</text></g>
 
-  <path d="M900,195 C660,270 540,270 300,195" stroke="#5ad1c9" stroke-width="2" fill="none" marker-end="url(#arg)"/>
-  <text x="600" y="248" text-anchor="middle" font-size="9" font-weight="700" letter-spacing=".12em" fill="#5b6177">OUTPUT</text>
-  <text x="600" y="266" text-anchor="middle" font-size="13" font-weight="700" fill="#eef0f5">Distil shapes generation + digests re-entry</text>
-  <rect x="490" y="278" width="220" height="24" rx="12" fill="#0e1320" stroke="#1d3030"/>
-  <text x="600" y="294" text-anchor="middle" font-size="12" font-weight="700" fill="#5ad1c9">−72% output, answer preserved</text>
+  <path class="iopath" d="M900,195 C660,270 540,270 300,195" stroke="#5ad1c9" stroke-width="2" fill="none"
+        marker-end="url(#arg)" stroke-dasharray="700" stroke-dashoffset="700">
+    <animate attributeName="stroke-dashoffset" dur="10s" repeatCount="indefinite"
+             calcMode="spline" keySplines="0 0 1 1;0.3 0 0.2 1;0 0 1 1;0 0 1 1"
+             values="700;700;0;0;700" keyTimes="0;0.36;0.50;0.93;1"/>
+  </path>
+  <circle class="iopacket" r="4.5" fill="#5ad1c9" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite"
+             values="0;0;1;1;0;0" keyTimes="0;0.38;0.41;0.52;0.55;1"/>
+    <animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1"
+                   keyTimes="0;0.38;0.54;1" calcMode="linear" path="M900,195 C660,270 540,270 300,195"/>
+  </circle>
+  <g class="iobeat" opacity="0"><animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.52;0.56;0.93;0.98;1"/><text x="600" y="248" text-anchor="middle" font-size="9" font-weight="700" letter-spacing=".12em" fill="#5b6177">OUTPUT</text>
+  <text x="600" y="266" text-anchor="middle" font-size="13" font-weight="700" fill="#eef0f5">Distil shapes generation + digests re-entry</text></g>
+  <g class="iobeat" opacity="0"><animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.60;0.64;0.93;0.98;1"/><rect x="490" y="278" width="220" height="24" rx="12" fill="#0e1320" stroke="#1d3030"/>
+  <text x="600" y="294" text-anchor="middle" font-size="12" font-weight="700" fill="#5ad1c9">−72% output, answer preserved</text></g>
 
-  <text x="600" y="342" text-anchor="middle" font-size="12.5" fill="#8b91a3">compress both sides of the bill — <tspan fill="#eef0f5" font-weight="600">input tokens</tspan> and <tspan fill="#eef0f5" font-weight="600">output tokens</tspan>.</text>
+  <g class="iobeat" opacity="0"><animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1;1" keyTimes="0;0.72;0.76;0.93;0.98;1"/><text x="600" y="342" text-anchor="middle" font-size="12.5" fill="#8b91a3">compress both sides of the bill — <tspan fill="#eef0f5" font-weight="600">input tokens</tspan> and <tspan fill="#eef0f5" font-weight="600">output tokens</tspan>.</text></g>
 </svg>
