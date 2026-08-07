@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "distil-gateway.fullname" . }}
+  labels: {{- include "distil-gateway.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "distil-gateway.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never drop capacity mid-roll; the proxy is in the request path
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "distil-gateway.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: {{ include "distil-gateway.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - gateway
+            - --host={{ .Values.gateway.host }}
+            - --port={{ .Values.gateway.port }}
+            - --upstream={{ .Values.gateway.upstream }}
+            {{- if eq .Values.gateway.mode "lossless-only" }}
+            - --lossless-only
+            {{- else if eq .Values.gateway.mode "verbatim" }}
+            - --verbatim
+            {{- end }}
+            {{- if .Values.gateway.requireKeys }}
+            - --require-keys
+            {{- end }}
+            {{- if .Values.gateway.trustTenantHeader }}
+            - --trust-tenant-header
+            {{- end }}
+            {{- if .Values.gateway.perTenant.rpm }}
+            - --tenant-rpm={{ .Values.gateway.perTenant.rpm }}
+            {{- end }}
+            {{- if .Values.gateway.perTenant.dailyTokens }}
+            - --tenant-daily-tokens={{ .Values.gateway.perTenant.dailyTokens }}
+            {{- end }}
+          env:
+            # Admin token guards /distil/stats and /distil/dashboard. Passed by env
+            # rather than argv so it never appears in `ps` or a pod spec dump.
+            - name: DISTIL_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "distil-gateway.adminSecretName" . }}
+                  key: {{ .Values.adminToken.existingSecretKey }}
+            - name: DISTIL_HOME
+              value: /var/lib/distil
+            {{- range $env, $key := .Values.providerSecret.keys }}
+            - name: {{ $env }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.providerSecret.existingSecret }}
+                  key: {{ $key }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.gateway.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet: {path: /distil/health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: {path: /distil/health, port: http}
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+          startupProbe:
+            httpGet: {path: /distil/health, port: http}
+            failureThreshold: 30
+            periodSeconds: 2
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so every writable path is explicit.
+            - name: data
+              mountPath: /var/lib/distil
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "distil-gateway.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}

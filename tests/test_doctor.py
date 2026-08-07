@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import contextlib
 import os
+import subprocess
 import sys
 
 import pytest
 
-from distil import doctor
+from distil import doctor, ledger
 
 
 def test_diagnose_runs_every_check_without_crashing() -> None:
@@ -890,3 +891,42 @@ def test_diagnose_swallows_check_exceptions(monkeypatch):
     # Every failed check should appear as FAIL (not raise)
     assert all(c.status == doctor.FAIL for c in checks)
     assert len(checks) >= 12
+
+
+def test_live_routing_trusts_receipts_when_savings_ledger_is_flat(tmp_path, monkeypatch):
+    """Regression: an always-on proxy that routes but saves ~nothing was reported
+    as bypassed.
+
+    The savings ledger skips zero-saving windows by design, so on traffic that
+    legitimately compresses to nothing (a mostly-system-prompt request, a freshly
+    compacted session) `savings.jsonl` never moves. The check must fall back to the
+    receipt log, which is written per request regardless of savings.
+    """
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+
+    # A proxy IS running, and requests ARE arriving (fresh receipts) ...
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "distil proxy --expand --port 8788"})(),
+    )
+    # ... but the savings ledger is empty: nothing compressed well enough to record.
+    monkeypatch.setattr(ledger, "latest_session", lambda *a, **k: ("", 0.0))
+    (tmp_path / "receipts.jsonl").write_text('{"v":1}\n', encoding="utf-8")
+
+    check = doctor._check_live_routing()
+    assert check.status == "ok", f"false 'bypassed' warn is back: {check.detail}"
+
+
+def test_live_routing_still_warns_when_nothing_is_arriving(tmp_path, monkeypatch):
+    """The check must keep its teeth — a genuinely bypassed proxy still warns."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "distil proxy --expand --port 8788"})(),
+    )
+    monkeypatch.setattr(ledger, "latest_session", lambda *a, **k: ("", 0.0))
+    # No receipts file at all: nothing has ever reached the proxy.
+    check = doctor._check_live_routing()
+    assert check.status == "warn"

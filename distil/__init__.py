@@ -43,3 +43,37 @@ except PackageNotFoundError:  # source checkout / zipapp without dist-info
             __version__ = _m.group(1) if _m else "0+source"
         except Exception:  # noqa: BLE001 — version must never break import
             __version__ = "0+source"
+
+
+# ---------------------------------------------------------------------------
+# Public library API
+# ---------------------------------------------------------------------------
+# Re-exported lazily via __getattr__ (PEP 562): `import distil` must stay cheap
+# because the CLI imports this package on every `--version`/completion call, and
+# the compression stack pulls in the whole adapter tree. Importing the name is
+# what pays for it:  `from distil import compress_messages`.
+#
+# NOT named `compress`: `distil.compress` is an existing SUBPACKAGE. Python binds
+# a submodule onto its parent package as soon as anything imports it, which would
+# silently shadow a same-named __getattr__ export — so `from distil import compress`
+# would hand back the module in any program that had touched the subpackage, and
+# the function otherwise. A name that resolves to two different objects depending
+# on unrelated import order is not an API. `compress_messages` also matches the
+# vocabulary already used in adapters/anthropic.py and integrations/langchain.py.
+
+__all__ = ["CompressionResult", "compress_messages", "expand_handle", "__version__"]
+
+_LAZY = {"compress_messages": "api", "expand_handle": "api", "CompressionResult": "api"}
+
+
+def __getattr__(name: str) -> object:  # pragma: no cover - trivial dispatch
+    mod = _LAZY.get(name)
+    if mod is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    return getattr(importlib.import_module(f".{mod}", __name__), name)
+
+
+def __dir__() -> list[str]:  # pragma: no cover - REPL/tab-completion affordance
+    return sorted(__all__)

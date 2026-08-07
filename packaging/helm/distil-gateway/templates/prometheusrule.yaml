@@ -1,0 +1,69 @@
+{{- if .Values.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "distil-gateway.fullname" . }}
+  labels:
+    {{- include "distil-gateway.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}{{- toYaml . | nindent 4 }}{{- end }}
+spec:
+  groups:
+    - name: distil-gateway
+      rules:
+        # --- Availability -------------------------------------------------
+        - alert: DistilGatewayDown
+          expr: up{job=~".*distil.*"} == 0
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: distil gateway is not being scraped
+            description: >-
+              No successful scrape for 5m. If the gateway is in your agents'
+              request path, they are either failing or bypassing it — check
+              both before assuming this is only a monitoring gap.
+
+        - alert: DistilGatewayNoTraffic
+          expr: |
+            sum(rate(distil_requests_total[15m])) == 0
+            and on() (sum(distil_build_info) > 0)
+          for: 30m
+          labels: {severity: warning}
+          annotations:
+            summary: distil gateway is up but serving no requests
+            description: >-
+              The process is healthy and scraping fine, but no request has
+              arrived in 30m. The usual cause is clients that were never
+              repointed at the gateway, or were pointed back to the provider.
+
+        # --- Value ---------------------------------------------------------
+        # Savings near zero is NOT automatically a fault: a workload that is
+        # mostly system prompt with small tool outputs has little to compress.
+        # It is alertable because it is indistinguishable from a misconfigured
+        # mode, and worth a human deciding which one it is.
+        - alert: DistilCompressionIneffective
+          expr: |
+            (
+              sum(rate(distil_tokens_saved_total[6h]))
+              /
+              clamp_min(sum(rate(distil_tokens_baseline_total[6h])), 1)
+            ) < 0.02
+          for: 6h
+          labels: {severity: info}
+          annotations:
+            summary: distil is saving under 2% of tokens over 6h
+            description: >-
+              Either the traffic genuinely has little to compress (large stable
+              prefixes, small tool outputs), or the gateway is running in a more
+              conservative mode than intended. Check `mode` in values.yaml and
+              `distil stats` before treating this as a defect.
+
+        - alert: DistilTenantQuotaExhausted
+          expr: increase(distil_requests_rejected_total{reason="quota"}[15m]) > 0
+          for: 5m
+          labels: {severity: warning}
+          annotations:
+            summary: "tenant {{`{{ $labels.tenant }}`}} is being rate limited"
+            description: >-
+              Requests are being rejected against the per-tenant quota. Raise
+              the tenant's limit or investigate a runaway client.
+{{- end }}

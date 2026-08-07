@@ -41,7 +41,9 @@ binary and checkable; opinions don't count, evidence does.
 - [x] **rc + soak release policy in force** — runtime-behavior releases bake as an rc
   for ≥ 3 days of real use before the final (RELEASING.md).
 - [ ] **14 consecutive days at head with zero P0/P1** — a same-day fix release resets
-  the clock.
+  the clock. **Reset 2026-08-07:** the settings-precedence outage above is a P1 found
+  on real traffic (three occurrences in one day). Per RELEASING.md this means rc2 and
+  a restarted soak clock — 1.41.2 final cannot be cut on the original 2026-08-10 date.
 - [ ] **External beta** — ≥ 10 real users wrapping real agents for ≥ 1 week, with a
   feedback channel; no open P0/P1 from the cohort.
 - [ ] **Live decision-equivalence evidence** — shadow-mode ✓de ≥ 99% at n ≥ 25 on the
@@ -75,7 +77,7 @@ binary and checkable; opinions don't count, evidence does.
 | **Cross-model generality demonstrated** | E11: non-inferiority transfers to DeepSeek-V3 (different vendor, far stronger) at a capability-appropriate point |
 | **Engineering maturity** | v1.0.0, 700+ tests, full CI (ci/pages/paper-build/release), zero-dependency stdlib core, packaged (`distil` entrypoint) |
 | **Per-turn + trajectory certificates, validated out-of-sample** | E2 (coverage 96.6–100%), E10 (trajectory, coverage 95.4/96.7%) |
-| **Observability: OTel GenAI spans (opt-in `[otel]` extra)** | `distil/otel.py` emits `gen_ai.*` semconv spans + `distil.tokens.original/compressed`, `distil.compression.ratio`, `distil.shadow.sampled`; no-op boolean guard without the extra; `tests/test_otel.py`. No metrics endpoint exists → the unauthenticated-metrics leak class is structurally absent |
+| **Observability: OTel GenAI spans (opt-in `[otel]` extra)** | `distil/otel.py` emits `gen_ai.*` semconv spans + `distil.tokens.original/compressed`, `distil.compression.ratio`, `distil.shadow.sampled`; no-op boolean guard without the extra; `tests/test_otel.py`. **Correction (2026-08-07):** a `/distil/metrics` endpoint now exists, so "structurally absent" no longer holds — the leak class is instead closed by an *admin gate* (open on loopback; `--admin-token` required and refused without one on any non-loopback bind), tested directly for 403-unauthenticated, 401-wrong-token, and label injection |
 | **Supply chain: attestations + SBOM + Scorecard** | PEP 740 Sigstore attestations active (trusted publishing, `gh-action-pypi-publish@release/v1` ≥ v1.11); CycloneDX SBOM attached to GitHub releases (`release.yml`); weekly OpenSSF Scorecard (`scorecard.yml`) |
 | **Shared-state writes locked across concurrent sessions** | `shadow.jsonl` append now flocked like `ledger.json`/`mcp_store.json`; cross-process torn-row hammer test in `tests/test_shadow.py` |
 | **CI signal tests deflaked (red-main root cause)** | readiness-marker sync replaces fixed sleeps in the wrap signal tests — red CI on `main` since 1.11.2 was test-side races on loaded runners, not product regressions |
@@ -87,6 +89,19 @@ binary and checkable; opinions don't count, evidence does.
 |---|---|---|
 | **Validation breadth** | Task-success is validated on SWE-bench Verified coding agents across **5 models / 3 vendors** (E8 n=500 Haiku; E11 n=200 DeepSeek-V3, n=50 Sonnet 4.6, n=50 gpt-4.1, n=50 gpt-4o-mini) plus τ-bench (proxy). OpenAI runs are now DONE; note gpt-4.1 gate@6 is partial (account credit exhausted mid-run, 32/50 instances) and all three n=50 OpenAI/Sonnet points have wide CIs (directional, not powered). Still single-domain (coding); broad multi-domain production traffic is not yet covered. | The certificate machinery is domain-agnostic; broadening is data + a new-domain harness, not redesign. |
 | **Calibration data requirement** | Auto-calibration needs a small paired full-vs-candidate run on representative traffic before the gate can ship aggressively. | Fail-safe means the *absence* of calibration data degrades to full context (correct, not lossy) rather than to a guessed operating point. |
+
+### Closed 2026-08-07 (adoption + enterprise pass)
+
+| Item | How it closed |
+|---|---|
+| **Embeddable as a dependency** | `from distil import compress_messages, expand_handle` (`distil/api.py`). Previously the package exported only `__version__`, so no framework could depend on distil without shelling out to the CLI — the structural reason third-party integrations did not exist. |
+| **Settings-precedence outage (P1, found in the field)** | A base URL pinned in an agent's `settings.json` outranks the environment `distil wrap` exports. With the always-on service down, every session failed with a connection error naming the *provider*. `distil wrap` now refuses to start into that configuration and names the fix (`distil/precedence.py`). |
+| **First-run "0% smaller"** | A real token count beside a rounded `0%` reads as broken. Sub-1% now renders `<1% smaller` across all four surfaces (status line, terminal dashboard, HTML card, browser dashboard), with the reason attached. |
+| **`doctor` false "bypassed" warn** | It inferred traffic from the savings ledger, which skips zero-saving windows by design. Receipts are written per request regardless of savings and are now the signal. |
+| **SSO / RBAC for the gateway** | OIDC bearer tokens alongside `dsk-` keys, three ordered roles, stdlib-only JWS verification; RS256 refused rather than unverified when the `[oidc]` extra is absent. Adversarial suite + live-gateway e2e. |
+| **Kubernetes deployability** | Helm chart (`packaging/helm/distil-gateway`) with secure defaults asserted by test, plus alert rules and a Grafana dashboard whose every PromQL expression is CI-checked against the emitted metric set. |
+| **Security policy + review pack** | `SECURITY.md` (was missing; Scorecard checks for it) and `docs/SECURITY-WHITEPAPER.md`, which states the gaps — no SOC 2, no SLA, no SAML, no cross-tenant memory isolation — rather than omitting them. |
+| **IDE agents** | `docs/IDE-AGENTS.md`: proxy + base-URL setting for Cursor/Cline/Continue/Windsurf, and an explicit "not supportable" for Copilot instead of silence. |
 
 ### Recently closed (were open)
 

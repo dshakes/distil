@@ -1,0 +1,23 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "distil-gateway.fullname" . }}
+  labels:
+    {{- include "distil-gateway.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}{{- toYaml . | nindent 4 }}{{- end }}
+spec:
+  selector:
+    matchLabels: {{- include "distil-gateway.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      # Metrics are labelled by tenant, so the endpoint requires the admin bearer
+      # token — an open /metrics would publish per-tenant usage to the cluster.
+      path: /distil/metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "distil-gateway.adminSecretName" . }}
+          key: {{ .Values.adminToken.existingSecretKey }}
+{{- end }}

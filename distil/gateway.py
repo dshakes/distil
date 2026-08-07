@@ -39,6 +39,10 @@ from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens as _gemini_count
 from .adapters.gemini import is_gemini_path
+from .authz import AuthzError as _AuthzError
+from .authz import identity_from_claims as _identity_from_claims
+from .authz import oidc_config_from_env as _oidc_config_from_env
+from .authz import verify_jwt as _verify_jwt
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
 from .httpguard import parse_content_length, safe_forward_path
 from .pricing import Pricing, get as pricing_get
@@ -50,6 +54,15 @@ from .proxy import (
     _warn_if_version_skew,
 )
 from .tokenizer import DEFAULT as _tokenizer
+
+
+class _OidcRejected(Exception):
+    """Raised after a 401 has already been sent for a rejected OIDC token.
+
+    Lets the auth path unwind without a second response being written — the 401
+    is already on the wire by the time this propagates.
+    """
+
 
 # Safe tenant label: bounded length, no markup / control characters.
 _TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -86,6 +99,10 @@ class TenantStats:
     requests: int = 0
     tokens_baseline: int = 0
     tokens_compressed: int = 0
+    # Requests refused by a per-tenant quota (RPM or daily tokens). Counted
+    # separately from `requests`, which only ever counts work actually done:
+    # folding the two would make a throttled tenant look busy instead of blocked.
+    rejected_quota: int = 0
 
     @property
     def tokens_saved(self) -> int:
@@ -186,6 +203,24 @@ class GatewayState:
         self._price = price
         self._last_save = time.monotonic()
 
+    def record_quota_rejection(self, tenant: str) -> None:
+        """Count one request refused by a per-tenant quota.
+
+        Exported as ``distil_requests_rejected_total`` so an operator can see a
+        throttled tenant without reading logs — quota enforcement that is invisible
+        is indistinguishable from an outage from the client's side.
+        """
+        with self._lock:
+            s = self._tenants.get(tenant)
+            if s is None:
+                s = TenantStats()
+                self._tenants[tenant] = s
+                if len(self._tenants) > _MAX_TENANTS:
+                    self._tenants.popitem(last=False)
+            else:
+                self._tenants.move_to_end(tenant)
+            s.rejected_quota += 1
+
     def record(self, tenant: str, baseline_tokens: int, compressed_tokens: int) -> None:
         """Accumulate one request's worth of token counts for *tenant* (LRU-bounded)."""
         with self._lock:
@@ -219,6 +254,7 @@ class GatewayState:
                         "requests": s.requests,
                         "tokens_baseline": s.tokens_baseline,
                         "tokens_compressed": s.tokens_compressed,
+                        "rejected_quota": s.rejected_quota,
                     }
                     for tid, s in self._tenants.items()
                 }
@@ -246,6 +282,8 @@ class GatewayState:
                     s.requests = int(d["requests"])
                     s.tokens_baseline = int(d["tokens_baseline"])
                     s.tokens_compressed = int(d["tokens_compressed"])
+                    # Older state files predate this field — default, don't discard.
+                    s.rejected_quota = int(d.get("rejected_quota", 0))
                 except (KeyError, TypeError, ValueError):
                     continue  # skip a corrupt tenant entry
                 self._tenants[tid] = s
@@ -261,6 +299,7 @@ class GatewayState:
             tot_req = 0
             tot_baseline = 0
             tot_compressed = 0
+            tot_rejected = 0
             for tid, s in sorted(
                 self._tenants.items(), key=lambda kv: kv[1].tokens_saved, reverse=True
             ):
@@ -274,11 +313,13 @@ class GatewayState:
                         "tokens_saved": s.tokens_saved,
                         "dollars_saved": round(dollars, 6),
                         "pct_saved": round(s.pct_saved(), 2),
+                        "rejected_quota": s.rejected_quota,
                     }
                 )
                 tot_req += s.requests
                 tot_baseline += s.tokens_baseline
                 tot_compressed += s.tokens_compressed
+                tot_rejected += s.rejected_quota
 
             tot_saved = max(0, tot_baseline - tot_compressed)
             tot_dollars = tot_saved * self._price.input
@@ -291,6 +332,7 @@ class GatewayState:
                 "tokens_saved": tot_saved,
                 "dollars_saved": round(tot_dollars, 6),
                 "pct_saved": round(tot_pct, 2),
+                "rejected_quota": tot_rejected,
             }
             return {"tenants": tenants, "totals": totals}
 
@@ -791,6 +833,37 @@ def build_gateway_handler(
                 return xdk, "x-distil-key"
             return None, None
 
+        def _identity_from_oidc(self):
+            """Verify an ``Authorization: Bearer <jwt>`` against configured OIDC.
+
+            Returns an Identity, or None when OIDC is not configured or no bearer
+            was presented. A bearer that IS presented but fails verification is a
+            hard 401 — never a fall-through to "unauthenticated but allowed".
+            """
+            cfg = _oidc_config_from_env()
+            if not cfg.get("issuer"):
+                return None  # OIDC disabled
+            auth = self.headers.get("Authorization", "")
+            if not auth.startswith("Bearer ") or auth.startswith("Bearer dsk-"):
+                return None
+            token = auth[len("Bearer ") :].strip()
+            try:
+                claims = _verify_jwt(
+                    token,
+                    secret=cfg["secret"],
+                    public_key_pem=cfg["public_key_pem"],
+                    issuer=cfg["issuer"],
+                    audience=cfg["audience"],
+                )
+            except _AuthzError as exc:
+                self._reject(401, f"OIDC token rejected: {exc}")
+                raise _OidcRejected from exc
+            return _identity_from_claims(
+                claims,
+                role_claim=cfg["role_claim"],
+                tenant_claim=cfg["tenant_claim"],
+            )
+
         def _check_inbound_auth(self) -> tuple[str | None, str | None] | None:
             """Validate the gateway key when auth is required.
 
@@ -817,6 +890,33 @@ def build_gateway_handler(
 
             raw_key, strip_hdr = self._extract_distil_key()
             if raw_key is None:
+                # No dsk- key. If OIDC is configured, a verified bearer JWT is an
+                # equally valid credential — additive, so enabling OIDC can never
+                # lock out a deployment that already runs on issued keys.
+                try:
+                    ident = self._identity_from_oidc()
+                except _OidcRejected:
+                    # 401 already written by the extractor; unwind cleanly rather
+                    # than letting the handler emit a second response.
+                    return ("", "")
+                if ident is not None:
+                    try:
+                        ident.require("operator")  # proxying is an operator action
+                    except _AuthzError as exc:
+                        self._reject(403, str(exc))
+                        return ("", "")
+                    if not _rl.check_rpm(ident.tenant, default_rpm):
+                        state.record_quota_rejection(ident.tenant)
+                        body = json.dumps({"error": "rate limit exceeded"}).encode()
+                        self._relay(
+                            429,
+                            {"Content-Type": "application/json"},
+                            body,
+                            {"Retry-After": "60"},
+                        )
+                        return ("", "")
+                    # Strip the bearer so the upstream never sees our IdP token.
+                    return (ident.tenant, "authorization")
                 self._reject(
                     401,
                     "gateway key required (Authorization: Bearer dsk-… or x-distil-key header)",
@@ -831,6 +931,7 @@ def build_gateway_handler(
             # RPM gate: per-key limit wins over gateway default.
             rpm_limit = rec.rpm if rec.rpm is not None else default_rpm
             if not _rl.check_rpm(rec.tenant, rpm_limit):
+                state.record_quota_rejection(rec.tenant)
                 body = json.dumps({"error": "rate limit exceeded"}).encode()
                 self._relay(429, {"Content-Type": "application/json"}, body, {"Retry-After": "60"})
                 return ("", "")
@@ -1011,6 +1112,7 @@ def build_gateway_handler(
             # otherwise the startup banner advertises a limit nothing enforces.
             # (With key auth on, _check_inbound_auth already charged this request.)
             if tenant_override is None and default_rpm and not _rl.check_rpm(tenant, default_rpm):
+                state.record_quota_rejection(tenant)
                 body_err = json.dumps({"error": "rate limit exceeded"}).encode()
                 self._relay(
                     429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"}
@@ -1053,6 +1155,7 @@ def build_gateway_handler(
                 _key_daily = getattr(self, "_key_daily_tokens", None)
                 daily_limit = _key_daily if _key_daily is not None else default_daily_tokens
                 if daily_limit and not _rl.check_daily_tokens(tenant, daily_limit, baseline_tokens):
+                    state.record_quota_rejection(tenant)
                     body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
                     self._relay(
                         429,
@@ -1076,6 +1179,7 @@ def build_gateway_handler(
                 if _daily_limit and not _rl.check_daily_tokens(
                     tenant, _daily_limit, baseline_tokens
                 ):
+                    state.record_quota_rejection(tenant)
                     body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
                     self._relay(
                         429,

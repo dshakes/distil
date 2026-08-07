@@ -1,0 +1,146 @@
+# Default values for distil-gateway.
+# Every default here is chosen to be SAFE rather than convenient: auth on,
+# non-root, read-only root filesystem, no privilege escalation. Loosen
+# deliberately, never by accident.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/dshakes/distil
+  # Pinned by the chart's appVersion when empty — override for a specific digest.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+gateway:
+  # Bind inside the pod; the Service handles exposure.
+  host: 0.0.0.0
+  port: 8788
+  upstream: https://api.anthropic.com
+  # off | lossless-only | verbatim
+  #   ""              full reversible digest (most savings)
+  #   lossless-only   no Tier-1 digest — ToS-safe for flat-rate plans
+  #   verbatim        Tier-0 only
+  mode: ""
+  # Require a dsk- key on EVERY request, including before any key is issued.
+  # Default true: a gateway reachable from a cluster network should never be open.
+  requireKeys: true
+  # Honour a client-supplied x-distil-tenant header for accounting. Leave false —
+  # when true, any client can bill another tenant's quota.
+  trustTenantHeader: false
+  perTenant:
+    rpm: 0            # 0 = unlimited
+    dailyTokens: 0    # 0 = unlimited
+
+# Admin token guards /distil/stats and /distil/dashboard. REQUIRED on a
+# non-loopback bind, which is every in-cluster deployment.
+#   existingSecret: reference a Secret you manage (recommended)
+#   value:          chart-managed Secret; fine for dev, avoid in prod GitOps
+adminToken:
+  existingSecret: ""
+  existingSecretKey: admin-token
+  value: ""
+
+# Upstream provider credentials, mounted as env vars from a Secret.
+providerSecret:
+  existingSecret: ""
+  # map of ENV_VAR -> key in the secret
+  keys: {}
+  #  ANTHROPIC_API_KEY: anthropic-api-key
+
+service:
+  type: ClusterIP
+  port: 8788
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: distil.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    # No CPU limit by default: throttling a proxy adds tail latency to every
+    # request behind it. Set one only if your platform requires it.
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+
+# The restore store (digest originals) lives on disk so handles survive a
+# restart. With `persistence.enabled: false` it is an emptyDir, which means
+# handles do NOT survive pod replacement — acceptable for stateless/lossless
+# deployments, NOT for --expand where the agent may expand a handle later.
+persistence:
+  enabled: false
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  size: 8Gi
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# NetworkPolicy: egress to the upstream provider + DNS only, ingress from the
+# namespace. Off by default because it depends on your CNI; on is correct.
+networkPolicy:
+  enabled: false
+  ingressFrom: []
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}
+
+prometheusRule:
+  enabled: false
+  labels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Spread replicas across nodes so a single node loss cannot take the gateway down.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: distil-gateway
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
