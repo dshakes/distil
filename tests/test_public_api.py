@@ -223,3 +223,38 @@ def test_webdash_payload_carries_a_non_broken_label(tmp_path, monkeypatch) -> No
 
     # The label the browser receives for a real-but-tiny saving must not read as 0.
     assert pct_smaller_label(0.004) == "<1% smaller"
+
+
+def test_pydantic_v1_style_copy_is_supported() -> None:
+    """LangChain pinned to pydantic v1 exposes .copy(update=...), not .model_copy."""
+
+    class V1Msg:
+        def __init__(self, role: str, content: str) -> None:
+            self.role, self.content = role, content
+
+        def copy(self, *, update):
+            return V1Msg(self.role, str(update.get("content", self.content)))
+
+    out = compress_messages([V1Msg("tool", BIG_LOG)]).messages
+    assert isinstance(out[0], V1Msg)
+    assert len(out[0].content) < len(BIG_LOG)
+
+
+def test_an_immutable_message_is_left_alone_rather_than_corrupted() -> None:
+    """No known copy protocol: return the original rather than guess at a rewrite."""
+
+    class Frozen:
+        __slots__ = ("role", "content")
+
+        def __init__(self):
+            self.role, self.content = "tool", BIG_LOG
+
+    msg = Frozen()
+    out = compress_messages([msg]).messages
+    assert out[0] is msg, "unknown shapes must pass through untouched"
+
+
+def test_type_content_key_is_honoured_like_role() -> None:
+    """LangChain messages carry `.type`, not `.role`."""
+    out = compress_messages([{"type": "assistant", "content": BIG_LOG}]).messages
+    assert out[0]["content"] == BIG_LOG, "assistant detected via `type` must not be rewritten"

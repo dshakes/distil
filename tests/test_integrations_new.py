@@ -168,3 +168,81 @@ def test_rejection_counter_survives_a_state_reload(tmp_path) -> None:
     b.load(path)
     row = next(r for r in b.snapshot()["tenants"] if r["tenant"] == "acme")
     assert row["rejected_quota"] == 1
+
+
+# --- strands: the hook and the shape edge cases ------------------------------
+
+
+def test_strands_hook_compresses_agent_messages_before_the_model_call():
+    """The hook is the ergonomic entry point; an untested hook is a broken hook."""
+    import sys
+    import types
+
+    from distil.integrations.strands import compressing_hook
+
+    # Stand in for the optional dependency. The module must not import it at
+    # module scope, which is exactly what makes this substitution possible.
+    event_cls = type("BeforeModelInvocationEvent", (), {})
+    fake = types.ModuleType("strands.hooks")
+    fake.BeforeModelInvocationEvent = event_cls
+    parent = types.ModuleType("strands")
+    parent.hooks = fake
+    sys.modules["strands"] = parent
+    sys.modules["strands.hooks"] = fake
+    try:
+        captured = {}
+
+        class Registry:
+            def add_callback(self, cls, fn):
+                captured["cls"] = cls
+                captured["fn"] = fn
+
+        hook = compressing_hook()
+        hook.register_hooks(Registry())
+        assert captured["cls"] is event_cls
+
+        agent = type("Agent", (), {})()
+        agent.messages = [{"role": "user", "content": [{"text": BIG}]}]
+        captured["fn"](type("Ev", (), {"agent": agent})())
+        assert isinstance(agent.messages, list)
+    finally:
+        sys.modules.pop("strands.hooks", None)
+        sys.modules.pop("strands", None)
+
+
+def test_strands_hook_tolerates_an_event_without_an_agent():
+    import sys
+    import types
+
+    from distil.integrations.strands import compressing_hook
+
+    fake = types.ModuleType("strands.hooks")
+    fake.BeforeModelInvocationEvent = type("E", (), {})
+    parent = types.ModuleType("strands")
+    parent.hooks = fake
+    sys.modules["strands"] = parent
+    sys.modules["strands.hooks"] = fake
+    try:
+        captured = {}
+
+        class Registry:
+            def add_callback(self, cls, fn):
+                captured["fn"] = fn
+
+        compressing_hook().register_hooks(Registry())
+        captured["fn"](type("Ev", (), {})())  # no .agent — must not raise
+    finally:
+        sys.modules.pop("strands.hooks", None)
+        sys.modules.pop("strands", None)
+
+
+def test_strands_passes_through_shapes_it_does_not_understand():
+    msgs = [
+        "not a dict",
+        {"role": "user", "content": 42},
+        {"role": "user", "content": [None, "bare string block"]},
+    ]
+    out = strands_compress(msgs)
+    assert out[0] == "not a dict"
+    assert out[1]["content"] == 42
+    assert out[2]["content"] == [None, "bare string block"]

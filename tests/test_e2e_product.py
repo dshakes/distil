@@ -182,3 +182,21 @@ def test_doctor_agrees_with_reality_in_both_directions(tmp_path, monkeypatch):
     # Nothing arriving at all — the check must keep its teeth.
     (tmp_path / "receipts.jsonl").unlink()
     assert doctor._check_live_routing().status == "warn"
+
+
+def test_sigpipe_disposition_does_not_leak_out_of_a_cli_call():
+    """`cli.main()` sets SIGPIPE to SIG_DFL process-wide; the suite must not inherit it.
+
+    Without the conftest guard, the first test that runs a CLI entry point turns
+    every later broken pipe into a fatal signal, and pytest dies with exit 141 —
+    no failing test, no traceback, just a run that stops. It reproduced only on
+    some Python versions because it depends on execution order.
+    """
+    import signal
+
+    sigpipe = getattr(signal, "SIGPIPE", None)
+    if sigpipe is None:
+        pytest.skip("no SIGPIPE on this platform")
+    assert signal.getsignal(sigpipe) != signal.SIG_DFL, (
+        "SIGPIPE is SIG_DFL inside the test process — a broken pipe will kill pytest"
+    )

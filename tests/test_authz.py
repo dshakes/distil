@@ -288,3 +288,57 @@ def test_e2e_oidc_disabled_means_dsk_keys_still_required(tmp_path, monkeypatch):
     finally:
         srv.shutdown()
         up.shutdown()
+
+
+# --- RS256 without the optional extra ----------------------------------------
+
+
+def test_rs256_refuses_when_the_extra_is_missing(monkeypatch):
+    """The failure mode that matters: no crypto available must mean REFUSE.
+
+    A JWT verifier that silently accepts when it cannot check the signature is
+    the whole vulnerability class. Simulate the missing extra and assert we raise
+    rather than return.
+    """
+    import builtins
+
+    from distil import authz
+
+    real_import = builtins.__import__
+
+    def _blocked(name, *a, **kw):
+        if name.startswith("cryptography"):
+            raise ImportError("no cryptography")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", _blocked)
+    with pytest.raises(AuthzError, match="asymmetric verification is unavailable"):
+        authz._verify_rs256(b"signing-input", b"sig", "-----BEGIN PUBLIC KEY-----")
+
+
+def test_rs256_with_a_malformed_key_returns_false_not_a_crash(monkeypatch):
+    from distil import authz
+
+    pytest.importorskip("cryptography")
+    assert authz._verify_rs256(b"x", b"y", "not a pem") is False
+
+
+def test_invalid_exp_and_nbf_claims_are_rejected():
+    for claim in ("exp", "nbf"):
+        tok = _make(_claims(**{claim: "not-a-number"}))
+        with pytest.raises(AuthzError, match=f"invalid {claim}"):
+            verify_jwt(tok, secret=SECRET)
+
+
+def test_identity_tolerates_an_unparseable_exp():
+    ident = identity_from_claims({"sub": "u", "exp": "garbage"})
+    assert ident.expires is None and not ident.is_expired
+
+
+def test_oidc_config_reads_the_environment(monkeypatch):
+    from distil.authz import oidc_config_from_env
+
+    monkeypatch.setenv("DISTIL_OIDC_ISSUER", "https://idp")
+    monkeypatch.setenv("DISTIL_OIDC_ROLE_CLAIM", "groups")
+    cfg = oidc_config_from_env()
+    assert cfg["issuer"] == "https://idp" and cfg["role_claim"] == "groups"

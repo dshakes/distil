@@ -129,3 +129,25 @@ def test_candidate_order_is_ascending_precedence(tmp_path):
     paths = settings_candidates(tmp_path)
     assert paths[-1].name == "settings.local.json"
     assert ".claude" in str(paths[-1])
+
+
+def test_unparseable_url_is_not_treated_as_dead(tmp_path, monkeypatch):
+    """A URL we cannot parse is not ours to block on — fail open, not closed."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_settings(tmp_path / ".claude" / "settings.json", "http://[not-a-url")
+    c = check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path)
+    assert c is not None and not c.fatal
+
+
+def test_a_blank_setting_is_not_a_conflict(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_settings(tmp_path / ".claude" / "settings.json", "   ")
+    assert check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path) is None
+
+
+def test_a_non_object_settings_file_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    p = tmp_path / ".claude" / "settings.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text('"just a string"', encoding="utf-8")
+    assert check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path) is None

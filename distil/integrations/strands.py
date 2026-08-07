@@ -101,6 +101,8 @@ def compressing_hook(*, verbatim: bool = False) -> Any:
 
             def _on_before(event: Any) -> None:
                 agent = getattr(event, "agent", None)
+                if agent is None:
+                    return  # no agent on the event — nothing to compress
                 msgs = getattr(agent, "messages", None)
                 if isinstance(msgs, list):
                     agent.messages = compress_messages(msgs, verbatim=verbatim)
