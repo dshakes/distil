@@ -14,14 +14,28 @@
   <a href="https://dshakes.github.io/distil/adoption.html"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Fdownloads-real.json" alt="PyPI installs/month, bot-filtered"/></a>
 </p>
 
-<h2 align="center">Compress your agent's context.<br/>Prove its decisions don't change.</h2>
+<h2 align="center">Cut your agent's token bill.<br/>Prove its decisions don't change.</h2>
 
-<p align="center"><b>Every other compressor asks you to <i>trust</i> it won't break your agent. Distil is the only one that proves it won't.</b><br/>On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b>: <b>42.0% vs 39.2%</b>. <sub>(SWE-bench Verified)</sub></p>
+<p align="center"><b>Compress the tool output, logs, files, and history your agent re-sends every turn — reversibly, so nothing is ever actually gone.</b><br/>Then, unlike every other compressor, <b>prove it didn't break anything</b>.</p>
+
+## What it does
+
+- **Wrap your agent** — `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen`. Zero config, no code change.
+- **Run a proxy** — point any `base_url` client at it. Python, TypeScript, any language, any framework.
+- **Call it as a library** — `from distil import compress_messages` in your own agent loop.
+- **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
+- **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands, in-process, no network hop.
+- **See what it did** — live status line, session dissect, per-request headers, OTel spans, Prometheus metrics.
+
+```bash
+pipx install distil-llm && distil onboard    # detects your agent + billing, wires everything
+```
 
 <p align="center">
   <img src="docs/assets/hero-terminal.svg" alt="Animated distil proof session: distil bench prints GATE: PASS (every trajectory certified non-inferior); distil wrap -- claude routes with zero config; a live line shows 53% smaller, equivalence 100%; then the proof ledger closes with 1,284,551 → 601,204 tokens (53.2% smaller), cost $18.41 → $8.72 calibrated to billed usage, 0 shadow decision changes across 63 A/B samples, 100% recoverable restore" width="84%"/>
 </p>
-<p align="center"><sub><code>uvx --from distil-llm distil bench</code> — runs the certificate gate in ~10s, no API key · <code>distil wrap -- claude</code> routes your agent, zero config.</sub></p>
+
+> **Will it save you money?** Honestly: **only on metered billing** (an API key). On a flat-rate Pro/Max subscription it trims context and latency, not the bill. And savings come from **large** tool output — a short session that never reads a big file will show close to 0%, which is the tool working correctly, not failing. [Why →](#-compression-modes--in-plain-english)
 
 <!-- ═══ LIVE community counter — fed by the opt-in census, re-polls every 5 min ═══ -->
 <p align="center"><sub>◉ &nbsp;<b>LIVE</b> · measured from the opt-in census on a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>, never estimated</sub></p>
@@ -37,19 +51,42 @@
 <td align="center"><b>🔬 See the proof</b><br/><sub>real harness</sub><br/><br/><a href="#-the-proof"><b>benchmark ↓</b></a> · <a href="docs/PAPER.md">paper</a><br/><a href="https://dshakes.github.io/distil/compare.html">vs the others</a></td>
 </tr></table>
 
-<p align="center"><sub>Honest scope: +2.8pp is a point estimate (CI −0.6..+6.2pp — <b>non-inferiority certified, superiority not yet</b>). <a href="#-the-proof">Details, incl. what doesn't transfer →</a></sub></p>
-
 <p align="center">
   <a href="#-use-it-now">Use it</a> ·
+  <a href="#-use-it-as-a-library">Library</a> ·
   <a href="#-works-with-every-sdk">Integrations</a> ·
   <a href="#-install-your-way">Install</a> ·
-  <a href="https://dshakes.github.io/distil/compare.html">vs the others</a> ·
+  <a href="#why-trust-it">Why trust it</a> ·
   <a href="https://dshakes.github.io/distil/getting-started.html"><b>Full Docs →</b></a>
 </p>
 
 ---
 
-<h3 align="center">Proof first — not a pitch 📊</h3>
+## 🧩 Use it as a library
+
+Building the agent yourself? Compress the message list where it lives — no proxy, no network hop:
+
+```python
+from distil import compress_messages, expand_handle
+
+result = compress_messages(messages)          # OpenAI/Anthropic-style dicts
+print(f"{result.saved_pct:.1f}% smaller")
+response = client.messages.create(model=..., messages=result.messages)
+
+original = expand_handle(result.handles[0])   # byte-exact, any time, any process
+```
+
+Tool results get the reversible digest; user and system text get lossless transforms only; **the model's own turns are never rewritten**. Handles resolve across processes and restarts, so a digest made by the proxy expands here and vice versa. `verbatim=True` disables digests entirely.
+
+<sub>Named `compress_messages`/`expand_handle` rather than `compress`/`expand` because `distil.compress` and `distil.expand` are modules — a top-level export sharing those names would resolve to the function or the module depending on unrelated import order.</sub>
+
+---
+
+<h3 align="center" id="why-trust-it">Why trust it 📊</h3>
+
+<p align="center"><b>Every other compressor asks you to <i>trust</i> it won't break your agent. Distil is the only one that proves it won't.</b><br/>On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b>: <b>42.0% vs 39.2%</b>. <sub>(SWE-bench Verified)</sub></p>
+
+<p align="center"><sub>Honest scope: +2.8pp is a point estimate (CI −0.6..+6.2pp — <b>non-inferiority certified, superiority not yet</b>). <a href="#-the-proof">Details, incl. what doesn't transfer →</a></sub></p>
 
 <p align="center"><img src="docs/assets/head-to-head.svg" alt="Distil vs LLMLingua-2 vs Headroom — token savings, decision-change rate, latency" width="100%"/></p>
 
@@ -94,7 +131,9 @@ distil wrap -- claude -p "summarise this diff"
 distil wrap -- python my_agent_sdk_script.py
 ```
 
-Each recognized agent (`claude` / `codex` / `gemini` / `aider`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
+> **Using Cursor, Cline, Continue, or Windsurf?** They are IDE extensions — no argv to wrap and no documented env var, so `distil wrap` cannot reach them. Run a proxy and point the editor's base-URL setting at it: [docs/IDE-AGENTS.md](docs/IDE-AGENTS.md). (GitHub Copilot is not redirectable at all, and that page says so rather than wasting your afternoon.)
+
+Each recognized agent (`claude` / `codex` / `gemini` / `aider` / `opencode` / `qwen`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
 
 <details>
 <summary><b>Make it the default</b> — never type <code>distil wrap</code> again</summary>
@@ -289,6 +328,8 @@ client = wrap(anthropic.Anthropic())   # compresses the request, keeps the cache
 | LiteLLM | `distil.integrations.litellm.compress(kwargs)` | [`examples/python_litellm.py`](examples/python_litellm.py) |
 | LangChain | `distil.integrations.langchain.compress_messages(msgs)` | — |
 | LangGraph | `pre_model_hook=pre_model_hook()` (compresses graph state before the model node) | [`examples/python_langgraph.py`](examples/python_langgraph.py) |
+| Agno | `distil.integrations.agno.compressed_model(model)` | — |
+| Strands | `distil.integrations.strands.compressing_hook()` | — |
 
 ### LangChain / LangGraph — `langchain-distil`
 
@@ -456,7 +497,7 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 >
 > `▼` = tokens saved · `total` = lifetime · `de` = decision-equivalence (verdict once 50 A/B + 30 A/A shadow samples accrue). Sharing the line with git/cwd/model? `DISTIL_STATUSLINE=minimal` → `distil ▼7.8K · 27M total`. On a flat-rate **subscription**, dollars are notional and auto-hidden (`DISTIL_SUBSCRIPTION=0/1`).
 
-**Compression modes — in plain English**
+### 🎚 Compression modes — in plain English
 
 You usually don't need to pick. `distil onboard` detects your billing and sets the right mode for you — it writes it into your setup so every session just works. Pass a flag to override for a specific session.
 
@@ -551,7 +592,10 @@ Full module-by-module map: [Architecture](https://dshakes.github.io/distil/archi
 - **Vision — repeated screenshots stop costing full price** — a 1024×1024 image is ~1,400 input tokens, and an agent that screenshots a UI or polls a dashboard pays that on *every turn the block stays in context*. Distil elides only **byte-identical** repeats, replacing each with a recoverable reference: the first occurrence and every distinct image are untouched, nothing is re-encoded or downscaled, and `distil_expand` returns the original `source` byte-exact. URL sources are never treated as duplicates — two occurrences of one URL are not evidence of the same pixels. The prevailing alternative resizes, which is lossy by construction and unverifiable; this is **certified at 100% decision-equivalence against a live vision model** (A/A floor 100%, TOST *p*<0.0001), and the certificate ships in the package stating its own scope. Certify your own workload with `distil certify --strategy vision --runner anthropic` — your result outranks ours, **including a failure**. `DISTIL_VISION=0` disables it. Full reference: [Techniques § Vision](https://dshakes.github.io/distil/techniques.html#vision).
 - **Supply-chain hardening** — releases carry [PEP 740 Sigstore attestations](https://peps.python.org/pep-0740/) (via PyPI trusted publishing), a CycloneDX SBOM on every GitHub release, and [OpenSSF Scorecard](https://github.com/ossf/scorecard) weekly on `main`. The release job **fails** if PyPI does not report an attestation bundle for the version it just published, so this line cannot drift into being false. Verified for every release back to 1.19.0. Don't take our word for it: `curl -s https://pypi.org/integrity/distil-llm/<version>/<filename>/provenance` (note the *integrity* API — `/pypi/<pkg>/<ver>/json` does not carry an attestations field, and reading it there reports a false negative), or `uvx pypi-attestations verify pypi --repository https://github.com/dshakes/distil pypi:distil_llm-<version>-py3-none-any.whl`.
 
-See [Deploy & security](https://dshakes.github.io/distil/deploy-security.html) for topologies (local sidecar, container sidecar, shared gateway) and the threat model.
+- **Kubernetes** — a Helm chart for the multi-tenant gateway ships in [`packaging/helm/distil-gateway`](packaging/helm/distil-gateway): auth-required, non-root and read-only-rootfs by default, PDB, HPA, NetworkPolicy restricting egress to DNS + 443, plus a ServiceMonitor and alert rules. A [Grafana dashboard](packaging/grafana/distil-gateway-dashboard.json) comes with it, and CI cross-checks every panel and alert against the metrics distil actually emits.
+- **SSO / RBAC** — the gateway accepts OIDC bearer tokens alongside its own `dsk-` keys, with three ordered roles (`viewer` < `operator` < `admin`). JWS verification is stdlib-only; RS256 needs the `[oidc]` extra and an RS256 token is **refused** when it is absent rather than accepted unverified.
+
+See [Deploy & security](https://dshakes.github.io/distil/deploy-security.html) for topologies (local sidecar, container sidecar, shared gateway), the [security whitepaper](docs/SECURITY-WHITEPAPER.md) for a review-ready data-handling and compliance summary, and [`SECURITY.md`](SECURITY.md) to report a vulnerability.
 
 ---
 

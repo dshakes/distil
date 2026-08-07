@@ -76,3 +76,59 @@ def test_chart_defaults_are_secure():
     )
     assert "runAsNonRoot: true" in v
     assert "readOnlyRootFilesystem: true" in v
+
+
+# --- README integrity ---------------------------------------------------------
+# A broken link in the README is a silent adoption tax: the reader assumes the
+# feature does not exist. These are cheap to check and impossible to remember.
+
+README = ROOT / "README.md"
+
+
+def _readme() -> str:
+    return README.read_text(encoding="utf-8")
+
+
+def test_readme_relative_links_all_resolve():
+    """Every relative link/image target must exist on disk."""
+    text = _readme()
+    targets = re.findall(r"\]\((?!https?:|#|mailto:)([^)\s]+)\)", text)
+    targets += re.findall(r'src="(?!https?:)([^"]+)"', text)
+    missing = sorted({t for t in targets if not (ROOT / t.split("#")[0]).exists()})
+    assert not missing, f"README links to files that do not exist: {missing}"
+
+
+def test_readme_internal_anchors_all_exist():
+    """Every #anchor must match a heading or an explicit id."""
+    text = _readme()
+
+    slugs = set()
+    for line in text.splitlines():
+        m = re.match(r"^#{1,6}\s+(.*)$", line)
+        if m:
+            title = re.sub(r"<[^>]+>", "", m.group(1))
+            # GitHub's slug algorithm: lowercase, drop punctuation (emoji
+            # included), then spaces -> hyphens. It does NOT strip first, so an
+            # emoji heading keeps a leading hyphen: "## 🚀 Use it now" -> "-use-it-now".
+            slug = re.sub(r"[^\w\s-]", "", title.lower()).replace(" ", "-")
+            slugs.add(slug)
+            slugs.add(slug.strip("-"))
+    slugs |= set(re.findall(r'id="([^"]+)"', text))
+
+    used = {a for a in re.findall(r"\]\(#([^)]+)\)", text)}
+    missing = sorted(used - slugs)
+    assert not missing, f"README anchors with no matching heading: {missing}"
+
+
+def test_readme_leads_with_capability_not_statistics():
+    """Positioning guard: 'What it does' must appear before the proof section.
+
+    The audit found the README opened with a non-inferiority claim and a
+    confidence interval — an answer to a question the reader has not asked yet.
+    Capability first, proof below the fold.
+    """
+    text = _readme()
+    assert "## What it does" in text
+    assert text.index("## What it does") < text.index("Why trust it"), (
+        "the proof section must sit below the capability section"
+    )
