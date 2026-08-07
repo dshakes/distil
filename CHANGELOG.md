@@ -53,6 +53,56 @@ rewrite Claude Code settings machine-wide, which is precisely why no test may ke
 a suite run from this repo would otherwise rewrite the developer's own `~/.claude` —
 the accident that started all of this.
 
+---
+
+**rc2 — the same failure, one layer up.** rc1 fixed `--always-on` writing a base URL it
+had not proved. Three outages on one machine in a single day showed the other half: a
+base URL in `~/.claude/settings.json` **outranks** the environment `distil wrap` sets.
+So when the always-on service was not running, wrap dutifully started a proxy, exported
+its port, and Claude Code ignored it and dialled the dead one. Every session failed with
+`API Error: Unable to connect (ConnectionRefused)` — an error naming the *provider*.
+`distil wrap` now refuses to start into that configuration and names the fix, and the
+end-of-session warning no longer guesses "agent update?" when it can check.
+
+**Distil is embeddable.** `from distil import compress_messages, expand_handle`. The
+package previously exported only `__version__`, so nothing could depend on it without
+shelling out to the CLI. Not named `compress`/`expand`: `distil.compress` and
+`distil.expand` are modules, and Python binds a submodule onto its parent on import, so
+those names would resolve to the function or the module depending on unrelated import
+order. A test enumerates submodules and fails on any future collision.
+
+**`▼413 · 0% smaller` is gone.** A real token count beside a rounded zero reads as
+broken, and it is the likeliest first-run uninstall trigger for traffic that genuinely
+compresses to very little. Sub-1% now renders `<1% smaller` with the reason, across all
+four surfaces. `doctor` also stopped reporting a routing proxy as bypassed: it inferred
+traffic from the savings ledger, which skips zero-saving windows by design.
+
+**A real TypeScript library.** The npm package was a CLI bridge. `compress(messages)`
+now runs natively in Node and is **byte-identical** to the Python engine, enforced by a
+92-case conformance suite. The digest tier is deliberately not ported — it mints handles
+into a store shared with the proxy and MCP server, and it is the tier the certificate
+measures. Where JS cannot reproduce Python's bytes (integral floats, integer-like keys)
+the port declines rather than emitting uncertified output.
+
+**Enterprise surface.** OIDC + RBAC on the gateway (three ordered roles, stdlib-only
+JWS; RS256 refused rather than unverified when the extra is absent), a Helm chart with
+secure defaults asserted by test, Prometheus alert rules and a Grafana dashboard whose
+every expression is CI-checked against the metrics distil actually emits,
+`distil_requests_rejected_total` so quota enforcement is visible, `SECURITY.md`, and a
+security whitepaper that states the gaps — no SOC 2, no SLA, no SAML — rather than
+omitting them.
+
+**Reach and honesty.** `opencode` and `qwen` wrap presets; Agno and Strands
+integrations; `docs/IDE-AGENTS.md` documents the proxy route for Cursor/Cline/Continue
+and says plainly that Copilot is not redirectable. The README now leads with what distil
+does and moves the proof below the fold.
+
+**Fixed while getting here:** `npm test` ran `node --test test/`, which on Node 22
+resolves `test` as a module and dies — the package's tests were not running; CI
+hand-listed one npm test file so new ones never executed; and `cli.main()` left SIGPIPE
+at `SIG_DFL` process-wide, so any later broken pipe killed pytest with exit 141 and no
+failing test to point at.
+
 ## [1.41.1] — the diagrams, and the one nobody could turn off
 
 Documentation and accessibility only. No compressor, proxy or CLI behaviour changes.

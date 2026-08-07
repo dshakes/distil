@@ -54,6 +54,7 @@ def _write_settings(path, url: str) -> None:
 
 def test_dead_pinned_url_is_fatal(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv("DISTIL_IGNORE_SETTINGS_PRECEDENCE", raising=False)
     url = f"http://127.0.0.1:{_dead_port()}"
     _write_settings(tmp_path / ".claude" / "settings.json", url)
@@ -67,6 +68,7 @@ def test_dead_pinned_url_is_fatal(tmp_path, monkeypatch):
 
 def test_live_pinned_url_warns_but_is_not_fatal(tmp_path, monkeypatch, live_port):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _write_settings(tmp_path / ".claude" / "settings.json", f"http://127.0.0.1:{live_port}")
 
     c = check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path)
@@ -76,6 +78,7 @@ def test_live_pinned_url_warns_but_is_not_fatal(tmp_path, monkeypatch, live_port
 
 def test_pin_naming_our_own_wrap_url_is_not_a_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     url = "http://127.0.0.1:61956"
     _write_settings(tmp_path / ".claude" / "settings.json", url)
     assert check_claude_settings("ANTHROPIC_BASE_URL", url, cwd=tmp_path) is None
@@ -85,12 +88,14 @@ def test_pin_naming_our_own_wrap_url_is_not_a_conflict(tmp_path, monkeypatch):
 
 def test_no_settings_file_means_no_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path) is None
 
 
 def test_project_settings_outrank_user_settings(tmp_path, monkeypatch):
     """The effective value is the highest-precedence one, and that is what we report."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     project = tmp_path / "proj"
     _write_settings(tmp_path / ".claude" / "settings.json", "http://127.0.0.1:8788")
     _write_settings(project / ".claude" / "settings.local.json", "http://127.0.0.1:9999")
@@ -103,6 +108,7 @@ def test_project_settings_outrank_user_settings(tmp_path, monkeypatch):
 
 def test_escape_hatch_disables_the_check(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("DISTIL_IGNORE_SETTINGS_PRECEDENCE", "1")
     _write_settings(tmp_path / ".claude" / "settings.json", f"http://127.0.0.1:{_dead_port()}")
     assert check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path) is None
@@ -111,6 +117,7 @@ def test_escape_hatch_disables_the_check(tmp_path, monkeypatch):
 def test_remote_urls_are_never_probed(tmp_path, monkeypatch):
     """Probing an arbitrary remote at every wrap start is latency and looks like scanning."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _write_settings(tmp_path / ".claude" / "settings.json", "https://gateway.corp.example:9443")
     c = check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path)
     assert c is not None and not c.fatal, "non-loopback is assumed reachable"
@@ -118,6 +125,7 @@ def test_remote_urls_are_never_probed(tmp_path, monkeypatch):
 
 def test_malformed_settings_never_crash(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     p = tmp_path / ".claude" / "settings.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     for junk in ("{not json", "[]", '{"env": "a string"}', '{"env": {"OTHER": "x"}}'):
@@ -134,6 +142,7 @@ def test_candidate_order_is_ascending_precedence(tmp_path):
 def test_unparseable_url_is_not_treated_as_dead(tmp_path, monkeypatch):
     """A URL we cannot parse is not ours to block on — fail open, not closed."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _write_settings(tmp_path / ".claude" / "settings.json", "http://[not-a-url")
     c = check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path)
     assert c is not None and not c.fatal
@@ -141,12 +150,14 @@ def test_unparseable_url_is_not_treated_as_dead(tmp_path, monkeypatch):
 
 def test_a_blank_setting_is_not_a_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _write_settings(tmp_path / ".claude" / "settings.json", "   ")
     assert check_claude_settings("ANTHROPIC_BASE_URL", cwd=tmp_path) is None
 
 
 def test_a_non_object_settings_file_is_ignored(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     p = tmp_path / ".claude" / "settings.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text('"just a string"', encoding="utf-8")

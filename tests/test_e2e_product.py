@@ -17,6 +17,7 @@ one — a divergent second harness is how the first one stops being trusted.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -114,11 +115,15 @@ def test_digested_bytes_survive_into_a_separate_process(proxy, tmp_path):
         "out = expand_handle(sys.argv[1]);"
         "sys.exit(0 if out and 'worker heartbeat' in out else 1)"
     )
+    # Inherit the real environment and override only what the test controls.
+    # Replacing it wholesale strips USERPROFILE on Windows, and Path.home() then
+    # raises "Could not determine home directory" before the code under test runs.
     result = subprocess.run(
         [sys.executable, "-c", code, handles[0]],
         capture_output=True,
         text=True,
-        env={"DISTIL_HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
+        encoding="utf-8",
+        env={**os.environ, "DISTIL_HOME": str(tmp_path)},
     )
     assert result.returncode == 0, (
         f"a handle written by the proxy did not expand in a fresh process: {result.stderr}"
@@ -141,12 +146,20 @@ def test_wrap_refuses_a_config_that_would_take_the_agent_down(tmp_path, monkeypa
         encoding="utf-8",
     )
 
+    # HOME and USERPROFILE both point at the sandbox: the check reads user-scoped
+    # settings, and the two platforms disagree about which variable names it.
     result = subprocess.run(
         [sys.executable, "-m", "distil.cli", "wrap", "--", "claude", "-p", "hi"],
         cwd=proj,
         capture_output=True,
         text=True,
-        env={"DISTIL_HOME": str(tmp_path), "PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        encoding="utf-8",
+        env={
+            **os.environ,
+            "DISTIL_HOME": str(tmp_path),
+            "HOME": str(tmp_path),
+            "USERPROFILE": str(tmp_path),
+        },
     )
     assert result.returncode == 1, "wrap must refuse, not start into a guaranteed outage"
     assert "NOT accepting connections" in result.stderr

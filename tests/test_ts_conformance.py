@@ -77,11 +77,16 @@ def _node(fn: str, payload: str) -> str:
         f"const r=t.{fn}(a);"
         "process.stdout.write(JSON.stringify(r===undefined?null:r));});"
     )
+    # encoding is explicit: `text=True` alone decodes with the locale codec, which
+    # on Windows is cp1252. Node writes UTF-8, so the default silently mangles any
+    # non-ASCII byte and the conformance assertion then fails on mojibake rather
+    # than on a real divergence.
     out = subprocess.run(
         ["node", "-e", script],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     assert out.returncode == 0, f"node failed: {out.stderr}"
