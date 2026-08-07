@@ -28,8 +28,10 @@ jobs:
           node-version: "20"
       - name: census-worker validators (node:test)
         run: node --test packaging/census-worker/test/validate.test.mjs packaging/census-worker/test/beat.test.mjs
-      - name: npm bridge package (node:test)
-        run: node --test packaging/npm/test/runner.test.mjs
+      - name: npm package (node:test)
+        # Glob, not a hand-listed file: a new test file nobody remembers to add
+        # here is a test that silently never runs.
+        run: node --test packaging/npm/test/*.test.mjs
 
   coverage:
     runs-on: ubuntu-latest
