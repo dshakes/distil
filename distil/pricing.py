@@ -43,6 +43,7 @@ class Pricing:
 # Public list prices (USD / Mtok), current Claude model IDs. VERIFY before billing use.
 CATALOG: dict[str, Pricing] = {
     "claude-fable-5": Pricing("claude-fable-5", 10.0, 50.0),
+    "claude-opus-5": Pricing("claude-opus-5", 5.0, 25.0),
     "claude-opus-4-8": Pricing("claude-opus-4-8", 5.0, 25.0),
     "claude-opus-4-7": Pricing("claude-opus-4-7", 5.0, 25.0),
     "claude-opus-4-6": Pricing("claude-opus-4-6", 5.0, 25.0),
