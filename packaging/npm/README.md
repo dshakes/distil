@@ -101,3 +101,25 @@ const client = new Anthropic({ baseURL: distilBaseURL() });
 ```bash
 npx distil-llm proxy        # or: distil default --always-on
 ```
+
+## Vercel AI SDK middleware
+
+```js
+import { wrapLanguageModel } from "ai";
+import { distilMiddleware } from "distil-llm";
+
+const model = wrapLanguageModel({
+  model: gateway("anthropic/claude-sonnet-5"),
+  middleware: distilMiddleware({
+    onSavings: (s) => console.log(`${s.savedPct.toFixed(1)}% smaller`),
+  }),
+});
+```
+
+Implements `transformParams` only — compression happens on the way **in**, and
+wrapping the response would mean rewriting the model's own output, which distil
+does not do. Tool results (both the v4 `result` and v5 `output.value` shapes),
+user text parts, and system strings are compressed; assistant messages, files,
+and tool calls are passed through untouched.
+
+Lossless tier, like `compress()`. Route through the proxy for the digest tier.

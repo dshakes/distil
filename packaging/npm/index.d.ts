@@ -63,3 +63,30 @@ export function expandRuns(text: string): string;
 export function minifyJson(text: string): string | null;
 /** Heuristic token count, matching the Python HeuristicTokenizer. */
 export function countTokens(text: string): number;
+
+export interface SavingsInfo {
+  tokensBefore: number;
+  tokensAfter: number;
+  tokensSaved: number;
+  savedPct: number;
+}
+
+export interface DistilMiddlewareOptions {
+  /** Called once per request with the measured delta. */
+  onSavings?: (info: SavingsInfo) => void;
+}
+
+/**
+ * Vercel AI SDK middleware that losslessly compresses the prompt in-process.
+ *
+ * Implements `transformParams` only — compression happens on the way IN, and
+ * wrapping the response would mean rewriting the model's own output, which
+ * distil does not do.
+ *
+ *   const model = wrapLanguageModel({ model: ..., middleware: distilMiddleware() });
+ *
+ * For the reversible digest tier, route through a distil proxy instead.
+ */
+export function distilMiddleware(
+  opts?: DistilMiddlewareOptions
+): { transformParams: (arg: { params: unknown }) => Promise<unknown> };

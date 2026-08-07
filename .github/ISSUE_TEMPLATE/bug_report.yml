@@ -1,0 +1,63 @@
+name: Bug report
+description: Something distil did that it should not have, or did not do that it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If the agent could not reach the API at all**, run `distil doctor` first
+        and paste its output — a base URL pinned in your agent's settings file
+        outranks the one `distil wrap` sets, and that is the most common cause.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got. Exact commands beat description.
+      placeholder: |
+        $ distil wrap -- claude
+        expected: … 
+        got: …
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`distil doctor` output"
+      description: Redact anything you consider sensitive; it prints no content by design.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`distil --version`"
+      placeholder: "1.41.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is it installed
+      options: [pipx, uv / uvx, pip in a venv, Homebrew, Docker, npm / npx, from source]
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options: [macOS, Linux, Windows]
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options: [Claude Code, Codex, Gemini CLI, aider, OpenCode, Qwen Code, goose, SDK / library, gateway, other]
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on the latest version (`pipx upgrade distil-llm`), or I have said which version above and why
+          required: true
