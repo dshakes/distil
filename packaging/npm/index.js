@@ -24,11 +24,14 @@ const {
   DEFAULT_HOST,
 } = require("./lib/baseurl");
 const { compress } = require("./lib/compress");
+const { distilMiddleware } = require("./lib/aisdk");
 const { applyTier0, collapseRuns, expandRuns, minifyJson, countTokens } = require("./lib/tier0");
 
 module.exports = {
   // in-process lossless compression (byte-identical to the Python engine)
   compress,
+  // Vercel AI SDK middleware for wrapLanguageModel()
+  distilMiddleware,
   // proxy routing helpers
   distilBaseURL,
   distilOpenAIBaseURL,

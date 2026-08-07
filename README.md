@@ -20,7 +20,7 @@
 
 ## What it does
 
-- **Wrap your agent** — `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen`. Zero config, no code change.
+- **Wrap your agent** — `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen` · `goose`. Zero config, no code change.
 - **Run a proxy** — point any `base_url` client at it. Python, TypeScript, any language, any framework.
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
@@ -137,7 +137,7 @@ distil wrap -- python my_agent_sdk_script.py
 
 > **Using Cursor, Cline, Continue, or Windsurf?** They are IDE extensions — no argv to wrap and no documented env var, so `distil wrap` cannot reach them. Run a proxy and point the editor's base-URL setting at it: [docs/IDE-AGENTS.md](docs/IDE-AGENTS.md). (GitHub Copilot is not redirectable at all, and that page says so rather than wasting your afternoon.)
 
-Each recognized agent (`claude` / `codex` / `gemini` / `aider` / `opencode` / `qwen`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
+Each recognized agent (`claude` / `codex` / `gemini` / `aider` / `opencode` / `qwen` / `goose`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
 
 <details>
 <summary><b>Make it the default</b> — never type <code>distil wrap</code> again</summary>
@@ -308,7 +308,7 @@ const client = new Anthropic({ baseURL: distilBaseURL() });
 | Anthropic SDK (Py/TS) | `base_url="http://127.0.0.1:8788"` | [`examples/python_anthropic.py`](examples/python_anthropic.py) · [`examples/js_anthropic.ts`](examples/js_anthropic.ts) |
 | Claude Agent SDK / `claude -p` (headless) | `distil wrap -- <cmd>` or `ANTHROPIC_BASE_URL` | [`examples/python_claude_agent_sdk.py`](examples/python_claude_agent_sdk.py) |
 | OpenAI SDK (Chat + Responses) | `base_url="http://127.0.0.1:8788/v1"` | [`examples/python_openai.py`](examples/python_openai.py) |
-| Vercel AI SDK | `createAnthropic({ baseURL: '…:8788' })` | [`examples/js_vercel_ai_sdk.ts`](examples/js_vercel_ai_sdk.ts) |
+| Vercel AI SDK | `createAnthropic({ baseURL: '…:8788' })` — or in-process: `wrapLanguageModel({ model, middleware: distilMiddleware() })` | [`examples/js_vercel_ai_sdk.ts`](examples/js_vercel_ai_sdk.ts) |
 | LangChain (py/js) · LangGraph | `anthropicApiUrl` / base URL · `pre_model_hook` | [`examples/js_langchain.ts`](examples/js_langchain.ts) |
 | LiteLLM | `api_base="http://127.0.0.1:8788"` | [`examples/python_litellm.py`](examples/python_litellm.py) |
 | Google Gemini | `--upstream https://generativelanguage.googleapis.com` | [`examples/python_gemini.py`](examples/python_gemini.py) |

@@ -48,7 +48,25 @@ Publishing (no token anywhere). `./scripts/release.sh` drives it end to end.
 Landed a PR? Add yourself to [`CONTRIBUTORS.md`](CONTRIBUTORS.md) in the same PR —
 one line, newest last. Every merged contribution earns a spot.
 
+## Good first issues
+
+Issues labelled [`good first issue`](https://github.com/dshakes/distil/labels/good%20first%20issue)
+are scoped so the gate can tell you whether you got it right. If none are open,
+these are always welcome and always in scope:
+
+| | Why it is a good first change |
+|---|---|
+| **A new `wrap` preset** | One line in `distil/onboard.py:AGENT_PRESETS` plus the doc comment. The bar is a **published** env-var contract — a guessed variable ships a wrap that reports success and routes nothing, which is worse than no preset. Cursor/Copilot/Cline are excluded for exactly this reason; see `docs/IDE-AGENTS.md`. |
+| **A framework integration** | Copy `distil/integrations/agno.py`. The rule: duck-typed, never import the framework, so distil stays zero-dependency and a framework release cannot break us. |
+| **A corpus domain** | `distil bench` grades per domain. A new one with real (content-free) traffic makes every certificate broader. |
+| **A failing case for `distil validate`** | An input that breaks reversibility, inflates output, or leaks into telemetry. A reproduction is a contribution even without a fix. |
+| **Docs that were wrong** | Especially a claim that is no longer true. `tests/test_packaging_assets.py` pins the checkable ones; the rest need a human who noticed. |
+
+Not sure if something is in scope? Open the issue first and ask — that is cheaper
+than a PR neither of us wants to reject.
+
 ## Conduct
 
-Be kind, be rigorous, report results faithfully (if a check failed, say so with
-the output). That's it.
+See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). The short version: be kind, be
+rigorous, and report results faithfully — if a check failed, say so with the
+output.

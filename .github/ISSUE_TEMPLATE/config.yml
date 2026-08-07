@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/dshakes/distil/security/advisories/new
+    about: Report privately. Please do not open a public issue for a suspected vulnerability.
+  - name: Question or idea
+    url: https://github.com/dshakes/distil/issues/new
+    about: Every question is a docs gap we have not closed yet — ask it as a normal issue.

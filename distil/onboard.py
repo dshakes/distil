@@ -25,6 +25,7 @@ _AGENTS = [
     ("gemini", "Gemini CLI"),
     ("opencode", "OpenCode"),
     ("qwen", "Qwen Code"),
+    ("goose", "goose"),
 ]
 _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 
@@ -44,6 +45,10 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #   qwen         — Qwen Code calls LLMs through the OpenAI SDK and documents
 #                  OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL explicitly
 #                  (Qwen Code README).
+#   goose        — Block's goose reads OPENAI_HOST for the endpoint (NOT
+#                  OPENAI_BASE_URL, which it ignores) plus OPENAI_BASE_PATH,
+#                  defaulting to "v1/chat/completions" — a path distil's proxy
+#                  serves, so the default needs no change (goose provider docs).
 #   cursor-agent — env var not publicly documented; left out rather than guessing.
 #                  Use --env-var to configure manually.
 #
@@ -66,6 +71,7 @@ AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
     "aider": ("OPENAI_BASE_URL", "https://api.openai.com", "aider"),
     "opencode": ("OPENAI_BASE_URL", "https://api.openai.com", "OpenCode"),
     "qwen": ("OPENAI_BASE_URL", "https://api.openai.com", "Qwen Code"),
+    "goose": ("OPENAI_HOST", "https://api.openai.com", "goose"),
 }
 
 

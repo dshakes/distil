@@ -1,0 +1,40 @@
+name: Compression quality report
+description: A digest lost something it should have kept, or an agent behaved differently under compression
+labels: ["quality", "certificate"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This is the most valuable kind of report this project receives.** The
+        whole claim is decision-equivalence, so a case where it does not hold is
+        evidence — including one that contradicts our own published numbers.
+
+        Please do **not** file it as a security issue; it is a normal bug with a
+        higher priority.
+  - type: textarea
+    id: what_was_lost
+    attributes:
+      label: What was lost or changed
+      description: The fact, line, or value the agent needed and did not have.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Compression mode
+      options: [expand, digest (default), lossless-only / safe, verbatim, "not sure"]
+    validations:
+      required: true
+  - type: textarea
+    id: shadow
+    attributes:
+      label: "`distil shadow-stats` output, if you have it"
+      description: |
+        Live decision-equivalence on YOUR traffic outranks anything in this
+        repository — including a result that makes us look bad.
+      render: shell
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: A trajectory, a tool output, or a `distil dissect` report. Content-free is fine.

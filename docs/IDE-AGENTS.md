@@ -93,4 +93,5 @@ distil wrap -- gemini      # Gemini CLI
 distil wrap -- aider       # aider
 distil wrap -- opencode    # OpenCode
 distil wrap -- qwen        # Qwen Code
+distil wrap -- goose       # goose
 ```

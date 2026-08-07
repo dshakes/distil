@@ -132,3 +132,80 @@ def test_readme_leads_with_capability_not_statistics():
     assert text.index("## What it does") < text.index("Why trust it"), (
         "the proof section must sit below the capability section"
     )
+
+
+# --- claims re-audit ----------------------------------------------------------
+# GA_READINESS lists "claims re-audit at launch commit" as a launch gate, and the
+# last full audit was 1.11.0. A one-time human read goes stale the moment code
+# moves, so the checkable claims are pinned here instead: the README cannot
+# advertise an agent, an integration, or an API that does not exist, and it
+# cannot omit one that does.
+
+
+def _readme_text() -> str:
+    return README.read_text(encoding="utf-8")
+
+
+def test_every_advertised_agent_has_a_real_preset():
+    from distil.onboard import AGENT_PRESETS
+
+    text = _readme_text()
+    line = next(ln for ln in text.splitlines() if ln.startswith("- **Wrap your agent**"))
+    advertised = set(re.findall(r"`(?:distil wrap -- )?([a-z][a-z0-9-]*)`", line))
+    unreal = advertised - set(AGENT_PRESETS)
+    assert not unreal, f"README advertises agents with no preset: {sorted(unreal)}"
+
+
+def test_every_real_preset_is_advertised():
+    """The reverse: shipping an agent nobody is told about wastes the work."""
+    from distil.onboard import AGENT_PRESETS
+
+    text = _readme_text()
+    missing = [a for a in AGENT_PRESETS if f"`{a}`" not in text]
+    assert not missing, f"presets exist but the README never mentions them: {missing}"
+
+
+def test_every_advertised_integration_module_exists():
+    import importlib
+
+    text = _readme_text()
+    line = next(ln for ln in text.splitlines() if ln.startswith("- **Framework hooks**"))
+    named = re.findall(r"\b(LangChain|LangGraph|LiteLLM|Agno|Strands)\b", line)
+    assert named, "the framework-hooks line names no framework"
+    for name in named:
+        mod = f"distil.integrations.{name.lower()}"
+        importlib.import_module(mod)  # raises if the claim is false
+
+
+def test_advertised_public_api_names_are_importable():
+    """The README's headline code sample must actually run."""
+    import distil
+
+    text = _readme_text()
+    for name in re.findall(r"from distil import ([a-z_, ]+)", text):
+        for symbol in (n.strip() for n in name.split(",")):
+            assert hasattr(distil, symbol), f"README imports `{symbol}`, which does not exist"
+
+
+def test_no_doc_promises_a_proxy_endpoint_that_does_not_exist():
+    """A documented endpoint nobody implemented is a support ticket in waiting."""
+    import distil.gateway as gw
+
+    served = set(re.findall(r'self\.path == "(/distil/[a-z]+)"', inspect_source(gw)))
+    served |= {"/v1/messages", "/v1/chat/completions", "/v1/responses"}
+    docs = [README] + sorted((ROOT / "docs").glob("*.md"))
+    claimed = set()
+    for d in docs:
+        text = d.read_text(encoding="utf-8")
+        # Only CODE SPANS count. A bare match also catches website paths like
+        # `dshakes.github.io/distil/architecture.html` and
+        # `github.com/dshakes/distil/actions`, which are pages, not endpoints.
+        claimed |= set(re.findall(r"`(/distil/[a-z]+)`", text))
+    unreal = claimed - served
+    assert not unreal, f"docs reference proxy endpoints that do not exist: {sorted(unreal)}"
+
+
+def inspect_source(mod) -> str:
+    import inspect as _inspect
+
+    return _inspect.getsource(mod)
