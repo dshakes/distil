@@ -277,6 +277,19 @@ def test_cmd_default_installs_alias_and_undoes(tmp_path, capsys) -> None:
     assert "# keep me" in rc.read_text()
 
 
+def _stub_preflight(monkeypatch, *, routed: bool = True) -> None:
+    """`distil default --always-on` refuses to wire anything until the proxy proves it
+    serves /v1/messages. No test starts a real one, so state the verdict explicitly —
+    a test that silently skipped the preflight would be asserting the old, broken order."""
+    from distil import setup
+
+    monkeypatch.setattr(
+        setup,
+        "probe_routing",
+        lambda host, port, **kw: (routed, f"stub: routed={routed} on {host}:{port}"),
+    )
+
+
 def test_cmd_default_always_on_writes_service_and_env(tmp_path, monkeypatch, capsys) -> None:
     from distil import cli, setup
 
@@ -286,6 +299,8 @@ def test_cmd_default_always_on_writes_service_and_env(tmp_path, monkeypatch, cap
     )
     settings = tmp_path / "settings.json"
     monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
+    monkeypatch.setattr(setup, "claude_settings_files", lambda cwd=None: [settings])
+    _stub_preflight(monkeypatch)
     # Record shell-outs so we can assert install is silent but undo stops the service.
     import subprocess
 
@@ -322,6 +337,7 @@ def test_cmd_default_always_on_non_claude_agent_skips_settings_json(tmp_path, mo
     )
     settings = tmp_path / "settings.json"
     monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
+    _stub_preflight(monkeypatch)
     assert (
         cli.cmd_default(_default_args(tmp_path, always_on=True, agent="codex", no_start=True)) == 0
     )
@@ -339,6 +355,7 @@ def test_cmd_default_always_on_settings_env_conflict_needs_force(
     settings = tmp_path / "settings.json"
     settings.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://mine.example"}}))
     monkeypatch.setattr(setup, "default_settings_path", lambda: settings)
+    _stub_preflight(monkeypatch)
     assert cli.cmd_default(_default_args(tmp_path, always_on=True)) == 0
     assert "mine.example" in settings.read_text()  # left untouched without --force
     out = capsys.readouterr().out

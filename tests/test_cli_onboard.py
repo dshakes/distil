@@ -1601,6 +1601,9 @@ def test_cmd_default_always_on_service_start(tmp_path, monkeypatch, capsys) -> N
     # agent=="claude" makes cmd_default wire settings.json — redirect it to tmp so the
     # suite never touches the real ~/.claude/settings.json (this write bricked Claude Code).
     monkeypatch.setattr(setup_mod, "default_settings_path", lambda: tmp_path / "settings.json")
+    # The service starts BEFORE the base URL is wired now, and wiring is gated on the
+    # proxy proving it serves /v1/messages. No real proxy here, so state the verdict.
+    monkeypatch.setattr(setup_mod, "probe_routing", lambda h, p, **k: (True, f"stub {h}:{p}"))
 
     class _OK:
         returncode = 0
@@ -1621,7 +1624,7 @@ def test_cmd_default_always_on_service_start(tmp_path, monkeypatch, capsys) -> N
     )
     assert rc == 0
     assert any("launchctl" in str(c) for c in calls)
-    assert "proxy service running" in capsys.readouterr().out
+    assert "proxy service started" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- #

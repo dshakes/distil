@@ -3,6 +3,7 @@ self-test must round-trip a request through an in-process upstream."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 
@@ -37,16 +38,47 @@ def test_check_base_url_guard() -> None:
     foreign = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": "http://example.com:443"}})
     assert foreign is not None and foreign.status == doctor.INFO
 
-    # A live loopback port → OK.
+    # A port that merely LISTENS is not OK. This is the whole lesson of the outage:
+    # the socket was bound the entire time, `doctor` said OK, and every Claude Code
+    # session on the machine still failed. Only serving /v1/messages counts.
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))
     srv.listen(1)
     try:
         port = srv.getsockname()[1]
-        live = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}"}})
-        assert live is not None and live.status == doctor.OK
+        bound = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}"}})
+        assert bound is not None and bound.status == doctor.FAIL
     finally:
         srv.close()
+
+    # A port that actually answers /v1/messages → OK.
+    with _messages_server() as port:
+        live = doctor._check_base_url({"env": {"ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}"}})
+        assert live is not None and live.status == doctor.OK
+
+
+@contextlib.contextmanager
+def _messages_server(status: int = 401):
+    """A loopback server that answers /v1/messages with *status* and 404s everything
+    else — the smallest thing that tells "routes" apart from "merely listening"."""
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+            self.send_response(status if self.path == "/v1/messages" else 404)
+            self.end_headers()
+
+        def log_message(self, *a: object) -> None:  # keep pytest output clean
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        yield srv.server_address[1]
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_proxy_selftest_round_trips() -> None:
