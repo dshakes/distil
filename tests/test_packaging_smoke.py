@@ -226,6 +226,36 @@ def _npm_version(pep440: str) -> str:
     return f"{match.group(1)}-{match.group(2)}.{match.group(3)}"
 
 
+def test_citation_tracks_the_released_version() -> None:
+    """CITATION.cff had no guard, and drifted — 1.41.1 while everything else was 1.41.2rc3.
+
+    A version bump touches SIX places across five files. server.json and
+    packaging/npm/package.json are pinned to pyproject by the tests above;
+    CITATION.cff was not, so it was the one that silently fell behind. That class of
+    drift already broke a release once (1.35.0 failed its own packaging gate).
+
+    The convention here is that CITATION tracks the CITED artifact — a GA release —
+    not every rc on the way to it, so this only binds on a final version. Demanding
+    byte-equality unconditionally would fail every rc and get deleted.
+    """
+    version = _pyproject()["project"]["version"]
+    cited = None
+    for line in (ROOT / "CITATION.cff").read_text().splitlines():
+        if line.startswith("version:"):
+            cited = line.split(":", 1)[1].strip()
+            break
+    assert cited, "CITATION.cff has no version: line"
+    if re.fullmatch(r"\d+\.\d+\.\d+", version):  # a final release
+        assert cited == version, (
+            f"CITATION.cff says {cited} but this is release {version} — "
+            f"the citation would credit the wrong version"
+        )
+    else:  # a prerelease: CITATION legitimately still names the last GA
+        assert re.fullmatch(r"\d+\.\d+\.\d+", cited), (
+            f"CITATION.cff should name a final release, not {cited!r}"
+        )
+
+
 def test_npm_version_translation() -> None:
     assert _npm_version("1.38.0") == "1.38.0"
     assert _npm_version("1.38.0rc1") == "1.38.0-rc.1"

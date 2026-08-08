@@ -3,6 +3,78 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.42.0] — the outage was the test suite
+
+**distil's own test suite tore down the developer's live proxy, and that is what took
+a machine's API traffic out roughly fifteen times in one evening.** `cmd_offboard` and
+`distil default --undo` call `service_spec(8788, ...)`, which returns the *real*
+`~/Library/LaunchAgents/com.distil.proxy.plist` — then `launchctl unload` it and
+`unlink()` it. Five tests never patched `service_spec`. Every full-suite run silently
+uninstalled the always-on service while `ANTHROPIC_BASE_URL` stayed pinned at the
+now-dead port, so every session afterwards failed with `ConnectionRefused`, an error
+that names the *provider*.
+
+It was hard to see because the job came back **unregistered** rather than crashed:
+`proxy.err` was empty, there was no crash report, and `KeepAlive` cannot restart a job
+that is no longer loaded. Remembering to patch per-test fails open, and it failed open
+five times — so `conftest` now redirects the plist into a tmp dir and makes the
+destructive commands inert *by construction*.
+
+**`launchctl unload; launchctl load` was a coin flip.** `unload` is asynchronous, so the
+replacement job often died on `EADDRINUSE` and launchd discarded it — while the legacy
+`load` still exited 0 and the orphaned old process kept answering just long enough for
+the routing probe to pass. `distil default` printed ✓ and wired the pin onto a machine
+with *no registered job*; nothing restarted it when the orphan exited. `service_reload()`
+uses the modern bootout/bootstrap API, waits for the job *record* to clear (the port
+frees the instant the process dies, while the record lingers in `SIGTERMed` — and
+bootstrapping into that returns `Bootstrap failed: 5: Input/output error`), retries
+transient EIO, and verifies a running pid. A failed start now wires nothing.
+
+**A restart is no longer a refusal.** launchd and systemd own the listening socket
+(`Sockets` in the plist; a real `distil-proxy.socket` unit on Linux), so connections
+queue in the kernel backlog while the proxy restarts instead of being refused. Verified
+on hardware: `kill -9` against the running proxy four times returned HTTP 401 every
+time, `connect=0.26ms`, zero refusals — where the same machine had previously logged a
+37-second window of `ECONNREFUSED`.
+
+Nine more faults in the machine-wiring path, each with a regression test verified to
+fail without its fix:
+
+- A pre-existing `alias claude=...` made the rc file **unparseable**. bash and zsh
+  alias-expand the word before `()` while *reading* a function definition, so the
+  managed block was a syntax error that abandoned the rest of the user's rc — PATH
+  included. An earlier distil installed exactly such an alias.
+- `os.replace` **destroyed a symlinked rc**, detaching dotfile repos (stow, chezmoi)
+  from the file they manage.
+- A hyphenated agent name (`claude-code`) is a syntax error in dash, which is `/bin/sh`
+  on Debian and reads `~/.profile`. A subshell capability probe now gates the
+  definition. `eval … || true` does *not* work: `eval` is a POSIX special builtin, and
+  a syntax error in one exits the shell before the `||` is reached.
+- The plist spliced paths and mode into XML **unescaped**; a `&` in `$HOME` produced a
+  plist launchd silently refuses to load.
+- The escape hatch matched loopback by **substring**, so a corporate gateway at
+  `…/pools/127.0.0.1` would have been deleted and `http://127.1:8788` kept.
+- The escape hatch scanned only hardcoded `$HOME` rc paths, missing `$ZDOTDIR` and any
+  `--rc` path — the machines least served by the defaults.
+- `remove_managed` returned `ok` when the end marker was missing, so undo and offboard
+  printed ✓ while the wiring stayed live.
+- `_port_free` probed by **connecting**, which fills the listener backlog: against a
+  hung proxy it reported a held port as free, causing the exact `EADDRINUSE` it exists
+  to prevent. It now probes by binding, which is what the supervisor does.
+- Nothing removed the systemd **socket unit** on uninstall. An orphaned enabled
+  `.socket` keeps the port bound after distil is gone and keeps systemd starting a
+  service that no longer exists.
+
+Also: the subscription notice drops from seven lines to two (it prints on every bare
+wrap, and a wall of text is skipped exactly by the readers it exists for), and
+`CITATION.cff` gains the drift guard it never had — it was the one version location no
+test pinned, and it had already fallen behind to 1.41.1.
+
+**Confidence is uneven and worth stating plainly.** macOS is proven on real hardware.
+The Linux paths — the socket unit, `enable --now`, the `LISTEN_FDS` handoff — are
+correct by construction and covered by tests against mocked systemd, but have not been
+executed on a real Linux system.
+
 ## [1.41.2] — the escape hatch that wasn't, and a price nobody was charged
 
 **`distil default --always-on` took `launchctl load` returning 0 as proof the proxy
