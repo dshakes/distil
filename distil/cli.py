@@ -956,20 +956,13 @@ def _apply_subscription_safe_default(args: argparse.Namespace) -> None:
 
     if subscription_mode():
         args.lossless_only = True
+        # Two lines. The previous seven-line lecture was printed on EVERY run of a
+        # bare wrap, which is exactly the audience least able to act on it, and
+        # readers skip a wall — so the one fact that matters (savings will be ~0)
+        # and the one command that fixes it were being lost in the middle of it.
         print(
-            "distil: subscription detected → lossless-only (safe default; no lossy digest "
-            "without a recovery tool).\n"
-            "  What this costs: lossless-only is Tier-0 only, which on real agent traffic "
-            "saves ~0-2%\n"
-            "  rather than the 30-60% the recoverable digest reaches. That is the whole "
-            "product, off.\n"
-            "  Turn it on permanently:  distil default --mode expand\n"
-            "  Or per run:              --expand   (injects distil_expand, so every digest "
-            "stub is\n"
-            "                                       recoverable and nothing is irreversibly "
-            "lost)\n"
-            "  Byte-exact instead:      --verbatim        Override detection: "
-            "DISTIL_SUBSCRIPTION=0",
+            "distil: subscription → lossless-only (saves ~0-2%; the digest tier is off).\n"
+            "  Enable it: distil default --mode expand   ·   this run only: --expand",
             file=_sys.stderr,
         )
 
@@ -1967,9 +1960,13 @@ def cmd_default(args: argparse.Namespace) -> int:
         default_settings_path,
         detect_shell,
         env_body,
+        escape_hatch_spec,
+        log_dir,
         probe_routing,
         remove_managed,
+        service_reload,
         service_spec,
+        socket_unit_spec,
         service_unload_cmd,
         unwire_base_url,
         wire_settings_env,
@@ -2000,6 +1997,15 @@ def cmd_default(args: argparse.Namespace) -> int:
                 print(f"✓ removed proxy service {path}")
             except OSError:
                 pass
+            # The socket unit holds the port; leaving it behind keeps 8788 bound
+            # long after the service it fed is gone.
+            sock_path, _ = socket_unit_spec(args.port)
+            if sock_path is not None and sock_path.exists():
+                try:
+                    sock_path.unlink()
+                    print(f"✓ removed proxy socket {sock_path}")
+                except OSError:
+                    pass
         if agent == "claude":
             # Sweep EVERY settings file Claude Code merges, not just ~/.claude/settings.json,
             # and match on "loopback" rather than on this run's --port. The old undo did the
@@ -2032,14 +2038,49 @@ def cmd_default(args: argparse.Namespace) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"✓ wrote proxy service → {path}")
+        # systemd needs a SEPARATE unit to own the listening socket; launchd
+        # expresses the same thing inside the job's own plist. Without it nothing
+        # sets LISTEN_FDS, the proxy self-binds, and a restart on Linux still
+        # refuses every connection in the gap.
+        sock_path, sock_content = socket_unit_spec(args.port)
+        if sock_path is not None and sock_content is not None:
+            sock_path.parent.mkdir(parents=True, exist_ok=True)
+            sock_path.write_text(sock_content, encoding="utf-8")
+            print(f"✓ wrote proxy socket  → {sock_path}")
+        # The service redirects stdout/stderr into this directory; launchd will refuse
+        # to start a job whose log path is unwritable, so create it before loading.
+        log_dir().mkdir(parents=True, exist_ok=True)
+        # Write the way OUT before writing the pin that can strand the machine.
+        # `distil offboard` ships inside the package, so uninstalling first — the
+        # obvious order — deletes the only tool that can remove this pin. This script
+        # needs nothing but `sh` and survives the uninstall by construction.
+        hatch, hatch_body = escape_hatch_spec(args.port, rc)
+        hatch.write_text(hatch_body, encoding="utf-8")
+        hatch.chmod(0o755)
         # Start, PROVE it routes, and only then wire the base URL. The old order wired
         # first and reported success from `launchctl load`'s exit code, which means "the
         # job was accepted" — not "the proxy serves requests". A proxy that binds the port
         # and 404s (wrong --upstream, stale build) then took down every Claude Code session
         # on the machine, disguised as "there's an issue with the selected model".
         if load and not args.no_start:
-            ok = subprocess.run(load, shell=True).returncode == 0
-            print("  ✓ proxy service started" if ok else f"  ⚠ start it manually: {load}")
+            # NOT `launchctl unload; launchctl load`. That reported the legacy
+            # load's exit code, which is 0 even when the job failed to spawn —
+            # and because unload is asynchronous, the old proxy was often still
+            # holding the port, so the replacement died on EADDRINUSE and launchd
+            # discarded it. The orphan kept answering just long enough for the
+            # probe below to pass, so this printed ✓ and wired the pin onto a
+            # machine with no registered job. Nothing restarted it when the
+            # orphan exited. service_reload waits for the port and verifies
+            # registration, so a failure is a failure here instead of an outage
+            # twenty minutes later.
+            started, why = service_reload(args.port)
+            if not started:
+                print(f"\n✗ the proxy service did not start — {why}")
+                print("  Nothing was wired. Your existing setup is untouched.")
+                print(f"  See the error yourself:  distil proxy --{mode} --port {args.port}")
+                print(f"  Logs: {log_dir() / 'proxy.err'}")
+                return 1
+            print(f"  ✓ proxy service started ({why})")
         routed, detail = probe_routing("127.0.0.1", args.port)
         if not routed:
             print(f"\n✗ preflight failed — {detail}")
@@ -2064,28 +2105,30 @@ def cmd_default(args: argparse.Namespace) -> int:
             print(f"{glyph2} {msg2}")
             if st2 == "conflict":
                 print(f"  re-run with: distil default --always-on --force  (backs up {sp} first)")
-        print(
-            f"\nEvery base-URL-honoring tool now routes through distil. Reload your shell (source {rc})."
-        )
-        print(
-            "Heads-up: a persistent ANTHROPIC_BASE_URL is a single point of failure — if the proxy"
-        )
-        print("is down, clients can't reach the API. Undo: distil default --always-on --undo")
+        print(f"\nAll base-URL clients now route through distil. Next: source {rc}")
+        # The single-point-of-failure warning is real and stays, but it is one
+        # line: a persistent pin whose service is down takes every session out,
+        # and `distil wrap` now refuses to start into that state rather than
+        # letting it present as a provider outage.
+        print("  Note: if the service stops, clients cannot reach the API until it returns.")
+        print(f"  Logs: {log_dir() / 'proxy.err'}   (why it stopped, if it ever does)")
+        print("  Undo: distil default --always-on --undo")
+        print(f"  Undo without distil installed: sh {hatch}")
         return 0
 
     st, msg = write_managed(rc, alias_body(agent, mode, shell=shell))
     glyph = {"ok": "✓", "updated": "✓", "exists": "✓"}.get(st, "⚠")
     print(f"{glyph} {msg}")
     print(f"  `{agent}` now routes through distil (--{mode}).")
-    print("\n  ⚠ IMPORTANT — one more step, or you'll see savings stay at zero:")
-    print(f"     1. reload this shell:   source {rc}")
-    print(f"     2. RESTART {agent}:       any {agent} already running was launched")
-    print("        before the alias, so it bypasses distil. Start a fresh one.")
+    # Two required steps, one line each. The old block spent six lines and a ⚠
+    # banner explaining WHY a restart is needed; a reader who has just run an
+    # install command needs the instruction, not the rationale. `doctor` explains
+    # the why, and now gets the traffic to prove it either way.
+    print(f"\n  Next: source {rc}   then restart {agent} (a running one bypasses the alias).")
     # alias mode sets the base URL only inside the wrapped agent's env — the
     # shell's $ANTHROPIC_BASE_URL stays empty by design, so verify via the
     # alias, not the env var (env-var verify belongs to --always-on only).
-    print(f"     verify it's routed:     type {agent}   (should show the distil wrap alias)")
-    print("\n  Undo anytime: distil default --undo")
+    print(f"  Verify: type {agent}   ·   Undo: distil default --undo")
     return 0
 
 
@@ -2111,6 +2154,7 @@ def cmd_offboard(args: argparse.Namespace) -> int:
         remove_managed,
         service_spec,
         service_unload_cmd,
+        socket_unit_spec,
         unwire_base_url,
         unwire_statusline,
     )
@@ -2149,6 +2193,16 @@ def cmd_offboard(args: argparse.Namespace) -> int:
             print(f"✓ removed proxy service {path}")
         except OSError as exc:
             print(f"✗ couldn't remove {path}: {exc}")
+        # The socket unit owns the listening port. Left behind it keeps 8788 bound
+        # after distil is gone, and systemd keeps trying to start a service that
+        # no longer exists — an uninstall that reports success and isn't one.
+        sock_path, _ = socket_unit_spec(8788)
+        if sock_path is not None and sock_path.exists():
+            try:
+                sock_path.unlink()
+                print(f"✓ removed proxy socket {sock_path}")
+            except OSError as exc:
+                print(f"✗ couldn't remove {sock_path}: {exc}")
 
     # 3 · status-line wiring
     sp = default_settings_path()

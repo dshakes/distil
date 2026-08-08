@@ -159,15 +159,47 @@ class TestTheSubscriptionDefaultStatesItsCost:
     A default that quietly turns the product off has to say so.
     """
 
-    def test_the_notice_quantifies_the_cost_and_names_the_persistent_fix(self) -> None:
-        import inspect
+    def test_the_notice_quantifies_the_cost_and_names_the_persistent_fix(
+        self, monkeypatch, capsys
+    ) -> None:
+        """Asserted on what the user actually sees, not on the function's source.
 
-        from distil.cli import _apply_subscription_safe_default
+        Matching source text let the message be rewritten freely as long as the
+        old phrases survived somewhere in it — including inside a comment, which
+        is where "What this costs" ended up. What has to hold is a property of
+        the OUTPUT: it names the cost and the permanent fix.
+        """
+        import argparse
 
-        src = inspect.getsource(_apply_subscription_safe_default)
-        assert "What this costs" in src, "the notice must say what the default costs"
-        assert "distil default --mode expand" in src, "and name the persistent opt-in"
-        assert "--expand" in src and "--verbatim" in src, "both escapes stay documented"
+        from distil import cli
+
+        monkeypatch.setattr("distil.doctor.subscription_mode", lambda: True)
+        args = argparse.Namespace(lossless_only=False, verbatim=False, expand=False)
+        cli._apply_subscription_safe_default(args)
+
+        notice = capsys.readouterr().err
+        assert args.lossless_only is True, "the safe default must still be applied"
+        assert "0-2%" in notice, "the notice must quantify what the default costs"
+        assert "distil default --mode expand" in notice, "and name the persistent opt-in"
+        assert "--expand" in notice, "and the per-run escape"
+
+    def test_the_notice_stays_short_enough_to_be_read(self, monkeypatch, capsys) -> None:
+        """It prints on EVERY bare wrap, so length is a correctness property.
+
+        The original was seven lines. A wall of text printed on every invocation
+        is skipped, which cost the two facts that matter — savings are ~0, and one
+        command fixes it — the readership the notice exists for.
+        """
+        import argparse
+
+        from distil import cli
+
+        monkeypatch.setattr("distil.doctor.subscription_mode", lambda: True)
+        cli._apply_subscription_safe_default(
+            argparse.Namespace(lossless_only=False, verbatim=False, expand=False)
+        )
+        lines = [ln for ln in capsys.readouterr().err.splitlines() if ln.strip()]
+        assert len(lines) <= 3, f"the notice grew back to {len(lines)} lines:\n" + "\n".join(lines)
 
     def test_the_persistent_mode_is_a_real_choice(self) -> None:
         """`distil default --mode expand` must actually be accepted, or the notice

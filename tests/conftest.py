@@ -41,6 +41,81 @@ def real_claude_settings_files():
     return _REAL_CLAUDE_SETTINGS_FILES
 
 
+#: Captured before the autouse sandbox replaces them; reach them via the
+#: ``real_service_api`` fixture when the function under test IS one of these.
+_REAL_SERVICE_API = {
+    "service_spec": _setup.service_spec,
+    "service_unload_cmd": _setup.service_unload_cmd,
+    "service_reload": _setup.service_reload,
+}
+
+
+@pytest.fixture(autouse=True)
+def _launchd_service_sandbox(monkeypatch, tmp_path_factory):
+    """No test may stop, delete, or reload the developer's REAL proxy service.
+
+    ``cmd_offboard`` and ``cmd_default --undo`` call ``service_spec(8788, ...)``,
+    which returns the genuine ``~/Library/LaunchAgents/com.distil.proxy.plist``,
+    then run ``launchctl unload`` on it and ``path.unlink()`` it. Any test that
+    exercised those paths without remembering to patch ``service_spec`` therefore
+    tore down the always-on proxy of whoever ran the suite — and because the
+    machine's ``ANTHROPIC_BASE_URL`` still pointed at the now-dead port, every
+    Claude Code session on that machine started failing with ConnectionRefused.
+
+    That is not hypothetical. It happened repeatedly in one evening on a
+    maintainer's machine, and cost hours of misdiagnosis: the job came back
+    *unregistered* rather than crashed, so ``proxy.err`` was empty, there was no
+    crash report, and ``KeepAlive`` could not help a job that was no longer
+    loaded. Five tests were missing the patch; the next one added would have been
+    a coin flip.
+
+    Remembering to patch per-test is the wrong mechanism — it fails open, and it
+    failed open five times. This closes it by construction: the plist path is
+    redirected into a tmp dir and the destructive commands become inert, so a
+    forgotten patch costs nothing.
+    """
+    sandbox = tmp_path_factory.mktemp("launch-agents")
+
+    def _sandboxed_spec(port, mode):
+        path, content, load = _REAL_SERVICE_API["service_spec"](port, mode)
+        if path is None:
+            return path, content, load
+        # Same filename so content assertions and basename checks still hold.
+        return sandbox / path.name, content, "true  # sandboxed: no real launchctl"
+
+    monkeypatch.setattr(_setup, "service_spec", _sandboxed_spec)
+    monkeypatch.setattr(_setup, "service_unload_cmd", lambda: "true  # sandboxed")
+    monkeypatch.setattr(
+        _setup, "service_reload", lambda port: (True, "sandboxed: no real launchctl")
+    )
+    # `distil wrap` refuses to start when a settings file pins a base URL it does
+    # not own. On a maintainer's machine that pin is always-on distil, so ~13 wrap
+    # tests failed for an environmental reason with nothing wrong in the code.
+    #
+    # Do NOT fix that by setting DISTIL_IGNORE_SETTINGS_PRECEDENCE — that switches
+    # the feature OFF, so the tests covering it silently stop testing anything.
+    # Isolate the INPUT instead: point the user-level candidates at an empty
+    # sandbox so the guard runs for real against files no developer owns. Project
+    # -scoped candidates are cwd-relative and already land under tmp_path.
+    from distil import precedence as _precedence
+
+    monkeypatch.setattr(
+        _precedence, "_USER_SETTINGS", (str(sandbox / "settings.json"),), raising=False
+    )
+
+
+@pytest.fixture
+def real_service_api():
+    """The genuine service functions, for tests that assert on them directly.
+
+    Requesting this fixture is an explicit statement that the test drives these
+    through mocked subprocess calls and will not reach a real supervisor.
+    """
+    for name, fn in _REAL_SERVICE_API.items():
+        setattr(_setup, name, fn)
+    return _REAL_SERVICE_API
+
+
 @pytest.fixture(autouse=True)
 def _restore_sigpipe_disposition():
     """Keep SIGPIPE ignored for the pytest process, whatever a test did to it.
