@@ -1610,6 +1610,14 @@ def test_cmd_default_always_on_service_start(tmp_path, monkeypatch, capsys) -> N
 
     calls: list[str] = []
     monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: (calls.append(cmd), _OK())[1])
+    # The reload now verifies the job actually registered instead of trusting the
+    # legacy `launchctl load` exit code (see test_activation.py for that logic);
+    # here we only care that cmd_default proceeds when the service came up.
+    monkeypatch.setattr(
+        setup_mod,
+        "service_reload",
+        lambda port: (calls.append(f"launchctl reload {port}"), (True, "pid 4242"))[1],
+    )
     rc = cli.cmd_default(
         argparse.Namespace(
             undo=False,

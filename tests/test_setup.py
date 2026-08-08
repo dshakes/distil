@@ -212,15 +212,31 @@ def test_detect_shell_fallback_when_shell_unset(tmp_path, monkeypatch) -> None:
 
 
 def test_shell_specific_bodies() -> None:
-    assert alias_body("claude", "lossless-only", shell="zsh") == (
-        "alias claude='distil wrap --lossless-only -- claude'"
-    )
+    # A function, not an alias: the wiring has to keep working when distil does not
+    # exist, and an alias naming `distil` unconditionally cannot. See
+    # test_wiring_survives_uninstall for the executable proof.
+    posix = alias_body("claude", "lossless-only", shell="zsh")
+    # The unalias must come FIRST and on its own line: bash/zsh expand an alias on
+    # the word before `()` while reading a function definition, so a pre-existing
+    # `alias claude=...` (which older distil installed) would make the rest of the
+    # user's rc file fail to parse. See test_wiring_survives_a_preexisting_alias.
+    assert posix.startswith("unalias claude 2>/dev/null || true\nclaude() {")
+    assert "distil wrap --lossless-only -- claude" in posix
+    assert 'command claude "$@"' in posix  # the fallback, and `command` stops recursion
     # PowerShell needs a function (forwards @args), not an alias.
     assert "function claude" in alias_body("claude", "expand", shell="powershell")
-    # fish uses `set -gx`, posix `export`, powershell `$env:`.
-    assert env_body(8788, shell="fish") == "set -gx ANTHROPIC_BASE_URL http://127.0.0.1:8788"
-    assert env_body(8788, shell="zsh") == "export ANTHROPIC_BASE_URL=http://127.0.0.1:8788"
-    assert env_body(8788, shell="powershell").startswith("$env:ANTHROPIC_BASE_URL")
+    assert "function claude" in alias_body("claude", "expand", shell="fish")
+    # fish uses `set -gx`, posix `export`, powershell `$env:` — each guarded, so an
+    # uninstalled distil leaves an unset variable rather than a base URL pointing at
+    # a port nothing listens on (which fails every SDK in the shell).
+    assert env_body(8788, shell="fish") == (
+        "if command -q distil; set -gx ANTHROPIC_BASE_URL http://127.0.0.1:8788; end"
+    )
+    assert env_body(8788, shell="zsh") == (
+        "command -v distil >/dev/null 2>&1 && export ANTHROPIC_BASE_URL=http://127.0.0.1:8788"
+    )
+    assert env_body(8788, shell="powershell").startswith("if (Get-Command distil")
+    assert '$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8788"' in env_body(8788, shell="powershell")
 
 
 def test_service_spec_per_platform(monkeypatch) -> None:
@@ -412,7 +428,7 @@ def test_unwire_statusline_absent_and_bad(tmp_path) -> None:
     assert unwire_statusline(bad)[0] == "error"
 
 
-def test_service_unload_cmd_per_platform(monkeypatch) -> None:
+def test_service_unload_cmd_per_platform(monkeypatch, real_service_api) -> None:
     from distil.setup import service_unload_cmd
 
     monkeypatch.setattr("platform.system", lambda: "Darwin")

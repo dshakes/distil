@@ -144,6 +144,34 @@ class QuietHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def _listen(host: str, port: int, handler: type) -> tuple[QuietHTTPServer, bool]:
+    """The proxy's server, preferring a socket the supervisor already holds.
+
+    Returns ``(server, activated)``. When *activated* is True the listening
+    socket belongs to launchd/systemd, so connections queue in the kernel
+    backlog across a crash-and-restart instead of being refused — see
+    :mod:`distil.activation`. When it is False we bound the socket ourselves,
+    which is the historical behaviour and works identically until we die.
+    """
+    from .activation import inherited_listener
+
+    inherited = inherited_listener()
+    if inherited is None:
+        return QuietHTTPServer((host, port), handler), False
+    # bind_and_activate=False so TCPServer does not bind a second socket to a
+    # port the supervisor is already holding — that would raise EADDRINUSE and
+    # turn a fault-tolerance feature into a startup failure.
+    server = QuietHTTPServer((host, port), handler, bind_and_activate=False)
+    server.socket.close()
+    server.socket = inherited
+    server.server_address = inherited.getsockname()
+    # server_bind() normally sets these and we skipped it; BaseHTTPRequestHandler
+    # reads server_name for the Host/Server headers it generates.
+    server.server_name = socket.getfqdn(host)
+    server.server_port = port
+    return server, True
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Relay 3xx instead of following: auto-following would re-send the
     client's credentials to whatever host the upstream redirect names."""
@@ -1515,8 +1543,12 @@ def serve(
         retention_rate=retention_rate,
         session_delta=session_delta,
     )
-    server = QuietHTTPServer((host, port), handler)
+    server, activated = _listen(host, port, handler)
     print(f"distil proxy listening on http://{host}:{port}")
+    if activated:
+        # Worth saying out loud: it is the difference between "a crash is a
+        # blip" and "a crash is every session on this machine failing".
+        print("  → socket-activated: the listener survives a restart of this process")
     print(f"  → upstream: {upstream}")
     if shadow_rate and shadow_rate > 0:
         print(

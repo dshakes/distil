@@ -156,7 +156,20 @@ distil default --undo     # remove it anytime (backed up before any change)
 It detects your shell (zsh / bash / fish / PowerShell) and billing mode, writes the
 right line to the rc file your shell actually reads, and **tells you what it detected**.
 Want every SDK covered (not just the agent you type)? `distil default --always-on`
-runs a persistent proxy service — powerful, but it's a daemon you keep alive.
+runs a persistent proxy service — powerful, but it pins `ANTHROPIC_BASE_URL`, so
+every client on the machine goes through one local process.
+
+That pin used to be a single point of failure: a proxy that was down for one
+second meant sessions failing with `ConnectionRefused`, an error that names the
+provider rather than distil. It no longer is. The service supervisor
+(launchd/systemd) owns the **listening socket**, so a crash or a restart leaves
+connections queued in the kernel backlog instead of refused — the client waits
+about a second rather than dying. `distil default --always-on` also verifies the
+service is genuinely registered and serving before it wires anything, and refuses
+to wire at all if it isn't.
+
+If you ever need out and distil is already uninstalled, `sh ~/.distil/uninstall.sh`
+removes the pin, the service, and the shell block using nothing but `sh`.
 
 
 </details>
