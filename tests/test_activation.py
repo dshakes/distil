@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import plistlib
 import socket
+import sys
 import threading
 import urllib.request
 
@@ -57,6 +58,9 @@ def test_a_supervisor_we_cannot_talk_to_does_not_prevent_startup(monkeypatch):
     assert activation.inherited_listener() is None
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"), reason="descriptor passing is a POSIX supervisor mechanism"
+)
 def test_systemd_hands_down_its_listener(monkeypatch):
     """LISTEN_FDS protocol: fd 3 is the listening socket."""
     listener = socket.socket()
@@ -142,7 +146,7 @@ def test_launchd_probe_is_safe_to_call_unsupervised():
     Both are the ordinary case for a developer running pytest, and both must come
     back as "no socket handed down" rather than an exception.
     """
-    if os.uname().sysname != "Darwin":
+    if sys.platform != "darwin":
         assert activation._from_launchd() is None
         return
     assert activation._from_launchd() is None  # pytest is not a launchd job
@@ -165,6 +169,9 @@ def test_a_libsystem_without_the_symbol_is_not_fatal(monkeypatch):
     assert activation._from_launchd() is None
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"), reason="descriptor passing is a POSIX supervisor mechanism"
+)
 def test_launchd_hands_down_its_listener(monkeypatch):
     """The success path, faked at the ctypes boundary.
 
@@ -502,7 +509,7 @@ def test_always_on_does_not_wire_the_pin_when_the_service_did_not_start(
     assert "Nothing was wired" in out
 
 
-@pytest.mark.skipif(os.uname().sysname != "Darwin", reason="launchd plist is macOS-only")
+@pytest.mark.skipif(sys.platform != "darwin", reason="launchd plist is macOS-only")
 def test_plist_asks_launchd_to_hold_the_socket():
     """Without this key launchd never creates a socket and activation is dead.
 
