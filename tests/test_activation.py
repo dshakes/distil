@@ -23,6 +23,8 @@ from __future__ import annotations
 import os
 import plistlib
 import socket
+import time
+import shutil
 import sys
 import threading
 import urllib.request
@@ -310,6 +312,130 @@ launchd_only = pytest.mark.skipif(
     sys.platform.startswith("win"),
     reason="launchd domains are uid-addressed; Windows has no os.getuid()",
 )
+
+
+linux_only = pytest.mark.skipif(
+    sys.platform != "linux", reason="systemd socket activation is a Linux mechanism"
+)
+
+
+@linux_only
+def test_socket_activation_survives_a_worker_restart_on_linux(tmp_path):
+    """End-to-end on real Linux: the listener outlives the worker.
+
+    This does exactly what systemd does — bind in the supervisor, place the
+    listener on fd 3, fork, set LISTEN_PID in the child, exec — and then kills the
+    worker mid-flight. If activation regressed, the request after the kill is
+    refused, which is precisely the outage this whole mechanism exists to remove.
+
+    The mocked tests elsewhere in this file prove the wiring; this proves the
+    mechanism, on the platform where it was previously only asserted.
+    """
+    import signal
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    listener = socket.socket()
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(64)
+    port = listener.getsockname()[1]
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - stdlib signature
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"pid=%d" % os.getpid())
+
+        def log_message(self, *a):  # noqa: ANN002
+            pass
+
+    def spawn() -> int:
+        pid = os.fork()
+        if pid:
+            return pid
+        # Child: become the "activated service". os._exit so no pytest teardown runs.
+        try:
+            os.dup2(listener.fileno(), activation._SD_LISTEN_FDS_START)
+            os.set_inheritable(activation._SD_LISTEN_FDS_START, True)
+            os.environ["LISTEN_FDS"] = "1"
+            os.environ["LISTEN_PID"] = str(os.getpid())
+            sock = activation.inherited_listener()
+            if sock is None:
+                os._exit(9)
+            srv = ThreadingHTTPServer(("127.0.0.1", 0), H, bind_and_activate=False)
+            srv.socket.close()
+            srv.socket = sock
+            srv.serve_forever()
+        except BaseException:  # noqa: BLE001 - a child that raises must not become a second pytest
+            os._exit(8)
+        os._exit(0)
+
+    def fetch() -> str:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=15) as r:
+            return r.read().decode()
+
+    first = spawn()
+    try:
+        deadline = time.monotonic() + 15
+        body = ""
+        while time.monotonic() < deadline:
+            try:
+                body = fetch()
+                break
+            except OSError:
+                time.sleep(0.1)
+        assert body == f"pid={first}", f"the activated worker never served: {body!r}"
+
+        os.kill(first, signal.SIGKILL)
+        os.waitpid(first, 0)
+        second = spawn()  # the "restart"; the connection queues in the kernel backlog
+        try:
+            after = fetch()
+            assert after == f"pid={second}", f"served by the wrong process: {after!r}"
+        finally:
+            os.kill(second, signal.SIGKILL)
+            os.waitpid(second, 0)
+    finally:
+        listener.close()
+
+
+@linux_only
+@pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze not installed")
+def test_generated_units_are_valid_to_systemd(tmp_path, monkeypatch, real_service_api):
+    """systemd itself must accept the units — not just our reading of the docs.
+
+    A unit systemd rejects fails at `enable` time on the user's machine, and the
+    only symptom is "the proxy isn't running". Asserting on our own generated
+    strings cannot catch a directive that is misspelled, deprecated, or illegal in
+    the section it was put in; `systemd-analyze verify` can.
+    """
+    import subprocess
+
+    exe = tmp_path / "distil"
+    exe.write_text("#!/bin/sh\nexit 0\n")
+    exe.chmod(0o755)
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda name: str(exe))
+
+    _p, service, _load = real_service_api["service_spec"](8788, "lossless-only")
+    _sp, sock = setup.socket_unit_spec(8788)
+    (tmp_path / "distil-proxy.service").write_text(service)
+    (tmp_path / "distil-proxy.socket").write_text(sock)
+
+    res = subprocess.run(
+        [
+            "systemd-analyze",
+            "verify",
+            str(tmp_path / "distil-proxy.socket"),
+            str(tmp_path / "distil-proxy.service"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    # verify exits non-zero on a real problem and prints to stderr on any complaint.
+    assert res.returncode == 0, f"systemd rejected the units:\n{res.stderr}\n{res.stdout}"
+    assert not res.stderr.strip(), f"systemd complained about the units:\n{res.stderr}"
 
 
 class _Res:
