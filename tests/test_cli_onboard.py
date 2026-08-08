@@ -1210,6 +1210,45 @@ def test_cmd_dashboard_session_exception(tmp_path, monkeypatch, capsys) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_cmd_offboard_removes_the_socket_unit_that_holds_the_port(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """offboard that leaves the systemd socket unit leaves the machine wired.
+
+    The socket unit OWNS the listening port. Removing only the .service reports a
+    clean uninstall while 8788 stays bound and systemd keeps trying to start a
+    service that no longer exists — the same "reports success and isn't one"
+    failure the rest of the uninstall path was hardened against.
+    """
+    import subprocess
+
+    import distil.setup as setup_mod
+    from distil import onboard
+
+    svc = tmp_path / "distil-proxy.service"
+    svc.write_text("[Service]\n")
+    sock = tmp_path / "distil-proxy.socket"
+    sock.write_text("[Socket]\nListenStream=127.0.0.1:8788\n")
+    monkeypatch.setattr(setup_mod, "detect_shell", lambda: ("zsh", tmp_path / ".zshrc"))
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "distil"))
+    monkeypatch.setattr(setup_mod, "default_settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(onboard, "install_method", lambda: "pipx")
+    monkeypatch.setattr(setup_mod, "service_spec", lambda *a, **k: (svc, "content", "load"))
+    monkeypatch.setattr(setup_mod, "socket_unit_spec", lambda port: (sock, "content"))
+    monkeypatch.setattr(setup_mod, "service_unload_cmd", lambda: "true")
+
+    class _OK:
+        returncode = 0
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _OK())
+
+    rc = cli.cmd_offboard(argparse.Namespace(purge=False, yes=True, no_interactive=False))
+    assert rc == 0
+    assert not svc.exists()
+    assert not sock.exists(), "the socket unit survived offboard and still holds the port"
+    assert "removed proxy socket" in capsys.readouterr().out
+
+
 def test_cmd_offboard_yes_removes_service(tmp_path, monkeypatch, capsys) -> None:
     """--yes with an existing proxy service → attempts to remove it (lines 1047-1054)."""
     import subprocess

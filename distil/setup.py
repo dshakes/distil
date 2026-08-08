@@ -564,9 +564,14 @@ if [ -f "$plist" ]; then
     rm -f "$plist" && {{ echo "  removed proxy service $plist"; changed=1; }}
 fi
 unit="$HOME/.config/systemd/user/distil-proxy.service"
-if [ -f "$unit" ]; then
-    systemctl --user disable --now distil-proxy.service 2>/dev/null
+sock="$HOME/.config/systemd/user/distil-proxy.socket"
+# The socket unit OWNS the listening port. Leaving it behind keeps 8788 bound
+# after an uninstall and keeps systemd trying to start a service that is gone.
+if [ -f "$unit" ] || [ -f "$sock" ]; then
+    systemctl --user disable --now distil-proxy.socket distil-proxy.service 2>/dev/null
     rm -f "$unit" && {{ echo "  removed proxy service $unit"; changed=1; }}
+    rm -f "$sock" && {{ echo "  removed proxy socket $sock"; changed=1; }}
+    systemctl --user daemon-reload 2>/dev/null
 fi
 
 # 3 · loopback ANTHROPIC_BASE_URL in Claude Code settings (JSON — needs python3).
@@ -714,17 +719,53 @@ def service_spec(port: int, mode: str) -> tuple[Path | None, str | None, str | N
         # systemd already routes stdout/stderr to the journal, so unlike launchd there
         # is a record by default (`journalctl --user -u distil-proxy`). RestartSec is
         # the same crash-loop guard as ThrottleInterval above.
+        #
+        # Requires=/After= the socket unit is what makes the fault tolerance real
+        # here rather than launchd-only: systemd creates the listening socket, hands
+        # it down as LISTEN_FDS (see distil/activation.py), and holds it across a
+        # restart of this service — so a crash queues connections instead of
+        # refusing them. Without the socket unit the proxy self-binds and the gap
+        # is exactly as wide as it always was.
         content = (
-            "[Unit]\nDescription=distil compression proxy\nAfter=network-online.target\n\n"
+            "[Unit]\nDescription=distil compression proxy\nAfter=network-online.target\n"
+            "Requires=distil-proxy.socket\nAfter=distil-proxy.socket\n\n"
             f"[Service]\nExecStart={distil} proxy --{mode} --port {port}\n"
-            "Restart=always\nRestartSec=10\n\n"
+            "Restart=always\nRestartSec=1\n\n"
             "[Install]\nWantedBy=default.target\n"
         )
         load = (
-            "systemctl --user daemon-reload && systemctl --user enable --now distil-proxy.service"
+            "systemctl --user daemon-reload && "
+            "systemctl --user enable --now distil-proxy.socket distil-proxy.service"
         )
         return path, content, load
     return (None, None, None)
+
+
+def socket_unit_spec(port: int) -> tuple[Path | None, str | None]:
+    """The systemd ``.socket`` unit that owns the listening socket, or (None, None).
+
+    launchd expresses this inside the job's own plist (the ``Sockets`` key), but
+    systemd needs a separate unit — which is why the first cut of this change
+    shipped ``_from_systemd()`` and a README claiming socket activation on both
+    platforms while Linux quietly still self-bound. The claim and the code have to
+    match: without this unit nothing ever sets ``LISTEN_FDS``, and a Linux restart
+    keeps the refused-connection gap the whole change exists to close.
+    """
+    import platform
+
+    if platform.system() != "Linux":
+        return (None, None)
+    if not isinstance(port, int) or not (0 < port < 65536):
+        raise ValueError(f"invalid port {port!r}: expected an integer in 1..65535")
+    path = Path.home() / ".config" / "systemd" / "user" / "distil-proxy.socket"
+    content = (
+        "[Unit]\nDescription=distil compression proxy socket\n\n"
+        f"[Socket]\nListenStream=127.0.0.1:{port}\n"
+        # The service is what accepts; systemd only holds the listener.
+        "Accept=no\n\n"
+        "[Install]\nWantedBy=sockets.target\n"
+    )
+    return path, content
 
 
 def probe_routing(host: str, port: int, *, deadline: float = 10.0) -> tuple[bool, str]:
@@ -935,6 +976,40 @@ def service_reload(port: int) -> tuple[bool, str]:
             )
     elif sysname == "Linux":
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=30)
+        # `enable --now`, not just `restart`. The reload this replaced took the
+        # `load` string from service_spec, which used `enable --now`; dropping to a
+        # bare restart started the proxy for this session only, so after a reboot
+        # the durable ANTHROPIC_BASE_URL pin pointed at a port nothing listened on
+        # — the same outage, one login later. Enabling the socket unit is also what
+        # makes systemd own the listener at all (see socket_unit_spec).
+        res = subprocess.run(
+            [
+                "systemctl",
+                "--user",
+                "enable",
+                "--now",
+                "distil-proxy.socket",
+                "distil-proxy.service",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if res.returncode != 0:
+            return False, f"systemctl enable --now failed: {res.stderr.strip() or res.returncode}"
+        # The socket unit is what survives a restart of the service, so a machine
+        # where it did not come up has the gap this change exists to remove.
+        sock = subprocess.run(
+            ["systemctl", "--user", "is-active", "distil-proxy.socket"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if sock.stdout.strip() != "active":
+            return False, (
+                f"distil-proxy.socket is {sock.stdout.strip() or 'inactive'} — systemd is not "
+                f"holding the listener, so a restart would refuse connections"
+            )
         res = subprocess.run(
             ["systemctl", "--user", "restart", "distil-proxy.service"],
             capture_output=True,
@@ -969,5 +1044,5 @@ def service_unload_cmd() -> str | None:
         path = Path.home() / "Library" / "LaunchAgents" / "com.distil.proxy.plist"
         return f"launchctl unload '{path}' 2>/dev/null"
     if sysname == "Linux":
-        return "systemctl --user disable --now distil-proxy.service 2>/dev/null"
+        return "systemctl --user disable --now distil-proxy.socket distil-proxy.service 2>/dev/null"
     return None

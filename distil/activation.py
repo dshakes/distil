@@ -42,9 +42,11 @@ _SD_LISTEN_FDS_START = 3
 
 def _from_systemd() -> socket.socket | None:
     """The socket from a systemd ``.socket`` unit, via the LISTEN_FDS protocol."""
-    # LISTEN_PID guards against inheriting the variable across an exec into a
-    # child that was never the activated service.
-    if os.environ.get("LISTEN_PID") not in (None, str(os.getpid())):
+    # LISTEN_PID must be present AND ours. Treating a missing value as "probably
+    # for me" is how a stale LISTEN_FDS=1 inherited from an unrelated parent gets
+    # us to adopt whatever happens to be on fd 3 — which for a proxy means serving
+    # traffic on someone else's socket. sd_listen_fds requires the match; so do we.
+    if os.environ.get("LISTEN_PID") != str(os.getpid()):
         return None
     try:
         count = int(os.environ.get("LISTEN_FDS", "0"))

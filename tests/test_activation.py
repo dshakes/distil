@@ -243,9 +243,50 @@ def test_launchd_reporting_zero_sockets_is_not_a_listener(monkeypatch):
 
 
 def test_a_nonnumeric_listen_fds_is_ignored(monkeypatch):
+    """A malformed count must not raise — the proxy still has to start."""
     monkeypatch.setenv("LISTEN_FDS", "not-a-number")
-    monkeypatch.delenv("LISTEN_PID", raising=False)
+    monkeypatch.setenv("LISTEN_PID", str(os.getpid()))  # ours, so the parse is reached
     assert activation._from_systemd() is None
+
+
+def test_zero_listen_fds_is_no_listener(monkeypatch):
+    monkeypatch.setenv("LISTEN_FDS", "0")
+    monkeypatch.setenv("LISTEN_PID", str(os.getpid()))
+    assert activation._from_systemd() is None
+
+
+def test_systemd_query_that_errors_is_not_running(monkeypatch):
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+
+    def boom(*a, **k):
+        raise OSError("systemctl missing")
+
+    monkeypatch.setattr("subprocess.run", boom)
+    ok, why = setup.service_is_running(8788)
+    assert ok is False and "could not query systemd" in why
+
+
+def test_is_running_on_an_unsupported_platform(monkeypatch):
+    monkeypatch.setattr("platform.system", lambda: "Plan9")
+    ok, why = setup.service_is_running(8788)
+    assert ok is False and "no service supervisor" in why
+
+
+def test_linux_reload_reports_a_failed_restart(monkeypatch, real_service_api):
+    """enable succeeded and the socket is up, but the service itself would not start."""
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
+    def fake_run(cmd, *a, **k):
+        if "is-active" in cmd:
+            return _Res(0, "active\n")
+        if "restart" in cmd:
+            return _Res(1, "", "Job for distil-proxy.service failed")
+        return _Res(0, "")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    ok, why = real_service_api["service_reload"](8788)
+    assert ok is False and "restart failed" in why
 
 
 def test_inherited_listener_returns_the_first_source_that_has_one(monkeypatch):
@@ -261,6 +302,16 @@ def test_inherited_listener_returns_the_first_source_that_has_one(monkeypatch):
         sock.close()
 
 
+#: launchd addresses its domains by uid (`gui/$UID`), and Windows has no
+#: os.getuid(). These tests monkeypatch platform.system() to "Darwin", which on a
+#: Windows runner drives the launchd branch on a platform that cannot support it —
+#: so they assert macOS behaviour and are skipped where macOS behaviour is moot.
+launchd_only = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="launchd domains are uid-addressed; Windows has no os.getuid()",
+)
+
+
 class _Res:
     """Stand-in for subprocess.CompletedProcess."""
 
@@ -268,6 +319,7 @@ class _Res:
         self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
 
 
+@launchd_only
 def test_registered_job_with_no_process_is_not_running(monkeypatch):
     """`launchctl print` succeeding is not proof of a running proxy.
 
@@ -285,6 +337,7 @@ def test_registered_job_with_no_process_is_not_running(monkeypatch):
     assert "no running process" in why
 
 
+@launchd_only
 def test_unregistered_job_is_not_running(monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Darwin")
     monkeypatch.setattr("subprocess.run", lambda *a, **k: _Res(1, "", "Could not find service"))
@@ -293,6 +346,7 @@ def test_unregistered_job_is_not_running(monkeypatch):
     assert "no launchd job registered" in why
 
 
+@launchd_only
 def test_running_job_reports_its_pid(monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Darwin")
     monkeypatch.setattr("subprocess.run", lambda *a, **k: _Res(0, "\tpid = 13260\n\truns = 1\n"))
@@ -301,6 +355,7 @@ def test_running_job_reports_its_pid(monkeypatch):
     assert "13260" in why
 
 
+@launchd_only
 def test_reload_fails_loudly_when_bootstrap_fails(monkeypatch, real_service_api):
     """The bug: bootstrap failing was invisible because the legacy `load` exits 0.
 
@@ -323,6 +378,7 @@ def test_reload_fails_loudly_when_bootstrap_fails(monkeypatch, real_service_api)
     assert "NOT registered" in why
 
 
+@launchd_only
 def test_reload_refuses_to_bootstrap_onto_a_held_port(monkeypatch, real_service_api):
     """Bootstrapping while the old proxy still holds the port is the race itself.
 
@@ -348,6 +404,7 @@ def test_systemd_unit_state_decides_running(monkeypatch):
     assert ok is False and "failed" in why
 
 
+@launchd_only
 def test_a_supervisor_query_that_errors_is_not_running(monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Darwin")
 
@@ -372,6 +429,7 @@ def test_reload_reports_a_failed_systemctl(monkeypatch, real_service_api):
     assert ok is False and "unit not found" in why
 
 
+@launchd_only
 def test_darwin_reload_waits_for_the_record_to_clear_then_bootstraps(monkeypatch, real_service_api):
     """The full launchd sequence, in order, with the wait that was missing.
 
@@ -399,6 +457,175 @@ def test_darwin_reload_waits_for_the_record_to_clear_then_bootstraps(monkeypatch
     assert calls[0] == "bootout", "must stop the old job first"
     assert "bootstrap" in calls, "must register the new job"
     assert calls.index("bootout") < calls.index("bootstrap")
+
+
+def test_linux_ships_a_socket_unit_so_the_guarantee_is_real(monkeypatch, real_service_api):
+    """The docs claim systemd owns the listener; without this unit that is false.
+
+    launchd expresses socket activation inside the job's own plist, systemd needs a
+    separate `.socket`. The first cut of this change shipped `_from_systemd()` and
+    a README claiming both platforms while Linux quietly still self-bound — the
+    claim outran the code. If this test is ever deleted, delete the claim with it.
+    """
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    path, content = setup.socket_unit_spec(8788)
+    assert path is not None and path.name == "distil-proxy.socket"
+    assert "ListenStream=127.0.0.1:8788" in content
+    assert "WantedBy=sockets.target" in content
+
+    _p, service, load = real_service_api["service_spec"](8788, "lossless-only")
+    assert "Requires=distil-proxy.socket" in service, "the service must bind to the socket unit"
+    assert "After=distil-proxy.socket" in service
+    # `enable`, not merely `start`: a unit that is not enabled does not come back
+    # after a reboot, while the ANTHROPIC_BASE_URL pin does.
+    assert "enable --now" in load and "distil-proxy.socket" in load
+
+
+def test_no_socket_unit_off_linux(monkeypatch):
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    assert setup.socket_unit_spec(8788) == (None, None)
+
+
+def test_linux_reload_enables_the_units_not_just_restarts_them(monkeypatch, real_service_api):
+    """The regression this file exists to prevent, reintroduced on another platform.
+
+    Replacing service_spec's `enable --now` load command with a bare `restart`
+    started the proxy for the current session only. After a reboot the durable pin
+    still pointed at 127.0.0.1 and nothing was listening — the same outage, one
+    login later.
+    """
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(list(cmd))
+        return _Res(0, "active\n")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    ok, _why = real_service_api["service_reload"](8788)
+    assert ok is True
+    flat = [" ".join(c) for c in calls]
+    assert any("enable --now" in c for c in flat), f"never enabled the units: {flat}"
+    assert any("distil-proxy.socket" in c and "enable" in c for c in flat), (
+        f"the socket unit was not enabled, so systemd never holds the listener: {flat}"
+    )
+
+
+def test_linux_reload_fails_when_the_socket_unit_is_not_active(monkeypatch, real_service_api):
+    """A dead socket unit means the listener is not held — say so, don't wire."""
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
+    def fake_run(cmd, *a, **k):
+        if "is-active" in cmd:
+            return _Res(3, "inactive\n")
+        return _Res(0, "")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    ok, why = real_service_api["service_reload"](8788)
+    assert ok is False
+    assert "not holding the listener" in why
+
+
+def test_listen_fds_without_listen_pid_is_refused(monkeypatch):
+    """A stale LISTEN_FDS from an unrelated parent must not adopt fd 3.
+
+    Accepting a missing LISTEN_PID as "probably mine" would let a proxy serve
+    traffic on somebody else's socket. sd_listen_fds requires the match.
+    """
+    monkeypatch.setenv("LISTEN_FDS", "1")
+    monkeypatch.delenv("LISTEN_PID", raising=False)
+    assert activation._from_systemd() is None
+
+
+def test_undo_removes_the_socket_unit_too(tmp_path, monkeypatch, capsys):
+    """`--undo` that leaves the socket unit leaves the port bound.
+
+    The socket unit is what owns the listener, so an undo that deletes only the
+    service file reports success while 8788 stays held and systemd keeps trying to
+    start a service that is gone.
+    """
+    import argparse
+
+    import distil.setup as setup_mod
+    from distil import cli, onboard
+
+    monkeypatch.setattr(
+        onboard,
+        "detect",
+        lambda: onboard.Env(os_name="Linux", agents=[("claude", "Claude Code")]),
+    )
+    rc_file = tmp_path / ".zshrc"
+    rc_file.write_text("")
+    monkeypatch.setattr(setup_mod, "detect_shell", lambda: ("zsh", rc_file))
+    service = tmp_path / "distil-proxy.service"
+    service.write_text("[Service]\n")
+    sock = tmp_path / "distil-proxy.socket"
+    sock.write_text("[Socket]\n")
+    monkeypatch.setattr(setup_mod, "service_spec", lambda *a, **k: (service, "x", "load"))
+    monkeypatch.setattr(setup_mod, "socket_unit_spec", lambda port: (sock, "y"))
+    monkeypatch.setattr(setup_mod, "claude_settings_files", lambda cwd=None: [])
+
+    rc = cli.cmd_default(
+        argparse.Namespace(
+            undo=True,
+            always_on=True,
+            rc=str(rc_file),
+            port=8788,
+            agent="claude",
+            mode="lossless-only",
+            no_start=False,
+            force=False,
+        )
+    )
+    assert rc == 0
+    assert not service.exists()
+    assert not sock.exists(), "the socket unit survived undo and still holds the port"
+    assert "removed proxy socket" in capsys.readouterr().out
+
+
+@launchd_only
+def test_bootstrap_losing_a_race_to_a_live_proxy_is_success(monkeypatch, real_service_api):
+    """If bootstrap fails but a proxy IS running, that is the goal — not an error.
+
+    Two `distil default` runs, or the keeper and an install racing, can both try to
+    bootstrap. The loser gets a non-zero exit for a job the winner already
+    registered. Reporting that as a failure would tell the user their machine is
+    broken while it is, in fact, serving.
+    """
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    # The exact sequence of `launchctl print` results this path walks:
+    #   1. is-running check in the bootout wait -> no job
+    #   2. the record probe            -> gone, so stop waiting and bootstrap
+    #   3. after a failed bootstrap    -> a pid: someone else won the race
+    #   4. the final guard             -> still that pid, so do not report failure
+    #   5. first poll                  -> no pid yet (exercises the retry sleep)
+    #   6. second poll                 -> the winner's pid
+    prints = iter(
+        [
+            _Res(1, ""),
+            _Res(1, ""),
+            _Res(0, "\tpid = 777\n"),
+            _Res(0, "\tpid = 777\n"),
+            _Res(0, "\tstate = running\n"),
+            _Res(0, "\tpid = 777\n"),
+        ]
+    )
+
+    def fake_run(cmd, *a, **k):
+        if cmd[1] == "print":
+            return next(prints, _Res(0, "\tpid = 777\n"))
+        if cmd[1] == "bootstrap":
+            return _Res(5, "", "Bootstrap failed: 5: Input/output error")
+        return _Res(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    ok, why = real_service_api["service_reload"](8788)
+    assert ok is True, f"a running proxy was reported as a failure: {why}"
+    assert "777" in why
 
 
 def test_reload_succeeds_once_the_unit_reports_active(monkeypatch, real_service_api):

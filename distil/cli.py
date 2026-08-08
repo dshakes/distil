@@ -1966,6 +1966,7 @@ def cmd_default(args: argparse.Namespace) -> int:
         remove_managed,
         service_reload,
         service_spec,
+        socket_unit_spec,
         service_unload_cmd,
         unwire_base_url,
         wire_settings_env,
@@ -1996,6 +1997,15 @@ def cmd_default(args: argparse.Namespace) -> int:
                 print(f"✓ removed proxy service {path}")
             except OSError:
                 pass
+            # The socket unit holds the port; leaving it behind keeps 8788 bound
+            # long after the service it fed is gone.
+            sock_path, _ = socket_unit_spec(args.port)
+            if sock_path is not None and sock_path.exists():
+                try:
+                    sock_path.unlink()
+                    print(f"✓ removed proxy socket {sock_path}")
+                except OSError:
+                    pass
         if agent == "claude":
             # Sweep EVERY settings file Claude Code merges, not just ~/.claude/settings.json,
             # and match on "loopback" rather than on this run's --port. The old undo did the
@@ -2028,6 +2038,15 @@ def cmd_default(args: argparse.Namespace) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"✓ wrote proxy service → {path}")
+        # systemd needs a SEPARATE unit to own the listening socket; launchd
+        # expresses the same thing inside the job's own plist. Without it nothing
+        # sets LISTEN_FDS, the proxy self-binds, and a restart on Linux still
+        # refuses every connection in the gap.
+        sock_path, sock_content = socket_unit_spec(args.port)
+        if sock_path is not None and sock_content is not None:
+            sock_path.parent.mkdir(parents=True, exist_ok=True)
+            sock_path.write_text(sock_content, encoding="utf-8")
+            print(f"✓ wrote proxy socket  → {sock_path}")
         # The service redirects stdout/stderr into this directory; launchd will refuse
         # to start a job whose log path is unwritable, so create it before loading.
         log_dir().mkdir(parents=True, exist_ok=True)
@@ -2135,6 +2154,7 @@ def cmd_offboard(args: argparse.Namespace) -> int:
         remove_managed,
         service_spec,
         service_unload_cmd,
+        socket_unit_spec,
         unwire_base_url,
         unwire_statusline,
     )
@@ -2173,6 +2193,16 @@ def cmd_offboard(args: argparse.Namespace) -> int:
             print(f"✓ removed proxy service {path}")
         except OSError as exc:
             print(f"✗ couldn't remove {path}: {exc}")
+        # The socket unit owns the listening port. Left behind it keeps 8788 bound
+        # after distil is gone, and systemd keeps trying to start a service that
+        # no longer exists — an uninstall that reports success and isn't one.
+        sock_path, _ = socket_unit_spec(8788)
+        if sock_path is not None and sock_path.exists():
+            try:
+                sock_path.unlink()
+                print(f"✓ removed proxy socket {sock_path}")
+            except OSError as exc:
+                print(f"✗ couldn't remove {sock_path}: {exc}")
 
     # 3 · status-line wiring
     sp = default_settings_path()

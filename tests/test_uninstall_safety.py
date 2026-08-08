@@ -309,6 +309,36 @@ def test_escape_hatch_cleans_the_rc_file_that_was_actually_wired(tmp_path, monke
     assert "export MINE=1" in left and "export ALSO_MINE=2" in left
 
 
+def test_escape_hatch_removes_the_systemd_socket_unit(tmp_path, monkeypatch) -> None:
+    """The socket unit OWNS the port — leaving it is leaving the machine wired.
+
+    An orphaned enabled `.socket` keeps 8788 bound after distil is uninstalled and
+    keeps systemd trying to start a service that no longer exists. That is the same
+    "uninstall reports success and isn't one" failure the rest of this file covers.
+    """
+    home = tmp_path / "home"
+    units = home / ".config" / "systemd" / "user"
+    units.mkdir(parents=True)
+    (home / ".claude").mkdir(parents=True)
+    (home / "Library" / "LaunchAgents").mkdir(parents=True)
+    (units / "distil-proxy.service").write_text("[Service]\n")
+    (units / "distil-proxy.socket").write_text("[Socket]\nListenStream=127.0.0.1:8788\n")
+    monkeypatch.setenv("DISTIL_HOME", str(home / ".distil"))
+    path, content = escape_hatch_spec(8788)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    r = subprocess.run(
+        ["sh", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(home)},
+    )
+    assert r.returncode == 0, r.stderr
+    assert not (units / "distil-proxy.socket").exists(), "the socket unit still holds the port"
+    assert not (units / "distil-proxy.service").exists()
+
+
 def test_a_truncated_managed_block_is_reported_not_silently_kept(tmp_path) -> None:
     """Start marker with no end marker must be an error, not a cheerful ✓.
 
@@ -369,7 +399,11 @@ def test_service_logs_its_own_failure(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr("platform.system", lambda: "Linux")
     _, unit, _ = service_spec(8788, "expand")
-    assert "RestartSec=10" in unit  # journald already captures output on this platform
+    # RestartSec=1, matching launchd's ThrottleInterval: with the socket unit
+    # holding the listener, a client's connection is already queued during the
+    # restart, so every extra second is latency on a live request.
+    assert "RestartSec=1\n" in unit  # journald already captures output on this platform
+    assert "Requires=distil-proxy.socket" in unit, "the listener must outlive the service"
 
 
 def test_service_plist_is_well_formed_xml(monkeypatch, tmp_path) -> None:
