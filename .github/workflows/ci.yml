@@ -49,8 +49,11 @@ jobs:
       # opentelemetry-sdk so the trace/counter EXPORT assertions actually run:
       # those tests importorskip, so without the SDK they silently skip and an
       # export that reports zeros would keep CI green.
+      # cryptography is the `oidc` extra. Without it here, the RS256
+      # malformed-key test importorskip'd itself out of every run — a security
+      # assertion that had never once executed, in CI or locally.
       - name: pytest with coverage floor
-        run: uv run --with pytest --with pytest-asyncio --with aiohttp --with pytest-cov --with opentelemetry-sdk python -m pytest -q --cov=distil --cov-fail-under=95
+        run: uv run --with pytest --with pytest-asyncio --with aiohttp --with pytest-cov --with opentelemetry-sdk --with cryptography python -m pytest -q --cov=distil --cov-fail-under=95
 
   gate:
     runs-on: ${{ matrix.os }}
