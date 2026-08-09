@@ -403,3 +403,27 @@ def test_release_smoke_test_cannot_file_a_census_ping() -> None:
     )
     assert first_cli != -1, "smoke block no longer invokes the installed CLI"
     assert isolate_at < first_cli, "DISTIL_HOME is set after the CLI has already run"
+
+
+def test_helm_chart_defaults_to_this_release() -> None:
+    """`appVersion` is the default image tag a Helm install deploys.
+
+    `templates/deployment.yaml` renders
+    `image.tag | default .Chart.AppVersion`, so a stale appVersion silently ships
+    the OLD container to anyone who does not override `image.tag` — they get a
+    release that predates every fix, and nothing tells them. It had already
+    drifted twice (sitting at 1.41.2 through the whole of 1.42.0) because no test
+    looked at it, which is exactly how CITATION.cff drifted before it got a guard.
+    """
+    version = _pyproject()["project"]["version"]
+    chart = (ROOT / "packaging" / "helm" / "distil-gateway" / "Chart.yaml").read_text()
+    app = None
+    for line in chart.splitlines():
+        if line.startswith("appVersion:"):
+            app = line.split(":", 1)[1].strip().strip('"').strip("'")
+            break
+    assert app, "Chart.yaml has no appVersion"
+    assert app == version, (
+        f"Chart.yaml appVersion is {app} but this release is {version} — a default "
+        f"`helm install` would deploy ghcr.io/dshakes/distil:{app}"
+    )
