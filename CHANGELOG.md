@@ -70,10 +70,40 @@ wrap, and a wall of text is skipped exactly by the readers it exists for), and
 `CITATION.cff` gains the drift guard it never had — it was the one version location no
 test pinned, and it had already fallen behind to 1.41.1.
 
-**Confidence is uneven and worth stating plainly.** macOS is proven on real hardware.
-The Linux paths — the socket unit, `enable --now`, the `LISTEN_FDS` handoff — are
-correct by construction and covered by tests against mocked systemd, but have not been
-executed on a real Linux system.
+**`distil shadow-stats` now reports the running build's replay-failure rate, not a
+lifetime average** (#96). The counters accumulated for the life of the install, so
+failures from an already-fixed bug stayed in the displayed rate forever: one install
+read 42% lifetime while the rate since the fix was 5.3%. That does two things, and the
+second is the one that matters — a fixed bug makes the sampler look permanently broken,
+and the next *real* regression has to clear that stale noise floor before anyone
+notices. Counters are now bucketed by version (lifetime totals kept, as context and as
+a trend), and `last_fail_reason` becomes a `fail_reasons` histogram, so a mixed run says
+`1 failed (429×1)` instead of reporting whichever failure happened to land last.
+
+**Socket activation on Linux is now proven rather than asserted.** The launchd half was
+verified on hardware from the start; the systemd half was covered only by tests against
+mocked units. Two Linux-gated tests close that: an end-to-end check that does what
+systemd does (bind, hand the listener down as fd 3, exec, then SIGKILL the worker and
+demand the next request still be served), and `systemd-analyze verify` on the generated
+units — because asserting on our own generated strings cannot catch a directive that is
+misspelled, deprecated, or illegal in the section it was placed in. Both run on the
+Linux CI matrix.
+
+**A security test that had never once executed now does.** `test_authz.py`'s RS256
+malformed-key assertion guards itself with `importorskip("cryptography")`, and the CI
+gate never installed it — so it skipped silently in every run since it was written. The
+same shape as the outage above: a green result that was green because the thing wasn't
+running.
+
+**What is and isn't verified**, since this release changes machine wiring on two
+platforms. macOS is proven on hardware: `kill -9` against the running proxy four times
+returned HTTP 401 every time, and `distil default --always-on` went from roughly a coin
+flip to 5/5 deterministic. On Linux the `LISTEN_FDS` handoff is proven end to end and
+the generated units are accepted by systemd's own parser, both on every CI run. What is
+still *not* covered by a test is systemd actually starting the units and handing the
+descriptor over on a live host — `systemd-analyze verify` proves they are well-formed,
+not that a running systemd wires them. Windows is unaffected by the wiring paths and is
+only verified not to break.
 
 ## [1.41.2] — the escape hatch that wasn't, and a price nobody was charged
 
