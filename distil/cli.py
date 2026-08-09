@@ -2043,22 +2043,24 @@ def cmd_default(args: argparse.Namespace) -> int:
         st, msg = remove_managed(rc)
         print(("✓ " if st in ("ok", "absent") else "✗ ") + msg)
         path, _, _ = service_spec(args.port, mode)
-        if path is not None and path.exists():
+        # NOT nested under the .service file existing. The socket unit is what owns
+        # the port, and it can outlive its service: a partial uninstall, a hand-
+        # deleted .service, or an interrupted upgrade all leave a socket-only
+        # residue that keeps 8788 bound and keeps systemd able to activate on it.
+        # Gating cleanup on the service file meant that residue was never removed.
+        sock_path, _ = socket_unit_spec(args.port)
+        svc_there = path is not None and path.exists()
+        sock_there = sock_path is not None and sock_path.exists()
+        if svc_there or sock_there:
             unload = service_unload_cmd()
-            if unload:  # stop the running service before deleting its definition
+            if unload:  # stop the running units before deleting their definitions
                 subprocess.run(unload, shell=True)
-            try:
-                path.unlink()
-                print(f"✓ removed proxy service {path}")
-            except OSError:
-                pass
-            # The socket unit holds the port; leaving it behind keeps 8788 bound
-            # long after the service it fed is gone.
-            sock_path, _ = socket_unit_spec(args.port)
-            if sock_path is not None and sock_path.exists():
+            for target, label in ((path, "service"), (sock_path, "socket")):
+                if target is None or not target.exists():
+                    continue
                 try:
-                    sock_path.unlink()
-                    print(f"✓ removed proxy socket {sock_path}")
+                    target.unlink()
+                    print(f"✓ removed proxy {label} {target}")
                 except OSError:
                     pass
         if agent == "claude":
@@ -2239,25 +2241,29 @@ def cmd_offboard(args: argparse.Namespace) -> int:
 
     # 2 · always-on proxy service
     path, _, _ = service_spec(8788, "lossless-only")
-    if path is not None and path.exists() and ask(f"Stop + remove the proxy service {path}?"):
+    # As in --undo: a socket unit can outlive its service, and it is the unit that
+    # holds the port. Prompt when EITHER exists, not only when the service does.
+    sock_path, _sc = socket_unit_spec(8788)
+    _svc_there = path is not None and path.exists()
+    _sock_there = sock_path is not None and sock_path.exists()
+    if (_svc_there or _sock_there) and ask(
+        f"Stop + remove the proxy service {path if _svc_there else sock_path}?"
+    ):
         unload = service_unload_cmd()
         if unload:
             subprocess.run(unload, shell=True)
-        try:
-            path.unlink()
-            print(f"✓ removed proxy service {path}")
-        except OSError as exc:
-            print(f"✗ couldn't remove {path}: {exc}")
-        # The socket unit owns the listening port. Left behind it keeps 8788 bound
-        # after distil is gone, and systemd keeps trying to start a service that
-        # no longer exists — an uninstall that reports success and isn't one.
-        sock_path, _ = socket_unit_spec(8788)
-        if sock_path is not None and sock_path.exists():
+        # Remove whichever units are actually present. The socket unit owns the
+        # listening port, so leaving it keeps 8788 bound after distil is gone and
+        # keeps systemd able to activate a service that no longer exists — an
+        # uninstall that reports success and isn't one.
+        for _target, _label in ((path, "service"), (sock_path, "socket")):
+            if _target is None or not _target.exists():
+                continue
             try:
-                sock_path.unlink()
-                print(f"✓ removed proxy socket {sock_path}")
+                _target.unlink()
+                print(f"✓ removed proxy {_label} {_target}")
             except OSError as exc:
-                print(f"✗ couldn't remove {sock_path}: {exc}")
+                print(f"✗ couldn't remove {_target}: {exc}")
 
     # 3 · status-line wiring
     sp = default_settings_path()

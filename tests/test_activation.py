@@ -207,8 +207,9 @@ def test_launchd_hands_down_its_listener(monkeypatch):
             fn.argtypes = fn.restype = None
             return fn
 
-        def free(self, _ptr):  # libc's free — a no-op on a Python-owned array
-            return None
+        #: libc's free — a no-op here, but it must accept an `argtypes`
+        #: assignment the way a real ctypes function pointer does.
+        free = _FakeFree()
 
     monkeypatch.setattr("ctypes.util.find_library", lambda name: "libSystem.dylib")
     monkeypatch.setattr("ctypes.CDLL", lambda *a, **k: _FakeLib())
@@ -236,8 +237,7 @@ def test_launchd_reporting_zero_sockets_is_not_a_listener(monkeypatch):
             fn.argtypes = fn.restype = None
             return fn
 
-        def free(self, _ptr):
-            return None
+        free = _FakeFree()
 
     monkeypatch.setattr("ctypes.util.find_library", lambda name: "libSystem.dylib")
     monkeypatch.setattr("ctypes.CDLL", lambda *a, **k: _FakeLib())
@@ -277,18 +277,19 @@ def test_is_running_on_an_unsupported_platform(monkeypatch):
 def test_linux_reload_reports_a_failed_restart(monkeypatch, real_service_api):
     """enable succeeded and the socket is up, but the service itself would not start."""
     monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
     monkeypatch.setattr("time.sleep", lambda *_: None)
 
     def fake_run(cmd, *a, **k):
         if "is-active" in cmd:
             return _Res(0, "active\n")
-        if "restart" in cmd:
+        if "distil-proxy.service" in cmd and "enable" in cmd:
             return _Res(1, "", "Job for distil-proxy.service failed")
         return _Res(0, "")
 
     monkeypatch.setattr("subprocess.run", fake_run)
     ok, why = real_service_api["service_reload"](8788)
-    assert ok is False and "restart failed" in why
+    assert ok is False and "did not start" in why
 
 
 def test_inherited_listener_returns_the_first_source_that_has_one(monkeypatch):
@@ -438,6 +439,15 @@ def test_generated_units_are_valid_to_systemd(tmp_path, monkeypatch, real_servic
     assert not res.stderr.strip(), f"systemd complained about the units:\n{res.stderr}"
 
 
+class _FakeFree:
+    """Stands in for `libc.free`: callable, and accepts `argtypes` assignment."""
+
+    argtypes = None
+
+    def __call__(self, _ptr):
+        return None
+
+
 class _Res:
     """Stand-in for subprocess.CompletedProcess."""
 
@@ -550,6 +560,7 @@ def test_reload_on_an_unsupported_platform_says_so(monkeypatch, real_service_api
 
 def test_reload_reports_a_failed_systemctl(monkeypatch, real_service_api):
     monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
     monkeypatch.setattr("subprocess.run", lambda cmd, *a, **k: _Res(1, "", "unit not found"))
     ok, why = real_service_api["service_reload"](8788)
     assert ok is False and "unit not found" in why
@@ -602,9 +613,10 @@ def test_linux_ships_a_socket_unit_so_the_guarantee_is_real(monkeypatch, real_se
     _p, service, load = real_service_api["service_spec"](8788, "lossless-only")
     assert "Requires=distil-proxy.socket" in service, "the service must bind to the socket unit"
     assert "After=distil-proxy.socket" in service
-    # `enable`, not merely `start`: a unit that is not enabled does not come back
-    # after a reboot, while the ANTHROPIC_BASE_URL pin does.
-    assert "enable --now" in load and "distil-proxy.socket" in load
+    # The enable/ordering lives in service_reload() now, not in a returned string:
+    # the old service must be STOPPED before the socket unit can bind, which a
+    # single `enable --now socket service` command cannot express.
+    assert load == "service_reload"
 
 
 def test_no_socket_unit_off_linux(monkeypatch):
@@ -621,6 +633,7 @@ def test_linux_reload_enables_the_units_not_just_restarts_them(monkeypatch, real
     login later.
     """
     monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
     monkeypatch.setattr("time.sleep", lambda *_: None)
     calls: list[list[str]] = []
 
@@ -632,15 +645,95 @@ def test_linux_reload_enables_the_units_not_just_restarts_them(monkeypatch, real
     ok, _why = real_service_api["service_reload"](8788)
     assert ok is True
     flat = [" ".join(c) for c in calls]
-    assert any("enable --now" in c for c in flat), f"never enabled the units: {flat}"
-    assert any("distil-proxy.socket" in c and "enable" in c for c in flat), (
+    assert any("enable --now distil-proxy.socket" in c for c in flat), (
         f"the socket unit was not enabled, so systemd never holds the listener: {flat}"
+    )
+    assert any("enable --now distil-proxy.service" in c for c in flat), (
+        f"the service was started but never ENABLED, so it dies at reboot: {flat}"
+    )
+
+
+def test_linux_rerun_on_an_already_activated_install(monkeypatch, real_service_api):
+    """The common case: re-running `--always-on` on a machine already socket-activated.
+
+    The socket unit holds the port BY DESIGN and keeps holding it after the
+    service stops — that is the feature. Stopping only the service and then
+    demanding a free port aborts every normal re-run while fixing the rarer
+    upgrade-from-self-binding case.
+
+    This drives the REAL `_port_free` against a really-held socket. The earlier
+    version of this test monkeypatched `_port_free` to True, which mocked away the
+    exact check under test and is why the bug shipped.
+    """
+    held = socket.socket()
+    held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    held.bind(("127.0.0.1", 0))
+    held.listen(8)
+    port = held.getsockname()[1]
+
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(list(cmd))
+        # Stopping the SOCKET unit is what actually frees the port; stopping only
+        # the service leaves it held, exactly as systemd behaves.
+        if "stop" in cmd and "distil-proxy.socket" in cmd:
+            held.close()
+        return _Res(0, "active\n")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    try:
+        ok, why = real_service_api["service_reload"](port)
+    finally:
+        try:
+            held.close()
+        except OSError:
+            pass
+    assert ok is True, f"a normal re-run on an activated install failed: {why}"
+    stop = next(c for c in calls if "stop" in c)
+    assert "distil-proxy.socket" in stop, (
+        f"the socket unit was never stopped, so the port it legitimately holds "
+        f"would look like 'something else is listening': {stop}"
+    )
+
+
+def test_linux_upgrade_stops_the_old_service_before_claiming_the_port(
+    monkeypatch, real_service_api
+):
+    """The upgrade path, which shipped broken in 1.42.0.
+
+    Before 1.42 the service self-bound the port and there was no socket unit. On
+    upgrade that old service is still RUNNING and still owns 127.0.0.1:PORT, so
+    `enable --now distil-proxy.socket` cannot bind and fails — after cmd_default
+    has already overwritten the unit files. Stopping the service must come first.
+    """
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    calls: list[list[str]] = []
+    # The port only frees once the old service has actually been stopped.
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: any("stop" in c for c in calls))
+
+    def fake_run(cmd, *a, **k):
+        calls.append(list(cmd))
+        return _Res(0, "active\n")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    ok, why = real_service_api["service_reload"](8788)
+    assert ok is True, f"the upgrade path failed: {why}"
+    flat = [" ".join(c) for c in calls]
+    stop_i = next(i for i, c in enumerate(flat) if " stop " in f" {c} ")
+    sock_i = next(i for i, c in enumerate(flat) if "enable --now distil-proxy.socket" in c)
+    assert stop_i < sock_i, (
+        f"the socket unit was started while the old service still held the port: {flat}"
     )
 
 
 def test_linux_reload_fails_when_the_socket_unit_is_not_active(monkeypatch, real_service_api):
     """A dead socket unit means the listener is not held — say so, don't wire."""
     monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
     monkeypatch.setattr("time.sleep", lambda *_: None)
 
     def fake_run(cmd, *a, **k):
@@ -663,6 +756,51 @@ def test_listen_fds_without_listen_pid_is_refused(monkeypatch):
     monkeypatch.setenv("LISTEN_FDS", "1")
     monkeypatch.delenv("LISTEN_PID", raising=False)
     assert activation._from_systemd() is None
+
+
+def test_undo_removes_a_socket_unit_whose_service_is_already_gone(tmp_path, monkeypatch, capsys):
+    """Socket-only residue: the case the socket unit itself made possible.
+
+    Cleanup used to be nested under the .service file existing, so a partial
+    uninstall, a hand-deleted .service, or an interrupted upgrade left a socket
+    unit that still owns the port and can still activate — with nothing to
+    activate. `--undo` reported success and left the machine wired.
+    """
+    import argparse
+
+    import distil.setup as setup_mod
+    from distil import cli, onboard
+
+    monkeypatch.setattr(
+        onboard,
+        "detect",
+        lambda: onboard.Env(os_name="Linux", agents=[("claude", "Claude Code")]),
+    )
+    rc_file = tmp_path / ".zshrc"
+    rc_file.write_text("")
+    monkeypatch.setattr(setup_mod, "detect_shell", lambda: ("zsh", rc_file))
+    missing_service = tmp_path / "distil-proxy.service"  # deliberately NOT created
+    sock = tmp_path / "distil-proxy.socket"
+    sock.write_text("[Socket]\nListenStream=127.0.0.1:8788\n")
+    monkeypatch.setattr(setup_mod, "service_spec", lambda *a, **k: (missing_service, "x", "load"))
+    monkeypatch.setattr(setup_mod, "socket_unit_spec", lambda port: (sock, "y"))
+    monkeypatch.setattr(setup_mod, "claude_settings_files", lambda cwd=None: [])
+
+    rc = cli.cmd_default(
+        argparse.Namespace(
+            undo=True,
+            always_on=True,
+            rc=str(rc_file),
+            port=8788,
+            agent="claude",
+            mode="lossless-only",
+            no_start=False,
+            force=False,
+        )
+    )
+    assert rc == 0
+    assert not sock.exists(), "an orphan socket unit still holds the port after undo"
+    assert "removed proxy socket" in capsys.readouterr().out
 
 
 def test_undo_removes_the_socket_unit_too(tmp_path, monkeypatch, capsys):
@@ -757,6 +895,7 @@ def test_bootstrap_losing_a_race_to_a_live_proxy_is_success(monkeypatch, real_se
 def test_reload_succeeds_once_the_unit_reports_active(monkeypatch, real_service_api):
     """The happy path: restart, then poll until the supervisor confirms a process."""
     monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
     states = iter(["activating\n", "activating\n", "active\n"])
     monkeypatch.setattr("subprocess.run", lambda cmd, *a, **k: _Res(0, next(states, "active\n")))
     monkeypatch.setattr("time.sleep", lambda *_: None)
@@ -766,16 +905,25 @@ def test_reload_succeeds_once_the_unit_reports_active(monkeypatch, real_service_
 
 
 def test_reload_gives_up_rather_than_hanging(monkeypatch, real_service_api):
-    """A unit that restarts but never becomes active must return, not block.
+    """A unit that starts but never becomes active must return, not block.
 
-    `distil default` calls this synchronously; an unbounded wait here would hang
-    the install instead of reporting a failure the user can act on.
+    `distil default` calls this synchronously; an unbounded wait would hang the
+    install instead of reporting a failure the user can act on.
     """
     monkeypatch.setattr("platform.system", lambda: "Linux")
-    monkeypatch.setattr("subprocess.run", lambda cmd, *a, **k: _Res(0, "activating\n"))
+    monkeypatch.setattr(setup, "_port_free", lambda port, **k: True)
     monkeypatch.setattr("time.sleep", lambda *_: None)
-    clock = iter([0.0] + [i * 2.0 for i in range(1, 40)])
-    monkeypatch.setattr("time.monotonic", lambda: next(clock, 999.0))
+
+    def fake_run(cmd, *a, **k):
+        # The socket comes up; the SERVICE never leaves "activating", so the
+        # confirmation poll must time out rather than spin forever.
+        if "is-active" in cmd:
+            return _Res(0, "active\n" if "distil-proxy.socket" in cmd else "activating\n")
+        return _Res(0, "")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    clock = iter([0.0] + [i * 2.0 for i in range(1, 60)])
+    monkeypatch.setattr("time.monotonic", lambda: next(clock, 9999.0))
     ok, why = real_service_api["service_reload"](8788)
     assert ok is False
     assert "activating" in why or "did not come up" in why

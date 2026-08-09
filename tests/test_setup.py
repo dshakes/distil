@@ -244,13 +244,21 @@ def test_service_spec_per_platform(monkeypatch) -> None:
     path, content, load = service_spec(8788, "lossless-only")
     assert path.name == "com.distil.proxy.plist"
     assert "--lossless-only" in content and "8788" in content
-    assert "launchctl" in load
+    # The third element is a MARKER ("this platform has a service"), not a command.
+    # It used to be `launchctl unload; launchctl load` — the racy pair that started
+    # jobs which died on EADDRINUSE while reporting success. Keeping a runnable
+    # string here left that command one `subprocess.run(...[2])` from returning.
+    assert load == "service_reload"
+    assert "launchctl load" not in load
 
     monkeypatch.setattr("platform.system", lambda: "Linux")
     path, content, load = service_spec(9000, "expand")
     assert path.name == "distil-proxy.service"
     assert "ExecStart=" in content and "--expand" in content and "9000" in content
-    assert "systemctl" in load
+    # Same marker as Darwin: service_reload() owns the ordering, because on Linux
+    # the old self-binding service must be stopped before the socket unit can bind
+    # — which no single `enable --now` string can express.
+    assert load == "service_reload"
 
     monkeypatch.setattr("platform.system", lambda: "Windows")
     assert service_spec(8788, "expand") == (None, None, None)  # unsupported → graceful
