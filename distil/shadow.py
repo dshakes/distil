@@ -583,6 +583,10 @@ class ShadowCounters:
 
     _FILENAME = "shadow_counters.json"
 
+    #: Resolved once per process: `_current_version()` imports hotswap lazily, and
+    #: this runs on every flush from the background shadow thread.
+    _VERSION_CACHE: str | None = None
+
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or (_state_dir() / self._FILENAME)
         self._lock = threading.Lock()
@@ -646,6 +650,40 @@ class ShadowCounters:
                         data = {}
                     for k, v in deltas.items():
                         data[k] = data.get(k, 0) + v
+                    # Per-version buckets, mirroring what ShadowLedger already does
+                    # for its rows. Without them these counters accumulate for the
+                    # life of the install, so failures from an ALREADY-FIXED bug stay
+                    # in the displayed rate forever: the temperature-0 replay bug
+                    # (fixed in 8c744df) left 295/323 failures behind, which held the
+                    # lifetime rate at 42% while the real rate since the fix was 5.3%.
+                    #
+                    # Two costs, and the second is the one that matters: a fixed bug
+                    # makes the sampler look broken, and the next REAL regression has
+                    # to clear that stale noise floor before anyone can see it.
+                    #
+                    # Deliberately NOT resetting on a version change — that would lose
+                    # the trend and make the opposite mistake, hiding a rate that
+                    # degrades across releases. Lifetime totals stay for continuity.
+                    by_version = data.get("by_version")
+                    if not isinstance(by_version, dict):
+                        by_version = {}
+                    bucket = by_version.get(_counter_version())
+                    if not isinstance(bucket, dict):
+                        bucket = {}
+                    for k, v in deltas.items():
+                        bucket[k] = int(bucket.get(k, 0)) + v
+                    if fail_reason:
+                        # A histogram, not a single value. `last_fail_reason` keeps
+                        # only the most recent, so a run mixing 400s, 429s and
+                        # exceptions reported whichever landed last — which turned
+                        # diagnosing the above into archaeology.
+                        reasons = bucket.get("fail_reasons")
+                        if not isinstance(reasons, dict):
+                            reasons = {}
+                        reasons[fail_reason] = int(reasons.get(fail_reason, 0)) + 1
+                        bucket["fail_reasons"] = reasons
+                    by_version[_counter_version()] = bucket
+                    data["by_version"] = by_version
                     if fail_reason:
                         data["last_fail_reason"] = fail_reason
                     f.seek(0)
@@ -676,6 +714,13 @@ class ShadowCounters:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except OSError:
             return {}
+
+
+def _counter_version() -> str:
+    """The version bucket key for the shadow counters (memoised)."""
+    if ShadowCounters._VERSION_CACHE is None:
+        ShadowCounters._VERSION_CACHE = _current_version()
+    return ShadowCounters._VERSION_CACHE
 
 
 def compare_decisions(compressed_resp: Any, original_resp: Any) -> bool:

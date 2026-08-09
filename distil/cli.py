@@ -1280,14 +1280,33 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
     if led.samples == 0:
         _attempted = _ctrs.get("replay_attempted", 0)
         if _attempted > 0:
-            _seen = _ctrs.get("requests_seen", 0)
-            _sampled = _ctrs.get("sampled", 0)
-            _failed = _ctrs.get("replay_failed", 0)
-            _reason = _ctrs.get("last_fail_reason", "")
-            _skipped = _ctrs.get("signature_none_skipped", 0)
-            _reason_str = f" (last: {_reason})" if _reason else ""
+            # Same lifetime-vs-running-build problem as the reporting path below:
+            # prefer THIS build's counters, because a fixed bug's failures live in
+            # the lifetime totals forever and make a working sampler look broken.
+            from .shadow import _counter_version
+
+            _bv = _ctrs.get("by_version")
+            _cur = _bv.get(_counter_version()) if isinstance(_bv, dict) else None
+            _src = _cur if isinstance(_cur, dict) and _cur.get("replay_attempted") else _ctrs
+            _scope = (
+                f" ({_counter_version()})"
+                if _src is not _ctrs
+                else " (lifetime — no replays yet on this build)"
+            )
+            _attempted = _src.get("replay_attempted", 0)
+            _seen = _src.get("requests_seen", 0)
+            _sampled = _src.get("sampled", 0)
+            _failed = _src.get("replay_failed", 0)
+            _skipped = _src.get("signature_none_skipped", 0)
+            _reasons = _src.get("fail_reasons")
+            if isinstance(_reasons, dict) and _reasons:
+                _top = sorted(_reasons.items(), key=lambda kv: -kv[1])[:3]
+                _reason_str = " (" + ", ".join(f"{k}×{v}" for k, v in _top) + ")"
+            else:
+                _reason = _src.get("last_fail_reason", "")
+                _reason_str = f" (last: {_reason})" if _reason else ""
             print(
-                f"Shadow counters: {_seen} seen, {_sampled} sampled, "
+                f"Shadow counters{_scope}: {_seen} seen, {_sampled} sampled, "
                 f"{_attempted} replay{'s' if _attempted != 1 else ''} attempted, "
                 f"{_failed} failed{_reason_str}"
             )
@@ -1345,17 +1364,53 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
         "equivalence\n  means the agent chose the same next action. Numbers only, never content."
     )
     if _ctrs:
-        _seen = _ctrs.get("requests_seen", 0)
-        _sampled = _ctrs.get("sampled", 0)
-        _attempted = _ctrs.get("replay_attempted", 0)
-        _failed = _ctrs.get("replay_failed", 0)
-        _reason = _ctrs.get("last_fail_reason", "")
-        _recorded = _ctrs.get("recorded", 0)
-        _reason_str = f" (last: {_reason})" if _reason and _failed else ""
-        print(
-            f"\n  Sampling: {_seen} seen, {_sampled} sampled, "
-            f"{_attempted} attempted, {_failed} failed{_reason_str}, {_recorded} recorded"
-        )
+        # The RUNNING build's rate is the health signal; lifetime is context.
+        #
+        # These counters accumulate for the life of the install, so failures from a
+        # fixed bug stay in the displayed rate forever. Concretely: the temperature-0
+        # replay bug (fixed in 8c744df) left 295/323 failures behind, which pinned the
+        # lifetime rate at 42% while the rate since the fix was 5.3%. That does two
+        # things, and the second is the one that matters — a fixed bug makes the
+        # sampler look broken, and the next REAL regression has to clear a 42% noise
+        # floor before anyone notices it.
+        from .shadow import _counter_version
+
+        _by_version = _ctrs.get("by_version")
+        _cur = _by_version.get(_counter_version()) if isinstance(_by_version, dict) else None
+
+        def _line(src: dict, label: str) -> str:
+            seen, sampled = src.get("requests_seen", 0), src.get("sampled", 0)
+            attempted, failed = src.get("replay_attempted", 0), src.get("replay_failed", 0)
+            recorded = src.get("recorded", 0)
+            # A histogram, so a run mixing 400s, 429s and exceptions says so —
+            # `last_fail_reason` kept only the most recent, which made diagnosing
+            # the above archaeology rather than a read.
+            reasons = src.get("fail_reasons")
+            if isinstance(reasons, dict) and reasons:
+                top = sorted(reasons.items(), key=lambda kv: -kv[1])[:3]
+                why = " (" + ", ".join(f"{k}×{v}" for k, v in top) + ")"
+            else:
+                last = src.get("last_fail_reason", "")
+                why = f" (last: {last})" if last and failed else ""
+            rate = f" — {failed / attempted * 100:.1f}% of replays" if attempted and failed else ""
+            return (
+                f"  {label}: {seen} seen, {sampled} sampled, {attempted} attempted, "
+                f"{failed} failed{why}, {recorded} recorded{rate}"
+            )
+
+        print()
+        if isinstance(_cur, dict) and _cur:
+            print(_line(_cur, f"Sampling ({_counter_version()})"))
+            if _ctrs.get("replay_attempted", 0) > _cur.get("replay_attempted", 0):
+                print(_line(_ctrs, "  lifetime"))
+                print(
+                    "  (lifetime spans every build ever installed, including ones whose "
+                    "bugs are fixed —\n   judge the running build by its own line.)"
+                )
+        else:
+            # No per-version bucket yet: an install that has not shadowed anything
+            # since upgrading. Lifetime is all there is, and saying so is the point.
+            print(_line(_ctrs, "Sampling (lifetime — no samples yet on this build)"))
     return 0
 
 
