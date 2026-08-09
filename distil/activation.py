@@ -40,6 +40,20 @@ _LAUNCHD_SOCKET_NAME = b"Listeners"
 _SD_LISTEN_FDS_START = 3
 
 
+def _close_extra_fds(fds) -> None:
+    """Close descriptors we were handed but will not serve on.
+
+    Left open, a second listener accepts nothing: the kernel keeps queueing
+    connections onto a backlog no one drains, so clients hang rather than fail.
+    A hang is worse than a refusal — nothing surfaces an error to act on.
+    """
+    for fd in fds:
+        try:
+            os.close(int(fd))
+        except OSError:  # pragma: no cover - already closed / not ours
+            pass
+
+
 def _from_systemd() -> socket.socket | None:
     """The socket from a systemd ``.socket`` unit, via the LISTEN_FDS protocol."""
     # LISTEN_PID must be present AND ours. Treating a missing value as "probably
@@ -54,6 +68,13 @@ def _from_systemd() -> socket.socket | None:
         return None
     if count < 1:
         return None
+    # A dual-stack socket unit (ListenStream twice, e.g. IPv4 + IPv6) passes down
+    # MORE than one descriptor. We serve on the first; the rest must be closed
+    # rather than left open. Leaking them would be the lesser problem — the real
+    # one is that connections arriving on an unaccepted listener sit in the kernel
+    # backlog forever, so a client hangs instead of failing, which is worse than a
+    # refusal because nothing times out quickly enough to look like an error.
+    _close_extra_fds(range(_SD_LISTEN_FDS_START + 1, _SD_LISTEN_FDS_START + count))
     return socket.socket(fileno=_SD_LISTEN_FDS_START)
 
 
@@ -85,8 +106,15 @@ def _from_launchd() -> socket.socket | None:
     if count.value < 1:
         return None
     sock = socket.socket(fileno=fds[0])
+    # Same dual-stack case as systemd above: launchd hands down one descriptor per
+    # ListenStream under the name. Serve the first, close the rest.
+    if count.value > 1:
+        _close_extra_fds(fds[i] for i in range(1, count.value))
     # The array is malloc'd by libSystem and owned by us; the descriptors inside
-    # it are now owned by `sock`, so only the array itself is freed.
+    # it are now owned by `sock` (or closed above), so only the array is freed.
+    # argtypes is set explicitly: ctypes' default conversion happens to pass a
+    # 64-bit pointer correctly today, but "happens to" is not a contract.
+    libc.free.argtypes = [ctypes.c_void_p]
     libc.free(fds)
     return sock
 

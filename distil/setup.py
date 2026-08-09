@@ -712,8 +712,13 @@ def service_spec(port: int, mode: str) -> tuple[Path | None, str | None, str | N
             f"  <key>StandardErrorPath</key><string>{_xml(str(logdir / 'proxy.err'))}</string>\n"
             "</dict></plist>\n"
         )
-        load = f"launchctl unload '{path}' 2>/dev/null; launchctl load '{path}'"
-        return path, content, load
+        # NOT a command any more. `cmd_default` calls `service_reload()`, which
+        # waits for the job record to clear and verifies registration; this third
+        # element survives only as the "this platform has a service" flag callers
+        # test for truthiness. Returning the old `unload; load` string here left
+        # the exact command that caused the outage sitting in a public API, one
+        # `subprocess.run(service_spec(...)[2])` away from being reintroduced.
+        return path, content, "service_reload"
     if sysname == "Linux":
         path = home / ".config" / "systemd" / "user" / "distil-proxy.service"
         # systemd already routes stdout/stderr to the journal, so unlike launchd there
@@ -733,11 +738,10 @@ def service_spec(port: int, mode: str) -> tuple[Path | None, str | None, str | N
             "Restart=always\nRestartSec=1\n\n"
             "[Install]\nWantedBy=default.target\n"
         )
-        load = (
-            "systemctl --user daemon-reload && "
-            "systemctl --user enable --now distil-proxy.socket distil-proxy.service"
-        )
-        return path, content, load
+        # See the Darwin branch: a marker, not a command. service_reload() owns the
+        # ordering, which matters here — the old service must be stopped before the
+        # socket unit can bind.
+        return path, content, "service_reload"
     return (None, None, None)
 
 
@@ -906,6 +910,23 @@ def _port_free(port: int, *, deadline: float = 8.0) -> bool:
         time.sleep(0.25)
 
 
+def _run(cmd: list[str], *, timeout: float = 30.0):
+    """Run a supervisor command, or return None if it could not be run at all.
+
+    `service_is_running` already guarded its subprocess calls; `service_reload`
+    did not, so a `launchctl`/`systemctl` that hung past its timeout or could not
+    be executed surfaced as a raw traceback out of `distil default` — a stack
+    trace where the user needed a sentence. Callers treat None as "could not talk
+    to the supervisor" and say so.
+    """
+    import subprocess
+
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def service_reload(port: int) -> tuple[bool, str]:
     """Stop, restart, and PROVE the always-on service came back.
 
@@ -917,18 +938,13 @@ def service_reload(port: int) -> tuple[bool, str]:
     that a leftover process can satisfy.
     """
     import platform
-    import subprocess
     import time
 
     sysname = platform.system()
     if sysname == "Darwin":
         path = Path.home() / "Library" / "LaunchAgents" / "com.distil.proxy.plist"
         domain = f"gui/{os.getuid()}"
-        subprocess.run(
-            ["launchctl", "bootout", f"{domain}/com.distil.proxy"],
-            capture_output=True,
-            timeout=20,
-        )
+        _run(["launchctl", "bootout", f"{domain}/com.distil.proxy"], timeout=20)
         # bootout is asynchronous in *two* ways, and both have to be waited out.
         # The job lingers in a `SIGTERMed` state after the call returns, and
         # bootstrapping into a domain that still holds a record for the label
@@ -939,12 +955,8 @@ def service_reload(port: int) -> tuple[bool, str]:
         deadline = time.monotonic() + 20.0
         while time.monotonic() < deadline:
             if not service_is_running(port)[0]:
-                probe = subprocess.run(
-                    ["launchctl", "print", f"{domain}/com.distil.proxy"],
-                    capture_output=True,
-                    timeout=10,
-                )
-                if probe.returncode != 0:  # no record at all — safe to bootstrap
+                probe = _run(["launchctl", "print", f"{domain}/com.distil.proxy"], timeout=10)
+                if probe is None or probe.returncode != 0:  # no record at all — safe to bootstrap
                     break
             time.sleep(0.25)
         if not _port_free(port):
@@ -957,12 +969,9 @@ def service_reload(port: int) -> tuple[bool, str]:
         # into a non-event instead of a machine with no registered job.
         boot = None
         for attempt in range(8):
-            boot = subprocess.run(
-                ["launchctl", "bootstrap", domain, str(path)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            boot = _run(["launchctl", "bootstrap", domain, str(path)], timeout=30)
+            if boot is None:
+                return False, "could not talk to launchd (launchctl bootstrap did not run)"
             if boot.returncode == 0:
                 break
             if service_is_running(port)[0]:
@@ -975,49 +984,50 @@ def service_reload(port: int) -> tuple[bool, str]:
                 f"registered, so nothing will restart it"
             )
     elif sysname == "Linux":
-        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=30)
-        # `enable --now`, not just `restart`. The reload this replaced took the
-        # `load` string from service_spec, which used `enable --now`; dropping to a
-        # bare restart started the proxy for this session only, so after a reboot
-        # the durable ANTHROPIC_BASE_URL pin pointed at a port nothing listened on
-        # — the same outage, one login later. Enabling the socket unit is also what
-        # makes systemd own the listener at all (see socket_unit_spec).
-        res = subprocess.run(
-            [
-                "systemctl",
-                "--user",
-                "enable",
-                "--now",
-                "distil-proxy.socket",
-                "distil-proxy.service",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if res.returncode != 0:
-            return False, f"systemctl enable --now failed: {res.stderr.strip() or res.returncode}"
-        # The socket unit is what survives a restart of the service, so a machine
-        # where it did not come up has the gap this change exists to remove.
-        sock = subprocess.run(
-            ["systemctl", "--user", "is-active", "distil-proxy.socket"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if sock.stdout.strip() != "active":
+        _run(["systemctl", "--user", "daemon-reload"], timeout=30)
+        # ORDER MATTERS, and getting it wrong breaks every upgrade.
+        #
+        # Before 1.42 the service self-bound the port; there was no socket unit. On
+        # an upgrade that old service is still RUNNING and still owns 127.0.0.1:PORT,
+        # so `enable --now distil-proxy.socket` cannot bind and fails — after
+        # cmd_default has already overwritten the unit files. The user is left with
+        # new units, a failure message, and the old proxy still holding the port.
+        #
+        # So: stop the service first (freeing the port), start the SOCKET (systemd
+        # takes ownership of the listener), then start the service, which now
+        # receives the descriptor instead of binding for itself.
+        stopped = _run(["systemctl", "--user", "stop", "distil-proxy.service"], timeout=60)
+        if stopped is None:
+            return False, "could not talk to systemd (systemctl stop did not run)"
+        if not _port_free(port):
             return False, (
-                f"distil-proxy.socket is {sock.stdout.strip() or 'inactive'} — systemd is not "
-                f"holding the listener, so a restart would refuse connections"
+                f"port {port} is still held after stopping distil-proxy.service — "
+                f"something else is listening there. Find it with: "
+                f"lsof -nP -iTCP:{port} -sTCP:LISTEN"
             )
-        res = subprocess.run(
-            ["systemctl", "--user", "restart", "distil-proxy.service"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        res = _run(["systemctl", "--user", "enable", "--now", "distil-proxy.socket"], timeout=60)
+        if res is None:
+            return False, "could not talk to systemd (systemctl enable --now socket)"
         if res.returncode != 0:
-            return False, f"systemctl restart failed: {res.stderr.strip() or res.returncode}"
+            return False, (
+                f"could not enable distil-proxy.socket: {res.stderr.strip() or res.returncode}"
+            )
+        # The socket unit is what survives a restart of the service, so a machine
+        # where it did not come up still has the gap this change exists to remove.
+        sock = _run(["systemctl", "--user", "is-active", "distil-proxy.socket"], timeout=30)
+        if sock is None or sock.stdout.strip() != "active":
+            state = "unknown" if sock is None else (sock.stdout.strip() or "inactive")
+            return False, (
+                f"distil-proxy.socket is {state} — systemd is not holding the listener, "
+                f"so a restart would refuse connections"
+            )
+        res = _run(["systemctl", "--user", "enable", "--now", "distil-proxy.service"], timeout=60)
+        if res is None:
+            return False, "could not talk to systemd (systemctl enable --now service)"
+        if res.returncode != 0:
+            return False, (
+                f"distil-proxy.service did not start: {res.stderr.strip() or res.returncode}"
+            )
     else:
         return False, f"no service supervisor known for {sysname}"
 
