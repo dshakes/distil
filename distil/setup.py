@@ -996,12 +996,21 @@ def service_reload(port: int) -> tuple[bool, str]:
         # So: stop the service first (freeing the port), start the SOCKET (systemd
         # takes ownership of the listener), then start the service, which now
         # receives the descriptor instead of binding for itself.
-        stopped = _run(["systemctl", "--user", "stop", "distil-proxy.service"], timeout=60)
+        # BOTH units, and the socket especially. On an install that is already
+        # socket-activated the socket unit holds the port BY DESIGN and keeps
+        # holding it after the service stops — that is the whole feature. Stopping
+        # only the service and then demanding a free port therefore fails on every
+        # normal re-run of `distil default --always-on`, which is the common case,
+        # while fixing the rarer upgrade-from-self-binding one. Stop both.
+        stopped = _run(
+            ["systemctl", "--user", "stop", "distil-proxy.socket", "distil-proxy.service"],
+            timeout=60,
+        )
         if stopped is None:
             return False, "could not talk to systemd (systemctl stop did not run)"
         if not _port_free(port):
             return False, (
-                f"port {port} is still held after stopping distil-proxy.service — "
+                f"port {port} is still held after stopping distil-proxy.socket and .service — "
                 f"something else is listening there. Find it with: "
                 f"lsof -nP -iTCP:{port} -sTCP:LISTEN"
             )

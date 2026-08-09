@@ -653,6 +653,52 @@ def test_linux_reload_enables_the_units_not_just_restarts_them(monkeypatch, real
     )
 
 
+def test_linux_rerun_on_an_already_activated_install(monkeypatch, real_service_api):
+    """The common case: re-running `--always-on` on a machine already socket-activated.
+
+    The socket unit holds the port BY DESIGN and keeps holding it after the
+    service stops — that is the feature. Stopping only the service and then
+    demanding a free port aborts every normal re-run while fixing the rarer
+    upgrade-from-self-binding case.
+
+    This drives the REAL `_port_free` against a really-held socket. The earlier
+    version of this test monkeypatched `_port_free` to True, which mocked away the
+    exact check under test and is why the bug shipped.
+    """
+    held = socket.socket()
+    held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    held.bind(("127.0.0.1", 0))
+    held.listen(8)
+    port = held.getsockname()[1]
+
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(list(cmd))
+        # Stopping the SOCKET unit is what actually frees the port; stopping only
+        # the service leaves it held, exactly as systemd behaves.
+        if "stop" in cmd and "distil-proxy.socket" in cmd:
+            held.close()
+        return _Res(0, "active\n")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    try:
+        ok, why = real_service_api["service_reload"](port)
+    finally:
+        try:
+            held.close()
+        except OSError:
+            pass
+    assert ok is True, f"a normal re-run on an activated install failed: {why}"
+    stop = next(c for c in calls if "stop" in c)
+    assert "distil-proxy.socket" in stop, (
+        f"the socket unit was never stopped, so the port it legitimately holds "
+        f"would look like 'something else is listening': {stop}"
+    )
+
+
 def test_linux_upgrade_stops_the_old_service_before_claiming_the_port(
     monkeypatch, real_service_api
 ):
@@ -677,7 +723,7 @@ def test_linux_upgrade_stops_the_old_service_before_claiming_the_port(
     ok, why = real_service_api["service_reload"](8788)
     assert ok is True, f"the upgrade path failed: {why}"
     flat = [" ".join(c) for c in calls]
-    stop_i = next(i for i, c in enumerate(flat) if "stop distil-proxy.service" in c)
+    stop_i = next(i for i, c in enumerate(flat) if " stop " in f" {c} ")
     sock_i = next(i for i, c in enumerate(flat) if "enable --now distil-proxy.socket" in c)
     assert stop_i < sock_i, (
         f"the socket unit was started while the old service still held the port: {flat}"
