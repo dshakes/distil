@@ -3,6 +3,53 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.42.1] — the upgrade could not claim the port it had just been given
+
+**`distil default --always-on` was broken on Linux in 1.42.0**, in both directions,
+and macOS was unaffected — which is why it shipped.
+
+Upgrading from 1.41.x: before 1.42 the systemd service self-bound the port and there
+was no socket unit. On upgrade that old service is still *running* and still owns
+`127.0.0.1:PORT`, so `enable --now distil-proxy.socket` cannot bind and fails — after
+the unit files have already been overwritten. The user is left with new units, an
+error, and the old proxy still holding the port.
+
+Re-running on an install that already works: the socket unit holds the port **by
+design** and keeps holding it after the service stops — that is the entire feature. A
+reload that stops only the service and then demands a free port therefore aborts every
+ordinary re-run with "something else is listening", pointing the user at a culprit that
+is distil itself.
+
+Both are one fault: ordering. The reload now stops **both** units, waits for the port,
+starts the socket so systemd owns the listener, then starts the service, which receives
+the descriptor instead of binding for itself. No single `enable --now` can express that
+sequence, which is why the command string `service_spec` used to return could never
+have been right — it is now a marker, and the last copy of the racy
+`launchctl unload; launchctl load` is gone from the codebase.
+
+Three more faults in the same area:
+
+- **Extra descriptors were leaked *and* hung.** A dual-stack socket unit hands down more
+  than one fd; distil wrapped the first and left the rest open. The leak was the lesser
+  problem — connections arriving on an unaccepted listener queue in the kernel forever,
+  so a client **hangs** instead of failing. A hang is worse than a refusal: nothing
+  surfaces an error to act on. Extras are now closed on both platforms.
+- **`service_reload` could hand the user a traceback.** Its sibling guarded its
+  subprocess calls; it did not, so a `launchctl`/`systemctl` that hung past its timeout
+  printed a stack trace where a sentence belonged.
+- **Socket cleanup was gated on the `.service` file existing.** A socket unit can
+  outlive its service — a partial uninstall, a hand-deleted unit, an interrupted upgrade
+  — and it is the unit that owns the port. `--undo` and `offboard` now clean up when
+  *either* is present.
+
+Also: `libc.free` is given explicit `argtypes`. ctypes' default conversion happens to
+pass a 64-bit pointer correctly; "happens to" is not a contract.
+
+Every fix has a regression test verified to fail without it. One of those tests is a
+correction in itself: the first version stubbed `_port_free` to `True`, mocking away the
+exact check under test, which is how the re-run break got past a green suite. It now
+drives the real function against a genuinely held socket.
+
 ## [1.42.0] — the outage was the test suite
 
 **distil's own test suite tore down the developer's live proxy, and that is what took
