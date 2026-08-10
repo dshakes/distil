@@ -959,11 +959,23 @@ def service_reload(port: int) -> tuple[bool, str]:
                 if probe is None or probe.returncode != 0:  # no record at all — safe to bootstrap
                     break
             time.sleep(0.25)
-        if not _port_free(port):
-            return False, (
-                f"port {port} is still held after stopping the service — something "
-                f"else is listening there. Find it with: lsof -nP -iTCP:{port} -sTCP:LISTEN"
-            )
+        # Let the port settle, but do NOT abort on it. Since 1.42.0 the plist
+        # declares Sockets, so launchd owns the listener and the SIGTERMed child
+        # that inherited the descriptor can still hold it right here — a held
+        # port is the design, not evidence of a foreign process. The Linux branch
+        # below documents the same trap for the socket unit.
+        #
+        # The old fatal check fired on that ordinary case, and — this is the part
+        # that made it an outage rather than an error — it fired AFTER bootout.
+        # The job was already unregistered, so returning here left the machine
+        # with no proxy and nothing to restart it, while cmd_default printed
+        # "your existing setup is untouched". Observed on a maintainer's machine
+        # switching modes with `distil default --always-on`.
+        #
+        # If the port really is stolen, bootstrap still runs and the
+        # service_is_running() poll at the end reports it — with the job
+        # REGISTERED, so KeepAlive keeps retrying instead of stranding the box.
+        _port_free(port)
         # Even after the record clears, launchd can transiently refuse. Retrying a
         # bootstrap is safe (it is not partially applied) and turns a spurious EIO
         # into a non-event instead of a machine with no registered job.
@@ -1048,6 +1060,15 @@ def service_reload(port: int) -> tuple[bool, str]:
         if ok:
             return True, detail
         time.sleep(0.25)
+    # Both branches have registered/enabled the job by the time we get here, so
+    # the supervisor keeps retrying it. A foreign process owning the port is the
+    # likeliest reason it cannot come up — this is where that diagnosis belongs,
+    # not in a precondition that aborts before anything has been started.
+    if not _port_free(port, deadline=0.5):
+        detail += (
+            f" — and port {port} is held by another process. "
+            f"Find it with: lsof -nP -iTCP:{port} -sTCP:LISTEN"
+        )
     return False, detail
 
 

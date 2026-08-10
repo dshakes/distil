@@ -515,20 +515,95 @@ def test_reload_fails_loudly_when_bootstrap_fails(monkeypatch, real_service_api)
 
 
 @launchd_only
-def test_reload_refuses_to_bootstrap_onto_a_held_port(monkeypatch, real_service_api):
-    """Bootstrapping while the old proxy still holds the port is the race itself.
+def test_darwin_reload_bootstraps_even_when_the_port_is_still_held(monkeypatch, real_service_api):
+    """A still-held port must NOT abort the reload. It is the design, not a fault.
 
-    `launchctl unload` is asynchronous. Starting the replacement before the port
-    is released is what made it die on EADDRINUSE and get discarded by launchd.
+    Since 1.42.0 the plist declares Sockets: launchd owns the listener, and the
+    SIGTERMed child that inherited the descriptor can still be holding the port
+    at exactly this moment. The previous version of this test asserted the
+    opposite ("must not bootstrap onto a held port") and so locked in the bug.
+
+    What made it an outage rather than an error is the ordering: the abort fired
+    AFTER `launchctl bootout`, so the job was already unregistered. The machine
+    was left with no proxy, nothing to restart it, and `cmd_default` printing
+    "your existing setup is untouched". Hit on a maintainer's machine simply
+    switching modes with `distil default --always-on`.
+
+    Drives the REAL `_port_free` against a really-held socket — patching it out
+    would mock away the exact check under test. Virtual time keeps it instant.
     """
     monkeypatch.setattr("platform.system", lambda: "Darwin")
-    monkeypatch.setattr(setup, "_port_free", lambda port, **k: False)
-    called = []
-    monkeypatch.setattr("subprocess.run", lambda cmd, *a, **k: (called.append(cmd), _Res(0))[1])
-    ok, why = real_service_api["service_reload"](8788)
+    held = socket.socket()
+    held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    held.bind(("127.0.0.1", 0))
+    held.listen(8)
+    port = held.getsockname()[1]
+
+    # Virtual clock: real bind probes, real loop, no wall-clock wait.
+    now = [0.0]
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
+    monkeypatch.setattr("time.sleep", lambda d: now.__setitem__(0, now[0] + d))
+
+    calls: list[str] = []
+    # First `print` answers the teardown poll: the record is gone. Every later
+    # one answers service_is_running() after the bootstrap: a live pid.
+    prints = iter([_Res(1, "")])
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd[1])
+        if cmd[1] == "print":
+            return next(prints, _Res(0, "\tpid = 4242\n"))
+        return _Res(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    try:
+        ok, why = real_service_api["service_reload"](port)
+    finally:
+        held.close()
+
+    assert ok is True, f"a held port aborted the reload and stranded the job: {why}"
+    assert "bootstrap" in calls, (
+        "the job was never re-registered — this is the state that leaves the "
+        f"machine with no proxy and nothing to restart it: {calls}"
+    )
+    assert calls.index("bootout") < calls.index("bootstrap")
+
+
+@launchd_only
+def test_darwin_reload_names_the_port_holder_when_the_service_cannot_come_up(
+    monkeypatch, real_service_api
+):
+    """The "something else is listening" diagnosis belongs AFTER the bootstrap.
+
+    Moved, not deleted: it is still the likeliest reason a job that is registered
+    cannot come up. The difference is that we now say it with the job registered
+    (so KeepAlive keeps retrying) instead of as a precondition that aborts with
+    the machine stranded.
+    """
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    held = socket.socket()
+    held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    held.bind(("127.0.0.1", 0))
+    held.listen(8)
+    port = held.getsockname()[1]
+
+    now = [0.0]
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
+    monkeypatch.setattr("time.sleep", lambda d: now.__setitem__(0, now[0] + d))
+
+    def fake_run(cmd, *a, **k):
+        if cmd[1] == "print":
+            return _Res(1, "")  # no record: never comes up, and none reported
+        return _Res(0, "")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    try:
+        ok, why = real_service_api["service_reload"](port)
+    finally:
+        held.close()
+
     assert ok is False
-    assert "still held" in why
-    assert not any("bootstrap" in c for c in called), "must not bootstrap onto a held port"
+    assert "lsof" in why and str(port) in why, f"no actionable diagnosis: {why}"
 
 
 def test_systemd_unit_state_decides_running(monkeypatch):
@@ -1007,7 +1082,12 @@ def test_always_on_does_not_wire_the_pin_when_the_service_did_not_start(
     assert not settings.exists(), "settings.json must be untouched when the service is down"
     out = capsys.readouterr().out
     assert "did not start" in out
-    assert "Nothing was wired" in out
+    assert "NOT wired" in out
+    # ...but it must not go on to claim the machine is unchanged. By this point
+    # the old job has been booted out and its definition replaced, so "your
+    # existing setup is untouched" was false exactly when it printed. See
+    # test_cmd_default_failed_reload_does_not_claim_nothing_changed.
+    assert "untouched" not in out
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="launchd plist is macOS-only")

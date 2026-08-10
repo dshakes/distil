@@ -1674,6 +1674,62 @@ def test_cmd_default_always_on_service_start(tmp_path, monkeypatch, capsys) -> N
     assert "proxy service started" in capsys.readouterr().out
 
 
+def test_cmd_default_failed_reload_does_not_claim_nothing_changed(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A failed reload must not print "your existing setup is untouched".
+
+    By the time `service_reload` returns False the old job has been booted out
+    and its definition replaced, so the machine has NO working proxy — while
+    ANTHROPIC_BASE_URL may still point at that port from a previous install.
+    Telling the user nothing changed sent them looking at the provider instead
+    of at the dead service, which is how one mode switch became a long outage.
+    """
+
+    import distil.setup as setup_mod
+    from distil import onboard
+
+    env = onboard.Env(
+        os_name="Darwin",
+        agents=[("claude", "Claude Code")],
+        installed_version="1.0.0",
+        method="pipx",
+        managers=["pipx"],
+    )
+    monkeypatch.setattr(onboard, "detect", lambda: env)
+    rc_file = tmp_path / ".zshrc"
+    rc_file.write_text("")
+    monkeypatch.setattr(setup_mod, "detect_shell", lambda: ("zsh", rc_file))
+    monkeypatch.setattr(
+        setup_mod, "service_spec", lambda *a, **k: (tmp_path / "service.plist", "content", "load")
+    )
+    monkeypatch.setattr(setup_mod, "write_managed", lambda *a, **k: ("ok", "wrote env block"))
+    monkeypatch.setattr(setup_mod, "env_body", lambda *a, **k: "export ANTHROPIC_BASE_URL=...")
+    monkeypatch.setattr(setup_mod, "default_settings_path", lambda: tmp_path / "settings.json")
+    # No subprocess patch: cmd_default must bail at the failed reload, before it
+    # runs anything else. A stray patch here would hide it if that ever changed.
+    monkeypatch.setattr(setup_mod, "service_reload", lambda port: (False, "bootstrap failed"))
+
+    rc = cli.cmd_default(
+        argparse.Namespace(
+            always_on=True,
+            rc=str(rc_file),
+            port=34120,
+            agent="claude",
+            mode="expand",
+            no_start=False,
+            undo=False,
+            yes=True,
+        )
+    )
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "untouched" not in out, (
+        f"claimed the setup was untouched while the service it just replaced is stopped:\n{out}"
+    )
+    assert "distil default --always-on" in out, f"no way back was offered:\n{out}"
+
+
 # --------------------------------------------------------------------------- #
 # cmd_offboard — service unlink OSError (1053-1054)
 # --------------------------------------------------------------------------- #
