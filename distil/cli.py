@@ -1487,13 +1487,34 @@ def cmd_statusline(args: argparse.Namespace) -> int:
 
         mp = ledger.session_marker_path()
         try:
-            return (
+            if not (
                 mp is not None
                 and mp.read_text(encoding="utf-8").strip() == "0"
                 and _t.time() - mp.stat().st_mtime > 180
-            )
+            ):
+                return False
+            started = mp.stat().st_mtime
         except OSError:
             return False
+        # An unflipped marker only proves THIS wrap's own proxy saw nothing, and
+        # that is routinely true of a fully-routed session: when an always-on
+        # install has pinned ANTHROPIC_BASE_URL in a settings file, the pin
+        # outranks the env var wrap injects, so the agent talks to the always-on
+        # proxy. That proxy stamps rows with its OWN session id and cannot know
+        # the agent's, so the marker stays "0" for the life of the session and
+        # the warning could never clear no matter how much traffic flowed.
+        #
+        # Widen the evidence to match the claim: "bypassing" means no distil
+        # proxy is seeing this machine's traffic. A row recorded after this
+        # session started disproves that.
+        #
+        # ponytail: any row, not this session's, because an always-on proxy
+        # cannot attribute one. A second agent genuinely bypassing while another
+        # session keeps the ledger warm would go unwarned — the trade for never
+        # crying wolf at a session that is in fact routed. To make it exact the
+        # agent would have to forward its session id to the proxy (a header on
+        # the injected base URL), which is a protocol change, not a status line.
+        return ledger.latest_row_ts() <= started
 
     # "on" must mean THIS session's requests route through distil: wrap sets
     # DISTIL_SESSION in the agent's env; always-on setups point the base URL
@@ -2149,7 +2170,14 @@ def cmd_default(args: argparse.Namespace) -> int:
             started, why = service_reload(args.port)
             if not started:
                 print(f"\n✗ the proxy service did not start — {why}")
-                print("  Nothing was wired. Your existing setup is untouched.")
+                # NOT "your existing setup is untouched" — that was a lie in the
+                # only case it printed. Reaching here means the old service was
+                # already stopped and this service file replaced it, so the
+                # machine has no working proxy while ANTHROPIC_BASE_URL may still
+                # point at the port. Say that, and give the way back.
+                print("  The base URL was NOT wired, but the previous service is stopped —")
+                print("  until this starts, traffic to that port has nowhere to go.")
+                print(f"  Recover now:  distil default --always-on --port {args.port}")
                 print(f"  See the error yourself:  distil proxy --{mode} --port {args.port}")
                 print(f"  Logs: {log_dir() / 'proxy.err'}")
                 return 1
