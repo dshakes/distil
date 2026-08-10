@@ -1471,13 +1471,34 @@ def cmd_statusline(args: argparse.Namespace) -> int:
 
         mp = ledger.session_marker_path()
         try:
-            return (
+            if not (
                 mp is not None
                 and mp.read_text(encoding="utf-8").strip() == "0"
                 and _t.time() - mp.stat().st_mtime > 180
-            )
+            ):
+                return False
+            started = mp.stat().st_mtime
         except OSError:
             return False
+        # An unflipped marker only proves THIS wrap's own proxy saw nothing, and
+        # that is routinely true of a fully-routed session: when an always-on
+        # install has pinned ANTHROPIC_BASE_URL in a settings file, the pin
+        # outranks the env var wrap injects, so the agent talks to the always-on
+        # proxy. That proxy stamps rows with its OWN session id and cannot know
+        # the agent's, so the marker stays "0" for the life of the session and
+        # the warning could never clear no matter how much traffic flowed.
+        #
+        # Widen the evidence to match the claim: "bypassing" means no distil
+        # proxy is seeing this machine's traffic. A row recorded after this
+        # session started disproves that.
+        #
+        # ponytail: any row, not this session's, because an always-on proxy
+        # cannot attribute one. A second agent genuinely bypassing while another
+        # session keeps the ledger warm would go unwarned — the trade for never
+        # crying wolf at a session that is in fact routed. To make it exact the
+        # agent would have to forward its session id to the proxy (a header on
+        # the injected base URL), which is a protocol change, not a status line.
+        return ledger.latest_row_ts() <= started
 
     # "on" must mean THIS session's requests route through distil: wrap sets
     # DISTIL_SESSION in the agent's env; always-on setups point the base URL

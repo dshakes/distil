@@ -264,6 +264,31 @@ def latest_mode(session: str = "", path: Path | None = None) -> str:
     return ""
 
 
+def latest_row_ts(path: Path | None = None) -> float:
+    """Unix timestamp of the most recent row, or 0.0 if there are none.
+
+    Answers "has ANY distil proxy served traffic recently", which is a different
+    question from the per-session marker: an always-on proxy records rows under
+    its own session id and can never flip a wrap session's marker. Reversed
+    single pass, same shape (and cost) as :func:`latest_mode`."""
+    path = path or default_path()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0.0
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue  # a corrupt/partial tail line must not crash the status line
+        ts = d.get("ts")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+            return float(ts)
+    return 0.0
+
+
 def summary(
     path: Path | None = None, *, since: float | None = None, session: str | None = None
 ) -> LedgerSummary:
