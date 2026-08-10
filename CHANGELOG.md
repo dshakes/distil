@@ -3,6 +3,56 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.43.0] — the safe default could not say what it cost, and the reload could strand you
+
+**`distil default --always-on` could take macOS down.** The reload boots the job out,
+replaces the plist, and then demanded a free port before bootstrapping. Since 1.42.0 the
+plist declares `Sockets`, so launchd owns the listener and the SIGTERMed child that
+inherited the descriptor can still be holding the port at exactly that moment — a held
+port there is the design, not a foreign process. The check fired on that ordinary case,
+and it fired *after* the bootout: the job was already unregistered, so the machine was
+left with no proxy and nothing to restart it, while the command printed "your existing
+setup is untouched". It was reproduced by nothing more exotic than switching modes.
+Linux got this fix for the upgrade path in 1.42.1; macOS never got the equivalent. The
+port settle is now a wait, not a verdict — if the port really is stolen, the bootstrap
+still runs and the failure is reported with the job **registered**, so `KeepAlive` keeps
+retrying instead of stranding the machine. And a failed reload no longer claims nothing
+changed; it says the previous service is stopped and gives the command back.
+
+**The status line called a fully-routed session a bypass.** With an always-on install,
+the settings-file `ANTHROPIC_BASE_URL` pin outranks the env var `distil wrap` injects, so
+the agent talks to the always-on proxy — which stamps ledger rows with its own session id
+and cannot know the agent's. The wrap session's traffic marker therefore never flipped,
+and after the grace period the line read `⚠ wrapped, agent bypassing proxy` for the life
+of a session whose traffic was flowing through distil the entire time, with nothing the
+user could do to clear it. The marker only ever proved "this wrap's own proxy saw
+nothing"; the warning claimed "no distil proxy is seeing this traffic". The evidence now
+matches the claim.
+
+**A subscription default that could not say what it costs.** A flat-rate session runs
+lossless-only so no digest is left unrecoverable and nothing is injected — deliberate,
+and unchanged. But on the machine that prompted this it meant 8,319 runs at 0.27% while
+that same ledger held 2,353 digest runs at 52.27%, and all distil ever said was that
+near-zero "usually means lossless-only". No figure, no sample size. That line printed on
+every one of those runs and was read past every time. It now quotes the rate you earned
+on your own traffic, and states both halves of the trade — the safe default does not
+touch the request, and `--expand` does — because you cannot weigh a choice shown only
+one side of.
+
+**You could opt into tool injection with no notice.** The disclosure was gated on the
+`--lossless-only --expand` spelling only. The route the docs actually hand a subscription
+user, `distil default --mode expand`, leaves that flag False, so the notice never fired —
+and injection into a first-party session is precisely what the safe default promises not
+to do. It is now keyed on real billing and fires on every route into it.
+
+`policy.may_inject_tools()` is gone. It stated that injection is PAYG-only, a rule distil
+does not implement, and **nothing ever called it** while a passing test asserted it — so
+the drift between what distil said and what distil did was invisible in CI. An unenforced
+policy with a green test is worse than no policy. [ADR 0006](docs/adr/0006-the-subscription-boundary.md)
+records what the boundary actually is: consent, not recoverability. distil does not modify
+a first-party session unasked. Recoverability is still why a digest is *safe* once opted
+into; it is not why the default exists.
+
 ## [1.42.1] — the upgrade could not claim the port it had just been given
 
 **`distil default --always-on` was broken on Linux in 1.42.0**, in both directions,
