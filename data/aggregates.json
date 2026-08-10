@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1786335419,
+  "generated_ts": 1786385176,
   "installs": {
     "census_total": 2,
     "active_7d": 1,
@@ -7,20 +7,20 @@
     "contributing_7d": 1,
     "contributing_30d": 1,
     "by_version": {
-      "1.42.0": 1,
+      "1.42.1": 1,
       "1.30.0": 1
     }
   },
   "savings": {
-    "tokens": 1567985028,
+    "tokens": 1568241820,
     "dollars": 0,
-    "dollars_notional": 6469.75,
+    "dollars_notional": 6471.04,
     "instances": 2,
     "contributing": 1,
-    "as_of_ts": 1786281758,
-    "rate_per_sec": 20.79,
-    "total_runs": 12715,
-    "avg_per_run": 123318,
+    "as_of_ts": 1786385167,
+    "rate_per_sec": 2.48,
+    "total_runs": 12765,
+    "avg_per_run": 122855,
     "history": [
       {
         "ts": 1784522481,
@@ -89,6 +89,10 @@
       {
         "ts": 1786281758,
         "tokens": 1567985028
+      },
+      {
+        "ts": 1786385167,
+        "tokens": 1568241820
       }
     ]
   },
@@ -112,13 +116,13 @@
     },
     "surfaces": {
       "wrap": 28498,
-      "proxy": 1398
+      "proxy": 1484
     },
     "shapes": {
-      "anthropic": 29896
+      "anthropic": 29982
     },
     "modes": {
-      "interactive": 56
+      "interactive": 61
     }
   },
   "channels": {
