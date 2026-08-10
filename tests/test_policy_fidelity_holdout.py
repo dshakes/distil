@@ -12,19 +12,17 @@ from distil.fidelity import (
     numeric_precision_preserved,
     verify_reversible,
 )
-from distil.policy import AuthMode, PolicyError, allowed_strategies, guard, may_inject_tools
+from distil.policy import AuthMode, PolicyError, allowed_strategies, guard
 from distil.trajectory import Block, Kind, Stability
 
 
 # ---- Phase 4: auth-mode gating ---------------------------------------------
 def test_payg_allows_everything():
     assert allowed_strategies(AuthMode.PAYG) == {"none", "distil", "naive", "aggressive"}
-    assert may_inject_tools(AuthMode.PAYG)
 
 
 def test_subscription_is_lossless_only():
     assert allowed_strategies(AuthMode.SUBSCRIPTION) == {"none", "distil"}
-    assert not may_inject_tools(AuthMode.SUBSCRIPTION)
     guard(AuthMode.SUBSCRIPTION, "distil")  # allowed
     with pytest.raises(PolicyError):
         guard(AuthMode.SUBSCRIPTION, "aggressive")

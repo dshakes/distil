@@ -53,9 +53,18 @@ def may_compress_lossy(mode: AuthMode) -> bool:
     return mode is AuthMode.PAYG
 
 
-def may_inject_tools(mode: AuthMode) -> bool:
-    """Injecting a retrieval/expand tool into the request is only safe on PAYG."""
-    return mode is AuthMode.PAYG
+# There was a `may_inject_tools(mode)` here returning `mode is AuthMode.PAYG`,
+# with tests asserting it. Nothing ever called it. The rule it stated — tool
+# injection is PAYG-only — is not the rule distil actually implements: a
+# subscription session that passes `--expand` DOES get distil_expand injected,
+# deliberately and with a notice (see proxy.py), because an injected recovery
+# tool is what makes a Tier-1 digest reversible.
+#
+# An unenforced policy with a passing test is worse than no policy: the test
+# makes it look covered, so the drift between what distil says and what distil
+# does is invisible in CI. The real rule is "injection on a flat-rate session
+# requires an explicit opt-in", it lives at the one place that can enforce it,
+# and ADR 0006 records why. Do not reintroduce this without a call site.
 
 
 def guard(mode: AuthMode, strategy: str) -> None:
