@@ -398,16 +398,30 @@ def build_handler(
     if _lossy_ok and not verbatim:
         expand = True
     verbatim = verbatim or not (_lossy_ok or expand)
-    if lossless_only and expand:
-        import sys as _sys
+    # Disclose injection on EVERY route into it on a flat-rate session, not just
+    # one. This used to be gated on `lossless_only and expand`, which is only the
+    # `--lossless-only --expand` spelling. The other way in — `distil default
+    # --mode expand`, which is what the docs tell a subscription user to run —
+    # leaves lossless_only False, so the notice never fired and the user opted
+    # into tool injection with no notice at all. Injecting into a first-party
+    # session is precisely what onboard.py promises the safe default does not do,
+    # so whoever leaves that path is owed a sentence saying so.
+    #
+    # Keyed on real billing, not on the flag: the flag says which spelling was
+    # used, `subscription_mode()` says whether this is a flat-rate session.
+    if expand:
+        from .doctor import subscription_mode as _sub_mode
 
-        print(
-            "distil: --expand enabled on a lossless-only/subscription session — the "
-            "recoverable digest is ON (you opted in explicitly). distil_expand is "
-            "injected so nothing is irreversibly lost; note this alters requests more "
-            "than pure lossless mode. Drop --expand for lossless-only.",
-            file=_sys.stderr,
-        )
+        if lossless_only or _sub_mode():  # startup-only; not on the request path
+            import sys as _sys
+
+            print(
+                "distil: recoverable digest ON for a flat-rate session (you opted in "
+                "with --expand). distil_expand is injected, so nothing is irreversibly "
+                "lost — but the request IS modified, which the subscription-safe "
+                "default never does. Drop --expand to go back to lossless-only.",
+                file=_sys.stderr,
+            )
 
     # Learning flywheel state (loaded once when expand is on): the learned
     # keep-byte-exact policy + the accumulating expand stats. See distil.learn.
