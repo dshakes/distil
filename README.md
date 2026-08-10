@@ -20,7 +20,7 @@
 
 ## What it does
 
-- **Wrap your agent** — `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen` · `goose`. Zero config, no code change.
+- **Wrap your agent** — `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen` · `goose` · `grok` · `openhands`. Zero config, no code change.
 - **Run a proxy** — point any `base_url` client at it. Python, TypeScript, any language, any framework.
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.

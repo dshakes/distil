@@ -26,6 +26,8 @@ _AGENTS = [
     ("opencode", "OpenCode"),
     ("qwen", "Qwen Code"),
     ("goose", "goose"),
+    ("grok", "Grok CLI"),
+    ("openhands", "OpenHands"),
 ]
 _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 
@@ -49,6 +51,15 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  OPENAI_BASE_URL, which it ignores) plus OPENAI_BASE_PATH,
 #                  defaulting to "v1/chat/completions" — a path distil's proxy
 #                  serves, so the default needs no change (goose provider docs).
+#   grok         — superagent-ai/grok-cli resolves its endpoint as (1) an explicit
+#                  argument, (2) GROK_BASE_URL, (3) the default https://api.x.ai/v1.
+#                  Note the upstream carries the /v1 itself, unlike the OpenAI SDK.
+#   openhands    — reads LLM_BASE_URL / LLM_API_KEY / LLM_MODEL, but ONLY when run
+#                  with `--override-with-envs`. Without that flag it ignores the
+#                  environment entirely and reads ~/.openhands/settings.json, so a
+#                  preset alone routes NOTHING while reporting success — the exact
+#                  failure the note below is about. `wrap` therefore checks argv and
+#                  says so; see _warn_if_env_ignored in cli.py.
 #   cursor-agent — env var not publicly documented; left out rather than guessing.
 #                  Use --env-var to configure manually.
 #
@@ -72,6 +83,8 @@ AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
     "opencode": ("OPENAI_BASE_URL", "https://api.openai.com", "OpenCode"),
     "qwen": ("OPENAI_BASE_URL", "https://api.openai.com", "Qwen Code"),
     "goose": ("OPENAI_HOST", "https://api.openai.com", "goose"),
+    "grok": ("GROK_BASE_URL", "https://api.x.ai/v1", "Grok CLI"),
+    "openhands": ("LLM_BASE_URL", "https://api.openai.com", "OpenHands"),
 }
 
 

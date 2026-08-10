@@ -2455,6 +2455,40 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Agents that read distil's base-URL variable only when an extra flag is passed.
+#: Setting the variable without it is worse than doing nothing: the wrap reports
+#: success, the agent quietly talks straight to the provider, and the user is left
+#: wondering why savings are zero. Map: command -> (required flag, what it does).
+_ENV_REQUIRES_FLAG = {
+    # OpenHands ignores LLM_BASE_URL/LLM_API_KEY/LLM_MODEL unless told to prefer the
+    # environment; by default it reads ~/.openhands/settings.json instead.
+    "openhands": ("--override-with-envs", "read LLM_* from the environment"),
+}
+
+
+def _warn_if_env_ignored(cmd_name: str, command: list[str]) -> None:
+    """Say so when the agent will ignore the variable we are about to set.
+
+    distil's rule is that "wired" has to mean "a request provably reached the
+    proxy". For these agents the environment alone does not achieve that, and the
+    failure is silent — so the one thing we can do without editing the user's
+    command is tell them, before the session starts rather than after a day of
+    zero savings.
+    """
+    need = _ENV_REQUIRES_FLAG.get(cmd_name)
+    if need is None:
+        return
+    flag, what = need
+    if flag in command:
+        return
+    print(
+        f"\n  ⚠ {cmd_name} ignores the environment unless you pass {flag} — without it\n"
+        f"    it reads its own settings file and this wrap will route NOTHING.\n"
+        f"    Re-run as:  distil wrap -- {cmd_name} {flag} ...   ({flag} = {what})\n",
+        file=sys.stderr,
+    )
+
+
 def cmd_wrap(args: argparse.Namespace) -> int:
     """Transparently wrap a command: spawn the proxy, point its env at it, run it."""
     import os as _os
@@ -2491,6 +2525,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
             print(f"  preset: {preset_label} detected → {env_var}")
         if not upstream:
             upstream = preset_upstream
+        _warn_if_env_ignored(cmd_name, command)
 
     if not env_var:
         env_var = "ANTHROPIC_BASE_URL"
