@@ -327,12 +327,28 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
                         "overhead; `distil doctor`\n    reports what the proxy is actually doing."
                     )
                 elif _recent_trim < 0.05:
-                    print(
-                        "  ↳ near-zero compression usually means lossless-only/verbatim: a "
-                        "subscription\n    session defaults there so no digest is left "
-                        "unrecoverable. `--expand` restores the\n    recoverable Tier-1 digest "
-                        "(injects distil_expand, so nothing is irreversibly lost)."
-                    )
+                    # "usually means lossless-only" with no number printed on every
+                    # run of a subscription machine that went 8,000+ runs at ~0.3%
+                    # without its owner ever learning what the safe default cost.
+                    # Generic advice is easy to read past; a rate the user earned on
+                    # their own traffic is not. Quote it whenever we have one.
+                    _digest = ledger.mode_rates().get("digest")
+                    if _digest and _digest[0] >= 50 and _digest[1] > _recent_trim + 0.05:
+                        print(
+                            f"  ↳ you are in lossless-only — the subscription-safe default. "
+                            f"Digest mode has\n    returned {_digest[1] * 100:.1f}% on YOUR "
+                            f"traffic over {_digest[0]:,} runs. Enable it with\n    "
+                            "`distil default --mode expand` (injects distil_expand, so nothing "
+                            "is\n    irreversibly lost; it does modify requests, which the "
+                            "safe default does not)."
+                        )
+                    else:
+                        print(
+                            "  ↳ near-zero compression usually means lossless-only/verbatim: a "
+                            "subscription\n    session defaults there so no digest is left "
+                            "unrecoverable. `--expand` restores the\n    recoverable Tier-1 "
+                            "digest (injects distil_expand, so nothing is irreversibly lost)."
+                        )
     if s.legacy_records:
         print(
             f"  ⚠ includes {s.legacy_records:,} record(s) from pre-1.10 accounting — "

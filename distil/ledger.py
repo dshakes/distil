@@ -264,6 +264,42 @@ def latest_mode(session: str = "", path: Path | None = None) -> str:
     return ""
 
 
+def mode_rates(path: Path | None = None) -> dict[str, tuple[int, float]]:
+    """``{mode: (runs, fraction_smaller)}`` over the whole ledger.
+
+    Lets a caller answer "what has the other mode actually been worth on THIS
+    machine" with the user's own history rather than a generic claim. The
+    subscription-safe default is deliberately conservative, and a machine can
+    sit in it for thousands of runs without the user ever learning what it
+    costs — a number they earned themselves is what makes that visible.
+
+    Whole-file pass: a report-time helper, not for the status line's hot path.
+    """
+    path = path or default_path()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    agg: dict[str, list[float]] = {}
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue  # a corrupt/partial line must not break a report
+        mode = d.get("mode") or ""
+        base = d.get("baseline_input_tokens") or 0
+        got = d.get("distil_input_tokens") or 0
+        if not mode or not base:
+            continue
+        a = agg.setdefault(mode, [0.0, 0.0, 0.0])
+        a[0] += base
+        a[1] += got
+        a[2] += 1
+    return {m: (int(n), (1 - g / b) if b else 0.0) for m, (b, g, n) in agg.items()}
+
+
 def summary(
     path: Path | None = None, *, since: float | None = None, session: str | None = None
 ) -> LedgerSummary:

@@ -105,3 +105,36 @@ def test_latest_mode_reads_newest_skips_corruption_and_filters(tmp_path):
     assert ledger.latest_mode(session="s1", path=p) == "digest"  # session-scoped, skips corrupt
     assert ledger.latest_mode(session="nope", path=p) == ""  # no match
     assert ledger.latest_mode(path=tmp_path / "absent.jsonl") == ""  # missing file never crashes
+
+
+def test_mode_rates_aggregates_per_mode_and_survives_a_bad_ledger(tmp_path):
+    """mode_rates answers "what has the other mode been worth on THIS machine",
+    so it is quoted as a headline percentage — it must not be skewed by rows it
+    cannot price, and must never crash a report on a partial write."""
+    import json
+
+    def row(mode, base, dist):
+        return json.dumps(
+            {"mode": mode, "baseline_input_tokens": base, "distil_input_tokens": dist}
+        )
+
+    p = tmp_path / "savings.jsonl"
+    p.write_text(
+        row("digest", 1000, 400)
+        + "\n"
+        + row("digest", 1000, 600)
+        + "\n"
+        + "{ truncated mid-write\n"  # a crash during append must not break the report
+        + row("lossless-only", 1000, 997)
+        + "\n"
+        + row("digest", 0, 0)  # unpriceable: no baseline, must not count as 0% saved
+        + "\n"
+        + json.dumps({"baseline_input_tokens": 1000, "distil_input_tokens": 1})  # no mode
+        + "\n"
+    )
+    rates = ledger.mode_rates(path=p)
+    assert rates["digest"] == (2, 0.5), "the unpriceable row must not dilute the rate"
+    assert rates["lossless-only"][0] == 1
+    assert round(rates["lossless-only"][1], 3) == 0.003
+    assert "" not in rates, "a row with no mode belongs to no mode"
+    assert ledger.mode_rates(path=tmp_path / "absent.jsonl") == {}

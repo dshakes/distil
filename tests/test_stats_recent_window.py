@@ -24,14 +24,22 @@ import sys
 import time
 
 
-def _write_ledger(home, rows: list[tuple[float, int, int]]) -> None:
-    """rows: (ts, baseline_tokens, distil_tokens)."""
+def _write_ledger(home, rows) -> None:
+    """rows: (ts, baseline_tokens, distil_tokens) or (ts, base, distil, mode).
+
+    The 4-tuple form stamps the compression mode the row was produced under, so a
+    test can build the "thousands of runs in the safe default, with a much better
+    rate sitting in this machine's own history" shape that the hint reads.
+    """
     path = home / "savings.jsonl"
     with path.open("w") as f:
-        for ts, base, dist in rows:
+        for row in rows:
+            ts, base, dist = row[:3]
+            mode = row[3] if len(row) > 3 else None
             f.write(
                 json.dumps(
                     {
+                        **({"mode": mode} if mode else {}),
                         "ts": ts,
                         "acct": "2",
                         "model": "claude-opus-4-8",
@@ -94,6 +102,43 @@ class TestRecentWindowIsShownWhenItDisagrees:
         out = _stats(tmp_path)
         assert "last 7 days" not in out
         assert "runs recorded" in out, "stats must still render"
+
+
+class TestTheSafeDefaultQuotesItsOwnCost:
+    """A conservative default has to say what it costs, in the user's own numbers.
+
+    The subscription default is lossless-only, and it is deliberate: no digest is
+    left unrecoverable and nothing is injected into the request. But a machine can
+    sit in it for thousands of runs at ~0.3% while that same ledger holds a digest
+    history at ~52%, and the old hint said only that near-zero "usually means
+    lossless-only" with no figure attached. Generic advice is easy to read past —
+    it was read past for 8,319 runs on the machine that prompted this.
+    """
+
+    def test_the_machines_own_digest_rate_is_quoted(self, tmp_path) -> None:
+        now = time.time()
+        rows = [(now - 40 * 86400, 1_000_000, 500_000, "digest")] * 60  # 50% historically
+        rows += [(now - 2 * 86400, 1_000_000, 997_000, "lossless-only")] * 20  # 0.3% now
+        _write_ledger(tmp_path, rows)
+        out = _stats(tmp_path)
+        assert "50.0%" in out, f"the rate this machine actually earned was not quoted:\n{out}"
+        assert "60 runs" in out, "a rate without its sample size is not evidence"
+        assert "--mode expand" in out, "the user must be told what enables it"
+
+    def test_a_thin_digest_history_is_not_quoted_as_a_rate(self, tmp_path) -> None:
+        """Ten lucky runs must not be sold as a rate.
+
+        Quoting a headline percentage off a handful of rows would make the hint
+        the same kind of true-but-misleading number the rest of this file exists
+        to prevent. Below the threshold it falls back to the generic wording.
+        """
+        now = time.time()
+        rows = [(now - 40 * 86400, 1_000_000, 100_000, "digest")] * 10  # 90%, tiny sample
+        rows += [(now - 2 * 86400, 1_000_000, 997_000, "lossless-only")] * 20
+        _write_ledger(tmp_path, rows)
+        out = _stats(tmp_path)
+        assert "90.0%" not in out, f"quoted a rate from 10 runs:\n{out}"
+        assert "--expand" in out, "the generic remedy must still be named"
 
 
 class TestOutputSurvivesALegacyConsole:
