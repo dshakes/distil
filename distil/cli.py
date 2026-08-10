@@ -2133,7 +2133,14 @@ def cmd_default(args: argparse.Namespace) -> int:
             started, why = service_reload(args.port)
             if not started:
                 print(f"\n✗ the proxy service did not start — {why}")
-                print("  Nothing was wired. Your existing setup is untouched.")
+                # NOT "your existing setup is untouched" — that was a lie in the
+                # only case it printed. Reaching here means the old service was
+                # already stopped and this service file replaced it, so the
+                # machine has no working proxy while ANTHROPIC_BASE_URL may still
+                # point at the port. Say that, and give the way back.
+                print("  The base URL was NOT wired, but the previous service is stopped —")
+                print("  until this starts, traffic to that port has nowhere to go.")
+                print(f"  Recover now:  distil default --always-on --port {args.port}")
                 print(f"  See the error yourself:  distil proxy --{mode} --port {args.port}")
                 print(f"  Logs: {log_dir() / 'proxy.err'}")
                 return 1
