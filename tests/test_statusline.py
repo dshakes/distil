@@ -588,6 +588,50 @@ def test_bypass_warning_replaces_idle_on_with_lifetime_total(monkeypatch, capsys
     assert "✓ on" not in out
 
 
+def _write_row(ts: float) -> None:
+    """One ledger row stamped *ts*, as an always-on proxy would record it —
+    under its OWN session id, never the wrap session's."""
+    import json
+
+    p = ledger.default_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": ts, "session": "s-always-on-1234", "mode": "digest"}) + "\n")
+
+
+def test_no_bypass_warning_when_an_always_on_proxy_is_serving(monkeypatch, capsys):
+    """The false positive: wrap + always-on together.
+
+    An always-on install pins ANTHROPIC_BASE_URL in a settings file, and that
+    pin outranks the env var `distil wrap` injects — so the agent talks to the
+    always-on proxy, which stamps rows with its own session id and cannot know
+    the wrap session's. The marker therefore stays "0" for the whole session and
+    the old check warned "agent bypassing proxy" at a session that was fully
+    routed, forever, with no way for the user to clear it.
+    """
+    monkeypatch.setenv("DISTIL_SESSION", "sTEST-alwayson")
+    mp = _mk_marker("0", age_s=600.0)
+    _write_row(mp.stat().st_mtime + 60)  # a request served after this wrap started
+    rc, out = _run(monkeypatch, capsys, ledger.LedgerSummary(0, 0.0, 0, {}))
+    assert rc == 0
+    assert "bypassing" not in out, f"warned at a routed session: {out}"
+    assert "✓ on" in out
+
+
+def test_bypass_warning_survives_a_ledger_that_went_quiet(monkeypatch, capsys):
+    """Rows from BEFORE this session started are not evidence about it.
+
+    Otherwise any machine with history would suppress the warning permanently
+    and the detection would be dead code.
+    """
+    monkeypatch.setenv("DISTIL_SESSION", "sTEST-quiet")
+    mp = _mk_marker("0", age_s=600.0)
+    _write_row(mp.stat().st_mtime - 60)  # last traffic predates this wrap
+    rc, out = _run(monkeypatch, capsys, ledger.LedgerSummary(0, 0.0, 0, {}))
+    assert rc == 0
+    assert "bypassing" in out
+
+
 def test_bypass_warning_minimal_mode(monkeypatch, capsys):
     monkeypatch.setenv("DISTIL_STATUSLINE", "minimal")
     monkeypatch.setenv("DISTIL_SESSION", "sTEST-min")
