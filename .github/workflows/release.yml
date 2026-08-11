@@ -44,7 +44,7 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Gate before release
         run: |
-          uv run --with pytest python -m pytest -q
+          uv run --with pytest --with pillow python -m pytest -q
           uv run distil bench
           uv run distil verify
       - name: Build wheel + sdist

@@ -293,7 +293,10 @@ def _compress_image_block(
 
     verdict = dedup.elide(source)
     if verdict is None:
-        return item
+        # Not a repeat, so the model has not seen these pixels yet and the block
+        # must carry an actual image. It may still be oversized — see
+        # _downscale_image_block, which is off unless separately certified.
+        return _downscale_image_block(item, source, store, dedup)
     handle, original, tokens = verdict
     if not store._record(handle, original):
         # 8-hex collision with different content — a stub would expand to the
@@ -301,6 +304,51 @@ def _compress_image_block(
         # text digester follows).
         return item
     return {"type": "text", "text": _vision.reference_text(handle, tokens)}
+
+
+def _downscale_image_block(
+    item: dict[str, Any], source: dict[str, Any], store: RestoreStore, dedup: Any
+) -> Any:
+    """Send a first-occurrence image at reduced resolution, original recoverable.
+
+    Returns the block unchanged, or a PAIR — the downscaled image followed by a
+    note stating what changed and the handle that returns the original. The note
+    is not decoration: without it the transform is silently lossy, and silent
+    loss is the one thing distil does not do.
+
+    Off unless `distil certify --strategy vision-downscale` has passed locally
+    AND a codec is installed. Both, independently — an enabled feature with no
+    codec must not half-work. See distil/compress/vision_scale.py for why this
+    one does not inherit the bundled certificate.
+    """
+    import base64 as _b64
+    import json as _json
+
+    from ..compress import vision_scale as _scale
+
+    if not _scale.active():
+        return item
+    decided = _scale.plan(source)
+    if decided is None:
+        return item
+    new_raw, after, saved = decided
+    before = _vision.image_dims(_vision._decode_b64(source.get("data")) or b"") or (0, 0)
+
+    original = _json.dumps(source, sort_keys=True)
+    handle = _vision._handle(original)
+    if not store._record(handle, original):
+        # 8-hex collision with different content: expand would return the wrong
+        # image. Leaving the block verbatim is always safe.
+        return item
+    # Record the saving through the same counter the elision path uses, so
+    # `dissect`/savings see one consistent image-tokens number.
+    dedup.tokens_saved += saved
+
+    scaled = {
+        **item,
+        "source": {**source, "data": _b64.b64encode(new_raw).decode("ascii")},
+    }
+    return [scaled, {"type": "text", "text": _scale.note_text(handle, before, after, saved)}]
 
 
 def _compress_content_item(
@@ -365,8 +413,18 @@ def _compress_content_item(
                     # Where computer-use / browser screenshots actually live: a
                     # tool_result whose content list carries the image block.
                     new_sub = _compress_image_block(sub, store, verbatim, is_recent)
-                    new_list.append(new_sub)
-                    changed = changed or new_sub is not sub
+                    if isinstance(new_sub, list):
+                        # A downscaled image comes back as a PAIR (image + the note
+                        # carrying its recovery handle). It must be spliced here
+                        # exactly as at the message level — appending it whole nests
+                        # a list inside `content`, which the provider rejects. This
+                        # is the hottest path for the transform, not a corner: it is
+                        # where screenshots arrive.
+                        new_list.extend(new_sub)
+                        changed = True
+                    else:
+                        new_list.append(new_sub)
+                        changed = changed or new_sub is not sub
                 else:
                     new_list.append(sub)
             if not changed:
@@ -404,9 +462,16 @@ def _compress_message(
         for item in content:
             if isinstance(item, dict):
                 new_item = _compress_content_item(item, store, role, verbatim, is_recent)
-                new_blocks.append(new_item)
-                if new_item is not item:
+                if isinstance(new_item, list):
+                    # A block may expand into a PAIR (a downscaled image plus the
+                    # note carrying its recovery handle). Splice rather than nest:
+                    # a list inside `content` is not a shape the provider accepts.
+                    new_blocks.extend(new_item)
                     changed = True
+                else:
+                    new_blocks.append(new_item)
+                    if new_item is not item:
+                        changed = True
             else:
                 new_blocks.append(item)
         if not changed:

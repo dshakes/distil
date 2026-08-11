@@ -10,8 +10,8 @@ What this module does — and deliberately does not do
 ----------------------------------------------------
 The state of the art here is **downscaling** or dropping the provider's detail
 level. That is lossy by construction: the model sees a different image and
-nobody can say whether the answer changed. distil's contract forbids it, so
-this module implements the one transform that is *byte-reversible*:
+nobody can say whether the answer changed. distil's contract forbids it *in that
+form*, so this module implements the one transform that is *byte-reversible*:
 
     the SECOND and later appearances of a byte-identical image become a short
     text reference; the first appearance is left completely untouched.
@@ -36,6 +36,15 @@ every other strategy. ``enabled()`` is False until a certificate exists.
 Zero runtime dependencies: image dimensions are read from the file header with
 the stdlib, so no Pillow, and an unparseable header degrades to "unknown size"
 rather than raising.
+
+Downscaling, later
+------------------
+ADR 0007 revisits the paragraph above. Downscaling is now permitted in exactly
+one form — original stored in the RestoreStore, replacement emitted with a note
+carrying the handle — which puts it in the same category as the Tier-1 text
+digest rather than the category rejected here. It lives in ``vision_scale.py``,
+ships disabled with no bundled certificate, and does not change anything in this
+module. What remains forbidden, here and there, is downscaling with no way back.
 """
 
 from __future__ import annotations
@@ -135,7 +144,7 @@ def enabled() -> bool:
     return _certificate_verdict(_shipped_certificate_path()) is True
 
 
-def _certificate_is_valid(path: Path) -> bool:
+def _certificate_is_valid(path: Path, strategy: str = "vision") -> bool:
     """Whether *path* holds a certificate that actually certifies THIS strategy.
 
     File existence is not certification. An empty ``{}``, a truncated write, a
@@ -150,10 +159,10 @@ def _certificate_is_valid(path: Path) -> bool:
     file. The cost of failing closed is that compression stays off; the cost of
     failing open is an uncertified transform on live traffic.
     """
-    return _certificate_verdict(path) is True
+    return _certificate_verdict(path, strategy) is True
 
 
-def _certificate_verdict(path: Path) -> bool | None:
+def _certificate_verdict(path: Path, strategy: str = "vision") -> bool | None:
     """Tri-state read of a certificate: True = passes, False = explicit FAIL,
     None = no readable verdict at all.
 
@@ -173,7 +182,7 @@ def _certificate_verdict(path: Path) -> bool | None:
         return None  # truncated or corrupt write — no verdict, not a failure
     if not isinstance(doc, dict):
         return None
-    if doc.get("strategy") != "vision":
+    if doc.get("strategy") != strategy:
         return None  # a certificate for something else says nothing about this
     keys = ("non_inferior", "certified", "passed")
     if any(doc.get(k) is True for k in keys):

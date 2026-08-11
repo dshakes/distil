@@ -53,7 +53,7 @@ jobs:
       # malformed-key test importorskip'd itself out of every run — a security
       # assertion that had never once executed, in CI or locally.
       - name: pytest with coverage floor
-        run: uv run --with pytest --with pytest-asyncio --with aiohttp --with pytest-cov --with opentelemetry-sdk --with cryptography python -m pytest -q --cov=distil --cov-fail-under=95
+        run: uv run --with pytest --with pytest-asyncio --with aiohttp --with pytest-cov --with opentelemetry-sdk --with cryptography --with pillow python -m pytest -q --cov=distil --cov-fail-under=95
 
   gate:
     runs-on: ${{ matrix.os }}
@@ -77,7 +77,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Tests
-        run: uv run --with pytest python -m pytest -q
+        run: uv run --with pytest --with pillow python -m pytest -q
       - name: Non-inferiority gate (every domain must certify)
         run: uv run distil bench
       - name: Byte-fidelity gate (reversible + append-only)
