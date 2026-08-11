@@ -57,9 +57,9 @@ def test_an_unrecognised_signature_earns_silence_not_invented_advice() -> None:
 def test_the_advice_differs_by_what_was_measured() -> None:
     """Generic advice is what gets skimmed; the useful move differs per content type."""
     log = corrections.build_block(_Dissection([("log", 9, 90_000)], 0))
-    diff = corrections.build_block(_Dissection([("diff", 9, 90_000)], 0))
-    assert log and diff and log != diff
-    assert "tail" in log and "--stat" in diff
+    js = corrections.build_block(_Dissection([("json", 9, 90_000)], 0))
+    assert log and js and log != js
+    assert "tail" in log and "fields you need" in js
 
 
 # ---------------------------------------------------------------------------
@@ -234,3 +234,45 @@ def test_line_endings_are_not_rewritten(tmp_path: Path) -> None:
     lf.write_bytes(b"# Unix file\n\nRule one.\n")
     corrections.apply_block(lf, f"{corrections.BEGIN}\nfinding\n{corrections.END}")
     assert b"\r\n" not in lf.read_bytes(), "CRLF was introduced into an LF file"
+
+
+class TestTheGuidanceTableMatchesRealSignatures:
+    """The table is keyed to strings another module produces. Nothing but a test
+    keeps those in step, and the first version of it was written from imagination:
+    it carried `diff`, `traceback` and `columnar` — which `learn._content_class`
+    never emits — and omitted `json`, which it emits constantly. The dead keys were
+    harmless. The missing one made `distil learn --write` decline silently on every
+    JSON-dominated session, which is most of them.
+    """
+
+    #: Representative inputs for each branch of learn._content_class, so the set of
+    #: classes is DERIVED from the producer rather than restated here.
+    SAMPLES = (
+        '{"result": [1, 2, 3], "ok": true}',
+        "Traceback (most recent call last):\n  File x\nError: boom",
+        "def handler(request):\n    return None",
+        "2026-01-01T00:00:00Z INFO starting worker pool\n" * 3,
+        "The quick brown fox jumps over the lazy dog and keeps going.",
+    )
+
+    def _produced(self) -> set[str]:
+        from distil.learn import _content_class
+
+        return {_content_class(t) for t in self.SAMPLES}
+
+    def test_every_class_the_producer_emits_has_guidance(self) -> None:
+        missing = self._produced() - set(corrections._GUIDANCE)
+        assert not missing, (
+            f"learn._content_class emits {sorted(missing)} with no guidance — "
+            "learn --write declines silently on those sessions"
+        )
+
+    def test_the_table_has_no_keys_the_producer_cannot_emit(self) -> None:
+        """Dead keys are how the table drifts: they look like coverage and are not."""
+        dead = set(corrections._GUIDANCE) - self._produced()
+        assert not dead, f"guidance for signatures that never occur: {sorted(dead)}"
+
+    def test_json_specifically_produces_a_block(self) -> None:
+        """The regression itself: the most common class, previously silent."""
+        block = corrections.build_block(_Dissection([("json:xl", 9, 90_000)], 0))
+        assert block is not None and "JSON" in block

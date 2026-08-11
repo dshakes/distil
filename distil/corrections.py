@@ -37,7 +37,16 @@ END = "<!-- distil:end -->"
 
 #: What each block signature means in a sentence the agent can act on. Keyed to the
 #: dominant content type distil actually measured, because the useful advice differs:
-#: filtering a log at the source is a different move from re-reading a diff.
+#: filtering a log at the source is a different move from narrowing a JSON payload.
+#:
+#: The keys MUST be exactly the classes ``learn._content_class`` can return. The
+#: first version of this table was written from imagination — it carried `diff`,
+#: `traceback` and `columnar`, which that function never produces, and omitted
+#: `json`, which it produces constantly. The dead keys were harmless; the missing
+#: one meant `learn --write` silently declined on every JSON-dominated session,
+#: which is most of them. `distil dissect` has a WIDER display vocabulary that
+#: includes diff/traceback/columnar — it is not the producer of these signatures,
+#: and copying from it is how the mistake happened. A test pins both directions.
 _GUIDANCE = {
     "log": (
         "large log output",
@@ -45,25 +54,16 @@ _GUIDANCE = {
         "`grep -m`, or a narrower time window. Most of a log's tokens are lines "
         "nobody reads.",
     ),
-    "diff": (
-        "large diffs",
-        "Prefer `--stat` first and fetch only the hunks you need. A full diff of a "
-        "large change is mostly context you already have.",
-    ),
-    "traceback": (
-        "stack traces",
-        "The first and last frames usually carry the signal; the middle is framework "
-        "noise. Quote the frames you are reasoning about rather than the whole trace.",
-    ),
     "code": (
         "code listings",
         "Read the specific symbol or range you need rather than whole files — the "
         "surrounding file is rarely what the decision turns on.",
     ),
-    "columnar": (
-        "tabular data",
-        "Ask for the columns and rows you need. Wide tables cost tokens per cell, "
-        "most of which never enter the reasoning.",
+    "json": (
+        "large JSON payloads",
+        "Ask for the fields you need rather than whole documents — most of a JSON "
+        "response is structure the decision never touches. Where a tool supports a "
+        "query or projection, use it at the source.",
     ),
     "error": (
         "error output",
