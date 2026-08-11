@@ -201,7 +201,7 @@ def test_a_file_that_is_not_utf8_is_read_and_preserved(tmp_path: Path) -> None:
     raw = p.read_bytes()
     assert b"\x97" in raw, "the user's own bytes were mangled, not preserved"
     assert b"# My rules" in raw and b"Always run the linter." in raw
-    assert block.encode() in raw
+    assert b"distil:begin" in raw and b"finding" in raw
 
 
 def test_the_markers_are_ascii(tmp_path: Path) -> None:
@@ -211,3 +211,26 @@ def test_the_markers_are_ascii(tmp_path: Path) -> None:
     matching itself and the block was appended twice instead of updated."""
     corrections.BEGIN.encode("ascii")
     corrections.END.encode("ascii")
+
+
+def test_line_endings_are_not_rewritten(tmp_path: Path) -> None:
+    """A CRLF file must come back CRLF, and an LF file LF.
+
+    Python's universal-newline translation silently rewrites every line ending on
+    the way in and out. For a tool that claims to touch only its own block, that
+    is a whole-file diff in `git status` — the churn that gets a tool removed from
+    someone's workflow, and a direct contradiction of the byte-for-byte promise.
+    """
+    crlf = tmp_path / "crlf.local.md"
+    crlf.write_bytes(b"# Windows file\r\n\r\nRule one.\r\n")
+    corrections.apply_block(crlf, f"{corrections.BEGIN}\nfinding\n{corrections.END}")
+    raw = crlf.read_bytes()
+    assert b"# Windows file\r\n" in raw, "the user's CRLF endings were rewritten"
+    assert b"\n" in raw and raw.count(b"\r\n") == raw.count(b"\n"), (
+        "mixed line endings were left behind"
+    )
+
+    lf = tmp_path / "lf.local.md"
+    lf.write_bytes(b"# Unix file\n\nRule one.\n")
+    corrections.apply_block(lf, f"{corrections.BEGIN}\nfinding\n{corrections.END}")
+    assert b"\r\n" not in lf.read_bytes(), "CRLF was introduced into an LF file"

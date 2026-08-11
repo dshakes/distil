@@ -135,21 +135,40 @@ def apply_block(path: Path, block: str) -> str:
     # to your file" into a traceback, on the exact platform least likely to be
     # holding a utf-8 file. Round-tripping through surrogateescape preserves those
     # bytes exactly, which is also what the byte-for-byte promise below requires.
-    existing = path.read_text(encoding="utf-8", errors="surrogateescape") if path.exists() else ""
+    # newline="" on BOTH sides, or Python's universal-newline translation quietly
+    # rewrites every line ending in the file: read converts CRLF to LF, write
+    # converts it back on Windows and to LF everywhere else. Pointing this at a
+    # CRLF file from a LF machine would reformat the whole thing, which is a
+    # whole-file diff in `git status` for a tool that claims to touch only its own
+    # block. The promise below is byte-for-byte; this is what makes it true.
+    existing = ""
+    if path.exists():
+        with open(path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
+            existing = fh.read()
+    # Match the file's prevailing line ending so the inserted block does not leave
+    # a mixed-ending file behind.
+    nl = "\r\n" if "\r\n" in existing else "\n"
+    block = block.replace("\r\n", "\n").replace("\n", nl)
     pattern = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
     if pattern.search(existing):
         updated = pattern.sub(lambda _m: block, existing, count=1)
         if updated == existing:
             return "unchanged"
-        path.write_text(updated, encoding="utf-8", errors="surrogateescape")
+        _write(path, updated)
         return "updated"
     sep = (
         ""
-        if not existing or existing.endswith("\n\n")
-        else ("\n" if existing.endswith("\n") else "\n\n")
+        if not existing or existing.endswith(nl + nl)
+        else (nl if existing.endswith(nl) else nl + nl)
     )
-    path.write_text(existing + sep + block + "\n", encoding="utf-8", errors="surrogateescape")
+    _write(path, existing + sep + block + nl)
     return "created" if not existing else "updated"
+
+
+def _write(path: Path, text: str) -> None:
+    """Write without newline translation — see apply_block."""
+    with open(path, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
+        fh.write(text)
 
 
 def is_tracked_instruction_file(path: Path) -> bool:
