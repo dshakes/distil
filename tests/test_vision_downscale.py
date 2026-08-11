@@ -246,3 +246,50 @@ def test_the_freshest_turn_is_never_downscaled(monkeypatch) -> None:
     blocks = out[0]["content"]
     assert len(blocks) == 1, "the newest turn's image was altered"
     assert blocks[0]["source"]["data"] == src["data"], "byte-identical, or recency is broken"
+
+
+@needs_pil
+def test_a_screenshot_inside_a_tool_result_is_spliced_not_nested(monkeypatch) -> None:
+    """The path that actually carries screenshots, and the one that shipped broken.
+
+    Computer-use and browser tools return images inside a tool_result's content
+    list. That loop assembles its own list, so the image+note pair has to be
+    spliced there too — appending it whole nests a list inside `content` and the
+    provider rejects the request. Every block in `content` must be a dict.
+    """
+    monkeypatch.setenv("DISTIL_VISION", "1")
+    monkeypatch.setenv("DISTIL_VISION_DOWNSCALE", "1")
+    from distil.adapters import anthropic as ad
+
+    raw = _png(2400, 1200)
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "t1",
+                    "content": [{"type": "image", "source": _source(raw)}],
+                }
+            ],
+        },
+        *(
+            m
+            for _ in range(6)
+            for m in (
+                {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+                {"role": "user", "content": [{"type": "text", "text": "next"}]},
+            )
+        ),
+    ]
+    out, store = ad.compress_messages(msgs)
+    inner = out[0]["content"][0]["content"]
+
+    assert all(isinstance(b, dict) for b in inner), (
+        f"a list was nested inside tool_result content — malformed request: {inner}"
+    )
+    assert [b["type"] for b in inner] == ["image", "text"], (
+        f"expected the image+note pair spliced in order, got {[b.get('type') for b in inner]}"
+    )
+    handle = inner[1]["text"].split("handle=")[1].split(" ")[0].rstrip(">").strip()
+    assert base64.b64decode(json.loads(store.expand(handle))["data"]) == raw

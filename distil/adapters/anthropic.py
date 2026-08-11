@@ -413,8 +413,18 @@ def _compress_content_item(
                     # Where computer-use / browser screenshots actually live: a
                     # tool_result whose content list carries the image block.
                     new_sub = _compress_image_block(sub, store, verbatim, is_recent)
-                    new_list.append(new_sub)
-                    changed = changed or new_sub is not sub
+                    if isinstance(new_sub, list):
+                        # A downscaled image comes back as a PAIR (image + the note
+                        # carrying its recovery handle). It must be spliced here
+                        # exactly as at the message level — appending it whole nests
+                        # a list inside `content`, which the provider rejects. This
+                        # is the hottest path for the transform, not a corner: it is
+                        # where screenshots arrive.
+                        new_list.extend(new_sub)
+                        changed = True
+                    else:
+                        new_list.append(new_sub)
+                        changed = changed or new_sub is not sub
                 else:
                     new_list.append(sub)
             if not changed:
