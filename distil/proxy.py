@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 import re
 import socket
 import threading
@@ -180,7 +181,93 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_OPENER = urllib.request.build_opener(_NoRedirect)
+#: CA-bundle variables, in the order the ecosystem already resolves them. distil
+#: honours the names a corporate environment has ALREADY set for curl/requests
+#: rather than inventing a distil-specific one nobody has exported.
+_CA_BUNDLE_VARS = ("DISTIL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE")
+
+
+def ca_bundle_path() -> str | None:
+    """The CA bundle to trust for upstream TLS, or None for the system default.
+
+    Behind an SSL-inspecting corporate proxy (Zscaler, Netskope, a company MITM
+    box) every outbound TLS connection is re-signed by an internal CA. Python
+    does not read the macOS keychain or the Windows store for this, so distil's
+    upstream call fails certificate verification while curl and the browser —
+    which do read them, or have been pointed at the corporate bundle — work
+    fine. The user sees "upstream connection failed" and concludes distil is
+    broken, which from where they are sitting is indistinguishable from true.
+
+    Returns the first variable that names a file that actually exists. A path
+    that does not exist is ignored rather than passed to OpenSSL, which would
+    raise at context-construction time and take down the proxy at startup for a
+    stale export in someone's shell profile.
+    """
+    for var in _CA_BUNDLE_VARS:
+        val = (os.environ.get(var) or "").strip()
+        if val and os.path.isfile(val):
+            return val
+    return None
+
+
+def tls_failure_hint(reason: object) -> str | None:
+    """Turn a certificate-verification failure into the sentence that fixes it.
+
+    Raw, this arrives as ``[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify
+    failed: unable to get local issuer certificate``, which reads like distil is
+    broken. It usually means one thing: an SSL-inspecting corporate proxy is
+    re-signing traffic with a CA that Python does not trust. The user's browser
+    and curl work, so distil looks uniquely at fault.
+
+    Returns None for every other connection error — a hint about certificates on
+    a DNS failure or a refused connection is worse than silence, because it sends
+    the reader somewhere the problem is not.
+    """
+    text = str(reason)
+    if "CERTIFICATE_VERIFY_FAILED" not in text and "SSLCertVerificationError" not in text:
+        return None
+    current = ca_bundle_path()
+    if current is not None:
+        return (
+            f"TLS verification failed against the CA bundle at {current} "
+            f"(from {_which_ca_var()}). That file exists but does not contain the "
+            "issuer your network re-signs with — check it is the full corporate "
+            "root chain, not a single leaf certificate."
+        )
+    return (
+        "This is what an SSL-inspecting corporate proxy looks like: traffic is "
+        "re-signed by an internal CA that Python does not trust, so curl and your "
+        "browser work while distil does not. Point distil at your organisation's "
+        "CA bundle, e.g. export REQUESTS_CA_BUNDLE=/path/to/corp-ca.pem (or "
+        "SSL_CERT_FILE / CURL_CA_BUNDLE / DISTIL_CA_BUNDLE), then restart the proxy."
+    )
+
+
+def _which_ca_var() -> str:
+    """Which variable supplied the active bundle — named so the user edits the
+    right one when several are exported and only the first takes effect."""
+    for var in _CA_BUNDLE_VARS:
+        val = (os.environ.get(var) or "").strip()
+        if val and os.path.isfile(val):
+            return var
+    return "(none)"
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    """The upstream opener, with a corporate CA bundle applied when present.
+
+    Verification is never disabled. There is no distil flag to turn it off, and
+    that is deliberate: "it works with verification off" is how a proxy holding
+    every prompt on the machine ends up trusting anything on the wire.
+    """
+    bundle = ca_bundle_path()
+    if bundle is None:
+        return urllib.request.build_opener(_NoRedirect)
+    ctx = ssl.create_default_context(cafile=bundle)
+    return urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+
+
+_OPENER = _build_opener()
 
 
 class _ErrStream:
@@ -644,9 +731,14 @@ def build_handler(
                 return exc.code, rhdrs, rbody
             except urllib.error.URLError as exc:
                 status = 504 if _is_timeout(exc) else 502
-                rbody = json.dumps(
-                    {"error": "upstream connection failed", "detail": str(exc.reason)[:200]}
-                ).encode()
+                payload: dict[str, Any] = {
+                    "error": "upstream connection failed",
+                    "detail": str(exc.reason)[:200],
+                }
+                hint = tls_failure_hint(exc.reason)
+                if hint:
+                    payload["hint"] = hint
+                rbody = json.dumps(payload).encode()
                 return status, {"Content-Type": "application/json"}, rbody
             except TimeoutError:
                 rbody = b'{"error":"upstream timed out"}'
