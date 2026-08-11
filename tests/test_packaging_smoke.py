@@ -56,6 +56,38 @@ def _pyproject() -> dict:
     return {"project": project}
 
 
+#: Highest Metadata-Version the release pipeline's publisher accepts. twine inside
+#: pypa/gh-action-pypi-publish rejects anything newer with "not a valid metadata
+#: version", which fails the upload AFTER the tag is pushed and the build is green.
+MAX_METADATA_VERSION = (2, 4)
+
+
+def _assert_publishable_metadata(wheel: Path) -> None:
+    """The wheel must carry metadata the publisher will actually accept.
+
+    v1.43.0rc3 built green, tagged, and published NOTHING: an unpinned hatchling
+    resolved to 1.32 in CI and emitted `Metadata-Version: 2.5`. It was invisible
+    locally because this machine had an older hatchling cached, so the local
+    smoke test built an acceptable wheel while CI built an unpublishable one.
+
+    Checking the artifact — rather than trusting the pin in pyproject — is what
+    makes this catch the next drift, including one that arrives through a
+    transitive resolution nobody edited.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(wheel) as z:
+        name = next(n for n in z.namelist() if n.endswith(".dist-info/METADATA"))
+        first = z.read(name).decode("utf-8", "replace").splitlines()[0]
+    assert first.startswith("Metadata-Version:"), f"no metadata version line: {first!r}"
+    got = tuple(int(x) for x in first.split(":", 1)[1].strip().split("."))
+    assert got <= MAX_METADATA_VERSION, (
+        f"wheel declares Metadata-Version {'.'.join(map(str, got))}, but the publish "
+        f"action rejects anything above {'.'.join(map(str, MAX_METADATA_VERSION))}. "
+        "The build backend drifted — pin it in pyproject, or upgrade the publisher first."
+    )
+
+
 @pytest.fixture(scope="module")
 def installed(tmp_path_factory) -> Path:
     """Build the wheel and install it into a clean venv. Returns the venv's bin/."""
@@ -73,6 +105,7 @@ def installed(tmp_path_factory) -> Path:
         pytest.skip(f"uv build unavailable/failed: {build.stderr[-300:]}")
     wheels = list(wheel_dir.glob("*.whl"))
     assert wheels, "uv build produced no wheel"
+    _assert_publishable_metadata(wheels[0])
 
     venv = work / "venv"
     subprocess.run(["uv", "venv", str(venv)], check=True, capture_output=True)

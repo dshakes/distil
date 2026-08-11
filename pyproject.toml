@@ -2,7 +2,7 @@
 # Import package and CLI are `distil`; the PyPI distribution is `distil-llm`
 # (the bare `distil` name is already taken on PyPI).
 name = "distil-llm"
-version = "1.43.0rc3"
+version = "1.43.0rc4"
 description = "Compression with a quality contract — cache-aware, causally-pruned context compression for agentic runtimes, gated by a statistical non-inferiority test."
 readme = "README.md"
 # Python floor is 3.9 — the version macOS still ships as the system `python3`. The
@@ -70,7 +70,16 @@ distil-mcp = "distil.mcp_server:serve"
 distil-llm = "distil.mcp_server:serve"
 
 [build-system]
-requires = ["hatchling"]
+# PINNED, like ruff and mypy in CI, and for the same reason: an unpinned build
+# backend drifts and breaks the release. hatchling 1.32 emits
+# `Metadata-Version: 2.5`, which the publish action's bundled twine rejects with
+# "not a valid metadata version" — so v1.43.0rc3 built green and published
+# nothing. Worse, it was invisible locally: this machine had an older hatchling
+# cached, so `uv build` produced an acceptable 2.4 wheel while CI produced an
+# unpublishable one. Local and CI must build the SAME artifact.
+# Lifting this pin requires the publish action to accept 2.5 first — see the
+# metadata assertion in tests/test_packaging_smoke.py.
+requires = ["hatchling<1.32"]
 build-backend = "hatchling.build"
 
 # Keep local cruft (alt venvs, caches, result dumps) out of the sdist — an
