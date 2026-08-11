@@ -53,6 +53,56 @@ records what the boundary actually is: consent, not recoverability. distil does 
 a first-party session unasked. Recoverability is still why a digest is *safe* once opted
 into; it is not why the default exists.
 
+**Two more agents, and one needed more than a preset.** `distil wrap` routes **Grok
+CLI** (`GROK_BASE_URL`; the `/v1` belongs to the base URL there, unlike the OpenAI SDK
+which appends it) and **OpenHands**. OpenHands reads `LLM_BASE_URL` *only* when run with
+`--override-with-envs` — without it the agent reads its own settings file and ignores the
+environment entirely, so a preset alone would print success while routing nothing. `wrap`
+checks argv and says so before the session starts. The IDE extensions (cursor, copilot,
+cline, continue, windsurf) remain deliberately absent — no argv to wrap and no published
+env contract — and a test now pins that.
+
+**Oversized images can be downscaled, behind a recovery handle.** Duplicate elision cannot
+touch a *first* occurrence, so a 2400x1200 screenshot still cost its full ~1,600 input
+tokens every turn. [ADR 0007](docs/adr/0007-downscaling-behind-a-recovery-handle.md) permits
+downscaling in exactly one form: the original goes into the RestoreStore first, and the
+smaller image is emitted **as a pair** with a note stating what changed and the handle that
+returns the untouched original. A downscaled image emitted alone would be silent loss and
+is not allowed. Ships **off**, behind its own certificate, with **no bundled certificate** —
+`vision`'s shipped result certifies a provably identical image, while this is a claim about
+whether losing detail changes decisions on *your* screenshots. Needs the optional `[image]`
+extra; inert without it.
+
+**Networks that inspect TLS no longer make distil look broken.** Behind a corporate MITM
+appliance every outbound connection is re-signed by an internal CA. `curl` and the browser
+read the OS trust store; Python does not — so distil failed certificate verification while
+every other tool on the machine worked. The upstream opener now honours `DISTIL_CA_BUNDLE`
+/ `REQUESTS_CA_BUNDLE` / `CURL_CA_BUNDLE` / `SSL_CERT_FILE`, a verification failure returns
+the sentence that fixes it rather than a raw OpenSSL string, and `distil doctor` names the
+bundle actually in effect. A path that does not exist is ignored rather than fatal. There is
+no option to disable verification. See [`docs/ENTERPRISE.md`](docs/ENTERPRISE.md) §3b.
+
+**`distil dissect` was reporting almost nothing on always-on installs, and the cause was one
+unexported variable.** The savings recorder mints a session id when `distil wrap` did not set
+one and put it on ledger rows — but every session-scoped *path* resolves that id from the
+environment, and an always-on proxy runs under launchd or systemd, neither of which inherits
+a shell environment. So per-request records, the session manifest and the liveness marker
+were all silently dropped while the ledger looked healthy. `dissect` reported `blocks=0` on
+sessions worth over a million input tokens: the analysis was never broken, its input was
+never recorded. This was the third surface of that one cause — the status line calling
+fully-routed sessions "bypassing", and ledger rows attributed to the proxy rather than the
+wrap, were the first two.
+
+**`distil learn --write` puts what a session measured where the agent will read it.** That
+analysis has always lived in a report a human reads once; the agent that produced the cost
+never saw it, so it repeated itself next session. This writes a managed block into
+`CLAUDE.local.md` keyed to *your* project: which content type dominated, how much of the
+bulky content it was, and the move that reduces it. It writes only to a `*.local.md` file
+unless forced (a tracked `CLAUDE.md` is reviewed by your teammates), preserves everything
+outside its markers byte-for-byte — including line endings and non-UTF-8 bytes — and
+declines entirely when no single content type reached half the measured volume. A file of
+plausible advice is one the agent learns to skim.
+
 ## [1.42.1] — the upgrade could not claim the port it had just been given
 
 **`distil default --always-on` was broken on Linux in 1.42.0**, in both directions,
