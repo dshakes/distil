@@ -3002,8 +3002,70 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _learn_write(args: argparse.Namespace) -> int:
+    """`distil learn --write` — persist a session's measured finding for the agent.
+
+    The analysis already exists in `dissect`; what was missing is that it lived in
+    a report a human reads once, while the agent that produced the cost never saw
+    it and did the same thing next session.
+    """
+    from pathlib import Path as _Path
+
+    from . import corrections
+    from .dissect import dissect, list_sessions, resolve_sid
+
+    sid = resolve_sid(args.session) if args.session else None
+    if sid is None and args.session:
+        # resolve_sid enumerates from the LEDGER, which batches its writes. A live
+        # session can therefore have per-request records on disk — everything this
+        # command actually reads — while the ledger has not flushed a row for it
+        # yet, and be rejected as "no such session". Accept an exact id whose
+        # records exist, so the answer does not depend on flush timing.
+        from .ledger import session_requests_path as _reqs
+
+        candidate = _reqs(args.session)
+        if candidate is not None and candidate.exists():
+            sid = args.session
+        else:
+            print(f"✗ no session matching {args.session!r} — `distil dissect` lists them")
+            return 1
+    if sid is None:
+        sessions = list_sessions()
+        if not sessions:
+            print("no sessions recorded yet — run one:  distil wrap -- claude")
+            return 1
+        sid = sessions[0].sid
+
+    block = corrections.build_block(dissect(sid))
+    if block is None:
+        # Deliberate: a note written off a thin session states a pattern from too
+        # little evidence, and a file of weak claims is one the agent skims.
+        print(
+            f"nothing earned from session {sid} yet — no single content type dominated,\n"
+            "or the session was too small to generalise from. Nothing written."
+        )
+        return 0
+
+    path = _Path(args.write)
+    if corrections.is_tracked_instruction_file(path) and not args.force:
+        print(f"✗ {path} looks like a TRACKED instruction file your teammates review.")
+        print("  distil will not edit that unasked. Either:")
+        print(f"    distil learn --write {path.with_suffix('')}.local.md   # gitignored, yours")
+        print(f"    distil learn --write {path} --force                   # you decided")
+        return 1
+
+    status = corrections.apply_block(path, block)
+    print(f"✓ {status} the distil block in {path}  (session {sid})")
+    if status != "unchanged":
+        print("  Everything outside the markers was left byte-for-byte as it was.")
+    return 0
+
+
 def cmd_learn(args: argparse.Namespace) -> int:
     """Show the keep policy Distil has learned from your real expand signals."""
+    if getattr(args, "write", None):
+        return _learn_write(args)
+
     from .learn import ExpandStats
 
     stats = ExpandStats.load()
@@ -3678,6 +3740,20 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--threshold", type=float, default=0.25, help="expand-rate to keep byte-exact")
     ln.add_argument(
         "--min-samples", type=int, default=5, help="min digests before a policy applies"
+    )
+    ln.add_argument(
+        "--write",
+        nargs="?",
+        const="CLAUDE.local.md",
+        metavar="FILE",
+        help="write what a session MEASURED into your agent's instruction file "
+        "(default CLAUDE.local.md, which is gitignored by convention)",
+    )
+    ln.add_argument("--session", help="session id to learn from (default: the most recent one)")
+    ln.add_argument(
+        "--force",
+        action="store_true",
+        help="--write: allow writing to a TRACKED instruction file your teammates review",
     )
     ln.set_defaults(func=cmd_learn)
 

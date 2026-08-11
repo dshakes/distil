@@ -54,9 +54,23 @@ class RuntimeSavings:
             # agent — and the status line it spawns — inherit, so per-session
             # savings correlate across the proxy and the status line. Falls back
             # to one-id-per-proxy-process when wrap didn't set it.
+            #
+            # EXPORT the fallback, do not just hold it. Every session-scoped path
+            # (`session_marker_path`, `session_requests_path`,
+            # `session_manifest_path`) resolves the id from os.environ. An
+            # always-on proxy runs under launchd/systemd, which does not inherit a
+            # shell environment, so the variable is unset: the id minted here went
+            # onto ledger rows while every one of those helpers returned None and
+            # silently wrote nothing. `distil dissect` then reported blocks=0 on
+            # sessions worth over a million tokens — the analysis was not broken,
+            # its input was never recorded.
+            #
+            # setdefault, not assignment: a real `distil wrap` id must always win,
+            # or the proxy would rename the session its agent is already using.
             self.session_id = (
                 os.environ.get("DISTIL_SESSION") or f"s{int(time.time())}-{os.getpid()}"
             )
+            os.environ.setdefault("DISTIL_SESSION", self.session_id)
 
     @property
     def tokens_saved(self) -> int:
