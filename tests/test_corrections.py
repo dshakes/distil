@@ -69,9 +69,9 @@ def test_the_advice_differs_by_what_was_measured() -> None:
 
 def test_creating_preserves_existing_content(tmp_path: Path) -> None:
     p = tmp_path / "CLAUDE.local.md"
-    p.write_text("# My rules\n\nAlways run the linter.\n")
+    p.write_text("# My rules\n\nAlways run the linter.\n", encoding="utf-8")
     assert corrections.apply_block(p, "BLOCKB") in ("created", "updated")
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     assert text.startswith("# My rules\n\nAlways run the linter.\n")
     assert "BLOCKB" in text
 
@@ -79,10 +79,10 @@ def test_creating_preserves_existing_content(tmp_path: Path) -> None:
 def test_updating_replaces_only_the_managed_region(tmp_path: Path) -> None:
     p = tmp_path / "CLAUDE.local.md"
     first = f"{corrections.BEGIN}\nold finding\n{corrections.END}"
-    p.write_text(f"# Mine\n\n{first}\n\n## After\nkeep me\n")
+    p.write_text(f"# Mine\n\n{first}\n\n## After\nkeep me\n", encoding="utf-8")
     second = f"{corrections.BEGIN}\nnew finding\n{corrections.END}"
     assert corrections.apply_block(p, second) == "updated"
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     assert "new finding" in text and "old finding" not in text
     assert "# Mine" in text and "## After" in text and "keep me" in text
 
@@ -93,9 +93,9 @@ def test_rewriting_the_same_block_is_a_no_op(tmp_path: Path) -> None:
     p = tmp_path / "CLAUDE.local.md"
     block = f"{corrections.BEGIN}\nsame\n{corrections.END}"
     corrections.apply_block(p, block)
-    before = p.read_text()
+    before = p.read_text(encoding="utf-8")
     assert corrections.apply_block(p, block) == "unchanged"
-    assert p.read_text() == before
+    assert p.read_text(encoding="utf-8") == before
 
 
 def test_a_missing_file_is_created(tmp_path: Path) -> None:
@@ -163,7 +163,7 @@ def test_the_command_writes_the_local_file(tmp_path, monkeypatch, capsys) -> Non
 
     rc = cli.cmd_learn(_args(write="CLAUDE.local.md"))
     assert rc == 0
-    text = (tmp_path / "CLAUDE.local.md").read_text()
+    text = (tmp_path / "CLAUDE.local.md").read_text(encoding="utf-8")
     assert corrections.BEGIN in text and "large log output" in text
     assert "90,000" in text
 
@@ -180,3 +180,34 @@ def test_a_thin_session_writes_nothing_at_all(tmp_path, monkeypatch, capsys) -> 
     assert rc == 0
     assert not (tmp_path / "CLAUDE.local.md").exists(), "wrote a claim it had not earned"
     assert "Nothing written" in capsys.readouterr().out
+
+
+def test_a_file_that_is_not_utf8_is_read_and_preserved(tmp_path: Path) -> None:
+    """A user's instruction file saved by a Windows editor is frequently cp1252.
+
+    distil did not write that file and has no business demanding an encoding for
+    it. A strict utf-8 read raises UnicodeDecodeError, turning "add a note to your
+    file" into a traceback — on the platform least likely to be holding utf-8.
+    This is the same class as the cp1252 crash in `distil stats`: a tool must not
+    fail on the file it was pointed at.
+    """
+    p = tmp_path / "CLAUDE.local.md"
+    # 0x97 is an em-dash in cp1252 and invalid as a lone utf-8 byte.
+    p.write_bytes(b"# My rules \x97 written on Windows\n\nAlways run the linter.\n")
+
+    block = f"{corrections.BEGIN}\nfinding\n{corrections.END}"
+    assert corrections.apply_block(p, block) in ("created", "updated")
+
+    raw = p.read_bytes()
+    assert b"\x97" in raw, "the user's own bytes were mangled, not preserved"
+    assert b"# My rules" in raw and b"Always run the linter." in raw
+    assert block.encode() in raw
+
+
+def test_the_markers_are_ascii(tmp_path: Path) -> None:
+    """They are compared against bytes from a file distil did not write, and are
+    echoed to consoles whose encoding it does not control. An em-dash here came
+    back as a replacement character on a cp1252 console, so the marker stopped
+    matching itself and the block was appended twice instead of updated."""
+    corrections.BEGIN.encode("ascii")
+    corrections.END.encode("ascii")

@@ -27,7 +27,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-BEGIN = "<!-- distil:begin — measured from your sessions; edit above or below, not inside -->"
+# ASCII on purpose. These are machine-read delimiters, and they get compared against
+# bytes from a file distil did not write. An em-dash here rendered as a replacement
+# character on a cp1252 Windows console, so the marker no longer matched itself and
+# the block was appended a second time instead of updated. Typography in a delimiter
+# buys nothing and costs that.
+BEGIN = "<!-- distil:begin - measured from your sessions; edit above or below, not inside -->"
 END = "<!-- distil:end -->"
 
 #: What each block signature means in a sentence the agent can act on. Keyed to the
@@ -124,20 +129,26 @@ def apply_block(path: Path, block: str) -> str:
     instructions are not distil's to rewrite, and a tool that reformats the file
     around its edit is one people stop pointing at real files.
     """
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    # surrogateescape, not plain utf-8: this file belongs to the user and distil did
+    # not write it. An instruction file saved by a Windows editor is frequently
+    # cp1252, and a strict utf-8 read raises UnicodeDecodeError — turning "add a note
+    # to your file" into a traceback, on the exact platform least likely to be
+    # holding a utf-8 file. Round-tripping through surrogateescape preserves those
+    # bytes exactly, which is also what the byte-for-byte promise below requires.
+    existing = path.read_text(encoding="utf-8", errors="surrogateescape") if path.exists() else ""
     pattern = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
     if pattern.search(existing):
         updated = pattern.sub(lambda _m: block, existing, count=1)
         if updated == existing:
             return "unchanged"
-        path.write_text(updated, encoding="utf-8")
+        path.write_text(updated, encoding="utf-8", errors="surrogateescape")
         return "updated"
     sep = (
         ""
         if not existing or existing.endswith("\n\n")
         else ("\n" if existing.endswith("\n") else "\n\n")
     )
-    path.write_text(existing + sep + block + "\n", encoding="utf-8")
+    path.write_text(existing + sep + block + "\n", encoding="utf-8", errors="surrogateescape")
     return "created" if not existing else "updated"
 
 
