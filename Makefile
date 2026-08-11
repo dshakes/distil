@@ -4,7 +4,7 @@ help:  ## Show this help
 	@grep -E '^[a-z]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
 test:  ## Run the full test suite
-	uv run --with pytest python -m pytest -q
+	uv run --with pytest --with pillow python -m pytest -q
 
 gate: bench verify validate retention fidelity suite  ## Run the full CI gate (non-inferiority + byte-fidelity + adversarial + recall + state probes + public benchmarks)
 # Must stay identical to the gate steps in .github/workflows/ci.yml. `validate` was

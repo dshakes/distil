@@ -48,6 +48,11 @@ otel = ["opentelemetry-api>=1.20"]                    # GenAI semantic-conventio
 # this is only for asymmetric IdP signing keys. Without it an RS256 token is
 # REFUSED, never verified-by-skipping — see distil/authz.py.
 oidc = ["cryptography>=42.0"]
+# Image downscaling (distil/compress/vision_scale.py). Resampling needs a real
+# codec, which the stdlib does not have. Without this extra the transform is
+# INERT — available() is False and images pass through untouched — so distil's
+# zero-dependency guarantee is unchanged for anyone who does not opt in.
+image = ["Pillow>=10.0"]
 # native = the Rust hot-path core (rust/distil-core); build with `maturin develop --release`
 
 [project.scripts]
