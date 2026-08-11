@@ -7,7 +7,8 @@ compressor that proves its guarantees rather than assuming them. Zero runtime
 dependencies. Four ways to use it, and they do not all reach the same tier:
 
   - Agent wrap: `distil wrap -- <agent>` for claude, codex, gemini, aider,
-    opencode, qwen, goose. Zero config.
+    opencode, qwen, goose, grok, openhands. Zero config. (openhands additionally
+    needs its own --override-with-envs flag before it will read the environment.)
   - HTTP proxy for Anthropic, OpenAI (Chat Completions + Responses API), and
     Google Gemini. Point any base_url client at it.
   - Python library: `from distil import compress_messages, expand_handle`.

@@ -59,5 +59,21 @@ def test_agent_preset_env_var_contract():
     assert AGENT_PRESETS["codex"][0] == "OPENAI_BASE_URL"
     assert AGENT_PRESETS["gemini"][0] == "GOOGLE_GEMINI_BASE_URL"
     assert AGENT_PRESETS["aider"][0] == "OPENAI_BASE_URL"
+    assert AGENT_PRESETS["grok"][0] == "GROK_BASE_URL"
+    assert AGENT_PRESETS["openhands"][0] == "LLM_BASE_URL"
     # cursor-agent deliberately absent: its env contract is not publicly documented
     assert "cursor-agent" not in AGENT_PRESETS
+    # IDE extensions have no argv to wrap and no published env contract. Their
+    # supported path is the always-on proxy plus the editor's own base-URL setting
+    # (docs/IDE-AGENTS.md). A preset here would route nothing and report success.
+    for ide in ("cursor", "copilot", "cline", "continue", "windsurf"):
+        assert ide not in AGENT_PRESETS, f"{ide} has no published env contract to honour"
+
+
+def test_grok_upstream_carries_its_own_version_suffix():
+    """Grok's default endpoint is https://api.x.ai/v1 — the /v1 is part of the base
+    URL, not appended by the SDK the way the OpenAI client does it. Dropping it here
+    would send every request to a 404 that looks like a distil bug."""
+    from distil.onboard import AGENT_PRESETS
+
+    assert AGENT_PRESETS["grok"][1].endswith("/v1")

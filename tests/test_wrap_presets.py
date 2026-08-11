@@ -100,6 +100,47 @@ def test_preset_aider(monkeypatch, capsys):
     assert "aider" in out and "OPENAI_BASE_URL" in out
 
 
+def test_preset_grok(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["grok"]))
+    assert rc == 0
+    assert captured["env_var"] == "GROK_BASE_URL"
+    # The /v1 belongs to the base URL here — unlike the OpenAI SDK, which appends
+    # it. Dropping it sends every request to a 404 that reads like a distil bug.
+    assert captured["upstream"] == "https://api.x.ai/v1"
+    out = capsys.readouterr().out
+    assert "Grok CLI" in out and "GROK_BASE_URL" in out
+
+
+def test_preset_openhands(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["openhands", "--override-with-envs"]))
+    assert rc == 0
+    assert captured["env_var"] == "LLM_BASE_URL"
+    out = capsys.readouterr().out
+    assert "OpenHands" in out and "LLM_BASE_URL" in out
+
+
+def test_openhands_without_its_flag_is_warned_at_wrap_time(monkeypatch, capsys):
+    """The preset alone does not route openhands, and the failure is silent.
+
+    Selecting LLM_BASE_URL is necessary but not sufficient: without
+    --override-with-envs the agent reads ~/.openhands/settings.json and never looks
+    at the environment. The wrap still runs — it is the user's command — but it has
+    to say so, or the only symptom is savings that never arrive.
+    """
+    from distil.cli import cmd_wrap
+
+    _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["openhands", "--headless"]))
+    assert rc == 0
+    assert "--override-with-envs" in capsys.readouterr().err
+
+
 # ---------------------------------------------------------------------------
 # --env-var override always wins
 # ---------------------------------------------------------------------------
@@ -239,3 +280,71 @@ def test_tripwire_silent_without_marker(tmp_path, monkeypatch, capsys):
     """No marker file (wrap_run never created one) → can't tell → stay silent."""
     err = _run_tripwire(tmp_path, monkeypatch, capsys, None)
     assert "no requests flowed" not in err
+
+
+def test_a_new_preset_actually_carries_a_request_to_the_provider(tmp_path, monkeypatch):
+    """The routing proof: a child using the injected variable reaches the far side.
+
+    Selector tests assert distil picked a variable name. That is not the claim
+    `wrap` makes to a user — the claim is that their agent's traffic now goes
+    through distil. This drives the whole chain for a newly-added preset: wrap
+    injects GROK_BASE_URL -> the child reads it -> the proxy accepts the request
+    -> the upstream records the hit. If any link is wrong the upstream stays
+    untouched and this fails, which is the difference between "we wrote a config"
+    and "a request provably arrived".
+    """
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from distil import proxy
+    from distil.onboard import AGENT_PRESETS
+
+    # Read the variable from the preset table rather than restating it, so a wrong
+    # preset fails HERE instead of only in the selector test. Hardcoding the name
+    # would make this look like an end-to-end proof while testing a constant.
+    grok_env = AGENT_PRESETS["grok"][0]
+    seen: list[str] = []
+
+    class Upstream(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            seen.append(self.path)
+            body = json.dumps(
+                {"id": "m", "content": [{"type": "text", "text": "ok"}], "model": "m"}
+            ).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):  # noqa: ANN002
+            pass
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    up_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    child = (
+        "import json, os, urllib.request, sys\n"
+        f"base = os.environ[{grok_env!r}].rstrip('/')\n"
+        "body = json.dumps({'model':'m','max_tokens':4,"
+        "'messages':[{'role':'user','content':'hi'}]}).encode()\n"
+        "req = urllib.request.Request(base + '/v1/messages', data=body,\n"
+        "    headers={'content-type':'application/json'})\n"
+        "urllib.request.urlopen(req, timeout=10).read()\n"
+        "sys.exit(0)\n"
+    )
+    try:
+        code = proxy.wrap_run(
+            [sys.executable, "-c", child],
+            upstream=up_url,
+            env_var=grok_env,
+            record=False,
+        )
+    finally:
+        server.shutdown()
+
+    assert code == 0, f"the child could not reach the proxy through {grok_env}"
+    assert seen, "the request never arrived upstream — the wrap routed nothing"
