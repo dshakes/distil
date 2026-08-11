@@ -84,6 +84,36 @@ with large stable prefixes and small tool outputs genuinely has little to fold.
 It is alertable because it is indistinguishable from a misconfigured mode, and
 that distinction needs a human.
 
+## 3b. Networks that inspect TLS
+
+If your network re-signs outbound TLS with an internal CA — Zscaler, Netskope, a
+corporate MITM appliance — point distil at the CA bundle:
+
+```bash
+export REQUESTS_CA_BUNDLE=/path/to/corp-ca.pem   # or SSL_CERT_FILE, CURL_CA_BUNDLE,
+                                                 # or DISTIL_CA_BUNDLE (checked first)
+distil doctor            # "TLS trust" names the bundle actually in effect
+```
+
+distil honours the variables your environment has almost certainly already
+exported for `curl` and `requests`, so on most managed machines this is already
+configured and nothing needs doing.
+
+**Why it is needed at all, and why it looks like a distil bug.** `curl` and your
+browser read the OS trust store; Python does not. So the corporate root that makes
+everything else on the machine work is invisible to distil, and the *only* symptom
+is distil failing to reach the provider while every other tool succeeds. The 502 it
+returns now carries the explanation and the fix rather than a raw OpenSSL string.
+
+A bundle path that does not exist is **ignored**, not fatal — a stale export in
+someone's shell profile must not stop the proxy from starting — and `distil doctor`
+warns when it finds one, because silently ignored is the worst outcome for a user
+who believes they configured it.
+
+There is no option to disable certificate verification, deliberately. distil sees
+every prompt on the machine; "it works with verification off" is how that becomes
+trusting anything on the wire.
+
 ## 4. Commercial status — read this before planning around distil
 
 | | Status |

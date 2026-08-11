@@ -872,24 +872,20 @@ def test_diagnose_swallows_check_exceptions(monkeypatch):
     def _explode():
         raise RuntimeError("simulated check failure")
 
-    # Replace every check with an exploding one so the aggregator exception path fires
-    monkeypatch.setattr(doctor, "_check_version", _explode)
-    monkeypatch.setattr(doctor, "_check_shadowed_install", _explode)
-    monkeypatch.setattr(doctor, "_check_ledger", _explode)
-    monkeypatch.setattr(doctor, "_check_session", _explode)
-    monkeypatch.setattr(doctor, "_check_live_routing", _explode)
-    monkeypatch.setattr(doctor, "_check_shadow", _explode)
-    monkeypatch.setattr(doctor, "_check_proxy_selftest", _explode)
-    monkeypatch.setattr(doctor, "_check_anthropic_extra", _explode)
-    monkeypatch.setattr(doctor, "_check_api_key", _explode)
-    monkeypatch.setattr(doctor, "_check_pricing_catalog", _explode)
-    monkeypatch.setattr(doctor, "_check_tokenizer_grade", _explode)
-    monkeypatch.setattr(doctor, "_check_mode", _explode)
-    monkeypatch.setattr(doctor, "_check_claude_code", _explode)
+    # Explode EVERY check, discovered by name rather than listed. The list version
+    # of this silently stopped covering each newly-added check until one of them
+    # returned a non-FAIL status and broke the `all(...)` assertion — the test
+    # failing for the right reason, but only by luck and one check too late.
+    names = [n for n in dir(doctor) if n.startswith("_check_") and callable(getattr(doctor, n))]
+    assert len(names) >= 13, f"check discovery found too few: {names}"
+    for name in names:
+        monkeypatch.setattr(doctor, name, _explode)
 
     checks = doctor.diagnose()
     # Every failed check should appear as FAIL (not raise)
-    assert all(c.status == doctor.FAIL for c in checks)
+    assert all(c.status == doctor.FAIL for c in checks), (
+        f"a check survived as non-FAIL: {[(c.name, c.status) for c in checks if c.status != doctor.FAIL]}"
+    )
     assert len(checks) >= 12
 
 

@@ -63,6 +63,44 @@ def _claude_oauth_present() -> bool:
         return False
 
 
+def _check_tls_trust() -> Check:
+    """Whether upstream TLS will verify, and against which CA bundle.
+
+    Behind an SSL-inspecting corporate proxy this is the difference between
+    distil working and distil looking broken, and it is invisible from the
+    outside: curl and the browser read the OS trust store, Python does not.
+    Doctor is where someone looks after the first failure, so the answer needs
+    to be here rather than only in a 502 body.
+    """
+    from .proxy import _which_ca_var, ca_bundle_path
+
+    bundle = ca_bundle_path()
+    if bundle is not None:
+        return Check(
+            "TLS trust",
+            OK,
+            f"using the CA bundle at {bundle}",
+            f"from {_which_ca_var()} — upstream TLS verifies against this, not the system store",
+        )
+    # No override is the normal, healthy case; only say something is wrong when a
+    # variable is exported but points nowhere, which is silently ignored.
+    stale = [
+        v
+        for v in ("DISTIL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE")
+        if (os.environ.get(v) or "").strip() and not os.path.isfile(os.environ[v].strip())
+    ]
+    if stale:
+        return Check(
+            "TLS trust",
+            WARN,
+            f"{', '.join(stale)} names a file that does not exist — ignored",
+            "distil falls back to the system trust store; fix or unset it to avoid confusion",
+        )
+    return Check(
+        "TLS trust", OK, "system trust store", "set REQUESTS_CA_BUNDLE if behind SSL inspection"
+    )
+
+
 def _check_version() -> Check:
     import sys
 
@@ -598,6 +636,7 @@ def diagnose() -> list[Check]:
     checks: list[Check] = []
     for fn in (
         _check_version,
+        _check_tls_trust,
         _check_shadowed_install,
         _check_ledger,
         _check_session,
