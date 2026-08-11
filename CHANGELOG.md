@@ -53,6 +53,39 @@ records what the boundary actually is: consent, not recoverability. distil does 
 a first-party session unasked. Recoverability is still why a digest is *safe* once opted
 into; it is not why the default exists.
 
+**Two more agents, and one of them needed more than a preset.** `distil wrap` now routes
+**Grok CLI** (`GROK_BASE_URL`; the `/v1` belongs to the base URL there, unlike the OpenAI
+SDK which appends it) and **OpenHands**. OpenHands reads `LLM_BASE_URL` *only* when run
+with `--override-with-envs` — without it the agent reads its own settings file and ignores
+the environment entirely, so a preset alone would print success while routing nothing.
+`wrap` checks argv and says so before the session starts. The IDE extensions (cursor,
+copilot, cline, continue, windsurf) remain deliberately absent — no argv to wrap and no
+published env contract — and a test now pins that so the reasoning survives the next
+person who reads the list and sees a gap.
+
+**Oversized images can be downscaled, behind a recovery handle.** Duplicate elision cannot
+touch a *first* occurrence, so a 2400x1200 screenshot still cost its full ~1,600 input
+tokens every turn. [ADR 0007](docs/adr/0007-downscaling-behind-a-recovery-handle.md)
+permits downscaling in exactly one form: the original goes into the RestoreStore first,
+and the smaller image is emitted **as a pair** with a note stating what changed and the
+handle that returns the untouched original. A downscaled image emitted alone would be
+silent loss and is not allowed. It ships **off**, behind its own certificate, with **no
+bundled certificate** — `vision`'s shipped result certifies a provably identical image,
+while this is a claim about whether losing detail changes decisions on *your* screenshots,
+which nobody else's corpus can answer. Needs the optional `[image]` extra; inert without
+it, so the stdlib-only guarantee is unchanged for anyone who does not opt in.
+
+**Networks that inspect TLS no longer make distil look broken.** Behind a corporate MITM
+appliance every outbound connection is re-signed by an internal CA. `curl` and the browser
+read the OS trust store; Python does not — so distil failed certificate verification while
+every other tool on the machine worked. The upstream opener now honours `DISTIL_CA_BUNDLE`
+/ `REQUESTS_CA_BUNDLE` / `CURL_CA_BUNDLE` / `SSL_CERT_FILE` (the names such an environment
+has already exported), a verification failure returns the sentence that fixes it rather
+than a raw OpenSSL string, and `distil doctor` names the bundle actually in effect. A path
+that does not exist is ignored rather than fatal — a stale shell export must not stop the
+proxy starting. There is no option to disable verification. See
+[`docs/ENTERPRISE.md`](docs/ENTERPRISE.md) §3b.
+
 ## [1.42.1] — the upgrade could not claim the port it had just been given
 
 **`distil default --always-on` was broken on Linux in 1.42.0**, in both directions,
