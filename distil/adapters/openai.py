@@ -56,7 +56,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..compress.intent import extract_intent, terms_of
+from ..compress.intent import terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
 from .anthropic import (
@@ -230,7 +230,13 @@ def compress_chat_completions(
     # Same contract as the Anthropic entry point: open a fresh census so a thread that
     # previously served Anthropic traffic cannot leak its counts into this request.
     _census_tls.counts = {}
-    _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
+    # Empty by design, not an oversight: this provider caches prefixes
+    # implicitly and commits everything it is sent, so every block is cached
+    # content by the next request. Intent terms change every turn, so letting
+    # them choose which lines survive would rewrite the cached prefix on every
+    # question. Same reason there is no recency carve-out here.
+    # See compress.recency.exempt_indices.
+    _intent_tls.terms = frozenset()
     try:
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
@@ -369,7 +375,13 @@ def compress_responses_input(
     """
     _keep_tls.fn = keep
     _census_tls.counts = {}
-    _intent_tls.terms = frozenset() if verbatim else _extract_responses_intent(items)
+    # Empty by design, not an oversight: this provider caches prefixes
+    # implicitly and commits everything it is sent, so every block is cached
+    # content by the next request. Intent terms change every turn, so letting
+    # them choose which lines survive would rewrite the cached prefix on every
+    # question. Same reason there is no recency carve-out here.
+    # See compress.recency.exempt_indices.
+    _intent_tls.terms = frozenset()
     try:
         store = RestoreStore()
         new_items: list[dict[str, Any]] = []

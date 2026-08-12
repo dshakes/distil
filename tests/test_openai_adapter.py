@@ -26,6 +26,7 @@ No real model or network required.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -361,7 +362,10 @@ class TestResponsesFunctionCallOutput:
             {"type": "function_call_output", "call_id": "c2", "output": _big_tool_output("c2")},
         ]
         compressed, store = compress_responses_input(items)
-        handle = next(iter(store.handles))
+        # Every item digests now that implicit prefix caching leaves no recency
+        # carve-out, so the store holds a handle per item — take the one belonging
+        # to the block under test rather than an arbitrary member of the set.
+        handle = re.search(r"handle=([0-9a-f]{8})", compressed[0]["output"]).group(1)
         assert store.expand(handle) == output
 
     def test_non_string_output_passthrough(self) -> None:

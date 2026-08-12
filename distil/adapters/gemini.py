@@ -248,11 +248,13 @@ def compress_generate_request(
     """
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
     contents = body.get("contents")
-    _intent_tls.terms = (
-        frozenset()
-        if verbatim or not isinstance(contents, list)
-        else _extract_gemini_intent(contents)
-    )
+    # Empty by design, not an oversight: this provider caches prefixes
+    # implicitly and commits everything it is sent, so every block is cached
+    # content by the next request. Intent terms change every turn, so letting
+    # them choose which lines survive would rewrite the cached prefix on every
+    # question. Same reason there is no recency carve-out here.
+    # See compress.recency.exempt_indices.
+    _intent_tls.terms = frozenset()
     try:
         store = RestoreStore()
         if not isinstance(contents, list):

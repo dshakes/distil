@@ -478,6 +478,35 @@ def test_compression_is_append_only_across_turns() -> None:
         prev = ser
 
 
+def test_cached_history_does_not_depend_on_the_current_question() -> None:
+    """Query-aware salience must not reach back into content already cached.
+
+    Intent terms come from the newest user turn and change every turn by design,
+    so letting them shape an already-sent block rewrites the cached prefix on
+    every question — a second, independent cause of the same cache bust the
+    recency window caused. Measured before the fix: asking a different follow-up
+    rewrote cached message #0.
+    """
+    import json as _json
+
+    big = "\n".join(f"config value alpha_{i} = {i * 7} beta_{i} = {i * 13}" for i in range(40))
+
+    def convo(last_user: str) -> list[dict]:
+        msgs: list[dict] = []
+        for i in range(4):
+            msgs.append(_tr(f"t{i}", f"{big}\nfile {i}"))
+            msgs.append({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
+        msgs[-2]["content"][0]["cache_control"] = {"type": "ephemeral"}
+        msgs.append({"role": "user", "content": last_user})
+        return msgs
+
+    a, _ = compress_messages(convo("tell me about alpha_3 and the beta values"))
+    b, _ = compress_messages(convo("what is the deployment rollback procedure"))
+    assert [_json.dumps(m, sort_keys=True) for m in a[:-1]] == [
+        _json.dumps(m, sort_keys=True) for m in b[:-1]
+    ]
+
+
 def test_no_cache_control_keeps_the_sliding_recency_window() -> None:
     """A client that never marks a prefix has no cache to invalidate, so the
     plain last-k carve-out (and its byte-exact freshest output) is preserved."""

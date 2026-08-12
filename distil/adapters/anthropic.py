@@ -606,6 +606,16 @@ def compress_messages(
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
         recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
+        # Query-aware salience is scoped to content the provider has NOT cached.
+        # Intent terms come from the newest user turn and change every turn by
+        # design, so letting them choose which lines survive in an already-cached
+        # block rewrites the cached prefix on every question — the same bust the
+        # sliding recency window caused, from a second direction, and invisible to
+        # a per-request test. Measured before this: asking a different follow-up
+        # rewrote cached message #0. Intent still shapes a block's FIRST rendering,
+        # which is when it is new and the current question is most relevant to it.
+        cached_through = _cached_prefix_end(messages)
+        full_intent = _intent_tls.terms
         for idx, msg in enumerate(messages):
             if not isinstance(msg, dict):
                 new_messages.append(msg)  # malformed entry — pass through untouched
@@ -613,6 +623,7 @@ def compress_messages(
             # Force verbatim for the most recent turns so their tool_results are
             # never replaced by a digest stub the agent must reason over blind.
             msg_verbatim = verbatim or idx in recent
+            _intent_tls.terms = frozenset() if idx <= cached_through else full_intent
             new_messages.append(
                 _compress_message(msg, store, msg_verbatim, is_recent=idx in recent)
             )
