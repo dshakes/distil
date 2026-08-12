@@ -286,6 +286,10 @@ distil trajectory-risk certificate
     </div>
 
     <p>Distil's cache-aware engine models this explicitly. It keeps the prefix <strong>byte-stable</strong> across turns via schema canonicalization and volatile-field extraction, compresses only the volatile tail, and proves via simulation that the naive approach is strictly dominated.</p>
+    <p class="note">Confirmed on the live path from 1.45, and worth stating because it was
+    not always true there: the same 10-turn conversation costs 60% less through distil than
+    direct, checked against the provider's reported <code>cache_read</code>. Earlier versions
+    reproduced the naive failure this section describes.</p>
 
     <h3>The numbers, measured</h3>
 

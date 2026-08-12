@@ -560,6 +560,11 @@
       context <b>size</b>. Distil keeps the prefix byte-stable and compresses only the
       volatile tail. Naive recompression sends fewer tokens yet costs <b>more</b>, because
       it rewrites the cached prefix every turn.</p>
+      <p class="note">Measured on the live path since 1.45: an identical 10-turn agent
+      conversation costs <b>60% less</b> through distil than direct, with the provider's own
+      <code>cache_read</code> confirming the prefix survived every turn. Before 1.45 the live
+      adapter had the failure it names above — it cost 2× direct. See
+      <a href="https://github.com/dshakes/distil/blob/main/docs/CACHE.md">CACHE.md</a>.</p>
     </div>
     <div class="card">
       <span class="tag">TECHNIQUE #2</span>
