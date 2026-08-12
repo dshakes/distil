@@ -132,9 +132,15 @@ def stream_with_expand(
     The first upstream response's headers are relayed to the client; on a non-2xx or a
     non-SSE first response the body is relayed unchanged (no interception).
     """
+    from .streamrelay import capture_ratelimit
+
     first = send(body)
     status = getattr(first, "status", 200)
     hdrs = list(first.headers.items())
+    # Captured before the splice/verbatim branch so both outcomes record it. Uses the
+    # FIRST response deliberately: a request that resolves an expand re-queries upstream,
+    # and it is the original turn's quota state we want attributed to this request.
+    handler._distil_ratelimit = capture_ratelimit(first.headers)  # type: ignore[attr-defined]
     ctype = next((v for k, v in hdrs if k.lower() == "content-type"), "")
     if not (200 <= status < 300) or "text/event-stream" not in ctype.lower():
         # Not a stream we can splice — relay verbatim (chunked) and return.

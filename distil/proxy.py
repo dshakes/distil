@@ -720,14 +720,19 @@ def build_handler(
                 headers={**headers, "Content-Length": str(len(body))},
                 method="POST",
             )
+            # Module-cache hit: streamrelay is warmed at server setup (see above).
+            from .streamrelay import capture_ratelimit
+
             try:
                 with _OPENER.open(req, timeout=_UPSTREAM_TIMEOUT) as resp:
                     rbody = resp.read()
                     rhdrs = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
+                    self._distil_ratelimit = capture_ratelimit(resp.headers)
                     return resp.status, rhdrs, rbody
             except urllib.error.HTTPError as exc:
                 rbody = exc.read() if exc.fp else b'{"error":"upstream error"}'
                 rhdrs = {k: v for k, v in exc.headers.items() if k.lower() not in _HOP_BY_HOP}
+                self._distil_ratelimit = capture_ratelimit(exc.headers)
                 return exc.code, rhdrs, rbody
             except urllib.error.URLError as exc:
                 status = 504 if _is_timeout(exc) else 502
@@ -1367,6 +1372,9 @@ def build_handler(
                     "delta_refs": int(extras.get("x-distil-cache-refs", 0) or 0),
                     "delta_tokens_saved": int(extras.get("x-distil-cache-tokens-saved", 0) or 0),
                     "prefix_msgs": int(extras.get("x-distil-cache-prefix-msgs", 0) or 0),
+                    # Provider-reported quota state (counters/timestamps only). Billed
+                    # tokens say what was sent; this says what it cost the plan's budget.
+                    "ratelimit": getattr(self, "_distil_ratelimit", None),
                     "shadow_sampled": extras.get("x-distil-shadow") == "sampled",
                     "expanded": extras.get("x-distil-expanded") == "1",
                     "output_shaping": extras.get("x-distil-output-shaping", ""),
