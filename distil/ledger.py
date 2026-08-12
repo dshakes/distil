@@ -289,14 +289,24 @@ def latest_row_ts(path: Path | None = None) -> float:
     return 0.0
 
 
-def mode_rates(path: Path | None = None) -> dict[str, tuple[int, float]]:
-    """``{mode: (runs, fraction_smaller)}`` over the whole ledger.
+def mode_rates(
+    path: Path | None = None, *, since: float | None = None
+) -> dict[str, tuple[int, float]]:
+    """``{mode: (runs, fraction_smaller)}`` over the ledger, optionally windowed.
 
     Lets a caller answer "what has the other mode actually been worth on THIS
     machine" with the user's own history rather than a generic claim. The
     subscription-safe default is deliberately conservative, and a machine can
     sit in it for thousands of runs without the user ever learning what it
     costs — a number they earned themselves is what makes that visible.
+
+    ``since`` (unix ts) restricts the window, and a caller comparing against a
+    recent trim MUST pass it. A lifetime mode rate answers a different question
+    than the one the reader is asking: this ledger carried digest at 51.7%
+    lifetime while digest's rate over the last 7 days was 0.3%, because what
+    digest is worth depends on the CONTENT MIX, and that drifts. Quoting the
+    lifetime number next to a recent trim told a user already running digest to
+    go enable digest.
 
     Whole-file pass: a report-time helper, not for the status line's hot path.
     """
@@ -317,6 +327,8 @@ def mode_rates(path: Path | None = None) -> dict[str, tuple[int, float]]:
         base = d.get("baseline_input_tokens") or 0
         got = d.get("distil_input_tokens") or 0
         if not mode or not base:
+            continue
+        if since is not None and (d.get("ts") or 0) < since:
             continue
         a = agg.setdefault(mode, [0.0, 0.0, 0.0])
         a[0] += base

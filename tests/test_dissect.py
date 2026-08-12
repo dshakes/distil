@@ -1105,3 +1105,86 @@ class TestTolerantReader:
 
     def test_read_jsonl_missing_file(self, tmp_path: Path) -> None:
         assert dz._read_jsonl(tmp_path / "absent.jsonl") == []
+
+
+class TestEligibility:
+    """The census surface: why a savings number is what it is."""
+
+    @staticmethod
+    def _session(home: Path, censuses: list[dict[str, int]]) -> str:
+        sess = home / "sessions"
+        sess.mkdir(exist_ok=True)
+        (sess / "s-elig.requests.jsonl").write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "ts": 1000.0 + i,
+                        "model": "m",
+                        "stream": True,
+                        "status": 200,
+                        "booked": True,
+                        "mode": "digest",
+                        "compressible_tokens": sum(c.values()),
+                        "tokens_saved": 100,
+                        "system_tokens": 10,
+                        "tools_tokens": 50,
+                        "census": c,
+                    }
+                )
+                for i, c in enumerate(censuses)
+            )
+            + "\n"
+        )
+        return "s-elig"
+
+    def test_sums_across_requests_and_ranks_by_size(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path,
+            [{"assistant_text": 100, "tool_result_digested": 50}, {"assistant_text": 200}],
+        )
+        elig = dz.dissect(sid).eligibility
+        assert [r for r, _t, _p in elig] == ["assistant_text", "tool_result_digested"]
+        assert elig[0][1] == 300
+        assert abs(sum(p for _r, _t, p in elig) - 100.0) < 0.01
+
+    def test_absent_census_reads_as_unknown_not_as_zero(self, tmp_path, monkeypatch) -> None:
+        """Sessions recorded before the census must not render as "nothing was
+        eligible" — that is a different, and wrong, claim."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(tmp_path, [{}, {}])
+        d = dz.dissect(sid)
+        assert d.eligibility == []
+        assert "why:" not in dz.render_text(d, color=False)
+
+    def test_a_declined_share_is_reported_even_when_most_content_is_protected(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The bucket that indicts the compressor must not be masked by the one that
+        exonerates it. Protected content here is 63% — a naive "mostly protected, all
+        is well" summary would hide a 25% refusal rate behind it."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path,
+            [
+                {
+                    "assistant_text": 54_000,
+                    "tool_result_recent": 9_000,
+                    "tool_result_declined": 25_000,
+                    "tool_result_digested": 12_000,
+                }
+            ],
+        )
+        text = dz.render_text(dz.dissect(sid), color=False)
+        assert "digester declined" in text
+        assert "compressor's to explain" in text
+        assert "the design holding" not in text
+
+    def test_protected_majority_is_explained_as_working_not_broken(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(tmp_path, [{"assistant_text": 80_000, "tool_result_digested": 20_000}])
+        text = dz.render_text(dz.dissect(sid), color=False)
+        assert "the design holding" in text
+        assert "compressor's to explain" not in text

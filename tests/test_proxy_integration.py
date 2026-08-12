@@ -35,6 +35,10 @@ class _Echo(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(_RESP)))
+        # Real Anthropic responses carry these; the proxy records them so quota cost
+        # can be compared against billed tokens (they diverge on cached traffic).
+        self.send_header("anthropic-ratelimit-requests-remaining", "49")
+        self.send_header("Anthropic-RateLimit-Input-Tokens-Remaining", "1900000")
         self.end_headers()
         self.wfile.write(_RESP)
 
@@ -180,6 +184,45 @@ def test_session_delta_round_trip(proxy_factory):
     _post(port, payload)  # establishes the session
     out = _post(port, payload)  # deltas against prior turn
     assert b"done" in out
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_ratelimit_headers_land_in_the_session_record(stream, proxy_factory, monkeypatch, tmp_path):
+    """The provider's quota headers must survive into the per-request record.
+
+    Billed token counts say what was SENT; these say what it cost the plan's budget.
+    On cache-heavy traffic the two diverge (a cache read is ~90% off the metered
+    price), so without this field there is no way to tell from local data whether a
+    subscription cap discounts cached reads the same way metered billing does.
+
+    Parametrised over both relays deliberately: streaming and non-streaming read the
+    upstream response in different places, and real agent traffic is ~entirely
+    streaming — covering only the JSON path would test the branch nobody uses.
+    """
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_SESSION", f"s-ratelimit-{int(stream)}")
+
+    from distil import ledger
+
+    path = ledger.session_requests_path()
+    assert path is not None, "session env did not activate the per-request ledger"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = _digestible()
+    payload["stream"] = stream
+    _post(proxy_factory(), payload)
+
+    # The streaming relay finishes its record after the client's last read returns.
+    for _ in range(50):
+        if path.exists():
+            break
+        time.sleep(0.05)
+    records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    assert records, "no per-request record was written"
+    assert records[-1]["ratelimit"] == {
+        "requests-remaining": "49",
+        "input-tokens-remaining": "1900000",
+    }
 
 
 def test_stalled_client_cannot_pin_a_handler_thread(proxy_factory, monkeypatch):

@@ -3,6 +3,55 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.44.0] — the savings number could not explain itself
+
+**A low percentage was indistinguishable from a broken compressor.** `distil stats` would
+report 0.4% and stop there, and from the outside that reading has four completely different
+causes: a request that was mostly the model's own prose (which distil never rewrites, by
+policy), mostly recency-exempt tool output (a carve-out that shrinks as a conversation
+grows), mostly fragments below the digest threshold, or a digester that was handed real
+work and declined it. Three of those are the design holding. One is a defect. The saved-token
+count is identical in all four, so the only way to tell them apart was to reason from the
+outside about what the traffic probably contained — and that reasoning is wrong often enough
+to send an investigation in the wrong direction for hours.
+
+Every block is now attributed to the gate that actually claimed it, and the counts ride on
+the per-request record. `distil dissect` sums them and prints the answer next to the number
+that prompted the question:
+
+    why: the model's own words (never rewritten) 54%, digester declined 25%,
+         digested 12%, freshest tool output (kept byte-exact) 9%
+
+A declined share of 5% or more is called out as the compressor's to explain. Otherwise a
+protected majority is named as the design holding rather than a fault. Declined wins the tie
+deliberately: a session can be 63% policy-protected *and* refusing a quarter of what it was
+handed, and summarising that as "mostly protected, all is well" would file a real defect
+under an exoneration.
+
+The counts are taken at the decision points themselves, not by a second pass that re-derives
+the rules — a parallel implementation is free to drift from the compressor it describes, and
+a report that quietly disagrees with behaviour is worse than no report. The first draft of
+this predicted the branch order and got it wrong: HTML extraction runs *before* the
+minimum-lines gate, because minified markup is one enormous line, so every browser fetch
+would have been filed as "too short to digest".
+
+Sessions recorded before this ships render no `why:` line at all, rather than showing zeros.
+"No data" and "nothing was eligible" are different claims and only one of them is true.
+
+**Billed tokens never said what a request cost your plan.** Provider responses carry
+`anthropic-ratelimit-*` headers — the only first-party signal for how a request draws down a
+quota, as opposed to how many tokens it contained. The two diverge sharply on cached traffic,
+where a read is billed at roughly a tenth of the metered price, and whether a subscription cap
+discounts it the same way is not published anywhere. Those headers are now recorded per
+request, including on the 429 that carries the most informative quota state of any response.
+Captured at all three upstream reads, because they are genuinely separate code paths and the
+`--expand` splice path is the one real agent traffic uses.
+
+**`distil stats` quoted a digest rate from a window it did not belong to.** The rate beside
+the trim was computed over all recorded history while the trim itself covered the recent
+window, so a mode enabled today was described with a number earned by months of traffic under
+a different one. Both figures now come from the same window.
+
 ## [1.43.0] — the safe default could not say what it cost, and the reload could strand you
 
 **`distil default --always-on` could take macOS down.** The reload boots the job out,

@@ -461,3 +461,93 @@ def test_verbatim_never_emits_handles_across_all_turns() -> None:
     ]
     _out, store = compress_messages(msgs, verbatim=True)
     assert store.handles == frozenset()
+
+
+def _census_fixture() -> list[dict]:
+    """A transcript whose blocks are deliberately claimed by DIFFERENT gates: long
+    tool output (digestible, but the last turns are recency-exempt), assistant prose
+    (never rewritten), and user text (Tier-0 only)."""
+    asst = {"role": "assistant", "content": [{"type": "text", "text": "reasoning. " * 200}]}
+    msgs: list[dict] = []
+    for turn in range(6):
+        msgs.append({"role": "user", "content": "continue please"})
+        msgs.append(asst)
+        msgs.append(_tr(f"t{turn}", _log_body(f"t{turn}")))
+    return msgs
+
+
+def test_census_accounts_for_the_entire_payload() -> None:
+    """The census must be exhaustive, or it is worse than nothing.
+
+    A partial census reads as a complete explanation — the missing tokens are
+    invisible, so whatever bucket happens to be largest gets blamed. Every token in
+    the request must land in exactly one bucket.
+    """
+    from distil.adapters.anthropic import take_census
+    from distil.proxy import _count_messages
+
+    msgs = _census_fixture()
+    compress_messages(msgs, verbatim=False)
+    census = take_census()
+    assert census is not None
+
+    total = sum(census.values())
+    payload = _count_messages(msgs)
+    assert abs(total - payload) / payload < 0.005, f"census {total} vs payload {payload}"
+
+
+def test_census_names_the_gate_that_claimed_each_block() -> None:
+    """Distinguishing the gates is the entire point: "mostly assistant prose" is
+    working as designed, "the digester declined" is a defect, and "mostly recent" is
+    transient. A savings percentage alone cannot tell them apart."""
+    from distil.adapters.anthropic import take_census
+
+    compress_messages(_census_fixture(), verbatim=False)
+    census = take_census() or {}
+
+    # Assistant prose is never rewritten, so it must be attributed to policy...
+    assert census.get("assistant_text", 0) > 0
+    # ...the older tool turns are digested...
+    assert census.get("tool_result_digested", 0) > 0
+    # ...and the freshest ones are held back by the recency carve-out, not by failure.
+    assert census.get("tool_result_recent", 0) > 0
+    # Nothing reached the digester and came back empty-handed.
+    assert census.get("tool_result_declined", 0) == 0
+
+
+def test_census_is_reopened_per_call_and_never_accumulates() -> None:
+    """Two compressions on one thread must not sum. The proxy reads the census after
+    the pass, so a stale carry-over would attribute one request's content to another —
+    exactly the class of bug where a number from the wrong window is quoted as current."""
+    from distil.adapters.anthropic import take_census
+
+    compress_messages(_census_fixture(), verbatim=False)
+    first = sum((take_census() or {}).values())
+    compress_messages(_census_fixture(), verbatim=False)
+    second = sum((take_census() or {}).values())
+    assert first == second, f"census accumulated across calls: {first} -> {second}"
+
+
+def test_census_is_content_free() -> None:
+    """Keys are a fixed vocabulary of reasons and values are integers. This record is
+    written to disk on every request; anything else here would be a content leak."""
+    from distil.adapters.anthropic import take_census
+
+    compress_messages(_census_fixture(), verbatim=False)
+    census = take_census() or {}
+    assert census
+    for key, value in census.items():
+        assert isinstance(key, str) and key.replace("_", "").isalnum(), key
+        assert isinstance(value, int), (key, value)
+
+
+def test_census_is_a_no_op_when_none_is_open() -> None:
+    """The adapter's helpers are imported and called directly by the OpenAI adapter and
+    by tests, outside any ``compress_messages`` call. Counting there would both cost
+    tokenizer work nobody asked for and attribute blocks to whichever request happened
+    to run last on this thread."""
+    import distil.adapters.anthropic as A
+
+    A._census_tls.counts = None
+    A._census("assistant_text", "some text that must not be counted")
+    assert A.take_census() is None

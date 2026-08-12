@@ -301,19 +301,11 @@ def _image_tokens(block: dict[str, Any]) -> int:
     duplicate scored as *negative* savings: zero on the before side, the
     replacement stub's tokens on the after side.
     """
-    from .compress.vision import estimate_tokens as _est
+    from .compress.vision import block_tokens
 
-    src = block.get("source")
-    if not isinstance(src, dict):
-        return 0
-    data = src.get("data")
-    if not isinstance(data, str) or not data:
-        # A url source: real cost, unknown dimensions. estimate_tokens' own
-        # conservative floor is the honest answer — never zero, never flattering.
-        return _est(None) if isinstance(src.get("url"), str) else 0
-    from .compress.vision import _decode_b64
-
-    return _est(_decode_b64(data))
+    # Shared with the eligibility census, which is compared against this baseline by an
+    # exhaustiveness test — so the rule lives in one place rather than two.
+    return block_tokens(block)
 
 
 def _count_messages(msgs: list[dict[str, Any]]) -> int:
@@ -344,6 +336,21 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
                                 if isinstance(sv, str):
                                     total += _tokenizer.count(sv)
     return total
+
+
+def _adapter_census() -> dict[str, int] | None:
+    """The eligibility census left by this thread's most recent compression pass.
+
+    Read here rather than threaded through the call sites because all three relays
+    (JSON, streaming, expand-splice) compress on the handler's own thread, and every
+    entry point opens a fresh census — so the value is this request's by construction.
+    """
+    try:
+        from .adapters.anthropic import take_census
+
+        return take_census()
+    except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+        return None
 
 
 def _tokens_saved(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> int:
@@ -720,14 +727,19 @@ def build_handler(
                 headers={**headers, "Content-Length": str(len(body))},
                 method="POST",
             )
+            # Module-cache hit: streamrelay is warmed at server setup (see above).
+            from .streamrelay import capture_ratelimit
+
             try:
                 with _OPENER.open(req, timeout=_UPSTREAM_TIMEOUT) as resp:
                     rbody = resp.read()
                     rhdrs = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
+                    self._distil_ratelimit = capture_ratelimit(resp.headers)
                     return resp.status, rhdrs, rbody
             except urllib.error.HTTPError as exc:
                 rbody = exc.read() if exc.fp else b'{"error":"upstream error"}'
                 rhdrs = {k: v for k, v in exc.headers.items() if k.lower() not in _HOP_BY_HOP}
+                self._distil_ratelimit = capture_ratelimit(exc.headers)
                 return exc.code, rhdrs, rbody
             except urllib.error.URLError as exc:
                 status = 504 if _is_timeout(exc) else 502
@@ -1367,6 +1379,16 @@ def build_handler(
                     "delta_refs": int(extras.get("x-distil-cache-refs", 0) or 0),
                     "delta_tokens_saved": int(extras.get("x-distil-cache-tokens-saved", 0) or 0),
                     "prefix_msgs": int(extras.get("x-distil-cache-prefix-msgs", 0) or 0),
+                    # Provider-reported quota state (counters/timestamps only). Billed
+                    # tokens say what was sent; this says what it cost the plan's budget.
+                    "ratelimit": getattr(self, "_distil_ratelimit", None),
+                    # Why this request compressed as much (or as little) as it did:
+                    # tokens bucketed by the gate that claimed each block. Without it,
+                    # a low saving is only explicable by inference from outside — and
+                    # inference cannot tell "mostly assistant prose" (working as designed)
+                    # from "the digester declined" (a defect) from "mostly recent"
+                    # (transient). Content-free; see adapters.anthropic.take_census.
+                    "census": _adapter_census(),
                     "shadow_sampled": extras.get("x-distil-shadow") == "sampled",
                     "expanded": extras.get("x-distil-expanded") == "1",
                     "output_shaping": extras.get("x-distil-output-shaping", ""),

@@ -265,6 +265,27 @@ class Dissection:
         return 100.0 * self.overhead_tokens_total / total if total else 0.0
 
     @property
+    def eligibility(self) -> list[tuple[str, int, float]]:
+        """Why the session compressed as much as it did: ``(reason, tokens, pct)``,
+        largest first, summed over every request's per-block census.
+
+        This is the answer to "is a low saving a defect or the design working?" — a
+        question the savings number itself cannot settle. ``tool_result_digested``
+        is work done; ``assistant_text`` and ``tool_result_recent`` are content the
+        policy deliberately protects; ``tool_result_declined`` is the only bucket
+        that indicts the compressor. Empty for sessions recorded before the census
+        existed, which is why callers must treat [] as "unknown", not as "nothing".
+        """
+        agg: dict[str, int] = {}
+        for r in self.requests:
+            for reason, tokens in (r.get("census") or {}).items():
+                agg[str(reason)] = agg.get(str(reason), 0) + int(tokens or 0)
+        total = sum(agg.values())
+        if not total:
+            return []
+        return sorted(((k, v, 100.0 * v / total) for k, v in agg.items()), key=lambda x: -x[1])
+
+    @property
     def churn_tokens(self) -> int:
         """Tokens re-folded after first sight — resent content the client keeps sending."""
         return sum(
@@ -692,6 +713,28 @@ def _flags_line(man: dict[str, Any]) -> str:
     return ", ".join(on) or "defaults"
 
 
+# Census reason -> what it means to a human reading a report. Kept beside the renderer
+# rather than in the adapter: the adapter names mechanisms, this names consequences.
+_ELIGIBILITY_LABEL = {
+    "assistant_text": "the model's own words (never rewritten)",
+    "user_text": "your prompts (lossless only)",
+    "tool_result_recent": "freshest tool output (kept byte-exact)",
+    "tool_result_digested": "digested",
+    "tool_result_html_stripped": "HTML chrome stripped",
+    "tool_result_short": "too short to digest",
+    "tool_result_verbatim": "verbatim mode",
+    "tool_result_learned_keep": "learned keep-byte-exact",
+    "tool_result_declined": "digester declined",
+}
+
+# Buckets that represent a deliberate protection rather than a missed opportunity.
+# Distinguished so a report can say "working as designed" without the reader having to
+# know which gate is which.
+_PROTECTED_REASONS = frozenset(
+    {"assistant_text", "tool_result_recent", "user_text", "tool_result_learned_keep"}
+)
+
+
 def render_text(
     d: Dissection,
     *,
@@ -793,6 +836,32 @@ def render_text(
                 + ", ".join(f"{name} {_human(per)}/req" for name, per, _t in tools[:5])
                 + (" …" if len(tools) > 5 else "")
             )
+        # Why the savings number is what it is. Printed next to the number itself so a
+        # low percentage is read as a diagnosis rather than a malfunction: content the
+        # policy protects looks identical to content the compressor failed on, unless
+        # the two are named separately.
+        elig = d.eligibility
+        if elig:
+            out.append(
+                "  why: "
+                + ", ".join(f"{_ELIGIBILITY_LABEL.get(r, r)} {p:.0f}%" for r, _t, p in elig[:5])
+            )
+            protected = sum(p for r, _t, p in elig if r in _PROTECTED_REASONS)
+            declined = sum(p for r, _t, p in elig if r == "tool_result_declined")
+            if declined >= 5.0:
+                out.append(
+                    c(
+                        "33",
+                        f"    {declined:.0f}% reached the digester and came back unchanged — "
+                        f"that share is the compressor's to explain, not policy's",
+                    )
+                )
+            elif protected >= 50.0:
+                out.append(
+                    f"    {protected:.0f}% is content distil deliberately protects (the model's "
+                    f"own words, and your freshest tool output) — low savings here is the "
+                    f"design holding, not a fault"
+                )
         growth = d.system_growth()
         if growth and growth[1] != growth[0]:
             out.append(
@@ -1005,6 +1074,11 @@ def to_json(
                 ],
             },
             "churn": {"tokens": d.churn_tokens, "blocks": d.churned_blocks},
+            # Why the number is what it is. [] means the session predates the census,
+            # which is NOT the same as "nothing was eligible" — do not render it as 0.
+            "eligibility": [
+                {"reason": r, "tokens": t, "share_pct": round(p, 1)} for r, t, p in d.eligibility
+            ],
             "usage": {
                 "input_tokens": d.usage_input_total,
                 "output_tokens": d.usage_output_total,

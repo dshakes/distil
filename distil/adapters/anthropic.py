@@ -54,6 +54,47 @@ import threading as _threading  # noqa: E402
 
 _keep_tls = _threading.local()
 
+# Per-call eligibility census: token counts bucketed by the REASON each block met.
+# "Why was saving low?" is otherwise only answerable by inference from the outside,
+# and inference gets it wrong — a request can look uncompressed because it was mostly
+# assistant prose (policy), mostly recent (carve-out), mostly short (below _MIN_LINES),
+# or because the digester genuinely declined. Those are different diagnoses with
+# different fixes, and they are indistinguishable in the savings number alone.
+#
+# Counted at the decision points themselves rather than by a second traversal, so the
+# report cannot drift from the behaviour it describes. Content-free: token counts
+# keyed by a fixed vocabulary of reasons, never text.
+_census_tls = _threading.local()
+
+
+def _census_tokens(bucket: str, tokens: int) -> None:
+    """Attribute an already-counted *tokens* to *bucket*. No-op unless a census is open.
+
+    Separate from ``_census`` because images are not priced as text: providers bill them
+    by pixel area, and the exhaustiveness baseline (``proxy._count_messages``) counts them
+    with ``vision.estimate_tokens``. Counting an image's base64 as text here would put the
+    census and the baseline on different scales, and exhaustiveness could never hold.
+    """
+    counts = getattr(_census_tls, "counts", None)
+    if counts is None:
+        return
+    counts[bucket] = counts.get(bucket, 0) + int(tokens)
+
+
+def _census(bucket: str, text: str) -> None:
+    """Attribute *text*'s tokens to *bucket*. No-op unless a census is open, so the
+    cost is confined to callers that asked for one."""
+    if getattr(_census_tls, "counts", None) is None:
+        return
+    _census_tokens(bucket, _tokenizer.count(text))
+
+
+def take_census() -> dict[str, int] | None:
+    """The census accumulated by the most recent ``compress_messages`` on this thread,
+    or None if none ran. Read once per request, after compression."""
+    counts = getattr(_census_tls, "counts", None)
+    return dict(counts) if counts else None
+
 
 def _active_keep(text: str) -> bool:
     fn = getattr(_keep_tls, "fn", None)
@@ -236,11 +277,13 @@ def _compress_tool_result_text(
         if stripped is not None:
             h = _handle(text)
             if store._record(h, text):
+                _census("tool_result_html_stripped", text)
                 return f"{stripped}\n<< html chrome elided, handle={h} >>"
 
     lines = text.splitlines()
     if len(lines) < _MIN_LINES:
         # Too short to digest — lossless Tier-0 transforms only.
+        _census("tool_result_short", text)
         return _apply_tier0(text)
 
     # Verbatim + not recent (a subscription/lossless OLDER block): a self-describing
@@ -250,18 +293,26 @@ def _compress_tool_result_text(
     # byte-exact (no fold) so the agent's latest output is unchanged.
     if verbatim:
         folded = None if is_recent else _lossless_fold(text)
+        # Recency and mode are different diagnoses: one is a carve-out that shrinks as a
+        # conversation grows, the other is a session-wide setting the user chose.
+        _census("tool_result_recent" if is_recent else "tool_result_verbatim", text)
         return folded or _apply_tier0(text)
 
     if keep_byte_exact:
+        _census("tool_result_learned_keep", text)
         return _apply_tier0(text)
 
     digested, changed = _tier1_digest(text, intent=_active_intent())
     if changed:
         h = _handle(text)
         if store._record(h, text):
+            _census("tool_result_digested", text)
             return digested
         # 8-hex collision with a different block — a stub here would expand to the
         # wrong content, so keep this block byte-exact (lossless transforms only).
+    # Reached the digester and came back unchanged (or lost a handle collision) — the
+    # one bucket that indicts the compressor rather than a policy gate.
+    _census("tool_result_declined", text)
     return _apply_tier0(text)
 
 
@@ -280,6 +331,12 @@ def _compress_image_block(
     input). Both cases still *note* the payload, so a later duplicate is still
     recognized as a repeat rather than mistaken for a first sighting.
     """
+    # Every image costs tokens whatever we decide to do with it, so it is censused up
+    # front and refined below. Screenshots are the largest single blocks an agent sends;
+    # leaving them unattributed would make the census silently fail to add up on exactly
+    # the traffic where the "why" question matters most (computer-use, browser tools).
+    _census_tokens("image_kept", _vision.block_tokens(item))
+
     dedup = _active_vision()
     if dedup is None:
         return item
@@ -303,6 +360,10 @@ def _compress_image_block(
         # wrong image. Keeping the block verbatim is always safe (same rule the
         # text digester follows).
         return item
+    # Reclassify: this one was actually elided, not kept. Moved rather than added, so the
+    # total still matches the payload.
+    _census_tokens("image_kept", -_vision.block_tokens(item))
+    _census_tokens("image_elided", _vision.block_tokens(item))
     return {"type": "text", "text": _vision.reference_text(handle, tokens)}
 
 
@@ -374,10 +435,12 @@ def _compress_content_item(
     if btype == "text":
         if role == "assistant":
             # Never rewrite the assistant's own words.
+            _census("assistant_text", item.get("text") or "")
             return item
         text = item.get("text")
         if not isinstance(text, str):
             return item  # malformed/absent text — pass through untouched
+        _census("user_text", text)
         new_text = _compress_text_content(text, store, verbatim)
         if new_text == text:
             return item
@@ -444,13 +507,16 @@ def _compress_message(
 
     if isinstance(content, str):
         if role == "assistant":
+            _census("assistant_text", content)
             return msg
         # OpenAI tool-result messages ({"role":"tool","content":"…"}) get the same
         # decision-aware reversible digest as Anthropic tool_result blocks; other
         # string content gets Tier-0 lossless transforms.
         if role == "tool":
+            # Censused inside _compress_tool_result_text, by branch taken.
             new_text = _compress_tool_result_text(content, store, verbatim, is_recent)
         else:
+            _census("user_text", content)
             new_text = _compress_text_content(content, store, verbatim)
         if new_text == content:
             return msg
@@ -516,6 +582,10 @@ def compress_messages(
         original text; call ``store.expand(handle)`` to recover it.
     """
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
+    # Opened per call, NOT drained in the finally block: the caller reads it after we
+    # return (see proxy._emit_detail). A re-compression on the same thread overwrites it,
+    # which is the wanted behaviour — the census should describe the payload actually sent.
+    _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
     # Vision duplicate elision (ADR 0003) — None unless the content type has been
     # certified, so the default path is byte-for-byte what it was before.

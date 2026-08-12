@@ -59,6 +59,8 @@ from typing import Any
 from ..compress.intent import extract_intent, terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from .anthropic import (
+    _census,
+    _census_tls,
     RestoreStore,
     _compress_text_content,
     _compress_tool_result_text,
@@ -127,12 +129,14 @@ def _compress_openai_message(
     if isinstance(content, str):
         if role == "assistant":
             # Never rewrite the model's own words.
+            _census("assistant_text", content)
             return msg
         if role == "tool":
             # Tool outputs: Tier-1 reversible digest.
             new_text = _compress_tool_result_text(content, store, verbatim, is_recent)
         else:
             # user / system — Tier-0 lossless transforms only.
+            _census("user_text", content)
             new_text = _compress_text_content(content, store, verbatim)
         if new_text == content:
             return msg
@@ -142,6 +146,9 @@ def _compress_openai_message(
     if isinstance(content, list):
         if role == "assistant":
             # Never touch assistant output (includes tool_calls).
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    _census("assistant_text", part["text"])
             return msg
         new_parts: list[Any] = []
         changed = False
@@ -155,6 +162,7 @@ def _compress_openai_message(
                     # tool result fragment → Tier-1, same as the string-content path.
                     new_text = _compress_tool_result_text(part["text"], store, verbatim, is_recent)
                 else:
+                    _census("user_text", part["text"])
                     new_text = _compress_text_content(part["text"], store, verbatim)
                 if new_text != part["text"]:
                     new_parts.append({**part, "text": new_text})
@@ -218,6 +226,9 @@ def compress_chat_completions(
         original text; call ``store.expand(handle)`` to recover it.
     """
     _keep_tls.fn = keep
+    # Same contract as the Anthropic entry point: open a fresh census so a thread that
+    # previously served Anthropic traffic cannot leak its counts into this request.
+    _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
     try:
         store = RestoreStore()
@@ -294,6 +305,9 @@ def _compress_response_item(
             return item
         if role == "assistant":
             # Never rewrite the model's own words.
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    _census("assistant_text", part["text"])
             return item
         # User (and any other non-assistant) message: compress text content parts.
         new_parts: list[Any] = []
@@ -304,6 +318,7 @@ def _compress_response_item(
                 continue
             # input_text → user content (Tier-0 lossless); output_text → model content (skip)
             if part.get("type") == "input_text" and isinstance(part.get("text"), str):
+                _census("user_text", part["text"])
                 new_text = _compress_text_content(part["text"], store, verbatim)
                 if new_text != part["text"]:
                     new_parts.append({**part, "text": new_text})
@@ -354,6 +369,7 @@ def compress_responses_input(
         ``store`` maps handles back to originals for RestoreStore round-trips.
     """
     _keep_tls.fn = keep
+    _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else _extract_responses_intent(items)
     try:
         store = RestoreStore()

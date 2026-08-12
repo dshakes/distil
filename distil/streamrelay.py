@@ -16,8 +16,34 @@ import re
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler
+from typing import Any
 
 _CHUNK = 8192
+
+# Provider-reported quota state, echoed on every response as `anthropic-ratelimit-*`.
+# Worth recording because it is the ONLY first-party signal for how a request is charged
+# against a plan's budget: billed token counts say what was sent, these say what it cost
+# the quota. On cache-heavy traffic the two diverge sharply — a cached read is ~90% off
+# the metered price, but whether a *subscription* cap discounts it the same way is not
+# published, and this is the measurement that settles it for a given account.
+_RATELIMIT_PREFIX = "anthropic-ratelimit-"
+
+
+def capture_ratelimit(headers: Any) -> dict[str, str] | None:
+    """Extract the ``anthropic-ratelimit-*`` response headers, keyed without the vendor
+    prefix (``requests-remaining``, ``input-tokens-limit``, ...). Returns None when the
+    upstream sent none, so the record stays absent rather than empty. Header values only
+    — counters and timestamps, never content."""
+    try:
+        out = {
+            k.lower()[len(_RATELIMIT_PREFIX) :]: v
+            for k, v in headers.items()
+            if k.lower().startswith(_RATELIMIT_PREFIX)
+        }
+    except Exception:  # noqa: BLE001 — a diagnostic must never break the relay
+        return None
+    return out or None
+
 
 # Billed-usage capture. Works on a plain JSON response and on SSE bytes alike:
 # input_tokens appears once near the start (message_start), output_tokens is
@@ -124,6 +150,9 @@ def stream_upstream(
         resp = _OPENER.open(req, timeout=timeout)  # noqa: S310 — operator-set upstream
     except urllib.error.HTTPError as exc:
         rbody = exc.read() if exc.fp else b'{"error":"upstream error"}'
+        # A 429 carries the most informative quota state of any response — capture it
+        # here too, or the one request that proves the cap is the one we fail to record.
+        handler._distil_ratelimit = capture_ratelimit(exc.headers)  # type: ignore[attr-defined]
         handler.send_response(exc.code)
         for k, v in exc.headers.items():
             if k.lower() not in hop_by_hop:
@@ -146,6 +175,9 @@ def stream_upstream(
         return 504, None
 
     with resp:
+        # Before relaying: the handler is per-request, so this reaches _emit_detail
+        # without threading a return value through every streaming call site.
+        handler._distil_ratelimit = capture_ratelimit(resp.headers)  # type: ignore[attr-defined]
         length = resp.headers.get("Content-Length")
         chunked = length is None
         handler.send_response(resp.status)
