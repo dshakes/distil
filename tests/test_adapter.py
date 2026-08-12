@@ -539,3 +539,15 @@ def test_census_is_content_free() -> None:
     for key, value in census.items():
         assert isinstance(key, str) and key.replace("_", "").isalnum(), key
         assert isinstance(value, int), (key, value)
+
+
+def test_census_is_a_no_op_when_none_is_open() -> None:
+    """The adapter's helpers are imported and called directly by the OpenAI adapter and
+    by tests, outside any ``compress_messages`` call. Counting there would both cost
+    tokenizer work nobody asked for and attribute blocks to whichever request happened
+    to run last on this thread."""
+    import distil.adapters.anthropic as A
+
+    A._census_tls.counts = None
+    A._census("assistant_text", "some text that must not be counted")
+    assert A.take_census() is None
