@@ -177,31 +177,37 @@ def _multi_turn_req() -> dict:
     return {"contents": turns}
 
 
-def test_recency_indices_selects_last_k_user_turns():
+def test_no_recency_carve_out_under_implicit_prefix_caching():
+    """Gemini caches prefixes implicitly, so nothing may be exempt from digesting.
+
+    A last-k window slides forward as the conversation grows, so a turn kept
+    verbatim now is digested next turn — rewriting content Gemini has already
+    cached and invalidating the entry for the whole prefix. Measured on the
+    Anthropic path, that cost every cache read on every turn.
+    """
     contents = _multi_turn_req()["contents"]
-    # role:"user" turns are at indices 0, 2, 4, 6, 8 — last K of those are recent.
-    user_idxs = [i for i, c in enumerate(contents) if c.get("role") == "user"]
-    recent = _recent_gemini_verbatim_indices(contents, RECENCY_KEEP_TURNS)
-    assert recent == set(user_idxs[-RECENCY_KEEP_TURNS:])
+    assert _recent_gemini_verbatim_indices(contents, RECENCY_KEEP_TURNS) == set()
 
 
-def test_recent_turns_stay_verbatim():
-    """The last RECENCY_KEEP_TURNS user turns must not be digested."""
+def test_compression_is_stable_as_the_conversation_grows():
+    """The same turn must compress to the same bytes in every later request.
+
+    This is the cache-safety invariant: Gemini caches what it is sent, so any
+    turn that changes shape between requests invalidates the cached prefix.
+    """
+    import json
+
     body = _multi_turn_req()
-    new_body, store = compress_generate_request(body)
-    contents = new_body["contents"]
-    # Find the last RECENCY_KEEP_TURNS user turns and verify their functionResponse
-    # output is byte-exact (no digest stub).
-    user_turn_indices = [i for i, c in enumerate(contents) if c.get("role") == "user"]
-    recent_indices = set(user_turn_indices[-RECENCY_KEEP_TURNS:])
-    for idx in recent_indices:
-        turn = contents[idx]
-        for part in turn["parts"]:
-            if "functionResponse" in part:
-                output = part["functionResponse"]["response"]["output"]
-                assert output == _BIG_OUTPUT, (
-                    f"recent turn {idx} was digested but must stay verbatim"
-                )
+    contents = body["contents"]
+    prev = None
+    for n in range(2, len(contents) + 1):
+        out, _ = compress_generate_request({**body, "contents": contents[:n]})
+        ser = [json.dumps(c, sort_keys=True) for c in out["contents"]]
+        if prev is not None:
+            assert ser[: len(prev)] == prev, (
+                f"growing to {n} turns rewrote an earlier turn Gemini had already cached"
+            )
+        prev = ser
 
 
 def test_older_turns_are_compressed():

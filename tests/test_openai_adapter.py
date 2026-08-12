@@ -213,17 +213,21 @@ class TestChatCompletionsSystemPassthrough:
 class TestChatCompletionsRecency:
     """Last RECENCY_KEEP_TURNS tool-bearing messages must stay verbatim."""
 
-    def test_recent_tool_message_stays_verbatim(self) -> None:
+    def test_tool_message_is_digested_even_when_freshest(self) -> None:
+        """OpenAI caches prefixes implicitly, so there is no recency carve-out.
+
+        Keeping the freshest tool message verbatim only defers the rewrite by one
+        turn — and by then OpenAI has cached it, so digesting it later invalidates
+        the whole cached prefix. Digesting on first sight keeps every later request
+        byte-identical.
+        """
         output = _big_tool_output("recent")
         msgs = [
-            # Only one tool message — it is in the recency window, so must NOT be digested
             {"role": "tool", "tool_call_id": "call_1", "content": output},
         ]
         compressed, store = compress_chat_completions(msgs)
-        assert not _has_handle(compressed[0]["content"]), (
-            "The most recent tool message must stay verbatim (recency carve-out)"
-        )
-        assert not store.handles
+        assert _has_handle(compressed[0]["content"])
+        assert store.handles
 
     def test_old_tool_message_outside_recency_is_digested(self) -> None:
         output = _big_tool_output("old")
@@ -436,15 +440,13 @@ class TestResponsesFunctionCallPassthrough:
 class TestResponsesRecency:
     """Last RECENCY_KEEP_TURNS function_call_output items must stay verbatim."""
 
-    def test_recent_function_call_output_stays_verbatim(self) -> None:
+    def test_function_call_output_is_digested_even_when_freshest(self) -> None:
+        """No recency carve-out on the Responses path either — same cache reason."""
         output = _big_tool_output("recent-resp")
-        # Single function_call_output → in recency window → must NOT be digested
         items = [{"type": "function_call_output", "call_id": "c1", "output": output}]
         compressed, store = compress_responses_input(items)
-        assert not _has_handle(compressed[0]["output"]), (
-            "The most recent function_call_output must stay verbatim"
-        )
-        assert not store.handles
+        assert _has_handle(compressed[0]["output"])
+        assert store.handles
 
     def test_old_function_call_output_digested(self) -> None:
         output = _big_tool_output("old-resp")
@@ -460,19 +462,30 @@ class TestResponsesRecency:
         )
         assert store.handles
 
-    def test_non_fco_items_between_do_not_shift_recency(self) -> None:
-        """Recency counts function_call_output items only; message items don't shift the window."""
-        output = _big_tool_output("fco-recency")
+    def test_compression_is_stable_as_items_are_appended(self) -> None:
+        """Appending items must never change how an earlier item compresses.
+
+        The cache-safety invariant: OpenAI caches the prefix it was sent, so an
+        item whose bytes change between requests invalidates that entry.
+        """
+        import json
+
         items = [
-            {"type": "function_call_output", "call_id": "c0", "output": output},
-            # Many message items after — don't shift the recency counter
+            {"type": "function_call_output", "call_id": "c0", "output": _big_tool_output("a")},
             {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "ok"}]},
+            {"type": "function_call_output", "call_id": "c1", "output": _big_tool_output("b")},
             {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]},
+            {"type": "function_call_output", "call_id": "c2", "output": _big_tool_output("c")},
         ]
-        # c0 is the ONLY function_call_output → it is in the recency window → verbatim
-        compressed, store = compress_responses_input(items)
-        assert not _has_handle(compressed[0]["output"])
-        assert not store.handles
+        prev = None
+        for n in range(1, len(items) + 1):
+            compressed, _ = compress_responses_input(items[:n])
+            ser = [json.dumps(i, sort_keys=True) for i in compressed]
+            if prev is not None:
+                assert ser[: len(prev)] == prev, (
+                    f"appending item {n} rewrote an earlier item OpenAI had already cached"
+                )
+            prev = ser
 
 
 class TestResponsesFailOpen:

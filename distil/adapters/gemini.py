@@ -70,6 +70,7 @@ import re
 from typing import Any
 
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
+from ..compress.recency import exempt_indices as _exempt_indices
 from ..httpguard import strip_query
 from ..tokenizer import DEFAULT as _tokenizer
 from .anthropic import (
@@ -149,14 +150,13 @@ def _recent_gemini_verbatim_indices(contents: list[Any], k: int) -> set[int]:
     """Indices of the last *k* role:"user" turns in a Gemini ``contents`` list.
 
     Gemini places both human text and ``functionResponse`` (tool results) in
-    role:"user" turns, so keeping the last K user turns verbatim ensures the
-    agent always sees its freshest tool outputs byte-exact — the same guarantee
-    as ``_recent_verbatim_indices`` in the Anthropic adapter.
+    role:"user" turns. Like OpenAI it caches prefixes implicitly, with no client
+    marker to anchor to, so a window counted back from the end would digest one
+    turn later a turn the provider has already cached — invalidating the whole
+    prefix. Empty for that reason: see ``compress.recency.exempt_indices``.
     """
-    if k <= 0:
-        return set()
     idxs = [i for i, c in enumerate(contents) if isinstance(c, dict) and c.get("role") == "user"]
-    return set(idxs[-k:])
+    return _exempt_indices(idxs, k, len(contents) - 1)
 
 
 # ---------------------------------------------------------------------------

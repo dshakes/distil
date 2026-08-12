@@ -47,6 +47,8 @@ _MIN_LINES = 6
 # would break that. The rule itself lives in compress.recency and is shared with
 # the certified strategy, so both paths make the same keep/digest decisions.
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS  # noqa: E402
+from ..compress.recency import cached_prefix_end as _cached_prefix_end  # noqa: E402
+from ..compress.recency import exempt_indices as _exempt_indices  # noqa: E402
 
 # Thread-local learned "keep byte-exact" predicate, scoped per compress_messages call
 # (ThreadingHTTPServer handles requests on separate threads, so this must be per-thread).
@@ -123,16 +125,26 @@ def _active_vision() -> Any:
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
-    """Indices of the last *k* tool-output-bearing turns (role ``user``/``tool``),
-    whose tool_result blocks must stay verbatim. See ``_RECENCY_KEEP_TURNS``."""
-    if k <= 0:
-        return set()
+    """Indices of tool-output-bearing turns (role ``user``/``tool``) whose
+    tool_result blocks must stay verbatim. See ``_RECENCY_KEEP_TURNS``.
+
+    Anchored to the client's last ``cache_control`` breakpoint when there is one:
+    anything at or before it is already committed to the provider's cached prefix
+    and must go out in its final form, or the next turn's rewrite invalidates the
+    whole entry. Only the uncached tail is exempt.
+
+    A client that sends no ``cache_control`` at all has no prefix to invalidate,
+    so it keeps the plain last-*k* window.
+    """
     idxs = [
         i
         for i, m in enumerate(messages)
         if isinstance(m, dict) and m.get("role") in ("user", "tool")
     ]
-    return set(idxs[-k:])
+    # Anthropic caches only what the client marks, so no marker means no prefix
+    # to invalidate and the plain last-k window still applies.
+    boundary = _cached_prefix_end(messages)
+    return _exempt_indices(idxs, k, boundary if boundary >= 0 else None)
 
 
 # ---------------------------------------------------------------------------
