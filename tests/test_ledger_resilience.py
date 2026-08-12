@@ -138,3 +138,38 @@ def test_mode_rates_aggregates_per_mode_and_survives_a_bad_ledger(tmp_path):
     assert round(rates["lossless-only"][1], 3) == 0.003
     assert "" not in rates, "a row with no mode belongs to no mode"
     assert ledger.mode_rates(path=tmp_path / "absent.jsonl") == {}
+
+
+def test_mode_rates_window_excludes_stale_history(tmp_path):
+    """`since` is what keeps the quoted rate honest. This ledger carried digest at
+    51.7% lifetime while digest over the last 7 days was 6.2% — the mix that digest
+    is worth on drifts, so a lifetime rate printed next to a recent trim overstated
+    the user's actual rate by ~8x and told a user to enable what they already ran."""
+    import json
+    import time
+
+    now = time.time()
+
+    def row(mode, base, dist, ts):
+        return json.dumps(
+            {
+                "mode": mode,
+                "baseline_input_tokens": base,
+                "distil_input_tokens": dist,
+                "ts": ts,
+            }
+        )
+
+    p = tmp_path / "savings.jsonl"
+    p.write_text(
+        row("digest", 1000, 100, now - 60 * 86400)  # ancient: 90% saved
+        + "\n"
+        + row("digest", 1000, 940, now - 3600)  # recent: 6% saved
+        + "\n"
+        + row("digest", 1000, 500, 0)  # no usable ts → excluded by any window
+        + "\n"
+    )
+    assert round(ledger.mode_rates(path=p)["digest"][1], 2) == 0.49, "lifetime spans all"
+    windowed = ledger.mode_rates(path=p, since=now - 7 * 86400)
+    assert windowed["digest"][0] == 1, "only the in-window row counts"
+    assert round(windowed["digest"][1], 2) == 0.06, "the recent rate, not the flattering one"

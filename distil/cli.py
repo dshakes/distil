@@ -327,20 +327,58 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
                         "overhead; `distil doctor`\n    reports what the proxy is actually doing."
                     )
                 elif _recent_trim < 0.05:
-                    # "usually means lossless-only" with no number printed on every
-                    # run of a subscription machine that went 8,000+ runs at ~0.3%
-                    # without its owner ever learning what the safe default cost.
-                    # Generic advice is easy to read past; a rate the user earned on
-                    # their own traffic is not. Quote it whenever we have one.
-                    _digest = ledger.mode_rates().get("digest")
-                    if _digest and _digest[0] >= 50 and _digest[1] > _recent_trim + 0.05:
+                    # Which mode the recent window ACTUALLY ran decides the advice.
+                    # This branch used to infer it from the trim alone and tell any
+                    # low-yield session "you are in lossless-only", which is wrong
+                    # the moment digest itself is what yielded ~0: a user already
+                    # running `--expand` was told to go turn on `--expand`, and the
+                    # real cause (content mix) never got named. Read the mode.
+                    _win = time.time() - 7 * 86400
+                    _rates = ledger.mode_rates(since=_win)
+                    _recent_mode = max(
+                        _rates.items(), key=lambda kv: kv[1][0], default=("", (0, 0.0))
+                    )[0]
+                    # Prefer the in-window digest rate; fall back to lifetime only when
+                    # the window holds too few digest runs to be a rate at all. A user
+                    # who has sat in lossless-only for months has no recent digest data
+                    # by construction, and staying silent would drop the one number that
+                    # tells them what the safe default costs. But an old rate must be
+                    # LABELLED old — presenting stale history as the current rate is the
+                    # deception being fixed here, not the fallback itself.
+                    _digest_win = _rates.get("digest")
+                    _digest = _digest_win
+                    _stale = ""
+                    if not (_digest_win and _digest_win[0] >= 50):
+                        _digest = ledger.mode_rates().get("digest")
+                        _stale = " historically (not in the last 7 days — what digest is\n    worth depends on your content mix, and that drifts)"
+                    if _recent_mode == "digest":
+                        # Already digesting and still flat. Enabling digest is the
+                        # wrong advice here — it is on. The usual ceiling is the part
+                        # of a request that NO compressor may touch: the system prompt
+                        # and tool definitions, resent verbatim every request (measured
+                        # at 38% of everything sent on the session that prompted this,
+                        # 83k tokens/request of tool schemas alone). `dissect` computes
+                        # that split per session, so point at the number rather than
+                        # guessing a cause from the rate alone.
+                        print(
+                            f"  ↳ digest mode IS on and still returned "
+                            f"{_recent_trim * 100:.1f}%. No flag changes that.\n    "
+                            "The usual ceiling is fixed per-request overhead — the system "
+                            "prompt and\n    tool definitions are resent verbatim every "
+                            "request and cannot be compressed.\n    `distil dissect latest` "
+                            "reports your split and names the costliest tools."
+                        )
+                    elif _digest and _digest[0] >= 50 and _digest[1] > _recent_trim + 0.05:
+                        # Windowed to the same 7 days as the trim it is compared
+                        # against — a lifetime digest rate answers a different
+                        # question and overstated this by ~170x on a real ledger.
                         print(
                             f"  ↳ you are in lossless-only — the subscription-safe default. "
                             f"Digest mode has\n    returned {_digest[1] * 100:.1f}% on YOUR "
-                            f"traffic over {_digest[0]:,} runs. Enable it with\n    "
-                            "`distil default --mode expand` (injects distil_expand, so nothing "
-                            "is\n    irreversibly lost; it does modify requests, which the "
-                            "safe default does not)."
+                            f"traffic over {_digest[0]:,} runs{_stale}. Enable it "
+                            "with\n    `distil default --mode expand` (injects distil_expand, "
+                            "so nothing is\n    irreversibly lost; it does modify requests, "
+                            "which the safe default does not)."
                         )
                     else:
                         print(
