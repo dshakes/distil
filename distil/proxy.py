@@ -346,6 +346,21 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
     return total
 
 
+def _adapter_census() -> dict[str, int] | None:
+    """The eligibility census left by this thread's most recent compression pass.
+
+    Read here rather than threaded through the call sites because all three relays
+    (JSON, streaming, expand-splice) compress on the handler's own thread, and every
+    entry point opens a fresh census — so the value is this request's by construction.
+    """
+    try:
+        from .adapters.anthropic import take_census
+
+        return take_census()
+    except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+        return None
+
+
 def _tokens_saved(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> int:
     """Rough estimate of tokens saved via the default heuristic tokeniser."""
     return max(0, _count_messages(before) - _count_messages(after))
@@ -1375,6 +1390,13 @@ def build_handler(
                     # Provider-reported quota state (counters/timestamps only). Billed
                     # tokens say what was sent; this says what it cost the plan's budget.
                     "ratelimit": getattr(self, "_distil_ratelimit", None),
+                    # Why this request compressed as much (or as little) as it did:
+                    # tokens bucketed by the gate that claimed each block. Without it,
+                    # a low saving is only explicable by inference from outside — and
+                    # inference cannot tell "mostly assistant prose" (working as designed)
+                    # from "the digester declined" (a defect) from "mostly recent"
+                    # (transient). Content-free; see adapters.anthropic.take_census.
+                    "census": _adapter_census(),
                     "shadow_sampled": extras.get("x-distil-shadow") == "sampled",
                     "expanded": extras.get("x-distil-expanded") == "1",
                     "output_shaping": extras.get("x-distil-output-shaping", ""),

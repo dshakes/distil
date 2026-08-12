@@ -59,6 +59,7 @@ from typing import Any
 from ..compress.intent import extract_intent, terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from .anthropic import (
+    _census_tls,
     RestoreStore,
     _compress_text_content,
     _compress_tool_result_text,
@@ -218,6 +219,9 @@ def compress_chat_completions(
         original text; call ``store.expand(handle)`` to recover it.
     """
     _keep_tls.fn = keep
+    # Same contract as the Anthropic entry point: open a fresh census so a thread that
+    # previously served Anthropic traffic cannot leak its counts into this request.
+    _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
     try:
         store = RestoreStore()
@@ -354,6 +358,7 @@ def compress_responses_input(
         ``store`` maps handles back to originals for RestoreStore round-trips.
     """
     _keep_tls.fn = keep
+    _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else _extract_responses_intent(items)
     try:
         store = RestoreStore()
