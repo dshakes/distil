@@ -301,19 +301,11 @@ def _image_tokens(block: dict[str, Any]) -> int:
     duplicate scored as *negative* savings: zero on the before side, the
     replacement stub's tokens on the after side.
     """
-    from .compress.vision import estimate_tokens as _est
+    from .compress.vision import block_tokens
 
-    src = block.get("source")
-    if not isinstance(src, dict):
-        return 0
-    data = src.get("data")
-    if not isinstance(data, str) or not data:
-        # A url source: real cost, unknown dimensions. estimate_tokens' own
-        # conservative floor is the honest answer — never zero, never flattering.
-        return _est(None) if isinstance(src.get("url"), str) else 0
-    from .compress.vision import _decode_b64
-
-    return _est(_decode_b64(data))
+    # Shared with the eligibility census, which is compared against this baseline by an
+    # exhaustiveness test — so the rule lives in one place rather than two.
+    return block_tokens(block)
 
 
 def _count_messages(msgs: list[dict[str, Any]]) -> int:

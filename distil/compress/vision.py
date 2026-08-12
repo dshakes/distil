@@ -273,6 +273,25 @@ def estimate_tokens(raw: bytes | None) -> int:
 # ---------------------------------------------------------------------------
 
 
+def block_tokens(block: Any) -> int:
+    """Billed token cost of a vision content block, from its `source`.
+
+    The single definition of that rule. It is consumed by two callers that MUST agree —
+    the request baseline (`proxy._count_messages`) and the eligibility census
+    (`adapters.anthropic`) — and an exhaustiveness invariant compares their sums. Two
+    copies of this arithmetic would let the census silently fail to add up.
+    """
+    src = block.get("source") if isinstance(block, dict) else None
+    if not isinstance(src, dict):
+        return 0
+    data = src.get("data")
+    if not isinstance(data, str) or not data:
+        # A url source: real cost, unknown dimensions. estimate_tokens' own conservative
+        # floor is the honest answer — never zero, never flattering.
+        return estimate_tokens(None) if isinstance(src.get("url"), str) else 0
+    return estimate_tokens(_decode_b64(data))
+
+
 def _handle(payload: str) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:8]
 

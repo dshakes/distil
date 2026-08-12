@@ -67,13 +67,26 @@ _keep_tls = _threading.local()
 _census_tls = _threading.local()
 
 
-def _census(bucket: str, text: str) -> None:
-    """Attribute *text*'s tokens to *bucket*. No-op unless a census is open, so the
-    cost is confined to callers that asked for one."""
+def _census_tokens(bucket: str, tokens: int) -> None:
+    """Attribute an already-counted *tokens* to *bucket*. No-op unless a census is open.
+
+    Separate from ``_census`` because images are not priced as text: providers bill them
+    by pixel area, and the exhaustiveness baseline (``proxy._count_messages``) counts them
+    with ``vision.estimate_tokens``. Counting an image's base64 as text here would put the
+    census and the baseline on different scales, and exhaustiveness could never hold.
+    """
     counts = getattr(_census_tls, "counts", None)
     if counts is None:
         return
-    counts[bucket] = counts.get(bucket, 0) + _tokenizer.count(text)
+    counts[bucket] = counts.get(bucket, 0) + int(tokens)
+
+
+def _census(bucket: str, text: str) -> None:
+    """Attribute *text*'s tokens to *bucket*. No-op unless a census is open, so the
+    cost is confined to callers that asked for one."""
+    if getattr(_census_tls, "counts", None) is None:
+        return
+    _census_tokens(bucket, _tokenizer.count(text))
 
 
 def take_census() -> dict[str, int] | None:
@@ -318,6 +331,12 @@ def _compress_image_block(
     input). Both cases still *note* the payload, so a later duplicate is still
     recognized as a repeat rather than mistaken for a first sighting.
     """
+    # Every image costs tokens whatever we decide to do with it, so it is censused up
+    # front and refined below. Screenshots are the largest single blocks an agent sends;
+    # leaving them unattributed would make the census silently fail to add up on exactly
+    # the traffic where the "why" question matters most (computer-use, browser tools).
+    _census_tokens("image_kept", _vision.block_tokens(item))
+
     dedup = _active_vision()
     if dedup is None:
         return item
@@ -341,6 +360,10 @@ def _compress_image_block(
         # wrong image. Keeping the block verbatim is always safe (same rule the
         # text digester follows).
         return item
+    # Reclassify: this one was actually elided, not kept. Moved rather than added, so the
+    # total still matches the payload.
+    _census_tokens("image_kept", -_vision.block_tokens(item))
+    _census_tokens("image_elided", _vision.block_tokens(item))
     return {"type": "text", "text": _vision.reference_text(handle, tokens)}
 
 
