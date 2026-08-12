@@ -148,15 +148,20 @@ def test_render_html_uses_real_ledger_numbers(tmp_path):
     assert "live-proxy" in html  # the real source label, not dummy data
 
 
-def test_zero_savings_window_writes_no_ledger_row(tmp_path):
-    """A verbatim/lossless-only window (before == after) must not add 0-rows."""
+def test_zero_savings_window_stays_in_the_denominator(tmp_path):
+    """A window that saved nothing is still traffic, so it must reach the ledger.
+
+    Dropping it kept its baseline out of the denominator as well, which reported
+    savings over the traffic that compressed instead of over all traffic.
+    """
     led = tmp_path / "savings.jsonl"
     rs = RuntimeSavings(model="claude-opus-4-8", ledger_path=led)
     rs.record(1000, 1000)
     rs.record(500, 500)
-    rs.flush()
-    assert not led.exists() or led.read_text() == ""
-    # A window that DID save still writes.
+    assert rs.flush() is True
     rs.record(1000, 600)
     assert rs.flush() is True
-    assert ledger.summary(led).total_tokens_saved == 400
+    s = ledger.summary(led)
+    assert s.total_tokens_saved == 400
+    # 400 saved out of 2500 sent — not 400 out of the 1000 that happened to fold.
+    assert s.total_baseline_tokens == 2500

@@ -299,7 +299,16 @@ class Dissection:
 
     @property
     def usage_input_total(self) -> int:
-        return sum(int(r.get("usage_input_tokens") or 0) for r in self.requests)
+        """Full billed input: uncached + the cached prefix (cache_read/creation).
+
+        ``usage.input_tokens`` alone omits everything served from cache, which on an
+        agent session is most of the input — reporting it as "billed in" made output
+        look like ~95% of billed traffic when it is well under 1%.
+        """
+        return sum(
+            int(r.get("usage_input_tokens") or 0) + int(r.get("usage_cache_tokens") or 0)
+            for r in self.requests
+        )
 
     @property
     def usage_output_total(self) -> int:
@@ -1237,7 +1246,8 @@ def _svg_stack_timeline(requests: list[dict[str, Any]]) -> str:
         ]
         billed = r.get("usage_input_tokens")
         if billed is not None:
-            tip_rows.append(("", "billed input", f"{int(billed):,}"))
+            billed = int(billed) + int(r.get("usage_cache_tokens") or 0)
+            tip_rows.append(("", "billed input", f"{billed:,}"))
         if r.get("duration_ms") is not None:
             tip_rows.append(("", "duration", f"{int(r['duration_ms']) / 1000:.1f}s"))
         y = 8 + plot_h

@@ -832,6 +832,27 @@ class TestAnomalies:
         warnings = dz.dissect("s900-1").anomalies()
         assert any("off by >50% vs billed" in w for w in warnings)
 
+    def test_cached_prefix_counts_as_billed_input(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """input_tokens alone omits the cached prefix, which inflates the output share."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        self._session(
+            tmp_path,
+            [
+                self._req(
+                    usage_input_tokens=20,
+                    usage_cache_tokens=9980,
+                    usage_output_tokens=100,
+                )
+            ],
+        )
+        d = dz.dissect("s900-1")
+        assert d.usage_input_total == 10_000
+        assert d.calibration() == (60, 10_000)
+        # 100/10100, not the 83% you get from counting uncached input only.
+        assert any("(1% of billed traffic)" in h for h, _ in d.headlines())
+
 
 class TestHeadlines:
     @pytest.fixture(autouse=True)
