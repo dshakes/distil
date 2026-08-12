@@ -128,8 +128,11 @@ class RuntimeSavings:
             for mid, (n, before, after) in self.by_model.items():
                 if before == 0:
                     continue  # nothing measured — a zero-baseline record is noise
-                if before <= after:
-                    continue  # nothing saved (e.g. a verbatim/lossless-only window) — a 0-row is noise
+                # A window that saved nothing IS recorded. Dropping it kept its
+                # baseline out of the denominator too, so the reported percentage
+                # was savings over the traffic that happened to compress rather
+                # than over all traffic — 7.9% on a session whose honest rate was
+                # 1.9%. A 0-saving row costs a line and buys an honest number.
                 price = pricing.resolve(mid)
                 per_tok = price.input if price is not None else 0.0
                 ledger.record(
