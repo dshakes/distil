@@ -3,6 +3,63 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.45.0] — the compressor was rewriting the cache it was supposed to protect
+
+**On cached agent traffic, distil cost about twice what sending nothing compressed would
+have.** Provider prompt caching discounts a repeated prefix by ~10x, but only while it is
+byte-identical. distil kept the freshest tool outputs verbatim so an agent could see its
+latest observations exactly — using a window counted back from the end of the message list.
+That window slides. Every block was protected while fresh and digested one turn later,
+which rewrote a message the client had by then committed to its cached prefix. One changed
+block, and the whole prefix is re-billed at the 1.25x write rate instead of re-read at 0.1x.
+
+Measured against the live API, 10 turns, per-arm and per-run salt so no arm reads another's
+cache entry:
+
+    arm                     cache_create   cache_read        $   vs control
+    control (no proxy)            29,446      146,572   0.0517
+    lossless_only                 29,450      146,608   0.0517       +0.0%
+    digest                        85,876            0   0.1076     +108.1%
+
+Zero cache reads, on every turn. Compression halved token volume and still doubled the
+bill. `--session-delta` did not help. This is the exact failure mode distil has always
+attributed to naive compressors.
+
+`docs/CACHE.md` claimed the property held "by construction", and two shipped CLI
+diagnostics told anyone debugging drift that the cause must be upstream in their own
+prompt assembly. Those are retracted.
+
+The rule now is **exempt only content the provider will not have cached**. Anthropic caches
+what the client marks, so recency is anchored to the last `cache_control` breakpoint — with
+no marker there is no prefix to invalidate and the previous last-k window is kept. OpenAI
+and Gemini cache implicitly and commit everything they are sent, so they digest on first
+sight instead. There were four copies of the sliding window; all four now route through one
+rule.
+
+A second cause was found by looking for other per-request inputs: **query-aware salience**
+was re-deciding how already-cached blocks compress, because intent terms come from the
+newest user turn. Asking a different follow-up over the same history rewrote cached message
+#0 with no recency window involved. Intent is now scoped to uncached content — a block's
+first rendering still gets it, later requests reuse those bytes. On OpenAI and Gemini that
+means query-aware salience no longer applies at all; those providers cache everything they
+receive, so there is no uncached region for it to work in. That is a real reduction in what
+the 1.16.0 feature does, taken deliberately against a prefix rewrite on every question.
+
+After both fixes, same harness: **-60.3% vs control**, cache reads intact.
+
+Pinned by append-only invariant tests on all three adapters — compress a growing
+conversation and assert no earlier turn's bytes ever change. The existing gates could not
+have caught this: reversibility and decision-equivalence are properties of a single
+request, and this was a property of the sequence.
+
+Digesting the freshest observation is what the certified strategy already does, so serving
+moves toward certification rather than away from it. It is still a live behaviour change for
+OpenAI and Gemini users and deserves a shadow run before it is treated as settled.
+
+Also in this release: `lossless_only` measured **+0.0%** against no proxy at all — it forces
+Tier-0-only, and `serve()`'s docstring claimed the opposite, which hid why live savings were
+flat. Corrected. `--expand` lifts the force.
+
 ## [1.44.0] — the savings number could not explain itself
 
 **A low percentage was indistinguishable from a broken compressor.** `distil stats` would
