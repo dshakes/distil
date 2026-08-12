@@ -13,12 +13,26 @@ a timestamp, a session id, a reordered tool list — costs the entire prefix.
 
 ## What distil does
 
-**It cannot break the prefix, by construction.** `strategies.distil` compresses the
-*volatile tail* only — the newest user turn and freshest tool output — and leaves
-every stable block byte-for-byte untouched. Compression therefore cannot be the
-cause of a cache miss, and that is a property of the design rather than a promise:
-if it did rewrite a stable block, `distil verify` would fail on reversibility and
-`distil bench` on decision-equivalence.
+**It holds the cached span byte-stable.** Whatever the provider has cached must
+reach the wire in the same form on every later turn, so the compressor is
+*append-only* over the cached prefix: it may compress newly-arrived content, never
+content already committed.
+
+This page previously claimed the property held "by construction", and it did not.
+Until 1.45 the recency carve-out kept the freshest tool outputs verbatim using a
+window counted back from the end of the message list. That window slid forward as
+the conversation grew, so each block was protected while fresh and digested one
+turn later — rewriting a message the provider had by then cached. Measured against
+the live API it cost **every cache read on every turn**, and compression that
+halved token volume still doubled the bill, because the prefix was re-written at
+1.25× instead of re-read at 0.1×.
+
+Reversibility and decision-equivalence did not catch it: both are properties of a
+single request, and this was a property of the *sequence*. What catches it now is
+an append-only invariant test on each adapter — compress a growing conversation and
+assert no earlier turn's bytes ever change. Recency is anchored to the client's
+`cache_control` breakpoint (Anthropic) or dropped entirely for providers that cache
+implicitly and commit everything they are sent (OpenAI, Gemini).
 
 **It marks the boundary.** `adapters.anthropic.place_cache_control` places the
 `cache_control` breakpoint at the end of the stable prefix, so the provider can
@@ -46,9 +60,11 @@ cache writes    15,819 tokens  (billed at a surcharge)
 uncached        40 tokens
 hit ratio       66.6% of cacheable tokens were reads
 prefix drift    1 of 2 turns changed the stable prefix (50%)
-                Each one re-bills the whole prefix. distil never rewrites a
-                stable block, so the cause is upstream: a timestamp or session
-                id in the system prompt, or a tool list whose order varies.
+                Each one re-bills the whole prefix. distil holds the cached
+                span byte-stable (pinned by an append-only test), so look
+                upstream: a timestamp or session id in the system prompt, or
+                a tool list whose order varies. Before 1.45 distil itself
+                rewrote the prefix every turn — upgrade before hunting.
 ```
 
 The two halves are derived independently and agree: the turn our hash flagged is the
@@ -56,6 +72,12 @@ turn the provider re-billed 15,819 tokens to re-create. Turns 1 and 2 read the c
 even though `messages` grew between them, which is the property that matters — a
 conversation is *supposed* to grow, and a diagnostic that called that drift would fire
 on every healthy turn and be switched off within a day.
+
+Worth stating plainly, since it is the lesson of the 1.45 bug: this diagnostic only
+watches the *stable prefix hash*. It says nothing about whether the compressor is
+rewriting content inside that prefix between turns, which is what actually happened.
+The provider's own `cache_read` going to zero is the signal that catches that, and it
+is why `distil dissect` now reports reads and writes next to the savings number.
 
 Counts and a hash escape; prompt text never does.
 

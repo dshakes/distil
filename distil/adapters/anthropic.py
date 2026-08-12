@@ -47,6 +47,8 @@ _MIN_LINES = 6
 # would break that. The rule itself lives in compress.recency and is shared with
 # the certified strategy, so both paths make the same keep/digest decisions.
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS  # noqa: E402
+from ..compress.recency import cached_prefix_end as _cached_prefix_end  # noqa: E402
+from ..compress.recency import exempt_indices as _exempt_indices  # noqa: E402
 
 # Thread-local learned "keep byte-exact" predicate, scoped per compress_messages call
 # (ThreadingHTTPServer handles requests on separate threads, so this must be per-thread).
@@ -123,16 +125,26 @@ def _active_vision() -> Any:
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
-    """Indices of the last *k* tool-output-bearing turns (role ``user``/``tool``),
-    whose tool_result blocks must stay verbatim. See ``_RECENCY_KEEP_TURNS``."""
-    if k <= 0:
-        return set()
+    """Indices of tool-output-bearing turns (role ``user``/``tool``) whose
+    tool_result blocks must stay verbatim. See ``_RECENCY_KEEP_TURNS``.
+
+    Anchored to the client's last ``cache_control`` breakpoint when there is one:
+    anything at or before it is already committed to the provider's cached prefix
+    and must go out in its final form, or the next turn's rewrite invalidates the
+    whole entry. Only the uncached tail is exempt.
+
+    A client that sends no ``cache_control`` at all has no prefix to invalidate,
+    so it keeps the plain last-*k* window.
+    """
     idxs = [
         i
         for i, m in enumerate(messages)
         if isinstance(m, dict) and m.get("role") in ("user", "tool")
     ]
-    return set(idxs[-k:])
+    # Anthropic caches only what the client marks, so no marker means no prefix
+    # to invalidate and the plain last-k window still applies.
+    boundary = _cached_prefix_end(messages)
+    return _exempt_indices(idxs, k, boundary if boundary >= 0 else None)
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +606,16 @@ def compress_messages(
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
         recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
+        # Query-aware salience is scoped to content the provider has NOT cached.
+        # Intent terms come from the newest user turn and change every turn by
+        # design, so letting them choose which lines survive in an already-cached
+        # block rewrites the cached prefix on every question — the same bust the
+        # sliding recency window caused, from a second direction, and invisible to
+        # a per-request test. Measured before this: asking a different follow-up
+        # rewrote cached message #0. Intent still shapes a block's FIRST rendering,
+        # which is when it is new and the current question is most relevant to it.
+        cached_through = _cached_prefix_end(messages)
+        full_intent = _intent_tls.terms
         for idx, msg in enumerate(messages):
             if not isinstance(msg, dict):
                 new_messages.append(msg)  # malformed entry — pass through untouched
@@ -601,6 +623,7 @@ def compress_messages(
             # Force verbatim for the most recent turns so their tool_results are
             # never replaced by a digest stub the agent must reason over blind.
             msg_verbatim = verbatim or idx in recent
+            _intent_tls.terms = frozenset() if idx <= cached_through else full_intent
             new_messages.append(
                 _compress_message(msg, store, msg_verbatim, is_recent=idx in recent)
             )

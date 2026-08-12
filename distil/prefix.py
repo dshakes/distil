@@ -255,9 +255,11 @@ def format_summary(summary: CacheSummary) -> str:
         lines += [
             f"prefix drift    {s.drifts:,} of {s.pairs:,} turns changed the stable prefix "
             f"({s.drift_ratio:.0%})",
-            "                Each one re-bills the whole prefix. distil never rewrites a",
-            "                stable block, so the cause is upstream: a timestamp or session",
-            "                id in the system prompt, or a tool list whose order varies.",
+            "                Each one re-bills the whole prefix. distil holds the cached",
+            "                span byte-stable (pinned by an append-only test), so look",
+            "                upstream: a timestamp or session id in the system prompt, or",
+            "                a tool list whose order varies. Before 1.45 distil itself",
+            "                rewrote the prefix every turn — upgrade before hunting.",
         ]
     else:
         lines.append(f"prefix drift    none across {s.pairs:,} turns — the prefix held")
@@ -273,9 +275,10 @@ def format_report(report: PrefixReport) -> str:
         lines += [
             f"  DRIFT           the prefix broke at {report.break_ratio:.1%} of the prompt",
             "  A provider cache is byte-exact, so everything after the break is re-billed",
-            "  at full price. distil never rewrites a stable block, so a break here comes",
-            "  from the caller's own assembly — a timestamp, a session id, a reordered",
-            "  tool list. Move the volatile part after the stable prefix.",
+            "  at full price. distil holds the cached span byte-stable, so a break here",
+            "  most likely comes from the caller's own assembly — a timestamp, a session",
+            "  id, a reordered tool list. Move the volatile part after the stable prefix.",
+            "  (On distil < 1.45 the compressor itself broke it every turn: upgrade.)",
         ]
     elif not report.cacheable:
         lines.append(

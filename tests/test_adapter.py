@@ -435,6 +435,114 @@ def test_recent_toolresults_kept_verbatim_older_are_digested() -> None:
     assert out[6]["content"][0]["content"] == _log_body("t4")  # byte-exact
 
 
+def test_compression_is_append_only_across_turns() -> None:
+    """The cached prefix must never be rewritten as the conversation grows.
+
+    A recency window counted back from the END slides forward, so each block is
+    kept verbatim while fresh and digested one turn later — rewriting a message
+    the client has by then committed to its cached prefix. Measured against the
+    real API that cost every cache read on every turn (2x the cost of sending
+    nothing compressed at all), so it is pinned here as an invariant.
+    """
+    import json as _json
+
+    prev: list[str] | None = None
+    for turns in range(1, 6):
+        msgs: list[dict] = []
+        for i in range(turns):
+            msgs.append(_tr(f"t{i}", _log_body(f"t{i}")))
+            msgs.append({"role": "assistant", "content": [{"type": "text", "text": "thinking"}]})
+        # The client marks history through the last tool_result as cacheable.
+        msgs[-2] = _json.loads(_json.dumps(msgs[-2]))
+        msgs[-2]["content"][0]["cache_control"] = {"type": "ephemeral"}
+        out, _ = compress_messages(msgs)
+
+        def _content_only(m: dict) -> str:
+            # The breakpoint marker itself moves each turn by design; what must
+            # not move is the content the provider hashed on the previous turn.
+            stripped = _json.loads(_json.dumps(m))
+            for b in (
+                stripped.get("content", []) if isinstance(stripped.get("content"), list) else []
+            ):
+                if isinstance(b, dict):
+                    b.pop("cache_control", None)
+            return _json.dumps(stripped, sort_keys=True)
+
+        ser = [_content_only(m) for m in out]
+        if prev is not None:
+            assert ser[: len(prev)] == prev, (
+                f"turn {turns} rewrote a message the previous turn had already "
+                "committed to the cached prefix — that invalidates the provider's "
+                "cache entry for the whole prefix"
+            )
+        prev = ser
+
+
+def test_cached_history_does_not_depend_on_the_current_question() -> None:
+    """Query-aware salience must not reach back into content already cached.
+
+    Intent terms come from the newest user turn and change every turn by design,
+    so letting them shape an already-sent block rewrites the cached prefix on
+    every question — a second, independent cause of the same cache bust the
+    recency window caused. Measured before the fix: asking a different follow-up
+    rewrote cached message #0.
+    """
+    import json as _json
+
+    big = "\n".join(f"config value alpha_{i} = {i * 7} beta_{i} = {i * 13}" for i in range(40))
+
+    def convo(last_user: str) -> list[dict]:
+        msgs: list[dict] = []
+        for i in range(4):
+            msgs.append(_tr(f"t{i}", f"{big}\nfile {i}"))
+            msgs.append({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
+        msgs[-2]["content"][0]["cache_control"] = {"type": "ephemeral"}
+        msgs.append({"role": "user", "content": last_user})
+        return msgs
+
+    a, _ = compress_messages(convo("tell me about alpha_3 and the beta values"))
+    b, _ = compress_messages(convo("what is the deployment rollback procedure"))
+    assert [_json.dumps(m, sort_keys=True) for m in a[:-1]] == [
+        _json.dumps(m, sort_keys=True) for m in b[:-1]
+    ]
+
+
+def test_no_cache_control_keeps_the_sliding_recency_window() -> None:
+    """A client that never marks a prefix has no cache to invalidate, so the
+    plain last-k carve-out (and its byte-exact freshest output) is preserved."""
+    asst = {"role": "assistant", "content": [{"type": "text", "text": "thinking"}]}
+    msgs = [
+        _tr("t1", _log_body("t1")),
+        asst,
+        _tr("t2", _log_body("t2")),
+        asst,
+        _tr("t3", _log_body("t3")),
+    ]
+    out, _ = compress_messages(msgs)
+    assert _has_handle(out[0])  # older → digested
+    assert not _has_handle(out[4])  # freshest → byte-exact
+    assert out[4]["content"][0]["content"] == _log_body("t3")
+
+
+def test_recency_is_anchored_to_the_cache_breakpoint() -> None:
+    from distil.adapters.anthropic import _RECENCY_KEEP_TURNS, _recent_verbatim_indices
+
+    msgs: list[dict] = [
+        {"role": "user", "content": [{"type": "text", "text": "a"}]},
+        {"role": "user", "content": [{"type": "text", "text": "b"}]},
+        {"role": "user", "content": [{"type": "text", "text": "c"}]},
+    ]
+    # No breakpoint: the last k turns are exempt, as before.
+    assert _recent_verbatim_indices(msgs, _RECENCY_KEEP_TURNS) == {1, 2}
+    # Client caches through index 1 -> only the uncached tail stays exempt.
+    msgs[1]["content"][0]["cache_control"] = {"type": "ephemeral"}
+    assert _recent_verbatim_indices(msgs, _RECENCY_KEEP_TURNS) == {2}
+    # Client caches everything -> nothing is exempt; it must all reach the wire
+    # in final form, which is what the certified strategy already does.
+    msgs[2]["content"][0]["cache_control"] = {"type": "ephemeral"}
+    assert _recent_verbatim_indices(msgs, _RECENCY_KEEP_TURNS) == set()
+
+
 def test_recency_helper_counts_only_user_and_tool_turns() -> None:
     from distil.adapters.anthropic import _RECENCY_KEEP_TURNS, _recent_verbatim_indices
 

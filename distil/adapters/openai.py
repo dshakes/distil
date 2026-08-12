@@ -56,8 +56,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..compress.intent import extract_intent, terms_of
+from ..compress.intent import terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
+from ..compress.recency import exempt_indices as _exempt_indices
 from .anthropic import (
     _census,
     _census_tls,
@@ -179,18 +180,18 @@ def _compress_openai_message(
 def _recent_chat_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
     """Indices of the last *k* tool-output-bearing turns in a Chat Completions list.
 
-    Mirrors ``_recent_verbatim_indices`` in the Anthropic adapter: the last K
-    ``role:"user"`` or ``role:"tool"`` messages are kept verbatim so the model
-    always sees its freshest tool outputs byte-exact.
+    OpenAI caches prefixes automatically, with no client marker to anchor to, so
+    everything sent is committed the moment it is sent. A window counted back
+    from the end would therefore digest, one turn later, a message the provider
+    has already cached — invalidating the entry for the whole prefix. So this
+    returns the empty set: see ``compress.recency.exempt_indices``.
     """
-    if k <= 0:
-        return set()
     idxs = [
         i
         for i, m in enumerate(messages)
         if isinstance(m, dict) and m.get("role") in ("user", "tool")
     ]
-    return set(idxs[-k:])
+    return _exempt_indices(idxs, k, len(messages) - 1)
 
 
 def compress_chat_completions(
@@ -229,7 +230,13 @@ def compress_chat_completions(
     # Same contract as the Anthropic entry point: open a fresh census so a thread that
     # previously served Anthropic traffic cannot leak its counts into this request.
     _census_tls.counts = {}
-    _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
+    # Empty by design, not an oversight: this provider caches prefixes
+    # implicitly and commits everything it is sent, so every block is cached
+    # content by the next request. Intent terms change every turn, so letting
+    # them choose which lines survive would rewrite the cached prefix on every
+    # question. Same reason there is no recency carve-out here.
+    # See compress.recency.exempt_indices.
+    _intent_tls.terms = frozenset()
     try:
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
@@ -256,18 +263,16 @@ def compress_chat_completions(
 def _recent_response_verbatim_indices(items: list[dict[str, Any]], k: int) -> set[int]:
     """Indices of the last *k* ``function_call_output`` items in a Responses input list.
 
-    These are the tool-result items the model must see byte-exact to choose its
-    next action — the Responses-API equivalent of ``_recent_verbatim_indices`` in
-    the Anthropic adapter and ``_recent_chat_verbatim_indices`` above.
+    Same automatic-prefix-caching reasoning as ``_recent_chat_verbatim_indices``
+    above: nothing can be exempt without invalidating a cached prefix one turn
+    later, so this is empty.
     """
-    if k <= 0:
-        return set()
     idxs = [
         i
         for i, item in enumerate(items)
         if isinstance(item, dict) and item.get("type") == "function_call_output"
     ]
-    return set(idxs[-k:])
+    return _exempt_indices(idxs, k, len(items) - 1)
 
 
 def _compress_response_item(
@@ -370,7 +375,13 @@ def compress_responses_input(
     """
     _keep_tls.fn = keep
     _census_tls.counts = {}
-    _intent_tls.terms = frozenset() if verbatim else _extract_responses_intent(items)
+    # Empty by design, not an oversight: this provider caches prefixes
+    # implicitly and commits everything it is sent, so every block is cached
+    # content by the next request. Intent terms change every turn, so letting
+    # them choose which lines survive would rewrite the cached prefix on every
+    # question. Same reason there is no recency carve-out here.
+    # See compress.recency.exempt_indices.
+    _intent_tls.terms = frozenset()
     try:
         store = RestoreStore()
         new_items: list[dict[str, Any]] = []

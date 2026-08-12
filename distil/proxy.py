@@ -1640,8 +1640,13 @@ def serve(
     port:       Port to listen on.
     upstream:   Real LLM API base URL (no trailing slash).
     lossless_only:
-        Policy mode: no lossy output-shaping and no tool injection. The reversible
-        Tier-1 digest still runs (it is the lossless, certified strategy).
+        Policy mode: no lossy output-shaping and no tool injection. Because there
+        is then no injected expand tool, a Tier-1 stub would be irreversible in
+        context, so this forces Tier-0-only — i.e. the digest does NOT run and
+        savings are whatever the lossless transforms find (measured at ~0% on
+        real agent traffic). Pass ``expand=True`` to inject the recovery tool and
+        lift the force. Earlier wording here claimed the Tier-1 digest still ran;
+        it does not, and that mismatch hid the reason live savings were flat.
     verbatim:
         When *True*, skip the Tier-1 digest entirely (Tier-0 only) so the model
         sees content verbatim — for interactive sessions / out-of-distribution
