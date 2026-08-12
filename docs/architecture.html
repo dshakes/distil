@@ -203,6 +203,7 @@
 
     <div class="callout good">
       <strong>Result:</strong> the prefix cache hit rate stays near 100% across turns. Compression targets only the volatile tail — where there is no cache to bust. Distil clocks a <strong>33% cost reduction</strong> on the same trajectory where naive recompression costs 11% more.
+      <p class="note"><strong>Scope:</strong> these numbers are the simulated cache-aware strategy on the corpus. The live adapter reaches the same property only from 1.45 — before that its recency carve-out slid forward each turn and rewrote already-cached content, costing every cache read. See <a href="https://github.com/dshakes/distil/blob/main/docs/CACHE.md">CACHE.md</a>.</p>
     </div>
 
     <img src="assets/cache-aware.svg" alt="Cache-aware savings vs naive recompression" class="svg-embed"/>

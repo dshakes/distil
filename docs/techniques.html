@@ -149,6 +149,7 @@
 
     <div class="callout">
       <b>Result:</b> the prefix cache hit rate stays near 100% across turns. Compression applies <em>only</em> to the volatile tail, where there is no cache to bust. Keeping the prefix stable outweighs naively shrinking it.
+      <p class="note"><strong>Scope:</strong> these numbers are the simulated cache-aware strategy on the corpus. The live adapter reaches the same property only from 1.45 — before that its recency carve-out slid forward each turn and rewrote already-cached content, costing every cache read. See <a href="https://github.com/dshakes/distil/blob/main/docs/CACHE.md">CACHE.md</a>.</p>
     </div>
 
     <h3>The simulation</h3>
