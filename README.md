@@ -218,7 +218,7 @@ You don't need byte-equivalence — you need **decision-equivalence**: your agen
 Don't take the table above on faith. `distil bench` re-certifies savings *and* decision-equivalence on a bundled 8-domain corpus, offline, in seconds — the same gate that runs in CI. How we evaluate — and why a compression ratio without a task-success delta is meaningless — is written up in [docs/EVALUATION.md](docs/EVALUATION.md), including our own negative result:
 
 ```bash
-uvx --from distil-llm distil bench      # certify savings + quality across 8 domains, in seconds
+uvx --from distil-llm distil bench      # certify savings + quality across 9 domains, in seconds
 distil verify                           # byte-fidelity: every compression is exactly reversible
 distil validate                         # adversarial real-path gate: invariants on hostile inputs
 distil retention                        # fact recall: what stays visible vs expand-recoverable
@@ -239,7 +239,7 @@ It reports three more things recall can't see: **overclaim** (`"approximately 42
 | **distil** (reversible) | 14.3% | **100.0%** | **100.0%** |
 | truncation @ matched savings | 14.1% | 91.6% | 82.7% |
 
-`distil retention` also splits recall into **visible** (in front of the model) and **recoverable** (one `distil_expand` away, verified against the handle's restore bytes). On the corpus that's 100% true recall with 0 lost, and being reversible instead of lossy is worth **21.4% recall** — the mean across all 8 domains, each counted once. That's deliberately the *macro* average: the fact-weighted one reads 62.6%, but it's set by whichever domain carries the most probes, and one HTML fixture moved it from 9.8% to 62.6% without the compressor changing at all — the moat, as a measurement rather than an argument. `distil retention --live` reports the same on your own traffic; the meter stores counts only, never content.
+`distil retention` also splits recall into **visible** (in front of the model) and **recoverable** (one `distil_expand` away, verified against the handle's restore bytes). On the corpus that's 100% true recall with 0 lost, and being reversible instead of lossy is worth **21.4% recall** — the mean across all 9 domains, each counted once. That's deliberately the *macro* average: the fact-weighted one reads 62.6%, but it's set by whichever domain carries the most probes, and one HTML fixture moved it from 9.8% to 62.6% without the compressor changing at all — the moat, as a measurement rather than an argument. `distil retention --live` reports the same on your own traffic; the meter stores counts only, never content.
 
 **And it found a real hole.** The first thing the recall harness caught was not a regression but a missing capability: distil was compressing **0.0%** of HTML tool results — minified markup is one long line, so line-folding had nothing to fold. Agents with a fetch or browser tool were paying full price for `<script>`, `<style>`, and nav chrome. Now:
 
@@ -262,12 +262,14 @@ research          research-synthesis          25.7%     PASS   FAIL     809
 data-analysis     data-analysis-sql           18.1%     PASS   FAIL     965
 devops            devops-rollback             22.8%     PASS   FAIL     857
 finance           finance-reconcile           24.9%     PASS   FAIL    1014
+web-research      web-research                89.8%     PASS   FAIL     428
+agent-worklog     agent-worklog               35.3%     PASS   FAIL     891
 ---------------------------------------------------------------------------
-aggregate: distil cuts $0.14212 -> $0.10610 (25.3% cheaper) reversibly; 5761 tokens causally prunable.
+aggregate: distil cuts $0.24052 -> $0.12400 (48.4% cheaper) reversibly; 7080 tokens causally prunable.
 GATE: PASS — every trajectory certified non-inferior; aggressive rejected on all.
 ```
 
-<p align="center"><img src="docs/assets/domains.svg" alt="measured across 8 domains" width="100%"/></p>
+<p align="center"><img src="docs/assets/domains.svg" alt="measured across 9 domains" width="100%"/></p>
 
 > **Why trust the number?** Token-savings numbers are easy to fake — measure quality at *low* compression, advertise savings at *high* compression. Distil refuses that: accuracy and compression are measured on the **same** trajectories, and a strategy that can't pass non-inferiority doesn't ship.
 > ```
@@ -653,7 +655,7 @@ Every number reproduces from the bundled corpus (`distil bench`, no key). The no
 
 <p align="center">
 <code>pipx install distil-llm && distil bench</code><br/>
-<sub>certified savings across 8 domains in ~10 seconds — zero API key, zero runtime deps</sub>
+<sub>certified savings across 9 domains in ~10 seconds — zero API key, zero runtime deps</sub>
 </p>
 
 <p align="center">

@@ -191,7 +191,7 @@ must appear in that handle's restore bytes. Two numbers fall out —
 
 — and the gap between them is what reversibility buys. On the committed corpus:
 **100% true recall, 0 lost**, and reversibility is worth **21.4% recall** — the mean
-across all 8 domains, each counted once.
+across all 9 domains, each counted once.
 
 That is deliberately the *macro* average. The fact-weighted (micro) figure reads 62.6%,
 and the gap between the two is the point: micro is set by whichever domain happens to
