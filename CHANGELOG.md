@@ -3,6 +3,82 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.46.0] — every managed install was running blind
+
+**If you installed distil the managed way, your proxy has never sampled a single
+decision-equivalence check.** `distil wrap` defaults `--shadow 0.02` and
+`--retention 0.05`; `distil proxy` defaulted both to `0.0`. The `com.distil.proxy`
+launch agent runs **proxy**. So the two quality loops that make distil's central
+claim checkable — shadow's live decision-change rate and the fact-retention meter —
+were off on every managed install since the daemon shipped. A 93-minute, 767-request
+session sampled 0. The same work under `wrap` would have sampled ~15.
+
+Both defaults now match `wrap`, so existing installs are fixed by upgrading; no
+reinstall. `--shadow 0` / `--retention 0` still opt out. Retention costs nothing
+either way (in-process scan, counts only); shadow spends ~2% extra tokens on sampled
+requests, which is the price of having evidence at all.
+
+### `distil dissect` reported three different denominators for the same session
+
+Reading one report end to end, four numbers disagreed:
+
+- The request-detail lines summed **all** requests while the savings headline counts
+  **booked** (2xx, non-retry) ones. 153 unbooked retries contributed 9.85M overhead
+  tokens and 3.75M of "savings" that were never billed.
+- `overhead_share` divided by the **pre**-compression payload — measuring the fixed
+  tax against tokens distil had already removed. It read 28% where the session's own
+  numbers implied 42%.
+
+Both now use the booked population and the post-compression denominator. "Savings by
+mechanism" reconciles with the headline it decomposes: a 3.75M discrepancy became
+72k (0.34%), which is heuristic-vs-ledger tokenizer rounding. Same defect shape as
+1.44.0's, which fixed it in `savings` and did not carry dissect along.
+
+### "Everything summarized stays recoverable" was false while it printed
+
+The restore store has a 500-blob LRU cap, not just a TTL. A single session folded 704
+blocks and evicted 204 of them **mid-session** — including its most re-used fold, one
+referenced by 272 requests — while the report promised full recoverability. It now
+reports the measured count. The cap is configurable (`DISTIL_RESTORE_CAP`, default
+raised 500 → 5000). A cap of 0 now means "no count cap" instead of evicting
+everything, which is what `[:-0]` did.
+
+### A flat 0.0% per-model row is now explained, not left looking broken
+
+One model showed exactly 0.0% across 152 requests. That is policy, not a failure: the
+traffic was 100% user-role string content with no tools — subagent calls — which
+routes to Tier-0 lossless by design. The row now says so.
+
+### Papers and published claims, audited against the code
+
+- Both papers compile with **zero undefined references**. Fixed a missing
+  `\bibitem`, a dangling cross-reference, and a figure quoting a number no artifact
+  produces.
+- The headline macro fallback silently rendered a **different operating point** as
+  the headline (0.1% certified savings) when the generated macros were absent. It now
+  warns at build time.
+- `docs/paper/generated/headtohead_orig.tex` was untracked, so the built PDF rendered
+  numbers absent from version control.
+- The paper described cache-monotonicity as holding by construction. That property was
+  **false in shipped code** until 1.45.0 fixed it. The passage now describes the
+  breakpoint anchoring that actually ships, and reports the measured failure.
+- The NeurIPS variant was missing the live-validation negative result — the section
+  where a real grader failed the live margin twice, reproducibly. Ported.
+- The security whitepaper said OIDC and role-based access control were "not
+  implemented"; `distil/authz.py` implements both. Corrected to the honest gap
+  (SAML, SCIM).
+- Docs said the proxy needs Python 3.11+; the floor is 3.9.
+- The site advertised 25.3% aggregate corpus savings over "8 domains" (listing 7).
+  `distil bench` reports **48.4% over 9 domains**. We were underselling by ~22pp
+  against our own free, offline gate.
+
+## [1.45.1] — the explainer command was the one reporting uncalibrated numbers
+
+`distil dissect` compared the raw heuristic token estimate against billed usage, so
+its "off by >50%" tripwire fired on essentially every calibrated session. Calibration
+is applied on every other surface; dissect is the surface whose entire job is
+explaining the numbers, and it was the one quoting them uncalibrated.
+
 ## [1.45.0] — the compressor was rewriting the cache it was supposed to protect
 
 **On cached agent traffic, distil cost about twice what sending nothing compressed would
