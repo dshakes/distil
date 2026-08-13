@@ -316,9 +316,11 @@ rate is controlled.}
 \subsection{Cache-aware reversible engine}
 The prefix is held byte-stable (schema canonicalization; volatile fields such as
 timestamps lifted out), and only the volatile tail is compressed. The reversible
-tier digests a verbose tool output to a compact marker
-\verb|<< +N lines, handle=XXXXXXXX >>| and keeps the byte-exact original in a local,
-content-addressed store; the model can recover any block on demand via a
+tier digests a verbose tool output---any block of at least six lines, the shipped
+threshold---to a compact marker
+\verb|<< +N lines, handle=XXXXXXXX >>|, where the handle is the first 8 hex digits of
+the block's SHA-256, and keeps the byte-exact original in a local, content-addressed
+store; the model can recover any block on demand via a
 \texttt{distil\_expand} tool. Compression is thus \emph{lossless} (byte-in-context),
 \emph{reversible} (digested but recoverable), or \emph{lossy} (the rest).
 
@@ -1020,7 +1022,12 @@ no competitor offers.
 
 \paragraph{Techniques: content-aware digest and sticky recovery.} The reversible tier's
 digest is a \emph{content-aware skeleton} (keep imports and class/def signatures and the
-tail of a traceback; elide bodies; deterministic and stdlib-only---no model, no network, so
+tail of a traceback; elide bodies). Python is skeletonized through a real parser
+(\texttt{ast}); brace-delimited languages---C-family, JS/TS, Go, Rust, Java, Swift,
+Kotlin---through a language-agnostic brace matcher that falls back to leaving the block
+intact when braces do not balance (mid-edit or unparseable), so the failure mode is
+saving less rather than corrupting code. Both paths are
+deterministic and stdlib-only---no model, no network, so
 it is auditable and safe on untrusted context) behind a content handle, plus \emph{sticky
 expansion} (a block the agent recovers stays full on later turns). This lifts the
 active-recovery tier~D from $28.8\%$ (head-truncation) to \sweEeightExpandPass{} at
@@ -1215,9 +1222,17 @@ a floor: an uncertified lossy method may always be cheaper because it is permitt
 the decision, so we do not claim cost-domination (\Cref{sec:e8} is explicit that Headroom is
 cheaper). Within the certified envelope, however, several levers cut cost \emph{without
 spending the certificate}, and we implement them as shippable primitives.
-\textbf{(i)~Cache-monotone gating}: digests are deterministic and the digest boundary advances
-monotonically, so the digested prefix is byte-stable across turns and prompt-cache/KV reuse
-captures it (a cache read is $\approx$10$\times$ cheaper than fresh input). This is lossless
+\textbf{(i)~Cache-monotone gating}: digests are deterministic, and the digest boundary must be
+\emph{anchored} to the client's declared cache breakpoint rather than counted back from the end
+of the conversation, so that the digested prefix is byte-stable across turns and prompt-cache/KV
+reuse captures it (a cache read is $\approx$10$\times$ cheaper than fresh input). We stress the
+anchoring because we first shipped the naive version and it was actively harmful: a recency
+window counted back from the end \emph{slides forward} as the conversation grows, so each block
+is protected while fresh and digested one turn later---rewriting a message the client has by
+then committed to its cached prefix. Measured against the live API, that variant took zero cache
+reads on every turn and cost $2\times$ sending nothing compressed at all. Anchoring to the
+breakpoint (content at or before it is already committed and must reach the wire verbatim; only
+the uncached tail is eligible) restores the property. This is lossless
 relative to the plain gate---it changes which bytes are \emph{cached}, not which bytes the
 agent sees---so it cannot change a decision. The honest caveat, which our cost simulator
 confirms: on already-fully-cacheable content, caching alone can beat any compression
