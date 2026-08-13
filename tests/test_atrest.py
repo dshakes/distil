@@ -244,3 +244,25 @@ def test_opt_out_writes_plaintext_restore(tmp_path, monkeypatch):
     raw = p.read_bytes()
     assert not raw.startswith(atrest._MAGIC)
     assert mcp.load_restore("abcd1234") == "plain content"
+
+
+def test_restore_cap_of_zero_does_not_wipe_the_store(tmp_path, monkeypatch):
+    """`[:-0]` is the whole list — an unguarded cap of 0 evicts everything.
+
+    0 must mean "no count cap", not "delete every blob", or disabling the cap would
+    silently destroy every digest original and break expand for the whole session."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr(mcp, "_RESTORE_CAP", 0)
+    for i in range(5):
+        mcp.record_restore(f"cafe{i:04d}", f"original {i}")
+    assert len(list((tmp_path / "restore").iterdir())) == 5
+    assert mcp.load_restore("cafe0000") == "original 0"
+
+
+def test_restore_cap_evicts_oldest_beyond_the_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr(mcp, "_RESTORE_CAP", 3)
+    for i in range(6):
+        mcp.record_restore(f"beef{i:04d}", f"original {i}")
+    assert len(list((tmp_path / "restore").iterdir())) == 3
+    assert mcp.load_restore("beef0005") == "original 5"
