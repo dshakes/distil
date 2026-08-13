@@ -22,12 +22,18 @@
 \usepackage{cleveref}
 
 % Result macros — injected by `python benchmarks/report_to_latex.py results.json`,
-% which writes docs/paper/generated/macros.tex. Defaults below are the real
-% α=0.10 headline (99.3% coverage, 0.1% risk, 0.1% certified savings).
+% which writes docs/paper/generated/macros.tex. Defaults below are the α=0.10
+% operating point (99.3% coverage, 0.1% risk, 0.1% certified savings) — NOT the
+% headline: the paper reports α=0.15 from generated/macros.tex (15.7% / 8.0% / 98.8%).
 \newcommand{\HLsavings}{0.1\%}
 \newcommand{\HLcoverage}{99.3\%}
 \newcommand{\HLrisk}{0.1\%}
-\IfFileExists{generated/macros.tex}{\input{generated/macros.tex}}{}
+% Silently falling back would compile a paper claiming 0.1% savings at 0.1% risk — a
+% different operating point, presented as the headline. Fail loudly instead.
+\IfFileExists{generated/macros.tex}{\input{generated/macros.tex}}{%
+  \GenericWarning{}{WARNING: generated/macros.tex missing — headline macros are the
+  alpha=0.10 fallback, NOT the reported alpha=0.15 result. Regenerate with
+  benchmarks/report_to_latex.py before distributing this PDF.}}
 
 % E5 head-to-head macros — original (gold-last) and shuffled-position (seed=1729) runs.
 % Defaults below are the committed numbers; report_to_latex.py --only e5macros
@@ -207,8 +213,9 @@ methods~\cite{gist} distill context into learned embeddings. All optimize a surr
 (ICML 2026) optimizes a compression guideline by failure analysis---mining trajectories where
 full context succeeded but compressed failed---cutting peak tokens $26$--$54\%$; that signal is
 exactly the discordant pair our calibration counts, but ACON uses it to improve a heuristic with
-no behavioral guarantee, where we use it to certify and select (and to monitor drift,
-\Cref{sec:e13}). The two compose: one could certify an ACON-compressed tier with our machinery.
+no behavioral guarantee, where we use it to certify and select (and to monitor drift under
+continuous assurance). The two compose: one could certify an ACON-compressed tier with our
+machinery.
 \paragraph{KV-cache eviction.} StreamingLLM~\cite{streamingllm} and
 H\textsubscript{2}O~\cite{h2o} drop or retain tokens by recency/attention to shrink the
 KV cache at decode time. Our relevance gate shares the recency intuition (protect the
@@ -716,8 +723,8 @@ the surprise-preserving condition resolves \sweEfourteenPass\ vs.\ full context'
 5pp: \sweEfourteenNI), a +5.2pp gain over E8's head-digest gate (\sweEeightGatedPass). Non-empty
 patch rate rises \sweEeightGatedPatchRate$\rightarrow$\sweEfourteenPatchRate: the agent that can
 still see the anomaly keeps acting. The trajectory-risk certificate (the shipped
-\texttt{certify\_trajectory\_risk} machinery) certifies $\alpha{=}0.10$ with observed degradation
-6.2\%---experiment and product make the same statement with the same statistics.
+\texttt{certify\_trajectory\_risk} machinery) bounds degradation at
+\sweEfourteenTrajBound---experiment and product make the same statement with the same statistics.
 
 \section{Conclusion}
 Decision-equivalence is the right contract for agent context compression, and it carries a
@@ -769,6 +776,9 @@ World.} Springer, 2005.
 LLM Agents.} ICML, 2026. arXiv:2510.00615.
 \bibitem{wsr} I.~Waudby-Smith, A.~Ramdas. \emph{Estimating means of bounded random variables
 by betting.} J.~R.~Stat.~Soc.~B, 2023. arXiv:2010.09686.
+\bibitem{silverbullet} C.~Deng et al. \emph{A Silver Bullet or a Compromise for Full
+Attention? A Comprehensive Study of Gist Token-based Context Compression.} ACL, 2025.
+arXiv:2412.17483.
 \end{thebibliography}
 
 \appendix
@@ -885,7 +895,7 @@ measurements is described in \Cref{fig:expand}.
 decisions; Claude grader, majority-of-3 structured, $+$expand recovery loop). The
 reversible digest at 21.7\% savings achieves \textbf{10.2\%} decision-change,
 beating equally-aggressive lossy truncation (11.5--11.7\%) at $\approx\!22\%$
-savings. On a 40-instance subset the recovery effect is sharper (11.2\% no-expand
+savings. On a 40-instance subset the recovery effect is sharper (11.25\% no-expand
 $\to$ 7.5\% with $+$expand; see \Cref{fig:expand}). Dashed lines show the
 $\alpha=10\%$ and $\alpha=15\%$ risk budgets. $\tau$-bench airline (25 traj, 105
 decisions) is not plotted: the data is already compact (lossless saves only 1.0\%)
@@ -912,7 +922,7 @@ decision-equivalence evaluation must control; each is now enforced or flagged.
   content and the decision is preserved (\Cref{fig:expand}). Reporting only the
   no-expand bound understates the reversible tier; reporting only perfect recovery
   overstates it---we report both on the 40-instance subset where we have both
-  measurements (11.2\% no-expand vs.\ 7.5\% $+$expand at 23.9\% savings).\par}
+  measurements (11.25\% no-expand vs.\ 7.5\% $+$expand at 23.9\% savings).\par}
 \end{enumerate}
 
 \begin{figure}[t]
@@ -1106,7 +1116,8 @@ transfer to execution.
 
 \paragraph{E4 non-evidential on SWE-bench.} SWE-bench HuggingFace evaluators mark
 all submissions resolved=True by construction of the localization task, so E4 on
-SWE reports retained decision-equivalence (lossless $+$expand: 85.0\%; no-expand:
+SWE reports retained decision-equivalence on the 40-instance subset (lossless
+$+$expand: 85.0\%; no-expand:
 77.5\%), not a real task-success rate. The 19 outcome-labelled $\tau$-bench
 trajectories with real reward labels show the digest-only tier (no expand) retains
 0\% baseline success---consistent with the certificate's refusal to certify savings
