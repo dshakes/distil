@@ -560,7 +560,7 @@ chain = as_runnable() | llm                                       <span class="d
 
     <h2>Node.js / TypeScript</h2>
     <p>Distil's universal path is the proxy — it's language-agnostic, so JS/TS stacks need no Distil-specific package. Start the proxy (or wrap your agent) and point your SDK's <code>baseURL</code> at it:</p>
-    <pre class="term"><span class="d"># start the proxy (needs Python 3.11+ — see Install)</span>
+    <pre class="term"><span class="d"># start the proxy (needs Python 3.9+ — see Install)</span>
 distil proxy --port 8788 --upstream https://api.anthropic.com</pre>
     <pre class="term"><span class="d">// then in your Node/TS app — no code change beyond baseURL</span>
 const client = new Anthropic({ baseURL: <span class="g">"http://localhost:8788"</span> });</pre>
