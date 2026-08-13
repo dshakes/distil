@@ -65,7 +65,20 @@ jobs:
             git commit -m "paper: rebuild PDFs from source [skip ci]"
             # a concurrent push to main must not fail the build; integrate first
             git pull --rebase origin main
-            git push
+            # A ruleset requiring status checks on every push to main can never be
+            # satisfied by this direct push: the bot's new commit is [skip ci], so
+            # it can never accrue the checks the ruleset waits for (see #128). That
+            # is a repo-settings decision for a human, not something to route around
+            # here — surface it and let the paper build itself stay the signal.
+            if ! git push 2>push.err; then
+              if grep -q 'required status checks\|GH013' push.err; then
+                cat push.err
+                echo "::warning title=paper-build: PDFs not pushed::Branch ruleset on main blocked the bot's direct push (see #128). Rebuilt PDFs differ from what's committed until a maintainer resolves it."
+              else
+                cat push.err
+                exit 1
+              fi
+            fi
           else
             echo "PDFs already match source."
           fi
