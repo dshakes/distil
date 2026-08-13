@@ -1,7 +1,20 @@
-# Beta program — join distil 1.20.0rc1
+# Beta program — distil 1.20.0rc1 (CLOSED, kept as a record)
 
-**Goal:** ≥10 external users running real work through distil for ~a week, with
-decision-equivalence data from at least 3. That evidence gates the GA launch.
+> **This program is over and the commands below are stale.** It ran before GA;
+> distil is now generally available and well past 1.20.0. Installing the pinned
+> `1.20.0rc1` here would give you a release candidate many versions behind, missing
+> every fix since — including the cache-anchoring fix that stops compression from
+> rewriting your cached prefix.
+>
+> **To install distil today:** `pipx install distil-llm && distil onboard`
+> (or `uvx --from distil-llm distil onboard`). See
+> [getting-started](https://dshakes.github.io/distil/getting-started.html).
+>
+> This page is retained only as a record of what the beta asked for and found.
+
+**Goal (as written at the time):** ≥10 external users running real work through
+distil for ~a week, with decision-equivalence data from at least 3. That evidence
+gated the GA launch.
 
 ---
 

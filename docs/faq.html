@@ -115,7 +115,7 @@
 
     <h2>"How did you run the live benchmark, and how do I reproduce it?"</h2>
 
-    <p>The live head-to-head used actual installed packages — <code>llmlingua</code> 0.2.2, <code>headroom-ai</code> 0.27.0, and Distil 0.23.0 — run against the same 120-turn, 5-domain corpus (4.5–6.5 KB/turn) where decisions are the agent's real next <code>{action, target}</code>. Each compressed context was graded by <code>claude-opus-4-8</code> majority-of-3, independently of the compression step. Latency is wall-clock per turn on the same hardware.</p>
+    <p>The live head-to-head used actual installed packages — <code>llmlingua</code> 0.2.2, <code>headroom-ai</code> 0.27.0, and Distil 0.23.0 — run against the same 120-turn, 5-domain corpus (4.5–6.5 KB/turn) where decisions are the agent's real next <code>{action, target}</code>. Each compressed context was graded by <code>claude-opus-4-8</code> majority-of-3, independently of the compression step. Latency is wall-clock per turn on the same hardware. The Distil version is the one the run was executed on and is deliberately not bumped without re-running: these numbers have not been re-measured on a current release, so read them as a dated result rather than a claim about today's build.</p>
 
     <p>Results in brief: Distil certified <strong>83.2% savings / 0% decision-change / 0.026 ms per turn</strong>. LLMLingua-2 achieved 53.1% savings but flipped 1-in-8 decisions (fails the ≤5% gate). Headroom passed the gate at 39.7% savings but runs a ModernBERT scorer at ~26 ms per turn.</p>
 
