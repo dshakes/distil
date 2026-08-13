@@ -598,7 +598,20 @@ class TestInsights:
         assert d.usage_requests == 2
         est, billed = d.calibration()
         # r1: 700 + (5000-3500) = 2200; r2: 500 + (2000-1200) = 1300
+        # no learned factor yet -> identity, so the raw heuristic is reported as-is
         assert est == 3500 and billed == 3300
+
+    def test_calibration_applies_learned_factor(self) -> None:
+        """A model whose heuristic is known to run 2x low must not be reported as
+        '2x off' — distil already learned the factor, so it belongs in the estimate."""
+        from distil import calibration
+
+        for _ in range(calibration.MIN_SAMPLES):
+            calibration.record("m-big", 1000, 2000)
+        est, billed = dz.dissect("s200-1").calibration()
+        assert billed == 3300
+        # 2200 x2.0 (m-big, learned) + 1300 x2.0 (m-small falls back to the pooled ratios)
+        assert est == 7000
 
     def test_headroom_multiplier(self) -> None:
         d = dz.dissect("s200-1")
@@ -626,7 +639,7 @@ class TestInsights:
         assert "digest folds 3.90k (83%)" in text
         assert "20% of everything sent" in text
         assert "2.00k tokens re-digested" in text
-        assert "heuristic estimate 3.50k vs billed 3.30k" in text
+        assert "estimate 3.50k vs billed 3.30k" in text
         assert "~2.6x" in text  # flat-rate headroom
         assert "buffered (forced by expand) 1 req @ 9.0s" in text
         assert "regret: log:l blocks pulled back 1/1" in text

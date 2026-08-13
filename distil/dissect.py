@@ -319,25 +319,36 @@ class Dissection:
         return sum(1 for r in self.requests if r.get("usage_input_tokens") is not None)
 
     def calibration(self) -> tuple[int, int] | None:
-        """(heuristic_estimate, billed) input tokens over requests that carry usage.
+        """(calibrated_estimate, billed) input tokens over requests that carry usage.
 
-        Estimate = overhead + compressible-after-savings; billed = the API's own
+        Estimate = (overhead + compressible-after-savings) x the per-model factor
+        distil has already learned from billed usage; billed = the API's own
         usage.input_tokens. This is what turns "we think we saved X" into a
-        measured claim (and shows how honest the heuristic tokenizer is).
+        measured claim (and shows how honest the calibrated count is).
         """
-        est = billed = 0
+        from .calibration import factor as _factor
+
+        est_f = billed = 0.0
+        _fac: dict[str, float] = {}
         for r in self.requests:
             u = r.get("usage_input_tokens")
             if u is None:
                 continue
-            est += int(r.get("overhead_tokens") or 0) + max(
+            raw = int(r.get("overhead_tokens") or 0) + max(
                 0, int(r.get("compressible_tokens") or 0) - int(r.get("tokens_saved") or 0)
             )
+            # The heuristic tokenizer is systematically off per model (opus ~2.3x on this
+            # ledger), and distil already learns that ratio from billed usage. Report the
+            # calibrated estimate — otherwise every calibrated session cries "off by >50%".
+            m = str(r.get("model") or "")
+            if m not in _fac:
+                _fac[m] = _factor(m)[0]
+            est_f += raw * _fac[m]
             # Full billed input = uncached + cached prefix. input_tokens alone omits the cached
             # portion (billed under cache_read/creation), which would make est >> billed and the
             # calibration meaningless on prompt-cached traffic.
             billed += int(u) + int(r.get("usage_cache_tokens") or 0)
-        return (est, billed) if billed else None
+        return (round(est_f), round(billed)) if billed else None
 
     @property
     def headroom_multiplier(self) -> float:
@@ -438,7 +449,7 @@ class Dissection:
             est, billed = cal
             if est and (est / billed > 1.5 or est / billed < 0.67):
                 out.append(
-                    f"heuristic token estimate is off by >50% vs billed usage "
+                    f"token estimate is off by >50% vs billed usage "
                     f"({est:,} est vs {billed:,} billed) — treat % figures as rough"
                 )
         return out
@@ -888,7 +899,7 @@ def render_text(
             out.append(
                 f"  billed usage (from API responses): {_human(d.usage_input_total)} in / "
                 f"{_human(d.usage_output_total)} out over {d.usage_requests} requests; "
-                f"heuristic estimate {_human(est)} vs billed {_human(billed)} "
+                f"estimate {_human(est)} vs billed {_human(billed)} "
                 f"(x{est / billed:.2f})"
                 if billed
                 else ""
