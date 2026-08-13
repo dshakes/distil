@@ -295,7 +295,12 @@ def test_cli_wires_the_flags_through() -> None:
     parser = build_parser()
     assert parser.parse_args(["wrap", "claude"]).retention == 0.05  # on by default: free
     assert parser.parse_args(["wrap", "--retention", "0", "claude"]).retention == 0.0
-    assert parser.parse_args(["proxy"]).retention == 0.0  # explicit opt-in for a raw proxy
+    # Was 0.0 ("explicit opt-in for a raw proxy"). That distinction did not survive
+    # contact with the managed install: the com.distil.proxy launch agent runs
+    # `distil proxy`, so opt-in-by-default meant every managed install silently lost
+    # the retention meter (and shadow with it). Retention costs no tokens, so the
+    # daemon path now matches `wrap`; --retention 0 remains the way out.
+    assert parser.parse_args(["proxy"]).retention == 0.05
     assert parser.parse_args(["proxy", "--retention", "0.1"]).retention == 0.1
     assert parser.parse_args(["retention", "--live"]).live is True
     assert parser.parse_args(["retention", "--dataset", "hotpotqa", "-n", "5"]).n == 5

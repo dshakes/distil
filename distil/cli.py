@@ -3941,20 +3941,28 @@ def build_parser() -> argparse.ArgumentParser:
     px.add_argument(
         "--shadow",
         type=float,
-        default=0.0,
+        # Same default as `wrap`. The managed daemon install runs `distil proxy`, so a
+        # 0.0 default here silently dropped the quality loops on every managed install:
+        # a 93-minute, 767-request session sampled 0 and had no decision-equivalence
+        # evidence at all, while the identical work under `wrap` would have sampled ~15.
+        default=0.02,
         metavar="RATE",
         help="shadow-mode live decision-equivalence: sample this fraction of requests "
         "(e.g. 0.05) and run them uncompressed too, in the background, to measure the "
-        "live decision-change rate on real traffic (`distil shadow-stats`). Adds ~RATE cost.",
+        "live decision-change rate on real traffic (`distil shadow-stats`). "
+        "On by default at 0.02 (2%% extra tokens on sampled requests); --shadow 0 disables.",
     )
     px.add_argument(
         "--retention",
         type=float,
-        default=0.0,
+        # Same default as `wrap` — and this one is free: an in-process scan that stores
+        # only counts, so there is no cost argument for leaving managed installs blind.
+        default=0.05,
         metavar="RATE",
         help="live fact-retention meter: sample this fraction of requests and score how "
         "many numbers/paths/errors stayed visible vs went behind an expand handle "
-        "(`distil retention --live`). Content-free (counts only) and costs no tokens.",
+        "(`distil retention --live`). Content-free (counts only) and costs no tokens. "
+        "On by default at 0.05; --retention 0 disables.",
     )
     px.add_argument(
         "--session-delta",

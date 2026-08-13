@@ -613,6 +613,25 @@ class TestInsights:
         assert (d.protected_share("m-big") or 0) < 50.0
         assert d.protected_share("no-such-model") is None
 
+    def test_churn_advice_backs_off_when_the_prompt_cache_already_pays(self) -> None:
+        """Don't send users after cache-delta on a session the provider already caches.
+
+        Re-folded tokens look expensive, but when they are served from the prompt cache
+        they are already discounted — recommending a dedup mechanism there overstates
+        the recoverable saving by roughly the cache-read discount."""
+        d = dz.dissect("s200-1")
+        base = d._churn_advice()
+        assert "session-delta cache absorbs" in base  # fixture is not cache-heavy
+
+        for r in d.requests:
+            r["usage_cache_read"] = 99_000
+            r["usage_cache_create"] = 0
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share == pytest.approx(99.0, abs=0.01)
+        advice = d._churn_advice()
+        assert "prompt cache" in advice and "already discounted" in advice
+        assert "session-delta cache absorbs" not in advice
+
     def test_recoverability_note_reports_evictions(self) -> None:
         """Never claim everything is recoverable when blobs have already aged out."""
         d = dz.dissect("s200-1")

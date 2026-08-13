@@ -42,3 +42,20 @@ def test_async_warns_on_expand(monkeypatch, capsys):
 def test_async_quiet_when_no_unsupported_flags(monkeypatch, capsys):
     err = _run(monkeypatch, capsys)  # plain async proxy, nothing unsupported
     assert "not supported on the async proxy" not in err
+
+
+def test_proxy_and_wrap_agree_on_quality_loop_defaults():
+    """`proxy` must default the quality loops the same as `wrap`.
+
+    The managed daemon install (com.distil.proxy launch agent) runs `distil proxy`,
+    not `distil wrap`, so a default that differs here silently disables the loop on
+    every managed install: a real 767-request session sampled 0 for shadow and had no
+    decision-equivalence evidence at all, while the same work under `wrap` samples ~2%.
+    Retention is free (in-process, counts only), so there is no cost case for drift."""
+    from distil.cli import build_parser
+
+    p = build_parser()
+    wrap = p.parse_args(["wrap", "echo"])
+    proxy = p.parse_args(["proxy"])
+    assert proxy.shadow == wrap.shadow > 0
+    assert proxy.retention == wrap.retention > 0

@@ -318,6 +318,44 @@ class Dissection:
             f"— the rest aged out of the restore store (raise DISTIL_RESTORE_CAP to keep more)."
         )
 
+    def _churn_advice(self) -> str:
+        """Recommend session-delta only when the churn is actually being paid for.
+
+        Re-folded tokens look expensive, but on a well-cached agent session the
+        provider is already serving them from its prompt cache at the (much cheaper)
+        cache-read rate. Recommending cache-delta against a 99%-cached session sends
+        the user after a saving that is an order of magnitude smaller than the churn
+        number implies — and cache-delta's own value is dedup of content the cache
+        already deduplicates."""
+        cached = self.cached_input_share
+        if cached is not None and cached >= 90.0:
+            return (
+                f"That said, {cached:.0f}% of this session's billed input was served from "
+                "the provider's prompt cache, so this content is already discounted — "
+                "cache-delta would recover far less than the number above suggests."
+            )
+        return (
+            "The session-delta cache absorbs exactly this; if it is already on, these "
+            "blocks are candidates for the learned codec."
+        )
+
+    @property
+    def cached_input_share(self) -> float | None:
+        """Share of billed input the provider served from its prompt cache.
+
+        Decides whether re-fold churn is actually expensive. A high share means the
+        resent content is already billed at the cache-read rate, so the headline churn
+        number overstates what any dedup mechanism could recover. None when no usage
+        was recorded."""
+        cached = sum(int(r.get("usage_cache_read") or 0) for r in self.booked_detail)
+        total = sum(
+            int(r.get("usage_input_tokens") or 0)
+            + int(r.get("usage_cache_read") or 0)
+            + int(r.get("usage_cache_create") or 0)
+            for r in self.booked_detail
+        )
+        return 100.0 * cached / total if total else None
+
     def protected_share(self, model: str) -> float | None:
         """Share of one model's eligible tokens that policy refuses to digest.
 
@@ -613,8 +651,7 @@ class Dissection:
                 (
                     f"{_human(self.churn_tokens)} tokens were resent and re-summarized",
                     "The client kept resending the same content, so distil had to fold it "
-                    "again each time. The session-delta cache absorbs exactly this; if it "
-                    "is already on, these blocks are candidates for the learned codec.",
+                    "again each time. " + self._churn_advice(),
                 )
             )
         if self.shadow_window_rows:
