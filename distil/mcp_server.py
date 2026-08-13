@@ -110,9 +110,10 @@ def _save_store(store: dict[str, str]) -> None:
         pass  # best-effort; never crash a tool call
 
 
-_RESTORE_CAP = (
-    500  # ponytail: FIFO-by-mtime cap; raise or make configurable if long sessions outgrow it
-)
+# FIFO-by-mtime cap. 500 was too small for a single long agent session: a 93-minute
+# run folded 704 blocks and evicted 204 of them — including its most re-used fold —
+# while still running, which made "everything stays recoverable" false mid-session.
+_RESTORE_CAP = max(0, int(os.environ.get("DISTIL_RESTORE_CAP", "5000") or 0))
 # Age cap on top of the count cap: digest originals are real agent content
 # (can include secrets/PII), so a low-traffic store must not hold them forever.
 # 0 disables. Expired handles simply fail to expand — same as capped-out ones.
@@ -166,7 +167,13 @@ def record_restore(handle: str, original: str) -> None:
             # existing is None (auth failure/corrupt) or same content → rewrite
         p.write_bytes(atrest.encrypt_bytes(original.encode("utf-8")))
         p.chmod(0o600)  # encrypted content at rest — owner-only
-        stale = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[:-_RESTORE_CAP]
+        # Guard the 0 case: [:-0] is the WHOLE list, so an unguarded cap of 0 would
+        # evict every blob rather than disabling the cap.
+        stale = (
+            sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[:-_RESTORE_CAP]
+            if _RESTORE_CAP > 0
+            else []
+        )
         if _RESTORE_TTL_DAYS > 0:
             cutoff = time.time() - _RESTORE_TTL_DAYS * 86400
             fresh = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[-_RESTORE_CAP:]

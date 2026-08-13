@@ -8,14 +8,14 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="CLI Reference — Distil"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/cli.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="CLI Reference — Distil"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -100,7 +100,7 @@
 
     <!-- bench -->
     <h2 id="bench">distil bench</h2>
-    <p>The <strong>corpus-wide CI gate</strong>. Iterates over all 7 trajectories, prices four strategies, runs the TOST non-inferiority gate on each, and confirms aggressive lossy compression is still rejected. Exits 0 only if every trajectory passes.</p>
+    <p>The <strong>corpus-wide CI gate</strong>. Iterates over all 9 trajectories, prices four strategies, runs the TOST non-inferiority gate on each, and confirms aggressive lossy compression is still rejected. Exits 0 only if every trajectory passes.</p>
 
     <h3>Flags</h3>
     <table>
@@ -117,7 +117,7 @@
     </table>
 
     <pre class="term"><span class="d">$ distil bench</span>
-corpus gate — 7 trajectories | model claude-opus-4-8 | tokenizer=heuristic
+corpus gate — 9 trajectories | model claude-opus-4-8 | tokenizer=heuristic
 
 domain            trajectory               $ saved   distil   aggr  pruned
 ---------------------------------------------------------------------------
@@ -128,8 +128,10 @@ research          research-synthesis         25.7%     <span class="g">PASS</spa
 data-analysis     data-analysis-sql          18.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>     965
 devops            devops-rollback            22.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     857
 finance           finance-reconcile          24.9%     <span class="g">PASS</span>   <span class="w">FAIL</span>    1014
+web-research      web-research               89.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     428
+agent-worklog     agent-worklog              35.3%     <span class="g">PASS</span>   <span class="w">FAIL</span>     891
 ---------------------------------------------------------------------------
-aggregate: distil cuts $0.14212 -> $0.10610 (25.3% cheaper) losslessly; 5761 tokens prunable.
+aggregate: distil cuts $0.24052 -> $0.12400 (48.4% cheaper) losslessly; 7080 tokens prunable.
 
 GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; aggressive rejected on all.</pre>
 

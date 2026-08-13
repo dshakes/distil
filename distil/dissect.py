@@ -218,8 +218,16 @@ class Dissection:
         return bool(self.requests)
 
     @property
+    def booked_detail(self) -> list[dict[str, Any]]:
+        """Request-detail rows for booked requests only — the same population the
+        ledger headline (baseline_tokens/pct_saved) is built from. Summing the
+        detail over *all* requests instead double-counts upstream retries, which
+        made the mechanism and overhead lines disagree with the savings line."""
+        return [r for r in self.requests if r.get("booked")]
+
+    @property
     def delta_tokens_saved(self) -> int:
-        return sum(int(r.get("delta_tokens_saved") or 0) for r in self.requests)
+        return sum(int(r.get("delta_tokens_saved") or 0) for r in self.booked_detail)
 
     @property
     def overhead_tokens_avg(self) -> int:
@@ -245,8 +253,11 @@ class Dissection:
     # ---- insight metrics (all derived; None/0 when the inputs are absent) ----
     @property
     def tokens_saved_total(self) -> int:
-        """Heuristic tokens saved across requests (digest folds + cache-delta)."""
-        return sum(int(r.get("tokens_saved") or 0) for r in self.requests)
+        """Heuristic tokens saved across requests (digest folds + cache-delta).
+
+        Booked-only, so the mechanism split reconciles with the savings headline
+        rather than including work on requests the upstream rejected/retried."""
+        return sum(int(r.get("tokens_saved") or 0) for r in self.booked_detail)
 
     @property
     def digest_saved(self) -> int:
@@ -255,13 +266,16 @@ class Dissection:
 
     @property
     def overhead_tokens_total(self) -> int:
-        return sum(int(r.get("overhead_tokens") or 0) for r in self.requests)
+        return sum(int(r.get("overhead_tokens") or 0) for r in self.booked_detail)
 
     @property
     def overhead_share(self) -> float:
-        """Fixed tax: system prompt + tool definitions as a share of everything sent."""
-        comp = sum(int(r.get("compressible_tokens") or 0) for r in self.requests)
-        total = self.overhead_tokens_total + comp
+        """Fixed tax: system prompt + tool definitions as a share of what was actually
+        sent — i.e. measured *after* compression, over the same booked population the
+        savings headline uses. Dividing by the pre-compression total understated the
+        share (the denominator counted tokens distil had already removed)."""
+        comp = sum(int(r.get("compressible_tokens") or 0) for r in self.booked_detail)
+        total = self.overhead_tokens_total + max(0, comp - self.tokens_saved_total)
         return 100.0 * self.overhead_tokens_total / total if total else 0.0
 
     @property
@@ -284,6 +298,82 @@ class Dissection:
         if not total:
             return []
         return sorted(((k, v, 100.0 * v / total) for k, v in agg.items()), key=lambda x: -x[1])
+
+    def _recoverability_note(self) -> str:
+        """State recoverability as measured, not as promised.
+
+        The restore store is capped (DISTIL_RESTORE_CAP, LRU), so a long session can
+        evict its own earliest folds while it is still running — including the most
+        re-used ones. Claiming "everything stays recoverable" while a third of the
+        blocks are already gone is the one line in this report a user could catch
+        being false, so it reports the real count whenever any block has been evicted."""
+        total = len(self.blocks)
+        if not total:
+            return "Everything summarized stays recoverable on this machine."
+        rec = sum(1 for i in self.blocks.values() if i.get("recoverable"))
+        if rec == total:
+            return "Everything summarized stays recoverable on this machine."
+        return (
+            f"{rec} of {total} summarized blocks are still recoverable on this machine "
+            f"— the rest aged out of the restore store (raise DISTIL_RESTORE_CAP to keep more)."
+        )
+
+    def _churn_advice(self) -> str:
+        """Recommend session-delta only when the churn is actually being paid for.
+
+        Re-folded tokens look expensive, but on a well-cached agent session the
+        provider is already serving them from its prompt cache at the (much cheaper)
+        cache-read rate. Recommending cache-delta against a 99%-cached session sends
+        the user after a saving that is an order of magnitude smaller than the churn
+        number implies — and cache-delta's own value is dedup of content the cache
+        already deduplicates."""
+        cached = self.cached_input_share
+        if cached is not None and cached >= 90.0:
+            return (
+                f"That said, {cached:.0f}% of this session's billed input was served from "
+                "the provider's prompt cache, so this content is already discounted — "
+                "cache-delta would recover far less than the number above suggests."
+            )
+        return (
+            "The session-delta cache absorbs exactly this; if it is already on, these "
+            "blocks are candidates for the learned codec."
+        )
+
+    @property
+    def cached_input_share(self) -> float | None:
+        """Share of billed input the provider served from its prompt cache.
+
+        Decides whether re-fold churn is actually expensive. A high share means the
+        resent content is already billed at the cache-read rate, so the headline churn
+        number overstates what any dedup mechanism could recover. None when no usage
+        was recorded."""
+        cached = sum(int(r.get("usage_cache_read") or 0) for r in self.booked_detail)
+        total = sum(
+            int(r.get("usage_input_tokens") or 0)
+            + int(r.get("usage_cache_read") or 0)
+            + int(r.get("usage_cache_create") or 0)
+            for r in self.booked_detail
+        )
+        return 100.0 * cached / total if total else None
+
+    def protected_share(self, model: str) -> float | None:
+        """Share of one model's eligible tokens that policy refuses to digest.
+
+        A per-model 0.0% row is otherwise indistinguishable from a broken gate. When
+        a model's traffic is entirely user prompts or assistant text (subagents that
+        send one big string and no tools), 0% saved is the protection policy holding,
+        and this is what says so. None when the census is absent for that model."""
+        agg: dict[str, int] = {}
+        for r in self.requests:
+            if r.get("model") != model:
+                continue
+            for reason, tokens in (r.get("census") or {}).items():
+                agg[str(reason)] = agg.get(str(reason), 0) + int(tokens or 0)
+        total = sum(agg.values())
+        if not total:
+            return None
+        prot = sum(v for k, v in agg.items() if k in _PROTECTED_REASONS)
+        return 100.0 * prot / total
 
     @property
     def churn_tokens(self) -> int:
@@ -511,8 +601,8 @@ class Dissection:
                     f"tokens off the wire ({self.pct_saved:.0f}%)",
                     f"Your session's conversation and tool results would have cost "
                     f"{_human(self.baseline_tokens)} tokens to resend across its requests; "
-                    f"{_human(self.distil_tokens)} actually went out{mostly}. Everything "
-                    "summarized stays recoverable on this machine.",
+                    f"{_human(self.distil_tokens)} actually went out{mostly}. "
+                    + self._recoverability_note(),
                 )
             )
         if self.detail_available and self.overhead_share >= 30:
@@ -561,8 +651,7 @@ class Dissection:
                 (
                     f"{_human(self.churn_tokens)} tokens were resent and re-summarized",
                     "The client kept resending the same content, so distil had to fold it "
-                    "again each time. The session-delta cache absorbs exactly this; if it "
-                    "is already on, these blocks are candidates for the learned codec.",
+                    "again each time. " + self._churn_advice(),
                 )
             )
         if self.shadow_window_rows:
@@ -820,8 +909,14 @@ def render_text(
         )
         for model, reqs, bt, dt in d.per_model():
             pct = 100.0 * (bt - dt) / bt if bt else 0.0
+            # A flat 0.0% reads as a broken gate. When the traffic is all content the
+            # policy protects (user prompts, assistant text), say so on the row.
+            prot = d.protected_share(model)
+            why = ""
+            if pct < 1.0 and prot is not None and prot >= 99.0:
+                why = "  (all protected content — nothing eligible to digest)"
             out.append(
-                f"    {model:<34} {reqs:>4} req  {_human(bt):>8} → {_human(dt):>8}  {pct:>5.1f}%"
+                f"    {model:<34} {reqs:>4} req  {_human(bt):>8} → {_human(dt):>8}  {pct:>5.1f}%{why}"
             )
 
     # Request detail

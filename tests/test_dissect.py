@@ -583,9 +583,64 @@ class TestInsights:
 
     def test_overhead_tax(self) -> None:
         d = dz.dissect("s200-1")
-        assert d.overhead_tokens_total == 1700
-        # 1700 overhead vs 7000 compressible -> 1700/8700
-        assert d.overhead_share == pytest.approx(19.54, abs=0.01)
+        # Booked only: the 529 retry's 500 overhead tokens were never billed as a
+        # successful request, and counting them inflated the denominator the savings
+        # headline is measured against.
+        assert d.overhead_tokens_total == 1200
+        # Share is of what was actually SENT: 1200 overhead vs (7000 - 4700) post-
+        # compression payload -> 1200/3500. Dividing by the pre-compression 7000
+        # understated the tax by counting tokens distil had already removed.
+        assert d.overhead_share == pytest.approx(34.29, abs=0.01)
+
+    def test_detail_totals_reconcile_with_savings_headline(self) -> None:
+        """The mechanism split must add up to the headline saving.
+
+        These come from different files (savings.jsonl vs sessions/*.requests.jsonl);
+        summing the detail over unbooked retries too made them disagree, so the report
+        showed a 'savings by mechanism' total larger than the savings it decomposed."""
+        d = dz.dissect("s200-1")
+        assert d.digest_saved + d.delta_tokens_saved == d.tokens_saved_total
+        # Both sides count booked requests only, so the unbooked 529 retry contributes
+        # to neither. (This fixture's ledger totals are synthetic and independent of
+        # its request rows, so the cross-file equality is asserted on real sessions.)
+        assert all(r.get("booked") for r in d.booked_detail)
+        assert len(d.booked_detail) == len(d.requests) - d.unbooked_requests
+
+    def test_protected_share_explains_a_zero_percent_model(self) -> None:
+        """A per-model 0.0% row must distinguish policy from a broken gate."""
+        d = dz.dissect("s200-1")
+        # m-big's census is all tool_result_digested -> work was done, not protected.
+        assert (d.protected_share("m-big") or 0) < 50.0
+        assert d.protected_share("no-such-model") is None
+
+    def test_churn_advice_backs_off_when_the_prompt_cache_already_pays(self) -> None:
+        """Don't send users after cache-delta on a session the provider already caches.
+
+        Re-folded tokens look expensive, but when they are served from the prompt cache
+        they are already discounted — recommending a dedup mechanism there overstates
+        the recoverable saving by roughly the cache-read discount."""
+        d = dz.dissect("s200-1")
+        base = d._churn_advice()
+        assert "session-delta cache absorbs" in base  # fixture is not cache-heavy
+
+        for r in d.requests:
+            r["usage_cache_read"] = 99_000
+            r["usage_cache_create"] = 0
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share == pytest.approx(99.0, abs=0.01)
+        advice = d._churn_advice()
+        assert "prompt cache" in advice and "already discounted" in advice
+        assert "session-delta cache absorbs" not in advice
+
+    def test_recoverability_note_reports_evictions(self) -> None:
+        """Never claim everything is recoverable when blobs have already aged out."""
+        d = dz.dissect("s200-1")
+        note = d._recoverability_note()
+        rec = sum(1 for i in d.blocks.values() if i.get("recoverable"))
+        if d.blocks and rec < len(d.blocks):
+            assert "still recoverable" in note and f"{rec} of {len(d.blocks)}" in note
+        else:
+            assert note.startswith("Everything summarized stays recoverable")
 
     def test_churn(self) -> None:
         d = dz.dissect("s200-1")
@@ -637,7 +692,7 @@ class TestInsights:
         d = dz.dissect("s200-1")
         text = dz.render_text(d, color=False, peers=dz.list_sessions())
         assert "digest folds 3.90k (83%)" in text
-        assert "20% of everything sent" in text
+        assert "34% of everything sent" in text
         assert "2.00k tokens re-digested" in text
         assert "estimate 3.50k vs billed 3.30k" in text
         assert "~2.6x" in text  # flat-rate headroom

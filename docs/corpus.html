@@ -8,14 +8,14 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="Corpus — Distil"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/corpus.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="Corpus — Distil"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -89,9 +89,9 @@
   <main class="content" id="content" tabindex="-1">
 
     <h1>The <span class="g">Corpus</span></h1>
-    <p class="lead">The asset that makes certification meaningful — 7 real, captured-style agent trajectories across 8 domains. Every strategy must pass the gate on every one of them.</p>
+    <p class="lead">The asset that makes certification meaningful — 9 real, captured-style agent trajectories across 9 domains. Every strategy must pass the gate on every one of them.</p>
 
-    <img src="assets/domains.svg" alt="Bar chart of lossless savings across 8 domains, all passing the decision-equivalence gate: ops/sre 32.8%, coding 25.5%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 22.8%, finance 24.9%; aggregate 25.3% cheaper reversibly across 5,761 prunable tokens; figures repeated in the table below" class="svg-embed"/>
+    <img src="assets/domains.svg" alt="Bar chart of lossless savings across 9 domains, all passing the decision-equivalence gate: ops/sre 32.8%, coding 25.5%, support 32.6%, research 25.7%, data-analysis 18.1%, devops 22.8%, finance 24.9%, web-research 89.8%, agent-worklog 35.3%; aggregate 48.4% cheaper reversibly across 7,080 prunable tokens; figures repeated in the table below" class="svg-embed"/>
 
     <hr/>
 
@@ -175,12 +175,28 @@
           <td><span class="badge-fail">FAIL</span></td>
           <td>1014</td>
         </tr>
-        <tr style="border-top: 2px solid var(--line)">
-          <td colspan="2"><strong>Aggregate</strong></td>
-          <td><strong>26.8%</strong></td>
+        <tr>
+          <td><strong>web-research</strong></td>
+          <td><code>web-research</code></td>
+          <td>89.8%</td>
           <td><span class="badge-pass">PASS</span></td>
           <td><span class="badge-fail">FAIL</span></td>
-          <td><strong>5,761</strong></td>
+          <td>428</td>
+        </tr>
+        <tr>
+          <td><strong>agent-worklog</strong></td>
+          <td><code>agent-worklog</code></td>
+          <td>35.3%</td>
+          <td><span class="badge-pass">PASS</span></td>
+          <td><span class="badge-fail">FAIL</span></td>
+          <td>891</td>
+        </tr>
+        <tr style="border-top: 2px solid var(--line)">
+          <td colspan="2"><strong>Aggregate</strong></td>
+          <td><strong>48.4%</strong></td>
+          <td><span class="badge-pass">PASS</span></td>
+          <td><span class="badge-fail">FAIL</span></td>
+          <td><strong>7,080</strong></td>
         </tr>
       </tbody>
     </table>

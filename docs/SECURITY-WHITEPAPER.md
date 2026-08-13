@@ -4,7 +4,7 @@ For security reviewers, platform teams, and procurement. Written to be answerabl
 against evidence rather than assertion: every claim below names the file, command,
 or test that backs it, so you can verify rather than trust.
 
-Scope: distil `1.41.x`, the Apache-2.0 open-source distribution.
+Scope: distil `1.45.x`, the Apache-2.0 open-source distribution.
 Companion documents: [`THREAT_MODEL.md`](../THREAT_MODEL.md) (adversary model and
 explicit non-goals), [`TELEMETRY.md`](../TELEMETRY.md) (frozen telemetry schema).
 
@@ -157,11 +157,17 @@ as the class of risk any in-path proxy carries.
 **Present:** bearer-key authentication with per-key tenant, quota, and revocation
 (`distil gateway keys issue|list|revoke`).
 
-**Not present, and honestly so:** SAML, OIDC, SCIM, and role-based access control
-are **not implemented**. If your review requires SSO for the gateway's admin
-surface today, distil does not meet that bar. The current recommendation is to
-place the gateway behind your existing authenticating proxy or service mesh and
-treat the admin token as an infrastructure secret.
+**Present:** OIDC bearer tokens (HS256, or RS256 via the `[oidc]` extra) and a
+role ladder — `viewer` (read stats/metrics) < `operator` (also proxy requests) <
+`admin` (also issue/revoke keys and reach the admin dashboard). Configured via
+`DISTIL_OIDC_ISSUER` / `DISTIL_OIDC_AUDIENCE` / `DISTIL_OIDC_TENANT_CLAIM`; see
+[ENTERPRISE.md](ENTERPRISE.md) for the full matrix. Implementation: `distil/authz.py`.
+
+**Not present, and honestly so:** SAML and SCIM provisioning are **not implemented**.
+If your review requires SAML SSO or automated user provisioning today, distil does
+not meet that bar. The recommendation there is to place the gateway behind your
+existing authenticating proxy or service mesh and treat the admin token as an
+infrastructure secret.
 
 ## 11. Compliance status
 

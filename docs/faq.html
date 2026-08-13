@@ -8,14 +8,14 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="FAQ — Distil"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/faq.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="FAQ — Distil"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 8 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -115,7 +115,7 @@
 
     <h2>"How did you run the live benchmark, and how do I reproduce it?"</h2>
 
-    <p>The live head-to-head used actual installed packages — <code>llmlingua</code> 0.2.2, <code>headroom-ai</code> 0.27.0, and Distil 0.23.0 — run against the same 120-turn, 5-domain corpus (4.5–6.5 KB/turn) where decisions are the agent's real next <code>{action, target}</code>. Each compressed context was graded by <code>claude-opus-4-8</code> majority-of-3, independently of the compression step. Latency is wall-clock per turn on the same hardware.</p>
+    <p>The live head-to-head used actual installed packages — <code>llmlingua</code> 0.2.2, <code>headroom-ai</code> 0.27.0, and Distil 0.23.0 — run against the same 120-turn, 5-domain corpus (4.5–6.5 KB/turn) where decisions are the agent's real next <code>{action, target}</code>. Each compressed context was graded by <code>claude-opus-4-8</code> majority-of-3, independently of the compression step. Latency is wall-clock per turn on the same hardware. The Distil version is the one the run was executed on and is deliberately not bumped without re-running: these numbers have not been re-measured on a current release, so read them as a dated result rather than a claim about today's build.</p>
 
     <p>Results in brief: Distil certified <strong>83.2% savings / 0% decision-change / 0.026 ms per turn</strong>. LLMLingua-2 achieved 53.1% savings but flipped 1-in-8 decisions (fails the ≤5% gate). Headroom passed the gate at 39.7% savings but runs a ModernBERT scorer at ~26 ms per turn.</p>
 

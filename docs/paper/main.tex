@@ -24,12 +24,20 @@
 \usepackage{cleveref}
 
 % Result macros — injected by `python benchmarks/report_to_latex.py results.json`,
-% which writes docs/paper/generated/macros.tex. Defaults below are the real
-% α=0.10 headline (99.3% coverage, 0.1% risk, 0.1% certified savings).
+% which writes docs/paper/generated/macros.tex. Defaults below are the α=0.10
+% operating point (99.3% coverage, 0.1% risk, 0.1% certified savings) — NOT the
+% headline: the paper reports α=0.15 from generated/macros.tex (15.7% / 8.0% / 98.8%).
 \newcommand{\HLsavings}{0.1\%}
 \newcommand{\HLcoverage}{99.3\%}
 \newcommand{\HLrisk}{0.1\%}
-\IfFileExists{generated/macros.tex}{\input{generated/macros.tex}}{}
+% The defaults above are the α=0.10 operating point; generated/macros.tex carries the
+% α=0.15 headline the paper actually reports (15.7% savings, 8.0% risk, 98.8% coverage).
+% Silently falling back would compile a paper claiming 0.1% savings at 0.1% risk — a
+% different operating point, presented as the headline. Fail loudly instead.
+\IfFileExists{generated/macros.tex}{\input{generated/macros.tex}}{%
+  \GenericWarning{}{WARNING: generated/macros.tex missing — headline macros are the
+  alpha=0.10 fallback, NOT the reported alpha=0.15 result. Regenerate with
+  benchmarks/report_to_latex.py before distributing this PDF.}}
 
 % E5 head-to-head macros — original (gold-last) and shuffled-position (seed=1729) runs.
 % Defaults below are the committed numbers; report_to_latex.py --only e5macros
@@ -308,9 +316,11 @@ rate is controlled.}
 \subsection{Cache-aware reversible engine}
 The prefix is held byte-stable (schema canonicalization; volatile fields such as
 timestamps lifted out), and only the volatile tail is compressed. The reversible
-tier digests a verbose tool output to a compact marker
-\verb|<< +N lines, handle=XXXXXXXX >>| and keeps the byte-exact original in a local,
-content-addressed store; the model can recover any block on demand via a
+tier digests a verbose tool output---any block of at least six lines, the shipped
+threshold---to a compact marker
+\verb|<< +N lines, handle=XXXXXXXX >>|, where the handle is the first 8 hex digits of
+the block's SHA-256, and keeps the byte-exact original in a local, content-addressed
+store; the model can recover any block on demand via a
 \texttt{distil\_expand} tool. Compression is thus \emph{lossless} (byte-in-context),
 \emph{reversible} (digested but recoverable), or \emph{lossy} (the rest).
 
@@ -485,7 +495,7 @@ measurements is described in \Cref{fig:expand}.
 decisions; Claude grader, majority-of-3 structured, $+$expand recovery loop). The
 reversible digest at 21.7\% savings achieves \textbf{10.2\%} decision-change,
 beating equally-aggressive lossy truncation (11.5--11.7\%) at $\approx\!22\%$
-savings. On a 40-instance subset the recovery effect is sharper (11.2\% no-expand
+savings. On a 40-instance subset the recovery effect is sharper (11.25\% no-expand
 $\to$ 7.5\% with $+$expand; see \Cref{fig:expand}). Dashed lines show the
 $\alpha=10\%$ and $\alpha=15\%$ risk budgets. $\tau$-bench airline (25 traj, 105
 decisions) is not plotted: the data is already compact (lossless saves only 1.0\%)
@@ -512,7 +522,7 @@ decision-equivalence evaluation must control; each is now enforced or flagged.
   content and the decision is preserved (\Cref{fig:expand}). Reporting only the
   no-expand bound understates the reversible tier; reporting only perfect recovery
   overstates it---we report both on the 40-instance subset where we have both
-  measurements (11.2\% no-expand vs.\ 7.5\% $+$expand at 23.9\% savings).\par}
+  measurements (11.25\% no-expand vs.\ 7.5\% $+$expand at 23.9\% savings).\par}
 \end{enumerate}
 
 \begin{figure}[t]
@@ -774,7 +784,8 @@ transfer to execution.
 
 \paragraph{E4 non-evidential on SWE-bench.} SWE-bench HuggingFace evaluators mark
 all submissions resolved=True by construction of the localization task, so E4 on
-SWE reports retained decision-equivalence (lossless $+$expand: 85.0\%; no-expand:
+SWE reports retained decision-equivalence on the 40-instance subset (lossless
+$+$expand: 85.0\%; no-expand:
 77.5\%), not a real task-success rate. The 19 outcome-labelled $\tau$-bench
 trajectories with real reward labels show the digest-only tier (no expand) retains
 0\% baseline success---consistent with the certificate's refusal to certify savings
@@ -1011,7 +1022,12 @@ no competitor offers.
 
 \paragraph{Techniques: content-aware digest and sticky recovery.} The reversible tier's
 digest is a \emph{content-aware skeleton} (keep imports and class/def signatures and the
-tail of a traceback; elide bodies; deterministic and stdlib-only---no model, no network, so
+tail of a traceback; elide bodies). Python is skeletonized through a real parser
+(\texttt{ast}); brace-delimited languages---C-family, JS/TS, Go, Rust, Java, Swift,
+Kotlin---through a language-agnostic brace matcher that falls back to leaving the block
+intact when braces do not balance (mid-edit or unparseable), so the failure mode is
+saving less rather than corrupting code. Both paths are
+deterministic and stdlib-only---no model, no network, so
 it is auditable and safe on untrusted context) behind a content handle, plus \emph{sticky
 expansion} (a block the agent recovers stays full on later turns). This lifts the
 active-recovery tier~D from $28.8\%$ (head-truncation) to \sweEeightExpandPass{} at
@@ -1206,9 +1222,17 @@ a floor: an uncertified lossy method may always be cheaper because it is permitt
 the decision, so we do not claim cost-domination (\Cref{sec:e8} is explicit that Headroom is
 cheaper). Within the certified envelope, however, several levers cut cost \emph{without
 spending the certificate}, and we implement them as shippable primitives.
-\textbf{(i)~Cache-monotone gating}: digests are deterministic and the digest boundary advances
-monotonically, so the digested prefix is byte-stable across turns and prompt-cache/KV reuse
-captures it (a cache read is $\approx$10$\times$ cheaper than fresh input). This is lossless
+\textbf{(i)~Cache-monotone gating}: digests are deterministic, and the digest boundary must be
+\emph{anchored} to the client's declared cache breakpoint rather than counted back from the end
+of the conversation, so that the digested prefix is byte-stable across turns and prompt-cache/KV
+reuse captures it (a cache read is $\approx$10$\times$ cheaper than fresh input). We stress the
+anchoring because we first shipped the naive version and it was actively harmful: a recency
+window counted back from the end \emph{slides forward} as the conversation grows, so each block
+is protected while fresh and digested one turn later---rewriting a message the client has by
+then committed to its cached prefix. Measured against the live API, that variant took zero cache
+reads on every turn and cost $2\times$ sending nothing compressed at all. Anchoring to the
+breakpoint (content at or before it is already committed and must reach the wire verbatim; only
+the uncached tail is eligible) restores the property. This is lossless
 relative to the plain gate---it changes which bytes are \emph{cached}, not which bytes the
 agent sees---so it cannot change a decision. The honest caveat, which our cost simulator
 confirms: on already-fully-cacheable content, caching alone can beat any compression
@@ -1397,7 +1421,7 @@ holds out-of-sample at 96.6--100\% coverage across $\alpha \in \{10\%, 12.5\%, 1
 20\%\}$ ($\delta=0.05$, real SWE-bench\_Lite, 300 instances, 500 splits). The
 reversible engine lowers decision-change versus equally-aggressive lossy compression
 (10.2\% vs.\ 11.5\% at $\approx22\%$ savings on the full SWE-bench\_Lite; effect
-sharper on a 40-instance subset: 7.5\% vs.\ 12.5\%)---though on the de-confounded,
+sharper on a 40-instance subset: 7.5\% vs.\ 12.5\% against \texttt{truncate@120})---though on the de-confounded,
 position-shuffled localization corpus this particular edge reverses
 (\Cref{sec:analysis}), a sensitivity we report rather than hide---and the certificate
 correctly declines to certify savings on compact $\tau$-bench contexts, quantifying
