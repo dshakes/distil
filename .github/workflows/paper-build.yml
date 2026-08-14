@@ -80,7 +80,7 @@ jobs:
               # protections (signed commits, linear history, ...) — matching on it
               # bare would silently wave through failures this bot should never
               # treat as expected.
-              if grep -q 'required status checks are expected' push.err; then
+              if grep -qi 'required status checks are expected' push.err; then
                 cat push.err
                 echo "::warning title=paper-build: PDFs not pushed::Branch ruleset on main blocked the bot's direct push (see #128). Rebuilt PDFs differ from what's committed until a maintainer resolves it."
               else
