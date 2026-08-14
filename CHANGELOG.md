@@ -3,6 +3,68 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.47.0] — the key file was world-readable, and the audit trail wasn't watching
+
+**Two things an enterprise security review would have caught before you did.** The
+master key that decrypts every restore blob was written at the process umask —
+measured `0o644` — and only chmod'd to `0600` afterwards. Any local user reading it
+in that window decrypts everything. The gateway key file had the same shape: a
+polling thread caught its temp file at `0o644` during a 400-key issue loop. Both now
+create `0600` at open time, so the window does not exist. Re-probed after the fix:
+1,855 samples, only `0o600` ever observed.
+
+**The gateway had no audit log at all** — `grep -c audit` over `gateway.py` and
+`authz.py` returned `0` and `0`. There was no record of who authenticated, which
+tenant used which key, or what was refused. That is the first thing a security
+questionnaire asks about a shared gateway, and SOC 2 CC7.2 / ISO 27001 A.12.4 both
+require it. There is now an append-only, flock-guarded, `0600` JSONL trail of
+`auth.ok` / `auth.fail` / `rate.limited` / `key.issued` / `key.revoked`, read with
+`distil gateway audit` (`--json` for SIEM ingestion).
+
+It covers every refusal path, not just the convenient ones: no credential presented,
+no key store configured, invalid or revoked key, OIDC token rejection, OIDC RBAC
+denial, OIDC success, both RPM paths, and both daily-token quota paths. The first cut
+missed most of those — a deployment on OIDC got an empty audit log no matter how much
+traffic it refused — and that gap was caught in review before shipping.
+
+Content-free by construction: identifiers and outcomes, never prompt text, completion
+text, tool output, or the raw `dsk-` token. Writes fail open, because bookkeeping must
+never drop a customer's request.
+
+**Keys can now expire.** `distil gateway keys issue --tenant acme --expires-in-days 90`
+gives a key a bounded lifetime, enforced through the same `is_active` chokepoint that
+enforces revocation — so no code path can honour an expired key by checking only
+`revoked`. Keys issued without an expiry still never expire and pre-expiry key files
+load untouched, so nothing changes for existing deployments. `keys list` reports
+`expired` separately from `revoked`: an operator debugging a sudden 401 should not go
+hunting for a revocation that never happened.
+
+**Compression got faster without changing what it produces.** `_xor_stream` XOR'd
+byte-by-byte in a Python loop; `must_keep` ran three to four regexes on every line,
+where one pattern cost more than all the others combined. Vectorising the first and
+putting literal prefilters in front of the second takes a 3.2 MB context from 1014 ms
+to 719 ms per request, with savings percentages unchanged (95.8 / 92.3 / 81.9 / 48.3
+at 60 / 30 / 12 / 4 turns). The encryption output is byte-identical — verified on 627
+cases including leading-zero and partial-block torture — and the keep decisions are
+identical across a 400,000-case differential test.
+
+**Minified JSON was leaving most of its savings on the floor.** A single-line payload
+returned before it ever reached the columnar folder that already existed for it: every
+REST tool call, every `curl | jq -c`. Minified JSON goes from 10.5% to 57.5%, nested
+records to 91.2%. The fold stays in-context lossless — all 2,500 field values across
+500 records appear literally in the output — declines when values contain tabs or
+newlines so no column can shift, and leaves the recency carve-out byte-identical.
+
+Also fixed: `os.write` is permitted to write fewer bytes than it is handed, and the
+first cut of the key-permission fix discarded that return value. A short write left a
+truncated key, the next load minted a fresh one, and everything encrypted with the
+first became unreadable. `Path.write_bytes` loops; the hand-rolled version did not.
+
+Known limitation, documented in `atrest.py` where someone will hit it: concurrent
+*first touch* of a brand-new key store can still leave two creators on different keys.
+Five attempts to close it each passed on Linux and macOS and broke Windows a new way;
+it wants a Windows runner in the loop rather than a sixth blind fix.
+
 ## [1.46.0] — every managed install was running blind
 
 **If you installed distil the managed way, your proxy has never sampled a single
