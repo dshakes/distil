@@ -54,6 +54,10 @@ jobs:
 
       # Close the staleness loop: on push to main, commit the rebuilt PDFs so the
       # tracked artifacts can never drift from the source again. (PRs only verify.)
+      # CAVEAT (see #128): a branch ruleset requiring status checks on every push
+      # to main can make this push impossible to satisfy — see the comment below.
+      # When that happens the loop is NOT closed: PDFs on main can drift from
+      # source until a maintainer resolves the ruleset conflict.
       - name: Commit rebuilt PDFs
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: |
@@ -71,7 +75,12 @@ jobs:
             # is a repo-settings decision for a human, not something to route around
             # here — surface it and let the paper build itself stay the signal.
             if ! git push 2>push.err; then
-              if grep -q 'required status checks\|GH013' push.err; then
+              # Match ONLY the specific required-status-checks rejection text.
+              # GH013 alone is a generic ruleset-violation code shared by unrelated
+              # protections (signed commits, linear history, ...) — matching on it
+              # bare would silently wave through failures this bot should never
+              # treat as expected.
+              if grep -q 'required status checks are expected' push.err; then
                 cat push.err
                 echo "::warning title=paper-build: PDFs not pushed::Branch ruleset on main blocked the bot's direct push (see #128). Rebuilt PDFs differ from what's committed until a maintainer resolves it."
               else
