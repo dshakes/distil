@@ -285,7 +285,9 @@ def test_concurrent_first_touch_keeps_one_key(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     from distil import atrest
 
-    importlib.reload(atrest)
+    # No importlib.reload: monkeypatch restores the stub onto whichever module
+    # object exists at teardown, so combining reload with setattr can leave the
+    # stub live for the rest of the session (see the fallback test above).
 
     class _SlowSecrets:
         """Widen the read-miss -> create window so the race is deterministic.
@@ -334,12 +336,13 @@ def test_key_race_falls_back_when_the_winners_key_is_unreadable(tmp_path, monkey
     process rather than raising — the same fail-open contract as the rest of the
     at-rest path.
     """
-    import importlib
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     from distil import atrest
 
-    importlib.reload(atrest)
+    # No importlib.reload: monkeypatch restores the stub onto whichever module
+    # object exists at teardown, so combining reload with setattr can leave the
+    # stub live for the rest of the session (see the fallback test above).
 
     key_path = atrest._key_path()
     key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -390,13 +393,18 @@ def test_key_creation_falls_back_when_os_link_is_unsupported(tmp_path, monkeypat
     filesystems, exotic mounts) we fall back to an exclusive create — still one
     key, still 0600, still no temp file left behind.
     """
-    import importlib
     import threading as _threading
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     from distil import atrest
 
-    importlib.reload(atrest)
+    # No importlib.reload here. monkeypatch records the attribute it is about to
+    # replace and restores it at teardown — but a reload REBINDS every function in
+    # the module, so a stub installed after one reload gets written back onto a
+    # module another test has since reloaded, leaving the stub live for the rest of
+    # the session. That is how a single fallback test took down mcp_store's
+    # round-trip on the Windows leg while every Linux leg stayed green. The module
+    # reads DISTIL_HOME per call, so a reload was never needed for isolation.
 
     def _no_link(*_args, **_kwargs):
         raise OSError("hard links unsupported on this filesystem")
@@ -458,12 +466,13 @@ def test_loser_waits_for_the_winners_bytes(tmp_path, monkeypatch) -> None:
     legitimately return an empty or short file. Giving up there is what makes it
     encrypt with a key that never reaches disk. The loop must keep looking.
     """
-    import importlib
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     from distil import atrest
 
-    importlib.reload(atrest)
+    # No importlib.reload: monkeypatch restores the stub onto whichever module
+    # object exists at teardown, so combining reload with setattr can leave the
+    # stub live for the rest of the session (see the fallback test above).
 
     key_path = atrest._key_path()
     key_path.parent.mkdir(parents=True, exist_ok=True)
