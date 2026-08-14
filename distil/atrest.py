@@ -86,7 +86,6 @@ import hashlib
 import hmac
 import os
 import secrets
-import threading
 from pathlib import Path
 
 _MAGIC = b"DSTL1"
@@ -137,7 +136,15 @@ def _load_key() -> bytes:
         # (Measured with the create->write gap widened: 11 of 12 threads diverged.)
         # os.link is atomic and fails with FileExistsError if we lost, so the key
         # file only ever appears fully written.
-        tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        # Random suffix, not pid+tid: those repeat for two sequential calls on the
+        # same thread, so a temp file left behind by an earlier attempt (Windows
+        # refuses to unlink a file that still has an open handle) makes the next
+        # O_EXCL create raise FileExistsError. That is indistinguishable from
+        # "another writer won the race", so the loser adopts a key that was never
+        # written — and every blob it encrypts becomes unreadable. Measured with a
+        # colliding leftover in place: the key file was never created and two
+        # successive loads returned different keys.
+        tmp = p.with_name(f"{p.name}.{secrets.token_hex(8)}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             os.write(fd, key)

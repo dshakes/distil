@@ -288,11 +288,19 @@ def test_concurrent_first_touch_keeps_one_key(tmp_path, monkeypatch) -> None:
     importlib.reload(atrest)
 
     class _SlowSecrets:
-        """Widen the read-miss -> create window so the race is deterministic."""
+        """Widen the read-miss -> create window so the race is deterministic.
+
+        Delegates everything else to the real module: the key path also draws a
+        random temp-file suffix from `secrets`, and a double that only stubs
+        `token_bytes` breaks it with an AttributeError under load.
+        """
 
         def token_bytes(self, n: int) -> bytes:
             time.sleep(0.05)
             return real_secrets.token_bytes(n)
+
+        def __getattr__(self, name: str):
+            return getattr(real_secrets, name)
 
     monkeypatch.setattr(atrest, "secrets", _SlowSecrets())
 
