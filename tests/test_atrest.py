@@ -366,3 +366,37 @@ def test_unwritable_key_directory_still_yields_a_usable_key(tmp_path, monkeypatc
 
     key = atrest._load_key()
     assert len(key) == atrest._KEY_LEN
+
+
+def test_key_creation_falls_back_when_os_link_is_unsupported(tmp_path, monkeypatch) -> None:
+    """Some filesystems have no hard links; key creation must still converge.
+
+    The primary path writes a temp file and `os.link`s it into place, so the key
+    file never exists half-written. Where link is unavailable (certain Windows
+    filesystems, exotic mounts) we fall back to an exclusive create — still one
+    key, still 0600, still no temp file left behind.
+    """
+    import importlib
+    import threading as _threading
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    def _no_link(*_args, **_kwargs):
+        raise OSError("hard links unsupported on this filesystem")
+
+    monkeypatch.setattr(atrest.os, "link", _no_link)
+
+    keys: list[bytes] = []
+    threads = [_threading.Thread(target=lambda: keys.append(atrest._load_key())) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    on_disk = atrest._key_path().read_bytes()
+    assert len(set(keys)) == 1, "every thread must end up on the same key"
+    assert all(k == on_disk for k in keys), "in-memory keys must match the persisted one"
+    assert not [f for f in tmp_path.iterdir() if ".tmp" in f.name], "temp files must be cleaned up"

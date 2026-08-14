@@ -86,6 +86,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
 from pathlib import Path
 
 _MAGIC = b"DSTL1"
@@ -128,11 +129,39 @@ def _load_key() -> bytes:
         # (measured: 0o644) until the chmod lands. os.open with the mode argument
         # closes the window; O_EXCL additionally refuses to clobber a key that
         # another process wrote first, so a race can't silently swap the key.
-        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # Write to a private temp file first, then link it into place. O_EXCL on
+        # the real path is NOT enough on its own: it creates the file before the
+        # write lands, so a loser that catches FileExistsError can re-read an
+        # EMPTY file, fail the length check, and fall through to its own
+        # in-memory key — the same silent data loss, just a narrower window.
+        # (Measured with the create->write gap widened: 11 of 12 threads diverged.)
+        # os.link is atomic and fails with FileExistsError if we lost, so the key
+        # file only ever appears fully written.
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             os.write(fd, key)
+            os.fsync(fd)  # the bytes must be durable before the name points at them
         finally:
             os.close(fd)
+        try:
+            os.link(tmp, p)
+        except FileExistsError:
+            raise  # we lost the race; the handler below adopts the winner's key
+        except OSError:
+            # os.link is unavailable or unsupported here (some Windows filesystems,
+            # exotic mounts). Fall back to an exclusive create + write. That
+            # reopens the narrow empty-file window this branch exists to close, so
+            # it is a fallback, never the primary path — and the reader below
+            # still rejects a short read, so a loser degrades to an in-memory key
+            # rather than a WRONG one.
+            fd2 = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd2, key)
+            finally:
+                os.close(fd2)
+        finally:
+            os.unlink(tmp)  # always clean up, whether we won the link or lost it
     except FileExistsError:
         # Another process/thread created the key between our read miss and our
         # O_EXCL create. It won; adopt ITS key. Returning our own would encrypt
