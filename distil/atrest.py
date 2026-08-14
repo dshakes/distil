@@ -123,6 +123,7 @@ def _load_key() -> bytes:
     key = secrets.token_bytes(_KEY_LEN)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
+
         # 0600 at open time, not after the write. `write_bytes` then `chmod` leaves
         # the MASTER KEY — which decrypts every restore blob — at the process umask
         # (measured: 0o644) until the chmod lands. Passing the mode to os.open
@@ -137,11 +138,20 @@ def _load_key() -> bytes:
         # of a brand-new store); shipping a fifth attempt at it, unverifiable on
         # the platform where it keeps failing, trades a rare fault for a reliable
         # one. Fix it behind a Windows CI loop, not blind.
-        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            os.write(fd, key)
-        finally:
-            os.close(fd)
+        # `write_bytes`, not a bare `os.write`: os.write is allowed to perform a
+        # SHORT write and returns the count, which my first version discarded. A
+        # 20-of-32-byte write leaves a truncated key, the next _load_key sees the
+        # wrong length and generates a fresh one, and everything encrypted with the
+        # first key is orphaned. That is what reddened the Windows leg while every
+        # POSIX leg stayed green. `write_bytes` loops until the buffer is drained.
+        #
+        # The `opener` is how the 0600 gets applied AT CREATION rather than after —
+        # which is the whole point of this change — without hand-rolling the write.
+        def _owner_only(path: str, flags: int) -> int:
+            return os.open(path, flags, 0o600)
+
+        with open(p, "wb", opener=_owner_only) as fh:
+            fh.write(key)
         p.chmod(0o600)  # belt-and-braces: a pre-existing file keeps its old mode
     except OSError:
         pass  # ponytail: best-effort; key still works in-memory for this process
