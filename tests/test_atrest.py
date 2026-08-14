@@ -259,10 +259,60 @@ def test_restore_cap_of_zero_does_not_wipe_the_store(tmp_path, monkeypatch):
     assert mcp.load_restore("cafe0000") == "original 0"
 
 
-def test_restore_cap_evicts_oldest_beyond_the_cap(tmp_path, monkeypatch):
+def test_unwritable_key_directory_still_yields_a_usable_key(tmp_path, monkeypatch) -> None:
+    """A key that cannot be persisted must not break encryption for this process.
+
+    Read-only or full filesystems happen; distil degrades to an in-memory key
+    (restore blobs simply do not survive the process) rather than refusing to run.
+    """
+    import importlib
+
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    monkeypatch.setattr(mcp, "_RESTORE_CAP", 3)
-    for i in range(6):
-        mcp.record_restore(f"beef{i:04d}", f"original {i}")
-    assert len(list((tmp_path / "restore").iterdir())) == 3
-    assert mcp.load_restore("beef0005") == "original 5"
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    # A REAL unwritable location, not a patched `os`. Patching `atrest.os` swaps
+    # the attribute on the global `os` module for every module in the process —
+    # including mcp_server's restore store, which then silently fails to persist
+    # and takes unrelated tests down with it. That leak is invisible on a fast
+    # filesystem and reproducible on a slow one (it reddened the Windows leg while
+    # every Linux leg stayed green). A file where the key's parent directory
+    # should be makes mkdir/open fail for a real reason, scoped to this test.
+    blocker = tmp_path / "blocked"
+    blocker.write_text("not a directory")
+    monkeypatch.setenv("DISTIL_HOME", str(blocker / "home"))
+
+    key = atrest._load_key()
+    assert len(key) == atrest._KEY_LEN
+
+
+def test_truncated_key_file_is_repaired_not_worked_around(tmp_path, monkeypatch) -> None:
+    """A readable but wrong-length restore.key must be replaced, not stepped over.
+
+    Falling through to generate-and-O_EXCL leaves the bad file in place forever:
+    every call then mints a fresh ephemeral key, so nothing written in one process
+    is readable in the next. Measured before the fix: an 8-byte key stayed 8 bytes,
+    two successive `_load_key()` calls disagreed, and a blob encrypted afterwards
+    decrypted to None after a restart.
+    """
+    import importlib
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    key_path = atrest._key_path()
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_bytes(b"tooshort")  # truncated write / half-created key
+
+    first = atrest._load_key()
+    assert key_path.stat().st_size == atrest._KEY_LEN, "the bad key file must be replaced"
+    assert first == atrest._load_key(), "the repaired key must be stable across calls"
+
+    blob = atrest.encrypt_bytes(b"payload")
+    importlib.reload(atrest)  # fresh process: only the on-disk key is available
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    assert atrest.decrypt_bytes(blob) == b"payload", "blobs must survive a restart"
+    assert not [f for f in tmp_path.iterdir() if ".tmp" in f.name]

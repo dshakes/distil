@@ -222,3 +222,62 @@ def test_url_spam_is_still_bounded_by_shape_dedup():
     out, changed = digest(spam)
     assert changed
     assert len(out) < len(spam) / 2  # spam still folds
+
+
+def test_generic_literals_match_the_regex_exactly() -> None:
+    """The `_GENERIC_LITERALS` prefilter must be equivalent to `_GENERIC_RE`.
+
+    `must_keep` skips the regex when no literal is present, so a word added to the
+    pattern but not the tuple would be silently dropped from the keep net — a line
+    that must survive compression would start folding away with no test failing.
+    """
+    from distil.compress.keep_policy import _GENERIC_LITERALS, _GENERIC_RE
+
+    # The pattern is a pure literal alternation; the tuple must be exactly its arms.
+    assert set(_GENERIC_RE.pattern.split("|")) == set(_GENERIC_LITERALS)
+
+
+def test_summary_literals_cover_every_alternative() -> None:
+    """Every string `_SUMMARY_RE` matches must contain a `_SUMMARY_LITERALS` entry.
+
+    The prefilter is a NECESSARY condition: if the regex can match a line that
+    contains none of the literals, `must_keep` returns False without ever running
+    the regex and a test-summary line gets folded. One constructed positive per
+    alternative in the pattern, plus case variants, since the regex is IGNORECASE.
+    """
+    from distil.compress.keep_policy import _SUMMARY_LITERALS, _SUMMARY_RE
+
+    positives = [
+        "3 passed",
+        "10 failing",
+        "1 error",
+        "2 errors",
+        "7 errored",
+        "5 skipped",
+        "4 pending",
+        "9 todo",  # count arm
+        "test result: ok",
+        "TEST RESULT: FAILED",  # cargo
+        "ok   github.com/x/y 0.01s",
+        "FAIL github.com/a/b",
+        "PASS",  # go package
+        "--- FAIL: TestX",
+        "   --- PASS: TestY",
+        "--- SKIP: TestZ",  # go subtests
+        "BUILD SUCCESS",
+        "BUILD SUCCESSFUL in 3s",
+        "BUILD FAILED",
+        "BUILD FAILURE",
+        "exit code 1",
+        "exit status 2",
+        "EXIT CODE 0",  # exit status
+        "=== 3 passed in 1.2s ===",
+        "====== 1 failed ======",
+        "== error ==",  # pytest
+    ]
+    for line in positives:
+        assert _SUMMARY_RE.search(line), f"test bug: {line!r} no longer matches the regex"
+        assert any(word in line.lower() for word in _SUMMARY_LITERALS), (
+            f"{line!r} matches _SUMMARY_RE but contains no _SUMMARY_LITERALS entry — "
+            "the prefilter in must_keep would drop it"
+        )

@@ -79,3 +79,49 @@ if __name__ == "__main__":
     test_verbatim_non_tabular_falls_back_to_tier0()
     test_template_fold_lossless_no_handle()
     print("ok — lossless columnar fold on the subscription path, self-describing + no data loss")
+
+
+def test_single_line_json_is_folded_not_skipped(tmp_path, monkeypatch) -> None:
+    """A minified JSON array must not be gated out by the line-count threshold.
+
+    `_MIN_LINES` asks "how many lines?" as a proxy for "is there enough here to be
+    worth digesting". A minified array — every REST tool call, every `curl | jq -c`
+    — is ONE line and arbitrarily wide, and it is the most fold-friendly shape
+    there is. Before this, it fell through to Tier-0 alone: 10.5% where the folded
+    form gets ~57%.
+    """
+    import json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.adapters.anthropic import RestoreStore, _compress_tool_result_text
+
+    records = [{"id": i, "sku": f"SKU{i:05d}", "desc": f"widget {i}"} for i in range(500)]
+    payload = json.dumps(records)
+    assert "\n" not in payload, "test bug: the payload must be a single line"
+
+    out = _compress_tool_result_text(payload, RestoreStore(), verbatim=False, is_recent=False)
+    assert len(out) < len(payload) * 0.75, f"expected a real fold, got {len(out)}/{len(payload)}"
+
+    # In-context lossless: every value must still be readable inline, since the
+    # columnar fold emits no recovery handle.
+    for rec in records:
+        for value in rec.values():
+            assert str(value) in out, f"{value!r} vanished from the folded output"
+
+
+def test_recent_single_line_json_is_left_alone(tmp_path, monkeypatch) -> None:
+    """The recency carve-out wins over the new fold path.
+
+    The agent's freshest tool output stays byte-for-byte what the tool returned;
+    the fold only applies to older turns.
+    """
+    import json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.adapters.anthropic import RestoreStore, _compress_tool_result_text
+
+    payload = json.dumps([{"id": i, "sku": f"SKU{i:05d}"} for i in range(500)])
+
+    recent = _compress_tool_result_text(payload, RestoreStore(), verbatim=False, is_recent=True)
+    older = _compress_tool_result_text(payload, RestoreStore(), verbatim=False, is_recent=False)
+    assert len(older) < len(recent), "the older turn should fold; the recent one should not"

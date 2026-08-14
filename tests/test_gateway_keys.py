@@ -218,8 +218,11 @@ def test_key_store_cross_process_reload(tmp_path: Path) -> None:
     raw, _ = store1.issue("acme")
 
     store2 = GatewayKeyStore(path)
-    # Force cache miss so it reads from disk
-    store2._last_load = 0.0  # type: ignore[attr-defined]
+    # No cache-miss poke needed: a freshly-constructed store has never loaded, so
+    # its first lookup reads from disk. (This used to set `_last_load = 0.0`, which
+    # is a *real* monotonic reading on Python 3.9 — inside the TTL window — so it
+    # suppressed the read it was meant to force. Same idiom, same bug as the two
+    # sites in gateway_keys.py.)
     assert store2.lookup(raw) is not None
 
 
@@ -756,3 +759,130 @@ def test_gateway_options_without_auth_returns_401(gw_auth_required: Any) -> None
 def test_gateway_get_non_special_path_without_auth_returns_401(gw_auth_required: Any) -> None:
     """GET on a non-/distil/* path with auth required and no key → 401."""
     assert _req_method("GET", gw_auth_required, "/v1/models") == 401
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod 0600 is a no-op on Windows (mode reads back 0o666); the owner-only guarantee is POSIX-only",
+)
+def test_key_file_is_never_world_readable_mid_write(tmp_path, monkeypatch) -> None:
+    """The temp file must be 0600 from creation, not chmod'd after os.replace.
+
+    Writing the temp at the process umask and fixing permissions on the final path
+    leaves a real window where every tenant's key hash, label and limits are
+    world-readable. A polling thread caught mode 0o644 on the temp path during a
+    400-key issue loop before this was fixed.
+    """
+    import os
+    import threading
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.gateway_keys import GatewayKeyStore
+
+    store = GatewayKeyStore()
+    store.issue(tenant="seed")
+    tmp = tmp_path / "gateway_keys.json.tmp"
+
+    seen: list[str] = []
+    stop = False
+
+    def watch() -> None:
+        while not stop:
+            try:
+                seen.append(oct(os.stat(tmp).st_mode & 0o777))
+            except OSError:
+                pass
+
+    watcher = threading.Thread(target=watch)
+    watcher.start()
+    try:
+        for i in range(200):
+            store.issue(tenant=f"t{i}")
+    finally:
+        stop = True
+        watcher.join()
+
+    assert set(seen) <= {"0o600"}, (
+        f"key temp file was briefly {sorted(set(seen))}, expected only 0o600"
+    )
+    assert oct((tmp_path / "gateway_keys.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_key_expiry_is_enforced_and_backward_compatible(tmp_path, monkeypatch) -> None:
+    """Keys may carry a bounded lifetime; existing key files keep working.
+
+    Enterprise key-rotation policy (SOC2 CC6.1) wants credentials that stop working
+    on their own. Expiry is opt-in per key so that every key file written before
+    this field existed still loads and still authenticates.
+    """
+    import json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.gateway_keys import GatewayKeyStore
+
+    store = GatewayKeyStore()
+
+    raw_default, rec_default = store.issue(tenant="acme")
+    assert rec_default.expires is None, "expiry must be opt-in, not the default"
+    assert store.lookup(raw_default) is not None
+
+    raw_live, rec_live = store.issue(tenant="beta", expires_in_days=7)
+    assert rec_live.expires is not None
+    assert store.lookup(raw_live) is not None, "a key 7 days from expiry must still work"
+
+    raw_dead, _ = store.issue(tenant="gamma", expires_in_days=-1)
+    assert store.lookup(raw_dead) is None, "an expired key must not authenticate"
+
+    # Survives a reload from disk.
+    reloaded = GatewayKeyStore()
+    assert reloaded.lookup(raw_live) is not None
+    assert reloaded.lookup(raw_dead) is None
+
+    # Revoking must not silently drop the expiry.
+    revoked = reloaded.revoke(rec_live.id)
+    assert revoked is not None and revoked.expires == rec_live.expires
+
+    # A key file written before `expires` existed must still load and authenticate.
+    legacy_raw = "dsk-legacykey123"
+    legacy_hash = __import__("hashlib").sha256(legacy_raw.encode()).hexdigest()
+    (tmp_path / "gateway_keys.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "keys": {
+                    legacy_hash: {
+                        "id": "gk_legacy",
+                        "tenant": "old",
+                        "created": 1.0,
+                        "revoked": None,
+                        "rpm": None,
+                        "daily_tokens": None,
+                    }
+                },
+            }
+        )
+    )
+    legacy_store = GatewayKeyStore()
+    legacy = legacy_store.lookup(legacy_raw)
+    assert legacy is not None, "a pre-expiry key file must keep authenticating"
+    assert legacy.expires is None and not legacy.is_expired()
+
+
+def test_fresh_store_sees_existing_keys_immediately(tmp_path: Path) -> None:
+    """A newly-constructed store must read the key file on its FIRST lookup.
+
+    The TTL sentinel used to be `0.0`, which is a real `time.monotonic()` reading
+    on platforms where the clock is process-relative (Python 3.9 starts near 0)
+    but not on those where it is boot-relative (3.12 returns ~2.2e6). So
+    `now - self._last_load < TTL` was true for the first two seconds of a 3.9
+    process, the very first load was skipped, and a cold-started gateway rejected
+    valid keys until the window passed — while every check on a newer interpreter
+    passed. No sleeping here: the point is that the FIRST call already works.
+    """
+    path = tmp_path / "gateway_keys.json"
+    raw, rec = GatewayKeyStore(path).issue("acme")
+
+    fresh = GatewayKeyStore(path)
+    assert fresh.lookup(raw) is not None, "a cold-start store must not 401 a valid key"
+    assert [r.id for r in fresh.list_keys()] == [rec.id]
+    assert fresh.has_active_keys()

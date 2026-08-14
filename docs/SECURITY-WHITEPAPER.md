@@ -86,6 +86,30 @@ memory isolation between tenants, and the restore store is per-gateway rather th
 per-tenant. For hard isolation, run one gateway per trust boundary. This is
 surfaced in `distil gateway --help`, not buried here.
 
+### Credential lifetime
+
+Keys carry an optional expiry (`distil gateway keys issue --expires-in-days N`),
+checked on every lookup through the same `is_active` chokepoint that enforces
+revocation — so no code path can honour an expired key by only checking `revoked`.
+Keys issued without an expiry never expire, which keeps existing deployments
+working; a bounded lifetime is a per-key opt-in, not a silent behaviour change.
+
+### Audit trail
+
+Security-relevant gateway events are appended to `$DISTIL_HOME/audit.jsonl`
+(mode 0600, JSONL, flock-guarded so concurrent requests cannot splice a line):
+`auth.ok`, `auth.fail`, `rate.limited`, `key.issued`, `key.revoked`.
+
+A record contains the event, the key id and tenant label an operator already sees
+in `keys list`, the remote address, and the outcome. It never contains prompt text,
+completion text, tool output, or the raw `dsk-` token — the same content-free
+discipline as the savings ledger and receipts. Read it with `distil gateway audit`
+(`--json` for SIEM ingestion).
+
+Writes are fail-open by design: an unwritable trail must not take a customer's
+request down. Deployments that need the inverse should verify the path is writable
+at startup and alert on it.
+
 ## 6. Metrics and admin endpoints
 
 `/distil/metrics` is labelled by tenant, so it sits behind the same admin gate as
@@ -177,6 +201,7 @@ Stated plainly so nobody discovers it late:
 |---|---|
 | SOC 2 Type II | **Not held.** No audit in progress. |
 | ISO 27001 | Not held. |
+| Audit logging (a *control*, not a certification) | Implemented — see §5. Shipping a control is not the same as holding an attestation, and this row does not claim otherwise. |
 | DPA / MSA / SLA | Not offered — Apache-2.0 open source, no commercial entity behind it today. |
 | Support | Best-effort via GitHub issues. No response-time commitment. |
 | Data processing | Distil operates no service and processes no customer data off-machine, so there is no processor relationship to paper. |

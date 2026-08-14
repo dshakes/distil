@@ -43,6 +43,7 @@ from .authz import AuthzError as _AuthzError
 from .authz import identity_from_claims as _identity_from_claims
 from .authz import oidc_config_from_env as _oidc_config_from_env
 from .authz import verify_jwt as _verify_jwt
+from . import audit as _audit
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
 from .httpguard import parse_content_length, safe_forward_path
 from .pricing import Pricing, get as pricing_get
@@ -856,6 +857,11 @@ def build_gateway_handler(
                     audience=cfg["audience"],
                 )
             except _AuthzError as exc:
+                _audit.record(
+                    _audit.AUTH_FAIL,
+                    reason=f"OIDC token rejected: {exc}",
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 self._reject(401, f"OIDC token rejected: {exc}")
                 raise _OidcRejected from exc
             return _identity_from_claims(
@@ -881,6 +887,11 @@ def build_gateway_handler(
             if _key_store is None:
                 # require_keys=True but no key store was supplied (e.g. in tests
                 # that set require_keys without issuing keys yet).
+                _audit.record(
+                    _audit.AUTH_FAIL,
+                    reason="no key store configured",
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 self._reject(
                     401,
                     "gateway key required but no key store is configured "
@@ -903,10 +914,29 @@ def build_gateway_handler(
                     try:
                         ident.require("operator")  # proxying is an operator action
                     except _AuthzError as exc:
+                        _audit.record(
+                            _audit.AUTH_FAIL,
+                            reason=f"role check failed: {exc}",
+                            tenant=ident.tenant,
+                            remote=self.client_address[0] if self.client_address else None,
+                        )
                         self._reject(403, str(exc))
                         return ("", "")
+                    _audit.record(
+                        _audit.AUTH_OK,
+                        tenant=ident.tenant,
+                        auth="oidc",
+                        remote=self.client_address[0] if self.client_address else None,
+                    )
                     if not _rl.check_rpm(ident.tenant, default_rpm):
                         state.record_quota_rejection(ident.tenant)
+                        _audit.record(
+                            _audit.RATE_LIMITED,
+                            tenant=ident.tenant,
+                            limit_rpm=default_rpm,
+                            auth="oidc",
+                            remote=self.client_address[0] if self.client_address else None,
+                        )
                         body = json.dumps({"error": "rate limit exceeded"}).encode()
                         self._relay(
                             429,
@@ -917,6 +947,11 @@ def build_gateway_handler(
                         return ("", "")
                     # Strip the bearer so the upstream never sees our IdP token.
                     return (ident.tenant, "authorization")
+                _audit.record(
+                    _audit.AUTH_FAIL,
+                    reason="no gateway key presented",
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 self._reject(
                     401,
                     "gateway key required (Authorization: Bearer dsk-… or x-distil-key header)",
@@ -925,6 +960,13 @@ def build_gateway_handler(
 
             rec = _key_store.lookup(raw_key)
             if rec is None:
+                # Content-free: the presented key is never logged, only the fact of
+                # a rejection and where it came from.
+                _audit.record(
+                    _audit.AUTH_FAIL,
+                    reason="invalid or revoked gateway key",
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 self._reject(401, "invalid or revoked gateway key")
                 return ("", "")
 
@@ -932,6 +974,13 @@ def build_gateway_handler(
             rpm_limit = rec.rpm if rec.rpm is not None else default_rpm
             if not _rl.check_rpm(rec.tenant, rpm_limit):
                 state.record_quota_rejection(rec.tenant)
+                _audit.record(
+                    _audit.RATE_LIMITED,
+                    key_id=rec.id,
+                    tenant=rec.tenant,
+                    limit_rpm=rpm_limit,
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 body = json.dumps({"error": "rate limit exceeded"}).encode()
                 self._relay(429, {"Content-Type": "application/json"}, body, {"Retry-After": "60"})
                 return ("", "")
@@ -941,6 +990,12 @@ def build_gateway_handler(
             # gateway default, same precedence as the per-key rpm above.
             self._key_daily_tokens = rec.daily_tokens
 
+            _audit.record(
+                _audit.AUTH_OK,
+                key_id=rec.id,
+                tenant=rec.tenant,
+                remote=self.client_address[0] if self.client_address else None,
+            )
             return rec.tenant, strip_hdr
 
         # ----------------------------------------------------------------
@@ -1113,6 +1168,12 @@ def build_gateway_handler(
             # (With key auth on, _check_inbound_auth already charged this request.)
             if tenant_override is None and default_rpm and not _rl.check_rpm(tenant, default_rpm):
                 state.record_quota_rejection(tenant)
+                _audit.record(
+                    _audit.RATE_LIMITED,
+                    tenant=tenant,
+                    limit_rpm=default_rpm,
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 body_err = json.dumps({"error": "rate limit exceeded"}).encode()
                 self._relay(
                     429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"}
@@ -1156,6 +1217,12 @@ def build_gateway_handler(
                 daily_limit = _key_daily if _key_daily is not None else default_daily_tokens
                 if daily_limit and not _rl.check_daily_tokens(tenant, daily_limit, baseline_tokens):
                     state.record_quota_rejection(tenant)
+                    _audit.record(
+                        _audit.RATE_LIMITED,
+                        tenant=tenant,
+                        limit_daily_tokens=daily_limit,
+                        remote=self.client_address[0] if self.client_address else None,
+                    )
                     body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
                     self._relay(
                         429,
@@ -1180,6 +1247,12 @@ def build_gateway_handler(
                     tenant, _daily_limit, baseline_tokens
                 ):
                     state.record_quota_rejection(tenant)
+                    _audit.record(
+                        _audit.RATE_LIMITED,
+                        tenant=tenant,
+                        limit_daily_tokens=_daily_limit,
+                        remote=self.client_address[0] if self.client_address else None,
+                    )
                     body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
                     self._relay(
                         429,
