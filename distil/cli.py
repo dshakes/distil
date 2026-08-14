@@ -2769,12 +2769,28 @@ def cmd_gateway_keys_issue(args: argparse.Namespace) -> int:
         tenant=args.tenant,
         rpm=args.rpm,
         daily_tokens=args.daily_tokens,
+        expires_in_days=getattr(args, "expires_in_days", None),
     )
     print(f"Key issued:\n  id:      {rec.id}\n  tenant:  {rec.tenant}")
     if rec.rpm is not None:
         print(f"  rpm:     {rec.rpm}")
     if rec.daily_tokens is not None:
         print(f"  daily-tokens: {rec.daily_tokens:,}")
+    if rec.expires is not None:
+        import datetime as _dt
+
+        when = _dt.datetime.fromtimestamp(rec.expires, _dt.timezone.utc)
+        print(f"  expires: {when:%Y-%m-%d %H:%M UTC}")
+    from . import audit
+
+    audit.record(
+        audit.KEY_ISSUED,
+        key_id=rec.id,
+        tenant=rec.tenant,
+        rpm=rec.rpm,
+        daily_tokens=rec.daily_tokens,
+        expires=rec.expires,
+    )
     print(f"  key:     {raw_key}")
     print("\n  (Save this key — it will not be shown again.)")
     return 0
@@ -2799,8 +2815,60 @@ def cmd_gateway_keys_list(args: argparse.Namespace) -> int:
         created = _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(rec.created))
         rpm = str(rec.rpm) if rec.rpm is not None else "∞"
         daily = f"{rec.daily_tokens:,}" if rec.daily_tokens is not None else "∞"
-        status = "revoked" if not rec.is_active else "active"
+        # Distinguish the two ways a key goes inactive: an operator revoked it, or
+        # its lifetime ran out. Reporting an expired key as "revoked" sends whoever
+        # is debugging a 401 hunting for a revocation that never happened.
+        if rec.revoked is not None:
+            status = "revoked"
+        elif rec.is_expired():
+            status = "expired"
+        else:
+            status = "active"
         print(fmt.format(rec.id, rec.tenant, created, rpm, daily, status), file=sys.stdout)
+    return 0
+
+
+def cmd_gateway_audit(args: argparse.Namespace) -> int:
+    """Show the gateway security audit trail (who authenticated, what was refused)."""
+    import datetime as _dt
+    import json as _json
+
+    from . import audit
+
+    events = audit.read_events()
+    if args.event:
+        events = [e for e in events if e.get("event") == args.event]
+    if args.tenant:
+        events = [e for e in events if e.get("tenant") == args.tenant]
+    events = events[-args.limit :] if args.limit else events
+
+    if not events:
+        print(f"No audit events yet ({audit.audit_path()}).")
+        return 0
+    if args.json:
+        for e in events:
+            print(_json.dumps(e, sort_keys=True))
+        return 0
+
+    print(f"{'when':<20} {'event':<14} {'tenant':<16} {'key':<12} detail")
+    for e in events:
+        when = _dt.datetime.fromtimestamp(e.get("ts", 0), _dt.timezone.utc)
+        detail = ", ".join(
+            # `expires` is a unix timestamp; a raw float here is unreadable in a
+            # trail whose whole job is being reviewed by a human.
+            f"{k}="
+            + (
+                f"{_dt.datetime.fromtimestamp(v, _dt.timezone.utc):%Y-%m-%d}"
+                if k == "expires"
+                else f"{v}"
+            )
+            for k, v in sorted(e.items())
+            if k not in ("ts", "event", "tenant", "key_id") and v is not None
+        )
+        print(
+            f"{when:%Y-%m-%d %H:%M:%S} {str(e.get('event', '')):<14} "
+            f"{str(e.get('tenant') or '-'):<16} {str(e.get('key_id') or '-'):<12} {detail}"
+        )
     return 0
 
 
@@ -2814,6 +2882,9 @@ def cmd_gateway_keys_revoke(args: argparse.Namespace) -> int:
         print(f"No key with id {args.key_id!r} found.")
         return 1
     print(f"Key {rec.id} (tenant: {rec.tenant}) revoked.")
+    from . import audit
+
+    audit.record(audit.KEY_REVOKED, key_id=rec.id, tenant=rec.tenant)
     return 0
 
 
@@ -4378,6 +4449,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="per-day token quota override (default: gateway default)",
     )
+    gk_issue.add_argument(
+        "--expires-in-days",
+        type=float,
+        default=None,
+        metavar="N",
+        help="key stops working after N days (default: never expires)",
+    )
     gk_issue.set_defaults(func=cmd_gateway_keys_issue)
 
     gk_list = gw_keys_sub.add_parser("list", help="list issued gateway keys")
@@ -4386,6 +4464,17 @@ def build_parser() -> argparse.ArgumentParser:
     gk_revoke = gw_keys_sub.add_parser("revoke", help="revoke a gateway key by ID")
     gk_revoke.add_argument("key_id", help="key ID (gk_... shown at issue time)")
     gk_revoke.set_defaults(func=cmd_gateway_keys_revoke)
+
+    gw_audit = gw_sub.add_parser("audit", help="show the gateway security audit trail")
+    gw_audit.add_argument(
+        "-n", "--limit", type=int, default=50, metavar="N", help="show the last N events"
+    )
+    gw_audit.add_argument(
+        "--event", default=None, metavar="NAME", help="filter by event (e.g. auth.fail)"
+    )
+    gw_audit.add_argument("--tenant", default=None, metavar="NAME", help="filter by tenant")
+    gw_audit.add_argument("--json", action="store_true", help="emit raw JSONL for piping")
+    gw_audit.set_defaults(func=cmd_gateway_audit)
 
     tt = sub.add_parser(
         "train-transformer", help="train the transformer keep-model (needs distil-llm[train])"

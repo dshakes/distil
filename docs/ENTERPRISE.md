@@ -50,6 +50,8 @@ try to expand a handle after a restart.
 | | Status |
 |---|---|
 | Issued bearer keys (`dsk-`), per-key tenant / quota / revocation | ✅ |
+| Bounded key lifetime (`--expires-in-days`), enforced at lookup | ✅ |
+| Security audit trail (auth success/failure, rate limits, key issue/revoke) | ✅ |
 | OIDC bearer tokens (HS256; RS256 via the `[oidc]` extra) | ✅ |
 | Roles: `viewer` < `operator` < `admin` | ✅ |
 | SAML | ❌ Not implemented |
@@ -67,6 +69,50 @@ export DISTIL_OIDC_TENANT_CLAIM=org_id
 OIDC is **additive**: `dsk-` keys keep working, and with `DISTIL_OIDC_ISSUER` unset
 a JWT does not authenticate at all. Enabling it cannot lock out a running
 deployment, and leaving it off cannot silently open one.
+
+### Key lifetime
+
+Keys never expire by default — that keeps every existing key file working. Give a
+key a bounded lifetime when your rotation policy needs one:
+
+```bash
+distil gateway keys issue --tenant acme --expires-in-days 90
+distil gateway keys list        # status column: active | expired | revoked
+```
+
+Expiry is checked on every lookup, so an expired key stops authenticating without
+anyone having to run a revoke. `list` distinguishes *expired* from *revoked*: an
+operator debugging a sudden 401 should not go hunting for a revocation that never
+happened.
+
+### Audit trail
+
+Every security-relevant gateway event is appended to `$DISTIL_HOME/audit.jsonl`
+(mode 0600, one JSON object per line):
+
+| event | when |
+|---|---|
+| `auth.ok` | a key authenticated — records key id, tenant, remote address |
+| `auth.fail` | a key was rejected — records the reason and remote address |
+| `rate.limited` | a tenant hit its rpm cap |
+| `key.issued` / `key.revoked` | an operator changed the key set |
+
+```bash
+distil gateway audit                      # last 50 events, human-readable
+distil gateway audit --event auth.fail    # only rejections
+distil gateway audit --tenant acme -n 200
+distil gateway audit --json | jq .        # for shipping to a SIEM
+```
+
+**Content-free by construction.** A record holds identifiers and outcomes only —
+never prompt text, completion text, tool output, or a raw key. The raw `dsk-` token
+is never written anywhere, including here. An audit trail that captured request
+bodies would be a larger liability than the gap it closes.
+
+Writes are fail-open: if the trail cannot be written, the request still succeeds.
+If your compliance posture requires the opposite (refuse traffic when the trail is
+unavailable), check that the path is writable at startup and alert on it — distil
+will not drop a customer's request to protect its own bookkeeping.
 
 ## 3. Observability
 

@@ -64,10 +64,22 @@ class KeyRecord:
     revoked: float | None  # unix timestamp if revoked, else None
     rpm: int | None  # per-minute request cap (None = unlimited)
     daily_tokens: int | None  # per-UTC-day token quota (None = unlimited)
+    #: Unix timestamp after which the key stops authenticating (None = never).
+    #: Defaults to None so every existing key file keeps working untouched; a
+    #: bounded lifetime is opt-in per key via ``issue(expires_in_days=...)``.
+    expires: float | None = None
+
+    def is_expired(self, now: float | None = None) -> bool:
+        """True once past ``expires``.  Keys without an expiry never expire."""
+        if self.expires is None:
+            return False
+        return (time.time() if now is None else now) >= self.expires
 
     @property
     def is_active(self) -> bool:
-        return self.revoked is None
+        # Single chokepoint: every caller that gates on a key routes through here,
+        # so expiry cannot be missed by a path that only checked `revoked`.
+        return self.revoked is None and not self.is_expired()
 
 
 class GatewayKeyStore:
@@ -125,6 +137,9 @@ class GatewayKeyStore:
                     daily_tokens=(
                         int(rec["daily_tokens"]) if rec.get("daily_tokens") is not None else None
                     ),
+                    # `.get` not `[...]`: key files written before expiry existed have
+                    # no such field and must keep loading as never-expiring keys.
+                    expires=(float(rec["expires"]) if rec.get("expires") is not None else None),
                 )
             except (KeyError, TypeError, ValueError):
                 continue  # skip corrupt entries
@@ -140,6 +155,7 @@ class GatewayKeyStore:
                     "id": r.id,
                     "tenant": r.tenant,
                     "created": r.created,
+                    "expires": r.expires,
                     "revoked": r.revoked,
                     "rpm": r.rpm,
                     "daily_tokens": r.daily_tokens,
@@ -148,7 +164,14 @@ class GatewayKeyStore:
             },
         }
         tmp = self._path.with_name(self._path.name + ".tmp")
-        with tmp.open("w", encoding="utf-8") as f:
+        # Create the temp file 0600 *at open time*, not after os.replace. chmod-ing
+        # the final path leaves the tmp — which holds every tenant's key hash — at
+        # the process umask (0644 on a default macOS/Linux box) for the whole write.
+        # That window is real and catchable: a polling thread observed mode 0644 on
+        # this path during a 400-key issue loop before this fix.
+        with os.fdopen(
+            os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8"
+        ) as f:
             if _HAVE_FCNTL:
                 _fcntl.flock(f.fileno(), _fcntl.LOCK_EX)
             f.write(json.dumps(data, indent=2))
@@ -172,6 +195,7 @@ class GatewayKeyStore:
         tenant: str,
         rpm: int | None = None,
         daily_tokens: int | None = None,
+        expires_in_days: float | None = None,
     ) -> tuple[str, KeyRecord]:
         """Generate and store a new key.
 
@@ -183,8 +207,9 @@ class GatewayKeyStore:
         rec = KeyRecord(
             id="gk_" + secrets.token_hex(4),
             tenant=tenant,
-            created=time.time(),
+            created=(_now := time.time()),
             revoked=None,
+            expires=None if expires_in_days is None else _now + expires_in_days * 86400.0,
             rpm=rpm,
             daily_tokens=daily_tokens,
         )
@@ -214,6 +239,7 @@ class GatewayKeyStore:
                         id=rec.id,
                         tenant=rec.tenant,
                         created=rec.created,
+                        expires=rec.expires,  # revoking must not silently clear the expiry
                         revoked=time.time(),
                         rpm=rec.rpm,
                         daily_tokens=rec.daily_tokens,

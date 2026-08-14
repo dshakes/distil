@@ -266,3 +266,103 @@ def test_restore_cap_evicts_oldest_beyond_the_cap(tmp_path, monkeypatch):
         mcp.record_restore(f"beef{i:04d}", f"original {i}")
     assert len(list((tmp_path / "restore").iterdir())) == 3
     assert mcp.load_restore("beef0005") == "original 5"
+
+
+def test_concurrent_first_touch_keeps_one_key(tmp_path, monkeypatch) -> None:
+    """Threads racing to create the master key must all end up on the SAME key.
+
+    The loser of the O_EXCL create used to keep the key it had generated in memory
+    and encrypt with it, while the winner's key was the one persisted. Every blob
+    written by a loser then became permanently unrecoverable — silent data loss
+    that only surfaces later as a dead restore handle. Measured before the fix:
+    15 of 16 concurrently-written blobs unrecoverable.
+    """
+    import importlib
+    import secrets as real_secrets
+    import threading
+    import time
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    class _SlowSecrets:
+        """Widen the read-miss -> create window so the race is deterministic."""
+
+        def token_bytes(self, n: int) -> bytes:
+            time.sleep(0.05)
+            return real_secrets.token_bytes(n)
+
+    monkeypatch.setattr(atrest, "secrets", _SlowSecrets())
+
+    blobs: list[tuple[int, bytes]] = []
+    threads = [
+        threading.Thread(
+            target=lambda i=i: blobs.append((i, atrest.encrypt_bytes(b"payload-%d" % i)))
+        )
+        for i in range(16)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Fresh module state: only the key that actually landed on disk is available.
+    importlib.reload(atrest)
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    for i, blob in blobs:
+        assert atrest.decrypt_bytes(blob) == b"payload-%d" % i, (
+            f"blob {i} was encrypted with a key that never reached disk — "
+            "the first-touch key race is back"
+        )
+
+
+def test_key_race_falls_back_when_the_winners_key_is_unreadable(tmp_path, monkeypatch) -> None:
+    """If the winner's key file exists but cannot be read, keep working in memory.
+
+    The loser of the create race normally re-reads the winner's key. When that read
+    fails too (permissions, a truncated file), encryption must still work for this
+    process rather than raising — the same fail-open contract as the rest of the
+    at-rest path.
+    """
+    import importlib
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    key_path = atrest._key_path()
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_bytes(b"short")  # exists, but wrong length -> not a usable key
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(type(key_path), "read_bytes", _boom)
+
+    key = atrest._load_key()
+    assert len(key) == atrest._KEY_LEN, "must still return a usable in-memory key"
+
+
+def test_unwritable_key_directory_still_yields_a_usable_key(tmp_path, monkeypatch) -> None:
+    """A key that cannot be persisted must not break encryption for this process.
+
+    Read-only or full filesystems happen; distil degrades to an in-memory key
+    (restore blobs simply do not survive the process) rather than refusing to run.
+    """
+    import importlib
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(atrest.os, "open", _boom)
+
+    key = atrest._load_key()
+    assert len(key) == atrest._KEY_LEN

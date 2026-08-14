@@ -43,6 +43,7 @@ from .authz import AuthzError as _AuthzError
 from .authz import identity_from_claims as _identity_from_claims
 from .authz import oidc_config_from_env as _oidc_config_from_env
 from .authz import verify_jwt as _verify_jwt
+from . import audit as _audit
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
 from .httpguard import parse_content_length, safe_forward_path
 from .pricing import Pricing, get as pricing_get
@@ -925,6 +926,13 @@ def build_gateway_handler(
 
             rec = _key_store.lookup(raw_key)
             if rec is None:
+                # Content-free: the presented key is never logged, only the fact of
+                # a rejection and where it came from.
+                _audit.record(
+                    _audit.AUTH_FAIL,
+                    reason="invalid or revoked gateway key",
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 self._reject(401, "invalid or revoked gateway key")
                 return ("", "")
 
@@ -932,6 +940,13 @@ def build_gateway_handler(
             rpm_limit = rec.rpm if rec.rpm is not None else default_rpm
             if not _rl.check_rpm(rec.tenant, rpm_limit):
                 state.record_quota_rejection(rec.tenant)
+                _audit.record(
+                    _audit.RATE_LIMITED,
+                    key_id=rec.id,
+                    tenant=rec.tenant,
+                    limit_rpm=rpm_limit,
+                    remote=self.client_address[0] if self.client_address else None,
+                )
                 body = json.dumps({"error": "rate limit exceeded"}).encode()
                 self._relay(429, {"Content-Type": "application/json"}, body, {"Retry-After": "60"})
                 return ("", "")
@@ -941,6 +956,12 @@ def build_gateway_handler(
             # gateway default, same precedence as the per-key rpm above.
             self._key_daily_tokens = rec.daily_tokens
 
+            _audit.record(
+                _audit.AUTH_OK,
+                key_id=rec.id,
+                tenant=rec.tenant,
+                remote=self.client_address[0] if self.client_address else None,
+            )
             return rec.tenant, strip_hdr
 
         # ----------------------------------------------------------------

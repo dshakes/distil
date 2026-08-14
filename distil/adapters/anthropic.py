@@ -294,6 +294,20 @@ def _compress_tool_result_text(
 
     lines = text.splitlines()
     if len(lines) < _MIN_LINES:
+        # "Few lines" is not the same as "little content". A minified JSON array —
+        # every REST tool call, every `curl | jq -c` — is ONE line and megabytes
+        # wide, and it is the single most fold-friendly shape there is. Gating it
+        # out on line count left ~50 points of savings on the floor (measured:
+        # 10.5% tier-0 alone vs 52.2% folded on an 800-record array).
+        #
+        # The columnar fold is in-context-lossless: every value stays inline, so
+        # this is safe on the recent/verbatim/subscription paths too — which is why
+        # it runs before the recency and mode branches below rather than after.
+        if not is_recent:
+            folded = _lossless_fold(text)
+            if folded is not None and len(folded) < len(text):
+                _census("tool_result_short_folded", text)
+                return _apply_tier0(folded)
         # Too short to digest — lossless Tier-0 transforms only.
         _census("tool_result_short", text)
         return _apply_tier0(text)
