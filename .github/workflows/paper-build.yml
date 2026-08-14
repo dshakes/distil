@@ -54,6 +54,10 @@ jobs:
 
       # Close the staleness loop: on push to main, commit the rebuilt PDFs so the
       # tracked artifacts can never drift from the source again. (PRs only verify.)
+      # CAVEAT (see #128): a branch ruleset requiring status checks on every push
+      # to main can make this push impossible to satisfy — see the comment below.
+      # When that happens the loop is NOT closed: PDFs on main can drift from
+      # source until a maintainer resolves the ruleset conflict.
       - name: Commit rebuilt PDFs
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: |
@@ -65,7 +69,27 @@ jobs:
             git commit -m "paper: rebuild PDFs from source [skip ci]"
             # a concurrent push to main must not fail the build; integrate first
             git pull --rebase origin main
-            git push
+            # A ruleset requiring status checks on every push to main can never be
+            # satisfied by this direct push: the bot's new commit is [skip ci], so
+            # it can never accrue the checks the ruleset waits for (see #128). That
+            # is a repo-settings decision for a human, not something to route around
+            # here — surface it and let the paper build itself stay the signal.
+            if ! git push 2>push.err; then
+              cat push.err
+              # A single rejection can bundle several rule violations on one push
+              # (e.g. required checks AND signed commits). Only tolerate this if
+              # EVERY reported violation is the required-status-checks one — GH013
+              # alone is a generic ruleset code shared by unrelated protections, so
+              # matching on it (or on this text appearing ANYWHERE in the output)
+              # would silently wave through a real violation riding alongside it.
+              bullets=$(grep '^remote: - ' push.err || true)
+              other=$(printf '%s\n' "$bullets" | grep -vi 'required status checks are expected' || true)
+              if [ -n "$bullets" ] && [ -z "$other" ]; then
+                echo "::warning title=paper-build: PDFs not pushed::Branch ruleset on main blocked the bot's direct push (see #128). Rebuilt PDFs differ from what's committed until a maintainer resolves it."
+              else
+                exit 1
+              fi
+            fi
           else
             echo "PDFs already match source."
           fi
