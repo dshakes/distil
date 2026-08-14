@@ -218,8 +218,11 @@ def test_key_store_cross_process_reload(tmp_path: Path) -> None:
     raw, _ = store1.issue("acme")
 
     store2 = GatewayKeyStore(path)
-    # Force cache miss so it reads from disk
-    store2._last_load = 0.0  # type: ignore[attr-defined]
+    # No cache-miss poke needed: a freshly-constructed store has never loaded, so
+    # its first lookup reads from disk. (This used to set `_last_load = 0.0`, which
+    # is a *real* monotonic reading on Python 3.9 — inside the TTL window — so it
+    # suppressed the read it was meant to force. Same idiom, same bug as the two
+    # sites in gateway_keys.py.)
     assert store2.lookup(raw) is not None
 
 
@@ -859,3 +862,23 @@ def test_key_expiry_is_enforced_and_backward_compatible(tmp_path, monkeypatch) -
     legacy = legacy_store.lookup(legacy_raw)
     assert legacy is not None, "a pre-expiry key file must keep authenticating"
     assert legacy.expires is None and not legacy.is_expired()
+
+
+def test_fresh_store_sees_existing_keys_immediately(tmp_path: Path) -> None:
+    """A newly-constructed store must read the key file on its FIRST lookup.
+
+    The TTL sentinel used to be `0.0`, which is a real `time.monotonic()` reading
+    on platforms where the clock is process-relative (Python 3.9 starts near 0)
+    but not on those where it is boot-relative (3.12 returns ~2.2e6). So
+    `now - self._last_load < TTL` was true for the first two seconds of a 3.9
+    process, the very first load was skipped, and a cold-started gateway rejected
+    valid keys until the window passed — while every check on a newer interpreter
+    passed. No sleeping here: the point is that the FIRST call already works.
+    """
+    path = tmp_path / "gateway_keys.json"
+    raw, rec = GatewayKeyStore(path).issue("acme")
+
+    fresh = GatewayKeyStore(path)
+    assert fresh.lookup(raw) is not None, "a cold-start store must not 401 a valid key"
+    assert [r.id for r in fresh.list_keys()] == [rec.id]
+    assert fresh.has_active_keys()

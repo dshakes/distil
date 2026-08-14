@@ -102,7 +102,14 @@ class GatewayKeyStore:
         # hash -> record; refreshed lazily from disk
         self._cache: dict[str, KeyRecord] = {}
         self._mtime: float = 0.0
-        self._last_load: float = 0.0
+        # -inf, not 0.0: `time.monotonic()` is process-relative on some platforms
+        # (Python 3.9 starts it near 0) and boot-relative on others (3.12 returns
+        # ~2.2e6). With 0.0 as the sentinel, `now - self._last_load < TTL` is TRUE
+        # for the first two seconds of a 3.9 process, so the very first load is
+        # skipped and a freshly-constructed store reports no keys — a cold-start
+        # gateway 401s valid keys until the window passes. -inf can never be inside
+        # the TTL window on any platform.
+        self._last_load: float = float("-inf")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -223,14 +230,15 @@ class GatewayKeyStore:
     def list_keys(self) -> list[KeyRecord]:
         """Return all key records (no hashes, no raw tokens)."""
         with self._lock:
-            self._last_load = 0.0  # force a fresh read
+            self._last_load = float("-inf")  # force a fresh read (see __init__: 0.0 is a
+            # real monotonic reading on 3.9 and would SKIP the read, not force it)
             self._load_locked()
             return list(self._cache.values())
 
     def revoke(self, key_id: str) -> KeyRecord | None:
         """Mark a key revoked by its ``id`` field.  Returns the updated record or None."""
         with self._lock:
-            self._last_load = 0.0
+            self._last_load = float("-inf")  # force a fresh read; see __init__
             self._load_locked()
             cache = dict(self._cache)
             for h, rec in cache.items():

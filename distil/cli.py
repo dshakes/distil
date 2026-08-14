@@ -4377,7 +4377,17 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--strict", action="store_true", help="exit 1 unless certified at α")
     cp.set_defaults(func=cmd_certify_provider)
 
-    gw = sub.add_parser("gateway", help="managed multi-tenant gateway + live savings dashboard")
+    # allow_abbrev=False: this parser already carries --tenant-rpm and
+    # --tenant-daily-tokens, so argparse's prefix matching treats a bare --tenant
+    # (on `keys issue` and `audit`) as an ambiguous abbreviation of those two and
+    # exits 2 before the subcommand ever sees it. Python 3.13+ resolves it in our
+    # favour; 3.9-3.12 do not, so a local run can pass while every CI leg fails.
+    # Exact option names still work everywhere — only abbreviations stop.
+    gw = sub.add_parser(
+        "gateway",
+        help="managed multi-tenant gateway + live savings dashboard",
+        allow_abbrev=False,
+    )
     gw.add_argument("--host", default="127.0.0.1")
     gw.add_argument("--port", type=int, default=8789)
     gw.add_argument("--upstream", default="https://api.anthropic.com")
