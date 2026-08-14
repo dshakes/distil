@@ -268,3 +268,122 @@ def test_gateway_keys_cli_reports_expiry_and_status(tmp_path, capsys) -> None:
     rows = capsys.readouterr().out
     assert "expired" in rows, "an expired key must be labelled expired, not revoked"
     assert "active" in rows
+
+
+def _start_gateway(tmp_path, **kwargs):
+    """Boot a gateway on an ephemeral port with a dead upstream; return its port."""
+    import socket
+    import time
+
+    from distil import gateway
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    threading.Thread(
+        target=gateway.serve_gateway,
+        kwargs={
+            "host": "127.0.0.1",
+            "port": port,
+            "upstream": "http://127.0.0.1:1",  # dead on purpose: auth happens first
+            "require_keys": True,
+            **kwargs,
+        },
+        daemon=True,
+    ).start()
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            return port
+        except OSError:
+            time.sleep(0.05)
+    raise AssertionError("gateway did not start")
+
+
+def _post(port: int, token: str | None = None) -> None:
+    import urllib.error
+    import urllib.request
+
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/v1/messages",
+        data=b'{"model":"m","messages":[]}',
+        headers=headers,
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5)
+    except (urllib.error.HTTPError, OSError):
+        pass
+
+
+def test_every_refusal_path_is_audited(tmp_path) -> None:
+    """A refusal the trail does not record is a compliance gap, not a detail.
+
+    The first cut only audited the `dsk-` happy path plus invalid-key, which left
+    "no credential presented at all" — the single most common refusal — invisible.
+    """
+    from distil import audit
+    from distil.gateway_keys import GatewayKeyStore
+
+    good, _ = GatewayKeyStore().issue(tenant="acme", rpm=2)
+    port = _start_gateway(tmp_path)
+
+    _post(port)  # no credential
+    _post(port, "dsk-bogus")  # invalid key
+    for _ in range(4):  # rpm=2 → two allowed, two limited
+        _post(port, good)
+
+    events = audit.read_events()
+    reasons = {e.get("reason") for e in events if e.get("reason")}
+    assert "no gateway key presented" in reasons, "an unauthenticated request must be auditable"
+    assert "invalid or revoked gateway key" in reasons
+    assert audit.AUTH_OK in {e["event"] for e in events}
+    assert audit.RATE_LIMITED in {e["event"] for e in events}
+
+
+def test_oidc_paths_are_audited(tmp_path, monkeypatch) -> None:
+    """OIDC rejection, RBAC denial and OIDC success must all reach the trail.
+
+    These bypassed auditing entirely in the first cut: a deployment on OIDC got an
+    empty audit log no matter how much traffic it refused.
+    """
+    import base64
+    import hashlib
+    import hmac
+    import time
+
+    from distil import audit
+
+    monkeypatch.setenv("DISTIL_OIDC_ISSUER", "https://idp.example")
+    monkeypatch.setenv("DISTIL_OIDC_HS256_SECRET", "topsecret")
+    monkeypatch.setenv("DISTIL_OIDC_AUDIENCE", "distil")
+
+    def _b64(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    def _jwt(**claims) -> str:
+        header = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+        payload = _b64(json.dumps(claims).encode())
+        sig = hmac.new(b"topsecret", f"{header}.{payload}".encode(), hashlib.sha256).digest()
+        return f"{header}.{payload}.{_b64(sig)}"
+
+    from distil.gateway_keys import GatewayKeyStore
+
+    GatewayKeyStore().issue(tenant="seed")  # key store must exist for require_keys
+    port = _start_gateway(tmp_path)
+
+    now = time.time()
+    base = {"sub": "u", "aud": "distil", "iss": "https://idp.example", "tenant": "acme"}
+    _post(port, _jwt(**base, exp=now - 9999, role="operator"))  # expired
+    _post(port, _jwt(**base, exp=now + 3600, role="viewer"))  # role too low → 403
+    _post(port, _jwt(**base, exp=now + 3600, role="operator"))  # success
+
+    events = audit.read_events()
+    reasons = " ".join(e.get("reason", "") for e in events)
+    assert "token expired" in reasons, "an expired OIDC token must be auditable"
+    assert "role check failed" in reasons, "an RBAC denial must be auditable"
+    assert any(e.get("auth") == "oidc" and e["event"] == audit.AUTH_OK for e in events)

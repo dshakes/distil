@@ -86,6 +86,8 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
+import time
 from pathlib import Path
 
 _MAGIC = b"DSTL1"
@@ -105,6 +107,15 @@ def _key_path() -> Path:
     return base / "restore.key"
 
 
+#: Serialises key creation *within this process*. The on-disk protocol (O_EXCL +
+#: retry-read) already makes concurrent creators converge across processes; this
+#: removes the same race between threads, where it is both cheap to eliminate and
+#: the case that actually shows up (one gateway, many request threads, cold start).
+#: Measured without it: ~1 run in 15 under CPU contention ended with two threads
+#: on different keys, which silently orphans whatever the loser encrypted.
+_KEY_LOCK = threading.Lock()
+
+
 def _load_key() -> bytes:
     """Load the 32-byte master key, creating it on first use.
 
@@ -118,8 +129,31 @@ def _load_key() -> bytes:
         data = p.read_bytes()
         if len(data) == _KEY_LEN:
             return data
+        # A readable file of the WRONG length (truncated write, half-created key,
+        # a crash between create and write) must be repaired, not stepped around.
+        # Falling straight through to generate-and-O_EXCL leaves the bad file in
+        # place forever: every call mints a fresh ephemeral key, so nothing written
+        # in one process is readable in the next. Measured before this: an 8-byte
+        # restore.key stayed 8 bytes, successive _load_key() calls disagreed, and
+        # a blob encrypted after restart decrypted to None.
+        invalid_existing = True
     except OSError:
-        pass
+        invalid_existing = False
+    with _KEY_LOCK:
+        # Re-read under the lock: while we waited, another thread may have created
+        # the key. Without this the winner writes and every queued thread then
+        # generates its own, which is the race the lock exists to prevent.
+        try:
+            data = p.read_bytes()
+            if len(data) == _KEY_LEN:
+                return data
+        except OSError:
+            pass
+        return _create_key_locked(p, invalid_existing)
+
+
+def _create_key_locked(p: Path, invalid_existing: bool) -> bytes:
+    """Create (or repair) the key file. Caller must hold ``_KEY_LOCK``."""
     key = secrets.token_bytes(_KEY_LEN)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +186,13 @@ def _load_key() -> bytes:
         finally:
             os.close(fd)
         try:
+            if invalid_existing:
+                # The file exists but is not a usable key. os.replace is atomic, so
+                # a concurrent reader sees either the old bad file or the new good
+                # one, never a partial. Repairing beats leaving it: the alternative
+                # is every process running on a private ephemeral key forever.
+                os.replace(tmp, p)
+                return key
             _hardlink(tmp, p)
         except FileExistsError:
             raise  # we lost the race; the handler below adopts the winner's key
@@ -162,13 +203,30 @@ def _load_key() -> bytes:
             # it is a fallback, never the primary path — and the reader below
             # still rejects a short read, so a loser degrades to an in-memory key
             # rather than a WRONG one.
+            # O_EXCL on the REAL path, not os.replace. replace is last-writer-wins:
+            # two simultaneous first-touch creators each publish, and the loser's
+            # blobs become unreadable — measured, two distinct keys out of eight
+            # threads. O_EXCL is first-writer-wins, so exactly one creator survives
+            # and everyone else takes the FileExistsError path below and adopts it.
+            #
+            # This does split create from write, which is the window the hardlink
+            # path exists to avoid — the retry loop in that handler is what makes
+            # it safe, re-reading until the winner's bytes are actually there.
             fd2 = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
                 os.write(fd2, key)
+                os.fsync(fd2)
             finally:
                 os.close(fd2)
+            return key
         finally:
-            os.unlink(tmp)  # always clean up, whether we won the link or lost it
+            # missing_ok: the os.replace paths CONSUME the temp file (it becomes
+            # the key), so there is nothing left to remove. Only the hardlink path
+            # leaves it behind. Either way the directory must not accumulate temps.
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
     except FileExistsError:
         # Another process/thread created the key between our read miss and our
         # O_EXCL create. It won; adopt ITS key. Returning our own would encrypt
@@ -176,6 +234,20 @@ def _load_key() -> bytes:
         # loss that only shows up later as an unrecoverable handle. Measured: a
         # 12-thread first-touch race produced 4 distinct keys before this.
         try:
+            # Retry: the winner may have CREATED the file without having written
+            # it yet (O_EXCL on the real path in the no-hardlink fallback, or any
+            # create/write split), so a single read can legitimately come back
+            # empty or short. Bailing out there is what makes a loser encrypt with
+            # a key that never reaches disk. Measured on the fallback path with the
+            # write window widened: 8 threads produced 8 distinct keys, 1 matching
+            # disk. Bounded so a genuinely truncated file can never hang startup —
+            # after the last attempt we fall through to the in-memory key, which
+            # degrades this process rather than wedging it.
+            for attempt in range(50):
+                data = p.read_bytes()
+                if len(data) == _KEY_LEN:
+                    return data
+                time.sleep(0.002 * (attempt + 1))
             data = p.read_bytes()
             if len(data) == _KEY_LEN:
                 return data

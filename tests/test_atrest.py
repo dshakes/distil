@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import stat
+import time
 
 import sys
 
@@ -280,7 +281,6 @@ def test_concurrent_first_touch_keeps_one_key(tmp_path, monkeypatch) -> None:
     import importlib
     import secrets as real_secrets
     import threading
-    import time
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     from distil import atrest
@@ -418,3 +418,75 @@ def test_key_creation_falls_back_when_os_link_is_unsupported(tmp_path, monkeypat
     assert len(set(keys)) == 1, "every thread must end up on the same key"
     assert all(k == on_disk for k in keys), "in-memory keys must match the persisted one"
     assert not [f for f in tmp_path.iterdir() if ".tmp" in f.name], "temp files must be cleaned up"
+
+
+def test_truncated_key_file_is_repaired_not_worked_around(tmp_path, monkeypatch) -> None:
+    """A readable but wrong-length restore.key must be replaced, not stepped over.
+
+    Falling through to generate-and-O_EXCL leaves the bad file in place forever:
+    every call then mints a fresh ephemeral key, so nothing written in one process
+    is readable in the next. Measured before the fix: an 8-byte key stayed 8 bytes,
+    two successive `_load_key()` calls disagreed, and a blob encrypted afterwards
+    decrypted to None after a restart.
+    """
+    import importlib
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    key_path = atrest._key_path()
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_bytes(b"tooshort")  # truncated write / half-created key
+
+    first = atrest._load_key()
+    assert key_path.stat().st_size == atrest._KEY_LEN, "the bad key file must be replaced"
+    assert first == atrest._load_key(), "the repaired key must be stable across calls"
+
+    blob = atrest.encrypt_bytes(b"payload")
+    importlib.reload(atrest)  # fresh process: only the on-disk key is available
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    assert atrest.decrypt_bytes(blob) == b"payload", "blobs must survive a restart"
+    assert not [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+
+
+def test_loser_waits_for_the_winners_bytes(tmp_path, monkeypatch) -> None:
+    """A losing creator retries until the winner's key is actually readable.
+
+    `O_EXCL` publishes the NAME before the bytes land, so a loser's first read can
+    legitimately return an empty or short file. Giving up there is what makes it
+    encrypt with a key that never reaches disk. The loop must keep looking.
+    """
+    import importlib
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import atrest
+
+    importlib.reload(atrest)
+
+    key_path = atrest._key_path()
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    winner_key = b"W" * atrest._KEY_LEN
+
+    # Publishing fails as "already exists" (we lost), and the winner's bytes only
+    # appear on the third read — the interleaving the retry loop exists for.
+    def _lost_the_race(*_args, **_kwargs):
+        raise FileExistsError()
+
+    monkeypatch.setattr(atrest, "_hardlink", _lost_the_race)
+
+    reads = {"n": 0}
+
+    def _slow_to_appear(self):
+        reads["n"] += 1
+        if reads["n"] == 1:
+            raise FileNotFoundError()  # first look: no key yet, so we try to create
+        if reads["n"] < 4:
+            return b""  # we lost; winner created the NAME but has not written yet
+        return winner_key
+
+    monkeypatch.setattr(type(key_path), "read_bytes", _slow_to_appear)
+
+    assert atrest._load_key() == winner_key, "the loser must wait for the winner's bytes"
+    assert reads["n"] >= 4, "it must actually have retried, not read once and given up"
