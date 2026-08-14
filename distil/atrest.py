@@ -145,7 +145,7 @@ def _load_key() -> bytes:
         finally:
             os.close(fd)
         try:
-            os.link(tmp, p)
+            _hardlink(tmp, p)
         except FileExistsError:
             raise  # we lost the race; the handler below adopts the winner's key
         except OSError:
@@ -182,6 +182,16 @@ def _load_key() -> bytes:
 # ---------------------------------------------------------------------------
 # Core crypto primitives
 # ---------------------------------------------------------------------------
+
+
+def _hardlink(src: Path, dst: Path) -> None:
+    """``os.link`` behind a module-local name so tests can stub the no-link case.
+
+    Patching ``atrest.os`` would swap the attribute on the *global* ``os`` module
+    for every importer in the process — the restore store included — so a test for
+    this branch would silently break unrelated ones.
+    """
+    os.link(src, dst)
 
 
 def _derive(master: bytes, label: bytes) -> bytes:

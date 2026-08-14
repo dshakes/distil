@@ -359,10 +359,16 @@ def test_unwritable_key_directory_still_yields_a_usable_key(tmp_path, monkeypatc
 
     importlib.reload(atrest)
 
-    def _boom(*_args, **_kwargs):
-        raise OSError("read-only filesystem")
-
-    monkeypatch.setattr(atrest.os, "open", _boom)
+    # A REAL unwritable location, not a patched `os`. Patching `atrest.os` swaps
+    # the attribute on the global `os` module for every module in the process —
+    # including mcp_server's restore store, which then silently fails to persist
+    # and takes unrelated tests down with it. That leak is invisible on a fast
+    # filesystem and reproducible on a slow one (it reddened the Windows leg while
+    # every Linux leg stayed green). A file where the key's parent directory
+    # should be makes mkdir/open fail for a real reason, scoped to this test.
+    blocker = tmp_path / "blocked"
+    blocker.write_text("not a directory")
+    monkeypatch.setenv("DISTIL_HOME", str(blocker / "home"))
 
     key = atrest._load_key()
     assert len(key) == atrest._KEY_LEN
@@ -387,7 +393,11 @@ def test_key_creation_falls_back_when_os_link_is_unsupported(tmp_path, monkeypat
     def _no_link(*_args, **_kwargs):
         raise OSError("hard links unsupported on this filesystem")
 
-    monkeypatch.setattr(atrest.os, "link", _no_link)
+    # Patch atrest's OWN helper, not `atrest.os` — that attribute IS the global
+    # `os` module, so stubbing it there swaps os.link for every module in the
+    # process and silently breaks the restore store's persistence in unrelated
+    # tests (invisible on a fast filesystem, red on the Windows leg).
+    monkeypatch.setattr(atrest, "_hardlink", _no_link)
 
     keys: list[bytes] = []
     threads = [_threading.Thread(target=lambda: keys.append(atrest._load_key())) for _ in range(8)]
