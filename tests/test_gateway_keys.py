@@ -761,6 +761,10 @@ def test_gateway_get_non_special_path_without_auth_returns_401(gw_auth_required:
     assert _req_method("GET", gw_auth_required, "/v1/models") == 401
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod 0600 is a no-op on Windows (mode reads back 0o666); the owner-only guarantee is POSIX-only",
+)
 def test_key_file_is_never_world_readable_mid_write(tmp_path, monkeypatch) -> None:
     """The temp file must be 0600 from creation, not chmod'd after os.replace.
 

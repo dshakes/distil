@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 
 import pytest
@@ -20,6 +21,10 @@ def _isolated_home(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod 0600 is a no-op on Windows (mode reads back 0o666); the owner-only guarantee is POSIX-only",
+)
 def test_records_are_written_0600_and_readable_back(tmp_path) -> None:
     """The trail names tenants and key ids, so it is not world-readable."""
     from distil import audit
@@ -34,6 +39,10 @@ def test_records_are_written_0600_and_readable_back(tmp_path) -> None:
     assert oct(os.stat(audit.audit_path()).st_mode & 0o777) == "0o600"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="line-atomic appends rely on flock, which is POSIX-only; without it concurrent writes can splice",
+)
 def test_concurrent_appends_never_interleave(tmp_path) -> None:
     """The gateway serves requests concurrently; JSONL lines must stay whole.
 
@@ -72,6 +81,10 @@ def test_truncated_tail_does_not_break_the_reader(tmp_path) -> None:
     assert len(events) == 1 and events[0]["key_id"] == "gk_1"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod 0400 does not make a file unwritable on Windows, so the failure path cannot be provoked",
+)
 def test_write_failures_never_raise(tmp_path) -> None:
     """Fail-open: an unwritable trail must not take the gateway down."""
     from distil import audit
@@ -182,6 +195,10 @@ def test_reader_handles_blank_lines_and_a_missing_file(tmp_path) -> None:
     assert [e["key_id"] for e in audit.read_events()] == ["gk_1"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod 0000 does not make a file unreadable on Windows, so the failure path cannot be provoked",
+)
 def test_unreadable_trail_reads_as_empty(tmp_path) -> None:
     """A trail that cannot be opened must not raise into the CLI."""
     import os
