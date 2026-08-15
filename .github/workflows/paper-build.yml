@@ -26,6 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: SCRATCH - pin build timestamp for reproducible PDFs
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
       # TeX Live full ships every package main.tex needs (tikz, pgfplots,
       # algorithm2e, cleveref, microtype...). The paper has no external images
       # and a manual thebibliography, so latexmk alone is sufficient — no
@@ -99,6 +102,14 @@ jobs:
         with:
           name: distil-paper-pdf
           path: docs/paper/main.pdf
+          if-no-files-found: error
+
+      - name: SCRATCH - Upload NeurIPS PDF
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: distil-paper-pdf-neurips-scratch
+          path: docs/paper/main_neurips.pdf
           if-no-files-found: error
 
       # On failure, ship the .log so the break is diagnosable without a local
