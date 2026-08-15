@@ -112,6 +112,18 @@ jobs:
           path: docs/paper/main_neurips.pdf
           if-no-files-found: error
 
+      - name: SCRATCH - commit rebuilt PDFs to this branch
+        if: success()
+        run: |
+          cd docs/paper
+          git config user.name "scratch-rebuild-bot"
+          git config user.email "noreply@anthropic.com"
+          git add main.pdf main_neurips.pdf
+          if ! git diff --cached --quiet; then
+            git commit -m "scratch: rebuilt PDFs (not for merge)"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
       # On failure, ship the .log so the break is diagnosable without a local
       # TeX toolchain.
       - name: Upload build log on failure
