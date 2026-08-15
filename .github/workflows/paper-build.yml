@@ -63,7 +63,16 @@ jobs:
           # here is what actually takes effect. The value has no calendar
           # meaning — bump it (and rebuild+commit both PDFs) only if the repo
           # ever wants to change it; there's no other reason to touch it.
-          pre_compile: export SOURCE_DATE_EPOCH=1700000000
+          #
+          # SOURCE_DATE_EPOCH alone only overrides pdflatex's own /CreationDate
+          # and /ID metadata — both papers also render \date{\today} into the
+          # visible title (main.tex, main_neurips.tex), and \today reads TeX's
+          # \year/\month/\day primitives, which track real wall-clock time
+          # unless FORCE_SOURCE_DATE=1 is also set. Without it the rendered
+          # page content itself drifts a day at a time even with the epoch
+          # pinned (cross-audit on this PR caught this by diffing the visible
+          # date against the pinned metadata).
+          pre_compile: export SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1
 
       - name: Compile NeurIPS variant
         uses: xu-cheng/latex-action@v3
@@ -75,7 +84,7 @@ jobs:
           # identical mtimes, so plain latexmk declares 'up-to-date' and skips
           # the build (observed: a dispatch run shipped a stale PDF silently).
           args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
-          pre_compile: export SOURCE_DATE_EPOCH=1700000000
+          pre_compile: export SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1
 
       # Staleness check, NOT an auto-commit. This job used to rebuild the PDFs and
       # send them straight to main, which a branch ruleset requiring status checks
@@ -97,7 +106,7 @@ jobs:
         run: |
           cd docs/paper
           if ! git diff --quiet -- main.pdf main_neurips.pdf; then
-            echo "::error title=paper PDFs are stale::The committed PDFs do not match the LaTeX source. Rebuild and commit them: cd docs/paper && SOURCE_DATE_EPOCH=1700000000 latexmk -pdf main.tex main_neurips.tex && git add main.pdf main_neurips.pdf"
+            echo "::error title=paper PDFs are stale::The committed PDFs do not match the LaTeX source. Rebuild and commit them: cd docs/paper && SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1 latexmk -pdf -g main.tex main_neurips.tex && git add main.pdf main_neurips.pdf"
             git diff --stat -- main.pdf main_neurips.pdf
             exit 1
           fi
