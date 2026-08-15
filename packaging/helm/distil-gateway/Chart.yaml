@@ -7,7 +7,7 @@ type: application
 # Chart version tracks the chart; appVersion tracks the distil release it defaults to.
 # Bump `version` on any template change, `appVersion` on a distil upgrade.
 version: 0.1.1
-appVersion: "1.47.0rc1"
+appVersion: "1.47.0rc2"
 home: https://dshakes.github.io/distil/
 sources:
   - https://github.com/dshakes/distil
