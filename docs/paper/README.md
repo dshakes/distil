@@ -17,6 +17,25 @@ compiles anywhere with a standard TeX distribution.
 latexmk -pdf main.tex      # or: pdflatex main.tex (run twice for cross-refs)
 ```
 
+**Committing a rebuilt PDF:** `main` runs a byte-for-byte staleness check against
+`main.pdf`/`main_neurips.pdf`, so a source edit needs the compiled PDF committed
+alongside it. Match CI's build pin (see `paper-build.yml`) exactly or the check
+will flag your own unchanged content as stale — `-g` forces a full recompile
+(otherwise `latexmk` may see the committed PDF as already up-to-date and skip
+rebuilding), `SOURCE_DATE_EPOCH` pins the PDF's own `/CreationDate`/`/ID`, and
+`FORCE_SOURCE_DATE=1` is required *in addition* — without it `\date{\today}` in
+both papers still renders today's real date, since `\today` reads TeX's
+`\year`/`\month`/`\day` primitives rather than the PDF metadata:
+```bash
+# macOS/Linux
+cd docs/paper && SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1 latexmk -pdf -g main.tex main_neurips.tex \
+  && git add main.pdf main_neurips.pdf
+
+# Windows (PowerShell)
+cd docs/paper; $env:SOURCE_DATE_EPOCH=1700000000; $env:FORCE_SOURCE_DATE=1; latexmk -pdf -g main.tex main_neurips.tex
+git add main.pdf main_neurips.pdf
+```
+
 ## Filling the headline numbers
 
 The result macros at the top of `main.tex` (`\HLsavings`, `\HLcoverage`, `\HLrisk`)
