@@ -51,6 +51,34 @@ nothing installed, and doesn't need to be kept in sync. Bump before a release:
 - `CITATION.cff` → `version` and `date-released`
 - add a `## [X.Y.Z]` section to `CHANGELOG.md`
 
+### One-time: the `.venv` the preflight tests run in
+
+`scripts/release.sh` runs its test gate as `.venv/bin/python -m pytest -q` — the repo
+venv, not `uv run`. That venv needs the test dependencies, and it needs **all** of
+them:
+
+```bash
+uv venv                                     # creates .venv if it isn't there
+uv pip install -e .                         # distil itself
+uv pip install pytest pytest-asyncio aiohttp pillow cryptography opentelemetry-sdk
+```
+
+Two ways this bites, both seen for real when cutting `1.47.0rc1`:
+
+- **No pytest at all** → the driver reports `✗ tests failed — not releasing` and
+  stops. Loud and safe: nothing was pushed. Misleading wording, though — the tests
+  did not fail, they never ran.
+- **Missing the optional extras** → far worse, because it is *silent*. Tests that
+  need `cryptography` or `opentelemetry` call `importorskip` and quietly skip
+  themselves, so the gate goes green having tested less than CI does. The release
+  run read `3381 passed, 6 skipped` where CI reads `3385 passed, 2 skipped`: four
+  tests, including at-rest crypto coverage, never executed.
+
+If the skip count from the preflight run does not match CI's, the venv is
+incomplete — fix the venv rather than shrugging at a green gate. Do **not** reach
+for `--skip-tests` to get past either case; that turns a gate that just did its job
+into no gate at all.
+
 Then, from a clean `main`:
 
 ```bash

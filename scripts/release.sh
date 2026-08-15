@@ -124,6 +124,22 @@ fi
 if [ "$SKIP_TESTS" -eq 1 ]; then
   info "skipping tests (--skip-tests)"
 else
+  # Check the venv can actually RUN the suite before blaming the code. Without
+  # this, a venv with no pytest reports "tests failed — not releasing", which
+  # sends you hunting through a green codebase for a phantom regression.
+  if ! .venv/bin/python -c "import pytest" >/dev/null 2>&1; then
+    die ".venv has no pytest — the test gate cannot run (see RELEASING.md, 'the .venv the preflight tests run in')"
+  fi
+  # The optional extras matter MORE than pytest itself, because missing them fails
+  # silently: those tests importorskip themselves and the gate goes green having
+  # covered less than CI. Cutting 1.47.0rc1 read 6 skipped where CI reads 2 — four
+  # tests, at-rest crypto among them, never ran.
+  missing=""
+  for mod in cryptography opentelemetry PIL aiohttp; do
+    .venv/bin/python -c "import $mod" >/dev/null 2>&1 || missing="$missing $mod"
+  done
+  [ -n "$missing" ] && die ".venv is missing:$missing — those tests would silently skip, making this gate weaker than CI (see RELEASING.md)"
+
   info "running test suite…"
   run ".venv/bin/python -m pytest -q" || die "tests failed — not releasing"
   ok "tests pass"
