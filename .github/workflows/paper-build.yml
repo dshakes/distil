@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: SCRATCH - pin build timestamp for reproducible PDFs
-        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+        run: echo "SOURCE_DATE_EPOCH=1700000000" >> "$GITHUB_ENV"
 
       # TeX Live full ships every package main.tex needs (tikz, pgfplots,
       # algorithm2e, cleveref, microtype...). The paper has no external images
