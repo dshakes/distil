@@ -52,47 +52,31 @@ jobs:
           # the build (observed: a dispatch run shipped a stale PDF silently).
           args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
 
-      # Close the staleness loop: on push to main, commit the rebuilt PDFs so the
-      # tracked artifacts can never drift from the source again. (PRs only verify.)
-      # CAVEAT (see #128): a branch ruleset requiring status checks on every push
-      # to main can make this push impossible to satisfy — see the comment below.
-      # When that happens the loop is NOT closed: PDFs on main can drift from
-      # source until a maintainer resolves the ruleset conflict.
-      - name: Commit rebuilt PDFs
+      # Staleness check, NOT an auto-commit. This job used to rebuild the PDFs and
+      # send them straight to main, which a branch ruleset requiring status checks
+      # can never satisfy: a direct write creates no check runs, so the rule has
+      # nothing to wait on and rejects it permanently (#128). It was downgraded to
+      # a warning in #130 to stop CI going red; this removes the write entirely.
+      #
+      # The three ways to keep auto-committing all cost more than they are worth:
+      # exempting the bot from the ruleset weakens a protection that was enabled on
+      # purpose, and the PR + auto-merge route needs a PAT with write access living
+      # in repo secrets. Neither is a fair trade for a convenience commit.
+      #
+      # So: PRs verify the PDFs compile (the step above), and main verifies they are
+      # in sync. If they drift, this FAILS with the command to fix it, rather than
+      # silently fixing it for you. Committing the rebuilt PDF is the author's job,
+      # the same as any other build artifact this repo tracks.
+      - name: Verify committed PDFs match source
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: |
           cd docs/paper
           if ! git diff --quiet -- main.pdf main_neurips.pdf; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add main.pdf main_neurips.pdf
-            git commit -m "paper: rebuild PDFs from source [skip ci]"
-            # a concurrent push to main must not fail the build; integrate first
-            git pull --rebase origin main
-            # A ruleset requiring status checks on every push to main can never be
-            # satisfied by this direct push: the bot's new commit is [skip ci], so
-            # it can never accrue the checks the ruleset waits for (see #128). That
-            # is a repo-settings decision for a human, not something to route around
-            # here — surface it and let the paper build itself stay the signal.
-            if ! git push 2>push.err; then
-              cat push.err
-              # A single rejection can bundle several rule violations on one push
-              # (e.g. required checks AND signed commits). Only tolerate this if
-              # EVERY reported violation is the required-status-checks one — GH013
-              # alone is a generic ruleset code shared by unrelated protections, so
-              # matching on it (or on this text appearing ANYWHERE in the output)
-              # would silently wave through a real violation riding alongside it.
-              bullets=$(grep '^remote: - ' push.err || true)
-              other=$(printf '%s\n' "$bullets" | grep -vi 'required status checks are expected' || true)
-              if [ -n "$bullets" ] && [ -z "$other" ]; then
-                echo "::warning title=paper-build: PDFs not pushed::Branch ruleset on main blocked the bot's direct push (see #128). Rebuilt PDFs differ from what's committed until a maintainer resolves it."
-              else
-                exit 1
-              fi
-            fi
-          else
-            echo "PDFs already match source."
+            echo "::error title=paper PDFs are stale::The committed PDFs do not match the LaTeX source. Rebuild and commit them: cd docs/paper && latexmk -pdf main.tex main_neurips.tex && git add main.pdf main_neurips.pdf"
+            git diff --stat -- main.pdf main_neurips.pdf
+            exit 1
           fi
+          echo "PDFs match source."
 
       # Visual-polish triage: undefined refs/citations and overfull/underfull
       # boxes don't fail a -halt-on-error build, so surface them as annotations
