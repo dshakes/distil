@@ -26,6 +26,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # pdflatex stamps /CreationDate and /ID with wall-clock time unless told
+      # otherwise, so two builds of the identical source produce different PDF
+      # bytes. That made "Verify committed PDFs match source" below unwinnable:
+      # every push touching docs/paper/** recompiles at a new instant and diffs
+      # against whatever instant the committed PDF happened to be built at,
+      # even with zero content change. Pinning to the commit's own timestamp
+      # makes the build reproducible run-to-run for a given commit, which is
+      # what that check actually needs to hold.
+      - name: Pin build timestamp for reproducible PDFs
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
       # TeX Live full ships every package main.tex needs (tikz, pgfplots,
       # algorithm2e, cleveref, microtype...). The paper has no external images
       # and a manual thebibliography, so latexmk alone is sufficient — no
