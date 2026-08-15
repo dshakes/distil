@@ -26,9 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: SCRATCH - pin build timestamp for reproducible PDFs
-        run: echo "SOURCE_DATE_EPOCH=1700000000" >> "$GITHUB_ENV"
-
       # TeX Live full ships every package main.tex needs (tikz, pgfplots,
       # algorithm2e, cleveref, microtype...). The paper has no external images
       # and a manual thebibliography, so latexmk alone is sufficient — no
@@ -43,6 +40,15 @@ jobs:
           # identical mtimes, so plain latexmk declares 'up-to-date' and skips
           # the build (observed: a dispatch run shipped a stale PDF silently).
           args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
+          # This action shells out to its own `docker run` internally and only
+          # forwards a fixed allowlist of env vars (TEXINPUTS/GITHUB_*/RUNNER_*/
+          # CI) — a SOURCE_DATE_EPOCH set via $GITHUB_ENV in an earlier step
+          # never reaches the container, so pdflatex still stamps /CreationDate
+          # with wall-clock time regardless. pre_compile runs `eval` in the same
+          # shell that then runs latexmk, so `export` here is what actually
+          # takes effect. See "Verify committed PDFs match source" below for
+          # why this needs to be fixed at all.
+          pre_compile: export SOURCE_DATE_EPOCH=1700000000
 
       - name: Compile NeurIPS variant
         uses: xu-cheng/latex-action@v3
@@ -54,6 +60,7 @@ jobs:
           # identical mtimes, so plain latexmk declares 'up-to-date' and skips
           # the build (observed: a dispatch run shipped a stale PDF silently).
           args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
+          pre_compile: export SOURCE_DATE_EPOCH=1700000000
 
       # Staleness check, NOT an auto-commit. This job used to rebuild the PDFs and
       # send them straight to main, which a branch ruleset requiring status checks
