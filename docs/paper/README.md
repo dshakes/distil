@@ -17,6 +17,15 @@ compiles anywhere with a standard TeX distribution.
 latexmk -pdf main.tex      # or: pdflatex main.tex (run twice for cross-refs)
 ```
 
+**Committing a rebuilt PDF:** `main` runs a byte-for-byte staleness check against
+`main.pdf`/`main_neurips.pdf`, so a source edit needs the compiled PDF committed
+alongside it. Match CI's `SOURCE_DATE_EPOCH` pin (see `paper-build.yml`) or the
+check will flag your own unchanged content as stale:
+```bash
+cd docs/paper && SOURCE_DATE_EPOCH=1700000000 latexmk -pdf main.tex main_neurips.tex \
+  && git add main.pdf main_neurips.pdf
+```
+
 ## Filling the headline numbers
 
 The result macros at the top of `main.tex` (`\HLsavings`, `\HLcoverage`, `\HLrisk`)
