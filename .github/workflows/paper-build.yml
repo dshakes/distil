@@ -48,7 +48,7 @@ jobs:
           # shell that then runs latexmk, so `export` here is what actually
           # takes effect. See "Verify committed PDFs match source" below for
           # why this needs to be fixed at all.
-          pre_compile: export SOURCE_DATE_EPOCH=1700000000
+          pre_compile: export SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1
 
       - name: Compile NeurIPS variant
         uses: xu-cheng/latex-action@v3
@@ -60,7 +60,7 @@ jobs:
           # identical mtimes, so plain latexmk declares 'up-to-date' and skips
           # the build (observed: a dispatch run shipped a stale PDF silently).
           args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
-          pre_compile: export SOURCE_DATE_EPOCH=1700000000
+          pre_compile: export SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1
 
       # Staleness check, NOT an auto-commit. This job used to rebuild the PDFs and
       # send them straight to main, which a branch ruleset requiring status checks
