@@ -195,3 +195,116 @@ class TestEntryPoints:
 
     def test_mcp_non_list_content_declined(self):
         assert compress_tool_output("mcp__srv__tool", {"content": "not-a-list"}) is None
+
+
+class TestInstaller:
+    """Writing settings.json is the step where a mistake costs someone else's config.
+
+    A hand-written hook entry is also where a silent typo costs every byte of savings
+    with no error, which is why distil writes it rather than documenting it.
+    """
+
+    def _settings(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        return tmp_path / "settings.json"
+
+    def test_creates_settings_when_absent(self, tmp_path, monkeypatch, capsys):
+        from distil.hook import install_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        assert install_hook() == 0
+        entries = json.loads(p.read_text())["hooks"]["PostToolUse"]
+        assert len(entries) == 1
+        assert "distil.hook" in entries[0]["hooks"][0]["command"]
+
+    def test_preserves_foreign_hooks_and_other_keys(self, tmp_path, monkeypatch):
+        from distil.hook import install_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        p.write_text(
+            json.dumps(
+                {
+                    "model": "opus",
+                    "hooks": {
+                        "PostToolUse": [
+                            {
+                                "matcher": "Write",
+                                "hooks": [{"type": "command", "command": "someone-elses-hook"}],
+                            }
+                        ]
+                    },
+                }
+            )
+        )
+        install_hook()
+        got = json.loads(p.read_text())
+        assert got["model"] == "opus"
+        cmds = [e["hooks"][0]["command"] for e in got["hooks"]["PostToolUse"]]
+        assert "someone-elses-hook" in cmds
+        assert any("distil.hook" in c for c in cmds)
+
+    def test_install_is_idempotent(self, tmp_path, monkeypatch):
+        from distil.hook import install_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        install_hook()
+        install_hook()
+        install_hook()
+        entries = json.loads(p.read_text())["hooks"]["PostToolUse"]
+        assert sum("distil.hook" in e["hooks"][0]["command"] for e in entries) == 1
+
+    def test_uninstall_removes_only_ours(self, tmp_path, monkeypatch):
+        from distil.hook import install_hook, uninstall_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        p.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "PostToolUse": [
+                            {
+                                "matcher": "Write",
+                                "hooks": [{"type": "command", "command": "someone-elses-hook"}],
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        install_hook()
+        assert uninstall_hook() == 0
+        entries = json.loads(p.read_text())["hooks"]["PostToolUse"]
+        assert len(entries) == 1
+        assert entries[0]["hooks"][0]["command"] == "someone-elses-hook"
+
+    def test_uninstall_when_nothing_installed(self, tmp_path, monkeypatch, capsys):
+        from distil.hook import uninstall_hook
+
+        self._settings(tmp_path, monkeypatch)
+        assert uninstall_hook() == 0
+        assert "nothing to remove" in capsys.readouterr().out
+
+    def test_refuses_to_clobber_unreadable_settings(self, tmp_path, monkeypatch, capsys):
+        """A corrupt settings.json is the user's data — report, don't overwrite."""
+        from distil.hook import install_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        p.write_text("{ this is not json")
+        assert install_hook() == 1
+        assert "refusing to overwrite" in capsys.readouterr().out
+        assert p.read_text() == "{ this is not json"
+
+    def test_refuses_unexpected_hook_shape(self, tmp_path, monkeypatch):
+        from distil.hook import install_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        p.write_text(json.dumps({"hooks": {"PostToolUse": "not-a-list"}}))
+        assert install_hook() == 1
+
+    def test_matcher_covers_bash_and_mcp(self, tmp_path, monkeypatch):
+        from distil.hook import install_hook
+
+        p = self._settings(tmp_path, monkeypatch)
+        install_hook()
+        entry = json.loads(p.read_text())["hooks"]["PostToolUse"][0]
+        assert "Bash" in entry["matcher"] and "mcp__" in entry["matcher"]

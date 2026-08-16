@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Subscription Savings — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Subscription Savings — Distil"/>
+<meta property="og:description" content="On a flat-rate plan the bill is fixed but the rate-limit window is not. How distil saves quota without a proxy — and the honest 0.00% case."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/subscription.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Subscription Savings — Distil"/>
+<meta name="twitter:description" content="On a flat-rate plan the bill is fixed but the rate-limit window is not. How distil saves quota without a proxy — and the honest 0.00% case."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="subscription.html" class="active" aria-current="page">Subscription <span class="nav-badge">New</span></a>
+        <a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction</a></li>
+        <li><a href="evals.html">Evaluation <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Subscription savings — the window, not the bill</h1>
+
+    <p class="lede">On a flat-rate Pro/Max plan there is no per-token bill to cut, so distil's dollar
+    figures are notional. The thing that is <em>not</em> notional is the rate-limit window: every
+    token spent on a 40&nbsp;KB test log is quota unavailable for the next task. This page is how
+    distil saves that quota, what it measures, and where it honestly saves nothing.</p>
+
+    <div class="callout">
+      <strong>We had this wrong.</strong> distil's own copy used to say a subscription gets
+      &ldquo;context and latency, not the bill.&rdquo; A reader pushed back: fewer tokens means more
+      turns before the wall, and that <em>is</em> the saving on a flat-rate plan. They were right.
+      The copy is fixed and this page exists because of that correction.
+    </div>
+
+    <img src="assets/subscription-paths.svg" alt="Two paths to fewer tokens on a flat-rate subscription: the proxy path sits on the wire between Claude Code and the Anthropic API, which consumer terms section 3 item 7 restricts on subscription credentials, so distil runs lossless-only there and saves 0.27 percent; the hook path uses Claude Code's PostToolUse extension point to compress a tool result in-process before the model reads it, cutting an 18,214 byte result to 11,178 bytes with no proxy and no credentials involved" class="svg-embed"/>
+
+    <h2 id="why-not-proxy">Why the proxy can&rsquo;t help here</h2>
+
+    <p>distil&rsquo;s usual method is a local proxy. On a subscription it deliberately runs in
+    <code>--lossless-only</code> mode and saves very little, because Anthropic&rsquo;s consumer terms
+    (Section&nbsp;3, item&nbsp;7) prohibit accessing the service &ldquo;through automated or non-human
+    means&hellip; except when you are accessing our Services via an Anthropic API Key.&rdquo; That was
+    clarified and enforced in February&nbsp;2026. distil takes the conservative reading: your account
+    is not worth a few percent.</p>
+
+    <p>So the question is not <em>how do we compress harder through the proxy</em>. It is
+    <strong>what path saves tokens without a proxy touching your session at all.</strong></p>
+
+    <h2 id="the-hook">The answer: a first-party hook</h2>
+
+    <p>Claude Code ships a documented extension point. A <code>PostToolUse</code> hook can replace a
+    tool&rsquo;s result <em>before the model reads it</em>, via
+    <code>hookSpecificOutput.updatedToolOutput</code>. Claude Code compresses its own tool output, in
+    its own process, using a mechanism Anthropic built. No proxy. No credential interception. Nothing
+    bridged into another client.</p>
+
+    <pre><code>distil hook --install     # writes ~/.claude/settings.json, idempotent
+distil hook --selftest    # verify the schema adapters offline
+distil quota              # see the window it is saving</code></pre>
+
+    <h3>Append-only by construction &mdash; why the cache survives</h3>
+
+    <p>distil previously measured its own proxy digest <strong>doubling</strong> cost on a live A/B:
+    a sliding recency window rewrote the previous turn&rsquo;s last tool result every turn, one message
+    before the cache breakpoint, collapsing the cached prefix (median <code>cache_read</code>
+    233.8k&nbsp;&rarr;&nbsp;24.7k). A hook cannot do that. It sees one result, once, at the moment it
+    is produced, and <em>no</em> hook event can rewrite history. Compression is append-only because
+    the platform makes it so &mdash; not because we remembered to be careful.</p>
+
+    <p>The same property forces the tier: with no way to rewrite history, a digest stub could never be
+    expanded back, so a recall tool would be useless even if we wanted one. <strong>Lossless-only is
+    both the correct tier and the compliant one.</strong></p>
+
+    <h2 id="setup">Set it up &mdash; three commands</h2>
+
+    <ol>
+      <li>
+        <strong>Install distil</strong> if you haven&rsquo;t:
+        <pre><code>pipx install distil-llm</code></pre>
+      </li>
+      <li>
+        <strong>Install the hook.</strong> This writes <code>~/.claude/settings.json</code>. It is
+        idempotent (safe to re-run) and it preserves any hooks you already have &mdash; distil only
+        ever replaces its own entry.
+        <pre><code>distil hook --install</code></pre>
+      </li>
+      <li>
+        <strong>Restart Claude Code.</strong> Hooks are read at startup, so a running session will not
+        pick it up.
+      </li>
+    </ol>
+
+    <h3>Verify it&rsquo;s working</h3>
+
+    <p>A schema mismatch on this path is <em>silent</em> &mdash; Claude Code ignores a malformed
+    replacement and uses the original with no error anywhere. So verify rather than assume:</p>
+
+    <pre><code>$ distil hook --selftest
+  PASS  bash compresses large clean stdout
+  PASS  bash preserves unknown keys
+  PASS  bash refuses: stderr present
+  ...
+16/16 checks passed</code></pre>
+
+    <p>Then run something with big, repetitive output in a real session &mdash; <code>cat</code> a
+    large JSON file, or a verbose test run &mdash; and check the window before and after with
+    <code>distil quota</code>.</p>
+
+    <h3>Turning it off</h3>
+
+    <pre><code>distil hook --uninstall     # removes only distil's entry, leaves your others alone</code></pre>
+
+    <h3>Troubleshooting</h3>
+
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead>
+      <tbody>
+        <tr><td>No visible change in token use</td><td>Your tool output isn&rsquo;t a compressible shape &mdash; see <a href="#where-zero">where it saves nothing</a>. This is the common case, not a bug.</td></tr>
+        <tr><td><code>distil quota</code> says unavailable</td><td>You&rsquo;re on a metered API key (quota windows are a subscription concept), or not logged in to Claude Code.</td></tr>
+        <tr><td>Hook doesn&rsquo;t seem to run</td><td>Claude Code wasn&rsquo;t restarted, or another tool rewrote <code>settings.json</code>. Re-run <code>distil hook --install</code>.</td></tr>
+        <tr><td>Errors look truncated</td><td>They shouldn&rsquo;t be &mdash; distil never compresses a failed tool, a non-empty <code>stderr</code>, or an MCP error. Please file an issue.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="measured">What it measures &mdash; on a real session</h2>
+
+    <p>Paired live A/B, same task and fixture, hook off then on. Both arms answered the question
+    correctly.</p>
+
+    <table>
+      <thead><tr><th>Metric</th><th>Hook off</th><th>Hook on</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>tool_result delivered to the model</td><td>18,214 B</td><td>11,178 B</td><td>&minus;38.6%</td></tr>
+        <tr><td><code>cache_creation_input_tokens</code></td><td>67,696</td><td>22,045</td><td>&minus;67.4%</td></tr>
+        <tr><td><code>cache_read_input_tokens</code></td><td>209,474</td><td>104,289</td><td>smaller prefix, cache intact</td></tr>
+        <tr><td>cost-weighted equivalent</td><td>120,025</td><td>37,989</td><td><strong>&minus;68.3%</strong></td></tr>
+      </tbody>
+    </table>
+
+    <p>Cost weights: <code>input&nbsp;=&nbsp;1.0</code>, <code>cache_creation&nbsp;=&nbsp;1.25</code>,
+    <code>cache_read&nbsp;=&nbsp;0.10</code>. The critical row is <code>cache_read</code>: it did
+    <em>not</em> collapse to zero. The proxy digest&rsquo;s failure mode does not reproduce.</p>
+
+    <h3>Decision-equivalence</h3>
+
+    <p>Five decision-bearing tasks, two arms each, live. Every task&rsquo;s answer is independently
+    verifiable, so both equivalence and correctness are checkable.</p>
+
+    <table>
+      <thead><tr><th>Check</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Arms agreed (hook on vs off)</td><td>5 / 5</td></tr>
+        <tr><td>Correct with hook on</td><td>5 / 5</td></tr>
+        <tr><td>Correct with hook off</td><td>5 / 5</td></tr>
+        <tr><td>Compression on those tasks</td><td>25% &ndash; 96%</td></tr>
+      </tbody>
+    </table>
+
+    <p><em>n</em>=5 with no A/A arm: enough to detect a gross regression, <strong>not</strong> a
+    certificate. The proxy tier carries a conformal bound; this one does not yet.</p>
+
+    <h2 id="where-zero">Where it saves nothing &mdash; stated plainly</h2>
+
+    <p>Tier-0 is JSON minification plus consecutive-run collapse. Both are lossless and both are
+    shape-dependent. Measured with the <strong>real Anthropic tokenizer</strong>:</p>
+
+    <table>
+      <thead><tr><th>Output shape</th><th>Saved</th></tr></thead>
+      <tbody>
+        <tr><td>Pretty-printed JSON (npm, pip, kubectl, terraform, API responses)</td><td>28&ndash;33%</td></tr>
+        <tr><td>Logs with consecutive duplicate lines</td><td>up to 99%</td></tr>
+        <tr><td>Unique-per-line logs</td><td>0%</td></tr>
+        <tr><td>Interleaved log lines</td><td>0%</td></tr>
+        <tr><td><code>git log</code> / <code>git diff --stat</code></td><td>0%</td></tr>
+        <tr><td><strong>distil&rsquo;s own eval corpus</strong></td><td><strong>0.00%</strong></td></tr>
+      </tbody>
+    </table>
+
+    <p>That last row is not a typo. distil&rsquo;s corpus contains 43 tool-output blocks; the five over
+    2&nbsp;KB have <em>zero</em> consecutive duplicate lines and <em>zero</em> JSON, so Tier-0 has
+    nothing to act on. The corpus was built to exercise decision-relevance probes, not compressibility.
+    We publish it because quoting only the favourable fixtures would be the overclaim we criticise in
+    others.</p>
+
+    <div class="callout">
+      <strong>A measurement trap worth knowing.</strong> distil&rsquo;s offline tokenizers
+      (<code>heuristic</code>, <code>subword</code>) are whitespace-blind: they report
+      <strong>0.0%</strong> on pretty-printed JSON where the real Anthropic tokenizer reports
+      <strong>33.3%</strong>. Measuring this feature with the default counter would have hidden its
+      main win entirely. Every number on this page uses <code>--tokenizer anthropic</code>.
+    </div>
+
+    <h2 id="quota">Reading the window</h2>
+
+    <p><code>distil quota</code> reads the rate-limit windows directly, so &ldquo;distil saved you
+    quota&rdquo; is a measurement rather than a claim:</p>
+
+    <pre><code>$ distil quota
+Subscription quota (the currency a flat-rate plan actually spends):
+  five_hour          [########............]  43.0% used  resets 2026-08-16 15:49Z
+  seven_day          [....................]   4.0% used  resets 2026-08-23 07:59Z</code></pre>
+
+    <p>It is read-only, uses the OAuth token Claude Code already stores, and never logs it. Any
+    failure &mdash; no token, non-200, changed shape &mdash; reports <em>unavailable</em> rather than a
+    number, because a fabricated zero would read as &ldquo;saved everything&rdquo; in a before/after
+    comparison.</p>
+
+    <p><strong>Credit where it is due:</strong> Headroom shipped subscription quota telemetry before we
+    did, against the same endpoint. They built the instrument for the subscription user&rsquo;s real
+    currency while distil&rsquo;s copy was still saying that currency did not count. We adopted the
+    idea.</p>
+
+    <h2 id="other-agents">Other agents</h2>
+
+    <table>
+      <thead><tr><th>Agent</th><th>Can a hook rewrite tool output?</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Claude Code</td><td><code>PostToolUse</code> &rarr; <code>updatedToolOutput</code></td><td><strong>Supported today</strong></td></tr>
+        <tr><td>Gemini CLI</td><td><code>AfterTool</code> exists, but replacement is indirect</td><td>Under evaluation</td></tr>
+        <tr><td>Codex CLI</td><td>Hooks are observe-only; <code>updatedMCPToolOutput</code> is rejected</td><td>Blocked upstream</td></tr>
+      </tbody>
+    </table>
+
+    <p>For agents without a rewrite hook, the proxy and the in-process library remain the paths, and on
+    a metered key both reach the full reversible digest tier.</p>
+
+    <h2 id="scope">Honest scope</h2>
+
+    <ul>
+      <li><strong>Lossless only.</strong> No digest stubs, no injected recall tool, no summarization.</li>
+      <li><strong>Bash and MCP tool results only</strong>, at or above 2&nbsp;KB. Other built-in tools
+      have undocumented output shapes and a near-miss is silently ignored, so distil declines them
+      rather than guessing.</li>
+      <li><strong>Never touches failures.</strong> A non-empty <code>stderr</code>, an interrupt, or an
+      MCP <code>isError</code> result is passed through untouched &mdash; Anthropic&rsquo;s own warning
+      is that stripping error detail makes an agent &ldquo;proceed on a false assumption.&rdquo;</li>
+      <li><strong>Fails safe.</strong> Any exception, unknown shape, or transform that does not strictly
+      reduce tokens results in the original being used.</li>
+      <li><strong>Not yet certified.</strong> The proxy tier carries a conformal decision-equivalence
+      bound; the hook path has a 5-task smoke test. Treat it accordingly.</li>
+    </ul>
+
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

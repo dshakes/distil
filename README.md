@@ -40,6 +40,9 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
 - **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands, in-process, no network hop.
+- **On a subscription** — `distil hook --install`: Claude Code compresses its own tool output through
+  the documented `PostToolUse` extension point. No proxy, no credentials touched. `distil quota` shows
+  the rate-limit window it buys back. [Details →](https://dshakes.github.io/distil/subscription.html)
 - **See what it did** — live status line, session dissect, per-request headers, OTel spans, Prometheus metrics.
 
 ```bash
@@ -54,7 +57,13 @@ pipx install distil-llm && distil onboard    # detects your agent + billing, wir
   <img src="docs/assets/hero-terminal.svg" alt="Animated distil proof session: distil bench prints GATE: PASS (every trajectory certified non-inferior); distil wrap -- claude routes with zero config; a live line shows 53% smaller, equivalence 100%; then the proof ledger closes with 1,284,551 → 601,204 tokens (53.2% smaller), cost $18.41 → $8.72 calibrated to billed usage, 0 shadow decision changes across 63 A/B samples, 100% recoverable restore" width="84%"/>
 </p>
 
-> **Will it save you money?** Honestly: **only on metered billing** (an API key). On a flat-rate Pro/Max subscription it trims context and latency, not the bill. And savings come from **large** tool output — a short session that never reads a big file will show close to 0%, which is the tool working correctly, not failing. [Why →](#-compression-modes--in-plain-english)
+> **Will it save you money?** On **metered billing** (an API key), yes — directly, off the bill.
+> On a **flat-rate Pro/Max subscription** there is no per-token bill to cut, but there *is* a
+> rate-limit window, and spending fewer tokens per turn leaves more of it for the next task.
+> `distil quota` shows that window live. Savings come from **large, repetitive** tool output:
+> verbose JSON and duplicated log runs compress 25–99%, while prose and unique-line output
+> compress ~0% — a short session that never reads a big file showing near 0% is the tool working
+> correctly, not failing. [Why →](#-compression-modes--in-plain-english)
 
 <!-- ═══ LIVE community counter — fed by the opt-in census, re-polls every 5 min ═══ -->
 <p align="center"><sub>◉ &nbsp;<b>LIVE</b> · measured from the opt-in census on a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>, never estimated</sub></p>
@@ -206,7 +215,7 @@ distil shadow-stats                  # live decision-equivalence rate
 
 Honest scope: that's next-action equivalence — a **proxy**, not task success ([E7](#-the-proof) shows it doesn't fully transfer under aggressive *lossy* compression). Distil fails safe to full context.
 
-> **Will it save money?** Only on **metered** billing (API key) — fewer tokens, fewer dollars. On a flat-rate **subscription** it trims context + latency, not the bill. Coding agents: short sessions ~7%, big wins on **long, many-turn** sessions the model never re-reads.
+> **Will it save money?** On **metered** billing (API key) — fewer tokens, fewer dollars, directly. On a flat-rate **subscription** there is no per-token bill, so the saving is **rate-limit headroom**: fewer tokens per turn means more turns before you hit the window (`distil quota` shows it live). Coding agents: short sessions ~7%, big wins on **long, many-turn** sessions the model never re-reads.
 
 ---
 
@@ -388,6 +397,50 @@ chain = as_runnable() | llm                    # or drop it into a chain (lazy l
 Tool and function messages get the reversible Tier-1 digest, human and system messages are Tier-0 lossless, and **assistant messages are never rewritten** — a model's own words are not distil's to edit. Every digest is byte-exact recoverable. Pass `verbatim=True` for Tier-0-only when no recovery tool is available.
 
 It is a thin wrapper over the hooks in the table above, so it inherits the same certified compression path — nothing is re-implemented. `distil-llm` is a dependency; you do not install both by hand.
+
+---
+
+## 🎟️ Subscription — save the window, not the bill
+
+On a flat-rate Pro/Max plan there is no per-token bill to cut, so distil's dollar figures are
+notional. The **rate-limit window** is not notional: tokens spent on a 40&nbsp;KB test log are quota
+unavailable for the next task.
+
+The proxy can't help much here. Anthropic's consumer terms (§3, item 7) restrict automated access on
+subscription credentials, so distil deliberately runs `--lossless-only` there and measures **0.27%**.
+Your account isn't worth a few percent.
+
+**A `PostToolUse` hook is a different mechanism** — a documented, first-party extension point. Claude
+Code compresses its own tool output, in its own process, before the model reads it:
+
+```bash
+distil hook --install     # writes ~/.claude/settings.json (idempotent, preserves your other hooks)
+distil hook --selftest    # verify the schema adapters — a live mismatch is SILENT
+distil quota              # the window it buys back
+```
+
+```
+$ distil quota
+Subscription quota (the currency a flat-rate plan actually spends):
+  five_hour          [########............]  43.0% used  resets 2026-08-16 15:49Z
+  seven_day          [....................]   4.0% used  resets 2026-08-23 07:59Z
+```
+
+**Measured** on a paired live A/B, both arms answering correctly: tool_result **−38.6%**,
+`cache_creation` **−67.4%**, cost-weighted **−68.3%**, and decision-equivalence **5/5** across five
+verifiable tasks. Critically `cache_read` did *not* collapse — a hook sees each result once and cannot
+rewrite history, so compression is append-only by construction and the prompt cache survives.
+
+**Where it saves nothing.** Tier-0 is JSON minification plus consecutive-run collapse, so savings are
+shape-dependent: verbose JSON (npm/pip/kubectl/terraform) **28–33%**, duplicated log runs **up to
+99%**, and unique-line logs, prose, `git log` and `git diff` **0%**. On distil's own eval corpus it
+saves **0.00%** — that corpus has no JSON and no consecutive duplicates. Published because quoting
+only the favourable fixtures would be the overclaim we criticise in others.
+
+> Other agents: Gemini CLI's `AfterTool` can influence output indirectly (under evaluation); Codex CLI
+> hooks are observe-only and reject output rewriting, so it's blocked upstream there.
+
+[Full page, with the method and the caveats →](https://dshakes.github.io/distil/subscription.html)
 
 ---
 

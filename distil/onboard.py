@@ -234,6 +234,16 @@ def next_steps(env: Env) -> list[tuple[str, str, str]]:
                 " headroom and rate-limit room.",
             )
         )
+        steps.append(
+            (
+                "Shrink tool output in-process (Claude Code)",
+                "distil hook --install",
+                "PostToolUse hook: Claude Code compresses its own tool results before"
+                " reading them — a first-party extension point, so no proxy and no"
+                " credentials involved. Wins on verbose JSON and repetitive logs"
+                " (measured 25-99%); prose and unique-line output are left alone.",
+            )
+        )
     else:
         steps.append(
             (

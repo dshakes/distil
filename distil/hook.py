@@ -55,7 +55,9 @@ original untouched. Doing nothing is always a correct outcome here.
 from __future__ import annotations
 
 import json
+import os
 import sys
+from pathlib import Path
 from typing import Any
 
 # Below this, compression cannot save enough to be worth any risk. Tool results are
@@ -284,3 +286,100 @@ def _selftest() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# --------------------------------------------------------------------------------
+# Install / uninstall
+#
+# The hook is worthless until it is wired into settings.json, and a hand-written
+# config is exactly where a silent typo costs a user every byte of savings without
+# ever raising an error. So distil writes it, idempotently, and refuses to clobber
+# hooks it did not create.
+# --------------------------------------------------------------------------------
+
+_MARKER = "distil.hook"
+
+
+def _settings_path() -> Path:
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
+    return Path(cfg) / "settings.json"
+
+
+def _hook_command() -> str:
+    """The exact command Claude Code will run.
+
+    Uses the *current* interpreter rather than a bare ``distil``: a pipx install puts
+    distil on PATH but Claude Code may not inherit that PATH, and the failure would
+    be silent (hook not found -> original output used, no error surfaced).
+    """
+    return f"{sys.executable} -m distil.hook"
+
+
+def _entry() -> dict[str, Any]:
+    return {
+        "matcher": "Bash|mcp__.*",
+        "hooks": [{"type": "command", "command": _hook_command()}],
+    }
+
+
+def install_hook() -> int:
+    path = _settings_path()
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError) as exc:
+        print(f"distil: cannot read {path}: {exc}")
+        print("  fix the file (or move it aside) and re-run; refusing to overwrite it.")
+        return 1
+
+    hooks = settings.setdefault("hooks", {})
+    post = hooks.setdefault("PostToolUse", [])
+    if not isinstance(post, list):
+        print(f"distil: {path} has an unexpected PostToolUse shape; not touching it.")
+        return 1
+
+    # Idempotent: replace our own entry, never duplicate it, never touch anyone else's.
+    kept = [
+        e
+        for e in post
+        if not any(_MARKER in str(h.get("command", "")) for h in (e.get("hooks") or []))
+    ]
+    kept.append(_entry())
+    hooks["PostToolUse"] = kept
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    print(f"distil: hook installed in {path}")
+    print(f"  command: {_hook_command()}")
+    print("  scope:   Bash + MCP tool results >= 2 KB, lossless only")
+    print("  verify:  distil hook --selftest")
+    print("\n  Restart Claude Code for it to take effect.")
+    return 0
+
+
+def uninstall_hook() -> int:
+    path = _settings_path()
+    if not path.is_file():
+        print(f"distil: nothing to remove ({path} does not exist)")
+        return 0
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"distil: cannot read {path}: {exc}")
+        return 1
+
+    post = (settings.get("hooks") or {}).get("PostToolUse")
+    if not isinstance(post, list):
+        print("distil: no distil hook found")
+        return 0
+    kept = [
+        e
+        for e in post
+        if not any(_MARKER in str(h.get("command", "")) for h in (e.get("hooks") or []))
+    ]
+    if len(kept) == len(post):
+        print("distil: no distil hook found")
+        return 0
+    settings["hooks"]["PostToolUse"] = kept
+    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    print(f"distil: hook removed from {path}")
+    return 0
