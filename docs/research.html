@@ -47,7 +47,8 @@
         <li><a href="concepts.html">Concepts</a></li>
         <li><a href="techniques.html">Techniques</a></li>
         <li><a href="architecture.html">Architecture</a></li>
-        <li><a href="research.html" class="active" aria-current="page">Research &amp; Frontier</a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a>
+        <a href="research.html" class="active" aria-current="page">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Benchmark</a></li>
@@ -94,6 +95,60 @@
     <div class="callout">
       <strong>Proof harness &amp; paper.</strong> For a <em>non-circular</em> evaluation, Distil grades <strong>real agent traces</strong> (τ-bench / SWE-bench) with a <strong>real model</strong> — no planted markers — via <code>benchmarks/prove.py</code>: E1 frontier, <strong>E2 out-of-sample certification coverage</strong>, E3 distribution shift, E4 downstream task-success, and an <strong>E5 head-to-head vs. the real <code>llmlingua</code> packages</strong> (now running on Apple-silicon / MPS), with an optional <code>--expand</code> recovery loop. The headline run is the <strong>full real SWE-bench_Lite edit-localization (n=300 instances, 600 decisions, Claude grader)</strong>: the certified reversible engine holds <strong>98.8% out-of-sample certificate coverage</strong> at a <strong>mean realized decision-change rate of 8.0%</strong> for <strong>15.7% mean certified savings</strong> (E2; α=0.15, δ=0.05, 500 splits). On the 100-trajectory E5 subset, <strong>LLMLingua-2 certifies at 11.6% savings / 7.0% decision-change</strong> and <strong>LongLLMLingua at 5.7% / 3.5%</strong> (a fixed adapter no-op bug) — a frontier illustration, not a dominance claim. <strong>De-confounding (v0.24):</strong> re-running E5 with the gold hunk <strong>randomly repositioned</strong> (seed 1729) shows the gold-last position confound is <em>real but not load-bearing</em> — recency's decision-change rises 5.5%→8.5% yet still certifies, distil's aggressive levels still don't, and E2 still holds (100% coverage). With honest calibration/test operating-point selection, distil <strong>does</strong> certify <strong>14.0% test savings / 4.0% decision-change</strong>, but the certified point is plain head-truncation — on this single-turn task the win is the certificate that selects safe operating points, not a compressor that beats truncation. Get real τ-bench data with <code>benchmarks/fetch_real.py tau --src tau:gpt-4o-airline</code> (no HuggingFace needed). See <code>benchmarks/PROVE.md</code>, the protocol in <code>docs/PAPER_PLAN.md</code>, the <a href="paper/main.pdf">compiled paper (PDF)</a> with arXiv-ready LaTeX source in <code>docs/paper/</code>, and the first-timer publishing guide in <code>docs/PUBLISHING.md</code>.
     </div>
+
+    <hr/>
+
+    <!-- E14: provider-native context manipulation -->
+    <h2 id="e14">E14: provider-native context manipulation (the instrument turned outward)</h2>
+    <p><strong>Harness:</strong> <code>distil certify-provider</code> &middot; <strong>Numbers:</strong> <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/provider-compaction"><code>benchmarks/results/provider-compaction/</code></a> &middot; <strong>Full study:</strong> <a href="provider-compaction.html">Provider Compaction</a></p>
+
+    <p>E1&ndash;E13 point the decision-equivalence contract at distil&rsquo;s own compressor. E14 points the same
+    instrument at the two features that now rewrite the context window <em>by default, server-side</em>: Anthropic
+    context editing and OpenAI server-side compaction. Neither vendor publishes what its feature does to an
+    agent&rsquo;s decisions &mdash; a structural conflict of interest, since no vendor ships a tool that measures its
+    own degradation. Same protocol as everywhere else: pre-registered (<code>protocol.json</code> hashed before the
+    first API call), majority-of-3 decisions per arm, an A/A arm for the self-agreement floor, SIG v3 signatures,
+    live calls hard-capped, Hoeffding&ndash;Bentkus upper bound.</p>
+
+    <table>
+      <thead><tr><th>Provider manipulation</th><th>Config</th><th>A/B change</th><th>A/A floor</th><th>Adjusted</th><th>95% bound</th><th>Certified at &alpha;=0.1</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic context editing &mdash; <strong>default policy</strong>, run 2</td><td>keep=3, trigger 3k</td><td><strong>100.0%</strong></td><td>2.5%</td><td>100.0%</td><td>100.0%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing &mdash; <strong>default policy</strong>, run 1</td><td>keep=3, trigger 3k</td><td><strong>95.0%</strong></td><td>2.5%</td><td>94.9%</td><td>99.5%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing &mdash; aggressive</td><td>keep=0, trigger 500</td><td>92.5%</td><td>7.5%</td><td>91.9%</td><td>98.6%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>threshold 3k</td><td>20.0%</td><td>2.5%</td><td>17.9%</td><td>36.7%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>threshold 1k</td><td>12.5%</td><td>0.0%</td><td>12.5%</td><td>27.8%</td><td>No</td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>The finding is the mechanism, not the rate.</strong> Anthropic&rsquo;s <em>default</em> retention
+    (<code>keep=3</code>) did not reduce the decision-change rate versus deleting everything &mdash; 92.5% &rarr;
+    95&ndash;100%. It changed the <em>failure mode</em>. Under <code>keep=0</code> the agent lost the load-bearing
+    facts and stopped acting: 37 of 40 flips were tool&rarr;text. Under the default, stalls nearly vanish and
+    29&ndash;31 of 40 flips become tool&rarr;<em>wrong</em> tool &mdash; the three retained results are the routine
+    ones (inventory, shipping, promotions), enough to keep the agent confidently acting while the records its
+    policy depends on are gone. It refunds where it should escalate fraud. <strong>A stalled agent is a visible
+    incident; a wrong one is a silent write.</strong></p>
+
+    <p><strong>Why retention counted in recency cannot help.</strong> The load-bearing facts in an agent
+    trajectory are gathered early, then buried under routine calls. A policy that keeps the <em>most recent</em> N
+    tool uses cannot protect a decision that depends on <em>relevance</em>. That ordering is the normal shape of
+    agentic work, not an adversarial construction &mdash; and it is why the default is the dangerous setting rather
+    than the safe one.</p>
+
+    <p><strong>The contrast.</strong> Summarization preserved decisions roughly 5&ndash;7&times; better than
+    deletion, at both the aggressive and default configs. Neither feature certifies decision-safe at &alpha;=0.1,
+    and per the house rule (see E7) both numbers are published either way. The pre-registered protocol was executed
+    <em>twice</em> against Anthropic and both runs are published &mdash; selecting the kinder or crueler one after
+    the fact is the practice this experiment exists to refuse.</p>
+
+    <p><strong>Honest scope.</strong> Synthetic decision-bearing corpora, deliberately ordered so that
+    <code>keep=3</code> retains only routine rounds: this measures what the policy&rsquo;s <em>mechanism</em> does
+    when load-bearing facts age out, not how often that arises in your traffic. The trigger is lowered to 3k (from
+    the 100k default) so 40 cases fit a budget; the retention rule is the real default. Decision-equivalence is the
+    measured invariant, not task success &mdash; E7 showed those can diverge. Point-in-time, 2026-07-26, on the
+    models named. Reproduce, don&rsquo;t extrapolate &mdash; <a href="provider-compaction.html#reproduce">the
+    commands are published</a>.</p>
 
     <hr/>
 

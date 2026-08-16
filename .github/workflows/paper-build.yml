@@ -74,6 +74,17 @@ jobs:
           # date against the pinned metadata).
           pre_compile: export SOURCE_DATE_EPOCH=1700000000 FORCE_SOURCE_DATE=1
 
+      # The provider-compaction paper is compiled but its PDF is NOT committed,
+      # so there is no staleness check to satisfy — this step exists to catch a
+      # LaTeX error or a missing generated/ macro fragment before it reaches arXiv.
+      - name: Compile provider-compaction paper
+        uses: xu-cheng/latex-action@v3
+        with:
+          working_directory: docs/paper
+          root_file: provider_compaction.tex
+          latexmk_use_xelatex: false
+          args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
+
       - name: Compile NeurIPS variant
         uses: xu-cheng/latex-action@v3
         with:

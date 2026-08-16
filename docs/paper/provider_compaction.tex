@@ -1,0 +1,428 @@
+% Recency Is Not Relevance: Certifying Provider-Native Context Manipulation
+% arXiv-ready. Compiles on Overleaf (pdfLaTeX) with no external image files.
+%
+% Every number in this paper is generated from the run artifacts by
+%   python benchmarks/provider_compaction_to_latex.py
+% which refuses to emit LaTeX unless each report's embedded protocol hash matches
+% its protocol.json. Do not hand-edit numbers into the prose.
+
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}  % must load after hyperref
+
+% Generated macros. If the fragment is missing, fail loudly rather than silently
+% shipping a paper with placeholder numbers — the same guardrail main.tex uses.
+\IfFileExists{generated/provider_compaction.tex}{%
+  \input{generated/provider_compaction.tex}}{%
+  \GenericWarning{}{WARNING: generated/provider_compaction.tex missing --- every
+  reported number will render as a placeholder. Run
+  benchmarks/provider_compaction_to_latex.py before distributing this PDF.}%
+  \newcommand{\pcAnthropicDefaultTwoAB}{--}\newcommand{\pcAnthropicDefaultTwoAA}{--}%
+  \newcommand{\pcAnthropicDefaultTwoAdj}{--}\newcommand{\pcAnthropicDefaultTwoBound}{--}%
+  \newcommand{\pcAnthropicDefaultTwoFired}{--}\newcommand{\pcAnthropicDefaultTwoCalls}{--}%
+  \newcommand{\pcAnthropicDefaultTwoModel}{--}%
+  \newcommand{\pcAnthropicDefaultOneAB}{--}\newcommand{\pcAnthropicDefaultOneAA}{--}%
+  \newcommand{\pcAnthropicDefaultOneAdj}{--}\newcommand{\pcAnthropicDefaultOneBound}{--}%
+  \newcommand{\pcAnthropicDefaultOneFired}{--}\newcommand{\pcAnthropicDefaultOneCalls}{--}%
+  \newcommand{\pcAnthropicDefaultOneModel}{--}%
+  \newcommand{\pcAnthropicAggressiveAB}{--}\newcommand{\pcAnthropicAggressiveAA}{--}%
+  \newcommand{\pcAnthropicAggressiveAdj}{--}\newcommand{\pcAnthropicAggressiveBound}{--}%
+  \newcommand{\pcAnthropicAggressiveFired}{--}\newcommand{\pcAnthropicAggressiveCalls}{--}%
+  \newcommand{\pcAnthropicAggressiveModel}{--}%
+  \newcommand{\pcOpenAIThreeKAB}{--}\newcommand{\pcOpenAIThreeKAA}{--}%
+  \newcommand{\pcOpenAIThreeKAdj}{--}\newcommand{\pcOpenAIThreeKBound}{--}%
+  \newcommand{\pcOpenAIThreeKFired}{--}\newcommand{\pcOpenAIThreeKCalls}{--}%
+  \newcommand{\pcOpenAIThreeKModel}{--}%
+  \newcommand{\pcOpenAIOneKAB}{--}\newcommand{\pcOpenAIOneKAA}{--}%
+  \newcommand{\pcOpenAIOneKAdj}{--}\newcommand{\pcOpenAIOneKBound}{--}%
+  \newcommand{\pcOpenAIOneKFired}{--}\newcommand{\pcOpenAIOneKCalls}{--}%
+  \newcommand{\pcOpenAIOneKModel}{--}%
+  \newcommand{\pcN}{--}\newcommand{\pcVotes}{--}\newcommand{\pcAlpha}{--}%
+  \newcommand{\pcDelta}{--}\newcommand{\pcAnthropicAggressiveCleared}{--}%
+  \newcommand{\pcTableBody}{\multicolumn{7}{c}{\textit{macros missing}} \\}}
+
+\title{\textbf{Recency Is Not Relevance:\\
+Certifying Provider-Native Context Manipulation in LLM Agents}}
+
+\author{%
+  Chandra Shekhar Mudarapu\thanks{Code and run artifacts:
+  \url{https://github.com/dshakes/distil}}%
+}
+
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Both major LLM providers now rewrite the agent's context window on the server, by
+default: Anthropic's \emph{context editing} deletes old tool results, and OpenAI's
+\emph{server-side compaction} replaces them with a summary. Neither publishes what
+this does to an agent's decisions, and neither has an incentive to --- no vendor
+ships an instrument that measures its own degradation. We apply a
+decision-equivalence test to both features under a pre-registered protocol with an
+A/A self-agreement arm, majority-of-\pcVotes{} voting, and distribution-free upper
+bounds. On a decision-bearing corpus of $n=\pcN$ tool-use episodes, Anthropic's
+\emph{default} clearing policy (retain the 3 most recent tool uses) changed the
+agent's next action in \pcAnthropicDefaultOneAB{} of cases, and
+\pcAnthropicDefaultTwoAB{} on an independent replication of the same
+pre-registered protocol, against an A/A noise floor of
+\pcAnthropicDefaultOneAA{}. OpenAI's compaction changed \pcOpenAIThreeKAB{} under
+matched conditions. Our central finding is mechanistic rather than numerical:
+retaining the most recent $k$ tool results did \emph{not} reduce the
+decision-change rate relative to deleting all of them
+(\pcAnthropicAggressiveAB{} $\rightarrow$
+\pcAnthropicDefaultOneAB{}--\pcAnthropicDefaultTwoAB{}); it changed the failure
+\emph{mode}, converting visible stalls into confident wrong actions. Retention
+counted in \emph{recency} cannot protect a decision that depends on
+\emph{relevance}, and in agent trajectories the load-bearing facts are gathered
+early and then buried under routine calls. We argue that the default policy is
+therefore the more dangerous configuration, that summarization is empirically
+$5$--$7\times$ safer than deletion, and that context manipulation should ship with
+a decision-equivalence certificate rather than a token-reduction number.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+An LLM agent's context window is no longer under the application's sole control.
+Anthropic's context editing~\cite{anthropiccontextediting} removes tool results
+once the transcript crosses a token threshold; OpenAI's server-side
+compaction~\cite{openaicompaction} summarizes prior turns into an opaque item. Both are enabled through a single request parameter, both operate
+server-side, and both are promoted as the recommended path for long-running
+agents. The user-visible contract is about \emph{tokens}: fewer of them, and
+therefore lower cost and longer sessions.
+
+The contract that matters, however, is about \emph{behavior}. An agent is a
+sequence of decisions, each conditioned on what remains in the window. If removing
+or summarizing a tool result changes which tool the agent calls next, the token
+saving has been paid for in a currency the vendor does not report.
+
+We make that currency measurable. Our contribution is not a compression method but
+an instrument and the result of pointing it at the two features that now sit,
+by default, between every agent and its model.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+  \item A pre-registered decision-equivalence protocol for third-party
+    certification of context manipulation, with an A/A arm that separates true
+    behavioral change from model sampling noise, ground-truthed firing detection,
+    and a distribution-free upper bound on the change rate
+    (\Cref{sec:method}).
+  \item The first published measurement of what provider-native context
+    manipulation does to agent decisions, for both major providers, at both
+    aggressive and default configurations (\Cref{sec:results}).
+  \item A mechanistic explanation of why the \emph{default} retention policy is
+    more dangerous than deleting everything: recency-based retention cannot
+    protect relevance-based dependencies, and it converts loud failures into
+    silent ones (\Cref{sec:mechanism}).
+\end{enumerate}
+
+\section{Related work}
+\label{sec:related}
+
+\paragraph{Prompt and context compression.}
+Work on prompt compression has largely optimized a reconstruction- or
+task-accuracy objective: LLMLingua~\cite{llmlingua,longllmlingua,llmlinguatwo} and
+its successors select tokens by
+perplexity-based salience, while later methods compress with learned encoders or
+structured intermediate representations. This literature evaluates compression by
+what is preserved in the \emph{text}, or by end-task accuracy on static
+benchmarks.
+
+\paragraph{Compaction for long-horizon agents.}
+Recent work moves the question to agent trajectories. ACON~\cite{acon} optimizes
+natural-language compression guidelines by contrasting successful full-context
+trajectories against failed compressed ones. Work on execution
+instability~\cite{trace} argues
+that repeatedly replacing working context with summaries causes agents to lose
+track of execution state, and evaluates compression at the \emph{boundary} where
+it occurs through paired continuations rather than at terminal outcomes. Studies of
+implicit compression for software-engineering agents~\cite{implicitswe} report
+that reconstruction errors --- hallucinated file paths, altered line numbers --- break tools that
+require exact matching. A complementary line replaces token-level salience with
+typed, decision-oriented fields, retaining what a unit implies for the next action
+rather than which of its tokens score highly~\cite{damc} --- a design that is
+explicitly relevance-indexed rather than recency-indexed, and therefore not subject
+to the failure we characterize. Our finding is consistent with this line and extends it in
+two ways: we measure a \emph{deployed, default-on} provider feature rather than a
+research method, and we identify retention-by-recency as a specific mechanism by
+which a policy that appears conservative fails.
+
+\paragraph{Certification and risk control.}
+Distribution-free risk control~\cite{crc,ltt} has been applied to LLM outputs,
+routing, and tool calls~\cite{rolestrat}.
+
+\paragraph{Compression as an attack surface.}
+Independently of accidental information loss, an adversary who knows a compressor
+sits in the path can craft input that survives compression while the guardrails
+around it are budgeted away~\cite{coma}. That work targets compressors under the
+application's control; the features we study are enabled provider-side, which
+removes even the option of auditing the transformation locally. The two concerns
+compound: a manipulation that changes decisions on benign input is also a
+manipulation whose behavior on adversarial input is unmeasured. We use the same machinery for a different object: not the model's output,
+but a transformation applied to the model's \emph{input} by a third party.
+
+\section{Method}
+\label{sec:method}
+
+\paragraph{Decision-equivalence.}
+Fix an episode: a multi-turn transcript ending at a point where the agent must act.
+Let $A$ denote the transcript with manipulation disabled and $B$ the same
+transcript with the provider feature enabled. The manipulation is
+\emph{decision-preserving} on that episode iff the agent's next action is
+unchanged. Actions are compared by a normalized signature over the tool name and
+arguments, so that formatting differences do not register as behavioral change and
+a switch from a tool call to prose does.
+
+\paragraph{The A/A arm.}
+A raw $A/B$ change rate is uninterpretable on its own, because a nonzero
+temperature model does not always agree with itself. We therefore run a second,
+independent baseline arm on identical input. The resulting $A/A$ rate is the
+self-agreement floor; we report it alongside every $A/B$ rate and also report an
+adjusted rate that discounts it. Each arm's decision is the majority of
+\pcVotes{} samples.
+
+\paragraph{Pre-registration.}
+The protocol --- $n$, $\alpha$, $\delta$, vote count, trigger threshold, retention
+parameter, and model --- is serialized to \texttt{protocol.json} before the first
+API call, and its SHA-256 is embedded in the resulting report. Choosing $n$ after
+seeing results is the failure mode this design exists to prevent. The LaTeX
+generator for this paper recomputes that hash and refuses to emit numbers if the
+pairing is broken.
+
+\paragraph{Firing ground truth.}
+An episode contributes to the sample only if the manipulation actually fired,
+determined from the provider's own response metadata rather than inferred from
+token counts. Episodes where the feature did not fire are excluded rather than
+counted as successes, which would otherwise dilute the rate toward zero.
+
+\paragraph{Bounds.}
+We report a distribution-free upper confidence bound on the change rate at
+$\delta=\pcDelta$, and declare a feature \emph{certified decision-safe} at
+$\alpha=\pcAlpha$ only if that bound falls below $\alpha$.
+
+\section{Experimental setup}
+\label{sec:setup}
+
+\paragraph{Corpora.}
+Episodes are seeded, byte-reproducible synthetic tool-use transcripts in a
+customer-support domain, in which every decision-bearing fact (order state,
+billing record) appears inside a tool result surrounded by realistic log noise, and
+no directive tells the model what to do. The first corpus uses two tool rounds; the
+second uses seven, ordered so that the two decision-bearing rounds occur at the
+head and are followed by four routine rounds (inventory, shipping scans,
+communications log, promotions) carrying no decision-relevant fact.
+
+\paragraph{Configurations.}
+For Anthropic we test an aggressive setting (retain zero tool uses, low trigger)
+and the shipped \emph{default} retention (retain the 3 most recent tool uses). For
+OpenAI we test two compaction thresholds. Live API calls are hard-capped in code
+per run; each run made \pcAnthropicDefaultOneCalls{} calls. Subjects are
+\texttt{\pcAnthropicDefaultOneModel} and \texttt{\pcOpenAIOneKModel}.
+
+\section{Results}
+\label{sec:results}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llccccc}
+\toprule
+Manipulation & Config & A/B & A/A & Adj. & 95\% bd. & Cert. \\
+\midrule
+\pcTableBody
+\bottomrule
+\end{tabular}
+\caption{Decision-change rates for provider-native context manipulation,
+$n=\pcN$ fired episodes per run, majority-of-\pcVotes{} decisions per arm.
+``Certified'' is at $\alpha=\pcAlpha$ against the distribution-free upper bound.
+No configuration of either feature certifies decision-safe.}
+\label{tab:main}
+\end{table}
+
+\Cref{tab:main} reports every run. Three results stand out.
+
+\paragraph{The default policy is not safer than deleting everything.}
+Anthropic's aggressive configuration changed \pcAnthropicAggressiveAB{} of
+decisions. Its \emph{default} retention changed \pcAnthropicDefaultOneAB{} and
+\pcAnthropicDefaultTwoAB{} across two executions of the same pre-registered
+protocol. Retaining the three most recent tool uses bought no reduction in
+decision-change rate at all.
+
+\paragraph{Summarization is safer than deletion.}
+OpenAI's compaction changed \pcOpenAIOneKAB{} and \pcOpenAIThreeKAB{} of decisions
+at the two thresholds tested, against \pcAnthropicAggressiveAB{} and
+\pcAnthropicDefaultOneAB{}--\pcAnthropicDefaultTwoAB{} for deletion --- a gap of
+roughly $5$--$7\times$ in the same harness, on the same corpora, with the same
+grader.
+
+\paragraph{Nothing certifies.}
+No configuration of either feature has an upper bound below $\alpha=\pcAlpha$.
+Both numbers are published regardless of which direction they point; selecting the
+kinder run after the fact is the practice this protocol exists to refuse, which is
+why both Anthropic default-policy executions appear in \Cref{tab:main}.
+
+\section{Mechanism: recency is not relevance}
+\label{sec:mechanism}
+
+The rates alone understate the finding. The \emph{shape} of the failures differs
+between configurations in a way that matters more than their magnitude.
+
+Under the aggressive configuration, with all tool results cleared, the dominant
+failure was the agent ceasing to act: the large majority of flips were
+tool-call$\rightarrow$prose. Having lost the records it needed, the agent produced
+text instead of an action. \pcAnthropicAggressiveCleared{} input tokens were cleared across the
+episode set, as reported by the provider's own metadata.
+
+Under the default retention policy, those stalls largely disappeared and were
+replaced by tool-call$\rightarrow$\emph{different}-tool flips. The reason is
+structural. The three retained results are the three \emph{most recent} ones ---
+in our second corpus, the routine rounds. They are sufficient to keep the agent in
+an acting posture: the window still looks populated, recent, and coherent. What is
+gone is the older, decision-bearing evidence. The agent therefore acts confidently
+on an incomplete record, issuing a refund where the policy requires a fraud
+escalation.
+
+This is the central claim of the paper, and it is not specific to one vendor's
+implementation:
+
+\begin{quote}
+A retention rule indexed by \emph{recency} cannot protect a decision that depends
+on \emph{relevance}. In agent trajectories, evidence is typically gathered early
+and then buried under routine follow-up calls, so recency-ordered retention
+preferentially discards exactly the load-bearing facts.
+\end{quote}
+
+The safety consequence is asymmetric. A stalled agent is a visible incident: a
+human sees prose where an action belonged. An agent that acts on a partially
+erased record produces a plausible, well-formed, wrong action --- in an agent with
+write access, a silent incorrect write. The default policy converts the first
+failure mode into the second while leaving the total failure rate unchanged. By
+the metric a vendor is likely to track (does the agent still produce tool calls?)
+the default looks like an improvement.
+
+\section{Threats to validity}
+\label{sec:threats}
+
+\paragraph{Synthetic corpora, deliberately ordered.}
+Both corpora are synthetic, and the second is constructed so that recency-ordered
+retention keeps only routine rounds. This measures what the policy's mechanism does
+when load-bearing facts age out of the retention window; it is \emph{not} a
+prevalence estimate for how often that ordering arises in production traffic. We
+claim the mechanism, not the base rate.
+
+\paragraph{Lowered trigger.}
+Experiments hold the real default retention rule but fire it at a reduced token
+threshold, because episodes sized for a bounded API budget cannot cross the
+production default. What generalizes is the retention rule; the threshold is a
+lever to make it fire affordably. The behavior of the default threshold on genuine
+long-horizon transcripts remains open and requires proportionally larger budget.
+
+\paragraph{Decision-equivalence is not task success.}
+The measured invariant is the agent's next action. Per-step equivalence and
+end-to-end task success can diverge in both directions, and a change in next
+action is not automatically a task failure.
+
+\paragraph{Point-in-time.}
+Both features are evolving surfaces measured on the dates and model versions
+recorded in the artifacts. Vendors may change behavior without notice; these
+results should be reproduced, not extrapolated.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+Context manipulation has become infrastructure: enabled by default, executed
+server-side, and reported in tokens. We show that the reporting unit is wrong.
+Anthropic's default context-editing policy changed the agent's next action in
+\pcAnthropicDefaultOneAB{}--\pcAnthropicDefaultTwoAB{} of pre-registered,
+replicated cases, and its retention parameter --- the part that looks like a safety
+margin --- bought no reduction in that rate while converting visible failures into
+silent ones. Summarization fared substantially better than deletion, but neither
+certifies decision-safe at $\alpha=\pcAlpha$.
+
+The remedy is not to disable these features; it is to report them honestly. A
+context operation should ship with a decision-equivalence certificate the way a
+model ships with an evaluation. The harness used here is open source and runs
+against either provider on a user's own configuration and traffic.
+
+\paragraph{Reproducibility.}
+The corpora are seeded and byte-reproducible; every run directory contains the
+pre-registration written before the first API call and a report whose embedded
+hash binds it to that pre-registration. The commands, the artifacts, and the
+generator that turns them into every number in this paper are in the repository.
+
+\begin{thebibliography}{99}
+
+\bibitem{llmlingua} H.~Jiang, Q.~Wu, C.-Y. Lin, Y.~Yang, L.~Qiu.
+\emph{LLMLingua: Compressing Prompts for Accelerated Inference of Large Language
+Models.} EMNLP 2023. arXiv:2310.05736.
+
+\bibitem{longllmlingua} H.~Jiang, Q.~Wu, X.~Luo, D.~Li, C.-Y. Lin, Y.~Yang, L.~Qiu.
+\emph{LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via
+Prompt Compression.} ACL 2024. arXiv:2310.06839.
+
+\bibitem{llmlinguatwo} Z.~Pan, Q.~Wu, H.~Jiang, M.~Xia, X.~Luo, J.~Zhang, Q.~Lin,
+V.~R\"uhle, Y.~Yang, C.-Y. Lin, H.~V. Zhao, L.~Qiu, D.~Zhang.
+\emph{LLMLingua-2: Data Distillation for Efficient and Faithful Task-Agnostic
+Prompt Compression.} Findings of ACL 2024. arXiv:2403.12968.
+
+\bibitem{acon} M.~Kang, W.-N. Chen, D.~Han, H.~A. Inan, L.~Wutschitz, Y.~Chen,
+R.~Sim, S.~Rajmohan.
+\emph{ACON: Optimizing Context Compression for Long-horizon LLM Agents.}
+ICML 2026. arXiv:2510.00615.
+
+\bibitem{trace} G.~Min, L.~Wu, M.~Darbari, C.~Chen, L.~Hong.
+\emph{Toward Reliable Context Compression for Long-Horizon Agents: An Empirical
+Study of Execution Instability.} arXiv:2608.06503, 2026.
+
+\bibitem{damc} X.~Guan, Q.~Zhao, Y.~Deng.
+\emph{Decision-Aware Memory Cards: Counterfactual-Inspired Context Selection and
+Compression for Tool-Using LLM Agents.} arXiv:2606.08151, 2026.
+
+\bibitem{implicitswe} K.~Gelvan, I.~Slinko, F.~Steinbauer, E.~Bogomolov,
+F.~Kofler, Y.~Zharov.
+\emph{On Problems of Implicit Context Compression for Software Engineering
+Agents.} arXiv:2605.11051, 2026.
+
+\bibitem{coma} Z.~Liu, Z.~Zhang, Y.~Xie, D.~She.
+\emph{When Compression Becomes an Attack Surface: Black-Box Attacks on
+Prompt-Compressed LLM Agents.} arXiv:2510.22963, 2026.
+
+\bibitem{crc} A.~N. Angelopoulos, S.~Bates, A.~Fisch, L.~Lei, T.~Schuster.
+\emph{Conformal Risk Control.} ICLR 2024. arXiv:2208.02814.
+
+\bibitem{ltt} A.~N. Angelopoulos, S.~Bates, E.~Cand\`es, M.~Jordan, L.~Lei.
+\emph{Learn Then Test: Calibrating Predictive Algorithms to Achieve Risk Control.}
+Annals of Applied Statistics, 2025. arXiv:2110.01052.
+
+\bibitem{rolestrat} M.~A. Rahman, M.~A. Rahman, N.~H. Samin, K.~R. Tasnia,
+M.~H. Amin, S.~R. Ahona, J.~A. Noshin.
+\emph{Beyond Aggregate Risk: Role-Stratified Conformal Risk Control for LLM Tool
+Calls.} arXiv:2607.24343, 2026.
+
+\bibitem{anthropiccontextediting} Anthropic.
+\emph{Context editing.} Claude Platform Documentation.
+\url{https://platform.claude.com/docs/en/build-with-claude/context-editing}.
+Accessed 2026-08.
+
+\bibitem{openaicompaction} OpenAI.
+\emph{Compaction.} OpenAI API Documentation.
+\url{https://developers.openai.com/api/docs/guides/compaction}.
+Accessed 2026-08.
+
+\end{thebibliography}
+
+\end{document}

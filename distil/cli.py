@@ -2485,6 +2485,60 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_quota(args: argparse.Namespace) -> int:
+    """Show the subscription rate-limit windows.
+
+    On a flat-rate plan the dollar figures elsewhere in distil are notional; the
+    window is what actually runs out. This reads it so "distil saved you quota" is a
+    measurement rather than a claim.
+    """
+    from .quota import snapshot
+
+    snap = snapshot()
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                {
+                    "available": snap.available,
+                    "reason": snap.reason,
+                    "windows": [
+                        {
+                            "name": w.name,
+                            "utilization_pct": w.utilization_pct,
+                            "remaining_pct": w.remaining_pct,
+                            "resets_at": w.resets_at,
+                        }
+                        for w in snap.windows
+                    ],
+                }
+            )
+        )
+        return 0 if snap.available else 1
+
+    if not snap.available:
+        print(f"distil: subscription quota unavailable — {snap.reason}")
+        print("  this is normal on a metered API key; quota windows are a subscription concept.")
+        return 1
+
+    print("Subscription quota (the currency a flat-rate plan actually spends):")
+    for w in snap.windows:
+        bar = "#" * int(w.utilization_pct / 5) + "." * (20 - int(w.utilization_pct / 5))
+        resets = f"  resets {w.resets_at[:16].replace('T', ' ')}Z" if w.resets_at else ""
+        print(f"  {w.name:18s} [{bar}] {w.utilization_pct:5.1f}% used{resets}")
+    return 0
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    """Run, install, or verify the Claude Code PostToolUse hook."""
+    from .hook import install_hook, main as hook_main, uninstall_hook
+
+    if getattr(args, "install", False):
+        return install_hook()
+    if getattr(args, "uninstall", False):
+        return uninstall_hook()
+    return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     """Run the zero-dependency distil MCP server over stdio (compress/expand/savings)."""
     from .mcp_server import serve
@@ -4207,6 +4261,32 @@ def build_parser() -> argparse.ArgumentParser:
         "mcp", help="run the zero-dep MCP server over stdio (distil_compress/expand/savings)"
     )
     mc.set_defaults(func=cmd_mcp)
+
+    hk = sub.add_parser(
+        "hook",
+        help="Claude Code PostToolUse hook: losslessly shrink tool output in-process",
+    )
+    hk.add_argument(
+        "--selftest",
+        action="store_true",
+        help="verify the schema adapters offline (a live schema mismatch is SILENT)",
+    )
+    hk.add_argument(
+        "--install",
+        action="store_true",
+        help="write the hook into ~/.claude/settings.json (idempotent)",
+    )
+    hk.add_argument(
+        "--uninstall", action="store_true", help="remove the distil hook from settings.json"
+    )
+    hk.set_defaults(func=cmd_hook)
+
+    qt = sub.add_parser(
+        "quota",
+        help="subscription rate-limit windows — the real currency on a flat-rate plan",
+    )
+    qt.add_argument("--json", action="store_true", help="machine-readable output")
+    qt.set_defaults(func=cmd_quota)
 
     wr = sub.add_parser(
         "wrap",
