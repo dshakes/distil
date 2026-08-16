@@ -14,9 +14,24 @@
   <a href="https://dshakes.github.io/distil/adoption.html"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Fdownloads-real.json" alt="PyPI installs/month, bot-filtered"/></a>
 </p>
 
-<h2 align="center">Cut your agent's token bill.<br/>Prove its decisions don't change.</h2>
+<h2 align="center">Something is rewriting your agent's context.<br/>Distil measures what it cost you.</h2>
 
-<p align="center"><b>Compress the tool output, logs, files, and history your agent re-sends every turn — reversibly, so nothing is ever actually gone.</b><br/>Then, unlike every other compressor, <b>prove it didn't break anything</b>.</p>
+<p align="center"><b>Your provider now edits the context window for you — clearing old tool results, summarizing history — by default, server-side, with no report of what changed.</b><br/>Distil is the instrument that answers the only question that matters: <b>did the agent still do the same thing?</b></p>
+
+<table align="center">
+<tr><td>
+
+**We pointed it at the providers.** Anthropic's **default** context-editing policy (`keep=3`) changed the
+agent's next action in **95–100% of cases**, against a 2.5% A/A noise floor. Keeping the 3 most recent
+tool uses didn't lower the change rate at all — it turned *stalling* into *acting on missing facts*.
+OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per run.
+
+**[Read the study →](https://dshakes.github.io/distil/provider-compaction.html)** · [rerun it on your own config](https://dshakes.github.io/distil/provider-compaction.html#reproduce)
+
+</td></tr>
+</table>
+
+<p align="center">Distil also <b>compresses</b> — the tool output, logs, and history your agent re-sends every turn, reversibly.<br/>It's the one context operation that ships with its own certificate.</p>
 
 ## What it does
 
