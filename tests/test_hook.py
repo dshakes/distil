@@ -143,6 +143,12 @@ class TestMCP:
 class TestHostileInputs:
     """The adversarial-real-path invariants, applied to the hook."""
 
+    # `ids=` matters here, not just for readability: without it pytest builds the test
+    # ID from the parameter VALUE, and these values are thousands of characters long.
+    # pytest exports the current ID in PYTEST_CURRENT_TEST, and Windows caps an
+    # environment variable at 32,767 characters — so the unnamed version failed the
+    # windows-latest gate with "the environment variable is longer than 32767
+    # characters" before a single assertion ran.
     @pytest.mark.parametrize(
         "text",
         [
@@ -153,6 +159,15 @@ class TestHostileInputs:
             '{"unclosed": [1,2,3' + "x" * 3000,
             "\n" * 5000,
             "\t \r\n" * 2000,
+        ],
+        ids=[
+            "control-bytes",
+            "emoji",
+            "cjk",
+            "100kb-single-run",
+            "truncated-json",
+            "newline-flood",
+            "whitespace-mix",
         ],
     )
     def test_survives_hostile_content(self, text):
@@ -308,3 +323,35 @@ class TestInstaller:
         install_hook()
         entry = json.loads(p.read_text())["hooks"]["PostToolUse"][0]
         assert "Bash" in entry["matcher"] and "mcp__" in entry["matcher"]
+
+
+def test_no_test_id_can_break_windows():
+    """No parametrized ID may approach Windows' environment-variable ceiling.
+
+    pytest exports the running test's ID in PYTEST_CURRENT_TEST. Windows caps an
+    environment variable at 32,767 characters, so a parametrize over large values
+    without `ids=` aborts the whole windows-latest gate in setup — before any
+    assertion runs, with an error that names no test. That is exactly how
+    test_survives_hostile_content broke CI, so this guards the class rather than the
+    instance.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "-q", "--collect-only", "--no-header"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        check=False,
+    )
+    longest = max((line for line in out.stdout.splitlines() if "::" in line), key=len, default="")
+    # 8k leaves generous headroom under the 32,767 hard limit while still catching the
+    # "someone parametrized over a 4KB blob" mistake.
+    assert len(longest) < 8192, (
+        f"test ID is {len(longest)} chars — Windows caps env vars at 32,767 and pytest "
+        f"puts the ID in PYTEST_CURRENT_TEST. Add ids=[...] to that parametrize.\n"
+        f"{longest[:200]}..."
+    )
