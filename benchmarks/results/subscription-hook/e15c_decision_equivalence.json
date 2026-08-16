@@ -1,0 +1,23 @@
+{
+  "experiment": "E15c decision-equivalence, paired live A/B",
+  "date": "2026-08-16",
+  "design": "5 decision-bearing tasks x 2 arms (hook OFF / hook ON), same prompt, same fixtures, live Claude Code sessions. Each task has one verifiable correct answer, so equivalence AND correctness are both checkable.",
+  "compression_on_these_tasks": {
+    "t1.json services": "28.9%",
+    "t2.json dependencies": "25.6%",
+    "t3.log heartbeats": "96.3%",
+    "note": "measured with the real Anthropic tokenizer; every task actually fired the hook"
+  },
+  "results": {
+    "decision_agreement": "5/5",
+    "correct_with_hook_on": "5/5",
+    "correct_with_hook_off": "5/5",
+    "divergences": 0
+  },
+  "verdict": "PASS - no decision changed, and no answer was wrong, on tasks where compression removed 25-96% of the tool output.",
+  "caveats": [
+    "n=5 paired tasks. Enough to detect a gross regression, NOT enough for a conformal bound or a certified change-rate. A real certificate needs the corpus scale distil uses elsewhere (n=40+ with an A/A arm).",
+    "No A/A arm was run here, so the noise floor is unmeasured; with 0 divergences observed that does not change the verdict, but it means this is a smoke test, not a certificate.",
+    "Tasks were chosen to be compressible BY CONSTRUCTION (JSON + repeated runs). On distil's own corpus the hook saves 0.00% (see e15b) because that corpus contains neither shape."
+  ]
+}

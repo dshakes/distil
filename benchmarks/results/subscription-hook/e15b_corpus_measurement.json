@@ -1,0 +1,28 @@
+{
+  "experiment": "E15b hook savings on distil's own corpus (the honest denominator)",
+  "date": "2026-08-16",
+  "tokenizer": "anthropic (real); offline tokenizers are whitespace-blind and would misreport",
+  "result": {
+    "tool_output_blocks": 43,
+    "median_bytes": 1334,
+    "max_bytes": 6983,
+    "eligible_over_2KB": 5,
+    "compressed": 0,
+    "tokens_before": 14301,
+    "tokens_after": 14301,
+    "savings_pct": 0.0
+  },
+  "root_cause": "The 5 eligible blocks contain ZERO consecutive duplicate lines and ZERO JSON. Tier-0 is JSON-minify + consecutive-run-collapse, so there is nothing for it to act on. This is a genuine limit of the lossless tier, not a defect.",
+  "where_it_DOES_work": {
+    "note": "measured with the real Anthropic tokenizer on realistic fixtures",
+    "pretty_json_npm_pip_style_pct": 33.3,
+    "config_json_15KB_pct": 28.2,
+    "repeated_identical_log_lines_pct": 99.4,
+    "unique_log_lines_pct": 0.0,
+    "interleaved_log_lines_pct": 0.0,
+    "git_log_200_pct": 0.0
+  },
+  "interpretation": "Hook savings are SHAPE-DEPENDENT, not universal. Verbose JSON (npm/pip/kubectl/terraform/API responses) and repetitive logs win large; prose-like or unique-line output yields nothing. distil's corpus happens to contain none of the winning shapes, which is why it reads 0.00% \u2014 the corpus was built to exercise decision-relevance probes, not compressibility.",
+  "honest_conclusion": "The feature is real but narrow. Claiming a headline savings number from the favourable fixtures alone would be exactly the overclaim distil criticises in others. Any user-facing number must state the shape dependency.",
+  "caveat": "Per the synthetic-data lesson: measure density on the real corpus BEFORE proposing a fix. Done here, and it produced an inconvenient answer that is recorded rather than discarded."
+}
