@@ -3,6 +3,54 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.48.0] — the saving on a subscription is the window, not the bill
+
+**A reader was right and our copy was wrong.** distil's README said a flat-rate
+Pro/Max plan gets "context and latency, not the bill". But fewer tokens per turn means
+more turns before the rate-limit window closes, and on a flat-rate plan that window
+*is* the currency. The copy is fixed and this release makes the saving real.
+
+**The proxy can't help there, by design.** Anthropic's consumer terms (§3, item 7)
+restrict automated access on subscription credentials, so distil deliberately runs
+`--lossless-only` on a subscription and measures **0.27%**. Your account isn't worth a
+few percent.
+
+**So use the door that's open.** `distil hook --install` wires a Claude Code
+`PostToolUse` hook: the agent compresses its own tool output, in its own process,
+through a documented first-party extension point. No proxy, no credentials touched.
+Because a hook sees each result once and cannot rewrite history, compression is
+append-only *by construction* — the fix direction our own cache-busting investigation
+identified, enforced by the platform rather than by our discipline.
+
+Measured on a paired live A/B, both arms answering correctly: tool_result **−38.6%**,
+`cache_creation` **−67.4%**, cost-weighted **−68.3%**, decision-equivalence **5/5**.
+Critically `cache_read` did *not* collapse — the proxy digest's failure mode does not
+reproduce here.
+
+**And the number that doesn't flatter us:** on distil's own eval corpus the hook saves
+**0.00%**. Savings are shape-dependent — verbose JSON 28–33%, duplicated log runs up to
+99%, prose and unique-line output ~0% — and our corpus contains none of the winning
+shapes. Published because quoting only the favourable fixtures is the overclaim we
+criticise in others.
+
+- `distil hook --install / --selftest / --uninstall` — idempotent, preserves foreign
+  hooks, refuses to clobber an unreadable `settings.json`
+- `distil quota` — the rate-limit windows, read-only, fails open to "unavailable"
+  rather than a fabricated zero
+- `docs/subscription.html` with an animated diagram and a troubleshooting table
+- The provider-compaction paper (`docs/paper/provider_compaction.tex`), arXiv-ready,
+  every number generated from run artifacts by a script that refuses to emit LaTeX
+  unless each report's protocol hash matches its pre-registration
+
+Credit where it's due: Headroom shipped subscription quota telemetry against this
+endpoint before we did. They built the instrument for the subscription user's real
+currency while our copy still said that currency didn't count.
+
+Windows note: three defects in this work were Windows-only (`os.uname()` in the code,
+then in the test that proved the fix, then pytest IDs blowing the 32,767-character
+environment-variable cap). All fixed, and the last one is now fenced by a guard
+verified to actually fail.
+
 ## [1.47.0] — the key file was world-readable, and the audit trail wasn't watching
 
 **Two things an enterprise security review would have caught before you did.** The
