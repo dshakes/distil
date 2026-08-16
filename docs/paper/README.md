@@ -56,3 +56,26 @@ Replace `\documentclass[11pt]{article}` with the venue's style file (e.g.
 `neurips_2025.sty`, `icml2025.sty`, `acl.sty`) and keep the body. Most ML venues use
 a two-column or single-column style with their own title block; move `\author` into
 their macro.
+
+## The second paper: `provider_compaction.tex`
+
+*Recency Is Not Relevance: Certifying Provider-Native Context Manipulation in LLM
+Agents* — a **separate paper** from `main.tex`. Where `main.tex` certifies distil's
+own compressor, this one points the same instrument outward, at Anthropic context
+editing and OpenAI server-side compaction.
+
+```bash
+cd docs/paper && tectonic -X compile provider_compaction.tex --outdir .
+# or: latexmk -pdf provider_compaction.tex
+```
+
+**Its PDF is deliberately not committed.** `main.pdf` / `main_neurips.pdf` are
+tracked and CI fails if they drift from source; that guard works because CI rebuilds
+them byte-identically. This paper has no committed PDF, so nothing can go stale —
+CI still compiles the `.tex` on every PR to catch a LaTeX error or a missing macro
+fragment. Build it locally when you want to read it.
+
+**Submitting to arXiv:** upload **both** `provider_compaction.tex` *and*
+`generated/provider_compaction.tex`. Without the macro fragment every reported
+number renders as `--`, and arXiv will still produce a PDF without complaining.
+Primary category `cs.SE`, cross-list `cs.LG` (the reasoning is in the `.tex` header).
