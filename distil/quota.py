@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -109,7 +110,11 @@ def _token() -> str | None:
     except (OSError, ValueError):
         pass  # unreadable or malformed -> fall through, never raise
 
-    if os.uname().sysname == "Darwin":
+    # `os.uname` does not exist on Windows, so calling it unconditionally would raise
+    # AttributeError and defeat this module's entire fail-open contract on the one
+    # platform where there is no keychain to read anyway. `sys.platform` is defined
+    # everywhere.
+    if sys.platform == "darwin":
         try:
             out = subprocess.run(
                 ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],

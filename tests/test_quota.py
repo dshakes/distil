@@ -228,3 +228,36 @@ class TestTokenResolution:
         with _with_response(LIVE_PAYLOAD):
             s = snapshot(token="explicit")
         assert s.available
+
+
+class TestCrossPlatform:
+    """The fail-open contract has to hold on every platform, not just POSIX."""
+
+    def test_no_uname_on_windows(self, monkeypatch, tmp_path):
+        """`os.uname` does not exist on Windows.
+
+        Regression: the keychain branch called it unconditionally, so `distil quota`
+        raised AttributeError on Windows instead of reporting "unavailable" — the one
+        failure mode this module exists to prevent. Deleting the attribute reproduces
+        Windows on any host.
+        """
+        import distil.quota as q
+
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setattr(q.sys, "platform", "win32")
+        monkeypatch.delattr(q.os, "uname", raising=False)
+        assert q._token() is None  # must not raise
+        assert q.snapshot().available is False
+
+    def test_keychain_not_probed_off_darwin(self, monkeypatch, tmp_path):
+        """Spawning `security` on Linux would be a wasted subprocess per call."""
+        import distil.quota as q
+
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setattr(q.sys, "platform", "linux")
+        called = []
+        monkeypatch.setattr(q.subprocess, "run", lambda *a, **k: called.append(a))
+        assert q._token() is None
+        assert called == []

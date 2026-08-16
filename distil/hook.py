@@ -116,7 +116,13 @@ def _compress_mcp(out: Any) -> Any | None:
     leaves anything else alone. An error result is never touched.
     """
     if isinstance(out, str):
-        return _tier0(out) if len(out) >= _MIN_CHARS and _tier0(out) != out else None
+        if len(out) < _MIN_CHARS:
+            return None
+        # Compress once and reuse. Calling _tier0 in both the guard and the return
+        # value ran the whole transform up to three times per blob — invisible in
+        # tests, but this executes on every large MCP result in a live session.
+        shrunk = _tier0(out)
+        return shrunk if shrunk != out else None
 
     if not isinstance(out, dict) or out.get("isError"):
         return None
