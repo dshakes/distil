@@ -49,6 +49,8 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 pipx install distil-llm && distil onboard    # detects your agent + billing, wires everything
 ```
 
+> **Not sure which of those you want?** [Two questions pick your mode →](https://dshakes.github.io/distil/which-mode.html) — plain language, honest savings ranges, no jargon.
+
 <p align="center">
   <img src="docs/assets/integration-surface.svg" alt="Four ways to run distil — agent wrap, proxy/gateway, MCP server, and the in-process library. Wrap, proxy and MCP reach the reversible digest tier, covered by the decision-equivalence certificate; the in-process library is lossless-only and byte-identical to the Python engine, enforced by a conformance suite." width="100%"/>
 </p>

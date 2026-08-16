@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Which Mode? — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Which Mode? — Distil"/>
+<meta property="og:description" content="Every way to run distil, in plain language: what each mode is, who it is for, and honestly how much it saves."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/which-mode.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Which Mode? — Distil"/>
+<meta name="twitter:description" content="Every way to run distil, in plain language: what each mode is, who it is for, and honestly how much it saves."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html" class="active" aria-current="page">Which Mode? <span class="nav-badge">New</span></a>
+        <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="subscription.html">Subscription</a>
+        <a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction</a></li>
+        <li><a href="evals.html">Evaluation <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Which mode? Start with two questions</h1>
+
+    <p class="lede">distil has several ways to run, and the names are jargon
+    (&ldquo;wrap&rdquo;, &ldquo;hook&rdquo;, &ldquo;proxy&rdquo;, &ldquo;MCP&rdquo;). You don&rsquo;t
+    need to learn them. Two questions pick your mode, and the second one matters more than the
+    first.</p>
+
+    <img src="assets/choose-your-mode.svg" alt="A decision tree. First question: how do you pay? Pay-per-use with an API key leads to distil wrap, which sits invisibly between your assistant and the provider and cuts the bill. A flat monthly subscription leads to distil hook install, which lets Claude Code compress its own tool output and buys back rate-limit headroom. Second row: a coding assistant means wrap or hook, an app you are building means proxy or library, Claude Desktop means the MCP server, a whole team means the gateway. Footer: savings depend on the shape of your tool output, not the mode — JSON 28 to 33 percent, repeated log lines up to 99 percent, prose about 0 percent." class="svg-embed"/>
+
+    <div class="callout">
+      <strong>Don&rsquo;t want to read any of this?</strong> Run <code>distil onboard</code>. It
+      detects your operating system, which assistants you have installed, and whether you&rsquo;re on
+      a subscription or an API key &mdash; then prints the exact commands for <em>your</em> setup, in
+      order. This page is the same reasoning, written out.
+    </div>
+
+    <h2 id="question-1">Question 1 &mdash; how do you pay?</h2>
+
+    <p>This decides <em>what</em> you save, not how much.</p>
+
+    <table>
+      <thead><tr><th>You pay</th><th>What runs out</th><th>What distil buys you</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Per use</strong> &mdash; an API key, a bill each month</td>
+          <td>Money</td>
+          <td>A smaller bill. Fewer tokens sent means fewer tokens charged.</td>
+        </tr>
+        <tr>
+          <td><strong>Flat monthly</strong> &mdash; Pro or Max subscription</td>
+          <td>Your usage limit</td>
+          <td>More room before you hit the wall. The bill is fixed; the window isn&rsquo;t.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>We used to say a subscription got &ldquo;context and latency, not the bill.&rdquo; A reader
+    pointed out that was wrong &mdash; running out of quota <em>is</em> a cost &mdash; and they were
+    right. <a href="subscription.html">That correction has its own page.</a></p>
+
+    <h2 id="question-2">Question 2 &mdash; what are you actually running?</h2>
+
+    <h3>🖥️ A coding assistant in a terminal</h3>
+    <p>Claude Code, Codex, Gemini CLI, Aider, Goose, OpenCode and friends.</p>
+
+    <p><strong>On an API key</strong> &mdash; put one word in front of your normal command:</p>
+    <pre><code>distil wrap -- claude</code></pre>
+    <p>Nothing about how you work changes. distil sits in between, invisibly, and shrinks what gets
+    sent. This is the mode most people want.</p>
+
+    <p><strong>On a subscription</strong> &mdash; a different mechanism entirely:</p>
+    <pre><code>distil hook --install     # then restart Claude Code</code></pre>
+    <p>Claude Code compresses its <em>own</em> tool output before reading it, using an extension point
+    Anthropic built and documents. Nothing sits in between and nothing touches your login &mdash;
+    which matters, because Anthropic&rsquo;s terms restrict intercepting subscription traffic, and
+    distil won&rsquo;t risk your account for a few percent. Claude Code only, for now: Codex
+    doesn&rsquo;t allow output rewriting and Gemini only partly does.</p>
+
+    <h3>🧱 An app you&rsquo;re building</h3>
+    <p>Two options, same engine.</p>
+    <p><strong>Proxy</strong> &mdash; run a small local service and point your app&rsquo;s base URL at
+    it. Works with any language or framework, no code change beyond one config line.</p>
+    <p><strong>Library</strong> &mdash; <code>from distil import compress_messages</code>, called
+    exactly where you want it. No background service, no network hop, but you write the code.</p>
+    <p>Already using LangChain, LangGraph, LiteLLM, Agno or Strands? There are drop-in hooks for those
+    &mdash; see <a href="integrations.html">Integrations</a>.</p>
+
+    <h3>💬 Claude Desktop</h3>
+    <p>The desktop app can&rsquo;t be wrapped or proxied. What works is the <strong>MCP
+    server</strong>: it hands the assistant two tools &mdash; <em>shrink this</em>, and <em>give me
+    the original back</em>.</p>
+    <pre><code>claude mcp add distil -- distil mcp</code></pre>
+    <p>The assistant decides when to use them, so this is occasional rather than automatic. Worth it
+    when you routinely paste or read very large documents.</p>
+
+    <h3>🏢 A whole team</h3>
+    <p>The <strong>gateway</strong> is one shared service everyone routes through, with per-team
+    accounting and keys. See <a href="deploy-security.html">Deploy &amp; Security</a>.</p>
+
+    <h2 id="how-much">How much will it actually save?</h2>
+
+    <p>Here is the part most tools won&rsquo;t tell you: <strong>the mode barely matters. What your
+    tools print matters enormously.</strong></p>
+
+    <table>
+      <thead><tr><th>What your assistant reads</th><th>Typical saving</th></tr></thead>
+      <tbody>
+        <tr><td>Config files, dependency lists, API responses (JSON)</td><td><strong>28&ndash;33%</strong></td></tr>
+        <tr><td>Logs where the same line repeats</td><td><strong>up to 99%</strong></td></tr>
+        <tr><td>Ordinary prose, documentation, chat</td><td>~0%</td></tr>
+        <tr><td>Logs where every line differs, <code>git log</code></td><td>~0%</td></tr>
+      </tbody>
+    </table>
+
+    <p>Two rules of thumb:</p>
+    <ul>
+      <li><strong>A short session that never reads a big file will show close to 0%.</strong> That is
+      the tool working correctly, not failing. There was nothing to compress.</li>
+      <li><strong>Long sessions that re-read the same large files are where it pays.</strong> The same
+      content gets re-sent every turn; that&rsquo;s the waste distil removes.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Our own honesty check.</strong> On distil&rsquo;s internal test corpus, the new hook
+      saves <strong>0.00%</strong> &mdash; that corpus contains no JSON and no repeated lines. We
+      publish that number next to the good ones, because quoting only the flattering fixtures is
+      exactly what we criticise other compressors for.
+    </div>
+
+    <h2 id="proof">How do you know it didn&rsquo;t break anything?</h2>
+
+    <p>Every compressor claims savings. distil is built around a second question: <em>did your
+    assistant still do the same thing?</em> It answers that one with measurements, not assurances.</p>
+
+    <table>
+      <thead><tr><th>Command</th><th>Tells you</th></tr></thead>
+      <tbody>
+        <tr><td><code>distil savings</code></td><td>Tokens and dollars saved, calibrated against what you were actually billed</td></tr>
+        <tr><td><code>distil quota</code></td><td>Your subscription windows, live &mdash; so &ldquo;we saved you room&rdquo; is checkable</td></tr>
+        <tr><td><code>distil shadow-stats</code></td><td>How often a compressed request produced a different decision than the uncompressed one</td></tr>
+        <tr><td><code>distil dashboard</code></td><td>All of it, in a browser</td></tr>
+        <tr><td><code>distil doctor</code></td><td>Whether your setup is actually routing (the most common failure is silent)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="cheatsheet">One-line cheat sheet</h2>
+
+    <table>
+      <thead><tr><th>You are&hellip;</th><th>Run this</th></tr></thead>
+      <tbody>
+        <tr><td>Coding with an API key</td><td><code>distil wrap -- claude</code></td></tr>
+        <tr><td>Coding on a Pro/Max subscription</td><td><code>distil hook --install</code></td></tr>
+        <tr><td>Using Claude Desktop</td><td><code>claude mcp add distil -- distil mcp</code></td></tr>
+        <tr><td>Building an app</td><td><code>distil proxy</code> or the library</td></tr>
+        <tr><td>Running a team</td><td><code>distil gateway</code></td></tr>
+        <tr><td><strong>Not sure</strong></td><td><code>distil onboard</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>Everyone, afterwards: <code>distil savings</code> on an API key, or <code>distil quota</code> on
+    a subscription &mdash; to see whether it helped <em>you</em>, rather than taking our word for it.</p>
+
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>
