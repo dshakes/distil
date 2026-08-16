@@ -1,6 +1,19 @@
 % Recency Is Not Relevance: Certifying Provider-Native Context Manipulation
 % arXiv-ready. Compiles on Overleaf (pdfLaTeX) with no external image files.
 %
+% SUBMISSION
+%   Primary category : cs.SE  (Software Engineering)
+%   Cross-list       : cs.LG  (Machine Learning)
+%   Rationale: the contribution is a claim about how deployed agents behave when a
+%   third party edits their context — a systems/engineering finding — and the method
+%   is a test protocol, not a learning technique. cs.LG is the right cross-list
+%   because the certification machinery (distribution-free bounds) reads as ML.
+%
+%   Upload BOTH files, or every reported number renders as "--":
+%     docs/paper/provider_compaction.tex
+%     docs/paper/generated/provider_compaction.tex   (the \input'd macro fragment)
+%   Compiler: pdfLaTeX. See docs/PUBLISHING.md for the step-by-step.
+%
 % Every number in this paper is generated from the run artifacts by
 %   python benchmarks/provider_compaction_to_latex.py
 % which refuses to emit LaTeX unless each report's embedded protocol hash matches
@@ -56,7 +69,10 @@
 Certifying Provider-Native Context Manipulation in LLM Agents}}
 
 \author{%
-  Chandra Shekhar Mudarapu\thanks{Code and run artifacts:
+  Chandra Shekhar Mudarapu\\
+  \normalsize Independent Researcher\\
+  \normalsize \texttt{chandu1221@gmail.com}%
+  \thanks{Code, run artifacts, and the pre-registered protocols:
   \url{https://github.com/dshakes/distil}}%
 }
 
