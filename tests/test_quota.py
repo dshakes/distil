@@ -219,7 +219,7 @@ class TestTokenResolution:
             [], 0, stdout=json.dumps({"claudeAiOauth": {"accessToken": "from-keychain"}})
         )
         with (
-            patch("os.uname", return_value=type("U", (), {"sysname": "Darwin"})()),
+            patch("distil.quota.sys.platform", "darwin"),
             patch("subprocess.run", return_value=done),
         ):
             assert _token() == "from-keychain"
