@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-16",
+  "subject": "How each tool reaches Claude Code on a flat-rate subscription",
+  "headroom_version": "0.26.0 (installed at ~/.local/pipx/venvs/headroom-ai)",
+  "distil_version": "1.47.0 + this branch",
+  "method": "read of the installed Headroom source; no benchmark claim is made about their compression ratio",
+  "findings": {
+    "headroom": {
+      "claude_code_path": "proxy only (headroom/proxy/server.py, ANTHROPIC_BASE_URL)",
+      "posttooluse_hook": "ABSENT - zero occurrences of PostToolUse/updatedToolOutput in the package",
+      "subscription_quota_telemetry": "YES - headroom/subscription/client.py polls GET /api/oauth/usage",
+      "reversible_recall": "CCR (Compress-Cache-Retrieve) via headroom/ccr/tool_injection.py - injects a retrieval tool",
+      "decision_equivalence_proof": "none found in the package"
+    },
+    "distil": {
+      "claude_code_path": "proxy (wrap) AND, as of this branch, a first-party PostToolUse hook",
+      "posttooluse_hook": "PRESENT - proven live: tool_result 18,214 -> 11,178 bytes, answer unchanged",
+      "subscription_quota_telemetry": "YES - distil/quota.py (adopted; same endpoint)",
+      "reversible_recall": "digest + distil_expand on METERED only; declined on subscription",
+      "decision_equivalence_proof": "certificate + gate (shadow, SIG v3, conformal bounds)"
+    }
+  },
+  "the_difference": "Headroom achieves reversibility on subscription by injecting a retrieval tool through a proxy that intermediates OAuth-authenticated traffic. distil declines that posture on ToS grounds (Anthropic Consumer Terms section 3 item 7 restricts automated access on subscription credentials) and instead uses a documented first-party extension point, which cannot rewrite history and therefore cannot support recall - making lossless-only the correct AND the compliant tier.",
+  "not_claimed": [
+    "No head-to-head compression-ratio benchmark was run against Headroom.",
+    "No claim that Headroom violates any terms - only that distil chose a different risk posture.",
+    "Headroom's quota telemetry is the better idea and distil adopted it."
+  ]
+}

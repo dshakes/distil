@@ -1,0 +1,48 @@
+{
+  "experiment": "E15 PostToolUse hook - paired A/B",
+  "date": "2026-08-16",
+  "task": "cat cfg.json (15,592 bytes pretty JSON); answer = number of services",
+  "model": "claude (Claude Code default, live session)",
+  "arms": {
+    "off": {
+      "answer": "90",
+      "input_tokens": 14458,
+      "cache_read": 209474,
+      "cache_creation": 67696,
+      "largest_tool_result_bytes": 18214
+    },
+    "on": {
+      "answer": "90",
+      "input_tokens": 4,
+      "cache_read": 104289,
+      "cache_creation": 22045,
+      "largest_tool_result_bytes": 11178
+    }
+  },
+  "decision_equivalence": {
+    "arms_agree": true,
+    "note": "both arms answered 90, the correct count"
+  },
+  "deltas": {
+    "tool_result_bytes_pct": -38.6,
+    "cache_creation_pct": -67.4,
+    "cache_read_pct": -50.2,
+    "cost_weighted_pct": -68.3,
+    "cost_weights": "input=1.0, cache_creation=1.25, cache_read=0.10"
+  },
+  "cache_health": "PASS - cache_read did NOT collapse to zero (the proxy-digest failure mode); both arms read from cache.",
+  "tier0_isolated_savings_real_anthropic_tokenizer": {
+    "pretty_json_npm_style_pct": 33.3,
+    "cfg_json_pct": 28.2,
+    "repeated_identical_lines_pct": 99.4,
+    "unique_log_lines_pct": 0.0,
+    "interleaved_log_pct": 0.0,
+    "git_log_200_pct": 0.0
+  },
+  "caveats": [
+    "n=1 paired run per arm; directionally strong but not a distribution.",
+    "Offline tokenizers (heuristic, subword) report 0.0% on whitespace-heavy JSON where the real Anthropic tokenizer reports 33.3% - they are whitespace-blind. All savings figures here use the anthropic tokenizer.",
+    "Savings are shape-dependent: JSON and consecutive-duplicate lines win; unique-line text yields nothing.",
+    "cache_read is lower in the ON arm because the cached prefix is genuinely smaller, not because caching broke."
+  ]
+}
