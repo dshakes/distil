@@ -3,6 +3,32 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.48.1] — a page that answers "which one am I?" before the jargon does
+
+**Docs and one nudge.** Nothing new is callable and no behaviour changed, so this is
+a patch: if you are tracking releases for capability, skip it.
+
+distil has seven ways to run and the names are all jargon — wrap, hook, proxy, MCP,
+library, gateway, statusline. A newcomer had to learn our vocabulary before they could
+tell which one applied to them. `docs/which-mode.html` inverts that: two plain
+questions (how do you pay, what are you running) and the answer falls out, with an
+animated decision tree and honest savings ranges per surface.
+
+The page leads with the thing most compression tools bury: **the mode barely matters,
+what your tools print matters enormously** — JSON 28–33%, repeated log lines up to
+99%, prose ~0%, and 0.00% on distil's own corpus.
+
+- `distil onboard` now closes with a pointer to that page. It already detects your OS,
+  agents and billing, but it could never mention MCP, the library, or the gateway,
+  because those cannot be detected — which is how the MCP server (the only thing that
+  works in Claude Desktop) stayed invisible to most installs.
+- The provider-compaction paper gains an affiliation and its arXiv category
+  (`cs.SE` primary, `cs.LG` cross-list), plus the submission step that is easy to get
+  wrong: upload the `.tex` **and** its generated macro fragment, or every number
+  renders as `--`.
+- A nav-markup guard, after review caught two links sharing one `<li>` — a defect that
+  had already shipped across 35 pages in the previous release's nav.
+
 ## [1.48.0] — the saving on a subscription is the window, not the bill
 
 **A reader was right and our copy was wrong.** distil's README said a flat-rate
