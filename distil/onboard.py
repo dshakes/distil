@@ -289,6 +289,20 @@ def next_steps(env: Env) -> list[tuple[str, str, str]]:
                 "only needed for --runner/--tokenizer anthropic",
             )
         )
+    # Surfaces beyond the terminal. These are listed unconditionally because they
+    # cannot be detected: distil cannot see whether you also use Claude Desktop, are
+    # writing an app, or run a team. A user who never learns these exist assumes
+    # distil is a CLI-only tool — which is how the MCP server (the only thing that
+    # works in Claude Desktop) stayed invisible to most installs.
+    steps.append(
+        (
+            "Not just a terminal? (Claude Desktop, an app, a team)",
+            "open https://dshakes.github.io/distil/which-mode.html",
+            "MCP server for Claude Desktop; proxy or in-process library for an app you are "
+            "building; gateway for a shared team deployment. One page, plain language, with "
+            "honest savings ranges per surface.",
+        )
+    )
     return steps
 
 
