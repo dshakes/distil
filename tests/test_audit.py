@@ -199,7 +199,6 @@ def test_reader_handles_blank_lines_and_a_missing_file(tmp_path) -> None:
     sys.platform == "win32",
     reason="chmod 0000 does not make a file unreadable on Windows, so the failure path cannot be provoked",
 )
-@pytest.mark.skipif(sys.platform == "win32", reason="chmod 0o000 is a no-op on Windows")
 @pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0,
     reason="chmod 0o000 is a no-op for root (bypasses permission bits)",
