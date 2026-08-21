@@ -195,22 +195,29 @@ def test_reader_handles_blank_lines_and_a_missing_file(tmp_path) -> None:
     assert [e["key_id"] for e in audit.read_events()] == ["gk_1"]
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="chmod 0000 does not make a file unreadable on Windows, so the failure path cannot be provoked",
-)
-def test_unreadable_trail_reads_as_empty(tmp_path) -> None:
-    """A trail that cannot be opened must not raise into the CLI."""
-    import os
+def test_unreadable_trail_reads_as_empty(tmp_path, monkeypatch) -> None:
+    """A trail that cannot be opened must not raise into the CLI.
+
+    Simulated via a PermissionError from Path.open rather than chmod 0o000:
+    chmod is a no-op for root and on Windows, which would silently drop this
+    coverage in exactly the containers/CI this test exists to guard.
+    """
+    from pathlib import Path
+    from typing import Any
 
     from distil import audit
 
     audit.record(audit.AUTH_OK, key_id="gk_1")
-    os.chmod(audit.audit_path(), 0o000)
-    try:
-        assert audit.read_events() == []
-    finally:
-        os.chmod(audit.audit_path(), 0o600)
+
+    real_open = Path.open
+
+    def _unreadable(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == audit.audit_path():
+            raise PermissionError("simulated: audit trail is unreadable")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _unreadable)
+    assert audit.read_events() == []
 
 
 def test_gateway_audit_cli_renders_filters_and_json(tmp_path, capsys) -> None:
