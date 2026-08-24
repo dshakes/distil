@@ -4149,7 +4149,9 @@ def build_parser() -> argparse.ArgumentParser:
         "pull back digested detail on demand (transparent server-side recovery loop). "
         "Max token reduction with full in-context recovery. An explicit --expand also "
         "overrides lossless-only on a subscription — you opted in, and the digest is "
-        "recoverable so nothing is irreversibly lost.",
+        "recoverable so nothing is irreversibly lost. Costs a round-trip whenever the "
+        "model pulls detail back, so it suits long sessions over short ones; run with "
+        "--shadow on (the default) so decision-equivalence is measured while you use it.",
     )
     px.add_argument(
         "--shadow",
