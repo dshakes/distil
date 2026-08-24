@@ -546,16 +546,29 @@ def build_handler(
     # keep-byte-exact policy + the accumulating expand stats. See distil.learn.
     _learn_stats = None
     _expand_keep = None
+    _flywheel_on = False
     if expand:
         from . import query_flywheel
         from .learn import ExpandStats, keep_predicate
 
         _learn_stats = ExpandStats.load()
         _expand_keep = keep_predicate(_learn_stats)
-        # Phase-2 dark collection: pair each digested block's dropped-line query-features with
-        # whether it was later expanded (content-free, sampled). Only under --expand, where
-        # handles are recoverable and expands produce the labels a retrain learns from.
+        # Phase-2 dark collection under --expand: an expand IS a label ("the model asked
+        # for this block back"), and handles are recoverable here.
         query_flywheel.enable()
+        _flywheel_on = True
+    elif shadow_rate > 0:
+        # Shadow mode supplies a STRONGER label without --expand: a sampled A/B verdict
+        # says whether compressing this request changed the agent's next action, which
+        # is the property the certificate is about. It is on by default and works on
+        # every configuration, subscription included — where expand labels can never
+        # exist at all. Without this the flywheel could only ever learn from the one
+        # configuration most users are told not to run, which is why the shipped
+        # query-salience model stayed inert.
+        from . import query_flywheel
+
+        query_flywheel.enable()
+        _flywheel_on = True
 
     # Outcome-guided policy (always on — never-regressing by construction):
     # content classes whose digestion co-occurred with END-TO-END task
@@ -807,6 +820,17 @@ def build_handler(
                 status, rhdrs, rbody = self._post_upstream(self.path, raw, headers)
                 self._relay(status, rhdrs, rbody)
                 return
+
+            # Tag any flywheel rows this request produces with the SAME digest shadow
+            # records its verdict under, so a later retrain can join "this block was
+            # folded" to "the decision changed". Same hash of the same bytes on both
+            # sides, or the join silently yields nothing.
+            if _flywheel_on:
+                import hashlib as _hl
+
+                from . import query_flywheel as _qfw
+
+                _qfw.set_request_digest(_hl.sha256(raw).hexdigest()[:16])
 
             # Path-based dispatch: route to the right adapter per endpoint.
             # /v1/messages    → Anthropic adapter (compress_messages, below)
