@@ -83,6 +83,31 @@ def _has_recoverable_stub(body: dict) -> bool:
     return _HANDLE_STUB_RE.search(blob) is not None
 
 
+def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
+    """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
+
+    The provider's prompt cache matches on exact bytes, and ``json.dumps`` is not a
+    byte-faithful round-trip of what arrived: key order survives, but separators
+    (``", "`` vs ``","``) and non-ASCII escaping (``\\uXXXX`` vs raw UTF-8) do not.
+    Re-encoding an *unmodified* body therefore rewrites the cached prefix and turns
+    cheap cache reads into expensive cache writes — while saving nothing, because
+    nothing was compressed. That is the worst possible trade, and it is exactly what
+    lossless-only mode did on a subscription: 0% savings at measured 1.56x baseline
+    cache-creation tokens (2.52x on short sessions).
+
+    Comparing the parsed body against a re-parse of the original is O(body) and runs
+    once per request — far cheaper than re-billing the prefix. When a transform did
+    change something we re-serialize compactly and accept the byte drift, because
+    then the bytes genuinely differ anyway.
+    """
+    try:
+        if json.loads(raw) == body:
+            return raw
+    except (ValueError, TypeError):
+        pass  # unparseable original — fall through and serialize what we have
+    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
+
+
 def _expand_should_intercept(expand: bool, store: object, body: dict) -> bool:
     """Whether the expand tool must be injected AND the response buffered to run the
     expand loop. True whenever expand mode is on and the outgoing conversation carries
@@ -969,7 +994,7 @@ def build_handler(
 
                     body = inject_expand_tool_gemini(body)
 
-            new_raw = json.dumps(body).encode()
+            new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
 
             # Decide shadow sampling BEFORE relaying so the marker header can be

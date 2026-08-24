@@ -281,3 +281,49 @@ def test_health_endpoint_answers_locally(servers: Any) -> None:
     # A non-health GET still passes through to the upstream (echoes its path).
     with urllib.request.urlopen(f"http://127.0.0.1:{proxy_port}/v1/models") as resp:
         assert resp.read() == b"/v1/models"
+
+
+# --- byte-faithful passthrough ------------------------------------------------
+def test_unchanged_body_forwards_the_original_bytes():
+    """An untouched body must reach upstream byte-identical.
+
+    The prompt cache matches on exact bytes. ``json.dumps`` is not a byte-faithful
+    round-trip — it rewrites separators and escapes non-ASCII — so re-encoding an
+    unmodified body rewrites the cached prefix and converts cheap cache reads into
+    expensive cache writes while saving nothing. Measured externally as 1.56x
+    baseline cache-creation tokens at 0.0% savings in lossless-only mode.
+    """
+    import json as _json
+
+    from distil.proxy import _serialize_if_changed
+
+    raw = (
+        b'{"model": "m", "max_tokens": 1024, '
+        b'"messages": [{"role": "user", "content": "caf\xc3\xa9 \xe2\x80\x94 na\xc3\xafve"}]}'
+    )
+    body = _json.loads(raw)
+    assert _serialize_if_changed(raw, body) is raw or _serialize_if_changed(raw, body) == raw
+
+
+def test_changed_body_is_reserialized_compactly_and_unescaped():
+    """When a transform did change the body, re-serialize without \\uXXXX escapes."""
+    import json as _json
+
+    from distil.proxy import _serialize_if_changed
+
+    raw = b'{"messages": [{"role": "user", "content": "caf\xc3\xa9"}]}'
+    body = _json.loads(raw)
+    body["messages"][0]["content"] = "café compressed"
+    out = _serialize_if_changed(raw, body)
+    assert out != raw
+    assert b"\\u" not in out, "non-ASCII must stay raw UTF-8, not be escaped"
+    assert b", " not in out.replace(b'", "', b""), "compact separators"
+    assert _json.loads(out)["messages"][0]["content"] == "café compressed"
+
+
+def test_unparseable_original_still_serializes():
+    """A body we could not re-parse must not crash the request path."""
+    from distil.proxy import _serialize_if_changed
+
+    out = _serialize_if_changed(b"not json at all", {"a": 1})
+    assert out == b'{"a":1}'

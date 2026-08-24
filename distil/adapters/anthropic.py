@@ -124,6 +124,60 @@ def _active_vision() -> Any:
     return getattr(_vision_tls, "dedup", None)
 
 
+# Tools whose result the agent must be able to quote back BYTE-EXACT. Claude Code's
+# edit tools match `old_string` literally against content the model read earlier, so a
+# digested read makes every subsequent edit unmatchable. Lowercased for comparison;
+# covers Claude Code, Codex/OpenAI and common MCP filesystem servers.
+_EXACT_QUOTE_TOOLS = frozenset(
+    {
+        "read",
+        "read_file",
+        "readfile",
+        "view",
+        "open",
+        "cat",
+        "str_replace_editor",
+        "str_replace_based_edit_tool",
+        "grep",
+        "glob",
+        "search_files",
+        "notebookread",
+    }
+)
+
+
+def _exact_quote_tool_use_ids(messages: list[dict[str, Any]]) -> set[str]:
+    """tool_use ids whose results must stay byte-exact regardless of age.
+
+    Recency alone is the wrong instrument here. It is positional, so a file read three
+    turns ago is digestible — but the agent still has to reproduce that content
+    character-for-character in an ``Edit(old_string=...)`` for the edit to apply. Once
+    the read is a digest, no exact match exists: the edit silently fails, or the model
+    stops attempting one, and the run ends with nothing written to disk.
+
+    So the exemption is keyed on *provenance* (which tool produced this result), not on
+    position. Content the agent merely reasons over — logs, test output, HTTP bodies —
+    is unaffected and still digests normally.
+    """
+    ids: set[str] = set()
+    for m in messages:
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if (
+                isinstance(blk, dict)
+                and blk.get("type") == "tool_use"
+                and str(blk.get("name", "")).lower() in _EXACT_QUOTE_TOOLS
+            ):
+                tid = blk.get("id")
+                if isinstance(tid, str):
+                    ids.add(tid)
+    return ids
+
+
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
     """Indices of tool-output-bearing turns (role ``user``/``tool``) whose
     tool_result blocks must stay verbatim. See ``_RECENCY_KEEP_TURNS``.
@@ -439,7 +493,12 @@ def _downscale_image_block(
 
 
 def _compress_content_item(
-    item: dict[str, Any], store: RestoreStore, role: str, verbatim: bool, is_recent: bool = False
+    item: dict[str, Any],
+    store: RestoreStore,
+    role: str,
+    verbatim: bool,
+    is_recent: bool = False,
+    exact_ids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) content block after compression.
 
@@ -475,6 +534,10 @@ def _compress_content_item(
     if btype == "tool_result":
         content = item.get("content")
         if content is None:
+            return item
+        if item.get("tool_use_id") in exact_ids:
+            # File content the agent must quote back verbatim to edit it.
+            _census("tool_result_exact_quote", content if isinstance(content, str) else "")
             return item
 
         if isinstance(content, str):
@@ -525,7 +588,11 @@ def _compress_content_item(
 
 
 def _compress_message(
-    msg: dict[str, Any], store: RestoreStore, verbatim: bool, is_recent: bool = False
+    msg: dict[str, Any],
+    store: RestoreStore,
+    verbatim: bool,
+    is_recent: bool = False,
+    exact_ids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) message dict after compressing its content."""
     role = msg.get("role", "")
@@ -553,7 +620,7 @@ def _compress_message(
         changed = False
         for item in content:
             if isinstance(item, dict):
-                new_item = _compress_content_item(item, store, role, verbatim, is_recent)
+                new_item = _compress_content_item(item, store, role, verbatim, is_recent, exact_ids)
                 if isinstance(new_item, list):
                     # A block may expand into a PAIR (a downscaled image plus the
                     # note carrying its recovery handle). Splice rather than nest:
@@ -620,6 +687,8 @@ def compress_messages(
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
         recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        exact_ids = frozenset(_exact_quote_tool_use_ids(messages))
         # Query-aware salience is scoped to content the provider has NOT cached.
         # Intent terms come from the newest user turn and change every turn by
         # design, so letting them choose which lines survive in an already-cached
@@ -639,7 +708,9 @@ def compress_messages(
             msg_verbatim = verbatim or idx in recent
             _intent_tls.terms = frozenset() if idx <= cached_through else full_intent
             new_messages.append(
-                _compress_message(msg, store, msg_verbatim, is_recent=idx in recent)
+                _compress_message(
+                    msg, store, msg_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+                )
             )
         return new_messages, store
     finally:
