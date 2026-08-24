@@ -461,3 +461,47 @@ def test_mixed_turn_is_not_intercepted_gemini():
     out = run_expand_loop_gemini({"contents": []}, mixed, store, post)
     assert out is mixed
     assert posts == []
+
+
+def test_responses_loop_returns_after_max_iters():
+    """The runaway cap must return the latest response, not spin."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({"deadbeef": "X"})
+
+    def always_expand(_body):
+        return {
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "c",
+                    "name": EXPAND_TOOL_NAME,
+                    "arguments": json.dumps({"handle": "deadbeef"}),
+                }
+            ]
+        }
+
+    out = run_expand_loop_responses(
+        {"input": []}, always_expand(None), store, always_expand, max_iters=2
+    )
+    assert out is not None and "output" in out
+
+
+def test_responses_loop_tolerates_unparseable_arguments():
+    """A malformed arguments blob must not raise — the handle resolves to a miss."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({})
+    first = {
+        "output": [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": EXPAND_TOOL_NAME,
+                "arguments": "{not json",
+            }
+        ]
+    }
+    final = {"output": [{"type": "message", "content": "done"}]}
+    out = run_expand_loop_responses({"input": []}, first, store, lambda b: final)
+    assert out is final

@@ -457,3 +457,20 @@ def test_max_iters_exhaustion_terminates_the_sse_message():
     evts = _delivered(h.wfile.buf)
     assert st == 200
     assert evts[-1]["type"] == "message_stop"
+
+
+def test_unresolvable_handle_still_terminates_the_message(monkeypatch):
+    """When nothing resolves there is nothing to splice — end the message cleanly.
+
+    resolve_expands normally returns a miss placeholder (fail-open), so this drives
+    the rarer branch where it yields nothing at all.
+    """
+    import distil.streamexpand as se
+
+    monkeypatch.setattr(se, "resolve_expands", lambda *a, **k: [])
+    send, _ = _sender([_Resp(_expand_response("gone"))])
+    h = _Handler()
+    st = stream_with_expand(h, send, {"messages": []}, _Store(), hop_by_hop=frozenset())
+    evts = _delivered(h.wfile.buf)
+    assert st == 200
+    assert evts[-1]["type"] == "message_stop", "must terminate, never truncate"

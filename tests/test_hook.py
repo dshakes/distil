@@ -417,3 +417,59 @@ def test_receipt_failure_never_breaks_the_tool_result(tmp_path, monkeypatch):
         "tool_response": {"stdout": big, "stderr": "", "interrupted": False},
     }
     assert "updatedToolOutput" in run(_json.dumps(event))
+
+
+# --- `distil hook --stats` ----------------------------------------------------
+def test_hook_stats_reports_nothing_before_any_receipt(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+
+    assert _hook_stats() == 0
+    out = capsys.readouterr().out
+    assert "no hook receipts yet" in out
+    assert "--install" in out, "an empty report must say how to get data"
+
+
+def test_hook_stats_totals_and_splits_by_tool(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+    from distil.hook import record_receipt
+
+    record_receipt("Bash", 10_000, 6_000)
+    record_receipt("Bash", 4_000, 3_000)
+    record_receipt("mcp__db__query", 2_000, 500)
+
+    assert _hook_stats() == 0
+    out = capsys.readouterr().out
+    assert "compressed results : 3" in out
+    assert "16,000" in out and "9,500" in out  # before / after
+    assert "6,500" in out, "total saved"
+    assert "40.6%" in out
+    assert "Bash" in out and "mcp__db__query" in out
+    assert "Characters, not tokens" in out, "the unit must be stated, not implied"
+
+
+def test_hook_stats_survives_a_torn_final_line(tmp_path, monkeypatch, capsys):
+    """The receipts file is appended to live; a crash can leave a partial line."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+    from distil.hook import _receipt_path, record_receipt
+
+    record_receipt("Bash", 5_000, 2_000)
+    with _receipt_path().open("a", encoding="utf-8") as f:
+        f.write('{"tool": "Bash", "chars_bef')  # torn write, no newline
+
+    assert _hook_stats() == 0
+    out = capsys.readouterr().out
+    assert "compressed results : 1" in out
+
+
+def test_hook_stats_handles_a_receipts_file_with_only_blank_lines(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+    from distil.hook import _receipt_path
+
+    _receipt_path().parent.mkdir(parents=True, exist_ok=True)
+    _receipt_path().write_text("\n\n\n", encoding="utf-8")
+    assert _hook_stats() == 0
+    assert "no hook receipts yet." in capsys.readouterr().out
