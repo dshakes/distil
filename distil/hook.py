@@ -57,6 +57,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -160,6 +161,54 @@ def compress_tool_output(tool_name: str, tool_output: Any) -> Any | None:
     return None
 
 
+def _receipt_path() -> Path:
+    return Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil"))) / "hook-receipts.jsonl"
+
+
+def record_receipt(tool_name: str, before: int, after: int, *, path: Path | None = None) -> None:
+    """Append one content-free line: what this hook actually did.
+
+    Hook mode is the configuration that measured best externally — and the only one
+    that could not account for itself, because it wrote no ledger at all. Its effect
+    showed up solely in the provider's own billing, which is inconvenient when the
+    whole product claim is "we prove it". Numbers only: tool name, character counts
+    before/after, timestamp. Never content.
+
+    Best-effort and silent on failure: bookkeeping must never break a tool result.
+    """
+    try:
+        p = path or _receipt_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "tool": tool_name,
+                        "chars_before": before,
+                        "chars_after": after,
+                        "chars_saved": max(0, before - after),
+                        "ts": time.time(),
+                    }
+                )
+                + "\n"
+            )
+    except (OSError, ValueError):
+        # OSError: unwritable path. ValueError: an embedded NUL in DISTIL_HOME, which
+        # raises before any I/O. Bookkeeping is best-effort — losing a receipt is
+        # cheap, losing the compression it describes is not.
+        pass
+
+
+def _measure(value: Any) -> int:
+    """Character size of a tool payload, whatever shape it takes."""
+    if isinstance(value, str):
+        return len(value)
+    try:
+        return len(json.dumps(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def run(stdin_text: str) -> str:
     """Map one hook invocation to its stdout. Never raises."""
     try:
@@ -172,6 +221,7 @@ def run(stdin_text: str) -> str:
         replacement = compress_tool_output(tool_name, tool_output)
         if replacement is None:
             return "{}"
+        record_receipt(tool_name, _measure(tool_output), _measure(replacement))
 
         return json.dumps(
             {

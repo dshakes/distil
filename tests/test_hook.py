@@ -355,3 +355,65 @@ def test_no_test_id_can_break_windows():
         f"puts the ID in PYTEST_CURRENT_TEST. Add ids=[...] to that parametrize.\n"
         f"{longest[:200]}..."
     )
+
+
+# --- receipts -----------------------------------------------------------------
+def test_hook_writes_a_receipt_for_what_it_compressed(tmp_path, monkeypatch):
+    """Hook mode measured best externally and was the only arm that logged nothing.
+
+    Its effect showed up only in the provider's billing, which is a poor position
+    for a product whose claim is that it proves its own numbers.
+    """
+    import json as _json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.hook import _receipt_path, run
+
+    big = _json.dumps({"rows": [{"k": i, "v": "x" * 40} for i in range(200)]}, indent=2)
+    event = {
+        "tool_name": "Bash",
+        "tool_response": {"stdout": big, "stderr": "", "interrupted": False},
+    }
+    out = run(_json.dumps(event))
+    assert "updatedToolOutput" in out
+
+    rows = [
+        _json.loads(line)
+        for line in _receipt_path().read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 1
+    assert rows[0]["tool"] == "Bash"
+    assert rows[0]["chars_before"] > rows[0]["chars_after"] > 0
+    assert rows[0]["chars_saved"] == rows[0]["chars_before"] - rows[0]["chars_after"]
+    assert "stdout" not in _json.dumps(rows[0]), "receipts must be content-free"
+
+
+def test_no_receipt_when_nothing_was_compressed(tmp_path, monkeypatch):
+    """A declined result must not look like a compression that saved zero."""
+    import json as _json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.hook import _receipt_path, run
+
+    event = {"tool_name": "Bash", "tool_response": {"stdout": "tiny", "stderr": ""}}
+    assert run(_json.dumps(event)) == "{}"
+    assert not _receipt_path().exists()
+
+
+def test_receipt_failure_never_breaks_the_tool_result(tmp_path, monkeypatch):
+    """Bookkeeping is best-effort: an unwritable path must not lose the compression."""
+    import json as _json
+
+    # A path under a FILE, so mkdir/open raise OSError inside record_receipt.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    monkeypatch.setenv("DISTIL_HOME", str(blocker / "sub"))
+    from distil.hook import run
+
+    big = _json.dumps({"rows": [{"k": i, "v": "y" * 40} for i in range(200)]}, indent=2)
+    event = {
+        "tool_name": "Bash",
+        "tool_response": {"stdout": big, "stderr": "", "interrupted": False},
+    }
+    assert "updatedToolOutput" in run(_json.dumps(event))

@@ -2529,14 +2529,69 @@ def cmd_quota(args: argparse.Namespace) -> int:
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
-    """Run, install, or verify the Claude Code PostToolUse hook."""
+    """Run, install, verify, or report on the Claude Code PostToolUse hook."""
     from .hook import install_hook, main as hook_main, uninstall_hook
 
     if getattr(args, "install", False):
         return install_hook()
     if getattr(args, "uninstall", False):
         return uninstall_hook()
+    if getattr(args, "stats", False):
+        return _hook_stats()
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
+def _hook_stats(out: Any = None) -> int:
+    """Print what the hook actually did, from its append-only receipts."""
+    import json as _json
+
+    from .hook import _receipt_path
+
+    stream = out or sys.stdout
+    path = _receipt_path()
+    if not path.exists():
+        print(
+            "no hook receipts yet — install with `distil hook --install`, then run a\n"
+            "session with a large tool output (Bash or an MCP tool) to see savings here.",
+            file=stream,
+        )
+        return 0
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(_json.loads(line))
+        except _json.JSONDecodeError:
+            continue  # a torn final line must not break the report
+    if not rows:
+        print("no hook receipts yet.", file=stream)
+        return 0
+    before = sum(int(r.get("chars_before") or 0) for r in rows)
+    after = sum(int(r.get("chars_after") or 0) for r in rows)
+    saved = before - after
+    by_tool: dict[str, int] = {}
+    for r in rows:
+        by_tool[str(r.get("tool") or "?")] = by_tool.get(str(r.get("tool") or "?"), 0) + int(
+            r.get("chars_saved") or 0
+        )
+    print("distil hook — lossless tool-output compression (subscription-safe)\n", file=stream)
+    print(f"  compressed results : {len(rows):,}", file=stream)
+    print(f"  characters before  : {before:,}", file=stream)
+    print(f"  characters after   : {after:,}", file=stream)
+    pct = (100.0 * saved / before) if before else 0.0
+    print(f"  saved              : {saved:,} ({pct:.1f}%)", file=stream)
+    if by_tool:
+        print("\n  by tool:", file=stream)
+        for tool, chars in sorted(by_tool.items(), key=lambda kv: -kv[1]):
+            print(f"    {tool:<28} {chars:>12,} chars", file=stream)
+    print(
+        "\n  Characters, not tokens: the hook runs before any tokenizer and stays\n"
+        "  dependency-free. Treat it as a floor on what the window kept.",
+        file=stream,
+    )
+    return 0
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
@@ -4275,6 +4330,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--install",
         action="store_true",
         help="write the hook into ~/.claude/settings.json (idempotent)",
+    )
+    hk.add_argument(
+        "--stats",
+        action="store_true",
+        help="what the hook actually saved, from its append-only receipts",
     )
     hk.add_argument(
         "--uninstall", action="store_true", help="remove the distil hook from settings.json"
