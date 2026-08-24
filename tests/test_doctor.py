@@ -926,3 +926,55 @@ def test_live_routing_still_warns_when_nothing_is_arriving(tmp_path, monkeypatch
     # No receipts file at all: nothing has ever reached the proxy.
     check = doctor._check_live_routing()
     assert check.status == "warn"
+
+
+# --- expand recovery ----------------------------------------------------------
+def _write_signals(home, hits: int, misses: int):
+    import json as _json
+
+    p = home / "expand-signals.jsonl"
+    lines = [_json.dumps({"handle": "a" * 8, "recovered_chars": 10, "ts": 1.0})] * hits
+    lines += [_json.dumps({"miss": "b" * 8, "ts": 2.0})] * misses
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def test_expand_recovery_is_silent_before_any_activity(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.doctor import INFO, _check_expand_recovery
+
+    assert _check_expand_recovery().status == INFO
+
+
+def test_expand_recovery_reports_clean_when_every_handle_resolved(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.doctor import OK, _check_expand_recovery
+
+    _write_signals(tmp_path, hits=12, misses=0)
+    c = _check_expand_recovery()
+    assert c.status == OK and "0 unrecoverable" in c.detail
+
+
+def test_a_rare_miss_warns_but_a_sustained_rate_fails(tmp_path, monkeypatch):
+    """A miss is fail-open, so rare ones are weather; a sustained rate means the
+    store is too small and the digest tier has gone quietly lossy."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.doctor import FAIL, WARN, _check_expand_recovery
+
+    _write_signals(tmp_path, hits=19, misses=1)  # 5%
+    assert _check_expand_recovery().status == WARN
+
+    _write_signals(tmp_path, hits=6, misses=4)  # 40%
+    c = _check_expand_recovery()
+    assert c.status == FAIL
+    assert "DISTIL_RESTORE_CAP" in c.hint, "must name the knob that fixes it"
+
+
+def test_expand_recovery_survives_a_torn_line(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.doctor import OK, _check_expand_recovery
+
+    p = _write_signals(tmp_path, hits=3, misses=0)
+    with p.open("a", encoding="utf-8") as f:
+        f.write('{"handle": "cc')
+    assert _check_expand_recovery().status == OK
