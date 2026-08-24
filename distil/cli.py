@@ -2541,6 +2541,59 @@ def cmd_hook(args: argparse.Namespace) -> int:
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
 
 
+def cmd_memory(args: argparse.Namespace) -> int:
+    """Show — or prune — the shared recall store every distil-routed agent reads."""
+    import time as _time
+
+    from .mcp_server import _RESTORE_CAP, _RESTORE_TTL_DAYS, _restore_dir
+
+    d = _restore_dir()
+    try:
+        entries = [
+            (f, f.stat()) for f in d.iterdir() if f.is_file() and not f.name.endswith(".lock")
+        ]
+    except OSError:
+        entries = []
+    if getattr(args, "clear", False):
+        if not entries:
+            print("recall store is already empty.")
+            return 0
+        for f, _st in entries:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        print(f"cleared {len(entries):,} stored originals from {d}")
+        print("any digest stub still in an agent's context can no longer be expanded.")
+        return 0
+
+    print("distil recall store — shared by every agent routed through distil\n")
+    if not entries:
+        print("  empty — nothing has been digested behind a handle yet.")
+        print("\n  Populated automatically when compression folds a block (proxy/wrap/MCP).")
+        return 0
+    total = sum(st.st_size for _f, st in entries)
+    now = _time.time()
+    ages = sorted((now - st.st_mtime) / 86400.0 for _f, st in entries)
+    print(f"  stored originals : {len(entries):,}")
+    print(f"  on disk          : {total / 1024:.1f} KiB (encrypted, owner-only)")
+    print(f"  oldest / newest  : {ages[-1]:.1f}d / {ages[0]:.1f}d")
+    print(f"  location         : {d}")
+    print(f"\n  cap {_RESTORE_CAP:,} entries · TTL {_RESTORE_TTL_DAYS:g} days")
+    if _RESTORE_CAP and len(entries) >= _RESTORE_CAP * 0.9:
+        print(
+            "  ⚠ within 10% of the cap — the oldest handles are being evicted, and a stub\n"
+            "    whose original is gone expands to a placeholder. Raise DISTIL_RESTORE_CAP."
+        )
+    print(
+        "\n  Any process reading the same DISTIL_HOME can expand these handles, so a block\n"
+        "  digested in one agent is recoverable from another (Claude Code → Codex → an MCP\n"
+        "  client). Content-free by design elsewhere; these ARE the originals, so they are\n"
+        "  encrypted at rest and never leave this machine."
+    )
+    return 0
+
+
 def _hook_stats(out: Any = None) -> int:
     """Print what the hook actually did, from its append-only receipts."""
     import json as _json
@@ -4351,6 +4404,17 @@ def build_parser() -> argparse.ArgumentParser:
         "mcp", help="run the zero-dep MCP server over stdio (distil_compress/expand/savings)"
     )
     mc.set_defaults(func=cmd_mcp)
+
+    mem = sub.add_parser(
+        "memory",
+        help="the shared recall store every distil-routed agent can expand from",
+    )
+    mem.add_argument(
+        "--clear",
+        action="store_true",
+        help="delete every stored original (stubs already in context become unexpandable)",
+    )
+    mem.set_defaults(func=cmd_memory)
 
     hk = sub.add_parser(
         "hook",

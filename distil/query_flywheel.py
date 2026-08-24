@@ -20,6 +20,7 @@ flywheel can never slow or break a request.
 from __future__ import annotations
 
 import json
+import threading as _threading
 import time
 from pathlib import Path
 
@@ -49,6 +50,21 @@ def disable() -> None:
 
 def is_enabled() -> bool:
     return _enabled
+
+
+# The digest of the request currently being compressed, so a flywheel row can be joined
+# to its shadow verdict later. Thread-local because ThreadingHTTPServer handles each
+# request on its own thread; set by the proxy, never required.
+_req_tls = _threading.local()
+
+
+def set_request_digest(digest: str | None) -> None:
+    """Tag subsequent rows on this thread with the request they came from."""
+    _req_tls.digest = digest
+
+
+def _current_request_digest() -> str | None:
+    return getattr(_req_tls, "digest", None)
 
 
 def _default_path() -> Path:
@@ -113,8 +129,12 @@ def maybe_record(
             return
         p = path or _default_path()
         p.parent.mkdir(parents=True, exist_ok=True)
+        rec: dict[str, object] = {"h": handle, "rows": rows, "ts": time.time()}
+        req = _current_request_digest()
+        if req:
+            rec["req"] = req  # join key for the shadow decision-change label
         with p.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"h": handle, "rows": rows, "ts": time.time()}) + "\n")
+            f.write(json.dumps(rec) + "\n")
         # ② also record the hashed query×output-subtoken co-occurrence (content-free) so the
         # flywheel can learn domain-specific associations. See distil.query_assoc.
         from distil import query_assoc
@@ -129,6 +149,46 @@ def maybe_record(
         query_assoc.record_cooccurrence(handle, intent, out_subs)
     except Exception:  # noqa: BLE001 — the moat signal must never break the request path
         pass
+
+
+def _decision_changed_digests(path: Path | None = None) -> set[str]:
+    """Request digests whose decision CHANGED under compression, per shadow mode.
+
+    This is the label the flywheel actually wants. The expand signal answers "did the
+    model ask for this block back", which only exists under ``--expand``; a shadow A/B
+    verdict answers "did compressing this request change what the agent did next",
+    which is the property the certificate is about — and shadow runs by default on
+    every configuration, subscription included.
+
+    A/A rows are excluded: they re-run the SAME compressed request twice, so a
+    disagreement there is provider nondeterminism, not a compression effect. Training
+    on them would teach the model to keep content because the sampler was noisy.
+    """
+    out: set[str] = set()
+    try:
+        from distil.shadow import _state_dir
+
+        sp = path or (_state_dir() / "shadow.jsonl")
+        if not sp.exists():
+            return out
+        for line in sp.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("kind") == "aa" or rec.get("equivalent") is not False:
+                continue
+            # ShadowLedger._append flattens `evidence` into the row, so `digest` is
+            # top-level rather than nested.
+            digest = rec.get("digest")
+            if isinstance(digest, str):
+                out.add(digest)
+    except (OSError, ImportError, AttributeError):
+        pass  # the flywheel must never depend on shadow being present
+    return out
 
 
 def load_labels(
@@ -155,14 +215,20 @@ def load_labels(
                 if not line:
                     continue
                 try:
-                    h = json.loads(line).get("handle")
-                    if isinstance(h, str):
-                        expanded.add(h)
+                    rec = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                # A MISS is written under "miss", never "handle": the model asked for
+                # that block and distil could not return it. Counting it as a positive
+                # would teach the keep-model that the block it failed to produce was
+                # safe to drop — precisely backwards.
+                h = rec.get("handle")
+                if isinstance(h, str):
+                    expanded.add(h)
     except (OSError, ImportError):
         pass
 
+    changed = _decision_changed_digests()
     samples: list[tuple[list[float], float]] = []
     try:
         if not fp.exists():
@@ -179,7 +245,16 @@ def load_labels(
             rows = rec.get("rows")
             if not isinstance(h, str) or not isinstance(rows, list):
                 continue
-            label = 1.0 if h in expanded else 0.0
+            # Two independent positives, either of which means "the agent needed this":
+            #   * an EXPAND — the model asked for the block back (only ever available
+            #     under --expand, and never on a subscription); and
+            #   * a shadow DECISION CHANGE — compressing this request provably altered
+            #     the agent's next action. Strictly stronger evidence, on by default at
+            #     2%, and it works on every configuration including subscription mode.
+            # Without the second source the flywheel could only learn from the one
+            # configuration users are steered away from, which is why the shipped model
+            # stayed inert.
+            label = 1.0 if (h in expanded or rec.get("req") in changed) else 0.0
             for row in rows:
                 if isinstance(row, list) and len(row) == len(QUERY_FEATURE_NAMES):
                     samples.append(([float(v) for v in row], label))

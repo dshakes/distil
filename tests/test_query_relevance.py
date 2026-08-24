@@ -167,3 +167,83 @@ def test_gate_rejects_too_few_labels(tmp_path):
 
     r = query_train.certify_and_promote([([0.0] * _W, 1.0)] * 10, weights_path=tmp_path / "qw.json")
     assert not r["promoted"] and "too few" in r["reason"]
+
+
+# --- shadow-labelled flywheel -------------------------------------------------
+def test_a_shadow_decision_change_labels_a_flywheel_row(tmp_path, monkeypatch):
+    """The label source must not require --expand.
+
+    Expand labels only exist under `--expand`, and never on a subscription (no digest
+    tier, so nothing to expand). That left the query-salience model able to learn from
+    exactly one configuration — the one an external benchmark told users to avoid — so
+    the shipped weights stayed inert. A shadow A/B verdict is a stronger label anyway:
+    it says compressing THIS request changed what the agent did next.
+    """
+    import json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import query_flywheel as qf
+
+    shadow = tmp_path / "shadow.jsonl"
+    shadow.write_text(
+        "\n".join(
+            [
+                json.dumps({"equivalent": False, "kind": "ab", "digest": "req_changed"}),
+                json.dumps({"equivalent": True, "kind": "ab", "digest": "req_same"}),
+                # A/A disagreement is provider nondeterminism, NOT a compression effect.
+                json.dumps({"equivalent": False, "kind": "aa", "digest": "req_noise"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    changed = qf._decision_changed_digests(path=shadow)
+    assert changed == {"req_changed"}, "only A/B changes are compression evidence"
+
+
+def test_load_labels_uses_shadow_changes_without_any_expand(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import query_flywheel as qf
+    from distil.compress.query_relevance import QUERY_FEATURE_NAMES
+
+    row = [0.5] * len(QUERY_FEATURE_NAMES)
+    fw = tmp_path / "query_flywheel.jsonl"
+    fw.write_text(
+        "\n".join(
+            [
+                json.dumps({"h": "aaaa1111", "rows": [row], "req": "req_changed"}),
+                json.dumps({"h": "bbbb2222", "rows": [row], "req": "req_same"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "shadow.jsonl").write_text(
+        json.dumps({"equivalent": False, "kind": "ab", "digest": "req_changed"}) + "\n",
+        encoding="utf-8",
+    )
+    # No expand-signal file at all — this is the subscription / no-expand case.
+    samples = qf.load_labels(flywheel_path=fw, signal_path=tmp_path / "absent.jsonl")
+    labels = sorted(lbl for _feat, lbl in samples)
+    assert labels == [0.0, 1.0], "the shadow-changed request must produce a positive"
+
+
+def test_a_missed_expand_is_never_a_positive_label(tmp_path, monkeypatch):
+    """A miss means distil could NOT return the block. Treating that as a positive
+    would teach the keep-model that the content it failed to produce was droppable."""
+    import json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import query_flywheel as qf
+    from distil.compress.query_relevance import QUERY_FEATURE_NAMES
+
+    row = [0.5] * len(QUERY_FEATURE_NAMES)
+    fw = tmp_path / "fw.jsonl"
+    fw.write_text(json.dumps({"h": "cccc3333", "rows": [row]}) + "\n", encoding="utf-8")
+    sig = tmp_path / "sig.jsonl"
+    sig.write_text(json.dumps({"miss": "cccc3333", "ts": 1.0}) + "\n", encoding="utf-8")
+
+    samples = qf.load_labels(flywheel_path=fw, signal_path=sig)
+    assert [lbl for _f, lbl in samples] == [0.0]
