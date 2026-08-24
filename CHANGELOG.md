@@ -3,6 +3,40 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.50.0] — the model that could never learn, and the store nobody could see
+
+Two capabilities that were present in the code and unreachable in practice.
+
+**Query-aware salience can finally train.** The shipped `query_weights.json` never
+existed on any install, and the reason was structural rather than a cold start: label
+collection ran only under `--expand`, and the labels themselves were expand events. So
+the flywheel could only learn from the one configuration an independent benchmark
+tells users not to adopt — and never at all on a subscription, where the digest tier
+is off and no expand can occur.
+
+Shadow mode already produces a better label. An A/B verdict says whether compressing
+*this request* changed the agent's next action — the property the certificate is
+about, not a proxy for it — and shadow runs by default at 2% on every configuration.
+Training now treats a shadow decision-change as a positive alongside an expand, joined
+on the request digest both sides already compute. A/A rows are excluded: those re-run
+the same compressed request twice, so a disagreement there is provider
+nondeterminism, and learning from it would teach the model to keep content because
+the sampler was noisy.
+
+**`distil memory` — the cross-agent recall store, made visible.** A handle minted
+while compressing for Claude Code was always expandable from Codex, Gemini, or any MCP
+client reading the same `DISTIL_HOME`: the store is machine-wide, encrypted at rest,
+and needs no database. Nothing surfaced it, so nobody knew, and nobody could tell when
+it was full. `distil memory` reports what is stored, how old it is, and warns within
+10% of the cap — the point where the oldest handles start being evicted and a stub in
+an agent's context quietly stops being expandable. `--clear` empties it.
+
+Deliberately NOT built: an embedding-backed semantic memory. The comparable feature
+elsewhere costs a vector database, a graph store and a sentence-transformers model.
+distil ships zero runtime dependencies and installs anywhere on day one, and the
+recall property users actually need — *get me back the exact bytes that were folded* —
+is served by a keyed store rather than a similarity search over paraphrases.
+
 ## [1.49.0] — the agent said "done" and wrote nothing
 
 **Fix this one.** An independent benchmark ran 75 agent sessions (Claude Code, Opus 5,

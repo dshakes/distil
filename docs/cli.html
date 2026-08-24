@@ -536,7 +536,25 @@ by trajectory:
 <span class="d">$ distil dissect s4821-3 --html report.html</span>
 <span class="d">$ distil dissect --serve</span>       <span class="d"># localhost portal, all sessions</span></pre>
 
-    <h2 id="learn">distil learn</h2>
+    <h2 id="memory">distil memory</h2>
+<p>The shared recall store every distil-routed agent reads. A block digested while
+compressing for one agent is expandable by <em>any</em> other reading the same
+<code>DISTIL_HOME</code> — Claude Code to Codex to an MCP client — because the store is
+machine-wide and keyed by content handle. Encrypted at rest, never leaves the machine,
+no database required. Warns when it is within 10% of its cap: past that the oldest
+handles are evicted and a stub already in an agent&rsquo;s context can no longer be
+expanded.</p>
+<pre class="term"><span class="d">$ distil memory</span>            <span class="d"># what is stored, how old, how full</span>
+<span class="d">$ distil memory --clear</span>    <span class="d"># delete every stored original</span></pre>
+
+<h2 id="hook-stats">distil hook --stats</h2>
+<p>What the <code>PostToolUse</code> hook actually saved, from its append-only receipts.
+Characters rather than tokens — the hook runs before any tokenizer and stays
+dependency-free — so read it as a floor on what the context window kept.</p>
+<pre class="term"><span class="d">$ distil hook --install</span>   <span class="d"># documented Claude Code extension point</span>
+<span class="d">$ distil hook --stats</span>     <span class="d"># totals, split by tool</span></pre>
+
+<h2 id="learn">distil learn</h2>
     <p>Show the keep-byte-exact policy Distil has learned from your own <code>distil_expand</code> signals: content the agent kept pulling back is content that should not have been digested in the first place. Read-only — it reports the policy, it does not change it.</p>
     <pre class="term"><span class="d">$ distil learn</span>              <span class="d"># the policy your traffic implies</span>
 <span class="d">$ distil learn --threshold 0.3 --min-samples 20</span></pre>
