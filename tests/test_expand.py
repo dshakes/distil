@@ -295,3 +295,213 @@ def test_proxy_expand_loop_end_to_end(tmp_path, monkeypatch):
     finally:
         proxy.shutdown()
         up.shutdown()
+
+
+def test_unrecoverable_handle_is_not_logged_as_a_recovery(tmp_path):
+    """F3, post-compression access failure: the store cannot return a handle it
+    was asked for. Fail-open still hands the agent a placeholder, but nothing
+    downstream may book that as a successful expansion — the trainers key
+    positives off a bare .get("handle"), so a miss written under that key would
+    teach the keep-model that the block it lost was safe to drop."""
+    import json
+
+    from distil.expand import is_miss, record_signal, resolve_expands
+
+    resp = {
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "tu_1",
+                "name": EXPAND_TOOL_NAME,
+                "input": {"handle": "deadbeef"},
+            }
+        ]
+    }
+    out = resolve_expands(resp, _Store({}))  # handle evicted / aged out
+    assert out is not None
+    text = out[0]["content"]
+    assert is_miss(text), "the agent must be told recovery failed, not handed silence"
+
+    sig = tmp_path / "expand-signals.jsonl"
+    record_signal("deadbeef", text, path=sig)
+    record_signal("a1b2c3d4", "the real original", path=sig)
+    recs = [json.loads(line) for line in sig.read_text().splitlines()]
+
+    # what the flywheel and assoc trainers actually read
+    positives = {r.get("handle") for r in recs if isinstance(r.get("handle"), str)}
+    assert positives == {"a1b2c3d4"}, "a failed recovery must not be a positive label"
+    misses = [r for r in recs if r.get("miss")]
+    assert [r["miss"] for r in misses] == ["deadbeef"]
+    assert "recovered_chars" not in misses[0], "nothing was recovered"
+
+
+def test_mixed_turn_is_not_intercepted_messages_api():
+    """A turn carrying a client tool_use alongside distil_expand is handed back as-is.
+
+    Resolving only the expand block would replay the assistant message with the
+    client's tool_use unanswered, and the continuation's stop_reason would mask the
+    real ``tool_use`` — so the agent never runs the tool it asked for.
+    """
+    from distil.expand import has_client_tool_use, run_expand_loop
+
+    store = _Store({"deadbeef": "the original"})
+    mixed = {
+        "content": [
+            {"type": "text", "text": "Editing now."},
+            {"type": "tool_use", "id": "tu_edit", "name": "Edit", "input": {"file_path": "/x"}},
+            {
+                "type": "tool_use",
+                "id": "tu_exp",
+                "name": EXPAND_TOOL_NAME,
+                "input": {"handle": "deadbeef"},
+            },
+        ],
+        "stop_reason": "tool_use",
+    }
+    assert has_client_tool_use(mixed) is True
+
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return {"content": [{"type": "text", "text": "should never run"}]}
+
+    out = run_expand_loop({"messages": []}, mixed, store, post)
+    assert out is mixed, "the mixed turn must be returned untouched"
+    assert posts == [], "a mixed turn must not trigger a re-query"
+    assert out["stop_reason"] == "tool_use", "the client needs tool_use to execute"
+
+
+def test_expand_only_turn_still_resolves_messages_api():
+    """The mixed-turn guard must not disable ordinary expansion."""
+    from distil.expand import has_client_tool_use, run_expand_loop
+
+    store = _Store({"deadbeef": "RECOVERED"})
+    expand_only = {
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "tu_exp",
+                "name": EXPAND_TOOL_NAME,
+                "input": {"handle": "deadbeef"},
+            }
+        ]
+    }
+    assert has_client_tool_use(expand_only) is False
+
+    final = {"content": [{"type": "text", "text": "done"}]}
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return final
+
+    out = run_expand_loop({"messages": []}, expand_only, store, post)
+    assert out is final
+    assert len(posts) == 1, "expand-only turns must still re-query"
+    recovered = posts[0]["messages"][-1]["content"][0]["content"]
+    assert recovered == "RECOVERED"
+
+
+def test_mixed_turn_is_not_intercepted_responses_api():
+    """Same guard on the OpenAI Responses shape."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({"deadbeef": "the original"})
+    mixed = {
+        "output": [
+            {"type": "function_call", "call_id": "c1", "name": "apply_patch", "arguments": "{}"},
+            {
+                "type": "function_call",
+                "call_id": "c2",
+                "name": EXPAND_TOOL_NAME,
+                "arguments": json.dumps({"handle": "deadbeef"}),
+            },
+        ]
+    }
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return {"output": []}
+
+    out = run_expand_loop_responses({"input": []}, mixed, store, post)
+    assert out is mixed
+    assert posts == []
+
+
+def test_mixed_turn_is_not_intercepted_gemini():
+    """Same guard on the Gemini contents/parts shape."""
+    from distil.expand import run_expand_loop_gemini
+
+    store = _Store({"deadbeef": "the original"})
+    mixed = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {"functionCall": {"name": "write_file", "args": {"path": "/x"}}},
+                        {
+                            "functionCall": {
+                                "name": EXPAND_TOOL_NAME,
+                                "args": {"handle": "deadbeef"},
+                            }
+                        },
+                    ]
+                }
+            }
+        ]
+    }
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return {"candidates": []}
+
+    out = run_expand_loop_gemini({"contents": []}, mixed, store, post)
+    assert out is mixed
+    assert posts == []
+
+
+def test_responses_loop_returns_after_max_iters():
+    """The runaway cap must return the latest response, not spin."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({"deadbeef": "X"})
+
+    def always_expand(_body):
+        return {
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "c",
+                    "name": EXPAND_TOOL_NAME,
+                    "arguments": json.dumps({"handle": "deadbeef"}),
+                }
+            ]
+        }
+
+    out = run_expand_loop_responses(
+        {"input": []}, always_expand(None), store, always_expand, max_iters=2
+    )
+    assert out is not None and "output" in out
+
+
+def test_responses_loop_tolerates_unparseable_arguments():
+    """A malformed arguments blob must not raise — the handle resolves to a miss."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({})
+    first = {
+        "output": [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": EXPAND_TOOL_NAME,
+                "arguments": "{not json",
+            }
+        ]
+    }
+    final = {"output": [{"type": "message", "content": "done"}]}
+    out = run_expand_loop_responses({"input": []}, first, store, lambda b: final)
+    assert out is final

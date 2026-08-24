@@ -256,10 +256,15 @@ def format_summary(summary: CacheSummary) -> str:
             f"prefix drift    {s.drifts:,} of {s.pairs:,} turns changed the stable prefix "
             f"({s.drift_ratio:.0%})",
             "                Each one re-bills the whole prefix. distil holds the cached",
-            "                span byte-stable (pinned by an append-only test), so look",
-            "                upstream: a timestamp or session id in the system prompt, or",
-            "                a tool list whose order varies. Before 1.45 distil itself",
-            "                rewrote the prefix every turn — upgrade before hunting.",
+            "                span byte-stable (pinned by an append-only test).",
+            "                Check distil first, then upstream. Ours: on <1.49 the",
+            "                distil_expand tool was injected only once a handle existed,",
+            "                so the tools array — which Anthropic caches AHEAD of the",
+            "                system prompt — changed shape the turn compression first",
+            "                fired; and an unmodified body was re-serialized rather than",
+            "                forwarded byte-for-byte. Both are fixed in 1.49: upgrade",
+            "                before hunting. Upstream: a timestamp or session id in the",
+            "                system prompt, or a tool list whose order varies.",
         ]
     else:
         lines.append(f"prefix drift    none across {s.pairs:,} turns — the prefix held")

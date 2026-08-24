@@ -355,3 +355,121 @@ def test_no_test_id_can_break_windows():
         f"puts the ID in PYTEST_CURRENT_TEST. Add ids=[...] to that parametrize.\n"
         f"{longest[:200]}..."
     )
+
+
+# --- receipts -----------------------------------------------------------------
+def test_hook_writes_a_receipt_for_what_it_compressed(tmp_path, monkeypatch):
+    """Hook mode measured best externally and was the only arm that logged nothing.
+
+    Its effect showed up only in the provider's billing, which is a poor position
+    for a product whose claim is that it proves its own numbers.
+    """
+    import json as _json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.hook import _receipt_path, run
+
+    big = _json.dumps({"rows": [{"k": i, "v": "x" * 40} for i in range(200)]}, indent=2)
+    event = {
+        "tool_name": "Bash",
+        "tool_response": {"stdout": big, "stderr": "", "interrupted": False},
+    }
+    out = run(_json.dumps(event))
+    assert "updatedToolOutput" in out
+
+    rows = [
+        _json.loads(line)
+        for line in _receipt_path().read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) == 1
+    assert rows[0]["tool"] == "Bash"
+    assert rows[0]["chars_before"] > rows[0]["chars_after"] > 0
+    assert rows[0]["chars_saved"] == rows[0]["chars_before"] - rows[0]["chars_after"]
+    assert "stdout" not in _json.dumps(rows[0]), "receipts must be content-free"
+
+
+def test_no_receipt_when_nothing_was_compressed(tmp_path, monkeypatch):
+    """A declined result must not look like a compression that saved zero."""
+    import json as _json
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.hook import _receipt_path, run
+
+    event = {"tool_name": "Bash", "tool_response": {"stdout": "tiny", "stderr": ""}}
+    assert run(_json.dumps(event)) == "{}"
+    assert not _receipt_path().exists()
+
+
+def test_receipt_failure_never_breaks_the_tool_result(tmp_path, monkeypatch):
+    """Bookkeeping is best-effort: an unwritable path must not lose the compression."""
+    import json as _json
+
+    # A path under a FILE, so mkdir/open raise OSError inside record_receipt.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    monkeypatch.setenv("DISTIL_HOME", str(blocker / "sub"))
+    from distil.hook import run
+
+    big = _json.dumps({"rows": [{"k": i, "v": "y" * 40} for i in range(200)]}, indent=2)
+    event = {
+        "tool_name": "Bash",
+        "tool_response": {"stdout": big, "stderr": "", "interrupted": False},
+    }
+    assert "updatedToolOutput" in run(_json.dumps(event))
+
+
+# --- `distil hook --stats` ----------------------------------------------------
+def test_hook_stats_reports_nothing_before_any_receipt(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+
+    assert _hook_stats() == 0
+    out = capsys.readouterr().out
+    assert "no hook receipts yet" in out
+    assert "--install" in out, "an empty report must say how to get data"
+
+
+def test_hook_stats_totals_and_splits_by_tool(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+    from distil.hook import record_receipt
+
+    record_receipt("Bash", 10_000, 6_000)
+    record_receipt("Bash", 4_000, 3_000)
+    record_receipt("mcp__db__query", 2_000, 500)
+
+    assert _hook_stats() == 0
+    out = capsys.readouterr().out
+    assert "compressed results : 3" in out
+    assert "16,000" in out and "9,500" in out  # before / after
+    assert "6,500" in out, "total saved"
+    assert "40.6%" in out
+    assert "Bash" in out and "mcp__db__query" in out
+    assert "Characters, not tokens" in out, "the unit must be stated, not implied"
+
+
+def test_hook_stats_survives_a_torn_final_line(tmp_path, monkeypatch, capsys):
+    """The receipts file is appended to live; a crash can leave a partial line."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+    from distil.hook import _receipt_path, record_receipt
+
+    record_receipt("Bash", 5_000, 2_000)
+    with _receipt_path().open("a", encoding="utf-8") as f:
+        f.write('{"tool": "Bash", "chars_bef')  # torn write, no newline
+
+    assert _hook_stats() == 0
+    out = capsys.readouterr().out
+    assert "compressed results : 1" in out
+
+
+def test_hook_stats_handles_a_receipts_file_with_only_blank_lines(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.cli import _hook_stats
+    from distil.hook import _receipt_path
+
+    _receipt_path().parent.mkdir(parents=True, exist_ok=True)
+    _receipt_path().write_text("\n\n\n", encoding="utf-8")
+    assert _hook_stats() == 0
+    assert "no hook receipts yet." in capsys.readouterr().out

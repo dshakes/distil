@@ -107,17 +107,59 @@ def _expand_calls(resp: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def has_client_tool_use(resp: dict[str, Any]) -> bool:
+    """True if the response asks the CLIENT to run a tool (anything but distil_expand).
+
+    Such a turn must be handed to the agent untouched. Resolving only the
+    ``distil_expand`` block would replay the assistant message with the client's
+    tool_use left unanswered — an API-contract violation — and would hide the
+    turn's ``tool_use`` stop_reason behind the continuation's ``end_turn``, so the
+    agent never executes the tool it asked for.
+    """
+    return any(
+        isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") != EXPAND_TOOL_NAME
+        for b in (resp.get("content") or [])
+    )
+
+
+_MISS_PREFIX = "[distil: no original found for handle "
+
+
+def miss_text(handle: str) -> str:
+    """The placeholder handed to the agent when a handle cannot be recovered."""
+    return f"{_MISS_PREFIX}{handle!r}]"
+
+
+def is_miss(text: str) -> bool:
+    """True if *text* is a recovery failure rather than recovered content.
+
+    F3 (post-compression access failure): the digest was made, the handle was
+    asked for, and the store could not return it — evicted past DISTIL_RESTORE_CAP,
+    aged past the TTL, or written by an install that is gone. Fail-open keeps the
+    agent running, but the placeholder must never be mistaken for the original:
+    it would train the keep-model that dropping that block was safe.
+    """
+    return text.startswith(_MISS_PREFIX)
+
+
 def record_signal(handle: str, original: str, *, path: Path | None = None) -> None:
     """Append a content-free expand event — the label the keep-model learns from.
-    Only the handle and recovered length are written; never the content itself."""
+    Only the handle and recovered length are written; never the content itself.
+
+    A recovery *failure* is logged under ``miss`` rather than ``handle``, because
+    every consumer keys positives off a bare ``.get("handle")`` — writing the
+    handle here would teach the keep-model that the block it could not return
+    was safe to drop, which is the opposite of what happened.
+    """
     try:
         path = path or _default_signal_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        key = "miss" if is_miss(original) else "handle"
+        rec: dict[str, Any] = {key: handle, "ts": time.time()}
+        if key == "handle":
+            rec["recovered_chars"] = len(original)
         with path.open("a", encoding="utf-8") as f:
-            f.write(
-                json.dumps({"handle": handle, "recovered_chars": len(original), "ts": time.time()})
-                + "\n"
-            )
+            f.write(json.dumps(rec) + "\n")
     except OSError:
         pass  # logging the moat signal must never break the request path
 
@@ -139,7 +181,7 @@ def resolve_expands(
         try:
             original = store.expand(handle)
         except Exception:  # noqa: BLE001 — unknown/expired handle must not 500 the agent
-            original = f"[distil: no original found for handle {handle!r}]"
+            original = miss_text(handle)
         if on_signal is not None:
             on_signal(handle, original)
         results.append({"type": "tool_result", "tool_use_id": c.get("id"), "content": original})
@@ -165,6 +207,8 @@ def run_expand_loop(
     resp = first_response
     messages = list(body.get("messages") or [])
     for _ in range(max_iters):
+        if has_client_tool_use(resp):
+            return resp  # mixed turn: the agent must run its own tool call first
         results = resolve_expands(resp, store, on_signal=on_signal)
         if results is None:
             return resp
@@ -199,6 +243,13 @@ def run_expand_loop_responses(
     resp = first_response
     input_items = list(body.get("input") or [])
     for _ in range(max_iters):
+        if any(  # mixed turn: the agent must run its own function call first
+            isinstance(item, dict)
+            and item.get("type") == "function_call"
+            and item.get("name") != EXPAND_TOOL_NAME
+            for item in (resp.get("output") or [])
+        ):
+            return resp
         calls = [
             item
             for item in (resp.get("output") or [])
@@ -221,7 +272,7 @@ def run_expand_loop_responses(
             try:
                 original = store.expand(handle)
             except Exception:  # noqa: BLE001 — unknown handle must not 500 the agent
-                original = f"[distil: no original found for handle {handle!r}]"
+                original = miss_text(handle)
             if on_signal is not None:
                 on_signal(handle, original)
             input_items.append(
@@ -293,6 +344,20 @@ def _expand_calls_gemini(resp: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _has_client_function_call_gemini(resp: dict[str, Any]) -> bool:
+    """True if the Gemini response asks the CLIENT to run a function (not distil_expand)."""
+    try:
+        parts = resp["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return any(
+        isinstance(p, dict)
+        and isinstance(p.get("functionCall"), dict)
+        and p["functionCall"].get("name") != EXPAND_TOOL_NAME
+        for p in (parts or [])
+    )
+
+
 def resolve_expands_gemini(
     resp: dict[str, Any],
     store: Any,
@@ -314,7 +379,7 @@ def resolve_expands_gemini(
         try:
             original = store.expand(handle)
         except Exception:  # noqa: BLE001 — unknown/expired handle must not 500 the agent
-            original = f"[distil: no original found for handle {handle!r}]"
+            original = miss_text(handle)
         if on_signal is not None:
             on_signal(handle, original)
         fr_parts.append(
@@ -348,6 +413,8 @@ def run_expand_loop_gemini(
     resp = first_response
     contents = list(body.get("contents") or [])
     for _ in range(max_iters):
+        if _has_client_function_call_gemini(resp):
+            return resp  # mixed turn: the agent must run its own function call first
         fr_parts = resolve_expands_gemini(resp, store, on_signal=on_signal)
         if fr_parts is None:
             return resp

@@ -298,3 +298,179 @@ def test_requery_failure_surfaces_and_closes():
     st = stream_with_expand(h, send, {"messages": []}, store, hop_by_hop=frozenset())
     assert st == 502
     assert store.calls == ["h"]  # the handle was resolved before the failed re-query
+
+
+def _mixed_turn(handle: str) -> bytes:
+    """One assistant message carrying BOTH a client tool (Edit) and distil_expand.
+
+    Claude Code emits parallel tool calls, so this shape is routine, not exotic.
+    """
+    return b"".join(
+        [
+            _evt(
+                type="message_start",
+                message={
+                    "id": "msg_m",
+                    "role": "assistant",
+                    "content": [],
+                    "usage": {"input_tokens": 100, "output_tokens": 1},
+                },
+            ),
+            _evt(type="content_block_start", index=0, content_block={"type": "text", "text": ""}),
+            _evt(
+                type="content_block_delta",
+                index=0,
+                delta={"type": "text_delta", "text": "Editing now."},
+            ),
+            _evt(type="content_block_stop", index=0),
+            _evt(
+                type="content_block_start",
+                index=1,
+                content_block={"type": "tool_use", "id": "tu_edit", "name": "Edit", "input": {}},
+            ),
+            _evt(
+                type="content_block_delta",
+                index=1,
+                delta={
+                    "type": "input_json_delta",
+                    "partial_json": json.dumps(
+                        {"file_path": "/x.py", "old_string": "a", "new_string": "b"}
+                    ),
+                },
+            ),
+            _evt(type="content_block_stop", index=1),
+            _evt(
+                type="content_block_start",
+                index=2,
+                content_block={
+                    "type": "tool_use",
+                    "id": "tu_exp",
+                    "name": "distil_expand",
+                    "input": {},
+                },
+            ),
+            _evt(
+                type="content_block_delta",
+                index=2,
+                delta={"type": "input_json_delta", "partial_json": json.dumps({"handle": handle})},
+            ),
+            _evt(type="content_block_stop", index=2),
+            _evt(
+                type="message_delta", delta={"stop_reason": "tool_use"}, usage={"output_tokens": 7}
+            ),
+            _evt(type="message_stop"),
+        ]
+    )
+
+
+def _delivered(buf: bytearray) -> list[dict]:
+    return [
+        json.loads(line[6:])
+        for line in bytes(buf).decode().splitlines()
+        if line.startswith("data: ")
+    ]
+
+
+def test_mixed_turn_keeps_the_clients_tool_call_executable():
+    """A turn with a real tool_use alongside distil_expand must NOT be spliced.
+
+    Splicing answered only the distil_expand block, so the client's Edit became an
+    unanswered tool_use upstream (API-contract violation) AND the continuation's
+    ``end_turn`` replaced the real ``tool_use`` stop_reason. Claude Code executes
+    tools only on ``stop_reason == "tool_use"``, so it ran nothing, said "done",
+    and left the disk untouched — the empty-diff failure.
+    """
+    store = _Store()
+    send, bodies = _sender([_Resp(_mixed_turn("abcd1234"))])
+    h = _Handler()
+    st = stream_with_expand(h, send, {"messages": []}, store, hop_by_hop=frozenset())
+    evts = _delivered(h.wfile.buf)
+
+    assert st == 200
+    assert len(bodies) == 1, "a mixed turn must not trigger a re-query"
+    assert store.calls == [], "the handle must not be consumed on a turn we relay verbatim"
+
+    tools = [
+        e["content_block"].get("name")
+        for e in evts
+        if e.get("type") == "content_block_start" and e["content_block"].get("type") == "tool_use"
+    ]
+    assert tools == ["Edit"], "the client's tool must be delivered; distil_expand suppressed"
+
+    stops = [e["delta"].get("stop_reason") for e in evts if e.get("type") == "message_delta"]
+    assert stops == ["tool_use"], "stop_reason must stay tool_use or the client won't execute"
+    assert evts[-1]["type"] == "message_stop"
+
+
+def test_expand_only_turn_still_splices():
+    """The fix must not disable expansion — an expand-ONLY turn still resolves."""
+    store = _Store()
+    send, bodies = _sender([_Resp(_expand_response("h1")), _Resp(_text_response("The answer"))])
+    h = _Handler()
+    st = stream_with_expand(h, send, {"messages": []}, store, hop_by_hop=frozenset())
+
+    assert st == 200
+    assert store.calls == ["h1"], "expand-only turns must still resolve the handle"
+    assert len(bodies) == 2, "expand-only turns must still re-query"
+    assert b"The answer" in bytes(h.wfile.buf)
+
+
+def test_requery_failure_still_terminates_the_sse_message():
+    """A failed re-query must not leave a truncated message.
+
+    Without message_delta/message_stop the SDK cannot distinguish "finished" from
+    "connection dropped", so it retries invisibly — wall-clock burned, no progress,
+    no error the user can see.
+    """
+    store = _Store()
+
+    class _Err:
+        status = 502
+        headers = _Hdrs([("content-type", "application/json")])
+
+        def read1(self, n):
+            return b""
+
+    send, _ = _sender([_Resp(_expand_response("h")), _Err()])
+    h = _Handler()
+    st = stream_with_expand(h, send, {"messages": []}, store, hop_by_hop=frozenset())
+    evts = _delivered(h.wfile.buf)
+
+    assert st == 502
+    assert evts[-1]["type"] == "message_stop", "the SSE message must be terminated, not truncated"
+
+
+def test_max_iters_exhaustion_terminates_the_sse_message():
+    """The runaway-model cap must also close with a proper terminator."""
+    store = _Store()
+
+    class _Inf:
+        def __init__(self):
+            self.n = 0
+
+        def __call__(self, body):
+            self.n += 1
+            return _Resp(_expand_response(f"h{self.n}"))
+
+    h = _Handler()
+    st = stream_with_expand(h, _Inf(), {"messages": []}, store, hop_by_hop=frozenset(), max_iters=2)
+    evts = _delivered(h.wfile.buf)
+    assert st == 200
+    assert evts[-1]["type"] == "message_stop"
+
+
+def test_unresolvable_handle_still_terminates_the_message(monkeypatch):
+    """When nothing resolves there is nothing to splice — end the message cleanly.
+
+    resolve_expands normally returns a miss placeholder (fail-open), so this drives
+    the rarer branch where it yields nothing at all.
+    """
+    import distil.streamexpand as se
+
+    monkeypatch.setattr(se, "resolve_expands", lambda *a, **k: [])
+    send, _ = _sender([_Resp(_expand_response("gone"))])
+    h = _Handler()
+    st = stream_with_expand(h, send, {"messages": []}, _Store(), hop_by_hop=frozenset())
+    evts = _delivered(h.wfile.buf)
+    assert st == 200
+    assert evts[-1]["type"] == "message_stop", "must terminate, never truncate"

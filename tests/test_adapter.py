@@ -659,3 +659,85 @@ def test_census_is_a_no_op_when_none_is_open() -> None:
     A._census_tls.counts = None
     A._census("assistant_text", "some text that must not be counted")
     assert A.take_census() is None
+
+
+# --- read-lifecycle exemption -------------------------------------------------
+def _read_convo(n_filler_turns: int = 6):
+    """A conversation where a file was Read early, then many turns pass."""
+    src = "\n".join(f"def f{i}():\n    return {i}" for i in range(40))
+    msgs = [
+        {"role": "user", "content": "fix the bug"},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tu_read",
+                    "name": "Read",
+                    "input": {"file_path": "/a.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tu_read", "content": src}],
+        },
+    ]
+    for i in range(n_filler_turns):
+        msgs += [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": f"tu_b{i}",
+                        "name": "Bash",
+                        "input": {"command": "ls"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": f"tu_b{i}",
+                        "content": "\n".join(f"line {j} of routine log output" for j in range(40)),
+                    }
+                ],
+            },
+        ]
+    return msgs, src
+
+
+def test_file_read_stays_byte_exact_however_old():
+    """A Read result must survive verbatim so Edit(old_string=...) can still match.
+
+    Recency is positional, so a read from many turns ago used to be digestible —
+    but the agent must still reproduce that text character-for-character to edit
+    the file. Digesting it makes every subsequent edit unmatchable, which is how a
+    run ends with the agent reporting success and nothing written to disk.
+    """
+    from distil.adapters.anthropic import compress_messages
+
+    msgs, src = _read_convo()
+    out, _store = compress_messages(msgs, verbatim=False)
+    read_result = out[2]["content"][0]["content"]
+    assert read_result == src, "file content must not be digested"
+    assert "def f7():" in read_result, "exact-match anchor must survive"
+
+
+def test_non_read_tool_output_still_digests():
+    """The exemption is provenance-scoped: ordinary tool output still compresses."""
+    from distil.adapters.anthropic import compress_messages
+
+    msgs, _src = _read_convo()
+    out, _store = compress_messages(msgs, verbatim=False)
+    # The oldest Bash result is far outside the recency window and must be digested.
+    bash_results = [
+        blk["content"]
+        for m in out
+        for blk in (m.get("content") or [])
+        if isinstance(blk, dict) and str(blk.get("tool_use_id", "")).startswith("tu_b")
+    ]
+    assert any("handle=" in r for r in bash_results), "log output should still digest"

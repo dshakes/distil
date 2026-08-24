@@ -421,6 +421,23 @@ A test pins this (`test_corpus_actually_exercises_every_probe`): if the corpus
 ever stops carrying enough state transitions, hedged claims or plan items to
 grade, the suite fails rather than reporting a green nobody earned.
 
+### 6.5b Unrecoverable handles — the failure the moat can have
+
+Every probe above grades a compressed turn against its original. None of them
+can see the failure that only exists in production: the agent asks for a handle
+and the store cannot return it. distil converts a dropped span into a *deferred*
+one, so the loud failure ("it dropped something load-bearing") becomes a quiet
+one — the saving was booked when the block was folded, the original was evicted
+past `DISTIL_RESTORE_CAP` or aged past `DISTIL_RESTORE_TTL_DAYS` before it was
+wanted, and the request still returns 200 with a placeholder in place of the
+content.
+
+`distil dissect` counts those separately from resolved expansions, because
+folding them together reports a recovery failure as a recovery. They are also
+excluded from the expand *signal* — the flywheel and the association table read
+positives off the handle key, and a miss logged there would train the keep-model
+that the block it just failed to return was safe to drop.
+
 ### 6.6 Gates
 
 `distil fidelity` gates on **silent** failures only:
@@ -444,6 +461,7 @@ gating one regression twice obscures which property broke.
 | overclaim / distortion | ✗ | ✅ hedge classes, direction-aware |
 | continuation | ✗ | ✅ ordered obligation fold |
 | error propagation | ✗ | ✅ lag-lift, with aliasing disclosed |
+| unrecoverable handles | ✗ | ✅ counted in-session, not folded into "resolved" |
 | statistical guarantee | ✗ | ✅ LTT + CRC, distribution-free finite-sample |
 | drift | ✗ | ✅ anytime-valid betting e-process |
 | multilingual | varies | ✅ CJK-aware extraction and matching |

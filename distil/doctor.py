@@ -318,6 +318,58 @@ def _check_shadow() -> Check:
     return Check("shadow validation", OK, f"{eq:.1f}% decision-equivalence over {smp}")
 
 
+def _check_expand_recovery() -> Check:
+    """Are the recovery handles the digest tier mints actually resolvable?
+
+    The digest tier books its saving the moment a block is folded, but the saving is
+    only honest if the original comes back when the agent asks. A handle evicted past
+    DISTIL_RESTORE_CAP or aged past the TTL fails open — the agent gets a placeholder,
+    the request still returns 200, and nothing else in the pipeline notices. That is
+    the one failure class this architecture is uniquely exposed to, so it gets its own
+    check rather than being inferred from a savings number that already looks fine.
+    """
+    import json as _json
+    import os as _os
+    from pathlib import Path as _Path
+
+    sig = _Path(_os.environ.get("DISTIL_HOME", str(_Path.home() / ".distil")))
+    sig = sig / "expand-signals.jsonl"
+    if not sig.exists():
+        return Check("expand recovery", INFO, "no expand activity yet — nothing to verify")
+    hits = misses = 0
+    try:
+        for line in sig.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue  # a torn final line must not fail the check
+            if rec.get("miss"):
+                misses += 1
+            elif rec.get("handle"):
+                hits += 1
+    except OSError as exc:
+        return Check("expand recovery", WARN, f"could not read expand signals — {exc}")
+    total = hits + misses
+    if total == 0:
+        return Check("expand recovery", INFO, "no expand activity yet — nothing to verify")
+    if misses == 0:
+        return Check("expand recovery", OK, f"{hits} recovered, 0 unrecoverable")
+    pct = 100.0 * misses / total
+    return Check(
+        "expand recovery",
+        # A miss is fail-open, not a crash, so a rare one is tolerable weather —
+        # a sustained rate means the store is too small for the workload and the
+        # digest tier is quietly lossy.
+        FAIL if pct >= 25 else WARN,
+        f"{misses} of {total} expand requests could not be recovered ({pct:.0f}%)",
+        "raise DISTIL_RESTORE_CAP (default 5000) or DISTIL_RESTORE_TTL_DAYS (default 14) — "
+        "the saving was booked but the original was gone when the agent asked for it",
+    )
+
+
 def _check_proxy_selftest() -> Check:
     """End-to-end proxy round-trip with an in-process fake upstream — no network.
 
@@ -642,6 +694,7 @@ def diagnose() -> list[Check]:
         _check_session,
         _check_live_routing,
         _check_shadow,
+        _check_expand_recovery,
         _check_proxy_selftest,
         _check_anthropic_extra,
         _check_api_key,

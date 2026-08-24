@@ -2529,14 +2529,69 @@ def cmd_quota(args: argparse.Namespace) -> int:
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
-    """Run, install, or verify the Claude Code PostToolUse hook."""
+    """Run, install, verify, or report on the Claude Code PostToolUse hook."""
     from .hook import install_hook, main as hook_main, uninstall_hook
 
     if getattr(args, "install", False):
         return install_hook()
     if getattr(args, "uninstall", False):
         return uninstall_hook()
+    if getattr(args, "stats", False):
+        return _hook_stats()
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
+def _hook_stats(out: Any = None) -> int:
+    """Print what the hook actually did, from its append-only receipts."""
+    import json as _json
+
+    from .hook import _receipt_path
+
+    stream = out or sys.stdout
+    path = _receipt_path()
+    if not path.exists():
+        print(
+            "no hook receipts yet — install with `distil hook --install`, then run a\n"
+            "session with a large tool output (Bash or an MCP tool) to see savings here.",
+            file=stream,
+        )
+        return 0
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(_json.loads(line))
+        except _json.JSONDecodeError:
+            continue  # a torn final line must not break the report
+    if not rows:
+        print("no hook receipts yet.", file=stream)
+        return 0
+    before = sum(int(r.get("chars_before") or 0) for r in rows)
+    after = sum(int(r.get("chars_after") or 0) for r in rows)
+    saved = before - after
+    by_tool: dict[str, int] = {}
+    for r in rows:
+        by_tool[str(r.get("tool") or "?")] = by_tool.get(str(r.get("tool") or "?"), 0) + int(
+            r.get("chars_saved") or 0
+        )
+    print("distil hook — lossless tool-output compression (subscription-safe)\n", file=stream)
+    print(f"  compressed results : {len(rows):,}", file=stream)
+    print(f"  characters before  : {before:,}", file=stream)
+    print(f"  characters after   : {after:,}", file=stream)
+    pct = (100.0 * saved / before) if before else 0.0
+    print(f"  saved              : {saved:,} ({pct:.1f}%)", file=stream)
+    if by_tool:
+        print("\n  by tool:", file=stream)
+        for tool, chars in sorted(by_tool.items(), key=lambda kv: -kv[1]):
+            print(f"    {tool:<28} {chars:>12,} chars", file=stream)
+    print(
+        "\n  Characters, not tokens: the hook runs before any tokenizer and stays\n"
+        "  dependency-free. Treat it as a floor on what the window kept.",
+        file=stream,
+    )
+    return 0
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
@@ -2556,6 +2611,38 @@ _ENV_REQUIRES_FLAG = {
     # environment; by default it reads ~/.openhands/settings.json instead.
     "openhands": ("--override-with-envs", "read LLM_* from the environment"),
 }
+
+#: IDE extensions people reasonably TRY to wrap. There is no argv to wrap and no
+#: published env-var contract, so a preset here would set a variable the editor never
+#: reads — routing nothing while reporting success. They are reachable, just by a
+#: different mechanism: run the proxy and point the editor's own base-URL setting at
+#: it. Saying that is worth more than a preset that lies.
+_IDE_NOT_WRAPPABLE = {
+    "cursor": "Cursor",
+    "cursor-agent": "Cursor",
+    "code": "VS Code (Copilot/Cline/Continue)",
+    "copilot": "GitHub Copilot",
+    "cline": "Cline",
+    "continue": "Continue",
+    "windsurf": "Windsurf",
+    "zed": "Zed",
+}
+
+
+def _warn_if_ide_not_wrappable(cmd_name: str) -> None:
+    """Redirect an IDE user to the path that actually works, before the session starts."""
+    label = _IDE_NOT_WRAPPABLE.get(cmd_name)
+    if label is None:
+        return
+    print(
+        f"\n  ⚠ {label} is an IDE extension, not a CLI — there is no process to wrap,\n"
+        f"    and no environment variable it reads. This wrap would route NOTHING.\n\n"
+        f"    Use the always-on proxy instead:\n"
+        f"        distil proxy --port 8080          # leave it running\n"
+        f"    then set the editor's OpenAI-compatible base URL to http://127.0.0.1:8080\n"
+        f"    Full per-editor steps: docs/IDE-AGENTS.md\n",
+        file=sys.stderr,
+    )
 
 
 def _warn_if_env_ignored(cmd_name: str, command: list[str]) -> None:
@@ -2605,6 +2692,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     from .onboard import AGENT_PRESETS
 
     cmd_name = _os.path.basename(command[0])
+    _warn_if_ide_not_wrappable(cmd_name)
     preset = AGENT_PRESETS.get(cmd_name)
 
     env_var: str = args.env_var or ""
@@ -4061,7 +4149,9 @@ def build_parser() -> argparse.ArgumentParser:
         "pull back digested detail on demand (transparent server-side recovery loop). "
         "Max token reduction with full in-context recovery. An explicit --expand also "
         "overrides lossless-only on a subscription — you opted in, and the digest is "
-        "recoverable so nothing is irreversibly lost.",
+        "recoverable so nothing is irreversibly lost. Costs a round-trip whenever the "
+        "model pulls detail back, so it suits long sessions over short ones; run with "
+        "--shadow on (the default) so decision-equivalence is measured while you use it.",
     )
     px.add_argument(
         "--shadow",
@@ -4275,6 +4365,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--install",
         action="store_true",
         help="write the hook into ~/.claude/settings.json (idempotent)",
+    )
+    hk.add_argument(
+        "--stats",
+        action="store_true",
+        help="what the hook actually saved, from its append-only receipts",
     )
     hk.add_argument(
         "--uninstall", action="store_true", help="remove the distil hook from settings.json"

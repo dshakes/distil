@@ -3,6 +3,71 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.49.0] — the agent said "done" and wrote nothing
+
+**Fix this one.** An independent benchmark ran 75 agent sessions (Claude Code, Opus 5,
+ground truth taken from the API's own usage fields rather than any tool's dashboard)
+and found `distil wrap --expand` completing **6 of 15 coding tasks against bare Claude
+Code's 13** — seven runs ended with an **empty diff**: the agent ran 18–51 turns,
+wrote nothing to disk, and reported success. Zero empty diffs occurred across the
+other 60 runs. On the long refactor it failed all three times, and the repository's
+1,371 existing tests still passed, because nothing had been modified.
+
+Four defects, all now fixed and each pinned by a regression test verified to fail
+without its fix.
+
+**The agent never ran its own tool call.** Claude Code emits parallel tool calls, so
+one assistant message routinely carries both an `Edit` and a `distil_expand`. The
+expand loop assumed `distil_expand` was the only tool call in the turn and spliced it:
+the replay answered *only* the expand block — leaving the client's `tool_use`
+unanswered upstream, an API-contract violation — and the continuation's
+`stop_reason: end_turn` replaced the turn's real `tool_use`. Claude Code executes
+tools only on `stop_reason == "tool_use"`, so it delivered the `Edit`, ran nothing,
+printed the continuation's "all done", and stopped. A turn carrying a client tool call
+is now terminal: relayed verbatim, stop_reason intact, no re-query. Guarded on all
+four paths — streaming, Messages, Responses, Gemini.
+
+**A failed recovery truncated the stream.** When the re-query failed, the connection
+closed with no `message_delta`/`message_stop`. A terminator-less SSE message is
+*truncated*, not finished, so the SDK retries it invisibly — wall-clock burned with no
+progress and no error the user can see (the benchmark's 808-second, zero-write
+signature). Every exit now emits a terminator.
+
+**A file read could be digested before it was edited.** Recency is positional, so a
+read from three turns ago was digestible — but the agent must still reproduce that
+text character-for-character in an `Edit(old_string=…)`. Once the read is a digest no
+exact match exists, so the edit silently fails or is never attempted. The exemption is
+now keyed on *provenance* — results answering Read/Grep/Glob and their MCP equivalents
+stay byte-exact at any age. Logs and test output are unaffected and still digest.
+
+**Compression that saved nothing still cost cache.** On a subscription (lossless-only
+by design, 0.0% savings correctly reported) distil still wrote **1.56× baseline
+cache-creation tokens**, 2.52× on a short session. Two causes, both fixed: the
+`distil_expand` tool was injected only once a handle existed, so the tools array —
+which Anthropic caches *ahead of* the system prompt — changed shape the turn
+compression first fired; and an unmodified body was re-serialized rather than
+forwarded byte-for-byte. Injection is now session-sticky, and unchanged bodies
+forward their original bytes.
+
+`distil cache` also stops sending users to the wrong place: it blamed prefix drift on
+"a tool list whose order varies" upstream, while distil's own tool list was the one
+varying. It now names distil's own causes first.
+
+**Hook mode can finally account for itself.** The same benchmark found hook mode the
+strongest distil arm — 12/15 tasks, 0.94× baseline cache writes, the highest cache-hit
+rate measured — and the only one that wrote no ledger at all, so its effect was
+visible only in the provider's billing. It now appends a content-free receipt per
+compressed result, readable with `distil hook --stats`.
+
+- `distil wrap -- cursor` (and Copilot, Cline, Continue, Windsurf, Zed) now says these
+  are editor extensions with no process to wrap and no base-URL variable they read,
+  and names the proxy path that does work — instead of setting a variable nothing
+  reads and reporting success.
+- A missed expand handle is no longer logged as a successful recovery. The placeholder
+  was being passed to the learning signal as content, so a *failed* recovery trained
+  the keep-model that the block it could not return was safe to drop. `distil dissect`
+  gains `expand_missed`, so `expand_resolved` finally has a denominator.
+
 ## [1.48.1] — a page that answers "which one am I?" before the jargon does
 
 **Docs and one nudge.** Nothing new is callable and no behaviour changed, so this is

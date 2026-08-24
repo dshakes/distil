@@ -83,6 +83,31 @@ def _has_recoverable_stub(body: dict) -> bool:
     return _HANDLE_STUB_RE.search(blob) is not None
 
 
+def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
+    """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
+
+    The provider's prompt cache matches on exact bytes, and ``json.dumps`` is not a
+    byte-faithful round-trip of what arrived: key order survives, but separators
+    (``", "`` vs ``","``) and non-ASCII escaping (``\\uXXXX`` vs raw UTF-8) do not.
+    Re-encoding an *unmodified* body therefore rewrites the cached prefix and turns
+    cheap cache reads into expensive cache writes — while saving nothing, because
+    nothing was compressed. That is the worst possible trade, and it is exactly what
+    lossless-only mode did on a subscription: 0% savings at measured 1.56x baseline
+    cache-creation tokens (2.52x on short sessions).
+
+    Comparing the parsed body against a re-parse of the original is O(body) and runs
+    once per request — far cheaper than re-billing the prefix. When a transform did
+    change something we re-serialize compactly and accept the byte drift, because
+    then the bytes genuinely differ anyway.
+    """
+    try:
+        if json.loads(raw) == body:
+            return raw
+    except (ValueError, TypeError):
+        pass  # unparseable original — fall through and serialize what we have
+    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
+
+
 def _expand_should_intercept(expand: bool, store: object, body: dict) -> bool:
     """Whether the expand tool must be injected AND the response buffered to run the
     expand loop. True whenever expand mode is on and the outgoing conversation carries
@@ -821,8 +846,10 @@ def build_handler(
                 if savings is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
                 # Recoverable compression: inject distil_expand so the model can pull
-                # back any digested block by handle — same gating as the messages path.
-                if _expand_should_intercept(expand, store, body):
+                # back any digested block by handle. Session-sticky (see the messages
+                # path): a tools array that changes shape mid-session invalidates the
+                # provider's cached prefix, which costs far more than one tool def.
+                if expand:
                     from .expand import inject_expand_tool_responses
 
                     body = inject_expand_tool_responses(body)
@@ -907,9 +934,20 @@ def build_handler(
                     # Stateful, content-free — the verifiable benefit of a prefix-freeze
                     # router, without the lossy rewrite (distil is cache-monotonic).
                     extras["x-distil-cache-prefix-msgs"] = str(_dstats.prefix_msgs)
-                # Recoverable compression: if anything was digested, offer the model
-                # the distil_expand tool so it can pull back detail on demand.
-                if _expand_should_intercept(expand, store, body):
+                # Recoverable compression: offer the model the distil_expand tool so it
+                # can pull back detail on demand.
+                #
+                # Injected on EVERY request while expand is on, not only when a handle
+                # exists. Anthropic caches the tools array at the very front of the
+                # prefix — ahead of the system prompt and all history — so a tools list
+                # that gains an entry mid-session invalidates the entire cached entry at
+                # the turn compression first fires. Session-sticky injection costs one
+                # tool definition on early turns and keeps the prefix byte-stable for
+                # the whole session, which is the cheaper side of that trade by orders
+                # of magnitude. (Interception of the RESPONSE still keys on
+                # _expand_should_intercept — that decision is per-response and cannot
+                # affect the cached request bytes.)
+                if expand:
                     from .expand import inject_expand_tool
 
                     body = inject_expand_tool(body)
@@ -962,14 +1000,14 @@ def build_handler(
                     extras["x-distil-output-shaping"] = shape_output
                 # Expand-tool injection (Gemini): offer distil_expand under functionDeclarations
                 # so the model can recover any digested block by handle.  Same PAYG/--expand
-                # gating as the messages path — _expand_should_intercept checks store.handles
-                # (this request) and contents stubs (cross-turn persistence).
-                if _expand_should_intercept(expand, store, body):
+                # gating as the messages path: session-sticky, so the declared function
+                # list never changes shape mid-session and the cached prefix survives.
+                if expand:
                     from .expand import inject_expand_tool_gemini
 
                     body = inject_expand_tool_gemini(body)
 
-            new_raw = json.dumps(body).encode()
+            new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
 
             # Decide shadow sampling BEFORE relaying so the marker header can be
@@ -1129,6 +1167,7 @@ def build_handler(
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
             # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
             _expanded_handles: list[str] = []
+            _expand_misses: list[str] = []
             if _expand_should_intercept(expand, store, body):
                 try:
                     resp_json = json.loads(rbody)
@@ -1136,6 +1175,7 @@ def build_handler(
                     resp_json = None
                 if isinstance(resp_json, dict):
                     from .expand import (
+                        is_miss,
                         record_signal,
                         run_expand_loop,
                         run_expand_loop_gemini,
@@ -1147,8 +1187,14 @@ def build_handler(
                         return json.loads(rb)
 
                     def _on_signal(handle: str, original: str) -> None:
-                        _expanded_handles.append(handle)
                         record_signal(handle, original)  # content-free expand log
+                        if is_miss(original):
+                            # F3: the handle could not be recovered. Counting it as
+                            # an expansion would book a failure as a success and
+                            # train the keep-model on the placeholder's signature.
+                            _expand_misses.append(handle)
+                            return
+                        _expanded_handles.append(handle)
                         if _learn_stats is not None:  # learn the expanded signature
                             from .learn import signature
 
@@ -1166,7 +1212,10 @@ def build_handler(
                         final = run_expand_loop(body, resp_json, store, _post, on_signal=_on_signal)
                     if final is not resp_json:
                         rbody = json.dumps(final).encode()
-                        extras["x-distil-expanded"] = "1"
+                        if _expanded_handles:
+                            extras["x-distil-expanded"] = "1"
+                        if _expand_misses:
+                            extras["x-distil-expand-miss"] = str(len(_expand_misses))
             if _learn_stats is not None:  # persist the learned policy (atomic)
                 _learn_stats.save()
 
@@ -1391,6 +1440,7 @@ def build_handler(
                     "census": _adapter_census(),
                     "shadow_sampled": extras.get("x-distil-shadow") == "sampled",
                     "expanded": extras.get("x-distil-expanded") == "1",
+                    "expand_misses": int(extras.get("x-distil-expand-miss") or 0),
                     "output_shaping": extras.get("x-distil-output-shaping", ""),
                     "blocks": blocks,
                 }
