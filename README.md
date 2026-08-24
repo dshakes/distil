@@ -701,6 +701,8 @@ See [Deploy & security](https://dshakes.github.io/distil/deploy-security.html) f
 - **Credible grading, enforced:** majority-vote (single samples let grader noise look like a decision change), a same-family grader, and grading the reversible tier *with* its `distil_expand` recovery loop.
 - **No fabricated weights** — the keep-model is a real logistic classifier (96.4% held-out accuracy, 0.98 F1; the committed [`metrics.json`](distil/codec/metrics.json) regenerates byte-identically from `python -m distil.codec.learned`, seed-pinned). The optional transformer codec ships **no checkpoint in the package** — a demo checkpoint is attached to the [v0.1.0 release](https://github.com/dshakes/distil/releases/tag/v0.1.0), and production means retraining on your own traces (`distil train-transformer`).
 
+- **An outside benchmark caught a defect our own gates missed.** 75 agent runs, graded from the API's own usage fields, found `wrap --expand` completing **6 of 15** coding tasks against bare Claude Code's 13 — seven runs wrote nothing to disk and reported success. Four causes, all fixed in 1.49.0, each pinned by a regression test verified to fail without its fix. The write-up, including what it does *not* establish, is [here](https://dshakes.github.io/distil/benchmark-independent.html). A green test suite does not prove the work was done.
+
 ### Deliberately *not* a platform
 
 Distil is a **compression engine with a correctness gate**, not a context suite. We declined what can't go under the certificate:

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>What an outside benchmark found — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="What an outside benchmark found — Distil"/>
+<meta property="og:description" content="An independent 75-run benchmark measured distil against bare Claude Code from the API&rsquo;s own usage fields. It found a defect that finished 6 of 15 tasks. Here is what broke, and what we fixed."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/benchmark-independent.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="What an outside benchmark found — Distil"/>
+<meta name="twitter:description" content="An independent 75-run benchmark measured distil against bare Claude Code from the API&rsquo;s own usage fields. It found a defect that finished 6 of 15 tasks. Here is what broke, and what we fixed."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="subscription.html">Subscription</a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction</a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="benchmark-independent.html" class="active" aria-current="page">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>What an outside benchmark found</h1>
+
+    <p class="lede">In August 2026 an engineer ran distil against bare Claude Code across
+    75 agent sessions and measured the result from the API&rsquo;s own usage fields rather
+    than from any tool&rsquo;s dashboard. One distil configuration finished
+    <b>6 of 15 coding tasks</b> where bare Claude Code finished 13. This page is what
+    they found, why it happened, and what changed in 1.49.0.</p>
+
+    <p>We publish it for the same reason we publish the bugs our own evaluation harness
+    had: a compressor whose public record contains no failures is not a compressor that
+    never failed, it is one that never looked. The measurement that matters is the one
+    taken by someone with no stake in the answer.</p>
+
+    <h2>The result</h2>
+
+    <table>
+      <thead><tr><th>Arm</th><th>Tasks completed</th><th>Cache writes vs baseline</th></tr></thead>
+      <tbody>
+        <tr><td>bare Claude Code (baseline)</td><td>13 / 15</td><td>1.00&times;</td></tr>
+        <tr><td>distil <b>hook mode</b></td><td>12 / 15</td><td><b>0.94&times;</b></td></tr>
+        <tr><td>distil proxy, default (subscription)</td><td>12 / 15</td><td>1.56&times;</td></tr>
+        <tr><td>distil <code>wrap --expand</code></td><td><b>6 / 15</b></td><td>0.87&times;</td></tr>
+      </tbody>
+    </table>
+
+    <p class="note">Cache writes are the number that decides cost on a cached workload,
+    and they are taken from <code>cache_creation</code> in the provider&rsquo;s response —
+    not from distil&rsquo;s own accounting, which is the thing under test.</p>
+
+    <h2>The failure that mattered</h2>
+
+    <p>Seven <code>--expand</code> runs ended with an <b>empty diff</b>: the agent ran for
+    18, 22, even 51 turns, wrote nothing to disk, and reported success. On the long
+    refactor it did this all three times &mdash; and the repository&rsquo;s 1,371 existing
+    tests still passed, <i>because nothing had been modified</i>. A benchmark that graded
+    on &ldquo;did the suite stay green&rdquo; would have scored those runs as wins.</p>
+
+    <p>No other arm produced a single empty diff in 60 runs.</p>
+
+    <h3>Cause 1 &mdash; the agent never ran its own tool call</h3>
+
+    <p>Claude Code emits parallel tool calls, so one assistant message routinely carries
+    both an <code>Edit</code> and a <code>distil_expand</code>. distil&rsquo;s recovery loop
+    assumed <code>distil_expand</code> was the only tool call in the turn. It answered just
+    that block and re-queried &mdash; which left the client&rsquo;s <code>Edit</code> as an
+    unanswered <code>tool_use</code> upstream, and let the continuation&rsquo;s
+    <code>stop_reason: end_turn</code> replace the turn&rsquo;s real <code>tool_use</code>.</p>
+
+    <p>Claude Code executes tools only when <code>stop_reason == "tool_use"</code>. So it
+    received the <code>Edit</code>, ran nothing, printed the continuation&rsquo;s
+    &ldquo;all done&rdquo;, and finished. <b>Fixed:</b> a turn carrying a client tool call
+    is now terminal &mdash; relayed verbatim, stop_reason intact, no re-query.</p>
+
+    <h3>Cause 2 &mdash; a failed recovery truncated the stream</h3>
+
+    <p>When the re-query failed, the connection closed with no <code>message_delta</code>
+    and no <code>message_stop</code>. A terminator-less SSE message is <i>truncated</i>,
+    not finished, so the SDK retries it invisibly: wall-clock burned, no progress, and no
+    error the user can see. That is the benchmark&rsquo;s 808-second, zero-write signature.
+    <b>Fixed:</b> every exit emits a terminator.</p>
+
+    <h3>Cause 3 &mdash; a file read could be digested before it was edited</h3>
+
+    <p>Recency is positional, so a file read three turns ago was eligible for digesting.
+    But the agent must still reproduce that text character-for-character in an
+    <code>Edit(old_string=&hellip;)</code>. Once the read is a digest, no exact match
+    exists. <b>Fixed:</b> the exemption is now keyed on <i>provenance</i> &mdash; results
+    answering Read/Grep/Glob and their MCP equivalents stay byte-exact at any age. Logs
+    and test output still compress normally.</p>
+
+    <h2>Compression that saved nothing still cost cache</h2>
+
+    <p>On a subscription distil stays lossless-only by design and correctly reported
+    <b>0.0% savings</b> &mdash; while still writing <b>1.56&times;</b> the baseline&rsquo;s
+    cache-creation tokens, and 2.52&times; on a short session. Doing nothing to the content
+    is not the same as doing nothing to the cache.</p>
+
+    <p>Two causes, both fixed. The <code>distil_expand</code> tool was injected only once
+    a recoverable handle existed, so the tools array &mdash; which Anthropic caches
+    <i>ahead of</i> the system prompt and all history &mdash; changed shape on the turn
+    compression first fired. And an unmodified request body was re-serialized rather than
+    forwarded byte-for-byte; <code>json.dumps</code> is not a byte-faithful round-trip, so
+    the prefix moved even when nothing had been compressed.</p>
+
+    <p>Worse, distil&rsquo;s own drift report sent users hunting in the wrong place: it
+    blamed &ldquo;a tool list whose order varies&rdquo; upstream, while distil&rsquo;s tool
+    list was the one varying. It now names distil&rsquo;s own causes first.</p>
+
+    <h2>The mode that won had nothing to show for it</h2>
+
+    <p>Hook mode was the strongest distil arm measured &mdash; 12/15 tasks, 0.94&times;
+    baseline cache writes, the highest cache-hit rate of any configuration &mdash; and the
+    only one that wrote no ledger at all. Its effect was visible solely in the
+    provider&rsquo;s billing, which is an awkward position for a product whose claim is
+    that it proves its numbers instead of asking to be trusted.</p>
+
+    <p>It now writes a content-free receipt per compressed result:</p>
+
+    <pre><code>distil hook --install     # documented Claude Code extension point
+distil hook --stats       # what it actually saved</code></pre>
+
+    <h2>What this does not establish</h2>
+
+    <p>The benchmark&rsquo;s own caveat is worth repeating: an empty diff proves the agent
+    stopped early, not that compression caused it. The runs used <code>--shadow 0.0</code>
+    to conserve tokens, so distil&rsquo;s decision-equivalence sampler &mdash; the tool
+    built for exactly this question &mdash; captured nothing. We have since reproduced the
+    mechanism locally, without API spend, and pinned it with regression tests that fail
+    without their fixes. But the association came first and the proof came second, which
+    is the right order to admit to.</p>
+
+    <p>The lesson we are keeping: <b>a green test suite does not prove the work was
+    done.</b> Acceptance has to check that the required change exists, not merely that
+    nothing broke.</p>
+
+    <p class="note">Related: <a href="evals.html">the bugs our own harness had</a> &middot;
+    <a href="research.html">negative results</a> &middot;
+    <a href="cache.html">why removing tokens can cost more</a> &middot;
+    <a href="subscription.html">what &ldquo;savings&rdquo; means on a flat-rate plan</a></p>
+
+</main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

@@ -371,8 +371,10 @@
   <h1>Compress your agent's context.<br><b class="g">Prove</b> <b>its decisions don't change.</b></h1>
   <p class="sub"><b>Every other compressor asks you to <em>trust</em> it won't break your agent. Distil is the only one that <b>proves</b> it won't.</b></p>
   <p class="sub" style="font-size:17px">On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b> —
-    <b>42.0% vs 39.2%</b>
-    <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference)</small></p>
+    <b>42.0% vs 39.2% tasks solved</b>
+    <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference).
+    That pair is <em>task success</em>, not a compression ratio — how much smaller the context got is a
+    separate number, and it depends on your traffic: see <a href="research.html">the measured savings</a>.</small></p>
   <p class="sub" style="font-size:15px;margin-top:22px">New to this? <a href="#plain"><b>See how it works in plain English →</b></a></p>
 
   <!-- Install, above the fold. A visitor's first question is "how do I get this", and it
@@ -493,6 +495,15 @@
         set("al-installs", human(a.installs && a.installs.active_30d));
         set("al-tokens", human(a.savings && a.savings.tokens));
         set("al-dollars", a.savings && a.savings.dollars != null ? "$" + human(a.savings.dollars) : null);
+        // Reveal only when every tile actually has a number. A trust strip showing
+        // "–" reads as "nobody uses this" — strictly worse than no strip at all, so
+        // a partial payload stays hidden rather than advertising its own gaps.
+        var tiles = ["al-downloads", "al-installs", "al-tokens", "al-dollars"];
+        var filled = tiles.every(function (id) {
+          var t = document.getElementById(id).textContent.trim();
+          return t && t !== "–";
+        });
+        if (!filled) return;
         document.getElementById("adoption-live").hidden = false;
       })
       .catch(function () { /* metrics branch absent — strip stays hidden */ });

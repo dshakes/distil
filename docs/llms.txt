@@ -95,6 +95,40 @@ Library API (embed distil in your own agent — Python and TypeScript, the tier
 boundary, and why the in-process path is lossless-only):
 https://dshakes.github.io/distil/library.html
 
+Which mode am I? (proxy vs hook vs library — the one page that answers "which
+one applies to me" before any jargon; start here if unsure):
+https://dshakes.github.io/distil/which-mode.html
+
+Subscription mode (why the proxy stays lossless-only on a flat-rate plan, what
+the PostToolUse hook does instead, and what "savings" means when the bill is
+fixed):
+https://dshakes.github.io/distil/subscription.html
+
+Evals (every probe distil runs on itself, including the three bugs these probes
+found in distil's OWN harness — published, not hidden):
+https://dshakes.github.io/distil/evals.html
+
+Independent benchmark (75 agent runs by an outside engineer, graded from the
+API's own usage fields: the defect that finished 6 of 15 tasks, why it happened,
+and what 1.49.0 changed):
+https://dshakes.github.io/distil/benchmark-independent.html
+
+Research (the negative results too: where compression did NOT survive real
+end-to-end execution, and what that bounds):
+https://dshakes.github.io/distil/research.html
+
+Cache (prompt-prefix economics: why a compressor that removes tokens can still
+cost more, and how distil stays cache-monotonic):
+https://dshakes.github.io/distil/cache.html
+
+Integrations (framework hooks and SDK adapters — LiteLLM, LangChain, LangGraph,
+Agno, Strands, Vercel AI SDK, OpenAI, Anthropic, Gemini):
+https://dshakes.github.io/distil/integrations.html
+
+Adoption (install counts and community savings, and why an opt-in census can
+never attribute them to individual users):
+https://dshakes.github.io/distil/adoption.html
+
 IDE agents (Cursor, Cline, Continue, Windsurf via the proxy; why `wrap` cannot
 reach them, and why GitHub Copilot is not supportable at all):
 https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md
