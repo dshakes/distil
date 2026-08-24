@@ -333,3 +333,131 @@ def test_unrecoverable_handle_is_not_logged_as_a_recovery(tmp_path):
     misses = [r for r in recs if r.get("miss")]
     assert [r["miss"] for r in misses] == ["deadbeef"]
     assert "recovered_chars" not in misses[0], "nothing was recovered"
+
+
+def test_mixed_turn_is_not_intercepted_messages_api():
+    """A turn carrying a client tool_use alongside distil_expand is handed back as-is.
+
+    Resolving only the expand block would replay the assistant message with the
+    client's tool_use unanswered, and the continuation's stop_reason would mask the
+    real ``tool_use`` — so the agent never runs the tool it asked for.
+    """
+    from distil.expand import has_client_tool_use, run_expand_loop
+
+    store = _Store({"deadbeef": "the original"})
+    mixed = {
+        "content": [
+            {"type": "text", "text": "Editing now."},
+            {"type": "tool_use", "id": "tu_edit", "name": "Edit", "input": {"file_path": "/x"}},
+            {
+                "type": "tool_use",
+                "id": "tu_exp",
+                "name": EXPAND_TOOL_NAME,
+                "input": {"handle": "deadbeef"},
+            },
+        ],
+        "stop_reason": "tool_use",
+    }
+    assert has_client_tool_use(mixed) is True
+
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return {"content": [{"type": "text", "text": "should never run"}]}
+
+    out = run_expand_loop({"messages": []}, mixed, store, post)
+    assert out is mixed, "the mixed turn must be returned untouched"
+    assert posts == [], "a mixed turn must not trigger a re-query"
+    assert out["stop_reason"] == "tool_use", "the client needs tool_use to execute"
+
+
+def test_expand_only_turn_still_resolves_messages_api():
+    """The mixed-turn guard must not disable ordinary expansion."""
+    from distil.expand import has_client_tool_use, run_expand_loop
+
+    store = _Store({"deadbeef": "RECOVERED"})
+    expand_only = {
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "tu_exp",
+                "name": EXPAND_TOOL_NAME,
+                "input": {"handle": "deadbeef"},
+            }
+        ]
+    }
+    assert has_client_tool_use(expand_only) is False
+
+    final = {"content": [{"type": "text", "text": "done"}]}
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return final
+
+    out = run_expand_loop({"messages": []}, expand_only, store, post)
+    assert out is final
+    assert len(posts) == 1, "expand-only turns must still re-query"
+    recovered = posts[0]["messages"][-1]["content"][0]["content"]
+    assert recovered == "RECOVERED"
+
+
+def test_mixed_turn_is_not_intercepted_responses_api():
+    """Same guard on the OpenAI Responses shape."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({"deadbeef": "the original"})
+    mixed = {
+        "output": [
+            {"type": "function_call", "call_id": "c1", "name": "apply_patch", "arguments": "{}"},
+            {
+                "type": "function_call",
+                "call_id": "c2",
+                "name": EXPAND_TOOL_NAME,
+                "arguments": json.dumps({"handle": "deadbeef"}),
+            },
+        ]
+    }
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return {"output": []}
+
+    out = run_expand_loop_responses({"input": []}, mixed, store, post)
+    assert out is mixed
+    assert posts == []
+
+
+def test_mixed_turn_is_not_intercepted_gemini():
+    """Same guard on the Gemini contents/parts shape."""
+    from distil.expand import run_expand_loop_gemini
+
+    store = _Store({"deadbeef": "the original"})
+    mixed = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {"functionCall": {"name": "write_file", "args": {"path": "/x"}}},
+                        {
+                            "functionCall": {
+                                "name": EXPAND_TOOL_NAME,
+                                "args": {"handle": "deadbeef"},
+                            }
+                        },
+                    ]
+                }
+            }
+        ]
+    }
+    posts = []
+
+    def post(body):
+        posts.append(body)
+        return {"candidates": []}
+
+    out = run_expand_loop_gemini({"contents": []}, mixed, store, post)
+    assert out is mixed
+    assert posts == []

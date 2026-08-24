@@ -162,6 +162,7 @@ def stream_with_expand(
         for _ in range(max_iters + 1):
             blocks, expand_ids, ui_input, index_map, final_delta = {}, set(), {}, {}, None
             saw_expand = False
+            saw_client_tool_use = False  # a tool_use the CLIENT must execute
 
             stream = resp  # bound for the closure; fully consumed before any re-query
             for evt in _iter_events(lambda: stream.read1(_CHUNK)):
@@ -188,6 +189,11 @@ def stream_with_expand(
                         saw_expand = True
                         ui_input[ui] = ""
                         continue  # suppress: distil-internal
+                    if cb.get("type") == "tool_use":
+                        # A tool only the CLIENT can run (Edit, Bash, …). Its presence
+                        # makes this turn non-terminal for the agent, which changes how
+                        # the turn must end — see the mixed-turn branch below.
+                        saw_client_tool_use = True
                     ci = client.next_index
                     client.next_index += 1
                     index_map[ui] = ci
@@ -218,8 +224,20 @@ def stream_with_expand(
                 # ping / unknown keepalive — relay to keep the connection warm
                 client.write(evt)
 
-            if not saw_expand:
+            if not saw_expand or saw_client_tool_use:
                 # Terminal turn: emit the (usage-corrected) message_delta + message_stop.
+                #
+                # ``saw_client_tool_use`` makes a MIXED turn terminal too. Claude Code
+                # emits parallel tool calls, so one assistant message can carry both an
+                # Edit and a distil_expand. Splicing that turn was wrong twice over:
+                #   * the replay answered only the distil_expand block, leaving the Edit
+                #     an unanswered tool_use (an API-contract violation), and
+                #   * the continuation's ``stop_reason: end_turn`` overwrote the real
+                #     ``tool_use``, so the client never executed the Edit it had been
+                #     handed — the agent reported success with the disk untouched.
+                # Relaying verbatim keeps the client's tool call executable; the model
+                # re-requests the handle on its next turn, where the turn is expand-only
+                # and the loop below can serve it safely.
                 if final_delta is not None:
                     client.write(_with_output_tokens(final_delta, usage_out))
                 client.write({"type": "message_stop"})
@@ -232,8 +250,7 @@ def stream_with_expand(
             resp_dict = {"content": [blocks[i] for i in sorted(blocks)]}
             results = resolve_expands(resp_dict, store, on_signal=on_signal)
             if not results:  # nothing resolvable — stop cleanly rather than loop
-                client.write({"type": "message_stop"})
-                client.close()
+                _close_stream(client, final_delta, usage_out, usage_sink)
                 return status
             body = {
                 **body,
@@ -245,11 +262,16 @@ def stream_with_expand(
             }
             resp = send(body)
             if not (200 <= getattr(resp, "status", 200) < 300):
-                client.close()  # re-query failed mid-stream; close what we have
+                # Re-query failed mid-stream. Terminate the SSE message properly before
+                # closing: a stream that ends without message_delta/message_stop is a
+                # TRUNCATED message to the SDK, which retries it invisibly — wall-clock
+                # burned with no progress and no error the user can see. Fail open to
+                # what was already relayed.
+                _close_stream(client, final_delta, usage_out, usage_sink)
                 return getattr(resp, "status", 502)
 
         # max_iters exhausted — close the stream (a misbehaving model can't spin forever)
-        client.close()
+        _close_stream(client, final_delta, usage_out, usage_sink)
         return status
     except OSError:
         handler.close_connection = True
@@ -287,6 +309,28 @@ def _with_output_tokens(delta_evt: dict[str, Any], output_tokens: int) -> dict[s
     """Return the terminal message_delta with usage.output_tokens set to the splice total."""
     usage = {**(delta_evt.get("usage") or {}), "output_tokens": output_tokens}
     return {**delta_evt, "usage": usage}
+
+
+def _close_stream(
+    client: "_Client",
+    final_delta: dict[str, Any] | None,
+    usage_out: int,
+    usage_sink: dict[str, int] | None,
+) -> None:
+    """End the SSE message properly, then close.
+
+    Every exit from the expand loop must go through here. An SSE message that ends
+    without ``message_delta``/``message_stop`` is *truncated*, not finished: the SDK
+    cannot tell it from a dropped connection, so it retries — silently burning
+    wall-clock while the agent makes no progress. Emitting the terminator turns an
+    invisible hang into a completed (possibly short) turn the agent can act on.
+    """
+    if final_delta is not None:
+        client.write(_with_output_tokens(final_delta, usage_out))
+    client.write({"type": "message_stop"})
+    client.close()
+    if usage_sink is not None:
+        usage_sink.setdefault("output_tokens", usage_out)
 
 
 def _relay_raw(

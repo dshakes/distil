@@ -107,6 +107,21 @@ def _expand_calls(resp: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def has_client_tool_use(resp: dict[str, Any]) -> bool:
+    """True if the response asks the CLIENT to run a tool (anything but distil_expand).
+
+    Such a turn must be handed to the agent untouched. Resolving only the
+    ``distil_expand`` block would replay the assistant message with the client's
+    tool_use left unanswered — an API-contract violation — and would hide the
+    turn's ``tool_use`` stop_reason behind the continuation's ``end_turn``, so the
+    agent never executes the tool it asked for.
+    """
+    return any(
+        isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") != EXPAND_TOOL_NAME
+        for b in (resp.get("content") or [])
+    )
+
+
 _MISS_PREFIX = "[distil: no original found for handle "
 
 
@@ -192,6 +207,8 @@ def run_expand_loop(
     resp = first_response
     messages = list(body.get("messages") or [])
     for _ in range(max_iters):
+        if has_client_tool_use(resp):
+            return resp  # mixed turn: the agent must run its own tool call first
         results = resolve_expands(resp, store, on_signal=on_signal)
         if results is None:
             return resp
@@ -226,6 +243,13 @@ def run_expand_loop_responses(
     resp = first_response
     input_items = list(body.get("input") or [])
     for _ in range(max_iters):
+        if any(  # mixed turn: the agent must run its own function call first
+            isinstance(item, dict)
+            and item.get("type") == "function_call"
+            and item.get("name") != EXPAND_TOOL_NAME
+            for item in (resp.get("output") or [])
+        ):
+            return resp
         calls = [
             item
             for item in (resp.get("output") or [])
@@ -320,6 +344,20 @@ def _expand_calls_gemini(resp: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _has_client_function_call_gemini(resp: dict[str, Any]) -> bool:
+    """True if the Gemini response asks the CLIENT to run a function (not distil_expand)."""
+    try:
+        parts = resp["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return any(
+        isinstance(p, dict)
+        and isinstance(p.get("functionCall"), dict)
+        and p["functionCall"].get("name") != EXPAND_TOOL_NAME
+        for p in (parts or [])
+    )
+
+
 def resolve_expands_gemini(
     resp: dict[str, Any],
     store: Any,
@@ -375,6 +413,8 @@ def run_expand_loop_gemini(
     resp = first_response
     contents = list(body.get("contents") or [])
     for _ in range(max_iters):
+        if _has_client_function_call_gemini(resp):
+            return resp  # mixed turn: the agent must run its own function call first
         fr_parts = resolve_expands_gemini(resp, store, on_signal=on_signal)
         if fr_parts is None:
             return resp
