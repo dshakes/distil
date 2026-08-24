@@ -741,3 +741,38 @@ def test_non_read_tool_output_still_digests():
         if isinstance(blk, dict) and str(blk.get("tool_use_id", "")).startswith("tu_b")
     ]
     assert any("handle=" in r for r in bash_results), "log output should still digest"
+
+
+# --- extended thinking --------------------------------------------------------
+def test_thinking_blocks_are_counted_but_never_rewritten():
+    """Thinking is billed on Claude 4.6+ and cannot be compressed — so it must at
+    least be VISIBLE.
+
+    The payload lives under `thinking`, not `text`, so it was counted by neither the
+    before nor the after side: real billed tokens absent from every percentage distil
+    reports. It stays byte-identical (the provider pins the block by signature and
+    re-expands it server-side, so editing it achieves nothing and risks rejection on
+    replay), but it is now censused.
+    """
+    from distil.adapters.anthropic import compress_messages, take_census
+    from distil.proxy import _count_messages
+
+    block = {"type": "thinking", "thinking": "deliberating " * 200, "signature": "sig"}
+    msgs = [{"role": "assistant", "content": [block]}]
+
+    assert _count_messages(msgs) > 0, "billed thinking must appear in the baseline"
+
+    out, _store = compress_messages(msgs, verbatim=False)
+    assert out[0]["content"][0] == block, "thinking must never be rewritten"
+    assert (take_census() or {}).get("thinking_billed", 0) > 0
+
+
+def test_redacted_thinking_is_also_counted_and_preserved():
+    from distil.adapters.anthropic import compress_messages
+    from distil.proxy import _count_messages
+
+    block = {"type": "redacted_thinking", "data": "opaque", "redacted_thinking": "r" * 400}
+    msgs = [{"role": "assistant", "content": [block]}]
+    assert _count_messages(msgs) > 0
+    out, _store = compress_messages(msgs, verbatim=False)
+    assert out[0]["content"][0] == block
