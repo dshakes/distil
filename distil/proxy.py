@@ -1129,6 +1129,7 @@ def build_handler(
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
             # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
             _expanded_handles: list[str] = []
+            _expand_misses: list[str] = []
             if _expand_should_intercept(expand, store, body):
                 try:
                     resp_json = json.loads(rbody)
@@ -1136,6 +1137,7 @@ def build_handler(
                     resp_json = None
                 if isinstance(resp_json, dict):
                     from .expand import (
+                        is_miss,
                         record_signal,
                         run_expand_loop,
                         run_expand_loop_gemini,
@@ -1147,8 +1149,14 @@ def build_handler(
                         return json.loads(rb)
 
                     def _on_signal(handle: str, original: str) -> None:
-                        _expanded_handles.append(handle)
                         record_signal(handle, original)  # content-free expand log
+                        if is_miss(original):
+                            # F3: the handle could not be recovered. Counting it as
+                            # an expansion would book a failure as a success and
+                            # train the keep-model on the placeholder's signature.
+                            _expand_misses.append(handle)
+                            return
+                        _expanded_handles.append(handle)
                         if _learn_stats is not None:  # learn the expanded signature
                             from .learn import signature
 
@@ -1166,7 +1174,10 @@ def build_handler(
                         final = run_expand_loop(body, resp_json, store, _post, on_signal=_on_signal)
                     if final is not resp_json:
                         rbody = json.dumps(final).encode()
-                        extras["x-distil-expanded"] = "1"
+                        if _expanded_handles:
+                            extras["x-distil-expanded"] = "1"
+                        if _expand_misses:
+                            extras["x-distil-expand-miss"] = str(len(_expand_misses))
             if _learn_stats is not None:  # persist the learned policy (atomic)
                 _learn_stats.save()
 
@@ -1391,6 +1402,7 @@ def build_handler(
                     "census": _adapter_census(),
                     "shadow_sampled": extras.get("x-distil-shadow") == "sampled",
                     "expanded": extras.get("x-distil-expanded") == "1",
+                    "expand_misses": int(extras.get("x-distil-expand-miss") or 0),
                     "output_shaping": extras.get("x-distil-output-shaping", ""),
                     "blocks": blocks,
                 }

@@ -882,6 +882,22 @@ class TestAnomalies:
         warnings = dz.dissect("s900-1").anomalies()
         assert any("could never be intercepted" in w for w in warnings)
 
+    def test_unrecoverable_expand_is_flagged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """F3: the saving was booked when the block was folded, but the original
+        was gone when the agent asked for it. The request still succeeds, so this
+        is invisible unless it is counted on its own."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        self._session(
+            tmp_path,
+            [self._req(expanded=True), self._req(expand_misses=2)],
+            flags={"expand": True},
+        )
+        d = dz.dissect("s900-1")
+        assert (d.expand_resolved, d.expand_missed) == (1, 2)
+        assert any("could not be recovered" in w for w in d.anomalies())
+
     def test_unbooked_spike_flagged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
         reqs = [self._req() for _ in range(6)] + [

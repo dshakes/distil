@@ -250,6 +250,17 @@ class Dissection:
     def expand_resolved(self) -> int:
         return sum(1 for r in self.requests if r.get("expanded"))
 
+    @property
+    def expand_missed(self) -> int:
+        """Handles the agent asked for that the store could not return.
+
+        F3, post-compression access failure: the saving was booked when the block
+        was digested, but the original was gone by the time it was wanted (evicted
+        past DISTIL_RESTORE_CAP, or aged past the TTL). Fail-open hands the agent a
+        placeholder and the request succeeds, so nothing else in the pipeline
+        notices — which is exactly why it needs its own counter."""
+        return sum(int(r.get("expand_misses") or 0) for r in self.requests)
+
     # ---- insight metrics (all derived; None/0 when the inputs are absent) ----
     @property
     def tokens_saved_total(self) -> int:
@@ -511,6 +522,13 @@ class Dissection:
                     "intercepted (an escaped call surfaces to the agent as "
                     "'no such tool')"
                 )
+        if self.expand_missed:
+            asked = self.expand_resolved + self.expand_missed
+            out.append(
+                f"{self.expand_missed}/{asked} expand requests could not be recovered "
+                "— the saving was booked but the original was gone (raise "
+                "DISTIL_RESTORE_CAP or DISTIL_RESTORE_TTL_DAYS)"
+            )
         if n >= 5 and self.unbooked_requests / n > 0.2:
             out.append(
                 f"{self.unbooked_requests}/{n} requests were not booked (non-2xx or "
@@ -1037,6 +1055,8 @@ def render_text(
         out.append(
             f"  expand: {d.expand_resolved} requests had distil_expand calls resolved in-proxy"
         )
+        if d.expand_missed:
+            out.append(f"    unrecoverable: {d.expand_missed} handle(s) asked for and not returned")
         for sig, exp, total in d.expansion_regret():
             out.append(
                 f"    regret: {sig} blocks pulled back {exp}/{total} — folding this kind "
@@ -1722,6 +1742,7 @@ still on this machine.</p>
             "wrap from this distil version or newer.</p>"
         )
     exit_line = f"<p class='muted'>exit: {e(d.exit_note)}</p>" if d.exit_note else ""
+    expand_miss_html = f" · <b>{d.expand_missed} unrecoverable</b>" if d.expand_missed else ""
     corr_html = ""
     if corr is not None:
         fold_rows = "".join(
@@ -1859,7 +1880,7 @@ received unwrapped; distil is what was actually sent after compression.</p>
 <p class="desc">distil's own safety nets: <b>expand</b> lets the model pull any folded block
 back when it needs the detail; <b>shadow</b> re-runs a sample of requests uncompressed to
 verify the answers don't change.</p>
-<p class="muted">expand: {d.expand_resolved} resolved in-proxy · shadow: {d.shadow_sampled} sampled ·
+<p class="muted">expand: {d.expand_resolved} resolved in-proxy{expand_miss_html} · shadow: {d.shadow_sampled} sampled ·
 verdicts near this session (time-joined): {d.shadow_window_agree}/{d.shadow_window_rows} equivalent</p>
 {exit_line}
 <p class="foot">Local-first: assembled from savings.jsonl, sessions/&lt;sid&gt;*, restore/ and

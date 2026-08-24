@@ -295,3 +295,41 @@ def test_proxy_expand_loop_end_to_end(tmp_path, monkeypatch):
     finally:
         proxy.shutdown()
         up.shutdown()
+
+
+def test_unrecoverable_handle_is_not_logged_as_a_recovery(tmp_path):
+    """F3, post-compression access failure: the store cannot return a handle it
+    was asked for. Fail-open still hands the agent a placeholder, but nothing
+    downstream may book that as a successful expansion — the trainers key
+    positives off a bare .get("handle"), so a miss written under that key would
+    teach the keep-model that the block it lost was safe to drop."""
+    import json
+
+    from distil.expand import is_miss, record_signal, resolve_expands
+
+    resp = {
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "tu_1",
+                "name": EXPAND_TOOL_NAME,
+                "input": {"handle": "deadbeef"},
+            }
+        ]
+    }
+    out = resolve_expands(resp, _Store({}))  # handle evicted / aged out
+    assert out is not None
+    text = out[0]["content"]
+    assert is_miss(text), "the agent must be told recovery failed, not handed silence"
+
+    sig = tmp_path / "expand-signals.jsonl"
+    record_signal("deadbeef", text, path=sig)
+    record_signal("a1b2c3d4", "the real original", path=sig)
+    recs = [json.loads(line) for line in sig.read_text().splitlines()]
+
+    # what the flywheel and assoc trainers actually read
+    positives = {r.get("handle") for r in recs if isinstance(r.get("handle"), str)}
+    assert positives == {"a1b2c3d4"}, "a failed recovery must not be a positive label"
+    misses = [r for r in recs if r.get("miss")]
+    assert [r["miss"] for r in misses] == ["deadbeef"]
+    assert "recovered_chars" not in misses[0], "nothing was recovered"

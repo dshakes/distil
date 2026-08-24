@@ -107,17 +107,44 @@ def _expand_calls(resp: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+_MISS_PREFIX = "[distil: no original found for handle "
+
+
+def miss_text(handle: str) -> str:
+    """The placeholder handed to the agent when a handle cannot be recovered."""
+    return f"{_MISS_PREFIX}{handle!r}]"
+
+
+def is_miss(text: str) -> bool:
+    """True if *text* is a recovery failure rather than recovered content.
+
+    F3 (post-compression access failure): the digest was made, the handle was
+    asked for, and the store could not return it — evicted past DISTIL_RESTORE_CAP,
+    aged past the TTL, or written by an install that is gone. Fail-open keeps the
+    agent running, but the placeholder must never be mistaken for the original:
+    it would train the keep-model that dropping that block was safe.
+    """
+    return text.startswith(_MISS_PREFIX)
+
+
 def record_signal(handle: str, original: str, *, path: Path | None = None) -> None:
     """Append a content-free expand event — the label the keep-model learns from.
-    Only the handle and recovered length are written; never the content itself."""
+    Only the handle and recovered length are written; never the content itself.
+
+    A recovery *failure* is logged under ``miss`` rather than ``handle``, because
+    every consumer keys positives off a bare ``.get("handle")`` — writing the
+    handle here would teach the keep-model that the block it could not return
+    was safe to drop, which is the opposite of what happened.
+    """
     try:
         path = path or _default_signal_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        key = "miss" if is_miss(original) else "handle"
+        rec: dict[str, Any] = {key: handle, "ts": time.time()}
+        if key == "handle":
+            rec["recovered_chars"] = len(original)
         with path.open("a", encoding="utf-8") as f:
-            f.write(
-                json.dumps({"handle": handle, "recovered_chars": len(original), "ts": time.time()})
-                + "\n"
-            )
+            f.write(json.dumps(rec) + "\n")
     except OSError:
         pass  # logging the moat signal must never break the request path
 
@@ -139,7 +166,7 @@ def resolve_expands(
         try:
             original = store.expand(handle)
         except Exception:  # noqa: BLE001 — unknown/expired handle must not 500 the agent
-            original = f"[distil: no original found for handle {handle!r}]"
+            original = miss_text(handle)
         if on_signal is not None:
             on_signal(handle, original)
         results.append({"type": "tool_result", "tool_use_id": c.get("id"), "content": original})
@@ -221,7 +248,7 @@ def run_expand_loop_responses(
             try:
                 original = store.expand(handle)
             except Exception:  # noqa: BLE001 — unknown handle must not 500 the agent
-                original = f"[distil: no original found for handle {handle!r}]"
+                original = miss_text(handle)
             if on_signal is not None:
                 on_signal(handle, original)
             input_items.append(
@@ -314,7 +341,7 @@ def resolve_expands_gemini(
         try:
             original = store.expand(handle)
         except Exception:  # noqa: BLE001 — unknown/expired handle must not 500 the agent
-            original = f"[distil: no original found for handle {handle!r}]"
+            original = miss_text(handle)
         if on_signal is not None:
             on_signal(handle, original)
         fr_parts.append(
