@@ -327,3 +327,27 @@ def test_unparseable_original_still_serializes():
 
     out = _serialize_if_changed(b"not json at all", {"a": 1})
     assert out == b'{"a":1}'
+
+
+def test_expand_tool_is_injected_before_any_handle_exists():
+    """The tools array must not change shape mid-session.
+
+    Anthropic caches the tools array at the very FRONT of the prefix — ahead of the
+    system prompt and all history. Injecting distil_expand only once a handle exists
+    means the array gains an entry on the turn compression first fires, invalidating
+    the whole cached entry at exactly the moment savings begin. Worse, distil's own
+    drift report then blames "a tool list whose order varies" upstream — which was
+    ours. Session-sticky injection trades one tool definition on early turns for a
+    byte-stable prefix all session.
+    """
+    from distil.expand import EXPAND_TOOL_NAME, inject_expand_tool
+
+    # An empty store + no stubs: the old gate would NOT have injected here.
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}], "tools": []}
+    out = inject_expand_tool(body)
+    assert any(t["name"] == EXPAND_TOOL_NAME for t in out["tools"])
+
+    # And it must stay idempotent, so a later turn produces the same array.
+    again = inject_expand_tool(out)
+    assert sum(t["name"] == EXPAND_TOOL_NAME for t in again["tools"]) == 1
+    assert again["tools"] == out["tools"], "the tools array must be byte-stable across turns"

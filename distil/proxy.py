@@ -846,8 +846,10 @@ def build_handler(
                 if savings is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
                 # Recoverable compression: inject distil_expand so the model can pull
-                # back any digested block by handle — same gating as the messages path.
-                if _expand_should_intercept(expand, store, body):
+                # back any digested block by handle. Session-sticky (see the messages
+                # path): a tools array that changes shape mid-session invalidates the
+                # provider's cached prefix, which costs far more than one tool def.
+                if expand:
                     from .expand import inject_expand_tool_responses
 
                     body = inject_expand_tool_responses(body)
@@ -932,9 +934,20 @@ def build_handler(
                     # Stateful, content-free — the verifiable benefit of a prefix-freeze
                     # router, without the lossy rewrite (distil is cache-monotonic).
                     extras["x-distil-cache-prefix-msgs"] = str(_dstats.prefix_msgs)
-                # Recoverable compression: if anything was digested, offer the model
-                # the distil_expand tool so it can pull back detail on demand.
-                if _expand_should_intercept(expand, store, body):
+                # Recoverable compression: offer the model the distil_expand tool so it
+                # can pull back detail on demand.
+                #
+                # Injected on EVERY request while expand is on, not only when a handle
+                # exists. Anthropic caches the tools array at the very front of the
+                # prefix — ahead of the system prompt and all history — so a tools list
+                # that gains an entry mid-session invalidates the entire cached entry at
+                # the turn compression first fires. Session-sticky injection costs one
+                # tool definition on early turns and keeps the prefix byte-stable for
+                # the whole session, which is the cheaper side of that trade by orders
+                # of magnitude. (Interception of the RESPONSE still keys on
+                # _expand_should_intercept — that decision is per-response and cannot
+                # affect the cached request bytes.)
+                if expand:
                     from .expand import inject_expand_tool
 
                     body = inject_expand_tool(body)
@@ -987,9 +1000,9 @@ def build_handler(
                     extras["x-distil-output-shaping"] = shape_output
                 # Expand-tool injection (Gemini): offer distil_expand under functionDeclarations
                 # so the model can recover any digested block by handle.  Same PAYG/--expand
-                # gating as the messages path — _expand_should_intercept checks store.handles
-                # (this request) and contents stubs (cross-turn persistence).
-                if _expand_should_intercept(expand, store, body):
+                # gating as the messages path: session-sticky, so the declared function
+                # list never changes shape mid-session and the cached prefix survives.
+                if expand:
                     from .expand import inject_expand_tool_gemini
 
                     body = inject_expand_tool_gemini(body)
