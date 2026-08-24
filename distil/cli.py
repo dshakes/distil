@@ -2612,6 +2612,38 @@ _ENV_REQUIRES_FLAG = {
     "openhands": ("--override-with-envs", "read LLM_* from the environment"),
 }
 
+#: IDE extensions people reasonably TRY to wrap. There is no argv to wrap and no
+#: published env-var contract, so a preset here would set a variable the editor never
+#: reads — routing nothing while reporting success. They are reachable, just by a
+#: different mechanism: run the proxy and point the editor's own base-URL setting at
+#: it. Saying that is worth more than a preset that lies.
+_IDE_NOT_WRAPPABLE = {
+    "cursor": "Cursor",
+    "cursor-agent": "Cursor",
+    "code": "VS Code (Copilot/Cline/Continue)",
+    "copilot": "GitHub Copilot",
+    "cline": "Cline",
+    "continue": "Continue",
+    "windsurf": "Windsurf",
+    "zed": "Zed",
+}
+
+
+def _warn_if_ide_not_wrappable(cmd_name: str) -> None:
+    """Redirect an IDE user to the path that actually works, before the session starts."""
+    label = _IDE_NOT_WRAPPABLE.get(cmd_name)
+    if label is None:
+        return
+    print(
+        f"\n  ⚠ {label} is an IDE extension, not a CLI — there is no process to wrap,\n"
+        f"    and no environment variable it reads. This wrap would route NOTHING.\n\n"
+        f"    Use the always-on proxy instead:\n"
+        f"        distil proxy --port 8080          # leave it running\n"
+        f"    then set the editor's OpenAI-compatible base URL to http://127.0.0.1:8080\n"
+        f"    Full per-editor steps: docs/IDE-AGENTS.md\n",
+        file=sys.stderr,
+    )
+
 
 def _warn_if_env_ignored(cmd_name: str, command: list[str]) -> None:
     """Say so when the agent will ignore the variable we are about to set.
@@ -2660,6 +2692,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     from .onboard import AGENT_PRESETS
 
     cmd_name = _os.path.basename(command[0])
+    _warn_if_ide_not_wrappable(cmd_name)
     preset = AGENT_PRESETS.get(cmd_name)
 
     env_var: str = args.env_var or ""
