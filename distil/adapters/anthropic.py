@@ -293,6 +293,7 @@ def _lossless_fold(text: str) -> str | None:
     table is byte-identical to the handle-bearing fold minus a metadata token."""
     from ..compress.structured import (
         fold,
+        fold_embedded,
         fold_records,
         template_fold,
     )  # local: avoid load-time cycle
@@ -301,6 +302,13 @@ def _lossless_fold(text: str) -> str | None:
         fold(text, emit_handle=False)
         or fold_records(text, emit_handle=False)
         or template_fold(text, emit_handle=False)
+        # Last: the whole-block folds are strictly better where they apply. This one
+        # catches the shape they all miss — an array WRAPPED in prose, which is how
+        # most real tool output arrives (a `gh api` dump, an MCP result, a status
+        # line above a payload). Measured 0.0% before this line, ~70% after, and it
+        # is equally lossless: only the array span is re-encoded, the prose around
+        # it survives byte-for-byte.
+        or fold_embedded(text, emit_handle=False)
     )
 
 

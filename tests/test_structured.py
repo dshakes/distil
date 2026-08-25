@@ -146,3 +146,128 @@ def test_fold_records_lossless_path_has_no_handle():
     # emit_handle=False (subscription/lossless): a self-describing table, no handle
     out = fold_records(_NESTED, emit_handle=False)
     assert out is not None and "handle=" not in out and is_folded(out)
+
+
+# --- embedded JSON ------------------------------------------------------------
+def _records(n: int) -> str:
+    import json as _json
+
+    return _json.dumps(
+        [{"id": i, "name": f"pod-{i}", "ready": True, "restarts": 0} for i in range(n)]
+    )
+
+
+def test_an_array_wrapped_in_prose_now_folds():
+    """The shape every whole-block fold missed, and the one real tool output takes.
+
+    `fold` requires the entire block to be a JSON array, but a `gh api` dump, an MCP
+    result or a `curl | jq` tail arrives wrapped in a status line or a summary.
+    Measured before this existed: 0.0% on an array with two sentences around it.
+    """
+    from distil.compress.structured import fold_embedded
+
+    blob = "Fetched the deployment:\n\n" + _records(60) + "\n\nAll healthy."
+    out = fold_embedded(blob)
+    assert out is not None
+    assert len(out) < len(blob)
+    # The prose the agent reads for context must survive byte-for-byte. A recovery
+    # marker follows it on the reversible path, so assert containment and order
+    # rather than the exact tail.
+    assert out.startswith("Fetched the deployment:")
+    assert "All healthy." in out
+    assert out.index("All healthy.") > out.index("Fetched the deployment:")
+
+
+def test_a_bare_array_is_left_to_the_whole_block_fold():
+    """No double-encoding: a block that IS an array belongs to fold(), which is
+    strictly better and differently marked."""
+    from distil.compress.structured import fold_embedded
+
+    assert fold_embedded(_records(40)) is None
+
+
+def test_brackets_inside_strings_do_not_confuse_the_scanner():
+    """JSON nesting is not regular — a regex would swallow from the first [ to the
+    last ]. The scanner is quote- and escape-aware."""
+    from distil.compress.structured import _balanced_spans
+
+    text = 'log: "an [unclosed bracket" then ' + _records(5) + " done"
+    spans = _balanced_spans(text)
+    assert len(spans) == 1, "the bracket inside the string must not open a span"
+    a, b = spans[0]
+    assert text[a] == "[" and text[b - 1] == "]"
+
+
+def test_a_decision_marker_block_is_never_touched():
+    """The certificate's oracle marker must reach the grader intact."""
+    from distil.compress.structured import fold_embedded
+
+    assert fold_embedded("DECISION: run_tests\n" + _records(60)) is None
+
+
+def test_it_refuses_when_the_result_would_not_shrink():
+    """Reject-if-bigger, the contract every other fold honours."""
+    from distil.compress.structured import fold_embedded
+
+    assert fold_embedded("prefix " + '[{"a":1},{"a":2},{"a":3}]' + " suffix") is None
+
+
+def test_embedded_fold_is_reachable_from_the_live_adapter():
+    """The adapter keeps its own fold chain, so a transform wired only into tier1
+    would compress in tests and 0% in production — that exact split once left HTML
+    at 0.0% on real traffic."""
+    from distil.adapters.anthropic import compress_messages
+
+    blob = "$ gh api repos/x/y/issues\n" + _records(50) + "\nShowing 50 of 128."
+    msgs = [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": blob}],
+        },
+        {"role": "user", "content": "next"},
+        {"role": "user", "content": "next"},
+    ]
+    out, _store = compress_messages(msgs, verbatim=False)
+    got = out[1]["content"][0]["content"]
+    assert len(got) < len(blob), "the adapter path must fold embedded arrays too"
+    assert "gh api repos/x/y/issues" in got, "surrounding text must survive"
+
+
+def test_the_reversible_tier_emits_a_resolvable_handle():
+    """A folded block must be *reachable*, not merely stored.
+
+    Cross-audit caught this: fold_embedded accepted `emit_handle` and ignored it, so
+    on the reversible path the original went into the restore table under a handle
+    the marker never named. The model had no way to ask for it — content recoverable
+    in principle and unreachable in practice, which is exactly the post-compression
+    access failure this codebase counts.
+    """
+    import json as _json
+    import re
+
+    from distil.compress.tier1 import Tier1Reversible
+    from distil.trajectory import Block, Kind
+
+    blob = "Deployment status:\n" + _records(60) + "\nAll healthy."
+    res = Tier1Reversible().compress([Block(id="b1", kind=Kind.TOOL_OUTPUT, text=blob)])
+    out = res.blocks[0].text
+    assert len(out) < len(blob), "the block should have folded"
+
+    m = re.search(r"handle=([0-9a-f]{8})", out)
+    assert m, "a reversible fold must name a handle the model can expand"
+    assert res.restore[m.group(1)] == blob, "the handle must resolve byte-exact"
+    assert _json  # keep the import meaningful if _records changes
+
+
+def test_the_lossless_path_emits_no_handle():
+    """emit_handle=False is the subscription path: no expand tool is injected there,
+    so a handle would advertise a recovery the model cannot perform."""
+    from distil.compress.structured import fold_embedded
+
+    out = fold_embedded("Deployment:\n" + _records(60) + "\ndone.", emit_handle=False)
+    assert out is not None
+    assert "handle=" not in out
