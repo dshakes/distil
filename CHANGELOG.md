@@ -27,7 +27,7 @@ a crash inside compression, a crash inside accounting, and a body distil cannot
 parse (forwarded as-is, so the provider's own error reaches the agent rather than
 one distil invented).
 
-## [1.50.2] — a failure that healed itself was still reported as a failure
+### A failure that healed itself was still reported as a failure
 
 distil recorded **5,397 non-2xx requests across 18,455** and discarded the reason
 every time. Only the status survived, so the one question a broken session raises —
