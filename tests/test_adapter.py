@@ -768,11 +768,38 @@ def test_thinking_blocks_are_counted_but_never_rewritten():
 
 
 def test_redacted_thinking_is_also_counted_and_preserved():
+    """The REAL Anthropic shape: a redacted block's payload lives under `data`.
+
+    An earlier version of this test invented a block carrying a `redacted_thinking`
+    key, which no API ever emits. The mock passed while production still counted
+    these as zero — the exact bug the change was meant to fix. Cross-audit caught it.
+    Keep this fixture shaped like the wire format, not like the code under test.
+    """
     from distil.adapters.anthropic import compress_messages
     from distil.proxy import _count_messages
 
-    block = {"type": "redacted_thinking", "data": "opaque", "redacted_thinking": "r" * 400}
+    block = {"type": "redacted_thinking", "data": "x" * 800}
     msgs = [{"role": "assistant", "content": [block]}]
-    assert _count_messages(msgs) > 0
+    assert _count_messages(msgs) > 0, "payload under `data` must reach the baseline"
     out, _store = compress_messages(msgs, verbatim=False)
     assert out[0]["content"][0] == block
+
+
+def test_baseline_and_census_agree_on_thinking_tokens():
+    """The two counters must not diverge, or savings percentages are wrong.
+
+    The census reads both payload keys; the baseline used to read one of them by the
+    wrong name, so a real redacted block was censused but absent from the baseline.
+    """
+    from distil.adapters.anthropic import compress_messages, take_census
+    from distil.proxy import _count_messages
+
+    for block in (
+        {"type": "thinking", "thinking": "deliberating " * 100, "signature": "s"},
+        {"type": "redacted_thinking", "data": "y" * 600},
+    ):
+        msgs = [{"role": "assistant", "content": [block]}]
+        baseline = _count_messages(msgs)
+        compress_messages(msgs, verbatim=False)
+        censused = (take_census() or {}).get("thinking_billed", 0)
+        assert baseline == censused, f"{block['type']}: {baseline} != {censused}"
