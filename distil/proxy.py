@@ -347,6 +347,26 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
                 if block.get("type") == "image":
                     total += _image_tokens(block)
                     continue
+                # Extended thinking carries its payload under `thinking`, not `text`.
+                # On Claude 4.6+ prior-turn thinking is re-sent as input and BILLED, so
+                # leaving it out of the baseline hid real tokens from every percentage
+                # distil reports: they were in neither the before nor the after count.
+                # distil does not rewrite these blocks (the provider pins them by
+                # signature and re-expands server-side), but it must SEE them.
+                # The two block types keep their payload under DIFFERENT keys:
+                # `thinking` holds text under "thinking"; `redacted_thinking` holds an
+                # opaque blob under "data". Reading "redacted_thinking" as a key finds
+                # nothing on a real block, so those tokens counted as zero — the same
+                # blind spot this change exists to remove. Kept aligned with the census
+                # in adapters.anthropic, which reads both.
+                if block.get("type") == "thinking":
+                    tval = block.get("thinking")
+                    if isinstance(tval, str):
+                        total += _tokenizer.count(tval)
+                elif block.get("type") == "redacted_thinking":
+                    tval = block.get("data")
+                    if isinstance(tval, str):
+                        total += _tokenizer.count(tval)
                 for key in ("text", "content"):
                     val = block.get(key)
                     if isinstance(val, str):

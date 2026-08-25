@@ -3,6 +3,19 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.50.1] — the tokens distil could not see
+
+Extended thinking carries its payload under `thinking`, not `text`, so distil counted
+it as **zero** — a 1,000-character block scored 0 tokens. On Claude 4.6+ prior-turn
+thinking is re-sent as input and billed every turn, which means real billed tokens sat
+in neither the before nor the after side of every percentage distil reports.
+
+The blocks are still never rewritten, and that is not timidity: the provider pins each
+block by its `signature` and re-expands the original server-side, so editing the text
+achieves nothing and risks the signature being rejected on replay. But a cost distil
+cannot reduce is exactly the cost it should not hide. Thinking now appears in the
+token baseline and in the eligibility census as `thinking_billed`.
+
 ## [1.50.0] — the model that could never learn, and the store nobody could see
 
 Two capabilities that were present in the code and unreachable in practice.

@@ -517,6 +517,16 @@ def _compress_content_item(
     if btype == "image":
         return _compress_image_block(item, store, verbatim, is_recent)
 
+    if btype in ("thinking", "redacted_thinking"):
+        # Extended thinking. NOT compressible, and not for want of trying: the provider
+        # pins the block by its `signature` and re-expands the original server-side, so
+        # editing the text achieves nothing and risks the signature being rejected on
+        # replay. But on Claude 4.6+ this content is re-sent as input and billed every
+        # turn, so it belongs in the census — otherwise the one context cost distil
+        # cannot reduce is also the one it never shows you.
+        _census("thinking_billed", str(item.get("thinking") or item.get("data") or ""))
+        return item
+
     if btype == "text":
         if role == "assistant":
             # Never rewrite the assistant's own words.

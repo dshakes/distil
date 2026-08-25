@@ -741,3 +741,65 @@ def test_non_read_tool_output_still_digests():
         if isinstance(blk, dict) and str(blk.get("tool_use_id", "")).startswith("tu_b")
     ]
     assert any("handle=" in r for r in bash_results), "log output should still digest"
+
+
+# --- extended thinking --------------------------------------------------------
+def test_thinking_blocks_are_counted_but_never_rewritten():
+    """Thinking is billed on Claude 4.6+ and cannot be compressed — so it must at
+    least be VISIBLE.
+
+    The payload lives under `thinking`, not `text`, so it was counted by neither the
+    before nor the after side: real billed tokens absent from every percentage distil
+    reports. It stays byte-identical (the provider pins the block by signature and
+    re-expands it server-side, so editing it achieves nothing and risks rejection on
+    replay), but it is now censused.
+    """
+    from distil.adapters.anthropic import compress_messages, take_census
+    from distil.proxy import _count_messages
+
+    block = {"type": "thinking", "thinking": "deliberating " * 200, "signature": "sig"}
+    msgs = [{"role": "assistant", "content": [block]}]
+
+    assert _count_messages(msgs) > 0, "billed thinking must appear in the baseline"
+
+    out, _store = compress_messages(msgs, verbatim=False)
+    assert out[0]["content"][0] == block, "thinking must never be rewritten"
+    assert (take_census() or {}).get("thinking_billed", 0) > 0
+
+
+def test_redacted_thinking_is_also_counted_and_preserved():
+    """The REAL Anthropic shape: a redacted block's payload lives under `data`.
+
+    An earlier version of this test invented a block carrying a `redacted_thinking`
+    key, which no API ever emits. The mock passed while production still counted
+    these as zero — the exact bug the change was meant to fix. Cross-audit caught it.
+    Keep this fixture shaped like the wire format, not like the code under test.
+    """
+    from distil.adapters.anthropic import compress_messages
+    from distil.proxy import _count_messages
+
+    block = {"type": "redacted_thinking", "data": "x" * 800}
+    msgs = [{"role": "assistant", "content": [block]}]
+    assert _count_messages(msgs) > 0, "payload under `data` must reach the baseline"
+    out, _store = compress_messages(msgs, verbatim=False)
+    assert out[0]["content"][0] == block
+
+
+def test_baseline_and_census_agree_on_thinking_tokens():
+    """The two counters must not diverge, or savings percentages are wrong.
+
+    The census reads both payload keys; the baseline used to read one of them by the
+    wrong name, so a real redacted block was censused but absent from the baseline.
+    """
+    from distil.adapters.anthropic import compress_messages, take_census
+    from distil.proxy import _count_messages
+
+    for block in (
+        {"type": "thinking", "thinking": "deliberating " * 100, "signature": "s"},
+        {"type": "redacted_thinking", "data": "y" * 600},
+    ):
+        msgs = [{"role": "assistant", "content": [block]}]
+        baseline = _count_messages(msgs)
+        compress_messages(msgs, verbatim=False)
+        censused = (take_census() or {}).get("thinking_billed", 0)
+        assert baseline == censused, f"{block['type']}: {baseline} != {censused}"
