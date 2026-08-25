@@ -245,3 +245,87 @@ def template_fold(text: str, min_run: int = 5, emit_handle: bool = True) -> str 
         i = j
     folded = "\n".join(out)
     return folded if changed and len(folded) < len(text) else None
+
+
+# --- embedded JSON ------------------------------------------------------------
+# The folds above require the WHOLE block to be a JSON array (`fold` checks
+# s.startswith("[")). Real tool output rarely is: a `gh api` dump, an MCP result, a
+# `curl | jq` tail and most CLI wrappers surround the payload with prose, a status
+# line, or a trailing summary. Measured on distil before this existed: a 60-record
+# array wrapped in two sentences compressed 0.0%, while the identical array alone
+# compressed ~70%. The machinery was there; nothing ever handed it the span.
+_MIN_EMBEDDED_CHARS = 400
+
+
+def _balanced_spans(text: str) -> list[tuple[int, int]]:
+    """Byte offsets of top-level balanced ``[...]`` spans, outermost only.
+
+    A hand-rolled scanner rather than a regex: JSON nesting is not regular, and a
+    greedy pattern would swallow everything between the first ``[`` and the last
+    ``]``. Quote- and escape-aware, so a bracket inside a string never counts.
+    """
+    spans: list[tuple[int, int]] = []
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]":
+            if depth:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    spans.append((start, i + 1))
+                    start = -1
+    return spans
+
+
+def fold_embedded(text: str, emit_handle: bool = True) -> str | None:
+    """Fold JSON arrays *embedded* in a larger block, leaving the surrounding text
+    intact. Returns the rewritten block, or None if nothing folded or it grew.
+
+    Only the span is replaced, so the prose an agent reads for context — the status
+    line, the "3 of 12 failed" summary — survives verbatim. Reversibility is
+    unchanged: the caller records the byte-exact original under its handle, exactly
+    as for a whole-block fold.
+    """
+    if "DECISION:" in text:
+        return None  # never touch a block carrying the decision marker
+    spans = [(a, b) for a, b in _balanced_spans(text) if b - a >= _MIN_EMBEDDED_CHARS]
+    if not spans:
+        return None
+    # A block that IS a bare array is already handled by fold(); doing it here too
+    # would produce a second, differently-marked encoding of the same thing.
+    if len(spans) == 1 and spans[0][0] == 0 and spans[0][1] == len(text.strip()):
+        return None
+    out: list[str] = []
+    prev = 0
+    folded = False
+    for a, b in spans:
+        piece = text[a:b]
+        compact = fold(piece, emit_handle=False) or fold_records(piece, emit_handle=False)
+        if compact is None:
+            continue
+        out.append(text[prev:a])
+        out.append(compact)
+        prev = b
+        folded = True
+    if not folded:
+        return None
+    out.append(text[prev:])
+    result = "".join(out)
+    # Reject-if-bigger, the same contract every other fold honours.
+    return result if len(result) < len(text) else None

@@ -3,6 +3,35 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Embedded JSON — the shape every fold missed
+
+distil's columnar folds required the **whole block** to be a JSON array. Real tool
+output rarely is: a `gh api` dump, an MCP result, a `curl | jq` tail and most CLI
+wrappers surround the payload with a status line, prose, or a trailing summary.
+
+Measured before this existed: a 60-record array wrapped in two sentences compressed
+**0.0%**, while the identical array alone compressed ~70%. The machinery was already
+there — nothing ever handed it the span.
+
+`fold_embedded` finds top-level balanced `[...]` spans with a quote- and escape-aware
+scanner (JSON nesting is not regular; a greedy regex would swallow everything between
+the first `[` and the last `]`) and folds each one in place, leaving the surrounding
+text byte-for-byte intact — so the prose an agent reads for context survives.
+
+    json-in-prose   2405 -> 507 tok   78.9% saved   (was 0.0%)
+    gh api dump     2083 -> 371 tok   82.2% saved   (was 0.0%)
+
+Wired into **both** fold chains. The adapter keeps its own, so a transform added only
+to tier1 compresses in tests and 0% in production — the exact split that once left
+HTML at 0.0% on real traffic. A test pins the adapter path specifically.
+
+It runs last: the whole-block folds are strictly better where they apply, and a block
+that *is* an array must not be encoded twice in two different markings. Reject-if-
+bigger and the `DECISION:` carve-out are honoured like every other fold, and the
+certificate gate still passes non-inferior on every trajectory.
+
 ## [1.50.2] — a counter could end a session
 
 **Session survival, not savings.** A proxy sits in the request path of a live agent
