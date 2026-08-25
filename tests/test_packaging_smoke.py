@@ -374,8 +374,12 @@ def test_claude_plugin_manifests_are_valid_and_current() -> None:
         assert manifest.exists(), f"{entry['name']}: no .claude-plugin/plugin.json"
         plugin = json.loads(manifest.read_text())
         assert plugin["name"] == entry["name"], "marketplace/plugin name mismatch"
-        assert plugin["version"] == version, (
-            f"plugin.json is {plugin['version']}, package is {version} — the plugin "
+        # The plugin manifest follows SemVer (like npm), so a PEP 440 rc `X.Y.ZrcN`
+        # is spelled `X.Y.Z-rc.N` here. Compare against that spelling rather than
+        # forcing a non-SemVer string a marketplace validator could reject.
+        expected = re.sub(r"rc(\d+)$", r"-rc.\1", version)
+        assert plugin["version"] == expected, (
+            f"plugin.json is {plugin['version']}, expected {expected} — the plugin "
             "manifest drifts silently because nothing bumps it at release time"
         )
 
@@ -456,6 +460,18 @@ def test_helm_chart_defaults_to_this_release() -> None:
             app = line.split(":", 1)[1].strip().strip('"').strip("'")
             break
     assert app, "Chart.yaml has no appVersion"
+
+    if "rc" in version:
+        # An rc is the one case where tracking the release is WRONG: release.yml
+        # skips the container build for rc tags (an rc must never move `latest`), so
+        # the image that tag names is never published and a default `helm install`
+        # would ImagePullBackOff. The chart must stay on the last GA; rc soakers
+        # install the wheel via pipx. Found by cross-audit on the 1.50.1rc1 release.
+        assert "rc" not in app, (
+            f"Chart.yaml appVersion is {app}, but no container image is built for rc "
+            f"tags — pin it to the last GA release instead"
+        )
+        return
     assert app == version, (
         f"Chart.yaml appVersion is {app} but this release is {version} — a default "
         f"`helm install` would deploy ghcr.io/dshakes/distil:{app}"
