@@ -980,9 +980,23 @@ def build_handler(
                 # Live retention meter: sampled, content-free (counts only), fail-open.
                 if _retention_meter is not None and _retention_meter.enabled:
                     _retention_meter.observe(original, compressed, store)
-                before_tok = _count_messages(original)
-                after_tok = _count_messages(compressed)
-                saved = max(0, before_tok - after_tok)
+                # Accounting is bookkeeping, and bookkeeping must never be
+                # load-bearing for the response. These feed headers and the savings
+                # ledger only, yet an exception here escaped the handler and closed
+                # the connection — the client saw RemoteDisconnected and the turn was
+                # lost. A tokenizer edge case on unusual content would end a live
+                # session over a number nobody reads in the moment.
+                try:
+                    before_tok = _count_messages(original)
+                    after_tok = _count_messages(compressed)
+                except Exception:  # noqa: BLE001 — a counter must never break a request
+                    log.debug("token accounting failed; serving without it", exc_info=True)
+                    before_tok = after_tok = None
+                saved = (
+                    max(0, before_tok - after_tok)
+                    if before_tok is not None and after_tok is not None
+                    else 0
+                )
                 body = {**body, "messages": compressed}
                 extras = {
                     "x-distil-compressed": "1",
@@ -992,7 +1006,11 @@ def build_handler(
                     # allowed to touch) — when this is ~0, a ▼0 is "nothing large
                     # to compress this turn", not a failure. System prompt, tool
                     # definitions, images and assistant text are never counted.
-                    "x-distil-compressible-tokens": str(_count_messages(original)),
+                    # Reuse the already-computed count rather than a third traversal
+                    # that could raise after the guarded pair above succeeded.
+                    "x-distil-compressible-tokens": str(
+                        before_tok if before_tok is not None else 0
+                    ),
                 }
                 if _dstats is not None:
                     extras["x-distil-cache-refs"] = str(_dstats.exact_refs + _dstats.delta_refs)
@@ -1022,7 +1040,11 @@ def build_handler(
                     body = inject_expand_tool(body)
                 # Accumulate GENUINE savings from real traffic into the ledger,
                 # priced per the model THIS request names (agents mix models).
-                if savings is not None:
+                # Only when the counts are real: if accounting failed above, this
+                # request goes unbooked rather than entering the ledger with a
+                # fabricated zero. A wrong number in the savings history is worse
+                # than a missing one — every published percentage derives from it.
+                if savings is not None and before_tok is not None and after_tok is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
                 # Output compression: gated by lossless_only (only on PAYG-style).
                 if shape_output != "off" and _lossy_ok:

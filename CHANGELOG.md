@@ -3,6 +3,30 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.50.2] — a counter could end a session
+
+**Session survival, not savings.** A proxy sits in the request path of a live agent
+session, so the contract is narrow: distil may fail to *compress*, but it must never
+fail to *serve*. It could.
+
+Token accounting — `_count_messages`, whose entire output is a response header and a
+ledger row — ran **unguarded** in the request path. Compression was protected, the
+retention meter was protected, but the counting was not. An exception there escaped
+the handler and closed the connection: the client saw `RemoteDisconnected` and the
+turn was lost. A tokenizer edge case on unusual content would have ended a live
+session over a number nobody reads in the moment.
+
+Now guarded, and the failure is honest about itself: a request whose counts did not
+compute goes **unbooked** rather than entering the savings ledger with a fabricated
+zero. A wrong number in the savings history is worse than a missing one — every
+published percentage derives from that ledger.
+
+Three end-to-end tests drive the real handler over a real socket, because a
+`try/except` in the source is a claim and only a served response is a measurement:
+a crash inside compression, a crash inside accounting, and a body distil cannot
+parse (forwarded as-is, so the provider's own error reaches the agent rather than
+one distil invented).
+
 ## [1.50.2] — a failure that healed itself was still reported as a failure
 
 distil recorded **5,397 non-2xx requests across 18,455** and discarded the reason
