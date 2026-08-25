@@ -88,8 +88,28 @@ ok "working tree clean"
 # version agreement across every surface that ships a version string
 # (distil/__init__.py is single-sourced from pyproject since 5e1173b — no literal to check)
 CITE_V="$(grep -E '^version:' CITATION.cff | sed -E 's/.*: *([0-9][^ ]*).*/\1/')"
+# npm and the Claude plugin manifest use SemVer, so an rc is `X.Y.Z-rc.N` there
+# while PEP 440 surfaces use `X.Y.ZrcN`. Derive both spellings once.
+SEMVER_V="$(printf '%s' "$VERSION" | sed -E 's/rc([0-9]+)$/-rc.\1/')"
+
 if [ "$IS_RC" -eq 1 ]; then
   info "rc release — CITATION.cff stays at the last citable final ($CITE_V)"
+  # Everything EXCEPT CITATION still gets checked. Skipping these on rcs recreated
+  # the very blind spot the checks were added for: plugin.json sat at 1.8.6 for 22
+  # releases because nothing checked it, and an unchecked rc is how it starts again.
+  PLUGIN_V="$(grep -E '^\s*"version":' plugins/distil/.claude-plugin/plugin.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+  [ "$PLUGIN_V" = "$SEMVER_V" ] || die "plugin.json is $PLUGIN_V, expected $SEMVER_V (SemVer spelling of $VERSION)"
+  SERVER_V="$(grep -E '^\s*"version":' server.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+  [ "$SERVER_V" = "$VERSION" ] || die "server.json is $SERVER_V, pyproject is $VERSION"
+  NPM_V="$(grep -E '^\s*"version":' packaging/npm/package.json | head -1 | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+  [ "$NPM_V" = "$SEMVER_V" ] || die "packaging/npm/package.json is $NPM_V, expected $SEMVER_V"
+  # release.yml skips the container build for rc tags, so an rc appVersion would
+  # point a default `helm install` at an image that is never published.
+  CHART_V="$(grep -E '^appVersion:' packaging/helm/distil-gateway/Chart.yaml | sed -E 's/.*: *"?([^"]+)"?.*/\1/')"
+  case "$CHART_V" in
+    *rc*) die "Chart.yaml appVersion is $CHART_V — an rc image is never built; pin it to the last GA" ;;
+  esac
+  ok "rc versions consistent (plugin.json, server.json, npm as $SEMVER_V; chart pinned to $CHART_V)"
 else
   [ "$CITE_V" = "$VERSION" ] || die "CITATION.cff is $CITE_V, pyproject is $VERSION"
   # The Claude Code plugin manifest is a shipped surface too — it sat at 1.8.6 for

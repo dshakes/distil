@@ -6,8 +6,11 @@ description: >-
 type: application
 # Chart version tracks the chart; appVersion tracks the distil release it defaults to.
 # Bump `version` on any template change, `appVersion` on a distil upgrade.
+# NEVER set appVersion to an rc: release.yml skips the container build for rc tags
+# (an rc must not move `latest`), so the image that tag names is never published and
+# a default `helm install` would ImagePullBackOff. rc soakers install the wheel.
 version: 0.1.1
-appVersion: "1.50.1rc1"
+appVersion: "1.50.1"
 home: https://dshakes.github.io/distil/
 sources:
   - https://github.com/dshakes/distil
