@@ -83,6 +83,31 @@ def _has_recoverable_stub(body: dict) -> bool:
     return _HANDLE_STUB_RE.search(blob) is not None
 
 
+def _upstream_error_type(status: int, rbody: bytes) -> str | None:
+    """The provider's error `type` for a failed request — content-free.
+
+    Anthropic and OpenAI both return ``{"error": {"type": ..., "message": ...}}``.
+    The type is a short enum (``invalid_request_error``, ``rate_limit_error``,
+    ``overloaded_error``); the message can quote request content, so it is never
+    stored. Returns None for a success or an unparseable body.
+
+    Without this a non-2xx recorded only its status, which cannot distinguish "your
+    prompt exceeded the context limit" from "distil corrupted the body" — the two
+    diagnoses with opposite fixes.
+    """
+    if 200 <= status < 300:
+        return None
+    try:
+        err = (json.loads(rbody) or {}).get("error")
+        if isinstance(err, dict):
+            t = err.get("type")
+            if isinstance(t, str) and len(t) <= 64:
+                return t
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return f"http_{status}"
+
+
 def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
     """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
 
@@ -1136,6 +1161,9 @@ def build_handler(
                     ),
                     duration_ms=int((time.monotonic() - t_req) * 1000),
                     usage=_usage_x,
+                    # Streaming path: the body was relayed frame-by-frame and never
+                    # buffered, so only the status is knowable here.
+                    error_type=_upstream_error_type(status_x, b""),
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
@@ -1188,6 +1216,7 @@ def build_handler(
                     ),
                     duration_ms=int((time.monotonic() - t_req) * 1000),
                     usage=_usage_s,
+                    error_type=_upstream_error_type(status_s, b""),
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
@@ -1293,6 +1322,7 @@ def build_handler(
                 ),
                 duration_ms=int((time.monotonic() - t_req) * 1000),
                 usage=_usage_b,
+                error_type=_upstream_error_type(status, rbody),
                 expanded_handles=_expanded_handles,
             )
             # Book savings only after a confirmed 2xx (P0-1): failed or SDK-retried
@@ -1317,6 +1347,7 @@ def build_handler(
             duration_ms: int | None = None,
             usage: dict[str, int] | None = None,
             expanded_handles: list[str] | None = None,
+            error_type: str | None = None,
         ) -> None:
             """Append one content-free per-request record to the wrap session's
             ``sessions/<sid>.requests.jsonl`` (read by ``distil dissect``).
@@ -1444,6 +1475,14 @@ def build_handler(
                     "stream": stream,
                     "client_stream": client_stream,
                     "status": status,
+                    # WHY a request failed, not merely that it did. 5,397 of 18,455
+                    # recorded requests were non-2xx with the reason discarded, so the
+                    # single most common question about a distil session — "what went
+                    # wrong?" — had no answer in distil's own logs. The provider's
+                    # error `type` is a short enum (invalid_request_error,
+                    # rate_limit_error, overloaded_error, …); the human message is NOT
+                    # stored, since it can quote request content.
+                    "error_type": error_type,
                     "booked": booked,
                     "duration_ms": duration_ms,
                     "usage_input_tokens": (usage or {}).get("input_tokens"),

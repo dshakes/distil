@@ -1293,3 +1293,94 @@ class TestEligibility:
         text = dz.render_text(dz.dissect(sid), color=False)
         assert "the design holding" in text
         assert "compressor's to explain" not in text
+
+
+class TestErrorReasons:
+    """A non-2xx must record WHY, not only that it failed."""
+
+    @staticmethod
+    def _d(requests):
+        d = dz.Dissection.__new__(dz.Dissection)
+        object.__setattr__(d, "requests", requests)
+        return d
+
+    def test_error_types_are_counted_most_frequent_first(self) -> None:
+        d = self._d(
+            [
+                {"status": 400, "error_type": "invalid_request_error"},
+                {"status": 400, "error_type": "invalid_request_error"},
+                {"status": 429, "error_type": "rate_limit_error"},
+                {"status": 200},
+            ]
+        )
+        assert d.error_reasons() == [("invalid_request_error", 2), ("rate_limit_error", 1)]
+
+    def test_sessions_recorded_before_the_field_existed_report_nothing(self) -> None:
+        """Old rows carry only a status — report no reasons rather than inventing one."""
+        d = self._d([{"status": 400}, {"status": 200}])
+        assert d.error_reasons() == []
+
+
+def test_upstream_error_type_is_content_free():
+    """The provider's error TYPE is kept; its message is not — it quotes content."""
+    from distil.proxy import _upstream_error_type
+
+    body = (
+        b'{"error":{"type":"invalid_request_error",'
+        b'"message":"prompt is too long: 231721 tokens > 200000 maximum"}}'
+    )
+    assert _upstream_error_type(400, body) == "invalid_request_error"
+    assert _upstream_error_type(200, b"{}") is None, "a success has no error type"
+    # Streaming responses are relayed frame-by-frame and never buffered.
+    assert _upstream_error_type(400, b"") == "http_400"
+    assert _upstream_error_type(500, b"<html>not json</html>") == "http_500"
+
+    # The message must never reach the record.
+    for probe in (b"", b'{"error":{"type":"x","message":"secret content"}}'):
+        got = _upstream_error_type(400, probe) or ""
+        assert "secret" not in got and "231721" not in got
+
+
+class TestRetryRecovery:
+    """A retried-and-succeeded failure is not a failure the user must act on."""
+
+    @staticmethod
+    def _d(requests):
+        d = dz.Dissection.__new__(dz.Dissection)
+        object.__setattr__(d, "requests", requests)
+        return d
+
+    def test_a_failure_followed_by_a_same_size_success_is_recovered(self) -> None:
+        """The real pattern from a live session: 400 at 420,136 tokens, then an
+        immediate 200 at the same size. The SDK retried; no work was lost."""
+        d = self._d(
+            [
+                {"ts": 1, "status": 400, "compressible_tokens": 420_000, "overhead_tokens": 136},
+                {"ts": 2, "status": 200, "compressible_tokens": 420_000, "overhead_tokens": 136},
+            ]
+        )
+        assert d.retried_and_recovered() == 1
+
+    def test_a_failure_with_no_retry_is_not_counted_as_recovered(self) -> None:
+        d = self._d([{"ts": 1, "status": 400, "compressible_tokens": 1000}])
+        assert d.retried_and_recovered() == 0
+
+    def test_an_unrelated_later_success_is_not_a_retry(self) -> None:
+        """A 2xx of a very different size is the next turn, not a retry of this one."""
+        d = self._d(
+            [
+                {"ts": 1, "status": 400, "compressible_tokens": 400_000},
+                {"ts": 2, "status": 200, "compressible_tokens": 5_000},
+            ]
+        )
+        assert d.retried_and_recovered() == 0
+
+    def test_rows_are_ordered_by_timestamp_not_file_order(self) -> None:
+        d = self._d(
+            [
+                {"ts": 9, "status": 200, "compressible_tokens": 100_000},
+                {"ts": 1, "status": 400, "compressible_tokens": 100_000},
+                {"ts": 2, "status": 200, "compressible_tokens": 100_000},
+            ]
+        )
+        assert d.retried_and_recovered() == 1
