@@ -83,6 +83,31 @@ def _has_recoverable_stub(body: dict) -> bool:
     return _HANDLE_STUB_RE.search(blob) is not None
 
 
+def _upstream_error_type(status: int, rbody: bytes) -> str | None:
+    """The provider's error `type` for a failed request — content-free.
+
+    Anthropic and OpenAI both return ``{"error": {"type": ..., "message": ...}}``.
+    The type is a short enum (``invalid_request_error``, ``rate_limit_error``,
+    ``overloaded_error``); the message can quote request content, so it is never
+    stored. Returns None for a success or an unparseable body.
+
+    Without this a non-2xx recorded only its status, which cannot distinguish "your
+    prompt exceeded the context limit" from "distil corrupted the body" — the two
+    diagnoses with opposite fixes.
+    """
+    if 200 <= status < 300:
+        return None
+    try:
+        err = (json.loads(rbody) or {}).get("error")
+        if isinstance(err, dict):
+            t = err.get("type")
+            if isinstance(t, str) and len(t) <= 64:
+                return t
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return f"http_{status}"
+
+
 def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
     """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
 
@@ -955,9 +980,23 @@ def build_handler(
                 # Live retention meter: sampled, content-free (counts only), fail-open.
                 if _retention_meter is not None and _retention_meter.enabled:
                     _retention_meter.observe(original, compressed, store)
-                before_tok = _count_messages(original)
-                after_tok = _count_messages(compressed)
-                saved = max(0, before_tok - after_tok)
+                # Accounting is bookkeeping, and bookkeeping must never be
+                # load-bearing for the response. These feed headers and the savings
+                # ledger only, yet an exception here escaped the handler and closed
+                # the connection — the client saw RemoteDisconnected and the turn was
+                # lost. A tokenizer edge case on unusual content would end a live
+                # session over a number nobody reads in the moment.
+                try:
+                    before_tok = _count_messages(original)
+                    after_tok = _count_messages(compressed)
+                except Exception:  # noqa: BLE001 — a counter must never break a request
+                    log.debug("token accounting failed; serving without it", exc_info=True)
+                    before_tok = after_tok = None
+                saved = (
+                    max(0, before_tok - after_tok)
+                    if before_tok is not None and after_tok is not None
+                    else 0
+                )
                 body = {**body, "messages": compressed}
                 extras = {
                     "x-distil-compressed": "1",
@@ -967,7 +1006,11 @@ def build_handler(
                     # allowed to touch) — when this is ~0, a ▼0 is "nothing large
                     # to compress this turn", not a failure. System prompt, tool
                     # definitions, images and assistant text are never counted.
-                    "x-distil-compressible-tokens": str(_count_messages(original)),
+                    # Reuse the already-computed count rather than a third traversal
+                    # that could raise after the guarded pair above succeeded.
+                    "x-distil-compressible-tokens": str(
+                        before_tok if before_tok is not None else 0
+                    ),
                 }
                 if _dstats is not None:
                     extras["x-distil-cache-refs"] = str(_dstats.exact_refs + _dstats.delta_refs)
@@ -997,7 +1040,11 @@ def build_handler(
                     body = inject_expand_tool(body)
                 # Accumulate GENUINE savings from real traffic into the ledger,
                 # priced per the model THIS request names (agents mix models).
-                if savings is not None:
+                # Only when the counts are real: if accounting failed above, this
+                # request goes unbooked rather than entering the ledger with a
+                # fabricated zero. A wrong number in the savings history is worse
+                # than a missing one — every published percentage derives from it.
+                if savings is not None and before_tok is not None and after_tok is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
                 # Output compression: gated by lossless_only (only on PAYG-style).
                 if shape_output != "off" and _lossy_ok:
@@ -1136,6 +1183,9 @@ def build_handler(
                     ),
                     duration_ms=int((time.monotonic() - t_req) * 1000),
                     usage=_usage_x,
+                    # Streaming path: the body was relayed frame-by-frame and never
+                    # buffered, so only the status is knowable here.
+                    error_type=_upstream_error_type(status_x, b""),
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
@@ -1188,6 +1238,7 @@ def build_handler(
                     ),
                     duration_ms=int((time.monotonic() - t_req) * 1000),
                     usage=_usage_s,
+                    error_type=_upstream_error_type(status_s, b""),
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
@@ -1293,6 +1344,7 @@ def build_handler(
                 ),
                 duration_ms=int((time.monotonic() - t_req) * 1000),
                 usage=_usage_b,
+                error_type=_upstream_error_type(status, rbody),
                 expanded_handles=_expanded_handles,
             )
             # Book savings only after a confirmed 2xx (P0-1): failed or SDK-retried
@@ -1317,6 +1369,7 @@ def build_handler(
             duration_ms: int | None = None,
             usage: dict[str, int] | None = None,
             expanded_handles: list[str] | None = None,
+            error_type: str | None = None,
         ) -> None:
             """Append one content-free per-request record to the wrap session's
             ``sessions/<sid>.requests.jsonl`` (read by ``distil dissect``).
@@ -1444,6 +1497,14 @@ def build_handler(
                     "stream": stream,
                     "client_stream": client_stream,
                     "status": status,
+                    # WHY a request failed, not merely that it did. 5,397 of 18,455
+                    # recorded requests were non-2xx with the reason discarded, so the
+                    # single most common question about a distil session — "what went
+                    # wrong?" — had no answer in distil's own logs. The provider's
+                    # error `type` is a short enum (invalid_request_error,
+                    # rate_limit_error, overloaded_error, …); the human message is NOT
+                    # stored, since it can quote request content.
+                    "error_type": error_type,
                     "booked": booked,
                     "duration_ms": duration_ms,
                     "usage_input_tokens": (usage or {}).get("input_tokens"),

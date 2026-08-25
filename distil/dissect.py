@@ -250,6 +250,48 @@ class Dissection:
     def expand_resolved(self) -> int:
         return sum(1 for r in self.requests if r.get("expanded"))
 
+    def retried_and_recovered(self) -> int:
+        """Non-2xx requests immediately followed by a same-size 2xx — i.e. a retry
+        that worked.
+
+        Without this a session reads as ~30% failing when nothing was actually lost:
+        the SDK retried and succeeded every time. Distinguishing "transient, healed"
+        from "fatal" is the whole value of the number — a rate alone caused a real
+        misdiagnosis of a live session (a size correlation that looked causal and
+        was not).
+        """
+        rows = sorted(self.requests, key=lambda r: r.get("ts") or 0)
+
+        def size(r: dict[str, Any]) -> int:
+            return int(r.get("compressible_tokens") or 0) + int(r.get("overhead_tokens") or 0)
+
+        n = 0
+        for i, r in enumerate(rows):
+            st = r.get("status")
+            if isinstance(st, int) and 200 <= st < 300:
+                continue
+            nxt = rows[i + 1] if i + 1 < len(rows) else None
+            if not nxt:
+                continue
+            nst = nxt.get("status")
+            if isinstance(nst, int) and 200 <= nst < 300 and abs(size(nxt) - size(r)) <= 2000:
+                n += 1
+        return n
+
+    def error_reasons(self) -> list[tuple[str, int]]:
+        """Provider error types for the non-2xx requests, most frequent first.
+
+        Recorded per request as a short enum (`invalid_request_error`,
+        `rate_limit_error`, …). Never the human message, which can quote content.
+        Empty for sessions captured before 1.50.2, which recorded only the status.
+        """
+        counts: dict[str, int] = {}
+        for r in self.requests:
+            et = r.get("error_type")
+            if isinstance(et, str) and et:
+                counts[et] = counts.get(et, 0) + 1
+        return sorted(counts.items(), key=lambda kv: -kv[1])
+
     @property
     def expand_missed(self) -> int:
         """Handles the agent asked for that the store could not return.
@@ -530,9 +572,28 @@ class Dissection:
                 "DISTIL_RESTORE_CAP or DISTIL_RESTORE_TTL_DAYS)"
             )
         if n >= 5 and self.unbooked_requests / n > 0.2:
+            # Name the actual reason. "upstream errors or rate limiting" was a guess
+            # dressed as a diagnosis, and it is the difference between "your prompt
+            # exceeded the context window" (nothing to fix in distil) and "distil sent
+            # a malformed body" (everything to fix) — opposite conclusions from the
+            # same line.
+            why = self.error_reasons()
+            recovered = self.retried_and_recovered()
+            detail = ""
+            if why:
+                detail = " — " + ", ".join(f"{k} x{v}" for k, v in why)
+            if recovered:
+                # The difference between "your session is broken" and "the SDK did its
+                # job". A non-2xx immediately followed by a 2xx of the same size is a
+                # retry that worked: no work was lost, and reporting it as a failure
+                # sends people hunting a bug that already healed itself.
+                detail += (
+                    f"\n                   {recovered} of them were retried "
+                    "immediately and SUCCEEDED — transient, no work lost"
+                )
             out.append(
                 f"{self.unbooked_requests}/{n} requests were not booked (non-2xx or "
-                "SDK-retried) — upstream errors or rate limiting during this session"
+                f"SDK-retried){detail}"
             )
         if flags.get("lossless_only") and self.billing == "metered":
             out.append(

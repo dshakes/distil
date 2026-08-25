@@ -3,6 +3,56 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [1.50.2] — a counter could end a session
+
+**Session survival, not savings.** A proxy sits in the request path of a live agent
+session, so the contract is narrow: distil may fail to *compress*, but it must never
+fail to *serve*. It could.
+
+Token accounting — `_count_messages`, whose entire output is a response header and a
+ledger row — ran **unguarded** in the request path. Compression was protected, the
+retention meter was protected, but the counting was not. An exception there escaped
+the handler and closed the connection: the client saw `RemoteDisconnected` and the
+turn was lost. A tokenizer edge case on unusual content would have ended a live
+session over a number nobody reads in the moment.
+
+Now guarded, and the failure is honest about itself: a request whose counts did not
+compute goes **unbooked** rather than entering the savings ledger with a fabricated
+zero. A wrong number in the savings history is worse than a missing one — every
+published percentage derives from that ledger.
+
+Three end-to-end tests drive the real handler over a real socket, because a
+`try/except` in the source is a claim and only a served response is a measurement:
+a crash inside compression, a crash inside accounting, and a body distil cannot
+parse (forwarded as-is, so the provider's own error reaches the agent rather than
+one distil invented).
+
+## [1.50.2] — a failure that healed itself was still reported as a failure
+
+distil recorded **5,397 non-2xx requests across 18,455** and discarded the reason
+every time. Only the status survived, so the one question a broken session raises —
+*why?* — had no answer in distil's own logs, and `dissect` guessed on the user's
+behalf: *"upstream errors or rate limiting."*
+
+That guess spans two opposite diagnoses. "Your conversation outgrew the context
+window" means nothing is wrong with distil; "distil sent a malformed body" means
+everything is. A tool whose pitch is proof rather than trust should not be unable to
+tell those apart, and this one wasn't: the missing field caused a real misdiagnosis of
+a live session, where a size correlation looked causal and was not.
+
+Two things now get recorded:
+
+- **The provider's error `type`** (`invalid_request_error`, `rate_limit_error`, …) —
+  a short enum. The human message is deliberately NOT stored: it quotes request
+  content (`"prompt is too long: 231721 tokens > 200000"`). Streaming responses are
+  relayed frame-by-frame and never buffered, so those record `http_<status>`.
+- **Whether a retry recovered it.** A non-2xx immediately followed by a same-size 2xx
+  is the SDK doing its job. On the session that prompted this, **100% of the 400s were
+  retried and succeeded** — a ~30% "failure rate" in which nothing was ever lost.
+  Reporting that as failure sends people hunting a bug that already healed.
+
+Sessions recorded before this release report no reasons rather than an invented one.
+
 ## [1.50.1] — the tokens distil could not see
 
 Extended thinking carries its payload under `thinking`, not `text`, so distil counted

@@ -351,3 +351,87 @@ def test_expand_tool_is_injected_before_any_handle_exists():
     again = inject_expand_tool(out)
     assert sum(t["name"] == EXPAND_TOOL_NAME for t in again["tools"]) == 1
     assert again["tools"] == out["tools"], "the tools array must be byte-stable across turns"
+
+
+# --- session survival ---------------------------------------------------------
+# A proxy sits in the request path of a live agent session. Anything it does badly
+# ends someone's work, so the contract is narrow: distil may fail to COMPRESS, but
+# it must never fail to SERVE. These drive the real handler over a real socket, so
+# they fail if any layer between the client and upstream drops the request.
+def test_a_crash_inside_compression_still_serves_the_request(
+    servers: Any, monkeypatch: Any
+) -> None:
+    """If distil's own compressor raises, the turn must still complete uncompressed.
+
+    This is the difference between "we saved fewer tokens today" and "the user's
+    session died". A guarded try/except in the source is a claim; this drives the
+    real request path over a socket to make it a measurement.
+    """
+    import distil.adapters.anthropic as an
+
+    def _boom(*_a: Any, **_kw: Any) -> Any:
+        raise RuntimeError("synthetic compressor failure")
+
+    # Fault-inject inside the adapter the proxy actually calls. Patching the proxy's
+    # module-level alias would not reach the handler, which resolved it at import.
+    monkeypatch.setattr(an, "_compress_tool_result_text", _boom)
+
+    proxy_port, _ = servers
+    payload = {
+        "model": "claude-opus-4-5",
+        "max_tokens": 256,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": _LONG_TOOL_RESULT}
+                ],
+            },
+            {"role": "user", "content": "next"},
+            {"role": "user", "content": "next"},
+        ],
+    }
+    with urllib.request.urlopen(_post(proxy_port, "/v1/messages", payload)) as resp:
+        assert resp.status == 200, "a compressor crash must not fail the request"
+        echoed = json.loads(resp.read())
+    # The full conversation must reach upstream. Whether this particular turn ended
+    # up compressed is not the point — no message may be lost, and the turn must
+    # complete. Asserting byte-verbatim content would over-specify: other digest
+    # paths remain live, and any of them producing a RECOVERABLE digest is fine.
+    assert len(echoed["messages"]) == 3, "no message may be dropped by a failure"
+    assert echoed["messages"][1]["content"] == "next"
+    assert echoed["messages"][2]["content"] == "next"
+
+
+def test_a_crash_in_token_counting_still_serves_the_request(servers: Any, monkeypatch: Any) -> None:
+    """Accounting is bookkeeping. It must never be load-bearing for the response."""
+    import distil.proxy as px
+
+    def _boom(*_a: Any, **_kw: Any) -> int:
+        raise RuntimeError("synthetic counter failure")
+
+    monkeypatch.setattr(px, "_count_messages", _boom, raising=True)
+
+    proxy_port, _ = servers
+    payload = {
+        "model": "claude-opus-4-5",
+        "max_tokens": 256,
+        "messages": [{"role": "user", "content": "hello"}],
+    }
+    with urllib.request.urlopen(_post(proxy_port, "/v1/messages", payload)) as resp:
+        assert resp.status == 200
+        assert json.loads(resp.read())["messages"][0]["content"] == "hello"
+
+
+def test_a_malformed_body_is_forwarded_rather_than_rejected(servers: Any) -> None:
+    """distil is not the API's validator. A body it cannot parse goes upstream as-is,
+    so the provider's own error reaches the agent instead of distil inventing one."""
+    proxy_port, _ = servers
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{proxy_port}/v1/messages",
+        data=b"{not valid json at all",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200, "the echo upstream accepted it — distil did not block"
