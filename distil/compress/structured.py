@@ -327,5 +327,15 @@ def fold_embedded(text: str, emit_handle: bool = True) -> str | None:
         return None
     out.append(text[prev:])
     result = "".join(out)
-    # Reject-if-bigger, the same contract every other fold honours.
+    if emit_handle:
+        # The inner folds are deliberately handle-free: each covers only its own
+        # span, but the caller stores the WHOLE original block under one handle, so a
+        # per-span handle would name content the restore table does not hold. One
+        # trailing marker names the block, which is what `expand` can actually serve.
+        # Without it the reversible tier stores the original and gives the model no
+        # way to ask for it — content that is recoverable in principle and
+        # unreachable in practice, which is the failure this codebase counts as F3.
+        result += f"\n<< {len(spans)} embedded array(s) folded, handle={_handle(text)} >>"
+    # Reject-if-bigger, the same contract every other fold honours. Checked AFTER the
+    # marker, so a fold that only breaks even once the marker is added is rejected.
     return result if len(result) < len(text) else None

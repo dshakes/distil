@@ -170,9 +170,12 @@ def test_an_array_wrapped_in_prose_now_folds():
     out = fold_embedded(blob)
     assert out is not None
     assert len(out) < len(blob)
-    # The prose the agent reads for context must survive byte-for-byte.
+    # The prose the agent reads for context must survive byte-for-byte. A recovery
+    # marker follows it on the reversible path, so assert containment and order
+    # rather than the exact tail.
     assert out.startswith("Fetched the deployment:")
-    assert out.endswith("All healthy.")
+    assert "All healthy." in out
+    assert out.index("All healthy.") > out.index("Fetched the deployment:")
 
 
 def test_a_bare_array_is_left_to_the_whole_block_fold():
@@ -232,3 +235,39 @@ def test_embedded_fold_is_reachable_from_the_live_adapter():
     got = out[1]["content"][0]["content"]
     assert len(got) < len(blob), "the adapter path must fold embedded arrays too"
     assert "gh api repos/x/y/issues" in got, "surrounding text must survive"
+
+
+def test_the_reversible_tier_emits_a_resolvable_handle():
+    """A folded block must be *reachable*, not merely stored.
+
+    Cross-audit caught this: fold_embedded accepted `emit_handle` and ignored it, so
+    on the reversible path the original went into the restore table under a handle
+    the marker never named. The model had no way to ask for it — content recoverable
+    in principle and unreachable in practice, which is exactly the post-compression
+    access failure this codebase counts.
+    """
+    import json as _json
+    import re
+
+    from distil.compress.tier1 import Tier1Reversible
+    from distil.trajectory import Block, Kind
+
+    blob = "Deployment status:\n" + _records(60) + "\nAll healthy."
+    res = Tier1Reversible().compress([Block(id="b1", kind=Kind.TOOL_OUTPUT, text=blob)])
+    out = res.blocks[0].text
+    assert len(out) < len(blob), "the block should have folded"
+
+    m = re.search(r"handle=([0-9a-f]{8})", out)
+    assert m, "a reversible fold must name a handle the model can expand"
+    assert res.restore[m.group(1)] == blob, "the handle must resolve byte-exact"
+    assert _json  # keep the import meaningful if _records changes
+
+
+def test_the_lossless_path_emits_no_handle():
+    """emit_handle=False is the subscription path: no expand tool is injected there,
+    so a handle would advertise a recovery the model cannot perform."""
+    from distil.compress.structured import fold_embedded
+
+    out = fold_embedded("Deployment:\n" + _records(60) + "\ndone.", emit_handle=False)
+    assert out is not None
+    assert "handle=" not in out
