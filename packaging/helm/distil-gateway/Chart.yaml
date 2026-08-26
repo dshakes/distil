@@ -10,7 +10,7 @@ type: application
 # (an rc must not move `latest`), so the image that tag names is never published and
 # a default `helm install` would ImagePullBackOff. rc soakers install the wheel.
 version: 0.1.1
-appVersion: "1.50.2"
+appVersion: "1.51.0"
 home: https://dshakes.github.io/distil/
 sources:
   - https://github.com/dshakes/distil

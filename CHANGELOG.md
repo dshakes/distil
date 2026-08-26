@@ -3,9 +3,14 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [1.51.0] — the shape every fold missed
 
-### Embedded JSON — the shape every fold missed
+Promotes the 1.50.x line to GA and adds one new compression path. The correctness
+work (1.49.0–1.50.2) soaked as `v1.50.1rc1`/`v1.50.2rc2`; the embedded-JSON fold
+below landed after rc2 and so ships on its tests and the certificate gate rather
+than on soak time.
+
+### Embedded JSON
 
 distil's columnar folds required the **whole block** to be a JSON array. Real tool
 output rarely is: a `gh api` dump, an MCP result, a `curl | jq` tail and most CLI
