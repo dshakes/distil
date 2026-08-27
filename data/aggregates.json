@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1787715443,
+  "generated_ts": 1787835913,
   "installs": {
     "census_total": 2,
     "active_7d": 1,
@@ -160,7 +160,7 @@
     "pypi_downloads_month": 4607,
     "pypi_downloads_week": 333,
     "github_stars": 15,
-    "clones_uniques_14d": 291,
+    "clones_uniques_14d": 273,
     "docker_pulls": null
   },
   "pypi_detail": {
