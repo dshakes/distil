@@ -3,9 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
-
-### Shadow mode was measuring the wrong subset of your traffic
+## [1.51.1] — shadow mode was measuring the wrong subset of your traffic
 
 Every shadow replay carrying a prior-turn `thinking` block failed with
 `400 Invalid signature in thinking block`. A thinking block is signed and bound to
