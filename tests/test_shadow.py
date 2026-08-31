@@ -677,3 +677,116 @@ def test_force_deterministic_skips_non_json():
     assert force_deterministic(b"") is None
     assert force_deterministic(b"not json") is None
     assert force_deterministic(b"[1,2,3]") is None  # JSON but not an object -> skip
+
+
+# --- thinking blocks in replays -----------------------------------------------
+def test_prior_thinking_blocks_are_stripped_from_a_replay():
+    """A thinking block is signed and bound to the request that produced it.
+
+    Replaying the conversation as a NEW request makes the provider re-validate the
+    signature, which fails with `Invalid signature in thinking block` (verified
+    live). Claude Code runs thinking by default, so most turns of a real session
+    carry these — shadow could only ever sample the minority that had none, which
+    did not merely shrink the sample, it biased it.
+    """
+    import json as _json
+
+    from distil.shadow import force_deterministic
+
+    tb = {"type": "thinking", "thinking": "deliberating", "signature": "sig-abc"}
+    body = {
+        "model": "claude-opus-4-5",
+        "max_tokens": 4096,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": [tb, {"type": "text", "text": "Hello"}]},
+            {"role": "user", "content": "again"},
+        ],
+    }
+    out = _json.loads(force_deterministic(_json.dumps(body).encode()))
+    blocks = out["messages"][1]["content"]
+    assert all(b.get("type") != "thinking" for b in blocks), "signed block must not replay"
+    assert any(b.get("type") == "text" for b in blocks), "the assistant's answer must remain"
+    assert len(out["messages"]) == 3, "no turn should be lost when text survives"
+
+
+def test_redacted_thinking_is_stripped_too():
+    import json as _json
+
+    from distil.shadow import force_deterministic
+
+    rb = {"type": "redacted_thinking", "data": "opaque"}
+    body = {
+        "model": "m",
+        "messages": [
+            {"role": "assistant", "content": [rb, {"type": "text", "text": "hi"}]},
+        ],
+    }
+    out = _json.loads(force_deterministic(_json.dumps(body).encode()))
+    assert all(b.get("type") != "redacted_thinking" for b in out["messages"][0]["content"])
+
+
+def test_a_thinking_only_turn_is_dropped_not_left_empty():
+    """The API rejects an assistant turn with an empty content array."""
+    import json as _json
+
+    from distil.shadow import force_deterministic
+
+    body = {
+        "model": "m",
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": [{"type": "thinking", "thinking": "x", "signature": "s"}],
+            },
+            {"role": "user", "content": "again"},
+        ],
+    }
+    out = _json.loads(force_deterministic(_json.dumps(body).encode()))
+    assert len(out["messages"]) == 2, "a thinking-only turn must be dropped entirely"
+    assert all(m["role"] == "user" for m in out["messages"])
+
+
+def test_user_turns_and_tool_results_are_untouched():
+    """Only assistant thinking is signed. Nothing else may be altered, or the two
+    replay sides would no longer be comparing the same conversation."""
+    import json as _json
+
+    from distil.shadow import force_deterministic
+
+    tr = {"type": "tool_result", "tool_use_id": "t1", "content": "output"}
+    body = {"model": "m", "messages": [{"role": "user", "content": [tr]}]}
+    out = _json.loads(force_deterministic(_json.dumps(body).encode()))
+    assert out["messages"][0]["content"] == [tr]
+
+
+def test_thinking_strip_bumped_the_signature_version(tmp_path):
+    """Changing HOW the sample is generated must bump SIG_VERSION.
+
+    The rule is stated on the constant itself — bump on any change to how a
+    signature is computed OR how the compared sample is generated — because rows
+    from two methods are not comparable. Stripping thinking blocks changes which
+    turns can be sampled at all (v3 could only reach thinking-free turns), so v3
+    rows must be discarded rather than averaged into v4's.
+
+    Cross-audit caught this omission on the PR that introduced the stripping.
+    """
+    import json as _json
+
+    from distil.shadow import SIG_VERSION, ShadowLedger
+
+    assert SIG_VERSION >= 4, "the thinking-strip change requires a version bump"
+
+    p = tmp_path / "shadow.jsonl"
+    rows = [
+        {"equivalent": True, "kind": "ab", "sig": 3},
+        {"equivalent": False, "kind": "ab", "sig": 3},
+        {"equivalent": True, "kind": "ab", "sig": SIG_VERSION},
+    ]
+    p.write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    led = ShadowLedger.load(path=p, current_only=True)
+    assert led.samples == 1, "rows from an older sampling method must not be counted"
+    assert led.changes == 0, "the discarded v3 change must not appear in the rate"

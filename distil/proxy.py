@@ -1621,7 +1621,14 @@ def build_handler(
                             },
                         )
                         _written = True
-                    elif "none" in (comp_sig, replay_sig):
+                    elif "none" in (comp_sig, replay_sig) and not _failed:
+                        # Only count a skip when the replay SUCCEEDED but carried no
+                        # extractable decision. An upstream failure already set
+                        # _failed, and its empty error body then yields "none" — so
+                        # counting both made one event appear as two independent
+                        # problems. Measured: replay_failed 594 vs sig_none 592,
+                        # identical in every version, which is what a double-count
+                        # looks like rather than two correlated causes.
                         _skipped = True
                 except Exception:  # noqa: BLE001 — shadow must never affect the request
                     log.debug("shadow compare failed", exc_info=True)
