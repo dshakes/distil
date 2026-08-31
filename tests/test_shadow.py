@@ -760,3 +760,33 @@ def test_user_turns_and_tool_results_are_untouched():
     body = {"model": "m", "messages": [{"role": "user", "content": [tr]}]}
     out = _json.loads(force_deterministic(_json.dumps(body).encode()))
     assert out["messages"][0]["content"] == [tr]
+
+
+def test_thinking_strip_bumped_the_signature_version(tmp_path):
+    """Changing HOW the sample is generated must bump SIG_VERSION.
+
+    The rule is stated on the constant itself — bump on any change to how a
+    signature is computed OR how the compared sample is generated — because rows
+    from two methods are not comparable. Stripping thinking blocks changes which
+    turns can be sampled at all (v3 could only reach thinking-free turns), so v3
+    rows must be discarded rather than averaged into v4's.
+
+    Cross-audit caught this omission on the PR that introduced the stripping.
+    """
+    import json as _json
+
+    from distil.shadow import SIG_VERSION, ShadowLedger
+
+    assert SIG_VERSION >= 4, "the thinking-strip change requires a version bump"
+
+    p = tmp_path / "shadow.jsonl"
+    rows = [
+        {"equivalent": True, "kind": "ab", "sig": 3},
+        {"equivalent": False, "kind": "ab", "sig": 3},
+        {"equivalent": True, "kind": "ab", "sig": SIG_VERSION},
+    ]
+    p.write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    led = ShadowLedger.load(path=p, current_only=True)
+    assert led.samples == 1, "rows from an older sampling method must not be counted"
+    assert led.changes == 0, "the discarded v3 change must not appear in the rate"

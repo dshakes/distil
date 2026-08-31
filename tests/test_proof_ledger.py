@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 from distil import calibration as _calib
+from distil.shadow import SIG_VERSION as _SIG
 
 
 # ---------------------------------------------------------------------------
@@ -62,9 +63,11 @@ def _write_shadow_rows(
     p = home / "shadow.jsonl"
     with p.open("a", encoding="utf-8") as f:
         for _ in range(ab_count):
-            f.write(json.dumps({"equivalent": equivalent, "ts": ts, "kind": "ab", "sig": 3}) + "\n")
+            f.write(
+                json.dumps({"equivalent": equivalent, "ts": ts, "kind": "ab", "sig": _SIG}) + "\n"
+            )
         for _ in range(aa_count):
-            f.write(json.dumps({"equivalent": True, "ts": ts, "kind": "aa", "sig": 3}) + "\n")
+            f.write(json.dumps({"equivalent": True, "ts": ts, "kind": "aa", "sig": _SIG}) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -212,11 +215,11 @@ def test_shadow_changes_counted(tmp_path, monkeypatch):
     ts = time.time()
     with p.open("a") as f:
         for _ in range(3):
-            f.write(json.dumps({"equivalent": False, "ts": ts, "kind": "ab", "sig": 3}) + "\n")
+            f.write(json.dumps({"equivalent": False, "ts": ts, "kind": "ab", "sig": _SIG}) + "\n")
         for _ in range(7):
-            f.write(json.dumps({"equivalent": True, "ts": ts, "kind": "ab", "sig": 3}) + "\n")
+            f.write(json.dumps({"equivalent": True, "ts": ts, "kind": "ab", "sig": _SIG}) + "\n")
         for _ in range(5):
-            f.write(json.dumps({"equivalent": True, "ts": ts, "kind": "aa", "sig": 3}) + "\n")
+            f.write(json.dumps({"equivalent": True, "ts": ts, "kind": "aa", "sig": _SIG}) + "\n")
     from distil.proof_ledger import build_ledger_text
 
     text = build_ledger_text(sid, time.time() - 60)

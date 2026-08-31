@@ -66,7 +66,13 @@ def _state_dir() -> Path:
 #     temperature) against a hot replay, so A/A self-agreement read ~38% — pure
 #     sampling noise, not compression harm. v3 collapses that noise floor toward
 #     ~100%, making A/B a trustworthy compression signal. v2 rows are discarded.
-SIG_VERSION = 3
+# v4: prior-turn thinking/redacted_thinking blocks are stripped from both replay
+#     sides (see _strip_thinking_blocks). Under v3 every replay carrying a signed
+#     thinking block 400'd, so the sample was silently restricted to the minority of
+#     turns that had none — a BIASED subset, not merely a smaller one, since Claude
+#     Code runs thinking by default. v4 rows cover traffic v3 could never reach, so
+#     the two are not comparable and v3 rows are discarded.
+SIG_VERSION = 4
 
 # A verdict (✓/⚠/✗) is only rendered once evidence is robust — a percentage over a
 # handful of samples is noise wearing a number, and the noise-adjusted rate divides
