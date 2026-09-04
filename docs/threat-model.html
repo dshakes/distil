@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Threat model — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Threat model — Distil"/>
+<meta property="og:description" content="Compression as an attack surface: how Distil answers COMA-class attacks that perturb untrusted input to make a compressor discard task-critical content. What is mitigated by construction, what is detected, what is out of scope."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/threat-model.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Threat model — Distil"/>
+<meta name="twitter:description" content="Compression as an attack surface: how Distil answers COMA-class attacks that perturb untrusted input to make a compressor discard task-critical content. What is mitigated by construction, what is detected, what is out of scope."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html">Cache Contract <span class="nav-badge">New</span></a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html" class="active" aria-current="page">Threat Model <span class="nav-badge">New</span></a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Threat <span class="g">model</span></h1>
+    <p class="lead">Compression is an attack surface. An attacker who controls untrusted input — a fetched web page, a file in a repository, an MCP tool's output, an issue comment — can perturb it so the <em>compressor</em> discards the one line that mattered. The request still succeeds, the savings still look good, and the answer is wrong. This page states what Distil mitigates by construction, what it merely detects, and what is out of scope.</p>
+
+    <p class="note">The reference is <a href="https://arxiv.org/abs/2510.22963" target="_blank" rel="noopener">Context Manipulation Attacks on LLM Agents</a> (COMA, arXiv 2510.22963, ASE 2026). Its validated mitigation is isolating trusted from untrusted content into separate compression budgets. The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0009-compression-as-an-attack-surface.md">ADR 0009</a>.</p>
+
+    <h2 id="why-distil">Why this is sharper for Distil than for a summariser</h2>
+    <p>Distil's keep policy is <b>legible</b>. <code>tier1.py</code> and <code>keep_policy.py</code> state exactly what survives: <code>DECISION:</code> markers, verdict lines, error and failure lines, traceback frames, diff hunk headers, head and tail context. An attacker who reads the source knows precisely what to imitate. A heuristic anyone can read is a heuristic anyone can bait.</p>
+    <p>So Distil does not claim its keep policy resists an adaptive attacker, and this page will not make that claim. The keep policy is a <em>savings</em> heuristic. The security property sits one level below it.</p>
+
+    <h2 id="mitigated">Mitigated by construction</h2>
+
+    <h3>Nothing folded is irrecoverable</h3>
+    <p>Every fold announces itself. A stub reads <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code>, the original sits in the <code>RestoreStore</code> keyed by its content address, and <code>distil_expand</code> returns it byte-for-byte. So the invariant Distil asserts against hostile input is a disjunction, and both branches are acceptable:</p>
+    <blockquote><p>The genuine load-bearing line survives in what we forward — <b>or</b> it was folded, the block is reversible through a handle Distil issued, and the stub declares that lines were elided.</p></blockquote>
+    <p>An attacker can push a line from the first branch into the second. They cannot push it out of both, because the second does not depend on any judgement they can influence.</p>
+
+    <h3>Trusted and untrusted content never share a budget</h3>
+    <p>The paper's mitigation is already Distil's shape, and the reason is worth stating precisely rather than claiming as a design win. There is <b>no global keep budget anywhere in the pipeline</b>. <code>tier1.digest</code> decides head, tail, and must-keep lines from a single block's own text; <code>compress_messages</code> walks blocks one at a time. No counter, cap, or ranking is shared. An untrusted block cannot starve a trusted one, whatever its size or position.</p>
+    <p>That is a claim about an <em>absence</em> — and an absence is what a plausible future optimisation quietly fills in. A “keep the top N lines per request” cap would read as a sensible improvement and would construct exactly the shared budget COMA attacks. So it is asserted as an <b>equality</b>: a trusted block must compress to exactly the same bytes whether or not a 4000-line attacker block sits beside it, in either order. Any shared budget, however generous, breaks that equality.</p>
+
+    <h3>A forged handle is never vouched for</h3>
+    <p>A tool result can print anything, including Distil's own stub syntax. Handles are content addresses of blocks Distil actually folded, so a fabricated handle simply does not resolve — it is absent from the store and <code>expand</code> raises rather than returning something plausible.</p>
+
+    <h2 id="battery">The battery, and what it measures</h2>
+    <p><code>distil validate --adversarial</code> drives seven hostile cases through the same public compression path the proxy uses. Each carries the specific line an attacker is trying to get discarded, and is checked against the five existing invariants plus the new <b>load-bearing</b> one.</p>
+    <table>
+      <thead><tr><th>Case</th><th>What it baits</th><th>Measured result</th></tr></thead>
+      <tbody>
+        <tr><td><code>decoy_verdict_flood</code></td><td>400 fake <code>DECISION:</code> lines crowding the real one</td><td>survives verbatim; savings drop to <b>0.0%</b></td></tr>
+        <tr><td><code>dedup_baiting</code></td><td>300 lines sharing the real error's numeric shape</td><td><b>folded</b> — recoverable and declared</td></tr>
+        <tr><td><code>salience_baiting</code></td><td>junk stuffed with the agent's own query terms</td><td>survives verbatim</td></tr>
+        <tr><td><code>handle_forging</code></td><td>a tool result printing Distil's stub syntax</td><td>survives; forged handle never resolves</td></tr>
+        <tr><td><code>budget_starvation</code></td><td>one 3000-line untrusted block</td><td>survives verbatim</td></tr>
+        <tr><td><code>expand_prompt_injection</code></td><td>text instructing the model to call <code>distil_expand</code></td><td>survives; treated as ordinary text</td></tr>
+        <tr><td><code>cross_block_starvation</code></td><td>a huge untrusted block beside a trusted one</td><td>survives verbatim</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="residual">The one case that lands in the second branch</h2>
+    <p><code>dedup_baiting</code> is the genuine COMA-class hit, and it is named here rather than smoothed over. Outcome-aware noise dedup normalises digits away to compute a line's <em>shape</em>, so 300 attacker lines differing from the real error only in a shard number collapse together with it — and the real line is folded. It stays recoverable and its stub declares the elision, so the invariant holds. But the keep policy did lose it. It has a regression test that fails if the behaviour changes in <em>either</em> direction, so an improvement has to be deliberate rather than accidental.</p>
+
+    <h2 id="unmitigated">Real, and not mitigated: denial of savings</h2>
+    <p><code>decoy_verdict_flood</code> drives a block's savings to exactly <b>0.0%</b>. Every fabricated verdict is kept, because verdict lines are exempt from dedup and always kept. That is the correct trade — correctness over savings — but an attacker who can write into a tool's output can make compression stop paying for that block. Distil is not a security control and cannot be spent down into one, so this is stated as a cost rather than fixed.</p>
+
+    <h2 id="detected">Detected, not prevented</h2>
+    <p><a href="techniques.html">Shadow mode</a> replays the real decision against the uncompressed context and flags divergence. It is <em>sampled</em>, so it is a detector rather than a gate: it will notice a systematic attack across many requests, and will usually miss a single targeted one. Read it as monitoring, not as a control.</p>
+
+    <h2 id="scope">Out of scope</h2>
+    <ul>
+      <li><b>Provenance.</b> Distil compresses a request; it does not authenticate its contents. It cannot distinguish a genuine <code>DECISION:</code> line from one an attacker wrote into a fetched page, because by the time Distil sees it, both are bytes in a tool result. Provenance belongs to the agent and its tools.</li>
+      <li><b>Prompt injection aimed at the model.</b> Compression neither introduces it nor defends against it. Distil treats such text as ordinary content, and the battery confirms it changes nothing about how the surrounding block is handled.</li>
+      <li><b>A compromised client or host.</b> The <code>RestoreStore</code> is local and owner-only; an attacker who already has the machine has the originals regardless.</li>
+    </ul>
+
+    <p>For the byte-level guarantees across turns, see the <a href="cache-contract.html">Cache Contract</a>. For deployment hardening, see <a href="deploy-security.html">Deploy &amp; Security</a>.</p>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>
