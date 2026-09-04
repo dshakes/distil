@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>The cache contract — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="The cache contract — Distil"/>
+<meta property="og:description" content="What Distil guarantees about the bytes it forwards across turns: the cached prefix is byte-stable, compression touches only the volatile suffix, and digest handles are content-addressed. Stated precisely, enforced by test."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/cache-contract.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="The cache contract — Distil"/>
+<meta name="twitter:description" content="What Distil guarantees about the bytes it forwards across turns: the cached prefix is byte-stable, compression touches only the volatile suffix, and digest handles are content-addressed. Stated precisely, enforced by test."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html" class="active" aria-current="page">Cache Contract <span class="nav-badge">New</span></a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+          </ul></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html">Threat Model <span class="nav-badge">New</span></a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>The cache <span class="g">contract</span></h1>
+    <p class="lead">Prompt caching is the largest single lever on an agent's bill, and it is all-or-nothing: rewrite one byte at or before the provider's cache boundary and the entry for the <em>whole</em> prefix is discarded. This page states, precisely, what Distil guarantees about the bytes it forwards across turns — and what it does not. Every clause is enforced by <code>tests/test_cache_contract.py</code>, against all three provider shapes.</p>
+
+    <p class="note">This is the contract. <a href="cache.html">Prompt Caching</a> is the operational guide — how to mark a prefix, what <code>distil cache</code> reports, and how to read a miss. Start there if you are debugging a bill; start here if you are asking what Distil promises.</p>
+
+    <h2 id="why">Why this is written down</h2>
+    <p>Distil has been on the wrong side of this once. A recency carve-out that counted back from the <em>end</em> of the message list slides forward as a conversation grows, so every block was protected while fresh and rewritten one turn later — after the client had already committed it to a cached prefix. Measured against the real API, that produced <b>zero cache reads on every turn and 2× the cost of compressing nothing at all</b>: the entire prefix was re-written at 1.25× instead of re-read at 0.1×.</p>
+    <p>The fix was to anchor the carve-out to the client's own <code>cache_control</code> breakpoint rather than to the end of the list. The reason it needs a contract and not just a fix is that the failure is <b>silent</b>. Every request still succeeds. The savings report still shows tokens removed. Nothing raises and nothing 5xxs. The only symptom is the invoice.</p>
+
+    <h2 id="boundary">Where the boundary is</h2>
+    <p>The contract is stated relative to the index the provider has cached through, and that differs by provider:</p>
+    <table>
+      <thead><tr><th>Provider</th><th>Cache boundary</th><th>Recency carve-out</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic</td><td>the last <code>cache_control</code> marker the client placed</td><td>only after that marker</td></tr>
+        <tr><td>OpenAI</td><td>the last index — implicit prefix caching commits everything sent</td><td>none</td></tr>
+        <tr><td>Gemini</td><td>the last index — implicit prefix caching commits everything sent</td><td>none</td></tr>
+      </tbody>
+    </table>
+    <p>The empty carve-out on OpenAI and Gemini is a decision, not an oversight. Those providers cache what they are sent the moment they are sent, so a window counted back from the end would digest, one turn later, content already committed. <code>_recent_chat_verbatim_indices</code> and its siblings return the empty set for exactly that reason, and say so in their docstrings.</p>
+    <p>The binding form of the contract uses a <b>high-water mark</b> rather than the current turn's boundary: once the provider has cached through index <em>i</em>, rewriting <em>i</em> on any later turn invalidates the entry, even if this turn's marker sits earlier.</p>
+
+    <h2 id="guarantees">What is guaranteed</h2>
+
+    <h3>(a) Prefix stability</h3>
+    <p>For every message the client re-sends <b>byte-identical</b> to the previous turn, Distil forwards it <b>byte-identical</b>, at every index at or before the cache boundary.</p>
+
+    <h3>(b) Compression touches only the volatile suffix</h3>
+    <p>Anything that does change lies strictly after the boundary. Two mechanisms enforce this and both are load-bearing. The recency carve-out anchors to the breakpoint. And query-aware salience is scoped to blocks <em>after</em> it — intent terms come from the newest user turn and change every turn by design, so letting them choose which lines survive inside an already-cached block would rewrite that block on every new question. That is the same cache bust from a second direction, and it is invisible to any single-request test.</p>
+
+    <h3>(c) Digest determinism</h3>
+    <p>A digest emitted for a block at turn N is byte-identical when the same block is forwarded at turn N+1. Handles are <b>content-addressed</b> — <code>sha256(text)[:8]</code>, with no per-request nonce, counter, or timestamp. This was checked in the code rather than assumed, and it is asserted on its own, because a random handle would rewrite every digest stub on every turn and bust the cache by itself while every other clause still passed.</p>
+
+    <h2 id="not-guaranteed">What is <em>not</em> guaranteed</h2>
+    <ul>
+      <li><b>A client that rewrites its own history.</b> If the client edits, re-orders, re-serialises, or moves its own <code>cache_control</code> marker, the input is not the same input and the contract does not apply. Distil cannot make an unstable client stable.</li>
+      <li><b>Provider TTL.</b> Cache entries expire on the provider's schedule. Byte-stability is necessary for a hit, not sufficient.</li>
+      <li><b>A client that sends no cache marker at all.</b> With nothing marked there is no Anthropic prefix to protect, so the plain last-<em>k</em> recency window applies and a block does go verbatim on one turn and digested on the next. Nothing is being invalidated, so this is intended. It is bounded rather than unbounded, and the test asserts the bound in both directions: the churn must occur strictly <em>after</em> the boundary, and it must still occur at all — a silently-dead carve-out fails too.</li>
+    </ul>
+
+    <h2 id="proof">How it is enforced</h2>
+    <p><code>tests/test_cache_contract.py</code> replays growing six-turn synthetic sessions through the same public entry points the proxy calls — <code>compress_messages</code>, <code>compress_chat_completions</code>, <code>compress_responses_input</code>, and <code>compress_generate_request</code> — and fails on any same-input byte drift at or before the boundary. Three Anthropic marker placements are covered: pinned at the head, moved forward each turn, and absent entirely.</p>
+    <p>Measured at adoption, the contract <b>holds on all three providers</b>. That includes the realistic Claude Code shape, where the client pins its newest turn so the entire history is cached: there is no uncached tail in that configuration and nothing moves at all. No bug was found. The test codifies a property that was true and undefended.</p>
+
+    <h2 id="verify">Checking it against the provider</h2>
+    <p>The clauses above are what Distil intends. The provider's own accounting is what actually happened, and <code>distil dissect</code> now reports it per session:</p>
+<pre><code>cache-read share: 87.4% of billed input was served from the
+                  provider's prompt cache (at ~0.1x)</code></pre>
+    <p>The number is <code>cache_read_input_tokens</code> over total billed input, taken from the fields the ledger already recorded. A near-zero share on a long session means something rewrote the prefix, and it is the only signal that says so — the requests all still succeed either way.</p>
+    <p>When the records predate those fields the line reads <em>not captured</em> and the JSON field is <code>null</code>, never <code>0.0</code>. “We did not measure this” and “the cache never hit” are opposite diagnoses and must not share a rendering.</p>
+
+    <p>The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0008-the-cache-contract.md">ADR 0008</a>. For the mechanics of what gets compressed, see <a href="techniques.html">Techniques</a>; for the adversarial side of the same surface, see the <a href="threat-model.html">Threat Model</a>.</p>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

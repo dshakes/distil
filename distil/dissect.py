@@ -1080,6 +1080,19 @@ def render_text(
             )
         else:
             out.append("  billed usage: not captured (older records or non-usage responses)")
+        # The cache contract (ADR 0008), as the provider scored it. distil promises the
+        # prefix it forwards is byte-stable across turns; this is the only number that
+        # says whether the provider agreed. A near-zero share on a long session means
+        # something rewrote the prefix — the failure is silent otherwise, because the
+        # requests all still succeed, they just cost ~2x.
+        share = d.cached_input_share
+        if share is None:
+            out.append("  cache-read share: not captured (no cache fields in these records)")
+        else:
+            out.append(
+                f"  cache-read share: {share:.1f}% of billed input was served from the "
+                "provider's prompt cache (at ~0.1x)"
+            )
         if d.billing == "subscription" and d.headroom_multiplier > 1:
             out.append(
                 f"  flat-rate headroom: the same context budget went ~{d.headroom_multiplier:.1f}x "
@@ -1279,6 +1292,11 @@ def to_json(
                 "input_tokens": d.usage_input_total,
                 "output_tokens": d.usage_output_total,
                 "requests_with_usage": d.usage_requests,
+                # None (not 0.0) when the records carry no cache fields — "we did not
+                # measure this" and "the cache never hit" are opposite diagnoses.
+                "cache_read_share_pct": (
+                    None if d.cached_input_share is None else round(d.cached_input_share, 1)
+                ),
                 "calibration": (
                     {"estimated": cal[0], "billed": cal[1]} if cal is not None else None
                 ),
