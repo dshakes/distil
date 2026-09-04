@@ -45,7 +45,14 @@ from .authz import oidc_config_from_env as _oidc_config_from_env
 from .authz import verify_jwt as _verify_jwt
 from . import audit as _audit
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
-from .httpguard import parse_content_length, safe_forward_path
+from .httpguard import (
+    is_chat_completions_path,
+    is_compressible_path,
+    is_responses_path,
+    parse_content_length,
+    safe_forward_path,
+    strip_query,
+)
 from .pricing import Pricing, get as pricing_get
 from .proxy import (
     _OPENER,
@@ -67,12 +74,8 @@ class _OidcRejected(Exception):
 
 # Safe tenant label: bounded length, no markup / control characters.
 _TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-
-# ---------------------------------------------------------------------------
-# Paths that carry a ``messages`` payload worth compressing
-# ---------------------------------------------------------------------------
-
-_COMPRESSIBLE_PATHS = frozenset({"/v1/messages", "/v1/chat/completions", "/v1/responses"})
+# Which endpoints carry a compressible body lives in httpguard.is_compressible_path —
+# one definition shared with proxy.py and aproxy.py, Azure OpenAI paths included.
 
 # Hop-by-hop headers must never be forwarded.
 _HOP_BY_HOP = frozenset(
@@ -1059,7 +1062,7 @@ def build_gateway_handler(
             strip_hdr = auth_result[1] if auth_result else None
             # Strip query string for path matching
             path = self.path.split("?", 1)[0]
-            if path in _COMPRESSIBLE_PATHS or is_gemini_path(path):
+            if is_compressible_path(path) or is_gemini_path(path):
                 self._handle_compressible(tenant_override=tenant_override, strip_header=strip_hdr)
             else:
                 self._passthrough(strip_header=strip_hdr)
@@ -1142,6 +1145,36 @@ def build_gateway_handler(
         # Compression path
         # ----------------------------------------------------------------
 
+        def _check_daily(self, tenant: str, baseline_tokens: int, default_limit: int) -> bool:
+            """Charge *baseline_tokens* against the tenant's daily quota.
+
+            Returns True to continue. On rejection the 429 has already been written
+            and the caller must return immediately.
+
+            Checked against the baseline (PRE-compression) token count so the quota
+            reflects actual input volume rather than how well distil happened to
+            compress it. The per-key override (resolved in ``_check_inbound_auth``,
+            the only place holding the KeyRecord) wins over the gateway default.
+
+            One copy, called from every request shape: the two hand-duplicated copies
+            this replaces are why the Responses API branch, when it was added, had no
+            quota enforcement at all.
+            """
+            key_daily = getattr(self, "_key_daily_tokens", None)
+            limit = key_daily if key_daily is not None else default_limit
+            if not limit or _rl.check_daily_tokens(tenant, limit, baseline_tokens):
+                return True
+            state.record_quota_rejection(tenant)
+            _audit.record(
+                _audit.RATE_LIMITED,
+                tenant=tenant,
+                limit_daily_tokens=limit,
+                remote=self.client_address[0] if self.client_address else None,
+            )
+            body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
+            self._relay(429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"})
+            return False
+
         def _handle_compressible(
             self,
             *,
@@ -1197,10 +1230,46 @@ def build_gateway_handler(
             if not tenant.startswith("anon-"):
                 extras["x-distil-tenant"] = tenant
 
-            if "messages" in body and isinstance(body["messages"], list):
-                original: list[dict[str, Any]] = body["messages"]
+            _path = strip_query(self.path)
+            if is_responses_path(_path) and isinstance(body.get("input"), list):
+                # OpenAI Responses API (``/v1/responses``, and the Azure form). The
+                # gateway dispatched on ``messages``/``contents`` only, so a Responses
+                # body matched no branch: it was forwarded uncompressed AND booked
+                # nothing against the tenant's quota — a tenant could spend an
+                # unlimited daily budget just by using this endpoint.
+                from .adapters.openai import compress_responses_input, count_responses_tokens
+
+                _orig_input: list[dict[str, Any]] = body["input"]
+                baseline_tokens = count_responses_tokens(_orig_input)
+                if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
+                    return
                 try:
-                    compressed, _store = compress_messages(original, verbatim=verbatim)
+                    _compressed_input, _store = compress_responses_input(
+                        _orig_input, verbatim=verbatim
+                    )
+                except Exception:  # noqa: BLE001 — compression must never break a request
+                    log.debug(
+                        "compress_responses_input failed; forwarding uncompressed", exc_info=True
+                    )
+                    _compressed_input = _orig_input
+                compressed_tokens = count_responses_tokens(_compressed_input)
+                body = {**body, "input": _compressed_input}
+                _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
+                extras["x-distil-compressed"] = "1"
+                extras["x-distil-tokens-saved"] = str(max(0, baseline_tokens - compressed_tokens))
+
+            elif "messages" in body and isinstance(body["messages"], list):
+                original: list[dict[str, Any]] = body["messages"]
+                # Chat Completions needs its own adapter (role:"tool" list content is
+                # Tier-1); /v1/messages stays on the Anthropic one.
+                if is_chat_completions_path(_path):
+                    from .adapters.openai import compress_chat_completions
+
+                    _compress_fn = compress_chat_completions
+                else:
+                    _compress_fn = compress_messages
+                try:
+                    compressed, _store = _compress_fn(original, verbatim=verbatim)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                     compressed = original
@@ -1209,57 +1278,20 @@ def build_gateway_handler(
                 compressed_tokens = _count_tokens(compressed)
                 tokens_saved = max(0, baseline_tokens - compressed_tokens)
 
-                # Daily token quota: checked against the baseline (pre-compression)
-                # token count so the quota reflects actual input volume. The per-key
-                # override (resolved in _check_inbound_auth, the only place holding
-                # the KeyRecord) wins over the gateway default.
-                _key_daily = getattr(self, "_key_daily_tokens", None)
-                daily_limit = _key_daily if _key_daily is not None else default_daily_tokens
-                if daily_limit and not _rl.check_daily_tokens(tenant, daily_limit, baseline_tokens):
-                    state.record_quota_rejection(tenant)
-                    _audit.record(
-                        _audit.RATE_LIMITED,
-                        tenant=tenant,
-                        limit_daily_tokens=daily_limit,
-                        remote=self.client_address[0] if self.client_address else None,
-                    )
-                    body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
-                    self._relay(
-                        429,
-                        {"Content-Type": "application/json"},
-                        body_err,
-                        {"Retry-After": "60"},
-                    )
+                if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
                     return
 
                 _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
 
                 body = {**body, "messages": compressed}
+                extras["x-distil-compressed"] = "1"
                 extras["x-distil-tokens-saved"] = str(tokens_saved)
 
             elif "contents" in body and isinstance(body["contents"], list):
                 # Gemini generateContent shape. Same per-key-over-default quota
                 # precedence as the messages branch above.
                 baseline_tokens = _gemini_count(body)
-                _key_daily = getattr(self, "_key_daily_tokens", None)
-                _daily_limit = _key_daily if _key_daily is not None else default_daily_tokens
-                if _daily_limit and not _rl.check_daily_tokens(
-                    tenant, _daily_limit, baseline_tokens
-                ):
-                    state.record_quota_rejection(tenant)
-                    _audit.record(
-                        _audit.RATE_LIMITED,
-                        tenant=tenant,
-                        limit_daily_tokens=_daily_limit,
-                        remote=self.client_address[0] if self.client_address else None,
-                    )
-                    body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
-                    self._relay(
-                        429,
-                        {"Content-Type": "application/json"},
-                        body_err,
-                        {"Retry-After": "60"},
-                    )
+                if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
                     return
                 try:
                     body, _store = compress_generate_request(body, verbatim=verbatim)
@@ -1268,6 +1300,7 @@ def build_gateway_handler(
                 compressed_tokens = _gemini_count(body)
                 tokens_saved = max(0, baseline_tokens - compressed_tokens)
                 _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
+                extras["x-distil-compressed"] = "1"
                 extras["x-distil-tokens-saved"] = str(tokens_saved)
 
             new_raw = json.dumps(body).encode()
