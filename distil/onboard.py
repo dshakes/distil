@@ -23,6 +23,7 @@ _AGENTS = [
     ("claude", "Claude Code"),
     ("codex", "Codex"),
     ("gemini", "Gemini CLI"),
+    ("aider", "aider"),
     ("opencode", "OpenCode"),
     ("qwen", "Qwen Code"),
     ("goose", "goose"),
