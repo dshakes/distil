@@ -2063,6 +2063,15 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         first_cmd = steps[0][1]
         if ask(f"Start now — run step 1?  ({first_cmd})"):
             print()
+            # Ctrl+C belongs to the agent (it cancels a turn, not the session).
+            # Same rule as wrap's own parent — see proxy.py's SIGINT note. A
+            # Python-level handler resets across exec, so the child still gets it.
+            import signal
+
+            try:
+                signal.signal(signal.SIGINT, lambda *_: None)
+            except ValueError:
+                pass  # not the main thread (embedded use)
             return subprocess.run(first_cmd.split()).returncode
 
     print(

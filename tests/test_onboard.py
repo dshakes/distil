@@ -212,18 +212,28 @@ def test_cmd_onboard_yes_runs_first_step(tmp_path, monkeypatch, capsys) -> None:
         return _R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    rc = cli.cmd_onboard(
-        argparse.Namespace(
-            json=False,
-            offline=False,
-            dry_run=False,
-            force=False,
-            upgrade=False,
-            no_color=True,
-            yes=True,
-            no_interactive=False,
+    import signal
+
+    prev = signal.getsignal(signal.SIGINT)
+    try:
+        rc = cli.cmd_onboard(
+            argparse.Namespace(
+                json=False,
+                offline=False,
+                dry_run=False,
+                force=False,
+                upgrade=False,
+                no_color=True,
+                yes=True,
+                no_interactive=False,
+            )
         )
-    )
+        # Ctrl+C must reach the agent, not tear onboard down with a traceback:
+        # the parent installs a no-op SIGINT handler before handing over the terminal.
+        assert signal.getsignal(signal.SIGINT) is not prev
+        assert signal.getsignal(signal.SIGINT) is not signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGINT, prev)
     assert rc == 0
     assert "wrap" in " ".join(ran["cmd"])  # --yes launched the route command (step 1)
 
