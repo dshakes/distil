@@ -37,7 +37,15 @@ from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens
 from .adapters.gemini import is_gemini_path
-from .httpguard import parse_content_length, safe_forward_path, strip_query
+from .httpguard import (
+    is_chat_completions_path,
+    is_compressible_path,
+    is_messages_path,
+    is_responses_path,
+    parse_content_length,
+    safe_forward_path,
+    strip_query,
+)
 from .otel import request_span, set_result_attrs
 from .tokenizer import DEFAULT as _tokenizer
 
@@ -45,7 +53,8 @@ from .tokenizer import DEFAULT as _tokenizer
 # Paths that carry a ``messages`` payload worth compressing
 # ---------------------------------------------------------------------------
 
-_COMPRESSIBLE_PATHS = frozenset({"/v1/messages", "/v1/chat/completions", "/v1/responses"})
+# Which endpoints carry a compressible body now lives in httpguard.is_compressible_path
+# — one definition all three servers share, including the Azure OpenAI path forms.
 
 # Hop-by-hop headers must never be forwarded; they are connection-specific.
 _HOP_BY_HOP = frozenset(
@@ -150,6 +159,20 @@ def _expand_should_intercept(expand: bool, store: object, body: dict) -> bool:
     if getattr(store, "handles", None):
         return True
     return _has_recoverable_stub(body)
+
+
+def _unstream_path(target: str) -> str:
+    """The non-streaming twin of a request target.
+
+    OpenAI names the streaming mode in the body (``stream: true``), but Gemini names
+    it in the URL (``:streamGenerateContent`` plus ``alt=sse``). Dropping ``stream``
+    from a Gemini body would leave it streaming anyway, so the path has to change too.
+    """
+    path, _, query = target.partition("?")
+    path = path.replace(":streamGenerateContent", ":generateContent")
+    if query:
+        query = "&".join(p for p in query.split("&") if p != "alt=sse")
+    return f"{path}?{query}" if query else path
 
 
 # Upstream socket timeout (seconds). Generous — LLM generations run minutes —
@@ -693,7 +716,7 @@ def build_handler(
                 _mark_session_traffic()
             _warn_if_version_skew(_version_state)
             p = strip_query(self.path)
-            if p in _COMPRESSIBLE_PATHS or is_gemini_path(p):
+            if is_compressible_path(p) or is_gemini_path(p):
                 # Content-free integration-surface counter (census schema 3).
                 try:
                     from . import surfaces as _surfaces
@@ -884,12 +907,9 @@ def build_handler(
             # Gemini paths    → Gemini adapter (contents branch, below)
             _path = strip_query(self.path)
 
-            if _path == "/v1/responses" and "input" in body and isinstance(body["input"], list):
+            if is_responses_path(_path) and isinstance(body.get("input"), list):
                 # OpenAI Responses API: compress ``function_call_output`` items
                 # (Tier-1 reversible digest) and user ``message`` items (Tier-0).
-                # Expand-tool injection for Responses API is not yet wired —
-                # the tool schema differs from the assistant-turn inject used in
-                # the messages path; see distil.adapters.openai module docstring.
                 from .adapters.openai import compress_responses_input, count_responses_tokens
 
                 _orig_input: list[dict[str, Any]] = body["input"]
@@ -950,7 +970,8 @@ def build_handler(
                 # a dedicated adapter (role:"tool" list content is Tier-1; the
                 # Anthropic adapter applies Tier-0 to generic list text items).
                 # /v1/messages stays on the Anthropic adapter.
-                if _path == "/v1/chat/completions":
+                _is_chat = is_chat_completions_path(_path)
+                if _is_chat:
                     from .adapters.openai import compress_chat_completions
 
                     _compress_fn = compress_chat_completions
@@ -1034,10 +1055,23 @@ def build_handler(
                 # of magnitude. (Interception of the RESPONSE still keys on
                 # _expand_should_intercept — that decision is per-response and cannot
                 # affect the cached request bytes.)
+                #
+                # Two tool schemas share this branch. ``messages`` is both Anthropic's
+                # and Chat Completions' body key, but their tool specs are not
+                # interchangeable: Anthropic wants a bare ``{name, input_schema}`` and
+                # OpenAI wants ``{"type":"function","function":{name, parameters}}``.
+                # Injecting the Anthropic one into a Chat Completions request made the
+                # whole request invalid, so every compressed OpenAI turn under --expand
+                # 400'd at the provider before the model ever saw a handle.
                 if expand:
-                    from .expand import inject_expand_tool
+                    if _is_chat:
+                        from .expand import inject_expand_tool_chat
 
-                    body = inject_expand_tool(body)
+                        body = inject_expand_tool_chat(body)
+                    else:
+                        from .expand import inject_expand_tool
+
+                        body = inject_expand_tool(body)
                 # Accumulate GENUINE savings from real traffic into the ledger,
                 # priced per the model THIS request names (agents mix models).
                 # Only when the counts are real: if accounting failed above, this
@@ -1118,7 +1152,28 @@ def build_handler(
             # agent keeps streaming AND the digest stays recoverable.
             want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
             t_req = time.monotonic()  # upstream + relay latency (compression excluded)
-            if want_stream and _expand_should_intercept(expand, store, body):
+            _intercept = _expand_should_intercept(expand, store, body)
+            # The splice only speaks Anthropic Messages SSE. It used to run for ANY
+            # provider whose request carried a handle, and on an OpenAI or Gemini
+            # stream every event fell through to the "unknown keepalive" arm: each
+            # frame was re-labelled ``event: message`` and the turn was terminated
+            # with a fabricated Anthropic ``message_stop`` the client could not parse.
+            # Those providers take the buffered path below instead, which is
+            # shape-correct, and get their answer back as synthesized SSE.
+            _sse_shape: str | None = None
+            _fwd_path = self.path
+            if want_stream and _intercept and not is_messages_path(_path):
+                if isinstance(body.get("contents"), list):
+                    _sse_shape = "gemini"
+                elif isinstance(body.get("input"), list):
+                    _sse_shape = "responses"
+                else:
+                    _sse_shape = "chat"
+                body = {k: v for k, v in body.items() if k != "stream"}
+                new_raw = json.dumps(body).encode()
+                _fwd_path = _unstream_path(self.path)
+                want_stream = False  # buffer upstream; re-emit as SSE to the client
+            if want_stream and _intercept:
                 from .streamexpand import stream_with_expand
 
                 def _send_stream(_b: dict[str, Any]) -> Any:
@@ -1245,7 +1300,7 @@ def build_handler(
                 return
 
             with request_span(_span_model, self.path) as _span:
-                status, rhdrs, rbody = self._post_upstream(self.path, new_raw, headers)
+                status, rhdrs, rbody = self._post_upstream(_fwd_path, new_raw, headers)
                 set_result_attrs(
                     _span,
                     original_tokens=before_tok,
@@ -1273,12 +1328,13 @@ def build_handler(
                         is_miss,
                         record_signal,
                         run_expand_loop,
+                        run_expand_loop_chat,
                         run_expand_loop_gemini,
                         run_expand_loop_responses,
                     )
 
                     def _post(b: dict[str, Any]) -> dict[str, Any]:
-                        _s, _h, rb = self._post_upstream(self.path, json.dumps(b).encode(), headers)
+                        _s, _h, rb = self._post_upstream(_fwd_path, json.dumps(b).encode(), headers)
                         return json.loads(rb)
 
                     def _on_signal(handle: str, original: str) -> None:
@@ -1301,6 +1357,15 @@ def build_handler(
                         )
                     elif "input" in body and isinstance(body.get("input"), list):
                         final = run_expand_loop_responses(
+                            body, resp_json, store, _post, on_signal=_on_signal
+                        )
+                    elif is_chat_completions_path(_path):
+                        # Chat Completions shares the ``messages`` key with Anthropic but
+                        # not the tool-call shape: the request goes back as a role:"tool"
+                        # message keyed by tool_call_id, not an Anthropic tool_result
+                        # block. The Anthropic loop simply saw no tool_use and returned
+                        # the expand call to the client unanswered.
+                        final = run_expand_loop_chat(
                             body, resp_json, store, _post, on_signal=_on_signal
                         )
                     else:
@@ -1337,7 +1402,7 @@ def build_handler(
                 body=body if isinstance(body, dict) else None,
                 model=_span_model,
                 stream=False,
-                client_stream=want_stream,
+                client_stream=want_stream or _sse_shape is not None,
                 status=status,
                 booked=(
                     savings is not None and _pending_savings is not None and 200 <= status < 300
@@ -1353,6 +1418,24 @@ def build_handler(
                 _bt, _at, _m = _pending_savings
                 savings.record(_bt, _at, model=_m)
                 savings.maybe_flush(every=flush_every)
+            if _sse_shape is not None and 200 <= status < 300:
+                # The client asked for a stream and we buffered to run the expand
+                # loop; hand the finished answer back in the wire format it expects.
+                # A non-2xx or non-JSON body is relayed untouched — an error the SDK
+                # can read beats a well-formed stream carrying nothing.
+                try:
+                    _final = json.loads(rbody)
+                except (ValueError, TypeError):
+                    _final = None
+                if isinstance(_final, dict):
+                    from .streamexpand import sse_from_response
+
+                    rbody = sse_from_response(_sse_shape, _final)
+                    # Drop the upstream's own content-type rather than adding a
+                    # second one: two Content-Type headers is a malformed response,
+                    # and which one a client honours is anyone's guess.
+                    rhdrs = {k: v for k, v in rhdrs.items() if k.lower() != "content-type"}
+                    rhdrs["Content-Type"] = "text/event-stream"
             self._relay(status, rhdrs, rbody, extras=extras)
 
         def _emit_detail(
