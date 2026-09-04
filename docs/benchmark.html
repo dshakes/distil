@@ -44,14 +44,22 @@
 
       <h2 class="sidebar-section">Learn</h2>
       <ul>
-        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+          <ul class="sidebar-sub">
+            <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+            <li><a href="learn-compression.html">2. Compression</a></li>
+            <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+          </ul></li>
         <li><a href="concepts.html">Concepts</a></li>
         <li><a href="techniques.html">Techniques</a></li>
         <li><a href="architecture.html">Architecture</a></li>
         <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
         <li><a href="research.html">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
-        <li><a href="benchmark.html" class="active" aria-current="page">Benchmark</a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html" class="active" aria-current="page">Live Benchmark</a></li>
+        <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
         <li><a href="compare.html">Compare</a></li>
         <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
       </ul>
@@ -81,14 +89,17 @@
             <li><a href="strands.html">Strands</a></li>
             <li><a href="crewai.html">CrewAI</a></li>
           </ul></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
         <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-        <li><a href="index.html">&#8592; Landing page</a></li>
+        <li><a href="index.html">← Landing page</a></li>
       </ul>
     </nav>
   </aside>
 
   <main class="content" id="content" tabindex="-1">
 
+    <span class="course-kicker">Live head-to-head</span>
     <h1>The <span class="g">Benchmark</span></h1>
     <p class="lead">Every compression method shrinks tokens — the only number that matters is how much it saves <em>without changing what the agent decides</em>, once prompt caching is priced in. This head-to-head runs every technique through the <strong>same</strong> decision-equivalence gate and the <strong>same</strong> cache-aware cost model: the winner is computed, not assumed.</p>
 

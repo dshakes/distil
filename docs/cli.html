@@ -44,7 +44,12 @@
 
       <h2 class="sidebar-section">Learn</h2>
       <ul>
-        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+          <ul class="sidebar-sub">
+            <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+            <li><a href="learn-compression.html">2. Compression</a></li>
+            <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+          </ul></li>
         <li><a href="concepts.html">Concepts</a></li>
         <li><a href="techniques.html">Techniques</a></li>
         <li><a href="architecture.html">Architecture</a></li>
@@ -53,13 +58,15 @@
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
-        <li><a href="benchmark.html">Benchmark</a></li>
+        <li><a href="benchmark.html">Live Benchmark</a></li>
+        <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
         <li><a href="compare.html">Compare</a></li>
         <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
       </ul>
 
       <h2 class="sidebar-section">Reference</h2>
       <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html" class="active" aria-current="page">CLI Reference</a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
@@ -82,6 +89,8 @@
             <li><a href="strands.html">Strands</a></li>
             <li><a href="crewai.html">CrewAI</a></li>
           </ul></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
         <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
         <li><a href="index.html">← Landing page</a></li>
       </ul>
@@ -865,7 +874,7 @@ $ distil gateway audit --tenant team-search --json | jq -r .event</pre>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>-n, --limit &lt;N&gt;</code></th><td>50</td><td>Show only the last N events. <code>0</code> shows the whole trail.</td></tr>
-        <tr><th scope="row"><code>--event &lt;name&gt;</code></th><td>all</td><td>Filter by event name (e.g. <code>auth.fail</code>, <code>rate.limited</code>).</td></tr>
+        <tr><th scope="row"><code>--event &lt;name&gt;</code></th><td>all</td><td>Filter to one event name — <code>auth.ok</code>, <code>auth.fail</code>, <code>rate.limited</code>, <code>key.issued</code>, or <code>key.revoked</code>.</td></tr>
         <tr><th scope="row"><code>--tenant &lt;name&gt;</code></th><td>all</td><td>Filter to a single tenant label.</td></tr>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Emit the raw JSONL records instead of the table, for piping.</td></tr>
       </tbody>
