@@ -59,9 +59,11 @@ from typing import Any
 from ..compress.intent import terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
+from ..compress import provenance as _provenance
 from .anthropic import (
     _census,
     _census_tls,
+    _hazard_tls,
     RestoreStore,
     _compress_text_content,
     _compress_tool_result_text,
@@ -108,11 +110,53 @@ def _extract_responses_intent(items: list[dict[str, Any]]) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 
 
+def _chat_tool_calls(messages: list[dict[str, Any]]) -> list[_provenance.ToolCall]:
+    """Normalised tool calls from an assistant message's ``tool_calls`` list."""
+    calls: list[_provenance.ToolCall] = []
+    for idx, m in enumerate(messages):
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        for tc in m.get("tool_calls") or ():
+            if not isinstance(tc, dict):
+                continue
+            cid = tc.get("id")
+            fn = tc.get("function")
+            if not isinstance(cid, str) or not isinstance(fn, dict):
+                continue
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            calls.append(
+                _provenance.ToolCall(
+                    id=cid,
+                    name=str(fn.get("name", "")),
+                    command=_provenance.command_text(args),
+                    pos=idx,
+                )
+            )
+    return calls
+
+
+def exact_quote_tool_call_ids(messages: list[dict[str, Any]]) -> set[str]:
+    """``tool_call_id``s whose ``role:"tool"`` result must stay byte-exact.
+
+    Same guarantee and same classifier as the Messages path — a file the agent read,
+    however it read it, has to survive verbatim or its next literal-match edit cannot
+    apply. This provider caches prefixes implicitly and commits everything it is sent,
+    so nothing may be demoted once sent: ``cached_through`` is the last index.
+    """
+    return _provenance.exact_quote_ids(_chat_tool_calls(messages), cached_through=len(messages) - 1)
+
+
 def _compress_openai_message(
     msg: dict[str, Any],
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
+    exact_ids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) Chat Completions message dict after compressing.
 
@@ -125,6 +169,11 @@ def _compress_openai_message(
     """
     role = msg.get("role", "")
     content = msg.get("content")
+
+    if role == "tool" and msg.get("tool_call_id") in exact_ids:
+        # File content the agent must quote back verbatim to edit it.
+        _census("tool_result_exact_quote", content if isinstance(content, str) else "")
+        return msg
 
     # --- bare string content ---
     if isinstance(content, str):
@@ -230,6 +279,11 @@ def compress_chat_completions(
     # Same contract as the Anthropic entry point: open a fresh census so a thread that
     # previously served Anthropic traffic cannot leak its counts into this request.
     _census_tls.counts = {}
+    # The quote-hazard counter is Messages-path only (that is where Edit/MultiEdit
+    # live), so it is CLEARED here rather than left alone: the proxy reads it per
+    # request off the same thread, and a stale count from an earlier Anthropic request
+    # would be reported against this one.
+    _hazard_tls.counts = None
     # Empty by design, not an oversight: this provider caches prefixes
     # implicitly and commits everything it is sent, so every block is cached
     # content by the next request. Intent terms change every turn, so letting
@@ -241,13 +295,17 @@ def compress_chat_completions(
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
         recent = _recent_chat_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        exact_ids = frozenset(exact_quote_tool_call_ids(messages))
         for idx, msg in enumerate(messages):
             if not isinstance(msg, dict):
                 new_messages.append(msg)  # malformed entry — pass through untouched
                 continue
             msg_verbatim = verbatim or idx in recent
             new_messages.append(
-                _compress_openai_message(msg, store, msg_verbatim, is_recent=idx in recent)
+                _compress_openai_message(
+                    msg, store, msg_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+                )
             )
         return new_messages, store
     finally:
@@ -275,11 +333,44 @@ def _recent_response_verbatim_indices(items: list[dict[str, Any]], k: int) -> se
     return _exempt_indices(idxs, k, len(items) - 1)
 
 
+def _response_tool_calls(items: list[dict[str, Any]]) -> list[_provenance.ToolCall]:
+    """Normalised tool calls from ``function_call`` items in a Responses input array."""
+    calls: list[_provenance.ToolCall] = []
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            continue
+        cid = item.get("call_id") or item.get("id")
+        if not isinstance(cid, str):
+            continue
+        args = item.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
+        calls.append(
+            _provenance.ToolCall(
+                id=cid,
+                name=str(item.get("name", "")),
+                command=_provenance.command_text(args),
+                pos=idx,
+            )
+        )
+    return calls
+
+
+def exact_quote_call_ids(items: list[dict[str, Any]]) -> set[str]:
+    """``call_id``s whose ``function_call_output`` must stay byte-exact. See
+    :func:`exact_quote_tool_call_ids` — same rule, Responses shape."""
+    return _provenance.exact_quote_ids(_response_tool_calls(items), cached_through=len(items) - 1)
+
+
 def _compress_response_item(
     item: dict[str, Any],
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
+    exact_ids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) Responses API input item after compression.
 
@@ -298,6 +389,10 @@ def _compress_response_item(
         output = item.get("output")
         if not isinstance(output, str):
             return item  # non-string output field — pass through
+        if item.get("call_id") in exact_ids:
+            # File content the agent must quote back verbatim to edit it.
+            _census("tool_result_exact_quote", output)
+            return item
         new_output = _compress_tool_result_text(output, store, verbatim, is_recent)
         if new_output == output:
             return item
@@ -375,6 +470,11 @@ def compress_responses_input(
     """
     _keep_tls.fn = keep
     _census_tls.counts = {}
+    # The quote-hazard counter is Messages-path only (that is where Edit/MultiEdit
+    # live), so it is CLEARED here rather than left alone: the proxy reads it per
+    # request off the same thread, and a stale count from an earlier Anthropic request
+    # would be reported against this one.
+    _hazard_tls.counts = None
     # Empty by design, not an oversight: this provider caches prefixes
     # implicitly and commits everything it is sent, so every block is cached
     # content by the next request. Intent terms change every turn, so letting
@@ -386,13 +486,17 @@ def compress_responses_input(
         store = RestoreStore()
         new_items: list[dict[str, Any]] = []
         recent = _recent_response_verbatim_indices(items, _RECENCY_KEEP_TURNS)
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        exact_ids = frozenset(exact_quote_call_ids(items))
         for idx, item in enumerate(items):
             if not isinstance(item, dict):
                 new_items.append(item)  # malformed entry — pass through
                 continue
             item_verbatim = verbatim or idx in recent
             new_items.append(
-                _compress_response_item(item, store, item_verbatim, is_recent=idx in recent)
+                _compress_response_item(
+                    item, store, item_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+                )
             )
         return new_items, store
     finally:

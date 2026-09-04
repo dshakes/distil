@@ -307,6 +307,29 @@ class Dissection:
         notices — which is exactly why it needs its own counter."""
         return sum(int(r.get("expand_misses") or 0) for r in self.requests)
 
+    @property
+    def quote_survival(self) -> tuple[int, int] | None:
+        """``(survived, lost)`` literal-match edit quotes across the session.
+
+        The agent's ``Edit(old_string=...)`` only applies if that exact text is still in
+        the context distil forwarded. A digested file read makes it unmatchable and the
+        edit silently does nothing — the failure mode that ended runs with "done" and an
+        untouched disk. This is the direct measurement of the guarantee, not a proxy for
+        it: `lost` above zero means a quote the agent will need is already gone.
+
+        None for sessions recorded before the counter existed, which is NOT "zero lost".
+        """
+        survived = lost = 0
+        seen = False
+        for r in self.requests:
+            q = r.get("quotes")
+            if not isinstance(q, dict):
+                continue
+            seen = True
+            survived += int(q.get("survived") or 0)
+            lost += int(q.get("lost") or 0)
+        return (survived, lost) if seen else None
+
     # ---- insight metrics (all derived; None/0 when the inputs are absent) ----
     @property
     def tokens_saved_total(self) -> int:
@@ -581,6 +604,13 @@ class Dissection:
                     "intercepted (an escaped call surfaces to the agent as "
                     "'no such tool')"
                 )
+        _q = self.quote_survival
+        if _q is not None and _q[1]:
+            out.append(
+                f"{_q[1]}/{_q[0] + _q[1]} edit quotes had no byte-exact copy left in the "
+                "forwarded context — those edits cannot match (report this: the "
+                "exact-quote exemption should have covered them)"
+            )
         if self.expand_missed:
             asked = self.expand_resolved + self.expand_missed
             out.append(
@@ -1170,6 +1200,12 @@ def render_text(
         )
         if d.expand_missed:
             out.append(f"    unrecoverable: {d.expand_missed} handle(s) asked for and not returned")
+        _q = d.quote_survival
+        if _q is not None:
+            out.append(
+                f"  exact-quote: {_q[0]}/{_q[0] + _q[1]} edit quotes still findable "
+                "byte-exact in the forwarded context"
+            )
         for sig, exp, total in d.expansion_regret():
             out.append(
                 f"    regret: {sig} blocks pulled back {exp}/{total} — folding this kind "
@@ -1390,6 +1426,12 @@ def to_json(
         },
         "quality": {
             "expand_resolved_requests": d.expand_resolved,
+            # None (not 0) for sessions predating the counter — see quote_survival.
+            "quote_survival": (
+                {"survived": d.quote_survival[0], "lost": d.quote_survival[1]}
+                if d.quote_survival is not None
+                else None
+            ),
             "shadow_sampled_requests": d.shadow_sampled,
             "shadow_window_rows": d.shadow_window_rows,
             "shadow_window_agree": d.shadow_window_agree,

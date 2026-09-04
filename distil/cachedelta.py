@@ -235,11 +235,18 @@ def _encode_block(
 # ---------------------------------------------------------------------------
 
 
-def _rewrite_tool_texts(msg: Any, transform: Callable[[str], str]) -> Any:
+def _rewrite_tool_texts(
+    msg: Any, transform: Callable[[str], str], keep_ids: frozenset[str] = frozenset()
+) -> Any:
     """Apply *transform* to every large tool_result text in *msg* (non-mutating).
 
     Mirrors the adapter's block model: string tool/user content and ``tool_result``
     blocks (string or list-of-text). Returns the same object when nothing changed.
+
+    Blocks whose tool id is in *keep_ids* are skipped: those are the results the agent
+    must be able to quote back byte-exact (see ``compress.provenance``). A delta
+    reference is not a byte-exact copy, so encoding one there voids the same guarantee
+    the compressor is about to honour — which is exactly what ``--session-delta`` did.
     """
     if not isinstance(msg, dict):
         return msg
@@ -247,7 +254,7 @@ def _rewrite_tool_texts(msg: Any, transform: Callable[[str], str]) -> Any:
     content = msg.get("content")
 
     if isinstance(content, str):
-        if role in ("tool", "user"):
+        if role in ("tool", "user") and msg.get("tool_call_id") not in keep_ids:
             new = transform(content)
             if new != content:
                 return {**msg, "content": new}
@@ -257,7 +264,11 @@ def _rewrite_tool_texts(msg: Any, transform: Callable[[str], str]) -> Any:
         new_list: list[Any] = []
         changed = False
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_result":
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and block.get("tool_use_id") not in keep_ids
+            ):
                 bc = block.get("content")
                 if isinstance(bc, str):
                     nb = transform(bc)
@@ -313,6 +324,7 @@ def delta_encode(
     *,
     session: DeltaSession | None = None,
     store: RestoreStore | None = None,
+    keep_ids: frozenset[str] = frozenset(),
 ) -> tuple[list[Any], RestoreStore, CacheStats]:
     """Cross-turn delta-encode *messages* against *session* memory (non-mutating).
 
@@ -320,6 +332,10 @@ def delta_encode(
     left byte-identical, so prompt-cache hits survive; only the volatile suffix is
     touched. Returns ``(new_messages, store, stats)``; ``store`` gains a handle for
     every reference/delta so ``distil_expand`` can recover the original.
+
+    *keep_ids* names the tool results the exact-quote guarantee will keep verbatim; they
+    are left untouched here so the two mechanisms cannot contradict each other. They are
+    still registered as delta *bases*, so later blocks keep deduping against them.
     """
     store = store if store is not None else RestoreStore()
     stats = CacheStats()
@@ -353,7 +369,7 @@ def delta_encode(
         def _transform(text: str, _prior: dict[str, str] = delivered, _bases: Any = bases) -> str:
             return _encode_block(text, prior=_prior, bases=_bases, store=store, stats=stats)
 
-        new_messages.append(_rewrite_tool_texts(msg, _transform))
+        new_messages.append(_rewrite_tool_texts(msg, _transform, keep_ids))
         for t in _collect_texts(msg):  # register AFTER, so a block can't dedup itself
             delivered[_handle(t)] = t
 

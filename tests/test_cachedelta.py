@@ -158,3 +158,58 @@ def test_delta_encode_is_pure_without_session():
     b, _sb, stb = delta_encode(msgs)
     assert sta.delta_refs == stb.delta_refs == 1
     assert _block_text(a[3]) == _block_text(b[3])  # deterministic
+
+
+# --- the exact-quote guarantee outranks the delta ------------------------- #
+
+
+def _tr_id(text: str, tid: str) -> dict:
+    return {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": tid, "content": text}],
+    }
+
+
+def test_delta_never_touches_an_exact_quote_block():
+    """--session-delta ran BEFORE the compressor's exemption and replaced file reads
+    with delta references, silently voiding the 1.49.0 byte-exact guarantee whenever the
+    flag was on: a reference is not a copy, so the agent's next Edit could not match."""
+    msgs = [_u("q"), _tr_id(V1, "read1"), _u("edit"), _tr_id(V2, "read2")]
+    out, _store, _stats = delta_encode(msgs, keep_ids=frozenset({"read2"}))
+    assert _block_text(out[3]) == V2, "an exempt read must reach the wire byte-exact"
+
+
+def test_an_exempt_block_is_still_available_as_a_delta_base():
+    """Skipping the transform must not remove the block from the session's memory —
+    later re-reads still dedup against it, which is the whole point of the mechanism."""
+    msgs = [_u("q"), _tr_id(V1, "read1"), _u("edit"), _tr_id(V2, "read2")]
+    _out, _store, stats = delta_encode(msgs, keep_ids=frozenset({"read1"}))
+    assert stats.delta_refs == 1, "V2 should still delta against the exempt V1"
+
+
+def test_the_proxy_wires_the_exemption_into_the_delta_pass():
+    """End to end on the real ids: a shell read stays byte-exact with delta on."""
+    from distil.adapters.anthropic import exact_quote_tool_use_ids
+
+    msgs = [
+        {"role": "user", "content": "read it"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "r1", "name": "Bash", "input": {"command": "cat /a.py"}}
+            ],
+        },
+        _tr_id(V1, "r1"),
+        {"role": "user", "content": "again"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "r2", "name": "Bash", "input": {"command": "cat /a.py"}}
+            ],
+        },
+        _tr_id(V2, "r2"),
+    ]
+    keep = frozenset(exact_quote_tool_use_ids(msgs))
+    assert keep == {"r2"}, "only the latest read of the path needs to stay verbatim"
+    out, _store, _stats = delta_encode(msgs, keep_ids=keep)
+    assert _block_text(out[5]) == V2

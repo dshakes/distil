@@ -452,6 +452,16 @@ def _adapter_census() -> dict[str, int] | None:
         return None
 
 
+def _adapter_quote_hazard() -> dict[str, int] | None:
+    """This thread's most recent quote-survival counts, or None when no edit needed one."""
+    try:
+        from .adapters.anthropic import take_quote_hazard
+
+        return take_quote_hazard()
+    except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+        return None
+
+
 def _tokens_saved(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> int:
     """Rough estimate of tokens saved via the default heuristic tokeniser."""
     return max(0, _count_messages(before) - _count_messages(after))
@@ -968,7 +978,31 @@ def build_handler(
                         from .cachedelta import delta_encode, get_session, session_key
 
                         _sess = get_session(session_key(original))
-                        pre, _dstore, _dstats = delta_encode(original, session=_sess)
+                        # Order matters and used not to. delta_encode ran FIRST and
+                        # replaced tool_result bodies with references — including the
+                        # file reads compress_messages was about to keep byte-exact, so
+                        # turning --session-delta on silently voided the 1.49.0
+                        # exact-quote guarantee and the agent's next Edit could not
+                        # match. Running delta AFTER compression is not the fix: it
+                        # would delta against digest stubs and rewrite blocks the
+                        # provider already cached, breaking cache-monotonicity — the
+                        # one property delta_encode's suffix-only design exists to
+                        # preserve. So the order stands and delta simply skips the
+                        # exempt blocks. They stay registered as delta bases, so later
+                        # re-reads still dedup against them.
+                        if _path == "/v1/chat/completions":
+                            from .adapters.openai import (
+                                exact_quote_tool_call_ids as _exact_ids_fn,
+                            )
+                        else:
+                            from .adapters.anthropic import (
+                                exact_quote_tool_use_ids as _exact_ids_fn,
+                            )
+                        pre, _dstore, _dstats = delta_encode(
+                            original,
+                            session=_sess,
+                            keep_ids=frozenset(_exact_ids_fn(original)),
+                        )
                     except Exception:  # noqa: BLE001 — never break a request
                         log.debug("cache-delta encode failed", exc_info=True)
                         pre, _dstore, _dstats = original, None, None
@@ -1647,6 +1681,12 @@ def build_handler(
                     # from "the digester declined" (a defect) from "mostly recent"
                     # (transient). Content-free; see adapters.anthropic.take_census.
                     "census": _adapter_census(),
+                    # Does the exact-quote guarantee actually hold? For every
+                    # literal-match edit in the history, whether its `old_string` still
+                    # occurs in the payload we forwarded. Two counts, no text. Absent
+                    # when the request carried no such edit. This is the measurement
+                    # that would have caught the shell-read gap the moment it shipped.
+                    "quotes": _adapter_quote_hazard(),
                     "shadow_sampled": extras.get("x-distil-shadow") == "sampled",
                     "expanded": extras.get("x-distil-expanded") == "1",
                     "expand_misses": int(extras.get("x-distil-expand-miss") or 0),
