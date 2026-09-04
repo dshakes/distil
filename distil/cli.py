@@ -9,6 +9,7 @@ distil certify   --trajectory T --strategy non-inferiority gate (the quality con
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -2063,7 +2064,23 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         first_cmd = steps[0][1]
         if ask(f"Start now — run step 1?  ({first_cmd})"):
             print()
-            return subprocess.run(first_cmd.split()).returncode
+            # Ctrl+C belongs to the agent (it cancels a turn, not the session).
+            # Same rule as wrap's own parent — see proxy.py's SIGINT note. A
+            # Python-level handler resets across exec, so the child still gets it.
+            import signal
+
+            prev = signal.getsignal(signal.SIGINT)
+            try:
+                signal.signal(signal.SIGINT, lambda *_: None)
+            except ValueError:
+                pass  # not the main thread (embedded use)
+            try:
+                return subprocess.run(first_cmd.split()).returncode
+            finally:
+                with contextlib.suppress(
+                    ValueError, TypeError
+                ):  # non-main thread / non-Python prev
+                    signal.signal(signal.SIGINT, prev)
 
     print(
         c("90", "Re-run anytime: ")

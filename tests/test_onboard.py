@@ -207,11 +207,15 @@ def test_cmd_onboard_yes_runs_first_step(tmp_path, monkeypatch, capsys) -> None:
     class _R:
         returncode = 0
 
+    import signal
+
     def fake_run(cmd, *a, **k):
         ran["cmd"] = cmd
+        ran["sigint"] = signal.getsignal(signal.SIGINT)
         return _R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    prev = signal.getsignal(signal.SIGINT)
     rc = cli.cmd_onboard(
         argparse.Namespace(
             json=False,
@@ -224,6 +228,11 @@ def test_cmd_onboard_yes_runs_first_step(tmp_path, monkeypatch, capsys) -> None:
             no_interactive=False,
         )
     )
+    # Ctrl+C must reach the agent, not tear onboard down with a traceback: a no-op
+    # (not SIG_IGN — that would survive exec) handler is installed for the handover
+    # only, and the caller's handler is back afterwards.
+    assert callable(ran["sigint"]) and ran["sigint"] is not prev
+    assert signal.getsignal(signal.SIGINT) is prev
     assert rc == 0
     assert "wrap" in " ".join(ran["cmd"])  # --yes launched the route command (step 1)
 
