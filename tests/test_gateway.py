@@ -708,3 +708,85 @@ def test_metrics_label_injection_cannot_break_the_exposition() -> None:
         assert set(got) == {"tenant"}, f"injection created labels {set(got)}"
         assert got["tenant"] == hostile, "round-trip lost or altered the label value"
         float(line.rpartition(" ")[2])  # value still parses
+
+
+# ---------------------------------------------------------------------------
+# Provider parity: the Responses API is a first-class shape here too
+# ---------------------------------------------------------------------------
+
+
+def _responses_payload(text: str = _LONG_TOOL_RESULT) -> dict[str, Any]:
+    return {
+        "model": "gpt-test",
+        "input": [
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]},
+            {"type": "function_call_output", "call_id": "c1", "output": text},
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "?"}]},
+        ],
+    }
+
+
+def test_responses_api_is_compressed_and_booked(gw_servers: Any) -> None:
+    """A ``/v1/responses`` body must compress and bill like every other shape.
+
+    The gateway dispatched on ``messages``/``contents`` only, so a Responses body
+    matched no branch: it was forwarded to the provider uncompressed AND recorded
+    nothing against the tenant — an endpoint that quietly ignored the daily quota.
+    """
+    gw_port, state = gw_servers
+
+    def _tenant(name: str) -> dict[str, Any]:
+        rows = state.snapshot()["tenants"]
+        return next((r for r in rows if r["tenant"] == name), {})
+
+    before = _tenant("responses-tenant").get("requests", 0)
+
+    req = _post(
+        gw_port, "/v1/responses", _responses_payload(), {"x-distil-tenant": "responses-tenant"}
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        headers = dict(resp.headers)
+        echoed = json.loads(resp.read())
+
+    assert headers["x-distil-compressed"] == "1"
+    assert int(headers["x-distil-tokens-saved"]) > 0
+    # The forwarded body is the compressed one, not the original.
+    assert json.dumps(echoed["input"]) != json.dumps(_responses_payload()["input"])
+
+    after = _tenant("responses-tenant")
+    assert after["requests"] == before + 1
+    assert after["tokens_saved"] > 0
+
+
+def test_azure_chat_path_is_compressed(gw_servers: Any) -> None:
+    """Azure OpenAI puts the deployment name in the path; it is still Chat Completions."""
+    gw_port, _state = gw_servers
+    payload = {
+        "model": "gpt-test",
+        "messages": [
+            {"role": "user", "content": "read it"},
+            {"role": "tool", "tool_call_id": "c1", "content": _LONG_TOOL_RESULT},
+            {"role": "user", "content": "and now?"},
+        ],
+    }
+    req = _post(
+        gw_port,
+        "/openai/deployments/gpt4o-prod/chat/completions?api-version=2024-10-21",
+        payload,
+        {"x-distil-tenant": "azure-tenant"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        headers = dict(resp.headers)
+    assert headers["x-distil-compressed"] == "1"
+    assert int(headers["x-distil-tokens-saved"]) > 0
+
+
+def test_unknown_path_is_still_passthrough(gw_servers: Any) -> None:
+    """The wider matcher must not start compressing endpoints it does not understand."""
+    gw_port, _state = gw_servers
+    req = _post(gw_port, "/v1/embeddings", {"input": ["hello"]}, {"x-distil-tenant": "emb"})
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        assert "x-distil-compressed" not in dict(resp.headers)
