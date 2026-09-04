@@ -67,29 +67,60 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  says so; see _warn_if_env_ignored in cli.py.
 #   cursor-agent — env var not publicly documented; left out rather than guessing.
 #                  Use --env-var to configure manually.
+#   copilot      — GitHub Copilot CLI's BYOK contract is COPILOT_PROVIDER_BASE_URL +
+#                  COPILOT_PROVIDER_TYPE (openai|azure|anthropic, default openai) +
+#                  optional COPILOT_PROVIDER_API_KEY (docs.github.com, "Use BYOK
+#                  models"). wrap defaults to the Anthropic upstream and pins TYPE
+#                  to match, passing ANTHROPIC_API_KEY through as the provider key.
+#                  Routing through OpenAI instead needs --upstream plus manually
+#                  exporting COPILOT_PROVIDER_TYPE=openai — wrap won't infer TYPE
+#                  from an arbitrary --upstream.
+#   kimi         — Kimi CLI reads KIMI_BASE_URL / KIMI_API_KEY / KIMI_MODEL_NAME for
+#                  its native "kimi" provider type (moonshotai.github.io/kimi-cli,
+#                  configuration/env-vars). No key passthrough: Moonshot's API key
+#                  namespace has no existing distil-known source to forward from.
 #
-# DELIBERATELY ABSENT: cursor, copilot, cline, continue, windsurf. These are IDE
+# DELIBERATELY ABSENT: cursor, cline, continue, windsurf. These are IDE
 # extensions, not CLIs — there is no argv to wrap and no documented env-var
 # contract, so `wrap` cannot reach them and a guessed variable would silently
 # route nothing while reporting success. Their supported path is the always-on
 # proxy plus the editor's own "custom base URL"/OpenAI-compatible setting; see
 # docs/IDE-AGENTS.md. Adding a preset here without a published contract is how
 # you ship a lie that looks like a feature.
-AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
-    # cmd_name: (env_var, upstream_base_url, human_label)
-    "claude": ("ANTHROPIC_BASE_URL", "https://api.anthropic.com", "Claude Code"),
-    "codex": ("OPENAI_BASE_URL", "https://api.openai.com", "Codex CLI"),
+AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
+    # cmd_name: (env_var, upstream_base_url, human_label, extra_env)
+    # extra_env values: "$BASE" mirrors the primary env_var's value, "$VARNAME"
+    # passes os.environ[VARNAME] through (skipped if unset/empty), anything else
+    # is set literally. See wrap_run in proxy.py for the resolution.
+    "claude": ("ANTHROPIC_BASE_URL", "https://api.anthropic.com", "Claude Code", {}),
+    "codex": ("OPENAI_BASE_URL", "https://api.openai.com", "Codex CLI", {}),
     "gemini": (
         "GOOGLE_GEMINI_BASE_URL",
         "https://generativelanguage.googleapis.com",
         "Gemini CLI",
+        {},
     ),
-    "aider": ("OPENAI_API_BASE", "https://api.openai.com", "aider"),
-    "opencode": ("OPENAI_BASE_URL", "https://api.openai.com", "OpenCode"),
-    "qwen": ("OPENAI_BASE_URL", "https://api.openai.com", "Qwen Code"),
-    "goose": ("OPENAI_HOST", "https://api.openai.com", "goose"),
-    "grok": ("GROK_MODELS_BASE_URL", "https://api.x.ai/v1", "Grok CLI"),
-    "openhands": ("LLM_BASE_URL", "https://api.openai.com", "OpenHands"),
+    "aider": ("OPENAI_API_BASE", "https://api.openai.com", "aider", {}),
+    "opencode": ("OPENAI_BASE_URL", "https://api.openai.com", "OpenCode", {}),
+    "qwen": ("OPENAI_BASE_URL", "https://api.openai.com", "Qwen Code", {}),
+    "goose": (
+        "OPENAI_HOST",
+        "https://api.openai.com",
+        "goose",
+        {"ANTHROPIC_HOST": "$BASE"},
+    ),
+    "grok": ("GROK_MODELS_BASE_URL", "https://api.x.ai/v1", "Grok CLI", {}),
+    "openhands": ("LLM_BASE_URL", "https://api.openai.com", "OpenHands", {}),
+    "copilot": (
+        "COPILOT_PROVIDER_BASE_URL",
+        "https://api.anthropic.com",
+        "GitHub Copilot CLI",
+        {
+            "COPILOT_PROVIDER_TYPE": "anthropic",
+            "COPILOT_PROVIDER_API_KEY": "$ANTHROPIC_API_KEY",
+        },
+    ),
+    "kimi": ("KIMI_BASE_URL", "https://api.moonshot.ai/v1", "Kimi CLI", {}),
 }
 
 
