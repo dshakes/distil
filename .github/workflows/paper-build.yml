@@ -138,12 +138,22 @@ jobs:
             | while IFS= read -r line; do echo "::warning title=Over/underfull box::$line"; done || true
           echo "Warning triage complete (non-blocking)."
 
-      - name: Upload paper PDF
+      # Both tracked PDFs, not just main.pdf. The staleness check above diffs
+      # main.pdf AND main_neurips.pdf, so an author without a local TeX Live had no
+      # way to satisfy it for the NeurIPS variant — tectonic compiles the source
+      # fine but cannot reproduce pdfLaTeX's bytes, and this artifact only ever
+      # carried half the answer. Uploading both makes this job the canonical build:
+      # download the artifact, commit what it contains, and the check passes by
+      # construction. Both paths share docs/paper/ as their common ancestor, so the
+      # artifact holds them at its root as main.pdf / main_neurips.pdf.
+      - name: Upload paper PDFs
         if: success()
         uses: actions/upload-artifact@v7
         with:
           name: distil-paper-pdf
-          path: docs/paper/main.pdf
+          path: |
+            docs/paper/main.pdf
+            docs/paper/main_neurips.pdf
           if-no-files-found: error
 
       # On failure, ship the .log so the break is diagnosable without a local
