@@ -1,0 +1,49 @@
+{
+  "generated": "2026-09-04",
+  "version": "1.51.1",
+  "corpus_trajectories": 9,
+  "tokenizer": "HeuristicTokenizer",
+  "recall": "macro-average across corpus domains, counting expand-recoverable facts",
+  "points": [
+    {
+      "rung": "none",
+      "note": "no compression \u2014 the reference",
+      "savings_pct": 0.0,
+      "recall": 1.0,
+      "visible_recall": 1.0,
+      "lost_facts": 0,
+      "reversible": true,
+      "latency_ms": 0.02
+    },
+    {
+      "rung": "byte-exact",
+      "note": "Tier-0 only; the lossless-only / subscription point",
+      "savings_pct": 0.0,
+      "recall": 1.0,
+      "visible_recall": 1.0,
+      "lost_facts": 0,
+      "reversible": true,
+      "latency_ms": 0.75
+    },
+    {
+      "rung": "lossless",
+      "note": "Tier-1 digest + Tier-0 \u2014 the shipped default",
+      "savings_pct": 46.98,
+      "recall": 1.0,
+      "visible_recall": 0.7692,
+      "lost_facts": 0,
+      "reversible": true,
+      "latency_ms": 17.49
+    },
+    {
+      "rung": "aggressive",
+      "note": "head/tail truncation, no recovery handle",
+      "savings_pct": 65.52,
+      "recall": 0.551,
+      "visible_recall": 0.551,
+      "lost_facts": 828,
+      "reversible": false,
+      "latency_ms": 0.1
+    }
+  ]
+}

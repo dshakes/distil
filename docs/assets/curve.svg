@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" role="img" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" aria-label="Fact recall against token savings for each rung of the compression ladder. Reversible rungs hold full recall; the aggressive rung buys savings by losing facts.">
+<defs><linearGradient id="cvg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient></defs>
+<rect width="720" height="380" fill="#0b0c13"/>
+<text x="64" y="24" font-size="14" font-weight="700" fill="url(#cvg)">The degradation curve — fact recall vs token savings</text>
+<line x1="64" y1="328.0" x2="696" y2="328.0" stroke="#222839" stroke-width="1"/>
+<text x="56" y="332.0" font-size="10" fill="#7b8298" text-anchor="end">0.531</text>
+<line x1="64" y1="256.0" x2="696" y2="256.0" stroke="#222839" stroke-width="1"/>
+<text x="56" y="260.0" font-size="10" fill="#7b8298" text-anchor="end">0.648</text>
+<line x1="64" y1="184.0" x2="696" y2="184.0" stroke="#222839" stroke-width="1"/>
+<text x="56" y="188.0" font-size="10" fill="#7b8298" text-anchor="end">0.766</text>
+<line x1="64" y1="112.0" x2="696" y2="112.0" stroke="#222839" stroke-width="1"/>
+<text x="56" y="116.0" font-size="10" fill="#7b8298" text-anchor="end">0.883</text>
+<line x1="64" y1="40.0" x2="696" y2="40.0" stroke="#222839" stroke-width="1"/>
+<text x="56" y="44.0" font-size="10" fill="#7b8298" text-anchor="end">1.000</text>
+<text x="64.0" y="348" font-size="10" fill="#7b8298" text-anchor="middle">0%</text>
+<text x="222.0" y="348" font-size="10" fill="#7b8298" text-anchor="middle">25%</text>
+<text x="380.0" y="348" font-size="10" fill="#7b8298" text-anchor="middle">50%</text>
+<text x="538.0" y="348" font-size="10" fill="#7b8298" text-anchor="middle">75%</text>
+<text x="696.0" y="348" font-size="10" fill="#7b8298" text-anchor="middle">100%</text>
+<text x="380.0" y="368" font-size="11" fill="#9aa0b2" text-anchor="middle">token savings</text>
+<text x="16" y="190.0" font-size="11" fill="#9aa0b2" text-anchor="middle" transform="rotate(-90 16 190.0)">fact recall (macro)</text>
+<path d="M64.0,40.0 L64.0,40.0 L360.9,40.0 L478.1,315.7" fill="none" stroke="url(#cvg)" stroke-width="2"/>
+<circle cx="64.0" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>none: 0.0% savings, recall 1.000, reversible</title></circle>
+<text x="74.0" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">none</text>
+<circle cx="64.0" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>byte-exact: 0.0% savings, recall 1.000, reversible</title></circle>
+<text x="74.0" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">byte-exact</text>
+<circle cx="360.9" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>lossless: 47.0% savings, recall 1.000, reversible</title></circle>
+<text x="370.9" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">lossless</text>
+<circle cx="478.1" cy="315.7" r="5" fill="#0b0c13" stroke="#ff6b6b" stroke-width="2"><title>aggressive: 65.5% savings, recall 0.551, NOT reversible</title></circle>
+<text x="488.1" y="305.7" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">aggressive</text>
+<text x="488.1" y="333.7" font-size="10" fill="#ff6b6b" text-anchor="start">828 facts lost · not reversible</text>
+<text x="696" y="24" font-size="10" fill="#7b8298" text-anchor="end">distil 1.51.1 · 2026-09-04</text>
+</svg>
