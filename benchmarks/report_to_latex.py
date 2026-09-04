@@ -17,7 +17,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from benchmarks.swe_bench_e2e.stats import wilson_ci  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "paper" / "generated"
 
@@ -112,6 +117,50 @@ def frontier(rep: dict) -> str:
         f"\\addplot[dashed,distilgray] coordinates {{(0,{alpha * 100:.1f}) ({xmax:.0f},{alpha * 100:.1f})}};\n"
         f"\\addlegendentry{{$\\alpha={alpha * 100:.0f}\\%$}}\n"
         "\\end{axis}\n\\end{tikzpicture}\n"
+    )
+
+
+def frontier_ci(rep: dict) -> str:
+    """E1 as a table with Wilson 95\\% CIs — the figure plots point estimates only.
+
+    Decision-change is a binomial proportion over the graded turns, so a bare point
+    estimate hides how much of the gap between two ladder levels is sampling noise.
+    We report the interval over all turns and over the *effective* (non-trivial) turns,
+    since a level that leaves most turns byte-identical is scored on far fewer.
+    """
+    rows = rep.get("frontier") or []
+    if not rows:
+        return "% no frontier in report\n"
+    body = []
+    for r in rows:
+        n, eff = int(r["n"]), int(r.get("effective_n") or 0)
+        lo, hi = wilson_ci(round(r["decision_change"] * n), n)
+        elo, ehi = wilson_ci(round(r.get("decision_change_effective", 0) * eff), eff)
+        eff_cell = (
+            f"{_pct(r.get('decision_change_effective', 0))} [{elo * 100:.1f}--{ehi * 100:.1f}]"
+            if eff
+            else "---"
+        )
+        body.append(
+            _tex(r["level"])
+            + " & "
+            + _pct(r["savings"])
+            + f" & {n} & "
+            + _pct(r["decision_change"])
+            + f" [{lo * 100:.1f}--{hi * 100:.1f}]"
+            + f" & {eff} & "
+            + eff_cell
+            + EOL
+            + "\n"
+        )
+    header = (
+        "level & savings & $n$ & decision-change (95\\% CI) & $n_{\\text{eff}}$ & "
+        "effective (95\\% CI)" + EOL
+    )
+    return (
+        "% auto-generated E1 frontier with Wilson CIs — do not edit\n"
+        "\\begin{tabular}{@{}lrrrrr@{}}\n\\toprule\n"
+        f"{header}\n\\midrule\n{''.join(body).rstrip()}\n\\bottomrule\n\\end{{tabular}}\n"
     )
 
 
@@ -216,6 +265,76 @@ def shift(rep: dict) -> str:
     )
 
 
+def loo(rep: dict) -> str:
+    """E3 leave-one-domain-out (`benchmarks/leave_one_domain_out.py`).
+
+    Note this fragment reads a *different* report shape from the rest of this module:
+    :func:`shift` renders the per-turn shift rows a ``prove.py`` run would carry in
+    ``rep["shift"]`` (empty on every committed run — the τ-bench and SWE corpora were
+    graded by different models, so a cross-domain comparison there is confounded),
+    while E3 as actually run is the trajectory-level leave-one-repository-out on the E8
+    outcomes, where the grader is the deterministic SWE-bench harness. Same experiment
+    slot, honest unit.
+    """
+    rows = rep.get("domains") or []
+    if not rows:
+        return "% no leave-one-domain-out rows in report\n"
+    body = "\n".join(
+        _tex(r["domain"])
+        + f" & {r['n_calib']} & {r['n_test']} & "
+        + _pct(r["divergence"]["certified_bound"])
+        + " & "
+        + _pct(r["divergence"]["realized_risk"])
+        + " & "
+        + (CHECK if r["divergence"]["held"] else CROSS)
+        + " & "
+        + _pct(r["divergence"]["exchangeable_coverage"])
+        + f" & {r['divergence']['shift_pvalue']:.2f}"
+        + EOL
+        for r in rows
+    )
+    header = (
+        r"held-out domain & $n_{\text{cal}}$ & $n_{\text{test}}$ & certified $\beta$ "
+        r"& realized & held? & exch.\ cov. & $p$" + EOL
+    )
+    return (
+        "% auto-generated E3 leave-one-domain-out — do not edit\n"
+        "\\begin{tabular}{@{}lrrrrcrr@{}}\n\\toprule\n"
+        f"{header}\n\\midrule\n{body}\n\\bottomrule\n\\end{{tabular}}\n"
+    )
+
+
+def loo_macros(rep: dict) -> str:
+    """Headline macros for the E3 prose, so no number is hand-typed into the paper."""
+    s = rep.get("summary") or {}
+    if not s:
+        return "% no leave-one-domain-out summary in report\n"
+    d, h = s["divergence"], s["harm"]
+    rows = rep.get("domains") or []
+    min_p = min((r["divergence"]["shift_pvalue"] for r in rows), default=1.0)
+    out = [
+        "% auto-generated E3 macros — do not edit",
+        f"\\renewcommand{{\\LooN}}{{{s['n']}}}",
+        f"\\renewcommand{{\\LooDomains}}{{{d['domains']}}}",
+        f"\\renewcommand{{\\LooCandidate}}{{\\texttt{{{_tex(s['candidate'])}}}}}",
+        f"\\renewcommand{{\\LooDelta}}{{{s['delta']}}}",
+        f"\\renewcommand{{\\LooPooled}}{{{_pct(d['pooled_risk'])}}}",
+        f"\\renewcommand{{\\LooHeld}}{{{d['domains_held']}}}",
+        f"\\renewcommand{{\\LooCoverage}}{{{_pct(d['coverage'])}}}",
+        f"\\renewcommand{{\\LooExchCoverage}}{{{_pct(d['mean_exchangeable_coverage'])}}}",
+        f"\\renewcommand{{\\LooWorstDomain}}{{\\texttt{{{_tex(d['worst_domain'])}}}}}",
+        f"\\renewcommand{{\\LooWorstRisk}}{{{_pct(d['worst_realized'])}}}",
+        f"\\renewcommand{{\\LooDispP}}{{{d['dispersion_pvalue']:.2f}}}",
+        f"\\renewcommand{{\\LooMinP}}{{{min_p:.2f}}}",
+        f"\\renewcommand{{\\LooReps}}{{{d['permutation_reps']}}}",
+        f"\\renewcommand{{\\LooHarmPooled}}{{{_pct(h['pooled_risk'])}}}",
+        f"\\renewcommand{{\\LooHarmCoverage}}{{{_pct(h['coverage'])}}}",
+        f"\\renewcommand{{\\LooHarmExchCoverage}}{{{_pct(h['mean_exchangeable_coverage'])}}}",
+        f"\\renewcommand{{\\LooHarmDispP}}{{{h['dispersion_pvalue']:.2f}}}",
+    ]
+    return "\n".join(out) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("report", help="results.json from `prove.py --report`")
@@ -232,13 +351,17 @@ def main() -> int:
         choices=[
             "macros",
             "frontier",
+            "frontierci",
             "headtohead",
             "coverage",
             "tasksuccess",
             "shift",
             "e5macros",
+            "loo",
+            "loomacros",
         ],
-        help="emit only these fragments (default: all except e5macros)",
+        help="emit only these fragments (default: all prove.py fragments; e5macros, "
+        "loo and loomacros are opt-in because they need a prefix or a different report)",
     )
     ap.add_argument(
         "--macro-prefix",
@@ -255,7 +378,7 @@ def main() -> int:
             "       emit paper LaTeX from it. Re-run prove.py with --runner "
             "anthropic/openai/claude-cli on real traces."
         )
-    if (rep.get("args") or {}).get("samples", 1) < 3:
+    if rep.get("args") and rep["args"].get("samples", 1) < 3:
         print(
             "WARNING: report used --samples < 3; decision-change rate conflates true loss "
             "with grader variance. Use majority-of-3+ for a publishable number.",
@@ -265,14 +388,19 @@ def main() -> int:
     builders = {
         "macros": macros,
         "frontier": frontier,
+        "frontierci": frontier_ci,
         "headtohead": head_to_head,
         "coverage": coverage,
         "tasksuccess": task_success,
         "shift": shift,
         "e5macros": lambda r: e5_macros(r, prefix=args.macro_prefix),
+        "loo": loo,
+        "loomacros": loo_macros,
     }
-    # e5macros is opt-in (it needs a prefix), so the default "all" set excludes it.
-    selected = args.only or [k for k in builders if k != "e5macros"]
+    # e5macros needs a prefix and loo/loomacros read a leave_one_domain_out.py report
+    # rather than a prove.py one, so the default "all" set excludes all three.
+    opt_in = {"e5macros", "loo", "loomacros"}
+    selected = args.only or [k for k in builders if k not in opt_in]
     for name in selected:
         (out / f"{name}{args.suffix}.tex").write_text(builders[name](rep))
     print(f"wrote {len(selected)} LaTeX fragment(s) → {out} (suffix={args.suffix!r})")

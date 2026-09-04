@@ -17,6 +17,15 @@ compiles anywhere with a standard TeX distribution.
 latexmk -pdf main.tex      # or: pdflatex main.tex (run twice for cross-refs)
 ```
 
+> **`tectonic` cannot produce the committed PDFs.** It is fine for reading and for
+> checking that a source edit still compiles, but the staleness gate below diffs against a
+> **pdfLaTeX/latexmk** build at a pinned epoch, and tectonic's output will never match it
+> byte-for-byte. If you edited `main.tex` or `main_neurips.tex` without latexmk installed,
+> **do not commit a tectonic PDF** — it would be exactly the "PDF that no check verifies"
+> this directory's `.gitignore` argues against. Leave the tracked PDFs alone, say so in the
+> PR, and have someone with a TeX Live install run the command below before the branch
+> reaches `main`.
+
 **Committing a rebuilt PDF:** `main` runs a byte-for-byte staleness check against
 `main.pdf`/`main_neurips.pdf`, so a source edit needs the compiled PDF committed
 alongside it. Match CI's build pin (see `paper-build.yml`) exactly or the check
@@ -49,6 +58,29 @@ python benchmarks/prove.py --dataset tau --path tau.json \
 ```
 Then copy the E1 frontier points, E2 coverage, and E4 table out of `results.json`
 into the corresponding figures/tables.
+
+## E3: leave-one-domain-out (offline, free)
+
+E3 does not come from `prove.py`. The per-turn corpora can't carry it — τ-bench and
+SWE-bench were graded by *different* models, so a cross-domain comparison there confounds
+shift with grader identity. E3 runs at the **trajectory** level on the committed E8
+outcomes instead, where the grader is the deterministic official SWE-bench harness and
+each instance id carries a real domain label (its source repository):
+
+```bash
+python benchmarks/leave_one_domain_out.py            # -> results/leave_one_domain_out.json
+python benchmarks/report_to_latex.py \
+    docs/paper/results/leave_one_domain_out.json --only loo loomacros
+python benchmarks/leave_one_domain_out.py --selftest # guards the domain parser + E10 agreement
+```
+
+No API calls, no Docker, ~1 min. It reuses `distil.conformal.certified_risk_bound` and the
+same labels `benchmarks/trajectory_certificate.py` publishes (the selftest asserts the two
+agree to 5e-4), so E3 and E10 cannot silently diverge.
+
+`report_to_latex.py` also gained `--only frontierci`, which re-emits E1 as a table with
+Wilson 95% intervals — the figure plots point estimates only, and the aggressive rungs'
+intervals overlap.
 
 ## Switching to a venue style
 
