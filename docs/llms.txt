@@ -7,8 +7,9 @@ compressor that proves its guarantees rather than assuming them. Zero runtime
 dependencies. Four ways to use it, and they do not all reach the same tier:
 
   - Agent wrap: `distil wrap -- <agent>` for claude, codex, gemini, aider,
-    opencode, qwen, goose, grok, openhands. Zero config. (openhands additionally
-    needs its own --override-with-envs flag before it will read the environment.)
+    opencode, qwen, goose, grok, openhands, copilot (GitHub Copilot CLI, BYOK
+    mode), kimi (Kimi CLI). Zero config. (openhands additionally needs its own
+    --override-with-envs flag before it will read the environment.)
   - HTTP proxy for Anthropic, OpenAI (Chat Completions + Responses API), and
     Google Gemini. Point any base_url client at it.
   - Python library: `from distil import compress_messages, expand_handle`.
@@ -141,8 +142,9 @@ Adoption (install counts and community savings, and why an opt-in census can
 never attribute them to individual users):
 https://dshakes.github.io/distil/adoption.html
 
-IDE agents (Cursor, Cline, Continue, Windsurf via the proxy; why `wrap` cannot
-reach them, and why GitHub Copilot is not supportable at all):
+IDE agents and config-file agents (Cursor, Cline, Kilo, Roo, Warp, Cortex Code
+via the proxy since `wrap` cannot reach them; the config key each config-file
+agent needs pointed at `distil proxy`'s printed URL):
 https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md
 
 Enterprise (Helm chart, OIDC + RBAC, audit receipts, and an honest commercial

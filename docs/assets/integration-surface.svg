@@ -36,7 +36,7 @@
     <rect class="card" x="28" y="80" width="196" height="70" rx="8"/>
     <text class="lbl" x="44" y="104">Agent wrap</text>
     <text class="m"   x="44" y="124">distil wrap -- claude</text>
-    <text class="tiny" x="44" y="140">zero config · 9 agents</text>
+    <text class="tiny" x="44" y="140">zero config · 11 agents</text>
   </g>
   <g>
     <rect class="card" x="28" y="164" width="196" height="70" rx="8"/>
