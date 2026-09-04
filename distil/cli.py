@@ -2077,7 +2077,9 @@ def cmd_onboard(args: argparse.Namespace) -> int:
             try:
                 return subprocess.run(first_cmd.split()).returncode
             finally:
-                with contextlib.suppress(ValueError):
+                with contextlib.suppress(
+                    ValueError, TypeError
+                ):  # non-main thread / non-Python prev
                     signal.signal(signal.SIGINT, prev)
 
     print(
