@@ -9,6 +9,7 @@ distil certify   --trajectory T --strategy non-inferiority gate (the quality con
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -2068,11 +2069,16 @@ def cmd_onboard(args: argparse.Namespace) -> int:
             # Python-level handler resets across exec, so the child still gets it.
             import signal
 
+            prev = signal.getsignal(signal.SIGINT)
             try:
                 signal.signal(signal.SIGINT, lambda *_: None)
             except ValueError:
                 pass  # not the main thread (embedded use)
-            return subprocess.run(first_cmd.split()).returncode
+            try:
+                return subprocess.run(first_cmd.split()).returncode
+            finally:
+                with contextlib.suppress(ValueError):
+                    signal.signal(signal.SIGINT, prev)
 
     print(
         c("90", "Re-run anytime: ")
