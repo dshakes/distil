@@ -237,6 +237,25 @@
       </tbody>
     </table>
 
+    <h2 id="config-file-agents">Config-file agents</h2>
+    <p>These are CLIs, but the base URL lives in a config file rather than an environment variable <code>distil wrap</code> can inject. Point the key below at the URL <code>distil proxy</code> prints (<code>http://127.0.0.1:8788/v1</code> if you started it as above), then verify with <code>distil doctor</code>. Full detail: <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md#config-file-agents">IDE-AGENTS.md</a>.</p>
+    <table>
+      <thead>
+        <tr><th>Agent</th><th>Config file</th><th>Key</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Mistral Vibe</strong></td><td><code>config.toml</code></td><td><code>[[providers]]</code> block's <code>api_base</code></td></tr>
+        <tr><td><strong>Oh My Pi</strong></td><td><code>models.yml</code></td><td><code>baseUrl</code></td></tr>
+        <tr><td><strong>OpenClaw</strong></td><td>config file</td><td><code>models.providers.&lt;id&gt;.baseUrl</code></td></tr>
+        <tr><td><strong>Continue</strong> (the <code>cn</code> CLI)</td><td><code>config.yaml</code></td><td><code>models[].apiBase</code>, loaded via <code>--config</code></td></tr>
+        <tr><td><strong>Amp</strong></td><td><code>settings.json</code></td><td><code>amp.url</code></td></tr>
+        <tr><td><strong>Crush</strong></td><td><code>crush.json</code></td><td><code>providers.&lt;id&gt;.base_url</code></td></tr>
+        <tr><td><strong>Factory Droid</strong></td><td><code>~/.factory/settings.json</code></td><td><code>customModels[].baseUrl</code></td></tr>
+        <tr><td><strong>Junie</strong></td><td>model profile</td><td><code>baseUrl</code></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Not routable today (IDE extensions with no base-URL override at all): Cline, Kilo Code, Roo Code, Warp, Snowflake Cortex Code. See <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md">IDE-AGENTS.md</a> for why.</p>
+
     <hr/>
 
     <h2>Snippets</h2>
