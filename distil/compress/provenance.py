@@ -24,18 +24,26 @@ in this tool result a verbatim slice of a file on disk?*
 * ``cat a b``, ``head -n 50 f``, ``cat -n f``, ``sed -n '1,20p' f`` — yes. The agent quotes
   from what it saw, and what it saw is file content.
 
-Sequences (``a && b``, ``a; b``) concatenate their stages onto the same stream, so *every*
-stage must be a whole-file read for the result to qualify.
+Sequences (``a && b``, ``a; b``) print onto one stream, and what the agent quotes from is
+what the **last** stage printed — so that is what is classified. ``cd /repo && cat main.py``
+is the commonest read an agent issues, and a rule demanding every stage be a reader refuses
+it. Pipes are rejected outright rather than read last-stage-first: for ``cat a | head b``
+the last stage names ``b``, whose bytes never appeared, and that key would demote a genuine
+read of ``b``.
 
-Cost control: keeping every whole-file shell read verbatim forever forfeits ~27pp of
-tool-result mass. Keeping only the **latest** read per path recovers most of that (~7.7pp)
-and still cuts the residual quote hazard from 39.3% to 16.2%, because a superseded read is
-one the agent has a fresher copy of. Supersession is gated on the client's own cache
-breakpoint (see :func:`exact_quote_ids`) — demoting a block the provider has already cached
-rewrites the prefix, which costs more than the digest saves.
+**What this costs, as configured.** Keeping every whole-file shell read verbatim forever
+forfeits ~27pp of tool-result mass. Keeping only the latest read per path would recover most
+of that — the investigation put it at ~7.7pp — but that projection assumes a superseded read
+can always be demoted. Here it cannot: supersession is gated on the client's own cache
+breakpoint (see :func:`exact_quote_ids`), and under a client that marks most of its history
+cacheable, which is what Claude Code does, it rarely fires. So in practice this behaves much
+closer to the 27pp upper bound than to 7.7pp. That is the intended trade. The alternatives
+are digesting a read the agent must quote (a broken edit) or rewriting an already-cached
+prefix at the 1.25x write rate (measured at 2x the cost of compressing nothing) — forfeiting
+tokens is the only one of the three that costs only tokens.
 
 Stateless by design, like the rule it replaces: the exemption is recomputed from the message
-history on every request, and latest-per-path is resolved inside that same walk. The
+history on every request, and latest-per-(path, slice) is resolved inside that same walk. The
 conversation *is* the session memory.
 """
 
@@ -54,6 +62,7 @@ __all__ = [
     "exact_quote_ids",
     "observed_view",
     "quote_hazard",
+    "read_span",
     "required_quotes",
     "whole_file_read_paths",
 ]
@@ -222,6 +231,41 @@ def whole_file_read_paths(command: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(_stage_paths(stages[-1])))
 
 
+def read_span(command: str) -> str:
+    """How much of the file the read put in front of the model.
+
+    ``"all"`` for a whole-file reader; otherwise a tag naming the exact slice, built from
+    the reader's non-path arguments (``head:-n 50``, ``sed:-n 1,80p``).
+
+    Only two answers matter for supersession, so only two are computed: a whole-file read
+    covers anything read earlier, and a partial read covers only an *identical* partial
+    read. That is what stops ``sed -n '1,80p' app.py`` from being superseded by
+    ``sed -n '200,280p' app.py`` — disjoint windows onto one file, where treating the
+    second as a fresher copy of the first digests 80 lines the agent may still quote.
+
+    ponytail: no range arithmetic. ``sed -n '1,300p'`` after ``sed -n '50,100p'`` keeps a
+    block it could in principle drop. That costs tokens, never a quote, and it is the
+    direction this exemption already chose everywhere else. Add interval maths if a corpus
+    shows enclosing re-reads are common.
+    """
+    norm = command.replace("||", ";").replace("&&", ";").replace("\n", ";")
+    stages = [s for s in norm.split(";") if s.strip()]
+    try:
+        tokens = shlex.split(stages[-1]) if stages else []
+    except ValueError:
+        tokens = []
+    if not tokens:
+        return "all"
+    cmd = tokens[0].rsplit("/", 1)[-1]
+    # cat/nl/less/more take no slice: their flags change formatting, not extent.
+    if cmd in ("cat", "nl", "less", "more"):
+        return "all"
+    args = [t for t in tokens[1:] if t not in set(whole_file_read_paths(command))]
+    if cmd == "bat" and not any(a in ("-r", "--line-range") for a in args):
+        return "all"
+    return f"{cmd}:{' '.join(args)}"
+
+
 def exact_quote_ids(
     calls: Iterable[ToolCall],
     *,
@@ -250,8 +294,13 @@ def exact_quote_ids(
     ``widen`` disables supersession entirely — the reaction to an observed quote miss.
     """
     keep: dict[str, str] = {}
-    reads: list[tuple[ToolCall, tuple[str, ...]]] = []
-    last_reader: dict[str, int] = {}
+    reads: list[tuple[ToolCall, tuple[str, ...], str]] = []
+    # Keyed by (path, slice), not by path. Two disjoint partial reads of one file are not
+    # copies of each other, and treating the later as superseding the earlier digests
+    # lines the agent can still be asked to quote — before any Edit exists, so the quote
+    # guard has nothing to catch.
+    last_exact: dict[tuple[str, str], int] = {}
+    last_all: dict[str, int] = {}
     for call in calls:
         if call.name.lower() in EXACT_QUOTE_TOOLS:
             keep[call.id] = "tool_result_exact_quote"
@@ -259,11 +308,18 @@ def exact_quote_ids(
         paths = whole_file_read_paths(call.command)
         if not paths:
             continue
+        span = read_span(call.command)
         for path in paths:
-            last_reader[path] = len(reads)
-        reads.append((call, paths))
-    for pos, (call, paths) in enumerate(reads):
-        superseded = all(last_reader[p] != pos for p in paths)
+            last_exact[(path, span)] = len(reads)
+            if span == "all":
+                last_all[path] = len(reads)
+        reads.append((call, paths, span))
+    for pos, (call, paths, span) in enumerate(reads):
+        # Superseded only where every path it read has a strictly later read that COVERS
+        # it: the same slice again, or a whole-file read.
+        superseded = all(
+            last_exact.get((p, span), -1) > pos or last_all.get(p, -1) > pos for p in paths
+        )
         committed = cached_through is not None and call.pos <= cached_through
         if superseded and not committed and not widen:
             continue

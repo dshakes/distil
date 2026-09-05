@@ -17,6 +17,7 @@ from distil.compress.provenance import (
     exact_quote_ids,
     observed_view,
     quote_hazard,
+    read_span,
     required_quotes,
     whole_file_read_paths,
 )
@@ -144,6 +145,56 @@ def test_a_multi_file_read_survives_until_every_path_is_superseded() -> None:
     assert set(exact_quote_ids(calls)) == {"t1", "t2"}, "/b.py has no fresher copy"
     calls.append(_shell(3, "cat /b.py", 9))
     assert set(exact_quote_ids(calls)) == {"t2", "t3"}
+
+
+def test_disjoint_partial_reads_of_one_file_do_not_supersede_each_other() -> None:
+    """Two windows onto the same file are not copies of each other.
+
+    Keyed by path alone, `sed -n '200,280p' app.py` looked like a fresher copy of
+    `sed -n '1,80p' app.py` and digested the first 80 lines — before any Edit existed, so
+    the quote guard had nothing to catch and the loss was silent.
+    """
+    calls = [
+        _shell(1, "sed -n '1,80p' app.py", 1),
+        _shell(2, "sed -n '200,280p' app.py", 5),
+    ]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_a_whole_file_read_supersedes_an_earlier_partial_one() -> None:
+    """`cat` covers every slice, so the partial read really is redundant."""
+    calls = [_shell(1, "sed -n '1,80p' app.py", 1), _shell(2, "cat app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t2"}
+
+
+def test_a_narrower_reread_does_not_supersede_a_wider_one() -> None:
+    """`head -20` after `head -50` shows strictly less; the 50 still has to survive."""
+    calls = [_shell(1, "head -n 50 app.py", 1), _shell(2, "head -n 20 app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_an_identical_reread_still_supersedes() -> None:
+    """The case supersession exists for: the same slice, read again."""
+    calls = [_shell(1, "head -n 50 app.py", 1), _shell(2, "head -n 50 app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t2"}
+
+
+@pytest.mark.parametrize(
+    ("command", "span"),
+    [
+        ("cat app.py", "all"),
+        ("cat -n app.py", "all"),  # numbering is formatting, not extent
+        ("nl -ba app.py", "all"),
+        ("bat app.py", "all"),
+        ("bat -r 10:20 app.py", "bat:-r 10:20"),  # ranged bat is partial
+        ("head -n 50 app.py", "head:-n 50"),
+        ("tail -n 5 app.py", "tail:-n 5"),
+        ("sed -n '1,80p' app.py", "sed:-n 1,80p"),
+        ("cd /repo && cat app.py", "all"),
+    ],
+)
+def test_read_span_names_the_slice(command: str, span: str) -> None:
+    assert read_span(command) == span
 
 
 def test_a_superseded_read_inside_the_cached_prefix_is_kept_anyway() -> None:

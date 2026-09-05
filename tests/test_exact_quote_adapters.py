@@ -56,6 +56,20 @@ def _anthropic_session(command: str, *, filler: int = 6) -> list[dict]:
     return msgs
 
 
+def _bash_call(tid: str, command: str) -> dict:
+    return {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": tid, "name": "Bash", "input": {"command": command}}],
+    }
+
+
+def _tool_result(tid: str, content: str) -> dict:
+    return {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": tid, "content": content}],
+    }
+
+
 def _result(out: list[dict], tool_use_id: str) -> str:
     for m in out:
         for blk in m.get("content") or ():
@@ -241,3 +255,97 @@ def test_another_adapter_on_the_same_thread_clears_the_hazard_count() -> None:
     assert take_quote_hazard() is None
     compress_generate_request({"contents": []})
     assert take_quote_hazard() is None
+
+
+# --------------------------------------------------------------------------- contracts
+
+
+def _list_shaped_read(command: str) -> list[dict]:
+    """A read whose tool_result carries content as a LIST of parts, as Claude Code sends."""
+    msgs = _anthropic_session(command)
+    msgs[2]["content"][0]["content"] = [{"type": "text", "text": SRC}]
+    return msgs
+
+
+def test_a_list_shaped_exact_quote_block_is_still_censused() -> None:
+    """The census's whole value is that it accounts for the entire payload.
+
+    An exempt block counted as zero tokens is worse than no census: it is in the payload,
+    it is protected on purpose, and the report would attribute it to nothing.
+    """
+    from distil.adapters.anthropic import take_census
+    from distil.proxy import _count_messages
+
+    msgs = _list_shaped_read("cat /app/handlers.py")
+    compress_messages(msgs)
+    census = take_census() or {}
+    assert census.get("tool_result_shell_read", 0) > 0
+    total, payload = sum(census.values()), _count_messages(msgs)
+    assert abs(total - payload) / payload < 0.005, f"census {total} vs payload {payload}"
+
+
+def test_a_list_shaped_tool_message_is_censused_on_the_openai_path_too() -> None:
+    from distil.adapters.anthropic import take_census
+
+    messages: list[dict] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "bash",
+                        "arguments": json.dumps({"command": "cat /app/handlers.py"}),
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": SRC}]},
+    ]
+    compress_chat_completions(messages)
+    assert (take_census() or {}).get("tool_result_shell_read", 0) > 0
+
+
+def _is_image(block: object) -> bool:
+    return isinstance(block, dict) and block.get("type") == "image"
+
+
+def test_the_quote_hazard_retry_does_not_swallow_the_images(monkeypatch) -> None:
+    """The vision deduper elides an image it has already SEEN, so it is per-pass state.
+
+    Left alive across the widen-on-miss retry it would have seen every image during the
+    first pass, so the second pass elides all of them and the model receives none at all.
+    Verified against the pre-fix shape: 0 images survive, versus 1 here.
+    """
+    monkeypatch.setenv("DISTIL_VISION", "1")
+    img = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo=" * 400},
+    }
+    # A re-read of the same path whose content CHANGED: it supersedes the first read, which
+    # therefore digests, which loses the Edit's quote — the miss that forces the retry.
+    renamed = SRC.replace("handler_7", "renamed_7")
+    msgs: list[dict] = [
+        {"role": "user", "content": "refactor"},
+        _bash_call("r1", "cat /app/handlers.py"),
+        _tool_result("r1", SRC),
+        {"role": "user", "content": [dict(img), dict(img)]},
+    ]
+    for i in range(4):
+        msgs += [_bash_call(f"n{i}", "pytest -q"), _tool_result(f"n{i}", NOISE)]
+    msgs += [
+        _bash_call("r2", "cat /app/handlers.py"),
+        _tool_result("r2", renamed),
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "e1", "name": "Edit", "input": {"old_string": QUOTE}}
+            ],
+        },
+    ]
+    out, _store = compress_messages(msgs)
+    assert _result(out, "r1") == SRC, "the retry must have widened the exemption"
+    assert take_quote_hazard() == {"survived": 1, "lost": 0}
+    images = [b for m in out for b in (m.get("content") or []) if _is_image(b)]
+    assert len(images) == 1, "the second pass must not elide every image as already-seen"

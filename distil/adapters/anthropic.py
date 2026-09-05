@@ -529,6 +529,30 @@ def _downscale_image_block(
     return [scaled, {"type": "text", "text": _scale.note_text(handle, before, after, saved)}]
 
 
+def _census_tool_result(bucket: str, content: Any) -> None:
+    """Attribute an untouched tool_result's whole payload to *bucket*.
+
+    A tool_result carries its content as a bare string OR as a list of text/image parts,
+    and a `Read` routinely arrives in the list shape. Counting only the string form left
+    those blocks in the payload but absent from the census, which breaks the one property
+    that makes the census worth reading: that it accounts for everything sent. Images are
+    counted the way the baseline counts them (by area, not by base64 length), so both
+    sides stay on one scale.
+    """
+    if isinstance(content, str):
+        _census(bucket, content)
+        return
+    if not isinstance(content, list):
+        return
+    for sub in content:
+        if not isinstance(sub, dict):
+            continue
+        if sub.get("type") == "image":
+            _census_tokens(bucket, _vision.block_tokens(sub))
+        elif isinstance(sub.get("text"), str):
+            _census(bucket, sub["text"])
+
+
 def _compress_content_item(
     item: dict[str, Any],
     store: RestoreStore,
@@ -587,7 +611,7 @@ def _compress_content_item(
             # File content the agent must quote back verbatim to edit it. The bucket
             # names WHICH rule froze it — the 1.49.0 tool-name table, or the shell-command
             # classifier this replaced it with — so the cost of each is visible separately.
-            _census(bucket, content if isinstance(content, str) else "")
+            _census_tool_result(bucket, content)
             return item
 
         if isinstance(content, str):
@@ -762,9 +786,6 @@ def compress_messages(
     # which is the wanted behaviour — the census should describe the payload actually sent.
     _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
-    # Vision duplicate elision (ADR 0003) — None unless the content type has been
-    # certified, so the default path is byte-for-byte what it was before.
-    _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
     try:
         recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
         # Query-aware salience is scoped to content the provider has NOT cached.
@@ -782,6 +803,15 @@ def compress_messages(
             # A census describes the payload actually sent, so it is reopened here and
             # not outside — a second walk must not sum with the first one's counts.
             _census_tls.counts = {}
+            _vision_tls.dedup = (
+                _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
+            )
+            # Same reason, and it is not merely bookkeeping: the vision deduper elides an
+            # image it has ALREADY SEEN. Left alive across a quote-hazard retry it would
+            # have seen every image in the first pass, so the second pass would elide all
+            # of them and the model would receive none. Per-pass state, per-pass reset.
+            # ADR 0003 — None unless the content type has been certified, so the default
+            # path is byte-for-byte what it was before.
             store = RestoreStore()
             new_messages: list[dict[str, Any]] = []
             for idx, msg in enumerate(messages):

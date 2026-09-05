@@ -155,14 +155,32 @@ narrow — *are the bytes the agent saw a verbatim slice of a file?*
 * `cat f > out`, `… | tee out`, `cat << EOF` — no. Those bytes are not what came back.
 * `sed 's/a/b/' f` — no. That is a transform.
 
-Only the **latest** read per path is kept: a superseded read is one the agent has a
-fresher byte-exact copy of. That takes the residual quote hazard from 39.3% to 16.2% for
-7.7pp of tool-result mass. Exempting *every* whole-file read instead would buy 187 more
-quotes for 3.8M more tokens — a bad trade, and it is not made. Supersession stops at the
-client's own `cache_control` breakpoint, because flipping a block the provider has
-already cached from verbatim to digest rewrites the entire prefix at the 1.25x write rate;
-that is the trade the recency carve-out was re-anchored to avoid, and it costs far more
-than the digest saves.
+Only the latest read per **(path, slice)** is kept: a superseded read is one the agent has
+a fresher byte-exact copy of. Slice, not path — `sed -n '1,80p' app.py` and
+`sed -n '200,280p' app.py` are two disjoint windows onto one file, and treating the second
+as a fresher copy of the first digests 80 lines the agent may still have to quote. A later
+read supersedes an earlier one only when it covers it: the identical slice again, or a
+whole-file read.
+
+Supersession also stops at the client's own `cache_control` breakpoint, because flipping a
+block the provider has already cached from verbatim to digest rewrites the entire prefix at
+the 1.25x write rate. That is the trade the recency carve-out was re-anchored to avoid, and
+it was measured at 2x the cost of compressing nothing at all.
+
+**What this costs, stated honestly.** The investigation projected 7.7pp of tool-result mass
+for a latest-per-path rule, against a 27pp upper bound for exempting every whole-file read.
+That 7.7pp assumes a superseded read can always be demoted. Here it cannot: under a client
+that marks most of its history cacheable — which is what Claude Code does — the cache gate
+means supersession rarely fires, and the exemption degrades toward keeping every whole-file
+read. **So the forfeited digest saving in practice sits much closer to the 27pp figure than
+to 7.7pp.**
+
+That is the intended trade, not a regression. There are three ways to handle a read the
+agent may quote: digest it and break the edit, demote it and rewrite an already-cached
+prefix at the write rate, or keep the bytes. Only the third costs nothing but tokens, and
+the tokens it costs are billed at the cache-read rate rather than re-written. Exempting
+every whole-file read outright would still be worse — it buys 187 more quotes for 3.8M more
+tokens with no cache benefit — so the slice-aware rule is kept.
 
 The rule lives in one place (`distil/compress/provenance.py`) and all three adapters use
 it. Chat Completions, the Responses API and Gemini `generateContent` had **no** exact-quote
@@ -190,6 +208,12 @@ validate` gains a sixth invariant, **quote-survival**, over synthesized read-the
 sessions (`Read`, `cat`, `head -n`, `sed -n`, `cat -n`, `cd … && cat`, a re-read, and a
 read whose content is shaped like a digest stub). Nothing gated this before, which is why
 1.49.0 shipped half-covered and nine releases went by without noticing.
+
+Known follow-up: the quote-hazard counter and the widen-on-miss reaction run on the
+Messages path only, where `Edit`/`MultiEdit` live. The other two adapters get the exemption
+but clear the counter rather than compute it, so a stale count is never reported against
+them. Wiring it through the Responses API, where Codex's `str_replace_editor` lives, is not
+done here.
 
 `benchmarks/codebench.py` is relabelled, not re-measured. It is an *upper bound* on what
 the guarantee costs: ~55% of its tool-result tokens are file reads that must stay

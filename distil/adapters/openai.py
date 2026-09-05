@@ -64,6 +64,7 @@ from ..compress import provenance as _provenance
 from .anthropic import (
     _census,
     _census_tls,
+    _census_tool_result,
     _hazard_tls,
     RestoreStore,
     _compress_text_content,
@@ -173,8 +174,11 @@ def _compress_openai_message(
 
     bucket = exact_ids.get(str(msg.get("tool_call_id") or "")) if role == "tool" else None
     if bucket:
-        # File content the agent must quote back verbatim to edit it.
-        _census(bucket, content if isinstance(content, str) else "")
+        # File content the agent must quote back verbatim to edit it. Censused through the
+        # shared helper because a tool message's content is a string OR a list of parts,
+        # and counting only the string form leaves list-shaped reads out of a census whose
+        # whole value is that it accounts for the entire payload.
+        _census_tool_result(bucket, content)
         return msg
 
     # --- bare string content ---
