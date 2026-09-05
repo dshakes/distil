@@ -150,6 +150,12 @@ def leave_one_domain_out(
     control_reps: int = 400,
     seed: int = 1729,
 ) -> dict:
+    # The permutation reference IS the control every conclusion is read against, so
+    # there is no meaningful zero-rep mode to fall back to: reps=0 divides by zero
+    # averaging coverage and indexes an empty percentile. Guard here rather than in
+    # argparse so library callers get it too.
+    if control_reps < 1:
+        raise ValueError(f"control_reps must be >= 1, got {control_reps}")
     per_item = losses(reference, candidate)
     turns = _turns(candidate)
     ids = list(per_item)
@@ -239,12 +245,15 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = ap.parse_args()
 
-    res = leave_one_domain_out(
-        args.reference,
-        args.candidate,
-        delta=args.delta,
-        control_reps=args.control_reps,
-    )
+    try:
+        res = leave_one_domain_out(
+            args.reference,
+            args.candidate,
+            delta=args.delta,
+            control_reps=args.control_reps,
+        )
+    except ValueError as e:  # a usage error deserves usage output, not a traceback
+        ap.error(str(e))
     args.out.write_text(json.dumps(res, indent=2) + "\n")
 
     s = res["summary"]
@@ -285,6 +294,13 @@ def _selftest() -> None:
         assert abs(rate - cert[loss]["empirical_rate"]) < 5e-4, (loss, rate)
     res = leave_one_domain_out(control_reps=20)
     assert sum(r["n_test"] for r in res["domains"]) == n
+    for bad in (0, -1):
+        try:
+            leave_one_domain_out(control_reps=bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"control_reps={bad} should have been rejected")
     print("selftest ok")
 
 
