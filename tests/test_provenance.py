@@ -46,10 +46,13 @@ from distil.compress.provenance import (
         ("sed -n '10,$p' /app/main.py", ("/app/main.py",)),
         ("sed -ne '1,20p' /app/main.py", ("/app/main.py",)),
         # --- sequences: every stage must be a read, and the paths union ---
-        ("cat a.py && cat b.py", ("a.py", "b.py")),
-        ("cat a.py; cat b.py", ("a.py", "b.py")),
-        ("cat a.py || cat b.py", ("a.py", "b.py")),
-        ("cat a.py && cat a.py", ("a.py",)),  # de-duplicated
+        ("cat a.py && cat b.py", ("b.py",)),
+        ("cat a.py; cat b.py", ("b.py",)),
+        ("cat a.py || cat b.py", ("b.py",)),
+        # The shape an agent actually uses to read a file. Requiring every stage to be
+        # a reader would refuse this one and digest the quote.
+        ("cd /repo && cat main.py", ("main.py",)),
+        ("cd /repo; pytest -q; cat main.py", ("main.py",)),
     ],
 )
 def test_whole_file_reads_are_recognised(command: str, paths: tuple[str, ...]) -> None:
@@ -79,9 +82,12 @@ def test_whole_file_reads_are_recognised(command: str, paths: tuple[str, ...]) -
         # A reader with no file argument reads stdin — there is no path to key on.
         "cat",
         "head -n 5",
-        # One non-read stage poisons the whole sequence.
+        # The last stage is what the agent read; a sequence ending in a non-reader is
+        # not a file read however it started.
         "cat a.py && pytest -q",
-        "pytest -q; cat a.py",
+        # A heredoc writes; those bytes are not what came back.
+        "cat << EOF",
+        "cat < /app/main.py",
         # Unparseable: we cannot say what it read, so we do not claim it.
         "cat 'unbalanced",
         "",
@@ -110,34 +116,34 @@ def _shell(i: int, command: str, index: int) -> ToolCall:
 def test_named_read_tools_stay_exempt() -> None:
     """The 1.49.0 rule, unchanged: a Read is exempt however old."""
     calls = [ToolCall(id="t1", name="Read", command="", pos=1)]
-    assert exact_quote_ids(calls) == {"t1"}
+    assert set(exact_quote_ids(calls)) == {"t1"}
 
 
 def test_shell_read_is_now_exempt_too() -> None:
-    assert exact_quote_ids([_shell(1, "cat /a.py", 1)]) == {"t1"}
+    assert set(exact_quote_ids([_shell(1, "cat /a.py", 1)])) == {"t1"}
 
 
 def test_ordinary_shell_output_still_digests() -> None:
     """The exemption is provenance-scoped, not a blanket amnesty for the Bash tool."""
-    assert exact_quote_ids([_shell(1, "pytest -q", 1)]) == set()
+    assert set(exact_quote_ids([_shell(1, "pytest -q", 1)])) == set()
 
 
 def test_only_the_latest_read_of_a_path_is_kept() -> None:
     """A superseded read is one the agent has a fresher byte-exact copy of."""
     calls = [_shell(1, "cat /a.py", 1), _shell(2, "cat /a.py", 5)]
-    assert exact_quote_ids(calls) == {"t2"}
+    assert set(exact_quote_ids(calls)) == {"t2"}
 
 
 def test_a_read_of_a_different_path_supersedes_nothing() -> None:
     calls = [_shell(1, "cat /a.py", 1), _shell(2, "cat /b.py", 5)]
-    assert exact_quote_ids(calls) == {"t1", "t2"}
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
 
 
 def test_a_multi_file_read_survives_until_every_path_is_superseded() -> None:
     calls = [_shell(1, "cat /a.py /b.py", 1), _shell(2, "cat /a.py", 5)]
-    assert exact_quote_ids(calls) == {"t1", "t2"}, "/b.py has no fresher copy"
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}, "/b.py has no fresher copy"
     calls.append(_shell(3, "cat /b.py", 9))
-    assert exact_quote_ids(calls) == {"t2", "t3"}
+    assert set(exact_quote_ids(calls)) == {"t2", "t3"}
 
 
 def test_a_superseded_read_inside_the_cached_prefix_is_kept_anyway() -> None:
@@ -148,14 +154,27 @@ def test_a_superseded_read_inside_the_cached_prefix_is_kept_anyway() -> None:
     client's cache breakpoint.
     """
     calls = [_shell(1, "cat /a.py", 1), _shell(2, "cat /a.py", 9)]
-    assert exact_quote_ids(calls, cached_through=4) == {"t1", "t2"}
-    assert exact_quote_ids(calls, cached_through=0) == {"t2"}
+    assert set(exact_quote_ids(calls, cached_through=4)) == {"t1", "t2"}
+    assert set(exact_quote_ids(calls, cached_through=0)) == {"t2"}
 
 
 def test_widen_turns_supersession_off_entirely() -> None:
     """The reaction to an observed quote miss: stop digesting the class."""
     calls = [_shell(1, "cat /a.py", 1), _shell(2, "cat /a.py", 5)]
-    assert exact_quote_ids(calls, widen=True) == {"t1", "t2"}
+    assert set(exact_quote_ids(calls, widen=True)) == {"t1", "t2"}
+
+
+def test_the_two_rules_are_counted_separately() -> None:
+    """A shell read and a Read are both exempt, but the census must say which rule froze
+    each — otherwise the new rule's cost in production is only inferable, not measured."""
+    calls = [
+        ToolCall(id="t1", name="Read", command="", pos=1),
+        _shell(2, "cat /a.py", 3),
+    ]
+    assert exact_quote_ids(calls) == {
+        "t1": "tool_result_exact_quote",
+        "t2": "tool_result_shell_read",
+    }
 
 
 # --------------------------------------------------------------------------- quotes

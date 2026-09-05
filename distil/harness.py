@@ -199,6 +199,16 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
             ],
         ),
         ("stub_shaped_read_then_edit", read_edit(_bash, stub_shaped, quote)),
+        (
+            # The commonest read an agent actually issues, and the one a stricter
+            # every-stage-must-be-a-reader rule silently refused.
+            "shell_cd_then_cat_then_edit",
+            read_edit(
+                {"name": "Bash", "input": {"command": "cd /app && cat handlers.py"}},
+                module,
+                quote,
+            ),
+        ),
         ("big_log", convo(big_log)),
         ("code_heavy", convo(code)),
         ("json_array_foldable", convo(json_rows)),

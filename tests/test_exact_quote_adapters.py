@@ -78,6 +78,23 @@ def test_ordinary_shell_output_beside_it_still_digests() -> None:
     assert "handle=" in _result(out, "n0"), "routine test output should still digest"
 
 
+def test_a_cd_prefixed_read_is_still_a_read() -> None:
+    """`cd /repo && cat main.py` is the commonest way an agent reads a file. Requiring
+    every stage to be a reader refused it, which digested the quote."""
+    out, _store = compress_messages(_anthropic_session("cd /app && cat handlers.py"))
+    assert _result(out, "r1") == SRC
+
+
+def test_the_census_names_which_rule_froze_the_block() -> None:
+    """`tool_result_shell_read` is the new rule's cost, reported apart from 1.49.0's."""
+    from distil.adapters.anthropic import take_census
+
+    compress_messages(_anthropic_session("cat /app/handlers.py"))
+    census = take_census() or {}
+    assert census.get("tool_result_shell_read", 0) > 0
+    assert census.get("tool_result_exact_quote", 0) == 0
+
+
 def test_a_piped_read_is_not_treated_as_a_file_read() -> None:
     out, _store = compress_messages(_anthropic_session("cat /app/handlers.py | grep def"))
     assert "handle=" in _result(out, "r1")

@@ -54,7 +54,8 @@ All three seams are now wired end-to-end in the proxy:
 from __future__ import annotations
 
 import json
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from ..compress.intent import terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
@@ -140,7 +141,7 @@ def _chat_tool_calls(messages: list[dict[str, Any]]) -> list[_provenance.ToolCal
     return calls
 
 
-def exact_quote_tool_call_ids(messages: list[dict[str, Any]]) -> set[str]:
+def exact_quote_tool_call_ids(messages: list[dict[str, Any]]) -> dict[str, str]:
     """``tool_call_id``s whose ``role:"tool"`` result must stay byte-exact.
 
     Same guarantee and same classifier as the Messages path — a file the agent read,
@@ -156,7 +157,7 @@ def _compress_openai_message(
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
-    exact_ids: frozenset[str] = frozenset(),
+    exact_ids: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) Chat Completions message dict after compressing.
 
@@ -170,9 +171,10 @@ def _compress_openai_message(
     role = msg.get("role", "")
     content = msg.get("content")
 
-    if role == "tool" and msg.get("tool_call_id") in exact_ids:
+    bucket = exact_ids.get(str(msg.get("tool_call_id") or "")) if role == "tool" else None
+    if bucket:
         # File content the agent must quote back verbatim to edit it.
-        _census("tool_result_exact_quote", content if isinstance(content, str) else "")
+        _census(bucket, content if isinstance(content, str) else "")
         return msg
 
     # --- bare string content ---
@@ -296,7 +298,7 @@ def compress_chat_completions(
         new_messages: list[dict[str, Any]] = []
         recent = _recent_chat_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
         # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact_ids = frozenset(exact_quote_tool_call_ids(messages))
+        exact_ids = exact_quote_tool_call_ids(messages)
         for idx, msg in enumerate(messages):
             if not isinstance(msg, dict):
                 new_messages.append(msg)  # malformed entry — pass through untouched
@@ -359,7 +361,7 @@ def _response_tool_calls(items: list[dict[str, Any]]) -> list[_provenance.ToolCa
     return calls
 
 
-def exact_quote_call_ids(items: list[dict[str, Any]]) -> set[str]:
+def exact_quote_call_ids(items: list[dict[str, Any]]) -> dict[str, str]:
     """``call_id``s whose ``function_call_output`` must stay byte-exact. See
     :func:`exact_quote_tool_call_ids` — same rule, Responses shape."""
     return _provenance.exact_quote_ids(_response_tool_calls(items), cached_through=len(items) - 1)
@@ -370,7 +372,7 @@ def _compress_response_item(
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
-    exact_ids: frozenset[str] = frozenset(),
+    exact_ids: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) Responses API input item after compression.
 
@@ -389,9 +391,10 @@ def _compress_response_item(
         output = item.get("output")
         if not isinstance(output, str):
             return item  # non-string output field — pass through
-        if item.get("call_id") in exact_ids:
+        bucket = exact_ids.get(str(item.get("call_id") or ""))
+        if bucket:
             # File content the agent must quote back verbatim to edit it.
-            _census("tool_result_exact_quote", output)
+            _census(bucket, output)
             return item
         new_output = _compress_tool_result_text(output, store, verbatim, is_recent)
         if new_output == output:
@@ -487,7 +490,7 @@ def compress_responses_input(
         new_items: list[dict[str, Any]] = []
         recent = _recent_response_verbatim_indices(items, _RECENCY_KEEP_TURNS)
         # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact_ids = frozenset(exact_quote_call_ids(items))
+        exact_ids = exact_quote_call_ids(items)
         for idx, item in enumerate(items):
             if not isinstance(item, dict):
                 new_items.append(item)  # malformed entry — pass through

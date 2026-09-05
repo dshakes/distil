@@ -209,18 +209,17 @@ def whole_file_read_paths(command: str) -> tuple[str, ...]:
     norm = command.replace("||", ";").replace("&&", ";").replace("\n", ";")
     if "|" in norm:
         return ()  # a real pipe: the agent saw the pipeline's output, not the file's
-    if ">" in norm:
-        return ()  # redirection (`>`, `>>`): the bytes went to a file, not to the agent
-    paths: list[str] = []
+    if ">" in norm or "<" in norm:
+        return ()  # redirection or heredoc: those bytes are not what came back
     stages = [s for s in norm.split(";") if s.strip()]
     if not stages:
         return ()
-    for stage in stages:
-        stage_paths = _stage_paths(stage)
-        if not stage_paths:
-            return ()  # one non-read stage and the combined output is no longer file bytes
-        paths.extend(stage_paths)
-    return tuple(dict.fromkeys(paths))
+    # LAST stage only. `cd /repo && cat main.py` is the single most common way an agent
+    # reads a file, and requiring every stage to be a reader would refuse it — the quote
+    # would be digested and the next Edit would not match. What the agent quotes from is
+    # what the last stage printed. Earlier stages' output is still in the block and still
+    # kept verbatim; they just do not earn a path key of their own.
+    return tuple(dict.fromkeys(_stage_paths(stages[-1])))
 
 
 def exact_quote_ids(
@@ -228,8 +227,14 @@ def exact_quote_ids(
     *,
     cached_through: int | None = None,
     widen: bool = False,
-) -> set[str]:
-    """Ids of the tool calls whose results must stay byte-exact, however old.
+) -> dict[str, str]:
+    """Tool-call id -> the census bucket its result belongs in, for results that must stay
+    byte-exact however old. Membership (``id in result``) is the exemption test.
+
+    The two buckets are kept apart on purpose: ``tool_result_exact_quote`` is what the
+    1.49.0 name rule froze, ``tool_result_shell_read`` is what this one adds. Summed by
+    ``distil dissect`` with no change on its side, they are what the new rule's cost in
+    production actually looks like — one number, not an inference.
 
     Name-keyed reads (``Read``, ``Grep``, …) are always exempt — that is the 1.49.0 rule,
     unchanged. Shell whole-file reads are exempt too, except where a *later* read of every
@@ -244,12 +249,12 @@ def exact_quote_ids(
 
     ``widen`` disables supersession entirely — the reaction to an observed quote miss.
     """
-    keep: set[str] = set()
+    keep: dict[str, str] = {}
     reads: list[tuple[ToolCall, tuple[str, ...]]] = []
     last_reader: dict[str, int] = {}
     for call in calls:
         if call.name.lower() in EXACT_QUOTE_TOOLS:
-            keep.add(call.id)
+            keep[call.id] = "tool_result_exact_quote"
             continue
         paths = whole_file_read_paths(call.command)
         if not paths:
@@ -262,7 +267,7 @@ def exact_quote_ids(
         committed = cached_through is not None and call.pos <= cached_through
         if superseded and not committed and not widen:
             continue
-        keep.add(call.id)
+        keep[call.id] = "tool_result_shell_read"
     return keep
 
 

@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from types import MappingProxyType
+from typing import Mapping
 from typing import Any
 
 from ..compress.tier0 import collapse_runs, minify_json
@@ -173,7 +175,9 @@ def _tool_calls(messages: list[dict[str, Any]]) -> list[_provenance.ToolCall]:
     return calls
 
 
-def exact_quote_tool_use_ids(messages: list[dict[str, Any]], *, widen: bool = False) -> set[str]:
+def exact_quote_tool_use_ids(
+    messages: list[dict[str, Any]], *, widen: bool = False
+) -> dict[str, str]:
     """tool_use ids whose results must stay byte-exact regardless of age.
 
     Recency alone is the wrong instrument here. It is positional, so a file read three
@@ -531,7 +535,7 @@ def _compress_content_item(
     role: str,
     verbatim: bool,
     is_recent: bool = False,
-    exact_ids: frozenset[str] = frozenset(),
+    exact_ids: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) content block after compression.
 
@@ -578,9 +582,12 @@ def _compress_content_item(
         content = item.get("content")
         if content is None:
             return item
-        if item.get("tool_use_id") in exact_ids:
-            # File content the agent must quote back verbatim to edit it.
-            _census("tool_result_exact_quote", content if isinstance(content, str) else "")
+        bucket = exact_ids.get(str(item.get("tool_use_id") or ""))
+        if bucket:
+            # File content the agent must quote back verbatim to edit it. The bucket
+            # names WHICH rule froze it — the 1.49.0 tool-name table, or the shell-command
+            # classifier this replaced it with — so the cost of each is visible separately.
+            _census(bucket, content if isinstance(content, str) else "")
             return item
 
         if isinstance(content, str):
@@ -635,7 +642,7 @@ def _compress_message(
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
-    exact_ids: frozenset[str] = frozenset(),
+    exact_ids: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) message dict after compressing its content."""
     role = msg.get("role", "")
@@ -714,8 +721,7 @@ def _guard_quotes(
         return compressed, store
     survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
     if lost:
-        wide = frozenset(exact_quote_tool_use_ids(messages, widen=True))
-        compressed, store = walk(wide)
+        compressed, store = walk(exact_quote_tool_use_ids(messages, widen=True))
         survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
     _hazard_tls.counts = {"survived": survived, "lost": lost}
     return compressed, store
@@ -772,7 +778,7 @@ def compress_messages(
         cached_through = _cached_prefix_end(messages)
         full_intent = _intent_tls.terms
 
-        def _walk(exact_ids: frozenset[str]) -> tuple[list[dict[str, Any]], RestoreStore]:
+        def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
             # A census describes the payload actually sent, so it is reopened here and
             # not outside — a second walk must not sum with the first one's counts.
             _census_tls.counts = {}
@@ -794,7 +800,7 @@ def compress_messages(
             return new_messages, store
 
         # Results the agent must quote back byte-exact to edit — provenance, not position.
-        new_messages, store = _walk(frozenset(exact_quote_tool_use_ids(messages)))
+        new_messages, store = _walk(exact_quote_tool_use_ids(messages))
         new_messages, store = _guard_quotes(messages, new_messages, store, _walk, verbatim)
         return new_messages, store
     finally:

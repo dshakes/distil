@@ -147,9 +147,12 @@ every stage is a whole-file reader, with no pipe and no redirection, produced fi
 and is exempt. The classifier is deliberately narrow, because the question it answers is
 narrow — *are the bytes the agent saw a verbatim slice of a file?*
 
-* `cat a b`, `head -n 50 f`, `cat -n f`, `sed -n '1,20p' f`, `cat a && cat b` — yes.
+* `cat a b`, `head -n 50 f`, `cat -n f`, `sed -n '1,20p' f` — yes.
+* `cd /repo && cat main.py` — yes, and this one matters most: it is the commonest way an
+  agent reads a file, so a rule requiring *every* stage to be a reader would refuse it
+  and digest the quote. What the agent quotes from is what the **last** stage printed.
 * `cat f | grep x` — no. The agent saw grep's output, not the file's.
-* `cat f > out`, `… | tee out` — no. The bytes went to a file.
+* `cat f > out`, `… | tee out`, `cat << EOF` — no. Those bytes are not what came back.
 * `sed 's/a/b/' f` — no. That is a transform.
 
 Only the **latest** read per path is kept: a superseded read is one the agent has a
@@ -174,14 +177,19 @@ blocks, breaking the cache-monotonicity that suffix-only encoding exists to pres
 delta now skips the exempt blocks instead. They stay registered as delta *bases*, so later
 re-reads still dedup against them.
 
+Two census buckets, not one: `tool_result_exact_quote` is what the 1.49.0 name rule
+froze, `tool_result_shell_read` is what this one adds. `distil dissect` sums them by
+reason with no change on its side, so the new rule's cost in production is a number you
+can read rather than one you have to infer.
+
 **The guarantee now measures itself.** Every request records, content-free, whether each
 literal-match edit's `old_string` still occurs in the payload distil forwarded: two counts,
 no text, surfaced in `distil dissect` and as an anomaly line when any quote is lost. On a
 miss the whole provenance class stops digesting for the rest of the session. `distil
 validate` gains a sixth invariant, **quote-survival**, over synthesized read-then-edit
-sessions (`Read`, `cat`, `head -n`, `sed -n`, `cat -n`, a re-read, and a read whose content
-is shaped like a digest stub). Nothing gated this before, which is why 1.49.0 shipped
-half-covered and nine releases went by without noticing.
+sessions (`Read`, `cat`, `head -n`, `sed -n`, `cat -n`, `cd … && cat`, a re-read, and a
+read whose content is shaped like a digest stub). Nothing gated this before, which is why
+1.49.0 shipped half-covered and nine releases went by without noticing.
 
 `benchmarks/codebench.py` is relabelled, not re-measured. It is an *upper bound* on what
 the guarantee costs: ~55% of its tool-result tokens are file reads that must stay
