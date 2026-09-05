@@ -47,17 +47,35 @@ def _compressible(path: str) -> bool:
     return path in _COMPRESSIBLE_PATHS or is_gemini_path(path)
 
 
-async def _read_body(receive: Receive) -> bytes:
-    """Drain the ``http.request`` events into one buffer."""
-    body = bytearray()
-    more = True
-    while more:
-        message = await receive()
-        if message.get("type") == "http.disconnect":
-            break
-        body += message.get("body", b"")
-        more = bool(message.get("more_body", False))
-    return bytes(body)
+class _BodyReader:
+    """Drains ``http.request`` events up to ``MAX_BODY_BYTES``, remembering every
+    message consumed so a caller that gives up on compression can replay the
+    exact same event sequence rather than a lossy reconstruction.
+    """
+
+    def __init__(self, receive: Receive) -> None:
+        self._receive = receive
+        self.consumed: list[Message] = []
+
+    async def read(self) -> bytes | None:
+        """Return the full body if it arrived within the cap with no disconnect.
+
+        Returns ``None`` the moment the cap is exceeded or the client
+        disconnects mid-body — at that point ``self.consumed`` holds every
+        message read so far (the chunk that crossed the cap included, and
+        nothing past it), for the caller to replay verbatim.
+        """
+        total = 0
+        while True:
+            message = await self._receive()
+            self.consumed.append(message)
+            if message.get("type") == "http.disconnect":
+                return None
+            total += len(message.get("body", b""))
+            if total > MAX_BODY_BYTES:
+                return None
+            if not message.get("more_body", False):
+                return b"".join(m.get("body", b"") for m in self.consumed)
 
 
 def _compress_body(body: bytes, *, verbatim: bool) -> bytes:
@@ -99,11 +117,12 @@ class DistilMiddleware:
     ``/v1/responses``, or a Gemini ``generateContent`` route) passes through with
     the original ``receive`` untouched, at zero cost.
 
-    ponytail: buffers the whole request body before compressing, the same ceiling
-    every body-inspecting ASGI middleware has (e.g. Starlette's ``Request.body()``);
-    skips compression above ``MAX_BODY_BYTES`` rather than risk memory blowup on a
-    hostile payload — add a streaming chunk cap if that ever measures as a real
-    concern for this deployment.
+    ponytail: buffers the whole request body before compressing (up to
+    ``MAX_BODY_BYTES``), the same ceiling every body-inspecting ASGI middleware
+    has (e.g. Starlette's ``Request.body()``) — add a streaming *compressor* if
+    that ever measures as a real concern for this deployment. The cap itself is
+    enforced while reading, not after, so a hostile payload never sits fully
+    buffered first.
     """
 
     def __init__(self, app: App, *, verbatim: bool = False) -> None:
@@ -119,10 +138,28 @@ class DistilMiddleware:
             await self.app(scope, receive, send)
             return
 
-        body = await _read_body(receive)
-        new_body = (
-            body if len(body) > MAX_BODY_BYTES else _compress_body(body, verbatim=self.verbatim)
-        )
+        reader = _BodyReader(receive)
+        body = await reader.read()
+
+        if body is None:
+            # Oversized (stopped reading the instant the cap was crossed — never
+            # holding more than that one chunk beyond the cap) or the client
+            # disconnected mid-body. Either way, downstream must see exactly the
+            # event sequence it would have without this middleware: replay what
+            # was already consumed (a disconnect included, if that is why we
+            # stopped), then hand any further receive() straight to the real
+            # channel.
+            queue = list(reader.consumed)
+
+            async def _replay_verbatim() -> Message:
+                if queue:
+                    return queue.pop(0)
+                return await receive()
+
+            await self.app(scope, _replay_verbatim, send)
+            return
+
+        new_body = _compress_body(body, verbatim=self.verbatim)
 
         new_scope = dict(scope)
         new_scope["headers"] = _with_content_length(list(scope.get("headers", [])), len(new_body))

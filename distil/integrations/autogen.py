@@ -45,6 +45,7 @@ the other integrations use, so a handle minted here is expandable anywhere.
 
 from __future__ import annotations
 
+import functools
 import inspect
 from collections.abc import Callable
 from typing import Any
@@ -82,9 +83,15 @@ def compressing_tool(func: Callable[..., Any], *, verbatim: bool = False) -> Cal
 
     Non-string returns (the function's own contract may return something else
     entirely) pass through untouched.
+
+    ``FunctionTool`` builds its JSON schema from *func*'s signature and type
+    annotations, not from ``*args, **kwargs`` — so the wrapper carries
+    ``functools.wraps`` (name/doc/annotations/``__wrapped__``) AND an explicit
+    ``__signature__``, for whichever of the two a schema builder reads.
     """
     if inspect.iscoroutinefunction(func):
 
+        @functools.wraps(func)
         async def _awrapped(*args: Any, **kwargs: Any) -> Any:
             result = await func(*args, **kwargs)
             return (
@@ -93,18 +100,17 @@ def compressing_tool(func: Callable[..., Any], *, verbatim: bool = False) -> Cal
                 else result
             )
 
-        _awrapped.__name__ = getattr(func, "__name__", _awrapped.__name__)
-        _awrapped.__doc__ = func.__doc__
+        _awrapped.__signature__ = inspect.signature(func)  # type: ignore[attr-defined]
         return _awrapped
 
+    @functools.wraps(func)
     def _wrapped(*args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
         return (
             compress_tool_result(result, verbatim=verbatim) if isinstance(result, str) else result
         )
 
-    _wrapped.__name__ = getattr(func, "__name__", _wrapped.__name__)
-    _wrapped.__doc__ = func.__doc__
+    _wrapped.__signature__ = inspect.signature(func)  # type: ignore[attr-defined]
     return _wrapped
 
 

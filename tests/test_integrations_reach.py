@@ -8,6 +8,7 @@ installed, which is also how CI runs them.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import sys
 from typing import Any
@@ -101,6 +102,41 @@ def test_compressing_tool_passes_through_non_string_return() -> None:
         return {"a": 1}
 
     assert compressing_tool(get_data)() == {"a": 1}
+
+
+def test_compressing_tool_preserves_signature_for_schema_builders() -> None:
+    """FunctionTool builds its JSON schema from the signature and annotations,
+    not from *args/**kwargs — a wrapper that loses either yields a broken tool
+    schema instead of a compression bug, which is worse: it looks like AutoGen
+    is broken, not distil."""
+
+    def get_weather(city: str, units: str = "metric") -> str:
+        """Get the weather for a city."""
+        return BIG
+
+    wrapped = compressing_tool(get_weather)
+    assert inspect.signature(wrapped) == inspect.signature(get_weather)
+    assert wrapped.__annotations__ == get_weather.__annotations__
+
+    # A minimal stand-in for what FunctionTool's schema builder actually does: read
+    # __annotations__/signature off the callable it was handed and get *func*'s own
+    # params back, not `*args, **kwargs`. (Both sides carry string annotations here —
+    # this test file itself uses `from __future__ import annotations` — so compare
+    # against the original's own annotation rather than a hardcoded `str`.)
+    orig_params = inspect.signature(get_weather).parameters
+    params = inspect.signature(wrapped).parameters
+    assert list(params) == ["city", "units"]
+    assert params["city"].annotation == orig_params["city"].annotation
+    assert params["units"].default == "metric"
+
+
+def test_compressing_tool_preserves_signature_for_async_functions() -> None:
+    async def get_weather(city: str, *, units: str = "metric") -> str:
+        return BIG
+
+    wrapped = compressing_tool(get_weather)
+    assert inspect.signature(wrapped) == inspect.signature(get_weather)
+    assert wrapped.__annotations__ == get_weather.__annotations__
 
 
 # --- AutoGen: compress_messages ---------------------------------------------
@@ -218,6 +254,31 @@ def _run_through(app, scope: dict, body: bytes) -> None:
     asyncio.run(DistilMiddleware(app)(scope, _receive_for(body), _noop_send))
 
 
+def _receive_events(events: list[dict]):
+    """Like ``_receive_for`` but for a caller-supplied, possibly multi-chunk sequence."""
+    it = iter(events)
+
+    async def _receive() -> dict:
+        return next(it)
+
+    return _receive
+
+
+def _drain(scope: dict, receive) -> list[dict]:
+    """Run the middleware, returning every message the wrapped app's receive() saw."""
+    seen: list[dict] = []
+
+    async def _capturing_app(inner_scope: dict, inner_receive, send) -> None:
+        while True:
+            msg = await inner_receive()
+            seen.append(msg)
+            if msg["type"] == "http.disconnect" or not msg.get("more_body", False):
+                break
+
+    asyncio.run(DistilMiddleware(_capturing_app)(scope, receive, _noop_send))
+    return seen
+
+
 def test_asgi_ignores_non_post() -> None:
     captured = {}
 
@@ -330,6 +391,38 @@ def test_asgi_skips_oversized_body(monkeypatch) -> None:
     scope = {"type": "http", "method": "POST", "path": "/v1/messages", "headers": []}
     _run_through(app, scope, original)
     assert captured["body"] == original  # too big to inspect — forwarded unchanged
+
+
+def test_asgi_skips_oversized_multi_chunk_body(monkeypatch) -> None:
+    """The cap is enforced while reading: once a chunk crosses it, stop compressing and
+    replay every chunk read so far verbatim — never buffer the whole oversized body first."""
+    import distil.integrations.asgi as asgi_mod
+
+    monkeypatch.setattr(asgi_mod, "MAX_BODY_BYTES", 10)
+    chunk1 = {"type": "http.request", "body": b"12345", "more_body": True}  # under the cap
+    chunk2 = {"type": "http.request", "body": b"1234567890", "more_body": True}  # crosses it
+    chunk3 = {"type": "http.request", "body": b"never read", "more_body": False}
+    scope = {"type": "http", "method": "POST", "path": "/v1/messages", "headers": []}
+
+    seen = _drain(scope, _receive_events([chunk1, chunk2, chunk3]))
+
+    # The reader itself never buffers past the chunk that crossed the cap (chunk3 sits
+    # unread in the source until the app asks for it) — but pass-through means the app
+    # still gets the whole original stream, chunk-for-chunk, unchanged.
+    assert seen == [chunk1, chunk2, chunk3]
+
+
+def test_asgi_replays_disconnect_mid_body() -> None:
+    """A disconnect mid-body must replay as the same chunks-then-disconnect sequence the
+    app would have seen with no middleware — not a truncated body treated as complete."""
+    chunk1 = {"type": "http.request", "body": b'{"mess', "more_body": True}
+    chunk2 = {"type": "http.request", "body": b"age", "more_body": True}
+    disconnect = {"type": "http.disconnect"}
+    scope = {"type": "http", "method": "POST", "path": "/v1/messages", "headers": []}
+
+    seen = _drain(scope, _receive_events([chunk1, chunk2, disconnect]))
+
+    assert seen == [chunk1, chunk2, disconnect]
 
 
 def test_asgi_compression_error_fails_open(monkeypatch) -> None:
