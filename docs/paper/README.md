@@ -20,11 +20,25 @@ latexmk -pdf main.tex      # or: pdflatex main.tex (run twice for cross-refs)
 > **`tectonic` cannot produce the committed PDFs.** It is fine for reading and for
 > checking that a source edit still compiles, but the staleness gate below diffs against a
 > **pdfLaTeX/latexmk** build at a pinned epoch, and tectonic's output will never match it
-> byte-for-byte. If you edited `main.tex` or `main_neurips.tex` without latexmk installed,
-> **do not commit a tectonic PDF** — it would be exactly the "PDF that no check verifies"
-> this directory's `.gitignore` argues against. Leave the tracked PDFs alone, say so in the
-> PR, and have someone with a TeX Live install run the command below before the branch
-> reaches `main`.
+> byte-for-byte. Never commit a tectonic PDF — it would be exactly the "PDF that no check
+> verifies" this directory's `.gitignore` argues against.
+>
+> **No TeX Live? Take CI's build rather than installing one.** `paper-build` already
+> compiles both papers on every PR with the exact pins the staleness check rebuilds with,
+> and uploads them as the `distil-paper-pdf` artifact. Push the source change, let the run
+> finish, then:
+>
+> ```bash
+> gh run list --workflow paper-build.yml --branch "$(git branch --show-current)"
+> gh run download <id> -n distil-paper-pdf -D /tmp/cipdf   # gh refuses to overwrite in place
+> cat /tmp/cipdf/main.pdf > docs/paper/main.pdf
+> cat /tmp/cipdf/main_neurips.pdf > docs/paper/main_neurips.pdf
+> git add docs/paper/main.pdf docs/paper/main_neurips.pdf
+> ```
+>
+> The gate then passes by construction. To confirm before merging, download the artifact
+> from the run your PDF commit itself triggered and `shasum -a 256` it against the committed
+> files — that is the same comparison the check makes on `main`.
 
 **Committing a rebuilt PDF:** `main` runs a byte-for-byte staleness check against
 `main.pdf`/`main_neurips.pdf`, so a source edit needs the compiled PDF committed
