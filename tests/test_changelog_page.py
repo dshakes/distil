@@ -63,6 +63,29 @@ def test_every_version_heading_is_present():
     assert not missing, f"versions missing an anchored section on the page: {missing}"
 
 
+def test_ids_on_page_are_unique():
+    """CHANGELOG.md has reused a version number across two entries before (two
+    `## [1.13.0]` sections), which collided on the same `id="v1-13-0"` — an
+    HTML validity bug and a broken deep link (the browser jumps to whichever
+    one comes first). Every id on the page must be distinct."""
+    mod = _load_builder()
+
+    class _IdCollector(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.ids: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            for name, value in attrs:
+                if name == "id" and value:
+                    self.ids.append(value)
+
+    collector = _IdCollector()
+    collector.feed(mod.build())
+    dupes = {i for i in collector.ids if collector.ids.count(i) > 1}
+    assert not dupes, f"duplicate ids on the page: {sorted(dupes)}"
+
+
 def test_changelog_page_is_well_formed_html():
     """The hand-rolled inline-markdown renderer has already produced unbalanced
     tags once (a literal `*` inside a `` `code span` `` was read as emphasis and

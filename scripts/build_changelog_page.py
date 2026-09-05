@@ -323,6 +323,12 @@ def render_entries(changelog_md: str) -> str:
     while i < n and not _VERSION_RE.match(lines[i]):
         i += 1
 
+    # CHANGELOG.md sometimes reuses a version number across two entries (e.g. an
+    # rc build and its GA promotion both titled "1.13.0"), which would otherwise
+    # collide on the same slug and produce a duplicate id. Second and later
+    # occurrences get -2, -3, ... appended, same convention as HTML heading
+    # anchors elsewhere.
+    seen: dict[str, int] = {}
     sections: list[str] = []
     while i < n:
         m = _VERSION_RE.match(lines[i])
@@ -334,9 +340,14 @@ def render_entries(changelog_md: str) -> str:
             i += 1
         body_html = _render_block(lines[body_start:i])
         heading = f"{version} — {title}" if title else version
+        base = _slug(version)
+        seen[base] = seen.get(base, 0) + 1
+        slug = base if seen[base] == 1 else f"{base}-{seen[base]}"
+        # The id lives on the <h2>, not the <section>, because
+        # scripts/build_search_index.py only reads anchors off h1/h2/h3.
         sections.append(
-            f'<section class="changelog-entry" id="{_slug(version)}">\n'
-            f"<h2>{_inline(heading)}</h2>\n"
+            f'<section class="changelog-entry">\n'
+            f'<h2 id="{slug}">{_inline(heading)}</h2>\n'
             f"{body_html}\n"
             "</section>"
         )
