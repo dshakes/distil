@@ -3,6 +3,22 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+Provider parity across all three servers. The Responses API was compressed by the
+sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat
+Completions was injected with Anthropic's expand-tool schema, which that provider
+rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted
+them; Azure OpenAI's paths matched nothing anywhere. The `aider` and `grok` wrap
+presets set environment variables those tools never read, so both routed nothing
+while reporting success.
+
+The gateway no longer emits a digest stub it cannot restore. It injects no
+`distil_expand` tool and runs no expand loop, so Tier-1 there was irreversibly lossy
+on every pay-as-you-go session — the marker named a recovery that did not exist. It
+is Tier-0 only until it grows the expand loop, which lowers its savings on
+unstructured content and makes what it does report honest.
+
 ## [1.51.1] — shadow mode was measuring the wrong subset of your traffic
 
 Every shadow replay carrying a prior-turn `thinking` block failed with

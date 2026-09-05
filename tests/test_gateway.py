@@ -29,23 +29,28 @@ from distil.pricing import get as pricing_get
 # Shared test data
 # ---------------------------------------------------------------------------
 
-# A large multi-line tool_result — well above the 6-line digest threshold
-_LONG_TOOL_RESULT = "\n".join(
-    [
-        "Result from bash tool execution on the remote host:",
-        "total disk usage: 48 GB across 12 partitions",
-        "filesystem /dev/sda1: 32 GB used of 100 GB available",
-        "filesystem /dev/sdb1: 16 GB used of 200 GB available",
-        "warning: /tmp is 89% full — consider cleaning up old build artefacts",
-        "warning: inode count on /var/log approaching limit (91% used)",
-        "no errors detected in kernel ring buffer",
-        "last boot: 2026-06-20T03:14:22Z (uptime 18h 42m)",
-        "load averages: 0.23 0.31 0.29 (1m/5m/15m)",
-        "memory: 14.2 GB used / 31.9 GB total, 0 GB swap",
-        "top process: python3 pid=8821 cpu=4.1% mem=2.3%",
-        "all health checks passed",
-    ]
-)  # 12 lines — well above the 6-line digest threshold
+# A large tool_result, as pretty-printed JSON rather than log prose.
+#
+# The gateway runs no expand loop, so it is Tier-0 only: it must never emit a digest
+# stub it cannot restore (see test_payg_never_emits_an_unrecoverable_stub). Tier-0's
+# win on real agent traffic is lossless minification, which needs structure to bite —
+# on 12 lines of prose it correctly finds nothing, and every "savings > 0" assertion
+# below would be asserting that the digest tier ran, which is exactly what must not
+# happen here.
+_LONG_TOOL_RESULT = json.dumps(
+    {
+        "host": "build-07",
+        "disks": [
+            {"fs": f"/dev/sd{c}1", "used_gb": 16 * i, "total_gb": 100 * i, "pct": 30 + i}
+            for i, c in enumerate("abcdefgh", start=1)
+        ],
+        "warnings": ["/tmp is 89% full", "inode count on /var/log at 91%"],
+        "boot": "2026-06-20T03:14:22Z",
+        "load": [0.23, 0.31, 0.29],
+        "healthy": True,
+    },
+    indent=4,
+)
 
 
 def _messages_payload(tool_result_text: str = _LONG_TOOL_RESULT) -> dict[str, Any]:
@@ -781,6 +786,28 @@ def test_azure_chat_path_is_compressed(gw_servers: Any) -> None:
         headers = dict(resp.headers)
     assert headers["x-distil-compressed"] == "1"
     assert int(headers["x-distil-tokens-saved"]) > 0
+
+
+def test_payg_never_emits_an_unrecoverable_stub(gw_servers: Any) -> None:
+    """The gateway must not digest what it cannot restore.
+
+    It injects no distil_expand tool and runs no expand loop, so a Tier-1 stub here
+    names a recovery that does not exist: the tenant sees "<< +N lines, handle=… >>"
+    and has no way to get the lines back. That is the silent-lossy failure distil
+    exists to prevent, and it was live on every PAYG session — `verbatim` was folded
+    in for subscription only.
+
+    The fixture builds the handler with lossless_only=False, i.e. PAYG, which is
+    exactly the configuration that was lossy.
+    """
+    gw_port, _state = gw_servers
+    req = _post(gw_port, "/v1/messages", _messages_payload(), {"x-distil-tenant": "payg"})
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        forwarded = resp.read().decode()  # the upstream echoes the body verbatim
+
+    assert "handle=" not in forwarded, "a digest stub the gateway cannot expand"
+    assert "distil_expand" not in forwarded, "a tool the gateway has no loop to answer"
 
 
 def test_unknown_path_is_still_passthrough(gw_servers: Any) -> None:

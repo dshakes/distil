@@ -771,12 +771,23 @@ def build_gateway_handler(
     # lossless-only implies Tier-0-only: without an injected expand tool the agent
     # cannot recover a Tier-1 digest stub, so a stub there would be irreversibly
     # lossy. Fold it into verbatim (the flag that already disables Tier-1 digests).
-    from .policy import AuthMode, may_compress_lossy
+    from .policy import AuthMode
 
     # Route the lossy-allowed decision through policy (single source of truth):
     # subscription / OAuth sessions are lossless-only, forcing Tier-0-only (verbatim).
     _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
-    verbatim = verbatim or not may_compress_lossy(_auth_mode)
+    # The gateway injects no distil_expand tool and runs no expand loop, so a Tier-1
+    # stub it emitted could NEVER be recovered — irreversibly lossy, and invisibly so:
+    # the tenant gets a "<< +N lines, handle=… >>" marker naming a recovery that does
+    # not exist here. `not may_compress_lossy` folded that into verbatim for
+    # subscription only, leaving every PAYG gateway session silently lossy. Fold it
+    # for EVERY session, the same fix aproxy already took. Tier-0 still runs, so the
+    # reversible lossless transforms keep earning real savings.
+    # ponytail: the ceiling is the missing expand loop, not the digest. Wire the
+    # shape-correct loops proxy.py already has (run_expand_loop / _chat / _responses /
+    # _gemini) plus tool injection, and this line becomes `verbatim or not
+    # may_compress_lossy(_auth_mode)` again.
+    verbatim = True
 
     # Eager-load the streaming relay the handler otherwise imports lazily per
     # request, so a gateway upgraded in place never loads a post-upgrade .py
