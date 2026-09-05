@@ -161,6 +161,12 @@ def _expand_should_intercept(expand: bool, store: object, body: dict) -> bool:
     return _has_recoverable_stub(body)
 
 
+# Body fields that are only legal on a streaming request. Dropped together when an
+# intercepted request is forced to buffered mode — a leftover stream_options with no
+# stream:true is a 400 from OpenAI, not a warning.
+_STREAM_ONLY_FIELDS = frozenset({"stream", "stream_options"})
+
+
 def _unstream_path(target: str) -> str:
     """The non-streaming twin of a request target.
 
@@ -1163,16 +1169,31 @@ def build_handler(
             _sse_shape: str | None = None
             _fwd_path = self.path
             if want_stream and _intercept and not is_messages_path(_path):
-                if isinstance(body.get("contents"), list):
-                    _sse_shape = "gemini"
-                elif isinstance(body.get("input"), list):
-                    _sse_shape = "responses"
+                if isinstance(body.get("n"), int) and body["n"] > 1:
+                    # sse_from_response renders choices[0] only, so buffering an n>1
+                    # request would hand back one completion where the client asked
+                    # for several — a data loss the plain relay does not have. Give up
+                    # the expand instead: the model's distil_expand call reaches the
+                    # client as an unknown tool, which is visible and recoverable,
+                    # where silently dropping n-1 completions is neither.
+                    # ponytail: index-tagged deltas per choice would restore expand
+                    # here. Nobody has asked for n>1 alongside recoverable digest.
+                    _intercept = False
                 else:
-                    _sse_shape = "chat"
-                body = {k: v for k, v in body.items() if k != "stream"}
-                new_raw = json.dumps(body).encode()
-                _fwd_path = _unstream_path(self.path)
-                want_stream = False  # buffer upstream; re-emit as SSE to the client
+                    if isinstance(body.get("contents"), list):
+                        _sse_shape = "gemini"
+                    elif isinstance(body.get("input"), list):
+                        _sse_shape = "responses"
+                    else:
+                        _sse_shape = "chat"
+                    # stream_options is only legal alongside stream:true — OpenAI 400s
+                    # on it otherwise, and clients set it routinely for include_usage.
+                    # Dropping `stream` without it turned an intercepted request into
+                    # a provider error.
+                    body = {k: v for k, v in body.items() if k not in _STREAM_ONLY_FIELDS}
+                    new_raw = json.dumps(body).encode()
+                    _fwd_path = _unstream_path(self.path)
+                    want_stream = False  # buffer upstream; re-emit as SSE to the client
             if want_stream and _intercept:
                 from .streamexpand import stream_with_expand
 

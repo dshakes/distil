@@ -528,6 +528,41 @@ class TestStreamingProviderGate:
         _post(port, "/v1/chat/completions", dict(_chat_body(), stream=True))
         assert "stream" not in upstream.requests[0][1]
 
+    def test_stream_options_goes_with_the_stream_flag(self, proxy, upstream):
+        # stream_options is only legal alongside stream:true. Dropping one and
+        # keeping the other turns an intercepted request into a provider 400 —
+        # and clients set stream_options routinely, for include_usage.
+        upstream.queue = [_chat_resp({"role": "assistant", "content": "x"})]
+        port = proxy(expand=True)
+        body = dict(_chat_body(), stream=True, stream_options={"include_usage": True})
+        _post(port, "/v1/chat/completions", body)
+        sent = upstream.requests[0][1]
+        assert "stream" not in sent and "stream_options" not in sent
+
+    def test_multi_choice_stream_is_relayed_rather_than_buffered(self, proxy, upstream):
+        # The buffered fallback renders choices[0] only, so an n>1 request would come
+        # back with one completion where the client asked for three. Giving up the
+        # expand is the lesser loss: it is visible, where a dropped choice is not.
+        upstream.queue = [
+            {
+                "id": "r",
+                "choices": [
+                    {"index": i, "message": {"role": "assistant", "content": f"c{i}"}}
+                    for i in range(3)
+                ],
+            }
+        ]
+        port = proxy(expand=True)
+        body = dict(_chat_body(), stream=True, n=3)
+        _, headers, out = _post(port, "/v1/chat/completions", body)
+
+        # Relayed verbatim: the stream flag reaches the upstream and nothing is
+        # re-serialized, so every choice survives.
+        assert upstream.requests[0][1]["stream"] is True
+        assert "x-distil-expanded" not in headers
+        for i in range(3):
+            assert f'"c{i}"'.encode() in out
+
     def test_gemini_stream_gets_no_anthropic_frames(self, proxy, upstream):
         gem_resp = {"candidates": [{"content": {"role": "model", "parts": [{"text": "hi"}]}}]}
         upstream.queue = [gem_resp]
