@@ -399,13 +399,26 @@ class Dissection:
         Decides whether re-fold churn is actually expensive. A high share means the
         resent content is already billed at the cache-read rate, so the headline churn
         number overstates what any dedup mechanism could recover. None when no usage
-        was recorded."""
-        cached = sum(int(r.get("usage_cache_read") or 0) for r in self.booked_detail)
+        was recorded.
+
+        Older records carry only the aggregate ``usage_cache_tokens`` and neither split
+        field. Summing the split fields over those rows gives 0 cached against a nonzero
+        input total, so the share reads a confident **0.0%** — "the cache never hit" —
+        for a session where it was never measured. Those are opposite diagnoses, so
+        require at least one row to carry a split field before reporting anything.
+        """
+        detail = self.booked_detail
+        if not any(
+            r.get("usage_cache_read") is not None or r.get("usage_cache_create") is not None
+            for r in detail
+        ):
+            return None
+        cached = sum(int(r.get("usage_cache_read") or 0) for r in detail)
         total = sum(
             int(r.get("usage_input_tokens") or 0)
             + int(r.get("usage_cache_read") or 0)
             + int(r.get("usage_cache_create") or 0)
-            for r in self.booked_detail
+            for r in detail
         )
         return 100.0 * cached / total if total else None
 

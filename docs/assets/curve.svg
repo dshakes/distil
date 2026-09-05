@@ -19,15 +19,13 @@
 <text x="696.0" y="348" font-size="10" fill="#7b8298" text-anchor="middle">100%</text>
 <text x="380.0" y="368" font-size="11" fill="#9aa0b2" text-anchor="middle">token savings</text>
 <text x="16" y="190.0" font-size="11" fill="#9aa0b2" text-anchor="middle" transform="rotate(-90 16 190.0)">fact recall (macro)</text>
-<path d="M64.0,40.0 L64.0,40.0 L360.9,40.0 L478.1,315.7" fill="none" stroke="url(#cvg)" stroke-width="2"/>
-<circle cx="64.0" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>none: 0.0% savings, recall 1.000, reversible</title></circle>
-<text x="74.0" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">none</text>
-<circle cx="64.0" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>byte-exact: 0.0% savings, recall 1.000, reversible</title></circle>
-<text x="74.0" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">byte-exact</text>
+<path d="M64.0,40.0 L64.0,40.0 L64.0,40.0 L360.9,40.0 L478.1,315.7" fill="none" stroke="url(#cvg)" stroke-width="2"/>
+<circle cx="64.0" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>none: 0.0% savings, recall 1.000, reversible · tier-0 only: 0.0% savings, recall 1.000, reversible · subscription: 0.0% savings, recall 1.000, reversible</title></circle>
+<text x="74.0" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">none = tier-0 only = subscription</text>
 <circle cx="360.9" cy="40.0" r="5" fill="#5ad19a" stroke="#5ad19a" stroke-width="2"><title>lossless: 47.0% savings, recall 1.000, reversible</title></circle>
 <text x="370.9" y="30.0" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">lossless</text>
 <circle cx="478.1" cy="315.7" r="5" fill="#0b0c13" stroke="#ff6b6b" stroke-width="2"><title>aggressive: 65.5% savings, recall 0.551, NOT reversible</title></circle>
 <text x="488.1" y="305.7" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">aggressive</text>
 <text x="488.1" y="333.7" font-size="10" fill="#ff6b6b" text-anchor="start">828 facts lost · not reversible</text>
-<text x="696" y="24" font-size="10" fill="#7b8298" text-anchor="end">distil 1.51.1 · 2026-09-04</text>
+<text x="696" y="24" font-size="10" fill="#7b8298" text-anchor="end">distil 1.51.1 · 2026-09-05</text>
 </svg>

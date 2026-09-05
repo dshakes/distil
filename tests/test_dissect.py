@@ -632,6 +632,23 @@ class TestInsights:
         assert "prompt cache" in advice and "already discounted" in advice
         assert "session-delta cache absorbs" not in advice
 
+    def test_legacy_rows_read_as_not_captured_not_zero(self) -> None:
+        """Older records carry only the aggregate ``usage_cache_tokens``. Summing the
+        split fields over those gives 0 cached against a nonzero input total, which
+        renders a confident 0.0% — "the cache never hit" — for a session where it was
+        never measured. Opposite diagnoses; they must not share a rendering."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r["usage_cache_tokens"] = 50_000  # the aggregate-only legacy shape
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share is None
+
+        # One row carrying a split field is enough to make the number meaningful again.
+        d.requests[0]["usage_cache_read"] = 0
+        assert d.cached_input_share == pytest.approx(0.0)
+
     def test_recoverability_note_reports_evictions(self) -> None:
         """Never claim everything is recoverable when blobs have already aged out."""
         d = dz.dissect("s200-1")

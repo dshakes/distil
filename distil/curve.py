@@ -47,12 +47,60 @@ _T1 = Tier1Reversible()
 Rung = Callable[[list[Block]], CompressResult]
 
 
+def _reject_bigger(original: list[Block], result: CompressResult) -> CompressResult:
+    """Production never emits a block larger than its input — keep the original when a
+    transform inflates it.
+
+    The raw tier classes do not enforce this; the shipped path does, per block and *by
+    tokens* (what we bill), in `adapters.anthropic._apply_tier0`. A run-collapse marker
+    can cost more tokens than the whitespace it removes, so a curve measured without the
+    guard reports savings the proxy would never take. It is also the `reject-if-bigger`
+    invariant `distil validate` asserts, so measuring without it would let the curve
+    disagree with the gate.
+    """
+    by_id = {b.id: b for b in original}
+    out: list[Block] = []
+    for b in result.blocks:
+        src = by_id.get(b.id)
+        if src is not None and _TOK.count(b.text) > _TOK.count(src.text):
+            out.append(src)
+        else:
+            out.append(b)
+    return CompressResult(out, result.restore)
+
+
 def _none(blocks: list[Block]) -> CompressResult:
     return CompressResult(blocks, {})
 
 
-def _byte_exact(blocks: list[Block]) -> CompressResult:
-    return _T0.compress(blocks)
+def _tier0_only(blocks: list[Block]) -> CompressResult:
+    """Tier-0 alone: JSON minification + run collapse. NOT the subscription path — see
+    `_subscription`, which is what a lossless-only user actually gets."""
+    return _reject_bigger(blocks, _T0.compress(blocks))
+
+
+def _subscription(blocks: list[Block]) -> CompressResult:
+    """The lossless-only path exactly as shipped, via the adapter's own verbatim branch.
+
+    Reimplementing this as "Tier-0 on the blocks" understates it: for older (non-recent)
+    tool output the live verbatim path also applies the in-context structured folds —
+    columnar, record, template, embedded-JSON — which keep every value inline and so need
+    no recovery handle. That is most of what a subscription user actually saves, and it is
+    the difference between this rung and `tier-0 only`.
+
+    `is_recent=False` because the curve scores the whole corpus tail, not one live turn;
+    the recency carve-out is a per-request position rule with no analogue here.
+    """
+    from .adapters.anthropic import RestoreStore, _compress_tool_result_text
+
+    store = RestoreStore()
+    out = [
+        b.copy_with(_compress_tool_result_text(b.text, store, verbatim=True, is_recent=False))
+        for b in blocks
+    ]
+    # Verbatim mode issues no handles by design (no distil_expand to resolve them), so
+    # there is nothing to recover from — every fact must survive inline or be counted lost.
+    return _reject_bigger(blocks, CompressResult(out, {}))
 
 
 def _lossless(blocks: list[Block]) -> CompressResult:
@@ -60,13 +108,13 @@ def _lossless(blocks: list[Block]) -> CompressResult:
     Mirrors `compress.strategies.distil` and `retention.probe_trajectory`."""
     t1 = _T1.compress(blocks)
     t0 = _T0.compress(t1.blocks)
-    return CompressResult(t0.blocks, {**t1.restore, **t0.restore})
+    return _reject_bigger(blocks, CompressResult(t0.blocks, {**t1.restore, **t0.restore}))
 
 
 def _aggressive_rung(blocks: list[Block]) -> CompressResult:
     """Head/tail truncation, ignoring decision-relevance, with NO recovery handle.
     The rung the dial only reaches when you relax `target_equivalence` below 1.0."""
-    return CompressResult(_aggressive(blocks, 0), {})
+    return _reject_bigger(blocks, CompressResult(_aggressive(blocks, 0), {}))
 
 
 @dataclass(frozen=True)
@@ -79,8 +127,12 @@ class RungSpec:
 
 LADDER: list[RungSpec] = [
     RungSpec("none", "no compression — the reference", True, _none),
+    RungSpec("tier-0 only", "JSON minify + run collapse, nothing else", True, _tier0_only),
     RungSpec(
-        "byte-exact", "Tier-0 only; the lossless-only / subscription point", True, _byte_exact
+        "subscription",
+        "lossless-only as shipped: Tier-0 + in-context structured folds",
+        True,
+        _subscription,
     ),
     RungSpec("lossless", "Tier-1 digest + Tier-0 — the shipped default", True, _lossless),
     RungSpec("aggressive", "head/tail truncation, no recovery handle", False, _aggressive_rung),
@@ -235,28 +287,43 @@ def render_svg(points: list[CurvePoint], *, version: str = "", generated: str = 
     )
     parts.append(f'<path d="{path}" fill="none" stroke="url(#cvg)" stroke-width="2"/>')
 
+    # Rungs that measure identically land on the same pixel, and drawing both there
+    # renders one label on top of the other — which reads as a missing rung rather than
+    # as two that agree. Group by coordinate and label the group once.
+    groups: dict[tuple[str, str], list[CurvePoint]] = {}
     for p in ordered:
-        cx, cy = _x(p.savings_pct), _y(p.recall, lo)
+        key = (f"{_x(p.savings_pct):.1f}", f"{_y(p.recall, lo):.1f}")
+        groups.setdefault(key, []).append(p)
+
+    for (kx, ky), members in groups.items():
+        cx, cy = float(kx), float(ky)
+        p = members[0]
         # Reversible rungs are filled; the lossy rung is hollow and red — the one visual
-        # distinction that matters more than its position on the curve.
-        fill = "#5ad19a" if p.reversible else "#0b0c13"
-        stroke = "#5ad19a" if p.reversible else "#ff6b6b"
+        # distinction that matters more than its position on the curve. A mixed group
+        # takes the lossy styling: the weaker guarantee is the one worth seeing.
+        reversible = all(m.reversible for m in members)
+        fill = "#5ad19a" if reversible else "#0b0c13"
+        stroke = "#5ad19a" if reversible else "#ff6b6b"
+        tip = " · ".join(
+            f"{m.rung}: {m.savings_pct:.1f}% savings, recall {m.recall:.3f}, "
+            f"{'reversible' if m.reversible else 'NOT reversible'}"
+            for m in members
+        )
         parts.append(
             f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="5" fill="{fill}" stroke="{stroke}" '
-            f'stroke-width="2"><title>{p.rung}: {p.savings_pct:.1f}% savings, '
-            f"recall {p.recall:.3f}, {'reversible' if p.reversible else 'NOT reversible'}"
-            "</title></circle>"
+            f'stroke-width="2"><title>{tip}</title></circle>'
         )
         anchor = "end" if cx > _W - _R - 80 else "start"
         dx = -10 if anchor == "end" else 10
         parts.append(
             f'<text x="{cx + dx:.1f}" y="{cy - 10:.1f}" font-size="11" font-weight="700" '
-            f'fill="#dbe0ee" text-anchor="{anchor}">{p.rung}</text>'
+            f'fill="#dbe0ee" text-anchor="{anchor}">{" = ".join(m.rung for m in members)}</text>'
         )
-        if not p.reversible:
+        if not reversible:
+            lost = max(m.lost_facts for m in members)
             parts.append(
                 f'<text x="{cx + dx:.1f}" y="{cy + 18:.1f}" font-size="10" fill="#ff6b6b" '
-                f'text-anchor="{anchor}">{p.lost_facts} facts lost · not reversible</text>'
+                f'text-anchor="{anchor}">{lost} facts lost · not reversible</text>'
             )
 
     stamp = " · ".join(x for x in (f"distil {version}" if version else "", generated) if x)

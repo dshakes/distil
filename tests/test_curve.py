@@ -36,7 +36,13 @@ def mini_corpus(tmp_path: Path) -> Path:
 
 def test_curve_runs_on_a_mini_corpus(mini_corpus: Path) -> None:
     points = curve.run(load_corpus(mini_corpus))
-    assert [p.rung for p in points] == ["none", "byte-exact", "lossless", "aggressive"]
+    assert [p.rung for p in points] == [
+        "none",
+        "tier-0 only",
+        "subscription",
+        "lossless",
+        "aggressive",
+    ]
     for p in points:
         assert 0.0 <= p.recall <= 1.0
         assert p.latency_ms >= 0.0
@@ -49,7 +55,7 @@ def test_reversible_rungs_keep_every_fact(mini_corpus: Path) -> None:
     """The load-bearing claim of the whole ladder: everything at or below `lossless` is
     recoverable, so no fact is lost — only moved behind a handle."""
     points = {p.rung: p for p in curve.run(load_corpus(mini_corpus))}
-    for name in ("none", "byte-exact", "lossless"):
+    for name in ("none", "tier-0 only", "subscription", "lossless"):
         assert points[name].reversible
         assert points[name].lost_facts == 0, f"{name} lost facts but claims reversibility"
         assert points[name].recall == pytest.approx(1.0)
@@ -69,11 +75,11 @@ def test_the_aggressive_rung_is_where_the_curve_bends(mini_corpus: Path) -> None
 
 def test_digest_moves_facts_behind_a_handle_rather_than_dropping_them(mini_corpus: Path) -> None:
     """The distinction the curve is drawn to show: `lossless` has strictly *lower* visible
-    recall than `byte-exact` — it really did remove text the model can read — while total
+    recall than `tier-0 only` — it really did remove text the model can read — while total
     recall stays at 1.0 because every one of those facts is behind a handle."""
     points = {p.rung: p for p in curve.run(load_corpus(mini_corpus))}
-    assert points["lossless"].visible_recall < points["byte-exact"].visible_recall
-    assert points["lossless"].recall == pytest.approx(points["byte-exact"].recall)
+    assert points["lossless"].visible_recall < points["tier-0 only"].visible_recall
+    assert points["lossless"].recall == pytest.approx(points["tier-0 only"].recall)
 
 
 def test_writes_results_json_and_a_wellformed_svg(mini_corpus: Path, tmp_path: Path) -> None:
@@ -134,3 +140,69 @@ def test_svg_scales_its_axis_to_the_observed_range() -> None:
     assert "800 facts lost" in svg
     lo = 0.55 - 0.02
     assert curve._y(0.55, lo) > curve._y(1.0, lo) + 100, "lossy rung is not visibly separated"
+
+
+def test_rungs_never_emit_a_block_bigger_than_its_input(mini_corpus: Path) -> None:
+    """The reject-if-bigger invariant `distil validate` asserts, applied to the curve.
+
+    The raw tier classes do not enforce it; production does, per block and by tokens, in
+    `_apply_tier0`. Measuring without the guard would let the curve report savings the
+    proxy would never take, and disagree with the gate.
+    """
+    from distil.tokenizer import DEFAULT as tok
+    from distil.trajectory import Stability
+
+    for entry in load_corpus(mini_corpus):
+        for turn in entry.trajectory.turns:
+            volatile = [b for b in turn.blocks if b.stability is Stability.VOLATILE]
+            if not volatile:
+                continue
+            for spec in curve.LADDER:
+                by_id = {b.id: b.text for b in spec.fn(volatile).blocks}
+                for original in volatile:
+                    assert tok.count(by_id[original.id]) <= tok.count(original.text), (
+                        f"{spec.name} inflated block {original.id}"
+                    )
+
+
+def test_reject_bigger_restores_the_original_block() -> None:
+    """The guard itself, driven directly — the corpus contains no inflating block today
+    (it rescues 0 of 112), and a guard exercised only by luck is a guard that can rot."""
+    from distil.compress.base import CompressResult
+    from distil.trajectory import Block, Kind, Stability
+
+    src = Block(id="b1", kind=Kind.TOOL_OUTPUT, text="short", stability=Stability.VOLATILE)
+    inflated = src.copy_with("a much much longer replacement " * 20)
+    out = curve._reject_bigger([src], CompressResult([inflated], {}))
+    assert out.blocks[0].text == "short"
+
+
+def test_subscription_is_the_shipped_path_not_tier0_rebuilt() -> None:
+    """The rung must route through the adapter's verbatim branch, which applies the
+    in-context structured folds Tier-0 alone does not. Driven on tabular content, where
+    the two provably differ — the prose-heavy corpus cannot tell them apart."""
+    from distil.trajectory import Block, Kind, Stability
+
+    rows = json.dumps([{"id": i, "name": f"row_{i}", "value": i * 3} for i in range(60)])
+    block = Block(id="b1", kind=Kind.TOOL_OUTPUT, text=rows, stability=Stability.VOLATILE)
+
+    sub = curve._subscription([block])
+    t0 = curve._tier0_only([block]).blocks[0].text
+    assert len(sub.blocks[0].text) < len(t0), "subscription rung is not applying the fold"
+    # In-context lossless: no recovery handle, because verbatim injects no expand tool.
+    assert "handle=" not in sub.blocks[0].text
+    assert not sub.restore
+
+
+def test_coincident_rungs_share_one_label() -> None:
+    """Rungs that measure identically land on the same pixel. Drawing both there stacks
+    two labels, which reads as a missing rung rather than as two that agree."""
+    points = [
+        curve.CurvePoint("none", "", 0.0, 1.0, 1.0, 0, True, 0.0),
+        curve.CurvePoint("tier-0 only", "", 0.0, 1.0, 1.0, 0, True, 0.0),
+        curve.CurvePoint("lossless", "", 47.0, 1.0, 0.77, 0, True, 1.0),
+    ]
+    svg = curve.render_svg(points)
+    ET.fromstring(svg)
+    assert "none = tier-0 only" in svg
+    assert svg.count("<circle") == 2, "coincident points drew two overlapping markers"

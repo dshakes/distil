@@ -142,7 +142,7 @@
 <pre><code>cache-read share: 87.4% of billed input was served from the
                   provider's prompt cache (at ~0.1x)</code></pre>
     <p>The number is <code>cache_read_input_tokens</code> over total billed input, taken from the fields the ledger already recorded. A near-zero share on a long session means something rewrote the prefix, and it is the only signal that says so — the requests all still succeed either way.</p>
-    <p>When the records predate those fields the line reads <em>not captured</em> and the JSON field is <code>null</code>, never <code>0.0</code>. “We did not measure this” and “the cache never hit” are opposite diagnoses and must not share a rendering.</p>
+    <p>When the records predate those fields the line reads <em>not captured</em> and the JSON field is <code>null</code>, never <code>0.0</code>. “We did not measure this” and “the cache never hit” are opposite diagnoses and must not share a rendering. This matters for a specific shape: older sessions carry only the aggregate <code>usage_cache_tokens</code> and neither split field, so summing reads over them gives zero against a nonzero input total — a confident 0.0% for a session nobody measured. At least one record must carry a split field before the number is reported at all.</p>
 
     <p>The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0008-the-cache-contract.md">ADR 0008</a>. For the mechanics of what gets compressed, see <a href="techniques.html">Techniques</a>; for the adversarial side of the same surface, see the <a href="threat-model.html">Threat Model</a>.</p>
 
