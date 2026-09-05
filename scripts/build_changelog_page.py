@@ -9,10 +9,12 @@ entry with a stable anchor id.
 
 The converter below is a small hand-rolled subset of Markdown, not a general
 parser: it supports exactly the constructs CHANGELOG.md actually uses (`##`/`###`
-headers, fenced code blocks, blockquotes, one level of nested bullet lists with
-wrapped continuation lines, `` `code` ``, **bold**, *italic*, and `[text](url)`
-links). Checked by tests/test_changelog_page.py (regenerate-and-compare, same
-pattern as build_search_index.py / test_search_index.py).
+headers, fenced code blocks, 4-space-indented code blocks, GFM pipe tables,
+blockquotes, one level of nested bullet lists with wrapped continuation lines,
+`` `code` ``, **bold**, *italic*/_italic_, and `[text](url)` links — the last
+scheme-checked and attribute-escaped before it reaches `href`). Checked by
+tests/test_changelog_page.py (regenerate-and-compare, same pattern as
+build_search_index.py / test_search_index.py).
 
 Usage: python3 scripts/build_changelog_page.py [changelog_md] [out_html]
 """
@@ -35,33 +37,122 @@ _VERSION_RE = re.compile(r"^## \[([^\]]+)\](?: — (.*))?\s*$")
 _H3_RE = re.compile(r"^### (.*)$")
 _BULLET_RE = re.compile(r"^(\s*)- (.*)$")
 
-_INLINE_CODE = re.compile(r"`([^`]+)`")
-_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-_BOLD = re.compile(r"\*\*([^*]+)\*\*")
-_ITALIC = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_URI_SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
+_SAFE_URI_SCHEMES = {"http", "https", "mailto"}
+
+
+def _safe_href(url: str) -> str | None:
+    """Reject dangerous URI schemes (``javascript:``, ``data:``, ...).
+
+    A URL with no scheme at all — every relative path, ``#anchor``, ``./x``,
+    ``/x``, and the bare ``docs/x.md`` links CHANGELOG.md actually uses — is
+    left alone rather than rejected.
+    """
+    m = _URI_SCHEME_RE.match(url)
+    if m is None:
+        return url
+    return url if m.group(1).lower() in _SAFE_URI_SCHEMES else None
+
+
+def _intraword_underscore(text: str, pos: int) -> bool:
+    """CommonMark's rule: `_` inside a word is never an emphasis delimiter.
+
+    Without this, `distil/proxy.py _post_upstream` (a real, unbacktick-quoted
+    CHANGELOG.md line) or `edit_file / run_tests` would have the first `_` of
+    one identifier greedily paired with a later `_` of some unrelated
+    identifier, wrapping the text between them in `<em>` -- snake_case is far
+    more common in this file than genuine `_italic_` (which nothing here uses).
+    """
+    before = text[pos - 1] if pos > 0 else ""
+    after = text[pos + 1] if pos + 1 < len(text) else ""
+    return before.isalnum() and after.isalnum()
 
 
 def _inline(text: str) -> str:
-    """Render inline Markdown (code/link/bold/italic) inside already-plain text.
+    """Render inline Markdown (code/bold/italic/links) into escaped HTML.
 
-    Code spans are pulled out and stashed before bold/italic run, and restored
-    verbatim afterward — a literal `*` or `_` inside `` `usage.*` `` must never
-    be read as an emphasis marker for text outside the span.
+    A small recursive-descent scanner, not global regex substitution over the
+    whole string: code spans are matched first and their contents are never
+    re-parsed (a literal `*` inside `` `usage.*` `` is never read as emphasis),
+    and bold/italic recurse into their own contents so `**leaked *and* hung**`
+    nests correctly instead of the outer `**` failing to match because its
+    content contains a `*`. Link targets are HTML-attribute-escaped (quote=True)
+    and scheme-checked before being written into `href` -- markdown link syntax
+    is the one place raw source text ends up inside an attribute rather than
+    text content, so it is the injection-relevant path.
     """
-    text = html.escape(text, quote=False)
-    stashed: list[str] = []
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
 
-    def _stash(m: re.Match[str]) -> str:
-        stashed.append(f"<code>{m.group(1)}</code>")
-        return f"\x00{len(stashed) - 1}\x00"
+        if ch == "`":
+            j = text.find("`", i + 1)
+            if j == -1:
+                out.append("`")
+                i += 1
+                continue
+            out.append(f"<code>{html.escape(text[i + 1 : j], quote=False)}</code>")
+            i = j + 1
+            continue
 
-    text = _INLINE_CODE.sub(_stash, text)
-    text = _LINK.sub(lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', text)
-    text = _BOLD.sub(lambda m: f"<strong>{m.group(1)}</strong>", text)
-    text = _ITALIC.sub(lambda m: f"<em>{m.group(1)}</em>", text)
-    for idx, code_html in enumerate(stashed):
-        text = text.replace(f"\x00{idx}\x00", code_html)
-    return text
+        if text[i : i + 2] == "**":
+            j = text.find("**", i + 2)
+            if j == -1:
+                out.append("**")
+                i += 2
+                continue
+            out.append(f"<strong>{_inline(text[i + 2 : j])}</strong>")
+            i = j + 2
+            continue
+
+        if ch == "*":
+            j = i + 1
+            while j < n and text[j] != "*":
+                j += 1
+            if j < n and j > i + 1:
+                out.append(f"<em>{_inline(text[i + 1 : j])}</em>")
+                i = j + 1
+                continue
+            out.append("*")
+            i += 1
+            continue
+
+        if ch == "_":
+            j = i + 1
+            while j < n and (text[j] != "_" or _intraword_underscore(text, j)):
+                j += 1
+            if j < n and j > i + 1 and not _intraword_underscore(text, i):
+                out.append(f"<em>{_inline(text[i + 1 : j])}</em>")
+                i = j + 1
+                continue
+            out.append("_")
+            i += 1
+            continue
+
+        if ch == "[":
+            m = _LINK_RE.match(text, i)
+            if m:
+                inner = _inline(m.group(1))
+                href = _safe_href(m.group(2).strip())
+                out.append(
+                    f'<a href="{html.escape(href, quote=True)}">{inner}</a>'
+                    if href is not None
+                    else inner
+                )
+                i = m.end()
+                continue
+            out.append("[")
+            i += 1
+            continue
+
+        j = i
+        while j < n and text[j] not in "`*_[":
+            j += 1
+        out.append(html.escape(text[i:j], quote=False))
+        i = j
+    return "".join(out)
 
 
 def _slug(version: str) -> str:
@@ -76,6 +167,20 @@ def _join_wrapped(parts: list[str]) -> str:
         sep = "" if result.count("`") % 2 == 1 else " "
         result += sep + part
     return result
+
+
+def _looks_like_table_row(line: str) -> bool:
+    s = line.strip()
+    return len(s) > 1 and s.startswith("|") and s.endswith("|")
+
+
+def _looks_like_table_separator(line: str) -> bool:
+    s = line.strip()
+    return bool(s) and "-" in s and set(s) <= set("|:- ")
+
+
+def _table_cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip()[1:-1].split("|")]
 
 
 def _render_block(lines: list[str]) -> str:
@@ -158,6 +263,39 @@ def _render_block(lines: list[str]) -> str:
             close_li(list_stack[-1])
             list_stack[-1][1] = mb.group(2)
             i += 1
+            continue
+
+        # Top-level-only constructs: both only ever occur in CHANGELOG.md right
+        # after a blank line, outside any list -- gate on that so a 4-space
+        # indented *continuation line* of an open nested bullet is never
+        # misread as a code block.
+        if (
+            not list_stack
+            and not para
+            and _looks_like_table_row(line)
+            and i + 1 < n
+            and _looks_like_table_separator(lines[i + 1])
+        ):
+            header = _table_cells(line)
+            i += 2
+            body_rows: list[list[str]] = []
+            while i < n and _looks_like_table_row(lines[i]):
+                body_rows.append(_table_cells(lines[i]))
+                i += 1
+            thead = "<tr>" + "".join(f"<th>{_inline(c)}</th>" for c in header) + "</tr>"
+            tbody = "".join(
+                "<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in row) + "</tr>"
+                for row in body_rows
+            )
+            out.append(f"<table>\n<thead>{thead}</thead>\n<tbody>{tbody}</tbody>\n</table>")
+            continue
+
+        if not list_stack and not para and (line.startswith("    ") or line.startswith("\t")):
+            code = []
+            while i < n and (lines[i].startswith("    ") or lines[i].startswith("\t")):
+                code.append(lines[i][4:] if lines[i].startswith("    ") else lines[i][1:])
+                i += 1
+            out.append(f"<pre><code>{html.escape(chr(10).join(code))}</code></pre>")
             continue
 
         if not line.strip():
