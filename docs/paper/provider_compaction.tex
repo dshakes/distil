@@ -355,7 +355,18 @@ action is not automatically a task failure.
 \paragraph{Point-in-time.}
 Both features are evolving surfaces measured on the dates and model versions
 recorded in the artifacts. Vendors may change behavior without notice; these
-results should be reproduced, not extrapolated.
+results should be reproduced, not extrapolated. Concretely, and recoverable from the
+committed artifacts rather than from memory: each protocol was pre-registered on
+\textbf{2026-07-26} (the \texttt{created} timestamp inside \texttt{protocol}, whose
+\texttt{protocol\_sha256} pins it), the runs used \texttt{claude-opus-4-8} at
+\texttt{sig\_version}~3, and the artifacts were committed on \textbf{2026-08-16}. The
+repository was at \texttt{distil}~\textbf{1.33.0} on the pre-registration date and
+\textbf{1.48.1} when the artifacts landed. The decision-fingerprint protocol has since
+advanced to \texttt{SIG\_VERSION}~4, so a re-run will not be byte-comparable with these
+artifacts at the fingerprint level even where the underlying decisions agree --- the rates
+remain comparable, the raw signatures do not. Anthropic has also since shipped server-side
+compaction (\texttt{compact\_20260112}) alongside the context-editing policy measured here;
+it is a different surface and is not covered by these results.
 
 \section{Conclusion}
 \label{sec:conclusion}

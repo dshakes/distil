@@ -9,9 +9,54 @@ every server can apply them identically.
 
 from __future__ import annotations
 
+import re
+
 # Default maximum request body. Agent contexts are large but bounded; anything
 # past this is almost certainly abuse, and reading it would be a memory-DoS.
 MAX_BODY_BYTES = 8 * 1024 * 1024  # 8 MiB
+
+# Azure OpenAI serves the SAME two request bodies distil already compresses, under a
+# different path prefix — the deployment name (classic data plane) or a ``v1`` segment
+# (the v1 preview API) sits where OpenAI has nothing:
+#   POST {endpoint}/openai/deployments/{deployment}/chat/completions?api-version=…
+#   POST {endpoint}/openai/v1/chat/completions?api-version=preview
+#   POST {endpoint}/openai/responses?api-version=…
+#   POST {endpoint}/openai/v1/responses?api-version=preview
+# Source: Azure OpenAI REST API reference (data plane, authoring + inference).
+# Matched here rather than in each server so all three agree on one definition —
+# three hand-maintained frozensets is how the Responses API ended up compressible
+# in one server and forwarded raw by the other two.
+_AZURE = r"/openai/(?:deployments/[^/]+/|v1/)?"
+_CHAT_RE = re.compile(rf"^(?:/v1/chat/completions|{_AZURE}chat/completions)$")
+_RESPONSES_RE = re.compile(rf"^(?:/v1/responses|{_AZURE}responses)$")
+_MESSAGES_PATH = "/v1/messages"
+
+
+def is_messages_path(target: str) -> bool:
+    """True for the Anthropic Messages endpoint (``/v1/messages``)."""
+    return strip_query(target) == _MESSAGES_PATH
+
+
+def is_chat_completions_path(target: str) -> bool:
+    """True for an OpenAI (or Azure OpenAI) Chat Completions endpoint."""
+    return bool(_CHAT_RE.match(strip_query(target)))
+
+
+def is_responses_path(target: str) -> bool:
+    """True for an OpenAI (or Azure OpenAI) Responses API endpoint."""
+    return bool(_RESPONSES_RE.match(strip_query(target)))
+
+
+def is_compressible_path(target: str) -> bool:
+    """True if *target* carries a request body distil knows how to compress.
+
+    Covers Anthropic Messages, OpenAI Chat Completions and OpenAI Responses,
+    including their Azure OpenAI path forms. Gemini's endpoint is matched
+    separately (``adapters.gemini.is_gemini_path``) because the model name is
+    embedded in the path and that adapter owns the pattern.
+    """
+    p = strip_query(target)
+    return p == _MESSAGES_PATH or bool(_CHAT_RE.match(p)) or bool(_RESPONSES_RE.match(p))
 
 
 def safe_forward_path(target: str) -> str | None:

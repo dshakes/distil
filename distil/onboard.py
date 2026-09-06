@@ -23,6 +23,7 @@ _AGENTS = [
     ("claude", "Claude Code"),
     ("codex", "Codex"),
     ("gemini", "Gemini CLI"),
+    ("aider", "aider"),
     ("opencode", "OpenCode"),
     ("qwen", "Qwen Code"),
     ("goose", "goose"),
@@ -38,9 +39,12 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  the SDK appends /v1 itself so no suffix needed here (OpenAI SDK docs).
 #   gemini       — Gemini CLI honours GOOGLE_GEMINI_BASE_URL (verified: distil statusline
 #                  already checks this var, and Gemini CLI changelog confirms it).
-#   aider        — defaults to OpenAI mode; OPENAI_BASE_URL is the primary override
-#                  (aider docs: --openai-api-base / OPENAI_BASE_URL).  Users routing
-#                  Claude models should pass --env-var ANTHROPIC_BASE_URL explicitly.
+#   aider        — defaults to OpenAI mode, but it calls the provider through
+#                  LiteLLM, which reads the OLDER name OPENAI_API_BASE. We shipped
+#                  OPENAI_BASE_URL here, which aider never reads: the preset
+#                  reported success and routed nothing
+#                  (aider.chat/docs/llms/openai-compat.html). Users routing Claude
+#                  models should pass --env-var ANTHROPIC_BASE_URL explicitly.
 #   opencode     — OpenAI-compatible mode reads OPENAI_API_KEY + OPENAI_BASE_URL from
 #                  the environment, and env takes precedence over its config file
 #                  (OpenCode provider docs).
@@ -51,8 +55,9 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  OPENAI_BASE_URL, which it ignores) plus OPENAI_BASE_PATH,
 #                  defaulting to "v1/chat/completions" — a path distil's proxy
 #                  serves, so the default needs no change (goose provider docs).
-#   grok         — superagent-ai/grok-cli resolves its endpoint as (1) an explicit
-#                  argument, (2) GROK_BASE_URL, (3) the default https://api.x.ai/v1.
+#   grok         — the endpoint override is GROK_MODELS_BASE_URL
+#                  (docs.x.ai/build/settings). GROK_BASE_URL, which we shipped, is
+#                  not a variable the CLI reads at all — same silent no-op as aider.
 #                  Note the upstream carries the /v1 itself, unlike the OpenAI SDK.
 #   openhands    — reads LLM_BASE_URL / LLM_API_KEY / LLM_MODEL, but ONLY when run
 #                  with `--override-with-envs`. Without that flag it ignores the
@@ -79,11 +84,11 @@ AGENT_PRESETS: dict[str, tuple[str, str, str]] = {
         "https://generativelanguage.googleapis.com",
         "Gemini CLI",
     ),
-    "aider": ("OPENAI_BASE_URL", "https://api.openai.com", "aider"),
+    "aider": ("OPENAI_API_BASE", "https://api.openai.com", "aider"),
     "opencode": ("OPENAI_BASE_URL", "https://api.openai.com", "OpenCode"),
     "qwen": ("OPENAI_BASE_URL", "https://api.openai.com", "Qwen Code"),
     "goose": ("OPENAI_HOST", "https://api.openai.com", "goose"),
-    "grok": ("GROK_BASE_URL", "https://api.x.ai/v1", "Grok CLI"),
+    "grok": ("GROK_MODELS_BASE_URL", "https://api.x.ai/v1", "Grok CLI"),
     "openhands": ("LLM_BASE_URL", "https://api.openai.com", "OpenHands"),
 }
 

@@ -29,14 +29,17 @@ from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens as _gemini_count
 from .adapters.gemini import is_gemini_path
-from .httpguard import MAX_BODY_BYTES, safe_forward_path
+from .httpguard import (
+    MAX_BODY_BYTES,
+    is_chat_completions_path,
+    is_compressible_path,
+    is_responses_path,
+    safe_forward_path,
+)
 from .tokenizer import DEFAULT as _tokenizer
 
-# ---------------------------------------------------------------------------
-# Paths that carry a ``messages`` payload worth compressing
-# ---------------------------------------------------------------------------
-
-_COMPRESSIBLE_PATHS = frozenset({"/v1/messages", "/v1/chat/completions", "/v1/responses"})
+# Which endpoints carry a compressible body lives in httpguard.is_compressible_path —
+# one definition shared with proxy.py and gateway.py, Azure OpenAI paths included.
 
 # Hop-by-hop headers must not be forwarded — they are connection-specific.
 _HOP_BY_HOP = frozenset(
@@ -265,10 +268,56 @@ def make_app(
         except (json.JSONDecodeError, ValueError):
             body_bytes = raw
         else:
-            if "messages" in body and isinstance(body["messages"], list):
-                original: list[dict[str, Any]] = body["messages"]
+            if is_responses_path(request.path) and isinstance(body.get("input"), list):
+                # OpenAI Responses API (``/v1/responses``, and the Azure form). Dispatch
+                # here is by SHAPE first: the async proxy used to branch on ``messages``
+                # / ``contents`` only, so a Responses body matched neither and was
+                # forwarded to the provider entirely uncompressed — silently, with no
+                # header to say so. Same adapter and accounting as the sync proxy.
+                #
+                # No distil_expand injection, deliberately: this server runs no expand
+                # loop, so a tool call it advertised would escape to the client as "No
+                # such tool available" (#25). ``verbatim`` is forced True above for the
+                # same reason, which keeps every stub here recoverable-by-construction.
+                from .adapters.openai import compress_responses_input, count_responses_tokens
+
+                _orig_input: list[dict[str, Any]] = body["input"]
+                before_tok = count_responses_tokens(_orig_input)
                 try:
-                    compressed, _store = compress_messages(original, verbatim=verbatim)
+                    _compressed_input, _store = compress_responses_input(
+                        _orig_input, verbatim=verbatim
+                    )
+                except Exception:  # noqa: BLE001 — compression must never break a request
+                    log.debug(
+                        "compress_responses_input failed; forwarding uncompressed", exc_info=True
+                    )
+                    _compressed_input = _orig_input
+                after_tok = count_responses_tokens(_compressed_input)
+                body = {**body, "input": _compressed_input}
+                extras = {
+                    "x-distil-compressed": "1",
+                    "x-distil-tokens-saved": str(max(0, before_tok - after_tok)),
+                }
+                if shape_output != "off" and _lossy_ok:
+                    from .output import shape_request
+
+                    body = shape_request(body, level=shape_output, allow=True, shape="responses")
+                    extras["x-distil-output-shaping"] = shape_output
+                if savings is not None:
+                    _pending_savings = (before_tok, after_tok, body.get("model"))
+
+            elif "messages" in body and isinstance(body["messages"], list):
+                original: list[dict[str, Any]] = body["messages"]
+                # Chat Completions needs its own adapter (role:"tool" list content is
+                # Tier-1); /v1/messages stays on the Anthropic one.
+                if is_chat_completions_path(request.path):
+                    from .adapters.openai import compress_chat_completions
+
+                    _compress_fn = compress_chat_completions
+                else:
+                    _compress_fn = compress_messages
+                try:
+                    compressed, _store = _compress_fn(original, verbatim=verbatim)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                     compressed = original
@@ -347,16 +396,13 @@ def make_app(
     # Router
     # -----------------------------------------------------------------------
 
-    async def _route_post(request: web.Request) -> web.Response:
-        if request.path in _COMPRESSIBLE_PATHS:
-            return await _handle_compressible(request)
-        return await _passthrough(request)
-
     async def _route_any(request: web.Request) -> web.Response:
-        # Wildcard dispatcher: Gemini's path is dynamic (model name in the URL), so
-        # it can't be a fixed route — match it here and compress; else passthrough.
+        # Single dispatcher: neither Gemini's path (model name in the URL) nor Azure
+        # OpenAI's (deployment name in the URL) can be a fixed aiohttp route, so
+        # matching happens here for every shape rather than in a route table that
+        # only ever covered the three static OpenAI/Anthropic paths.
         if request.method == "POST" and (
-            request.path in _COMPRESSIBLE_PATHS or is_gemini_path(request.path)
+            is_compressible_path(request.path) or is_gemini_path(request.path)
         ):
             return await _handle_compressible(request)
         return await _passthrough(request)
@@ -373,12 +419,7 @@ def make_app(
 
     app.router.add_get("/distil/health", _health)
 
-    # Register compressible POST paths explicitly; everything else hits the wildcard.
-    for path in _COMPRESSIBLE_PATHS:
-        app.router.add_post(path, _route_post)
-
-    # Wildcard for all other paths/methods (aiohttp doesn't have a true catch-all,
-    # so we register explicit wildcards for the common verbs plus a fallback).
+    # Wildcard for everything else, any verb — _route_any decides compress vs relay.
     app.router.add_route("*", "/{path_info:.*}", _route_any)
 
     return app

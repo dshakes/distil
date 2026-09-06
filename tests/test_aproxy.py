@@ -240,3 +240,82 @@ def test_aiohttp_not_imported_at_module_level() -> None:
         if aiohttp_web is not None:
             sys.modules["aiohttp.web"] = aiohttp_web
         sys.modules.pop("distil.aproxy", None)
+
+
+# ---------------------------------------------------------------------------
+# Test 5: the OpenAI Responses API is compressed here too
+# ---------------------------------------------------------------------------
+
+# Pretty-printed JSON, not prose: aproxy is Tier-0 only (it runs no expand loop, so a
+# Tier-1 handle would be unrecoverable), and Tier-0's win on this content is lossless
+# minification. Asserting a POSITIVE saving is what makes the test prove compression
+# ran, rather than just that a header was stamped on an untouched body.
+_JSON_TOOL_RESULT = json.dumps(
+    {"rows": [{"id": i, "name": f"row-{i}", "status": "ok", "bytes": i * 1024} for i in range(40)]},
+    indent=4,
+)
+
+_RESPONSES_INPUT: list[dict[str, Any]] = [
+    {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]},
+    {"type": "function_call_output", "call_id": "c1", "output": _JSON_TOOL_RESULT},
+    {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "and now?"}]},
+]
+
+
+def test_responses_api_is_compressed() -> None:
+    """``/v1/responses`` used to match no branch here and was forwarded raw.
+
+    The async proxy dispatched on ``messages`` / ``contents`` only, so a Responses
+    body sailed through uncompressed with no header saying so — silently costing
+    the user the savings the sync proxy on the same machine would have found.
+    """
+
+    async def _body() -> None:
+        async with TestServer(_make_fake_upstream()) as upstream_server:
+            upstream_url = str(upstream_server.make_url("/")).rstrip("/")
+            async with TestClient(TestServer(make_app(upstream_url))) as client:
+                payload = {"model": "gpt-test", "input": _RESPONSES_INPUT}
+                resp = await client.post(
+                    "/v1/responses",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                assert resp.status == 200
+                assert resp.headers.get("x-distil-compressed") == "1"
+                assert int(resp.headers.get("x-distil-tokens-saved", "0")) > 0
+
+                echoed: dict[str, Any] = await resp.json()
+                forwarded = json.dumps(echoed["input"])
+                # aproxy runs no expand loop, so it must stay Tier-0: real savings,
+                # but never an unrecoverable digest handle (same rule as /v1/messages).
+                assert "handle=" not in forwarded
+                assert forwarded != json.dumps(_RESPONSES_INPUT)
+
+    _run(_body())
+
+
+def test_azure_chat_path_is_compressed() -> None:
+    """Azure OpenAI's deployment-in-the-path form matched no route at all before."""
+
+    async def _body() -> None:
+        async with TestServer(_make_fake_upstream()) as upstream_server:
+            upstream_url = str(upstream_server.make_url("/")).rstrip("/")
+            async with TestClient(TestServer(make_app(upstream_url))) as client:
+                payload = {
+                    "model": "gpt-test",
+                    "messages": [
+                        {"role": "user", "content": "read it"},
+                        {"role": "tool", "tool_call_id": "c1", "content": _JSON_TOOL_RESULT},
+                        {"role": "user", "content": "and now?"},
+                    ],
+                }
+                resp = await client.post(
+                    "/openai/deployments/gpt4o-prod/chat/completions?api-version=2024-10-21",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                assert resp.status == 200
+                assert resp.headers.get("x-distil-compressed") == "1"
+                assert int(resp.headers.get("x-distil-tokens-saved", "0")) > 0
+
+    _run(_body())
