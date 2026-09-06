@@ -3,7 +3,9 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — an estimator that can say no
+## [Unreleased]
+
+### An estimator that can say no
 
 Live shadow, build 1.51.1, on the maintainer's lossless-only traffic: **44 A/B and 11
 A/A samples. Raw agreement 81.8% [67.3, 91.8]; the model's self-agreement on
@@ -83,8 +85,6 @@ Output is priced several times input, so compression that makes the model answer
 greater length can cost more than the prompt it shortened; nothing in distil could see
 that before. Cache fields are deliberately not priced in: the two arms hit the prefix
 cache differently by construction.
-## [Unreleased]
-
 ### Provider parity across all three servers
 
 The Responses API was compressed by the
