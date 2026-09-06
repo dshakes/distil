@@ -37,10 +37,11 @@ def _mock_wrap_run(monkeypatch):
     """Patch proxy.wrap_run to capture the kwargs it was called with."""
     captured: dict = {}
 
-    def fake(cmd, *, env_var, upstream, **kw):
+    def fake(cmd, *, env_var, upstream, extra_env=None, **kw):
         captured["env_var"] = env_var
         captured["upstream"] = upstream
         captured["cmd"] = cmd
+        captured["extra_env"] = extra_env
         return 0
 
     monkeypatch.setattr("distil.proxy.wrap_run", fake)
@@ -116,6 +117,30 @@ def test_preset_grok(monkeypatch, capsys):
     assert "Grok CLI" in out and "GROK_MODELS_BASE_URL" in out
 
 
+def test_preset_copilot(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["copilot"]))
+    assert rc == 0
+    assert captured["env_var"] == "COPILOT_PROVIDER_BASE_URL"
+    assert captured["upstream"] == "https://api.anthropic.com"
+    out = capsys.readouterr().out
+    assert "GitHub Copilot CLI" in out and "COPILOT_PROVIDER_BASE_URL" in out
+
+
+def test_preset_kimi(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["kimi"]))
+    assert rc == 0
+    assert captured["env_var"] == "KIMI_BASE_URL"
+    assert captured["upstream"] == "https://api.moonshot.ai/v1"
+    out = capsys.readouterr().out
+    assert "Kimi CLI" in out and "KIMI_BASE_URL" in out
+
+
 def test_preset_openhands(monkeypatch, capsys):
     from distil.cli import cmd_wrap
 
@@ -146,6 +171,28 @@ def test_openhands_without_its_flag_is_warned_at_wrap_time(monkeypatch, capsys):
 # ---------------------------------------------------------------------------
 # --env-var override always wins
 # ---------------------------------------------------------------------------
+
+
+def test_preset_extra_env_reaches_wrap_run(monkeypatch):
+    """cmd_wrap must thread a preset's extra_env dict through to wrap_run unchanged."""
+    from distil.cli import cmd_wrap
+    from distil.onboard import AGENT_PRESETS
+
+    captured = _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["goose"]))
+    assert rc == 0
+    assert captured["extra_env"] == AGENT_PRESETS["goose"][3]
+    assert captured["extra_env"] == {"ANTHROPIC_HOST": "$BASE"}
+
+
+def test_explicit_env_var_suppresses_preset_extra_env(monkeypatch):
+    """Overriding --env-var opts out of the whole preset shape, extra_env included."""
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    rc = cmd_wrap(_ns(command=["goose"], env_var="MY_CUSTOM_VAR"))
+    assert rc == 0
+    assert captured["extra_env"] == {}
 
 
 def test_env_var_override_wins_over_preset(monkeypatch, capsys):
@@ -282,6 +329,98 @@ def test_tripwire_silent_without_marker(tmp_path, monkeypatch, capsys):
     """No marker file (wrap_run never created one) → can't tell → stay silent."""
     err = _run_tripwire(tmp_path, monkeypatch, capsys, None)
     assert "no requests flowed" not in err
+
+
+# ---------------------------------------------------------------------------
+# extra_env resolution ($BASE mirror, $VARNAME passthrough, literal, masking)
+# ---------------------------------------------------------------------------
+
+
+def test_extra_env_resolution_shapes(tmp_path, monkeypatch):
+    """$BASE mirrors the proxy URL, $VARNAME passes an existing var through
+    (skipped when unset/empty), and anything else is set literally."""
+    from distil import proxy
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("MY_PASSTHROUGH", "carried-value")
+    monkeypatch.delenv("MY_EMPTY_PASSTHROUGH", raising=False)
+    result_path = tmp_path / "result.json"
+
+    child = (
+        "import json, os\n"
+        f"open({str(result_path)!r}, 'w').write(json.dumps({{\n"
+        "    'primary': os.environ.get('MY_BASE_VAR', ''),\n"
+        "    'mirror': os.environ.get('MIRROR_VAR', ''),\n"
+        "    'literal': os.environ.get('LITERAL_VAR', ''),\n"
+        "    'passthrough': os.environ.get('PASS_VAR', ''),\n"
+        "    'empty_absent': 'EMPTY_VAR' not in os.environ,\n"
+        "}))\n"
+    )
+    code = proxy.wrap_run(
+        [sys.executable, "-c", child],
+        upstream="https://example.invalid",
+        env_var="MY_BASE_VAR",
+        record=False,
+        extra_env={
+            "MIRROR_VAR": "$BASE",
+            "LITERAL_VAR": "literal-value",
+            "PASS_VAR": "$MY_PASSTHROUGH",
+            "EMPTY_VAR": "$MY_EMPTY_PASSTHROUGH",
+        },
+    )
+    assert code == 0
+    import json
+
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result["mirror"] == result["primary"] != ""
+    assert result["literal"] == "literal-value"
+    assert result["passthrough"] == "carried-value"
+    assert result["empty_absent"] is True, "an unset source var must not be invented"
+
+
+def test_extra_env_never_clobbers_a_user_override(tmp_path, monkeypatch):
+    """A value the user already exported outranks a preset's extra_env literal."""
+    from distil import proxy
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("LITERAL_VAR", "user-set-value")
+    result_path = tmp_path / "result.json"
+
+    child = (
+        "import json, os\n"
+        f"open({str(result_path)!r}, 'w').write(json.dumps("
+        "{'literal': os.environ.get('LITERAL_VAR', '')}))\n"
+    )
+    code = proxy.wrap_run(
+        [sys.executable, "-c", child],
+        upstream="https://example.invalid",
+        env_var="MY_BASE_VAR",
+        record=False,
+        extra_env={"LITERAL_VAR": "preset-value"},
+    )
+    assert code == 0
+    import json
+
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result["literal"] == "user-set-value"
+
+
+def test_extra_env_masks_key_named_values_on_print(tmp_path, monkeypatch, capsys):
+    """A var whose name contains KEY must never appear in plain text on stdout."""
+    from distil import proxy
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+
+    proxy.wrap_run(
+        [sys.executable, "-c", "pass"],
+        upstream="https://example.invalid",
+        env_var="MY_BASE_VAR",
+        record=False,
+        extra_env={"SOME_PROVIDER_API_KEY": "super-secret-value"},
+    )
+    out = capsys.readouterr().out
+    assert "super-secret-value" not in out
+    assert "••••••" in out
 
 
 def test_a_new_preset_actually_carries_a_request_to_the_provider(tmp_path, monkeypatch):

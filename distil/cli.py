@@ -2732,11 +2732,15 @@ _IDE_NOT_WRAPPABLE = {
     "cursor": "Cursor",
     "cursor-agent": "Cursor",
     "code": "VS Code (Copilot/Cline/Continue)",
-    "copilot": "GitHub Copilot",
     "cline": "Cline",
     "continue": "Continue",
     "windsurf": "Windsurf",
     "zed": "Zed",
+    "kilo": "Kilo Code",
+    "roo": "Roo Code",
+    "warp": "Warp",
+    "cortex": "Snowflake Cortex Code",
+    "coco": "Snowflake Cortex Code",
 }
 
 
@@ -2808,15 +2812,17 @@ def cmd_wrap(args: argparse.Namespace) -> int:
 
     env_var: str = args.env_var or ""
     upstream: str = args.upstream or ""
+    extra_env: dict[str, str] = {}
 
     if preset is not None:
-        preset_env_var, preset_upstream, preset_label = preset
+        preset_env_var, preset_upstream, preset_label, preset_extra = preset
         if not env_var:
             env_var = preset_env_var
             print(f"  preset: {preset_label} detected → {env_var}")
+            extra_env = preset_extra
+        _warn_if_env_ignored(cmd_name, command)
         if not upstream:
             upstream = preset_upstream
-        _warn_if_env_ignored(cmd_name, command)
 
     if not env_var:
         env_var = "ANTHROPIC_BASE_URL"
@@ -2857,6 +2863,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         session_delta=args.session_delta,
         shadow_rate=args.shadow,
         retention_rate=getattr(args, "retention", 0.0),
+        extra_env=extra_env,
     )
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can

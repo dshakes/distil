@@ -88,7 +88,9 @@
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
+            <li><a href="autogen.html">AutoGen</a></li>
             <li><a href="crewai.html">CrewAI</a></li>
+            <li><a href="asgi.html">ASGI Middleware</a></li>
           </ul></li>
         <li><a href="security.html">Security</a></li>
         <li><a href="changelog.html" class="active" aria-current="page">Changelog</a></li>
@@ -108,6 +110,8 @@
 <h2 id="vUnreleased">Unreleased</h2>
 <p>Provider parity across all three servers. The Responses API was compressed by the sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat Completions was injected with Anthropic's expand-tool schema, which that provider rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted them; Azure OpenAI's paths matched nothing anywhere. The <code>aider</code> and <code>grok</code> wrap presets set environment variables those tools never read, so both routed nothing while reporting success.</p>
 <p>The gateway no longer emits a digest stub it cannot restore. It injects no <code>distil_expand</code> tool and runs no expand loop, so Tier-1 there was irreversibly lossy on every pay-as-you-go session — the marker named a recovery that did not exist. It is Tier-0 only until it grows the expand loop, which lowers its savings on unstructured content and makes what it does report honest.</p>
+<p>Two new integrations, both duck-typed and dependency-free like the rest of the package: <code>distil.integrations.autogen</code> (<code>compressing_tool</code>, <code>DistilModelClient</code>, <code>compress_messages</code> for Microsoft AutoGen) and <code>distil.integrations.asgi</code> (<code>DistilMiddleware</code>, for any app that hosts its own LLM-facing endpoint on Starlette, FastAPI, or another ASGI 3 framework). <code>compressing_tool</code>'s wrapper carries <code>functools.wraps</code> plus an explicit <code>__signature__</code>, so <code>FunctionTool</code>'s signature/annotation-based schema generation sees the original function, not <code>*args, **kwargs</code>. <code>DistilMiddleware</code> enforces its body-size cap while reading rather than after buffering the whole oversized body, and on the cap, a client disconnect mid-body, or a fail-open (malformed JSON, unrecognized shape, compression error), replays the exact original event sequence and headers instead of collapsing the stream into one synthesized chunk.</p>
+<p><code>wrap</code> gained presets for GitHub Copilot CLI (<code>copilot</code>) and Kimi CLI (<code>kimi</code>), and <code>goose</code> now also gets <code>ANTHROPIC_HOST</code> alongside <code>OPENAI_HOST</code> — <code>AGENT_PRESETS</code> supports multiple environment variables per preset for this.</p>
 </section>
 
 <section class="changelog-entry">

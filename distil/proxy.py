@@ -2008,6 +2008,7 @@ def wrap_run(
     session_delta: bool = False,
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
+    extra_env: dict[str, str] | None = None,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
 
@@ -2168,6 +2169,24 @@ def wrap_run(
     child_env[env_var] = base
     print(f"distil wrap → proxy {base} (upstream {upstream})")
     print(f"  → {env_var}={base}")
+    # Some presets need more than one env var wired (e.g. goose reads a
+    # separate Anthropic-flavoured host var; Copilot CLI needs a provider
+    # type alongside its base URL). "$BASE" mirrors this wrap's proxy URL,
+    # "$VARNAME" passes an existing environment value through (skipped if
+    # unset/empty — never invent a credential), anything else is literal.
+    # setdefault so a user's own exported override always wins.
+    for name, template in (extra_env or {}).items():
+        if template == "$BASE":
+            value = base
+        elif template.startswith("$"):
+            value = os.environ.get(template[1:], "")
+            if not value:
+                continue
+        else:
+            value = template
+        child_env.setdefault(name, value)
+        shown = "••••••" if "KEY" in name else value
+        print(f"  → {name}={shown}")
     if lossless_only:
         print("  → lossless-only (no shaping / no tool injection)")
     if verbatim:
