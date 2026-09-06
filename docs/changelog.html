@@ -103,7 +103,35 @@
     <p class="lead">Every notable change to Distil, newest first — generated from <a href="https://github.com/dshakes/distil/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a>, so this page can never drift from the source of truth.</p>
 
 <section class="changelog-entry">
-<h2 id="vUnreleased">Unreleased</h2>
+<h2 id="vUnreleased">Unreleased — an estimator that can say no</h2>
+<p>Live shadow, build 1.51.1, on the maintainer's lossless-only traffic: <strong>44 A/B and 11 A/A samples. Raw agreement 81.8% [67.3, 91.8]; the model's self-agreement on identical input 84.8% [71.8, 92.4] over 46 byte-identical replays. Statistically indistinguishable (Fisher p=0.63)</strong> — and 32 of the 44 "A/B" samples had no bytes changed by compression at all. Below the reporting floor, and not a verdict. Reading the sample end to end turned up an estimator that could not have told us otherwise.</p>
+<h3>The arms were not what they said they were</h3>
+<ul>
+<li><strong>Byte-identical bodies were labelled A/B.</strong> <code>_serialize_if_changed</code> returns the ORIGINAL bytes when no transform fired (deliberately — re-encoding busts the prompt cache), but the sample was still labelled by an independent 1/3 coin. So the two arms were the same bytes and the row measured the model against itself, filed as evidence that compression is safe. Reclassified at spawn time: identical bytes are an A/A sample, whatever the coin said. It also costs one fewer replay.</li>
+<li><strong>The A/A arm replayed the COMPRESSED body twice.</strong> That is a B/B arm. Under digest mode it measured self-agreement on the wrong distribution entirely, and it could not detect a compressor that changed every decision <em>consistently</em>. A/A now replays the original.</li>
+<li><strong>The call order was fixed</strong>, so the warm-prefix-cache read always landed on the same arm. The replays are now issued in shuffled order.</li>
+</ul>
+<h3>An estimator with an interval, allowed to be negative</h3>
+<p>The old number was <code>p_BA / p_AA</code> between two <strong>disjoint</strong> request sets, clamped with <code>max(0, ...)</code>. It printed exactly 100% whenever the A/B draw beat the A/A draw by chance, and it could never report harm. The paper defines a <em>paired difference</em> (§ "A/A self-agreement control"); the serving path now implements it:</p>
+<ul>
+<li>each sampled request is replayed <strong>three times</strong> — A and A' on the original context, B on the compressed one — and the row stores <code>1{A==B} − 1{A==A'}</code>;</li>
+<li>reported as a mean difference with a bootstrap 95% CI, unclipped, alongside raw <code>p_AB</code> and <code>p_AA</code> with Wilson intervals;</li>
+<li>1.5x the replay budget on samples where compression actually changed something, and only there. <code>DISTIL_SHADOW_PAIRED=0</code> restores the cheaper two-replay design (with the A/A arm fixed).</li>
+</ul>
+<p><code>SIG_VERSION</code> goes to <strong>5</strong>: the rule on the constant is to bump on any change to how the compared sample is generated, and v4 rows are not comparable to these. Old rows stay readable under <code>--all</code>, labelled <code>legacy-unpaired</code>.</p>
+<h3>One reporting floor, everywhere</h3>
+<p>There were three. <code>VERDICT_MIN_AB</code>/<code>VERDICT_MIN_AA</code> (50/30) gated the status line and the proof ledger; <code>shadow-stats</code> printed at 25/10; the census feed and the web dashboard published as soon as <em>any</em> A/A baseline existed (n≥10). The lowest of the three fed the adoption page's decision-equivalence ring, so the most public claim rested on the weakest evidence. Every surface now uses the same pair and says <code>below reporting floor (n=…)</code> otherwise — and the adoption caption states the estimator rather than the word "provably". The sampling diagnostics still print below the floor, because a thin sample is usually a replay that is failing.</p>
+<h3>Two things the reports were quiet about</h3>
+<ul>
+<li><strong>Per mode.</strong> lossless-only and digest measure different things; pooled, they report the average of two experiments nobody runs. Each row now carries its mode and <code>shadow-stats</code> breaks them out.</li>
+<li><strong>Temperature.</strong> <code>force_deterministic</code> only pins temperature 0 when the body already carries the field and thinking is off. On Claude Code traffic neither holds, so the replays sample hot. Rather than fake determinism, each row records whether it was pinned and <code>shadow-stats</code> prints what share of the sample ran hot, and why the A/A arm is what absorbs it.</li>
+</ul>
+<h3>Output-token accounting</h3>
+<p>The paired replays already return both responses, so the provider's own usage is free to record. Each row now carries input and output tokens for the A and B arms, and <code>shadow-stats</code> and <code>distil dissect</code> report the mean output-token delta with a CI plus the net dollars — input saved at input prices <em>minus</em> extra output at output prices. Output is priced several times input, so compression that makes the model answer at greater length can cost more than the prompt it shortened; nothing in distil could see that before. Cache fields are deliberately not priced in: the two arms hit the prefix cache differently by construction.</p>
+</section>
+
+<section class="changelog-entry">
+<h2 id="vUnreleased-2">Unreleased</h2>
 <p>Provider parity across all three servers. The Responses API was compressed by the sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat Completions was injected with Anthropic's expand-tool schema, which that provider rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted them; Azure OpenAI's paths matched nothing anywhere. The <code>aider</code> and <code>grok</code> wrap presets set environment variables those tools never read, so both routed nothing while reporting success.</p>
 <p>The gateway no longer emits a digest stub it cannot restore. It injects no <code>distil_expand</code> tool and runs no expand loop, so Tier-1 there was irreversibly lossy on every pay-as-you-go session — the marker named a recovery that did not exist. It is Tier-0 only until it grows the expand loop, which lowers its savings on unstructured content and makes what it does report honest.</p>
 </section>
