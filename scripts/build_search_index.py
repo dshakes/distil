@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the docs search index — stdlib only, run at commit time.
 
-The docs site is 22 pages with no way to search them, so finding "how do I set
+The docs site is 38 pages with no way to search them, so finding "how do I set
 an admin token" meant knowing which page it lived on. This produces a small
 static JSON the site loads on first ⌘K; there is no search service, no runtime
 dependency, and nothing to keep running.

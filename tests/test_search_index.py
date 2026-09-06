@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,20 @@ def test_page_titles_are_not_taken_from_svg_titles():
     by_url = {p["u"]: p for p in idx}
     if "architecture.html" in by_url:
         assert by_url["architecture.html"]["t"] == "Architecture"
+
+
+def test_changelog_headings_have_anchors():
+    """Every changelog VERSION heading (e.g. "1.13.0 — ...", rendered as an
+    <h2>) must carry a non-empty anchor, or a search hit lands on the top of
+    the (very long) changelog page instead of the entry it matched. This broke
+    when the id lived on the wrapping <section> instead of the <h2> this
+    indexer actually reads. The "Added"/"Fixed"/... <h3> subsections inside
+    each entry are out of scope here — they have never carried ids."""
+    idx = json.loads(_INDEX.read_text(encoding="utf-8"))
+    by_url = {p["u"]: p for p in idx}
+    if "changelog.html" not in by_url:
+        return
+    version_headings = [h for h in by_url["changelog.html"]["h"] if re.match(r"^\d", h["t"])]
+    assert version_headings, "no version headings found in the changelog index"
+    empty = [h["t"] for h in version_headings if not h["a"]]
+    assert not empty, f"changelog version headings with no anchor: {empty}"
