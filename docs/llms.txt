@@ -39,6 +39,9 @@ https://github.com/dshakes/distil/blob/main/README.md
 CHANGELOG (per-version feature list):
 https://github.com/dshakes/distil/blob/main/CHANGELOG.md
 
+Changelog (the same CHANGELOG.md, rendered on the site so it can never drift):
+https://dshakes.github.io/distil/changelog.html
+
 THREAT_MODEL.md (what distil protects against and explicitly does not):
 https://github.com/dshakes/distil/blob/main/THREAT_MODEL.md
 
@@ -61,6 +64,10 @@ https://dshakes.github.io/distil/cli.html
 
 Deploy & Security (topologies, encrypt-at-rest, gateway keys, OTel session id):
 https://dshakes.github.io/distil/deploy-security.html
+
+Security (where to report a vulnerability, the full data-handling whitepaper,
+and the deploy security guide — one page, three links):
+https://dshakes.github.io/distil/security.html
 
 Metrics & Observability (Prometheus /distil/metrics exposition and its admin
 gate, OpenTelemetry counters + GenAI spans, what to alert on):

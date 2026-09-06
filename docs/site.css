@@ -632,6 +632,45 @@ pre:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
 :root[data-theme="light"] .topbar{background:rgba(251,251,253,.86)}
 :root[data-theme="light"] .sidebar{background:var(--bg)}
 
+/* No-JS fallback: the inline head script sets [data-theme] before first paint
+   from localStorage or prefers-color-scheme, but without JS nothing sets that
+   attribute at all and :root's bare (dark) tokens win regardless of the OS
+   setting. This mirrors the same light palette above for that case, so a
+   light-preferring visitor with JS disabled still gets a light page — an
+   explicit data-theme (light or dark), when JS did run, always overrides it. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    --bg:     #fbfbfd;
+    --bg2:    #f4f5f8;
+    --panel:  #ffffff;
+    --panel2: #f4f5f8;
+    --line:   #e2e5ec;
+    --line2:  #cfd4e0;
+    --ink:    #14161c;
+    --mut:    #4d5566;
+    --dim:    #626b7d;
+    --acc:    #5b46d9;
+    --acc2:   #0f7d75;
+    --warn:   #a8410f;
+    --good:   #16704a;
+    --grad:   linear-gradient(135deg,#5b46d9 0%,#0f7d75 100%);
+    --card:   linear-gradient(180deg,#ffffff 0%,#f7f8fb 100%);
+    --shadow:  0 14px 40px -28px rgba(20,22,28,.35);
+    --shadow2: 0 18px 48px -26px rgba(91,70,217,.25);
+  }
+  :root:not([data-theme="dark"]):not([data-theme="light"]) .svg-embed,
+  :root:not([data-theme="dark"]):not([data-theme="light"]) img[src$=".svg"] {
+    border:1px solid var(--line);border-radius:14px;background:#0b0c13;
+  }
+  :root:not([data-theme="dark"]):not([data-theme="light"]) pre,
+  :root:not([data-theme="dark"]):not([data-theme="light"]) .term {
+    background:#0f1117;color:#e7e9ee;border-color:#20242f;
+  }
+  :root:not([data-theme="dark"]):not([data-theme="light"]) pre code{color:#e7e9ee}
+  :root:not([data-theme="dark"]):not([data-theme="light"]) .topbar{background:rgba(251,251,253,.86)}
+  :root:not([data-theme="dark"]):not([data-theme="light"]) .sidebar{background:var(--bg)}
+}
+
 .theme-toggle{display:inline-flex;align-items:center;justify-content:center;
   width:32px;height:32px;cursor:pointer;border-radius:9px;
   color:var(--dim);background:var(--panel2);border:1px solid var(--line);

@@ -3,16 +3,19 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>LiteLLM — Distil</title>
+<title>Security — Distil</title>
 <link rel="stylesheet" href="site.css"/>
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
-<meta property="og:title" content="LiteLLM — Distil"/>
-<meta property="og:description" content="Route LiteLLM through distil in one line — certified, reversible context compression with no code change beyond a base URL."/>
-<meta property="og:url" content="https://dshakes.github.io/distil/litellm.html"/>
+<meta property="og:title" content="Security — Distil"/>
+<meta property="og:description" content="How to report a vulnerability, the full security &amp; data-handling whitepaper, and where the threat model and telemetry schema live."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/security.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<meta name="twitter:title" content="LiteLLM — Distil"/>
+<meta name="twitter:title" content="Security — Distil"/>
+<meta name="twitter:description" content="How to report a vulnerability, the full security &amp; data-handling whitepaper, and where the threat model and telemetry schema live."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -20,6 +23,7 @@
 <body>
 <a class="skip-link" href="#content">Skip to main content</a>
 
+<!-- Top bar -->
 <header class="topbar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
   <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
@@ -32,6 +36,8 @@
 </header>
 
 <div class="shell">
+
+  <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <nav aria-label="Documentation">
       <h2 class="sidebar-section">Getting started</h2>
@@ -79,14 +85,14 @@
           <ul class="sidebar-sub">
             <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-            <li><a href="litellm.html" class="active" aria-current="page">LiteLLM</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
             <li><a href="crewai.html">CrewAI</a></li>
           </ul></li>
-        <li><a href="security.html">Security</a></li>
+        <li><a href="security.html" class="active" aria-current="page">Security</a></li>
         <li><a href="changelog.html">Changelog</a></li>
         <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
         <li><a href="index.html">← Landing page</a></li>
@@ -94,48 +100,39 @@
     </nav>
   </aside>
 
+  <!-- Main content -->
   <main class="content" id="content" tabindex="-1">
 
-    <h1>LiteLLM <span class="g">&times; Distil</span></h1>
-    <p class="lead">LiteLLM takes <code>api_base</code>. The same proxy also works behind the standalone LiteLLM Proxy — one YAML field per model.</p>
+    <span class="course-kicker">For reviewers &amp; procurement</span>
+    <h1><span class="g">Security</span></h1>
+    <p class="lead">Everything security-relevant lives in one of three source-of-truth documents in the repository — this page just points to them, so nothing here can drift out of sync with what's actually shipped.</p>
 
-    <h2 id="setup">Setup</h2>
-    <p>Start the proxy against the provider this SDK talks to, then point the client at it. Nothing else in your code changes.</p>
-
-<pre class="term"><span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span>
-
-<span class="k">import</span> litellm
-
-resp = litellm.completion(
-    model=<span class="s">"gpt-4o"</span>,
-    api_base=<span class="s">"http://127.0.0.1:8788/v1"</span>,   <span class="d"># ← the only change</span>
-    messages=[{<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: <span class="s">"..."</span>}],
-)</pre>
-
-    <p>Running the standalone LiteLLM Proxy instead? Set each model's <code>api_base</code> to the distil proxy in your config YAML; every request routed through LiteLLM is then compressed transparently.</p>
-
-    <h2 id="what-happens">What actually happens</h2>
-    <p>The proxy intercepts only the compressible paths &mdash; <code>/v1/messages</code>, <code>/v1/chat/completions</code>, <code>/v1/responses</code> and the Gemini <code>generateContent</code> routes. Everything else passes through untouched, and your API key travels in the request headers exactly as normal: the proxy never logs or stores it.</p>
-
-    <p>Large tool results are replaced by reversible digests carrying a content handle, and the original stays on your machine. The agent can pull any of it back mid-task through the <code>distil_expand</code> tool, so nothing is permanently discarded &mdash; which is what lets the compression be aggressive without being a gamble.</p>
-
-    <div class="callout good">
-      <b>Check it before you trust it.</b> <code>distil simulate -m request.json</code> replays one of your real requests through the pipeline with <em>no model in the path</em> and reports what would be compressed, what would be left byte-exact, and which rule protected it. See the <a href="cli.html#simulate">CLI reference</a>.
+    <div class="grid2">
+      <div class="card">
+        <div class="tag">Report a vulnerability</div>
+        <h3 style="margin-top:8px;"><a href="https://github.com/dshakes/distil/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a></h3>
+        <p>Do not open a public issue for a suspected vulnerability. Report privately through GitHub's private vulnerability reporting on the repository — what to include, what to expect, and the supported-versions policy.</p>
+      </div>
+      <div class="card">
+        <div class="tag">For reviewers &amp; procurement</div>
+        <h3 style="margin-top:8px;"><a href="https://github.com/dshakes/distil/blob/main/docs/SECURITY-WHITEPAPER.md" target="_blank" rel="noopener">SECURITY-WHITEPAPER.md</a></h3>
+        <p>Data flow and residency, encryption at rest, what leaves the machine (nothing, by default), and every claim written to name the file, command, or test that backs it.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Deploying distil</div>
+        <h3 style="margin-top:8px;"><a href="deploy-security.html">Deploy &amp; Security</a></h3>
+        <p>The three supported deployment topologies — local sidecar, container sidecar, shared gateway — and the security model each one gets by default.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Companion documents</div>
+        <h3 style="margin-top:8px;">Threat model &amp; telemetry</h3>
+        <p><a href="https://github.com/dshakes/distil/blob/main/THREAT_MODEL.md" target="_blank" rel="noopener"><code>THREAT_MODEL.md</code></a> — the adversary model and explicit non-goals. <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md" target="_blank" rel="noopener"><code>TELEMETRY.md</code></a> — the frozen, test-enforced schema for the one thing distil can ever send (opt-in, off by default).</p>
+      </div>
     </div>
 
-    <h2 id="verify">Verify it is actually routing</h2>
-    <p>The most common failure is silent: the client never reaches the proxy and everything still works, just uncompressed. Two checks:</p>
-
-<pre class="term"><span class="d">$ curl -s localhost:8788/distil/health</span>
-{"status":"ok"}
-
-<span class="d">$ distil dashboard</span>          <span class="d"># live savings; zero here means nothing is routing</span></pre>
-
-    <p>Every response also carries <code>x-distil-tokens-saved</code>, so a request that went through the proxy is identifiable from its headers alone.</p>
-
-    <hr/>
-    <p class="muted">Full matrix of every supported SDK, including the in-process hooks that need no proxy: <a href="integrations.html">Integrations</a>. Distil is a proxy, so anything that lets you set a base URL works &mdash; this page is a worked example, not the boundary of support.</p>
-
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
   </main>
 </div>
 

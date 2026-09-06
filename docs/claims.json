@@ -1,0 +1,194 @@
+{
+  "$schema_note": "See docs/CLAIMS.md. Every numeric or comparative claim on the site gets one entry here. status: verified (backed by a named test/script/report and currently accurate), stale (backed, but the underlying run predates recent changes and needs a re-run), wrong (currently on the page and currently incorrect — a fix is tracked separately), unsourced (a number with no named artifact backing it on the page). locator: {page, anchor, snippet} where anchor is an HTML id and snippet is a verbatim substring of the page's source, used by tests/test_site_claims.py to catch drift.",
+  "entries": [
+    {
+      "id": "v-e14-hero",
+      "status": "verified",
+      "page": "index.html",
+      "anchor": null,
+      "snippet": "42.0% vs 39.2% tasks solved",
+      "claim": "E14: gated + surprise digest ties full context on SWE-bench Verified (42.0% vs 39.2% tasks solved, 95% CI -0.6..+6.2pp, non-inferiority certified).",
+      "note": "Backed by research.html E14 / compare.html; reproduced via the swebench harness."
+    },
+    {
+      "id": "v-proof-rollup",
+      "status": "verified",
+      "page": "index.html",
+      "anchor": "proof",
+      "snippet": "83.2% token savings at a 0% decision-change rate",
+      "claim": "Live head-to-head + E7/E8/E14 rollup: 83.2% savings at 0% decision-change (<=5% at 95% CI); LLMLingua-2 53% with 1-in-8 flips; Headroom 2.1x less aggressive; E8 beats Headroom +4.2pp (p=0.035) and LLMLingua-2 by 34pp (36.8% vs 2.4% pass@1, p<0.001).",
+      "note": "Backed by benchmark.html live head-to-head and research.html E7/E8/E14."
+    },
+    {
+      "id": "v-benchmark-codebench",
+      "status": "verified",
+      "page": "benchmark.html",
+      "anchor": "coding-agent",
+      "snippet": "~3,400× slower",
+      "claim": "Coding-agent (codebench) table: distil PAYG digest 91.5%/91.1%/0.08ms vs LLMLingua-2 56.8%/57.2%/274ms (~3,400x slower) vs Headroom 22.4%/-16.8%/5.3ms.",
+      "note": "Reproduce: PYTHONPATH=. python benchmarks/codebench.py 16 (named on-page)."
+    },
+    {
+      "id": "v-provider-compaction",
+      "status": "verified",
+      "page": "provider-compaction.html",
+      "anchor": null,
+      "snippet": "roughly 7× better than deletion",
+      "claim": "distil certify-provider: Anthropic context-clearing changes 92.5% of decisions at keep=0 (95-100% at the shipped keep=3 default), OpenAI compaction 12.5-20%; summarization ~7x safer than deletion; neither certifies at alpha=0.1.",
+      "note": "Backed by certify-provider-compaction-plan (n=40 pre-registered runs)."
+    },
+    {
+      "id": "v-subscription-selftest",
+      "status": "verified",
+      "page": "subscription.html",
+      "anchor": null,
+      "snippet": "16/16 checks passed",
+      "claim": "distil hook --selftest verifies the schema adapters offline: 16/16 checks passed.",
+      "note": "Deterministic offline check, reproducible by running the command shown."
+    },
+    {
+      "id": "v-compare-e8",
+      "status": "verified",
+      "page": "compare.html",
+      "anchor": "e8-outcomes",
+      "snippet": "36.8%",
+      "claim": "E8: six-condition ReAct agent on full 500-instance SWE-bench Verified, official harness. distil (relevance-gated) 36.8% vs Headroom 32.6% vs LLMLingua-2 2.4% vs no-compression baseline.",
+      "note": "Scored by the official swebench harness, not a proxy metric."
+    },
+    {
+      "id": "s-benchmark-headline",
+      "status": "stale",
+      "page": "benchmark.html",
+      "anchor": "live-head-to-head",
+      "snippet": null,
+      "claim": "The live head-to-head headline table is sourced from a run dated 2026-06-23, predating 1.45.0-1.51.1 (including the embedded-JSON fold in 7117f6e). Numbers likely undercount current savings.",
+      "note": "Re-run tracked separately; do not change the on-page value in this PR."
+    },
+    {
+      "id": "s-faq-comparison",
+      "status": "stale",
+      "page": "faq.html",
+      "anchor": null,
+      "snippet": "53.1% savings but flipped 1-in-8 decisions",
+      "claim": "faq.html repeats the same dated head-to-head numbers (distil 83.2%/0%, LLMLingua-2 53.1%, Headroom 39.7%) as benchmark.html's stale headline table.",
+      "note": "Same underlying stale source as s-benchmark-headline; will refresh together."
+    },
+    {
+      "id": "s-concepts-comparison",
+      "status": "stale",
+      "page": "concepts.html",
+      "anchor": null,
+      "snippet": "reached only 53.1% savings and flipped 1-in-8 decisions",
+      "claim": "concepts.html repeats the same dated head-to-head numbers (distil 83.2%/0%, LLMLingua-2 53.1%, Headroom 39.7%) as benchmark.html's stale headline table, in its own prose phrasing.",
+      "note": "Same underlying stale source as s-benchmark-headline; will refresh together."
+    },
+    {
+      "id": "w-shadow-sample",
+      "status": "wrong",
+      "page": ["getting-started.html", "faq.html"],
+      "anchor": null,
+      "snippet": "1.13.0 / 116 sampled requests",
+      "claim": "\"Live result: production validation (1.13.0 / 116 sampled requests) ... 100% of requests ... A/A self-agreement of 31/31\" is currently wrong: the 1.51.1 changelog (d1d92aa) found that shadow sample was biased by signed-thinking-block replays silently dying, inflating every live number it produced.",
+      "note": "VALUE NOT CHANGED IN THIS PR. Needs restating with SIG_VERSION 4 numbers once a clean re-sample exists — tracked as a separate fix, out of scope for docs/site-accuracy-and-ux."
+    },
+    {
+      "id": "u-cache-hero-example",
+      "status": "unsourced",
+      "page": "index.html",
+      "anchor": null,
+      "snippet": "▼75.0K",
+      "claim": "Hero terminal illustrative output (▼75.0K, 62% smaller, $0.31, total ▼27.0M, ✓eq 99.5%) has no linked command, log, or artifact backing those specific figures.",
+      "note": "Presented as \"real, reproducible output\" but the exact numbers shown are not tied to a named run."
+    },
+    {
+      "id": "u-corpus-domain-percentages",
+      "status": "unsourced",
+      "page": "corpus.html",
+      "anchor": null,
+      "snippet": "aggregate 48.4%",
+      "claim": "Per-domain lossless-savings percentages (32.8%-89.8%, aggregate 48.4% across 7,080 prunable tokens) are repeated on index.html, getting-started.html, cli.html and techniques.html with no on-page pointer to the corpus fixture or command that produced them.",
+      "note": "corpus.html carries the canonical table; consider linking a `distil bench --corpus` (or equivalent) invocation next to it."
+    },
+    {
+      "id": "u-compare-crusher-numbers",
+      "status": "unsourced",
+      "page": "compare.html",
+      "anchor": null,
+      "snippet": "on enum-heavy tool output",
+      "claim": "Field-note callout cites a reversible nested-JSON fold at ~62% on enum-heavy tool output and a zero-dependency code skeleton at ~44% on a TS file, with no named benchmark or fixture.",
+      "note": "Approximate (~) figures presented inline in prose, not in a results table."
+    },
+    {
+      "id": "u-subscription-bytes",
+      "status": "unsourced",
+      "page": "subscription.html",
+      "anchor": "measured",
+      "snippet": "18,214",
+      "claim": "\"What it measures\" paired live A/B table (18,214B->11,178B tool_result, -67.4% cache_creation, -68.3% cost-weighted) is a single unlabeled session with no fixture name or reproduction command.",
+      "note": "n=1 session, presented as illustrative rather than a certified benchmark."
+    },
+    {
+      "id": "u-subscription-decision-equiv",
+      "status": "unsourced",
+      "page": "subscription.html",
+      "anchor": "measured",
+      "snippet": "Arms agreed (hook on vs off)",
+      "claim": "Decision-equivalence table (5/5 arms agreed, 5/5 correct each arm, n=5 decision-bearing tasks) has no named task list or fixture.",
+      "note": "Page itself says n=5 with no A/A arm is \"not a certificate\" — self-scoped, but still unsourced as a locatable artifact."
+    },
+    {
+      "id": "u-subscription-corpus-tally",
+      "status": "unsourced",
+      "page": "subscription.html",
+      "anchor": "where-zero",
+      "snippet": "corpus contains 43 tool-output blocks",
+      "claim": "\"distil's corpus contains 43 tool-output blocks; the five over 2KB have zero consecutive duplicate lines and zero JSON\" — no corpus file or command named.",
+      "note": "Likely the same corpus as corpus.html; not cross-linked."
+    },
+    {
+      "id": "u-techniques-keepmodel",
+      "status": "unsourced",
+      "page": "techniques.html",
+      "anchor": "keep-model",
+      "snippet": "96.4%",
+      "claim": "Keep-model codec comparison table: LogisticKeepModel 96.4% accuracy / 0.98 F1, TransformerKeepModel 96.3% (demo) — held-out set not named or linked.",
+      "note": "One column literally says \"(demo)\" for the transformer row, but the logistic row's 96.4%/0.98 has no named eval set either."
+    },
+    {
+      "id": "u-techniques-salience",
+      "status": "unsourced",
+      "page": "techniques.html",
+      "anchor": "salience-protection",
+      "snippet": "0/120 survival rate",
+      "claim": "\"Blind truncation at a 200-token target produced a 0/120 survival rate on decision-carrying lines ... with salience protection enabled, that becomes 120/120\" — no named corpus or reproduction command.",
+      "note": "The 120-trajectory corpus isn't identified on this page."
+    },
+    {
+      "id": "u-techniques-cache-sim",
+      "status": "unsourced",
+      "page": "techniques.html",
+      "anchor": null,
+      "snippet": "cache-aware lossless)          0.01023",
+      "claim": "`distil savings --pricing claude-opus-4-8` sample output (32.8% vs baseline, 1,028 cache hits) is illustrative terminal output, not tied to a named trajectory fixture.",
+      "note": "Command is real and runnable, but the specific numbers shown depend on whatever trajectory is passed — none is named."
+    },
+    {
+      "id": "u-architecture-precondition",
+      "status": "unsourced",
+      "page": "architecture.html",
+      "anchor": "measure-discover-certify",
+      "snippet": "tokens provably free to drop: 615",
+      "claim": "Step-2 \"Discover\" example output (doc-0/doc-1 PRUNE, obs-0/obs-1/system keep, 615 tokens free to drop) is illustrative sample output with no named input trajectory.",
+      "note": "Demonstrates the DERC mechanism; not presented as a benchmark result."
+    },
+    {
+      "id": "u-learn-compression-calculator",
+      "status": "unsourced",
+      "page": "learn-compression.html",
+      "anchor": null,
+      "snippet": "id=\"te-turns\"",
+      "claim": "The multi-turn-tax interactive calculator's illustrative defaults (12 turns, 40,000-token fixed prefix, 3,000 new tokens/turn) are not tied to any measured session — they're calculator seed values, not a claim per se.",
+      "note": "Flagged by the audit; recorded here rather than silently ignored, since it's numeric and reader-facing even though it's an adjustable widget rather than a fixed claim."
+    }
+  ]
+}
