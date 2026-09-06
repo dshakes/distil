@@ -280,6 +280,15 @@
       "claim": "distil benchmark corpus gate (9 domains, warm, 2026-09-04): distil-causal 52.9% tok / 58.7% $ / 100% decision-equiv / PASS vs Headroom (headroom-ai 0.37.0) 1.7% / 2.0% / 81% / FAIL. A cold run instead shows a misleading Headroom 0.0%/100% PASS from Kompress still loading (fail-open).",
       "artifact": "benchmarks/results/2026-09-04/distil-benchmark-corpus-warm-2026-09-04.out",
       "note": "Same run and numbers as compare.html's v-compare-fresh-headtohead corpus table."
+    },
+    {
+      "id": "v-changelog-1130-withdrawn",
+      "status": "stale",
+      "page": "changelog.html",
+      "anchor": "v1-13-0",
+      "snippet": "100% decision-equivalence over 116 sampled production requests",
+      "claim": "The 1.13.0 changelog entry still reads 100% decision-equivalence over 116 sampled requests, 31/31 A/A — this is the withdrawn number, kept verbatim as a historical record rather than rewritten.",
+      "note": "The entry now carries an inline [Withdrawn 2026-09-04] note pointing to 1.51.1 (biased sample, thinking-heavy replays all 400’d) and the honest current reading (82.9% raw, 90.9% A/A, n=41). This ledger entry exists so the ledger never implies the site is free of the withdrawn number."
     }
   ]
 }

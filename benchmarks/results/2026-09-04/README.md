@@ -34,16 +34,32 @@ using the misleadingly-favorable 0.0%/0.0% cold row. distil has no equivalent
 lazy-load step (its causal/lossless/digest paths are pure Python, no model
 weights), so its numbers are identical cold or warm.
 
-## Commands (approximate, as actually invoked)
+## Commands (exact, reproduces the committed outputs)
 
 ```bash
-# corpus gate (cold, then warm re-run in the same venv)
-python -m benchmarks.run_benchmark --external headroom_adapter:compress
-python -m benchmarks.run_benchmark --external headroom_adapter:compress   # warm
+pip install "headroom-ai[ml,code]==0.37.0" "llmlingua==0.2.2"
 
-# codebench (coding-agent read/edit/reread workload)
-python benchmarks/codebench.py --external headroom_adapter:compress
-python benchmarks/codebench.py --external headroom_adapter:compress       # warm
+# corpus gate (cold, then warm re-run in the same process)
+PYTHONPATH=. distil benchmark \
+    --external benchmarks.headroom_adapter:compress:Headroom \
+    --external benchmarks.llmlingua_adapter:compress:LLMLingua-2
+PYTHONPATH=. distil benchmark \
+    --external benchmarks.headroom_adapter:compress:Headroom \
+    --external benchmarks.llmlingua_adapter:compress:LLMLingua-2   # warm
+
+# codebench (coding-agent read/edit/reread workload) — no --external flag;
+# it wires headroom-ai and llmlingua in directly if they're importable.
+PYTHONPATH=. python benchmarks/codebench.py
+PYTHONPATH=. python benchmarks/codebench.py       # warm
+```
+
+The "warm" runs matter because Headroom lazily loads its local Kompress/ModernBERT
+weights on first use; to force that load before timing instead of during the cold
+run, preload it in the same process:
+
+```python
+from headroom.transforms.kompress_compressor import _load_kompress, HF_MODEL_ID
+_load_kompress(HF_MODEL_ID, "cpu", allow_download=True)
 ```
 
 See `docs/compare.html#headroom-fresh` for the tables rendered from these

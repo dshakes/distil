@@ -1095,6 +1095,7 @@ main thread    : socketserver.py server_close -&gt; join -&gt; threading join</c
 <section class="changelog-entry">
 <h2 id="v1-13-0">1.13.0 — trustworthy shadow gate: deterministic decision-equivalence + mode visibility</h2>
 <p>Promoted to GA on live validation: <strong>100% decision-equivalence over 116 sampled production requests</strong> (0 decision changes), with a temperature-0 A/A self-agreement baseline of <strong>31/31</strong> confirming the result is compression fidelity, not sampling noise. (Prerelease train: rc1–rc7.)</p>
+<p><strong>[Withdrawn 2026-09-04]</strong> This 100%/31-31 number was computed over a biased subset of traffic (thinking-heavy turns all failed to replay and were silently excluded — see <a href="#v1-51-1">1.51.1</a>); the current, honest reading is a raw 82.9% decision-equivalence rate against a 90.9% A/A self-agreement floor (n=41), not the number above.</p>
 <h3>Added</h3>
 <ul>
 <li><strong>Status-line mode chip</strong> — the compression mode is now visible at a glance: <code>⬢ digest</code> · <code>◇ lossless</code> · <code>▪ verbatim</code>, rendered right after <code>distil</code>. Read from the ledger's most recent row via <code>ledger.latest_mode()</code>.</li>

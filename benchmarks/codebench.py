@@ -400,6 +400,7 @@ if __name__ == "__main__":
     try:
         from benchmarks.llmlingua_adapter import compress as _ll
 
+        _ll([])  # force the lazy model load now, so a missing package raises here
         methods.append(("llmlingua-2 (real)", False, make_llmlingua(_ll)))
     except Exception as e:  # noqa: BLE001
         print(f"(llmlingua unavailable: {e})", file=sys.stderr)
