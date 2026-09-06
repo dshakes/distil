@@ -186,16 +186,22 @@ def _sed_paths(args: list[str]) -> list[str]:
     quiet = False
     script: str | None = None
     paths: list[str] = []
-    skip = False
+    take_script = False
     for tok in args:
-        if skip:
-            skip = False
+        if take_script:
+            # `-e` names the script explicitly. Discarding it (as a generic value-flag
+            # skip did) left the FILE to be read as the script, which never matches a
+            # print range — so `sed -n -e '1,80p' app.py` classified as "not a read" and
+            # its quote was digested.
+            script, take_script = tok, False
             continue
         if tok.startswith("-") and tok != "-":
             if tok in _SED_QUIET or (re.fullmatch(r"-[a-zA-Z]+", tok) and "n" in tok):
                 quiet = True
-            if tok in _SED_VALUE_FLAGS:
-                skip = True
+            if tok in ("-e", "--expression"):
+                take_script = True
+            elif tok in _SED_VALUE_FLAGS:
+                return []  # -f reads the script from a file; we cannot see what it does
             continue
         if script is None:
             script = tok

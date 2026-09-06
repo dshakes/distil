@@ -213,3 +213,44 @@ def test_the_proxy_wires_the_exemption_into_the_delta_pass():
     assert keep == {"r2"}, "only the latest read of the path needs to stay verbatim"
     out, _store, _stats = delta_encode(msgs, keep_ids=keep)
     assert _block_text(out[5]) == V2
+
+
+def test_azure_chat_completions_resolves_the_keep_list_with_the_openai_extractor():
+    """The keep-list and the compressor must agree on the body's shape.
+
+    The delta pass picked its id extractor from a literal `/v1/chat/completions` test
+    while the compressor below it used the Azure-aware predicate. On an Azure path the
+    Anthropic extractor ran against OpenAI-shaped messages, returned nothing, and delta
+    rewrote the very reads the exemption was about to keep byte-exact — the
+    guarantee-voiding bug this fix exists to close, through a second door.
+    """
+    import json as _json
+
+    from distil.adapters.openai import exact_quote_tool_call_ids
+    from distil.httpguard import is_chat_completions_path
+
+    azure = "/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-01"
+    assert is_chat_completions_path(azure), "Azure path must classify as chat completions"
+
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "bash",
+                        "arguments": _json.dumps({"command": "cat /app/main.py"}),
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": V1},
+        {"role": "user", "content": "now edit it"},
+        {"role": "tool", "tool_call_id": "c2", "content": V2},
+    ]
+    keep = frozenset(exact_quote_tool_call_ids(messages))
+    assert keep == {"c1"}
+    out, _store, _stats = delta_encode(messages, keep_ids=keep)
+    assert out[1]["content"] == V1, "the exempt read must reach the wire byte-exact"

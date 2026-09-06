@@ -973,6 +973,12 @@ def build_handler(
                 pre = original
                 _dstats = None
                 _dstore = None
+                # Decided ONCE, above both users. The keep-list below and the compressor
+                # dispatch further down must agree on which shape this body is, or the
+                # exemption is computed by the wrong adapter and comes back empty — which
+                # on an Azure Chat Completions path is exactly the guarantee-voiding bug
+                # this block exists to fix, reintroduced by a second, narrower path test.
+                _is_chat = is_chat_completions_path(_path)
                 if session_delta:
                     try:
                         from .cachedelta import delta_encode, get_session, session_key
@@ -990,7 +996,7 @@ def build_handler(
                         # preserve. So the order stands and delta simply skips the
                         # exempt blocks. They stay registered as delta bases, so later
                         # re-reads still dedup against them.
-                        if _path == "/v1/chat/completions":
+                        if _is_chat:
                             from .adapters.openai import (
                                 exact_quote_tool_call_ids as _exact_ids_fn,
                             )
@@ -1010,7 +1016,6 @@ def build_handler(
                 # a dedicated adapter (role:"tool" list content is Tier-1; the
                 # Anthropic adapter applies Tier-0 to generic list text items).
                 # /v1/messages stays on the Anthropic adapter.
-                _is_chat = is_chat_completions_path(_path)
                 if _is_chat:
                     from .adapters.openai import compress_chat_completions
 

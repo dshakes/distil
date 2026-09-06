@@ -46,6 +46,10 @@ from distil.compress.provenance import (
         ("sed -n '5p' /app/main.py", ("/app/main.py",)),
         ("sed -n '10,$p' /app/main.py", ("/app/main.py",)),
         ("sed -ne '1,20p' /app/main.py", ("/app/main.py",)),
+        # `-e` names the script. Skipping its value left the FILE to be read as the
+        # script, which never matches a print range, so the read was refused.
+        ("sed -n -e '1,20p' /app/main.py", ("/app/main.py",)),
+        ("sed -n --expression '1,20p' /app/main.py", ("/app/main.py",)),
         # --- sequences: every stage must be a read, and the paths union ---
         ("cat a.py && cat b.py", ("b.py",)),
         ("cat a.py; cat b.py", ("b.py",)),
@@ -75,6 +79,8 @@ def test_whole_file_reads_are_recognised(command: str, paths: tuple[str, ...]) -
         "sed 's/foo/bar/' /app/main.py",
         "sed -n 's/foo/bar/p' /app/main.py",
         "sed -i 's/foo/bar/' /app/main.py",
+        "sed -n -e 's/foo/bar/p' /app/main.py",  # -e naming a transform is still no read
+        "sed -n -f script.sed /app/main.py",  # script in a file: we cannot see what it does
         # Not readers at all.
         "grep -rn TODO .",
         "pytest -q",
