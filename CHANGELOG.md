@@ -3,6 +3,86 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — an estimator that can say no
+
+Live shadow, build 1.51.1, on the maintainer's lossless-only traffic: **44 A/B and 11
+A/A samples. Raw agreement 81.8% [67.3, 91.8]; the model's self-agreement on
+identical input 84.8% [71.8, 92.4] over 46 byte-identical replays. Statistically
+indistinguishable (Fisher p=0.63)** — and 32 of the 44 "A/B" samples had no bytes
+changed by compression at all. Below the reporting floor, and not a verdict. Reading
+the sample end to end turned up an estimator that could not have told us otherwise.
+
+### The arms were not what they said they were
+
+- **Byte-identical bodies were labelled A/B.** `_serialize_if_changed` returns the
+  ORIGINAL bytes when no transform fired (deliberately — re-encoding busts the prompt
+  cache), but the sample was still labelled by an independent 1/3 coin. So the two
+  arms were the same bytes and the row measured the model against itself, filed as
+  evidence that compression is safe. Reclassified at spawn time: identical bytes are
+  an A/A sample, whatever the coin said. It also costs one fewer replay.
+- **The A/A arm replayed the COMPRESSED body twice.** That is a B/B arm. Under digest
+  mode it measured self-agreement on the wrong distribution entirely, and it could
+  not detect a compressor that changed every decision *consistently*. A/A now replays
+  the original.
+- **The call order was fixed**, so the warm-prefix-cache read always landed on the
+  same arm. The replays are now issued in shuffled order.
+
+### An estimator with an interval, allowed to be negative
+
+The old number was `p_BA / p_AA` between two **disjoint** request sets, clamped with
+`max(0, ...)`. It printed exactly 100% whenever the A/B draw beat the A/A draw by
+chance, and it could never report harm. The paper defines a *paired difference*
+(§ "A/A self-agreement control"); the serving path now implements it:
+
+- each sampled request is replayed **three times** — A and A' on the original context,
+  B on the compressed one — and the row stores `1{A==B} − 1{A==A'}`;
+- reported as a mean difference with a bootstrap 95% CI, unclipped, alongside raw
+  `p_AB` and `p_AA` with Wilson intervals;
+- 1.5x the replay budget on samples where compression actually changed something, and
+  only there. `DISTIL_SHADOW_PAIRED=0` restores the cheaper two-replay design (with
+  the A/A arm fixed).
+
+`SIG_VERSION` goes to **5**: the rule on the constant is to bump on any change to how
+the compared sample is generated, and v4 rows are not comparable to these. Old rows
+stay readable under `--all`, labelled `legacy-unpaired`.
+
+### One reporting floor, everywhere
+
+There were three. `VERDICT_MIN_AB`/`VERDICT_MIN_AA` (50/30) gated the status line and
+the proof ledger; `shadow-stats` printed at 25/10; the census feed and the web
+dashboard published as soon as *any* A/A baseline existed (n≥10). The lowest of the
+three fed the adoption page's decision-equivalence ring, so the most public claim
+rested on the weakest evidence. Every surface now uses the same pair and says
+`below reporting floor (n=…)` otherwise — and the adoption caption states the
+estimator rather than the word "provably". The sampling diagnostics still print below
+the floor, because a thin sample is usually a replay that is failing.
+
+### Two things the reports were quiet about
+
+- **Per mode.** lossless-only and digest measure different things; pooled, they report
+  the average of two experiments nobody runs. Each row now carries its mode and
+  `shadow-stats` breaks them out.
+- **Temperature.** `force_deterministic` only pins temperature 0 when the body already
+  carries the field and thinking is off. On Claude Code traffic neither holds, so the
+  replays sample hot. Rather than fake determinism, each row records whether it was
+  pinned and `shadow-stats` prints what share of the sample ran hot, and why the A/A
+  arm is what absorbs it.
+
+One consequence worth knowing: on lossless-only traffic, where compression often
+changes no bytes at all, those samples now count toward the A/A arm only — so the A/B
+floor takes longer to clear, and `shadow-stats` says how many samples that was. The
+surfaces stay blank meanwhile. That is the honest state, not a regression.
+
+### Output-token accounting
+
+The paired replays already return both responses, so the provider's own usage is free
+to record. Each row now carries input and output tokens for the A and B arms, and
+`shadow-stats` and `distil dissect` report the mean output-token delta with a CI plus
+the net dollars — input saved at input prices *minus* extra output at output prices.
+Output is priced several times input, so compression that makes the model answer at
+greater length can cost more than the prompt it shortened; nothing in distil could see
+that before. Cache fields are deliberately not priced in: the two arms hit the prefix
+cache differently by construction.
 ## [Unreleased]
 
 Provider parity across all three servers. The Responses API was compressed by the

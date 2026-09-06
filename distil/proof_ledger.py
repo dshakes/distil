@@ -117,7 +117,15 @@ def _shadow_line(since_ts: float) -> str:
     below = ab_n < VERDICT_MIN_AB or aa_n < VERDICT_MIN_AA
     plural = "s" if changes != 1 else ""
     suffix = f"(n={ab_n} A/B, {aa_n} A/A"
-    suffix += " — below verdict threshold, gathering)" if below else ")"
+    if below:
+        suffix += " — below verdict threshold, gathering)"
+    else:
+        eq = led.equivalence()
+        ci = eq.pct_ci
+        suffix += f", {eq.estimator}"
+        if eq.pct is not None and ci is not None:
+            suffix += f" — {eq.pct:.1f}% [{ci[0]:.1f}, {ci[1]:.1f}] 95% CI"
+        suffix += ")"
     return f"{changes} decision change{plural}    {suffix}"
 
 

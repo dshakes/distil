@@ -1667,18 +1667,35 @@ def build_handler(
             """Re-run a sampled request in the background and record whether the
             agent's decision matched. Never blocks the client's response.
 
-            v3: both sides are re-issued at temperature 0 (see force_deterministic),
-            never reusing the live served response. Two sample kinds (see
-            ShadowLedger): most replays are A/B (compressed vs original — did
-            compression change the decision?); a third are A/A (the SAME compressed
-            request twice — a provider-honesty probe that must read ~100% at temp 0).
-            v2 compared hot samples, so A/A read ~38% noise and buried the A/B signal."""
+            v5 is PAIRED: the SAME request is replayed as A and A' on the ORIGINAL
+            body and B on the compressed one, in randomized order, and the row carries
+            the per-request statistic ``1{A==B} - 1{A==A'}`` — the paper's paired
+            difference rather than a ratio between two disjoint request sets. Three v4
+            defects close here:
+
+              * the A/A arm replayed the COMPRESSED body twice, so the "self-agreement
+                baseline" was really a B/B arm — under digest mode it measured noise on
+                the wrong distribution;
+              * a request whose compression left the body byte-identical was still
+                labelled A/B by the 1/3 coin (32 of 44 "A/B" rows on the maintainer's
+                lossless-only traffic). Those are A/A samples wearing an A/B label, and
+                they made the headline mostly self-noise. Now reclassified at spawn
+                time, which also costs one replay instead of three;
+              * a fixed call order put the warm-prefix-cache read on the same arm every
+                time; the order is now shuffled.
+
+            Cost: 1.5x the v4 replay budget, and only on samples where compression
+            actually changed the body. ``DISTIL_SHADOW_PAIRED=0`` restores the cheaper
+            two-replay design (with the A/A arm fixed) for anyone who wants it.
+            """
             import hashlib
+            import os as _os
             import random as _random
 
-            is_aa = (
-                _random.random() < 1 / 3
-            )  # ponytail: fixed 1/3 split; make configurable if the baseline needs tuning
+            paired = _os.environ.get("DISTIL_SHADOW_PAIRED", "1") != "0"
+            # ponytail: the unpaired fallback keeps v4's 1/3 split; the paired path
+            # ignores it entirely, since every sample now feeds both arms.
+            is_aa = _random.random() < 1 / 3
 
             def _shadow_compare() -> None:
                 _attempted = False
@@ -1687,53 +1704,97 @@ def build_handler(
                 _skipped = False
                 _written = False
                 try:
-                    from .shadow import decision_signature_from_body, force_deterministic
+                    from .shadow import decision_signature_from_body, deterministic_body
+                    from .streamrelay import scan_usage
 
-                    # Re-issue BOTH sides at temperature 0 — never reuse the live
-                    # served response (produced at the agent's hot temperature).
-                    # A non-JSON body can't be made deterministic; skip it rather
-                    # than fall back to a hot comparison that re-poisons the baseline.
-                    served_det = force_deterministic(compressed_raw)
-                    replay_det = force_deterministic(compressed_raw if is_aa else orig_raw)
-                    if served_det is None or replay_det is None:
-                        return  # not deterministic; flush pending seen/sampled via finally
+                    # Every arm is re-issued — the live served response was produced at
+                    # the agent's hot temperature and is not comparable. A non-JSON body
+                    # can't be replayed at all; skip it rather than compare noise.
+                    rb_a = deterministic_body(orig_raw)
+                    rb_b = deterministic_body(compressed_raw)
+                    if rb_a is None or rb_b is None:
+                        return  # not replayable; flush pending seen/sampled via finally
+                    identical = rb_a.body == rb_b.body
+                    if identical or (not paired and is_aa):
+                        arms = [("a", rb_a.body), ("aa", rb_a.body)]
+                    elif paired:
+                        arms = [("a", rb_a.body), ("aa", rb_a.body), ("b", rb_b.body)]
+                    else:
+                        arms = [("a", rb_a.body), ("b", rb_b.body)]
+                    _random.shuffle(arms)
                     _attempted = True
-                    _s1, _h1, served_rbody = self._post_upstream(self.path, served_det, headers)
-                    _s2, _h2, replay_rbody = self._post_upstream(self.path, replay_det, headers)
-                    if not (200 <= _s1 < 300 and 200 <= _s2 < 300):
-                        _failed = True
-                        _fail_reason = str(_s2 if not (200 <= _s2 < 300) else _s1)
-                    # decision_signature_from_body handles both JSON and streamed
-                    # (SSE / chunk-array) bodies, so this works for Claude Code /
-                    # Codex / Gemini sessions, which stream their responses.
-                    comp_sig = decision_signature_from_body(served_rbody)
-                    replay_sig = decision_signature_from_body(replay_rbody)
+                    sigs: dict[str, str] = {}
+                    usage: dict[str, dict[str, int]] = {}
+                    for _name, _body in arms:
+                        _st, _h, _rbody = self._post_upstream(self.path, _body, headers)
+                        if not (200 <= _st < 300):
+                            _failed = True
+                            _fail_reason = str(_st)
+                        # decision_signature_from_body handles both JSON and streamed
+                        # (SSE / chunk-array) bodies, so this works for Claude Code /
+                        # Codex / Gemini sessions, which stream their responses.
+                        sigs[_name] = decision_signature_from_body(_rbody)
+                        usage[_name] = scan_usage(_rbody[:16384] + b"\n" + _rbody[-16384:])
                     # "none" means no decision could be extracted (transient upstream
                     # error or empty/unparseable body). Recording it as agreement or
                     # change would inflate the decision-equivalence rate on noise.
-                    if _shadow_ledger is not None and "none" not in (comp_sig, replay_sig):
-                        _shadow_ledger.record(
-                            comp_sig == replay_sig,
-                            kind="aa" if is_aa else "ab",
-                            # Evidence for diagnosing divergences: which request
-                            # (digest) produced which pair of decisions. All three
-                            # values are content-free hashes/signatures.
-                            evidence={
-                                "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
-                                "sig_served": comp_sig,
-                                "sig_replay": replay_sig,
-                            },
-                        )
-                        _written = True
-                    elif "none" in (comp_sig, replay_sig) and not _failed:
+                    if "none" in sigs.values():
                         # Only count a skip when the replay SUCCEEDED but carried no
-                        # extractable decision. An upstream failure already set
-                        # _failed, and its empty error body then yields "none" — so
-                        # counting both made one event appear as two independent
-                        # problems. Measured: replay_failed 594 vs sig_none 592,
-                        # identical in every version, which is what a double-count
-                        # looks like rather than two correlated causes.
-                        _skipped = True
+                        # extractable decision. An upstream failure already set _failed,
+                        # and its empty error body then yields "none" — counting both
+                        # made one event appear as two independent problems. Measured:
+                        # replay_failed 594 vs sig_none 592, identical in every version,
+                        # which is what a double-count looks like rather than two causes.
+                        _skipped = not _failed
+                        return
+                    if "aa" in sigs and "b" in sigs:
+                        kind = "paired"
+                        equivalent = sigs["a"] == sigs["b"]
+                        aa_equal: bool | None = sigs["a"] == sigs["aa"]
+                    elif "b" in sigs:
+                        kind, equivalent, aa_equal = "ab", sigs["a"] == sigs["b"], None
+                    else:
+                        kind, equivalent, aa_equal = "aa", sigs["a"] == sigs["aa"], None
+                    # Evidence for diagnosing divergences and for auditing what each row
+                    # actually compared. Every value is a hash, a count or a flag —
+                    # content-free, same posture as the savings ledger.
+                    ev: dict[str, Any] = {
+                        "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
+                        "mode": _mode_label,
+                        # lossless-only and digest measure different things; the reports
+                        # break them out rather than averaging two experiments.
+                        "bytes_saved": len(rb_a.body) - len(rb_b.body),
+                        "identical": identical,
+                        # Whether this replay actually got temperature 0. On Claude Code
+                        # traffic it usually does NOT (thinking on, no temperature field),
+                        # so the reports say what share ran hot instead of implying a
+                        # determinism the replay never had.
+                        "pinned_temperature": (rb_a.pinned_temperature and rb_b.pinned_temperature),
+                        "model": rb_a.model,
+                        "sig_a": sigs["a"],
+                    }
+                    if "aa" in sigs:
+                        ev["sig_aa"] = sigs["aa"]
+                    if aa_equal is not None:
+                        ev["aa_equal"] = aa_equal
+                    if "b" in sigs:
+                        ev["sig_b"] = sigs["b"]
+                        # Output-token accounting: the replays already returned both
+                        # responses, so the provider's own usage is free here. A
+                        # compressor that shortens the prompt but lengthens the answer
+                        # can cost MORE than it saves (output is priced ~5x input) —
+                        # without this the ledger could never see that.
+                        ev.update(
+                            {
+                                "in_a": int(usage["a"].get("input_tokens", 0)),
+                                "in_b": int(usage["b"].get("input_tokens", 0)),
+                                "out_a": int(usage["a"].get("output_tokens", 0)),
+                                "out_b": int(usage["b"].get("output_tokens", 0)),
+                            }
+                        )
+                    if _shadow_ledger is not None:
+                        _shadow_ledger.record(equivalent, kind=kind, evidence=ev)
+                        _written = True
                 except Exception:  # noqa: BLE001 — shadow must never affect the request
                     log.debug("shadow compare failed", exc_info=True)
                     if _attempted and not _written:

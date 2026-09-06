@@ -557,21 +557,29 @@ def _modes() -> dict:
 
 
 def _equivalence() -> dict:
-    """Live decision-equivalence: {pct, shadowed}. ``pct`` is the noise-adjusted
-    equivalence percentage (compression didn't change the agent's next action),
-    but ONLY when an A/A self-agreement baseline exists — otherwise the number
-    conflates sampling nondeterminism with real harm, so we send ``pct: None``
-    and just the shadowed count. Content-free (booleans behind the scenes)."""
+    """Live decision-equivalence: {pct, shadowed}.
+
+    ``pct`` is the paired estimate — 100% means compression cost nothing relative to
+    the model's own self-agreement — and is ``None`` below the SINGLE reporting floor
+    (``VERDICT_MIN_AB``/``VERDICT_MIN_AA``) that every distil surface now shares. It
+    used to be sent as soon as any A/A baseline existed at all (n>=10), which is how
+    the adoption page's decision-equivalence ring came to be fed by 44 A/B and 11 A/A
+    samples — most of them byte-identical, so the arms compared the same bytes.
+    Content-free (counts and booleans behind the scenes)."""
     try:
         from .shadow import ShadowLedger
 
-        led = ShadowLedger.load(current_only=True)
-        shadowed = int(led.samples)
-        if shadowed > 0 and led.aa_agreement() is not None:
-            pct = round((1.0 - led.adjusted_rate()) * 100.0, 2)
-        else:
-            pct = None
-        return {"pct": pct, "shadowed": shadowed}
+        eq = ShadowLedger.load(current_only=True).equivalence()
+        # Exactly {pct, shadowed}: the deployed worker rejects any other key set, and
+        # any pct above 100 (packaging/census-worker/lib/validate.js). The paired
+        # estimate CAN exceed 100 — compression agreeing more often than the model
+        # agrees with itself — so it is capped for the wire. Only the upper cap can
+        # ever bind (diff >= -1 puts the floor at 0), so this cannot hide harm; the
+        # unclamped number, its interval and its n are in `distil shadow-stats`.
+        return {
+            "pct": None if eq.pct is None else round(min(100.0, eq.pct), 2),
+            "shadowed": eq.n_ab,
+        }
     except Exception:  # noqa: BLE001 — trust metric is best-effort, never blocks
         return {"pct": None, "shadowed": 0}
 

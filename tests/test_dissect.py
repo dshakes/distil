@@ -500,6 +500,42 @@ class TestDissection:
         assert d.blocks_by_kind()[0] == ("log:l", 1, 2000)
         # Shadow join is by time window: only the ts=1500 row is inside.
         assert d.shadow_window_rows == 1 and d.shadow_window_agree == 1
+        # That row carries no usage, so there is nothing to price.
+        assert d.shadow_out_delta is None and d.shadow_net_usd is None
+
+    def test_shadow_output_tokens_are_accounted_for(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Compression that shortens the prompt but lengthens the answer can cost
+        more than it saved — output is priced several times input. The paired
+        replays already return both responses, so the delta is free to record."""
+        (tmp_path / "shadow.jsonl").write_text(
+            json.dumps(
+                {
+                    "ts": 1500.0,
+                    "equivalent": True,
+                    "kind": "paired",
+                    "aa_equal": True,
+                    "model": "claude-opus-4-8",
+                    "in_a": 1000,
+                    "in_b": 990,
+                    "out_a": 100,
+                    "out_b": 400,
+                }
+            )
+            + "\n"
+            # a torn row must not sink the read
+            + json.dumps(
+                {"ts": 1500.0, "equivalent": True, "in_a": "x", "in_b": 1, "out_a": 1, "out_b": 1}
+            )
+            + "\n"
+        )
+        d = dz.dissect("s200-1")
+        assert d.shadow_out_delta == 300.0
+        assert d.shadow_net_usd is not None and d.shadow_net_usd < 0
+        text = dz.render_text(d, color=False)
+        assert "shadow output tokens" in text and "+300.0/request" in text
+        assert dz.to_json(d, [], None)["quality"]["shadow_output_token_delta"] == 300.0
 
     def test_render_text_full(self) -> None:
         d = dz.dissect("s200-1")

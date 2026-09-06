@@ -598,36 +598,76 @@ def test_cmd_shadow_stats_no_samples(monkeypatch, capsys) -> None:
     assert "No shadow samples" in capsys.readouterr().out
 
 
-def test_cmd_shadow_stats_collecting(monkeypatch, capsys) -> None:
-    from distil import shadow as shadow_mod
-
-    class _Few:
-        samples = 10
-        changes = 1
-
-        def rate(self):
-            return 0.1
-
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: _Few()))
-    rc = cli.cmd_shadow_stats(argparse.Namespace(json=False))
-    assert rc == 0
-    assert "collecting" in capsys.readouterr().out
-
-
-def test_cmd_shadow_stats_ready(monkeypatch, capsys) -> None:
+def _paired_ledger(tmp_path, n, *, ab_changes=0, aa_changes=0):
+    """A ledger of real v5 paired rows — one request replayed A, A' and B."""
     from distil import shadow as shadow_mod
 
     led = shadow_mod.ShadowLedger()
-    led.samples, led.changes = 50, 2
-    for i in range(50):
-        led.recent.append(0 if i < 2 else 1)  # rate() = 0.04
+    for i in range(n):
+        led.record(
+            i >= ab_changes,
+            kind="paired",
+            evidence={"aa_equal": i >= aa_changes, "mode": "digest"},
+            path=tmp_path / "shadow.jsonl",
+        )
+    return led
+
+
+def test_cmd_shadow_stats_collecting(monkeypatch, capsys, tmp_path) -> None:
+    from distil import shadow as shadow_mod
+
+    led = _paired_ledger(tmp_path, 10, ab_changes=1)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
+    rc = cli.cmd_shadow_stats(argparse.Namespace(json=False))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "collecting" in out
+    assert "below reporting floor" in out
+
+
+def test_cmd_shadow_stats_ready(monkeypatch, capsys, tmp_path) -> None:
+    from distil import shadow as shadow_mod
+
+    # 2 A/B changes and 0 A/A changes over 50 paired samples: 96% agreement against a
+    # perfect self-agreement floor, so compression costs 4 points.
+    led = _paired_ledger(tmp_path, 50, ab_changes=2)
     monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
     rc = cli.cmd_shadow_stats(argparse.Namespace(json=False))
     assert rc == 0
     out = capsys.readouterr().out
     assert "decision-equivalence" in out
     assert "96.00%" in out
-    assert "No A/A noise baseline yet" in out  # rc4: raw number labeled a floor
+    assert "paired difference" in out
+    assert "-4.00pp" in out or "-4.00" in out
+
+
+def test_leaderboard_json_reports_the_interval_in_the_same_unit(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """`decision_equivalence` has always been a fraction. Shipping its bounds in
+    percent beside it reads as a 100x disagreement to anything that plots both."""
+    from distil import ledger as ledger_mod, shadow as shadow_mod
+
+    p = tmp_path / "savings.jsonl"
+    ledger_mod.record(
+        trajectory_id="t1",
+        model="claude-opus-4-8",
+        turns=1,
+        baseline_dollars=0.01,
+        distil_dollars=0.005,
+        baseline_input_tokens=100,
+        distil_input_tokens=50,
+        path=p,
+    )
+    monkeypatch.setattr(ledger_mod, "default_path", lambda: p)
+    led = _paired_ledger(tmp_path, 60, ab_changes=6)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
+    assert cli.cmd_leaderboard(argparse.Namespace(badge=False, json=True, html=None)) == 0
+    d = json.loads(capsys.readouterr().out)
+    lo, hi = d["decision_equivalence_ci"]
+    assert 0.0 <= lo <= d["decision_equivalence"] <= hi <= 1.5
+    assert d["decision_equivalence_estimator"] == "paired"
+    assert d["shadow_samples"] == 60
 
 
 def test_cmd_shadow_stats_json(monkeypatch, capsys) -> None:
@@ -790,17 +830,8 @@ def test_cmd_leaderboard_text_live_proxy(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
 
     # clear the robust gate (≥50 A/B, ≥30 A/A) so the equivalence line is printed
-    class _Ready:
-        samples = 50
-        aa_samples = 30
-
-        def adjusted_rate(self):
-            return 0.02
-
-        def rate(self):
-            return 0.02
-
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: _Ready()))
+    led = _paired_ledger(tmp_path, 50, ab_changes=1)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
     rc = cli.cmd_leaderboard(argparse.Namespace(badge=False, json=False, html=None))
     assert rc == 0
     out = capsys.readouterr().out
@@ -826,14 +857,8 @@ def test_cmd_leaderboard_text_collecting_shadow(tmp_path, monkeypatch, capsys) -
     monkeypatch.setattr(ledger_mod, "default_path", lambda: p)
     monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
 
-    class _Few:
-        samples = 5
-        aa_samples = 2
-
-        def rate(self):
-            return 0.0
-
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: _Few()))
+    led = _paired_ledger(tmp_path, 5)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
     rc = cli.cmd_leaderboard(argparse.Namespace(badge=False, json=False, html=None))
     assert rc == 0
     assert "collecting" in capsys.readouterr().out
@@ -888,12 +913,8 @@ def test_cmd_statusline_rich_with_shadow(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setattr(ledger_mod, "default_path", lambda: p)
     monkeypatch.delenv("DISTIL_STATUSLINE", raising=False)
 
-    led = shadow_mod.ShadowLedger()
-    led.samples = 50
-    led.aa_samples = 30  # robust A/A baseline → adjusted_rate() == rate()
-    led.aa_changes = 0
-    for i in range(100):
-        led.recent.append(0 if i < 1 else 1)  # rate() = 0.01 → eq 99%
+    # 1 A/B change in 100 paired samples against a perfect A/A floor → eq 99%
+    led = _paired_ledger(tmp_path, 100, ab_changes=1)
     monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
     rc = cli.cmd_statusline(argparse.Namespace(no_color=True))
     assert rc == 0

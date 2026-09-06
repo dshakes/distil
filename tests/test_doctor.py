@@ -587,34 +587,42 @@ def test_check_shadow_no_samples(monkeypatch):
     assert "not running" in ch.detail
 
 
-def test_check_shadow_collecting(monkeypatch):
+def _paired(tmp_path, n, *, ab_changes=0, aa_changes=0):
+    """A ledger of real v5 paired rows."""
+    from distil.shadow import ShadowLedger
+
+    led = ShadowLedger()
+    for i in range(n):
+        led.record(
+            i >= ab_changes,
+            kind="paired",
+            evidence={"aa_equal": i >= aa_changes},
+            path=tmp_path / "shadow.jsonl",
+        )
+    return led
+
+
+def test_check_shadow_collecting(monkeypatch, tmp_path):
+    """Below the SHARED floor (50 A/B, 30 A/A) — this check used a private 25."""
     from distil import shadow as shadow_mod
 
-    class _Few:
-        samples = 10
-
-        def rate(self):
-            return 0.1
-
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: _Few()))
+    led = _paired(tmp_path, 10)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: led))
     ch = doctor._check_shadow()
     assert ch.status == doctor.INFO
     assert "collecting" in ch.detail
+    assert "below reporting floor" in ch.detail
 
 
-def test_check_shadow_ready(monkeypatch):
+def test_check_shadow_ready(monkeypatch, tmp_path):
     from distil import shadow as shadow_mod
 
-    class _Ready:
-        samples = 50
-
-        def rate(self):
-            return 0.02
-
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: _Ready()))
+    led = _paired(tmp_path, 60, ab_changes=6, aa_changes=3)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: led))
     ch = doctor._check_shadow()
     assert ch.status == doctor.OK
-    assert "98.0%" in ch.detail
+    assert "95.0%" in ch.detail  # 90% A/B vs 95% A/A → paired difference -5pp
+    assert "paired" in ch.detail
 
 
 def test_check_shadow_exception(monkeypatch):

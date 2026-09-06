@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import threading
 import time
@@ -72,7 +73,15 @@ def _state_dir() -> Path:
 #     turns that had none — a BIASED subset, not merely a smaller one, since Claude
 #     Code runs thinking by default. v4 rows cover traffic v3 could never reach, so
 #     the two are not comparable and v3 rows are discarded.
-SIG_VERSION = 4
+# v5: PAIRED design. v4 flipped an independent 1/3 coin per request, so A/A and
+#     A/B were disjoint request sets compared by a RATIO with the negative tail
+#     clipped away; the A/A arm replayed the COMPRESSED body twice (a B/B arm, which
+#     measures nothing under digest mode); and a request whose body compression left
+#     byte-identical was still labelled A/B (32 of 44 "A/B" rows on the maintainer's
+#     lossless-only traffic). v5 runs A, A' and B for the SAME request in randomized
+#     order and stores the per-request difference, so the estimator can say no. v4
+#     rows measured a different thing and are discarded.
+SIG_VERSION = 5
 
 # A verdict (✓/⚠/✗) is only rendered once evidence is robust — a percentage over a
 # handful of samples is noise wearing a number, and the noise-adjusted rate divides
@@ -80,6 +89,217 @@ SIG_VERSION = 4
 # status line shows a neutral warming state instead of a colored verdict.
 VERDICT_MIN_AB = 50  # A/B (compressed-vs-original) samples
 VERDICT_MIN_AA = 30  # A/A (self-agreement noise-baseline) samples
+
+
+def floor_note(n_ab: int, n_aa: int) -> str:
+    """The one sentence every surface prints instead of a number below the floor.
+
+    There used to be three floors — 50/30 for the status line and proof ledger, 25/10
+    for ``shadow-stats``, and "an A/A baseline exists at all" (n>=10) for the census
+    feed and the web dashboard. The lowest of them fed the adoption page's
+    "provably didn't change the agent's next action" ring, so the most public claim
+    rested on the weakest evidence. One pair, everywhere.
+    """
+    return (
+        f"below reporting floor (n={n_ab} A/B, {n_aa} A/A; need {VERDICT_MIN_AB}/{VERDICT_MIN_AA})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Interval estimates — stdlib only, no scipy/numpy in the request path
+# ---------------------------------------------------------------------------
+
+
+def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score interval for a proportion — the right one at small n.
+
+    The normal (Wald) interval degenerates exactly where shadow lives: near 0 or 1,
+    and at n in the tens. Wilson stays inside [0,1] and does not collapse to a point
+    at k==n, which is the case that matters most here (a perfect A/A arm).
+    """
+    if n <= 0:
+        return (0.0, 1.0)
+    p = k / n
+    denom = 1.0 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1.0 - p) / n + z * z / (4.0 * n * n)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def bootstrap_ci(
+    values: list[float] | list[int],
+    *,
+    resamples: int = 1000,
+    seed: int = 20260904,
+) -> tuple[float, float]:
+    """Percentile bootstrap 95% CI for the MEAN of *values*.
+
+    Seeded on purpose: the same rows must yield the same interval, or a report that
+    is re-run reads as a measurement that moved. Used for the paired difference
+    (values in {-1,0,1}) and for the output-token delta (unbounded), which is why
+    this is a bootstrap rather than a closed form — one helper covers both.
+    """
+    n = len(values)
+    if n == 0:
+        return (0.0, 0.0)
+    if n == 1:
+        return (float(values[0]), float(values[0]))
+    rng = random.Random(seed)
+    xs = [float(v) for v in values]
+    means = sorted(sum(rng.choices(xs, k=n)) / n for _ in range(resamples))
+    lo = means[int(0.025 * resamples)]
+    hi = means[min(resamples - 1, int(math.ceil(0.975 * resamples)) - 1)]
+    return (lo, hi)
+
+
+@dataclass(frozen=True)
+class ReplayCost:
+    """Billed tokens for one paired sample's A (original) and B (compressed) arms.
+
+    Content-free: counts and a model id, never prompt or response text.
+    """
+
+    model: str | None
+    in_a: int
+    in_b: int
+    out_a: int
+    out_b: int
+
+    @property
+    def out_delta(self) -> int:
+        """Output tokens B spent OVER A. Positive means compression made the model
+        talk more — the compression paradox, where a smaller prompt buys a longer
+        (and at output prices, dearer) answer."""
+        return self.out_b - self.out_a
+
+
+@dataclass(frozen=True)
+class CostDelta:
+    """Net effect of compression on one sample set, output included."""
+
+    n: int
+    out_delta_mean: float
+    out_delta_ci: tuple[float, float]
+    input_saved_usd: float
+    output_extra_usd: float
+    priced: int  # rows whose model resolved to a known price
+
+    @property
+    def net_usd(self) -> float:
+        """Dollars saved after paying for the extra output. Negative = compression
+        cost more than it saved on this traffic."""
+        return self.input_saved_usd - self.output_extra_usd
+
+
+def cost_delta(rows: list[ReplayCost]) -> CostDelta | None:
+    """Aggregate per-sample token deltas into an output-aware cost verdict.
+
+    Input tokens come from the provider's own ``usage`` on both replays, so the
+    saving is measured rather than estimated. Cache fields are deliberately NOT
+    priced in: the two arms hit the prefix cache differently by construction, so a
+    cache-inclusive dollar figure would be an artifact of replay order.
+    """
+    if not rows:
+        return None
+    from .pricing import resolve
+
+    deltas = [r.out_delta for r in rows]
+    mean = sum(deltas) / len(deltas)
+    saved = extra = 0.0
+    priced = 0
+    for r in rows:
+        price = resolve(r.model)
+        if price is None:
+            continue
+        priced += 1
+        saved += (r.in_a - r.in_b) * price.input
+        extra += r.out_delta * price.output
+    return CostDelta(
+        n=len(rows),
+        out_delta_mean=mean,
+        out_delta_ci=bootstrap_ci(deltas),
+        input_saved_usd=saved,
+        output_extra_usd=extra,
+        priced=priced,
+    )
+
+
+@dataclass
+class ModeArm:
+    """Per-mode tallies. lossless-only and digest are different experiments —
+    pooling them reports an average of two things nobody runs."""
+
+    ab_n: int = 0
+    ab_eq: int = 0
+    aa_n: int = 0
+    aa_eq: int = 0
+    diffs: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Equivalence:
+    """What shadow mode is entitled to claim, with the evidence attached.
+
+    ``diff`` is the paper's paired statistic (main.tex, "A/A self-agreement
+    control"): per request, ``1{A==B} - 1{A==A'}``. It is a DIFFERENCE, not the v4
+    ratio, so it is allowed to be negative — compression can look worse than the
+    model's own self-agreement, and an estimator that cannot express that has no way
+    to fail. ``pct`` is ``100 * (1 + diff)``: 100% means compression cost nothing
+    relative to the model's own nondeterminism.
+    """
+
+    n_ab: int
+    n_aa: int
+    p_ab: float | None
+    p_ab_ci: tuple[float, float] | None
+    p_aa: float | None
+    p_aa_ci: tuple[float, float] | None
+    diff: float | None
+    diff_ci: tuple[float, float] | None
+    estimator: str  # "paired" | "legacy-unpaired"
+    n_paired: int = 0
+
+    @property
+    def below_floor(self) -> bool:
+        if self.n_ab < VERDICT_MIN_AB or self.n_aa < VERDICT_MIN_AA:
+            return True
+        # A PAIRED verdict has to clear the floor on the paired pool itself. The arm
+        # totals also count legacy unpaired rows (``--all``, or a window spanning a
+        # DISTIL_SHADOW_PAIRED=0 stretch), so 50 legacy A/B rows plus one paired row
+        # would otherwise publish a difference and an interval computed from n=1.
+        return self.estimator == "paired" and self.n_paired < VERDICT_MIN_AB
+
+    @property
+    def pct(self) -> float | None:
+        """The headline percentage, or None below the reporting floor."""
+        if self.below_floor:
+            return None
+        if self.diff is not None:
+            return 100.0 * (1.0 + self.diff)
+        return None if self.p_ab is None else 100.0 * self.p_ab
+
+    @property
+    def pct_ci(self) -> tuple[float, float] | None:
+        if self.below_floor:
+            return None
+        if self.diff_ci is not None:
+            return (100.0 * (1.0 + self.diff_ci[0]), 100.0 * (1.0 + self.diff_ci[1]))
+        if self.p_ab_ci is not None:
+            return (100.0 * self.p_ab_ci[0], 100.0 * self.p_ab_ci[1])
+        return None
+
+    def line(self) -> str:
+        """One honest sentence — the number with its interval and n, or why not."""
+        if self.below_floor:
+            note = floor_note(self.n_ab, self.n_aa)
+            if self.estimator == "paired" and self.n_paired < VERDICT_MIN_AB <= self.n_ab:
+                note += f" — only {self.n_paired} of them paired"
+            return note
+        pct, ci = self.pct, self.pct_ci
+        if pct is None:
+            return floor_note(self.n_ab, self.n_aa)
+        tail = f" [{ci[0]:.1f}, {ci[1]:.1f}]" if ci else ""
+        return f"{pct:.1f}%{tail} (n={self.n_ab} A/B, {self.n_aa} A/A, {self.estimator})"
 
 
 def _canon(obj: Any) -> str:
@@ -352,8 +572,31 @@ def decision_signature_from_body(raw: Any) -> str:
     return "none"
 
 
+@dataclass(frozen=True)
+class ReplayBody:
+    """A replay-ready request body plus the two facts the report needs about it."""
+
+    body: bytes
+    pinned_temperature: bool
+    model: str | None
+
+
 def force_deterministic(raw: bytes | None) -> bytes | None:
+    """:func:`deterministic_body` without the provenance — the body bytes only."""
+    rb = deterministic_body(raw)
+    return None if rb is None else rb.body
+
+
+def deterministic_body(raw: bytes | None) -> ReplayBody | None:
     """Rewrite a chat-completion *request* body to sample deterministically.
+
+    Returns the rewritten body together with ``pinned_temperature``: whether this
+    replay actually got temperature 0, or ran at the agent's own hot sampling. On
+    Claude Code traffic neither precondition holds (thinking is on by default and
+    current models carry no temperature field), so in practice most replays are HOT
+    — which the reports must say out loud rather than imply determinism they do not
+    have. The A/A arm is what absorbs that noise; the share of pinned samples is
+    recorded per row so ``shadow-stats`` can print it.
 
     The shadow gate exists to measure whether *compression* changes the agent's
     next decision — not whether the model happened to sample differently. A hot
@@ -385,6 +628,7 @@ def force_deterministic(raw: bytes | None) -> bytes | None:
         return None
     if not isinstance(obj, dict):
         return None
+    pinned = False
     # Pinning temperature 0 for a greedy replay must be applied carefully — done
     # unconditionally it 400'd ~every sampled request (observed: 295/323 replay_failed,
     # last_fail_reason 400), because two API constraints reject it:
@@ -405,8 +649,14 @@ def force_deterministic(raw: bytes | None) -> bytes | None:
     thinking_on = isinstance(thinking, dict) and thinking.get("type") not in (None, "disabled")
     if "temperature" in obj and not thinking_on:
         obj["temperature"] = 0
+        pinned = True
     _strip_thinking_blocks(obj)
-    return json.dumps(obj).encode("utf-8")
+    model = obj.get("model")
+    return ReplayBody(
+        json.dumps(obj).encode("utf-8"),
+        pinned,
+        model if isinstance(model, str) else None,
+    )
 
 
 def _strip_thinking_blocks(obj: dict[str, Any]) -> None:
@@ -496,6 +746,13 @@ class ShadowLedger:
     recent: deque = field(default_factory=lambda: deque(maxlen=1000))
     aa_samples: int = 0
     aa_changes: int = 0
+    #: v5 paired rows: per request, ``1{A==B} - 1{A==A'}`` in {-1, 0, 1}.
+    paired_diffs: list[int] = field(default_factory=list)
+    by_mode: dict[str, ModeArm] = field(default_factory=dict)
+    costs: list[ReplayCost] = field(default_factory=list)
+    pinned: int = 0  # replays that actually ran at temperature 0
+    unpinned: int = 0  # replays that ran at the agent's own (hot) sampling
+    identical: int = 0  # samples where compression left the bytes unchanged
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def record(
@@ -503,20 +760,79 @@ class ShadowLedger:
         equivalent: bool,
         *,
         kind: str = "ab",
-        evidence: dict[str, str] | None = None,
+        evidence: dict[str, Any] | None = None,
         path: Path | None = None,
     ) -> None:
+        """Book one sample. ``kind="paired"`` rows carry ``aa_equal`` in *evidence*
+        and count into BOTH arms — they are one request measured three ways, not two
+        requests that happened to be drawn."""
+        rec: dict[str, Any] = {
+            "equivalent": bool(equivalent),
+            "ts": time.time(),
+            "kind": kind,
+            "sig": SIG_VERSION,  # scope verdicts to the current algorithm
+            "v": _current_version(),  # attribute the row to a build
+        }
+        if evidence:
+            rec.update(evidence)  # content-free: signatures are _canon hashes
         with self._lock:
-            if kind == "aa":
-                self.aa_samples += 1
-                if not equivalent:
-                    self.aa_changes += 1
+            self._ingest(rec)
+        self._append(rec, path)
+
+    def _ingest(self, rec: dict[str, Any]) -> None:
+        """Fold one row into the in-memory tallies. The caller holds ``_lock``.
+
+        Shared by ``record`` and ``load`` on purpose: two copies of this arithmetic
+        is how a live counter and its own replay end up disagreeing.
+        """
+        kind = rec.get("kind", "ab")
+        eq = bool(rec.get("equivalent", True))
+        arm = self.by_mode.setdefault(str(rec.get("mode") or "unknown"), ModeArm())
+        if kind == "paired":
+            aa_eq = bool(rec.get("aa_equal", True))
+            self.samples += 1
+            self.changes += 0 if eq else 1
+            self.recent.append(1 if eq else 0)
+            self.aa_samples += 1
+            self.aa_changes += 0 if aa_eq else 1
+            d = int(eq) - int(aa_eq)
+            self.paired_diffs.append(d)
+            arm.ab_n += 1
+            arm.ab_eq += int(eq)
+            arm.aa_n += 1
+            arm.aa_eq += int(aa_eq)
+            arm.diffs.append(d)
+        elif kind == "aa":
+            self.aa_samples += 1
+            self.aa_changes += 0 if eq else 1
+            arm.aa_n += 1
+            arm.aa_eq += int(eq)
+        else:  # pre-v5 rows carry no kind — they were all A/B
+            self.samples += 1
+            self.changes += 0 if eq else 1
+            self.recent.append(1 if eq else 0)
+            arm.ab_n += 1
+            arm.ab_eq += int(eq)
+        if rec.get("identical"):
+            self.identical += 1
+        if "pinned_temperature" in rec:
+            if rec.get("pinned_temperature"):
+                self.pinned += 1
             else:
-                self.samples += 1
-                if not equivalent:
-                    self.changes += 1
-                self.recent.append(1 if equivalent else 0)
-        self._append(equivalent, kind, evidence, path)
+                self.unpinned += 1
+        if all(k in rec for k in ("in_a", "in_b", "out_a", "out_b")):
+            try:
+                self.costs.append(
+                    ReplayCost(
+                        model=rec.get("model") if isinstance(rec.get("model"), str) else None,
+                        in_a=int(rec["in_a"]),
+                        in_b=int(rec["in_b"]),
+                        out_a=int(rec["out_a"]),
+                        out_b=int(rec["out_b"]),
+                    )
+                )
+            except (TypeError, ValueError):
+                pass  # a malformed row must not sink the whole read
 
     def rate(self) -> float:
         """Live A/B decision-CHANGE rate over the rolling window (0.0 = fully equivalent)."""
@@ -533,10 +849,52 @@ class ShadowLedger:
                 return None
             return 1.0 - (self.aa_changes / self.aa_samples)
 
+    def equivalence(self) -> Equivalence:
+        """The one estimator every surface reports — paired when v5 rows exist.
+
+        Raw ``p_ab`` and ``p_aa`` come with Wilson intervals; the paired difference
+        comes with a bootstrap interval and is UNCLIPPED, so it can come back
+        negative. That is the point: :meth:`adjusted_rate` divided one arm by the
+        other and clamped the result at 0, which printed exactly 100% whenever the
+        A/B draw beat the A/A draw by chance — an estimator that could only ever
+        flatter compression.
+        """
+        with self._lock:
+            n_ab, n_aa = self.samples, self.aa_samples
+            eq_ab, eq_aa = n_ab - self.changes, n_aa - self.aa_changes
+            diffs = list(self.paired_diffs)
+        p_ab = (eq_ab / n_ab) if n_ab else None
+        p_aa = (eq_aa / n_aa) if n_aa else None
+        return Equivalence(
+            n_ab=n_ab,
+            n_aa=n_aa,
+            p_ab=p_ab,
+            p_ab_ci=wilson_ci(eq_ab, n_ab) if n_ab else None,
+            p_aa=p_aa,
+            p_aa_ci=wilson_ci(eq_aa, n_aa) if n_aa else None,
+            diff=(sum(diffs) / len(diffs)) if diffs else None,
+            diff_ci=bootstrap_ci(diffs) if diffs else None,
+            estimator="paired" if diffs else "legacy-unpaired",
+            n_paired=len(diffs),
+        )
+
+    def cost(self) -> CostDelta | None:
+        """Output-token and net-dollar effect of compression, or None with no rows."""
+        with self._lock:
+            rows = list(self.costs)
+        return cost_delta(rows)
+
     def adjusted_rate(self) -> float:
-        """A/B change rate with the model's own nondeterminism factored out:
-        agreement is judged relative to how often the model agrees with
-        ITSELF on the identical request.
+        """LEGACY (pre-v5, unpaired): A/B change rate with the model's own
+        nondeterminism factored out by DIVISION — agreement judged relative to how
+        often the model agrees with ITSELF on the identical request.
+
+        Superseded by :meth:`equivalence`. Kept so pre-v5 rows (``--all``) still
+        render, and labelled as legacy everywhere it is shown. Two flaws it cannot be
+        argued out of: the arms were DISJOINT request sets (an independent coin per
+        request, so the ratio compares different traffic), and the ``max(0, ...)``
+        clamp deletes the unfavourable tail — it prints exactly 100% whenever A/B
+        happens to beat A/A by chance, and can never report harm.
 
         WARNING: falls back to the RAW rate when no A/A baseline exists yet
         (aa_agreement() is None). In that state the return value is NOT
@@ -550,25 +908,10 @@ class ShadowLedger:
             return self.rate()
         return max(0.0, 1.0 - min(1.0, (1.0 - self.rate()) / base))
 
-    def _append(
-        self,
-        equivalent: bool,
-        kind: str,
-        evidence: dict[str, str] | None,
-        path: Path | None,
-    ) -> None:
+    def _append(self, rec: dict[str, Any], path: Path | None) -> None:
         try:
             p = path or (_state_dir() / "shadow.jsonl")
             p.parent.mkdir(parents=True, exist_ok=True)
-            rec: dict[str, Any] = {
-                "equivalent": bool(equivalent),
-                "ts": time.time(),
-                "kind": kind,
-                "sig": SIG_VERSION,  # scope verdicts to the current algorithm
-                "v": _current_version(),  # attribute the row to a build
-            }
-            if evidence:
-                rec.update(evidence)  # content-free: signatures are _canon hashes
             with p.open("a", encoding="utf-8") as f:
                 # Concurrent wrap sessions append here (shadow is on by default);
                 # lock like ledger.py does — rc4 rows carry two signatures and can
@@ -616,16 +959,8 @@ class ShadowLedger:
                     continue  # v1/legacy row — not comparable to current signatures
                 if since_ts is not None and float(rec.get("ts", 0.0)) < since_ts:
                     continue
-                eq = bool(rec.get("equivalent", True))
-                if rec.get("kind", "ab") == "aa":
-                    led.aa_samples += 1
-                    if not eq:
-                        led.aa_changes += 1
-                else:  # pre-rc4 rows carry no kind — they were all A/B
-                    led.samples += 1
-                    if not eq:
-                        led.changes += 1
-                    led.recent.append(1 if eq else 0)
+                if isinstance(rec, dict):
+                    led._ingest(rec)
         except OSError:
             pass
         return led

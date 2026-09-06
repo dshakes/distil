@@ -223,14 +223,19 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         d = asdict(s)
         d["tokenizers"] = sorted(s.tokenizers)
         try:
-            from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB, ShadowLedger
+            from .shadow import ShadowLedger
 
             # Scope to the current signature algorithm + require robust evidence, and
-            # report the noise-ADJUSTED rate — consistent with the status line verdict.
-            led = ShadowLedger.load(current_only=True)
-            if led.samples >= VERDICT_MIN_AB and led.aa_samples >= VERDICT_MIN_AA:
-                d["decision_equivalence"] = 1 - led.adjusted_rate()
-                d["shadow_samples"] = led.samples
+            # report the PAIRED estimate — consistent with every other surface.
+            eq = ShadowLedger.load(current_only=True).equivalence()
+            if eq.pct is not None:
+                # A FRACTION, and so is its interval — `decision_equivalence` has
+                # always been 0..1 here, and shipping the bound in percent next to it
+                # would read as a 100x disagreement to anything that plots the two.
+                d["decision_equivalence"] = eq.pct / 100.0
+                d["decision_equivalence_ci"] = [b / 100.0 for b in (eq.pct_ci or ())]
+                d["decision_equivalence_estimator"] = eq.estimator
+                d["shadow_samples"] = eq.n_ab
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
         print(json.dumps(d, indent=2))
@@ -240,12 +245,12 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         samples = 0
         sess = None
         try:
-            from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB, ShadowLedger
+            from .shadow import ShadowLedger
 
-            led = ShadowLedger.load(current_only=True)
-            samples = led.samples
-            if samples >= VERDICT_MIN_AB and led.aa_samples >= VERDICT_MIN_AA:
-                change_rate = led.adjusted_rate()  # noise-adjusted, like the verdict
+            eq = ShadowLedger.load(current_only=True).equivalence()
+            samples = eq.n_ab
+            if eq.pct is not None:
+                change_rate = 1.0 - eq.pct / 100.0  # paired, like every other surface
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
         try:
@@ -401,23 +406,17 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
     else:
         print(f"total dollars saved:  ${s.total_dollars_saved:,.2f}")
     try:
-        from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB, ShadowLedger
+        from .shadow import ShadowLedger
 
-        # Scope to the current signature algorithm and require a robust baseline,
-        # then report the noise-ADJUSTED rate — identical gate to the status line, so
-        # this line can't show a stale/un-adjusted number the verdict disowns.
-        led = ShadowLedger.load(current_only=True)
-        if led.samples >= VERDICT_MIN_AB and led.aa_samples >= VERDICT_MIN_AA:
-            print(
-                f"decision-equivalence: {(1 - led.adjusted_rate()) * 100:.1f}% "
-                f"({led.samples:,} shadowed request"
-                f"{'s' if led.samples != 1 else ''}, noise-adjusted)"
-            )
-        elif led.samples:
-            print(
-                f"decision-equivalence: collecting — {led.samples} A/B, "
-                f"{led.aa_samples} A/A (need {VERDICT_MIN_AB}/{VERDICT_MIN_AA})"
-            )
+        # Scope to the current signature algorithm and require the shared floor, then
+        # report the PAIRED estimate with its interval — identical gate and identical
+        # number to the status line, so this line can't show something the verdict
+        # disowns.
+        eq = ShadowLedger.load(current_only=True).equivalence()
+        if eq.pct is not None:
+            print(f"decision-equivalence: {eq.line()}")
+        elif eq.n_ab or eq.n_aa:
+            print(f"decision-equivalence: collecting — {eq.line()}")
     except Exception:  # noqa: BLE001 — shadow stats are best-effort
         pass
     if live and not subscription_mode():
@@ -1230,9 +1229,61 @@ def cmd_dissect(args: argparse.Namespace) -> int:
     return 0
 
 
-# Floor below which a live change-rate gate cannot conclude anything. Matches the
-# n=10 precedent in ShadowLedger.aa_agreement.
-_MIN_SHADOW_SAMPLES = 10
+def _print_shadow_sampling(_ctrs: dict) -> None:
+    """Sampling diagnostics for ``distil shadow-stats`` — seen/sampled/failed.
+
+    Printed in EVERY state, including below the reporting floor: a thin sample is
+    usually a replay that is failing, not traffic that is slow, and that is the
+    one state where these counts are the whole answer.
+    """
+    if _ctrs:
+        # The RUNNING build's rate is the health signal; lifetime is context.
+        #
+        # These counters accumulate for the life of the install, so failures from a
+        # fixed bug stay in the displayed rate forever. Concretely: the temperature-0
+        # replay bug (fixed in 8c744df) left 295/323 failures behind, which pinned the
+        # lifetime rate at 42% while the rate since the fix was 5.3%. That does two
+        # things, and the second is the one that matters — a fixed bug makes the
+        # sampler look broken, and the next REAL regression has to clear a 42% noise
+        # floor before anyone notices it.
+        from .shadow import _counter_version
+
+        _by_version = _ctrs.get("by_version")
+        _cur = _by_version.get(_counter_version()) if isinstance(_by_version, dict) else None
+
+        def _line(src: dict, label: str) -> str:
+            seen, sampled = src.get("requests_seen", 0), src.get("sampled", 0)
+            attempted, failed = src.get("replay_attempted", 0), src.get("replay_failed", 0)
+            recorded = src.get("recorded", 0)
+            # A histogram, so a run mixing 400s, 429s and exceptions says so —
+            # `last_fail_reason` kept only the most recent, which made diagnosing
+            # the above archaeology rather than a read.
+            reasons = src.get("fail_reasons")
+            if isinstance(reasons, dict) and reasons:
+                top = sorted(reasons.items(), key=lambda kv: -kv[1])[:3]
+                why = " (" + ", ".join(f"{k}×{v}" for k, v in top) + ")"
+            else:
+                last = src.get("last_fail_reason", "")
+                why = f" (last: {last})" if last and failed else ""
+            rate = f" — {failed / attempted * 100:.1f}% of replays" if attempted and failed else ""
+            return (
+                f"  {label}: {seen} seen, {sampled} sampled, {attempted} attempted, "
+                f"{failed} failed{why}, {recorded} recorded{rate}"
+            )
+
+        print()
+        if isinstance(_cur, dict) and _cur:
+            print(_line(_cur, f"Sampling ({_counter_version()})"))
+            if _ctrs.get("replay_attempted", 0) > _cur.get("replay_attempted", 0):
+                print(_line(_ctrs, "  lifetime"))
+                print(
+                    "  (lifetime spans every build ever installed, including ones whose "
+                    "bugs are fixed —\n   judge the running build by its own line.)"
+                )
+        else:
+            # No per-version bucket yet: an install that has not shadowed anything
+            # since upgrading. Lifetime is all there is, and saying so is the point.
+            print(_line(_ctrs, "Sampling (lifetime — no samples yet on this build)"))
 
 
 def cmd_shadow_stats(args: argparse.Namespace) -> int:
@@ -1261,10 +1312,15 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
         # it is an existing contract and breaking it to add provenance would be a
         # worse trade than carrying two formats.
         from .evalrecord import SCHEMA, EvalRecord, Gate, describe_env, describe_grader
-        from .shadow import SIG_VERSION
+        from .shadow import SIG_VERSION, floor_note
 
         rate = led.rate()
-        adjusted = led.adjusted_rate() if led.aa_agreement() is not None else None
+        eqv = led.equivalence()
+        # The observable a gate should fail on is what COMPRESSION costs: the paired
+        # difference, negated (diff is A/B minus A/A, so a loss is negative). The old
+        # `adjusted_rate` divided one arm by the other and clamped at 0 — it could
+        # report a perfect score by chance and could never report harm at all.
+        adjusted = -eqv.diff if eqv.diff is not None else None
         gates: list[Gate] = []
         if getattr(args, "max_change_rate", None) is not None:
             # Gate on the ADJUSTED rate when an A/A baseline exists: the raw rate
@@ -1280,7 +1336,7 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
             # worse than none". Below the floor the gate FAILS rather than passing
             # or silently disappearing, because a CI job asking to be gated must not
             # be told "fine" by a ledger that has never seen traffic.
-            enough = led.samples >= _MIN_SHADOW_SAMPLES
+            enough = not eqv.below_floor
             gates.append(
                 Gate(
                     name="max_change_rate",
@@ -1288,13 +1344,14 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                     observed=round(observed, 6),
                     passed=enough and observed <= args.max_change_rate,
                     rationale=(
-                        f"INCONCLUSIVE — {led.samples} samples is below the floor of "
-                        f"{_MIN_SHADOW_SAMPLES}; a rate off that few observations is "
-                        "not a rate, so the gate fails rather than certifying nothing"
+                        f"INCONCLUSIVE — {floor_note(eqv.n_ab, eqv.n_aa)}; a rate off "
+                        "that few observations is not a rate, so the gate fails rather "
+                        "than certifying nothing"
                         if not enough
-                        else "A/A-adjusted decision-change rate on live traffic"
+                        else "paired decision-change rate on live traffic (A/B minus "
+                        "A/A on the same request)"
                         if adjusted is not None
-                        else "RAW rate — no A/A baseline yet, so grader noise is included"
+                        else "RAW rate — no paired rows yet, so grader noise is included"
                     ),
                 )
             )
@@ -1328,16 +1385,21 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                 "aa_self_agreement": led.aa_agreement(),
                 "adjusted_change_rate": adjusted,
                 "adjusted_equivalence": (1 - adjusted) if adjusted is not None else None,
+                "estimator": eqv.estimator,
+                "paired_difference": eqv.diff,
+                "paired_difference_ci": list(eqv.diff_ci or ()),
+                "equivalence_pct": eqv.pct,
+                "equivalence_pct_ci": list(eqv.pct_ci or ()),
+                "below_reporting_floor": eqv.below_floor,
             },
             gates=gates,
         )
         print(json.dumps(record.to_dict(), indent=2))
         if gates and not record.passed:
             g = gates[0]
-            if led.samples < _MIN_SHADOW_SAMPLES:
+            if eqv.below_floor:
                 print(
-                    f"\nFAIL: only {led.samples} shadow samples "
-                    f"(floor {_MIN_SHADOW_SAMPLES}) — nothing to certify. "
+                    f"\nFAIL: {floor_note(eqv.n_ab, eqv.n_aa)} — nothing to certify. "
                     "Collect traffic with `distil wrap --shadow`.",
                     file=sys.stderr,
                 )
@@ -1350,6 +1412,8 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
         return 0
 
     if getattr(args, "json", False):
+        eqv = led.equivalence()
+        cost = led.cost()
         print(
             json.dumps(
                 {
@@ -1368,6 +1432,28 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                     "adjusted_equivalence": (
                         1 - led.adjusted_rate() if led.aa_agreement() is not None else None
                     ),
+                    # v5 paired estimator. `adjusted_*` above stay for pre-v5 rows and
+                    # are labelled legacy — they are a clipped ratio between disjoint
+                    # request sets and cannot express harm.
+                    "estimator": eqv.estimator,
+                    "paired_difference": eqv.diff,
+                    "paired_difference_ci": list(eqv.diff_ci or ()),
+                    "raw_agreement": eqv.p_ab,
+                    "raw_agreement_ci": list(eqv.p_ab_ci or ()),
+                    "aa_agreement_ci": list(eqv.p_aa_ci or ()),
+                    "equivalence_pct": eqv.pct,
+                    "equivalence_pct_ci": list(eqv.pct_ci or ()),
+                    "below_reporting_floor": eqv.below_floor,
+                    "byte_identical_samples": led.identical,
+                    "pinned_temperature_samples": led.pinned,
+                    "hot_samples": led.unpinned,
+                    "by_mode": {
+                        m: {"ab_n": a.ab_n, "ab_eq": a.ab_eq, "aa_n": a.aa_n, "aa_eq": a.aa_eq}
+                        for m, a in sorted(led.by_mode.items())
+                    },
+                    "output_token_delta": None if cost is None else cost.out_delta_mean,
+                    "output_token_delta_ci": None if cost is None else list(cost.out_delta_ci),
+                    "net_usd_after_output": None if cost is None else cost.net_usd,
                 },
                 indent=2,
             )
@@ -1426,87 +1512,105 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                 "then use your agent normally — samples accumulate as you work."
             )
         return 0
-    change = led.rate()
+    from .shadow import floor_note
+
+    eqv = led.equivalence()
     print("Shadow-mode live decision-equivalence (real traffic, content-free)\n")
     smp = f"{led.samples} shadowed request{'s' if led.samples != 1 else ''}"
-    if led.samples < 25:
-        # Same 25-sample floor as the status line / leaderboard / doctor — a rate
-        # over a handful is noise, so don't print a decision-equivalence guarantee.
-        print(f"  {smp} — collecting (need 25 for a decision-equivalence rate)")
+    if eqv.below_floor:
+        # ONE floor, shared with the status line, the census feed, the dashboard and
+        # the proof ledger. This command used to print at 25/10 while the census feed
+        # published at n>=10 and the status line waited for 50/30 — the same ledger
+        # read as three different verdicts depending on where you looked.
+        print(f"  {smp} — collecting; {floor_note(eqv.n_ab, eqv.n_aa)}")
         print("  keep using your agent; the rate appears once there's real evidence.")
+        if led.identical:
+            # The operational answer to "why is my A/B count stuck": compression that
+            # changes no bytes is an A/A sample, and lossless-only traffic is mostly
+            # that. Nothing is wrong; there is simply nothing to compare.
+            print(
+                f"  {led.identical} of them changed no bytes at all and count toward"
+                " the A/A arm only."
+            )
+        _print_shadow_sampling(_ctrs)
         return 0
-    print(f"  shadowed requests : {led.samples}")
+    print(f"  shadowed requests : {eqv.n_ab}")
     print(f"  decision changes  : {led.changes}")
-    print(f"  raw agreement, compressed vs full     : {(1 - change) * 100:.2f}%")
-    base = led.aa_agreement()
-    if base is not None:
-        adj = 1 - led.adjusted_rate()
-        print(f"  model self-agreement (A/A, n={led.aa_samples})   : {base * 100:.2f}%")
-        print(f"  decision-equivalence, noise-adjusted  : {adj * 100:.2f}%")
+    if eqv.p_ab is not None and eqv.p_ab_ci is not None:
         print(
-            "\n  Raw agreement is capped by the model's own nondeterminism — it disagrees"
-            f"\n  with ITSELF on identical requests {(1 - base) * 100:.1f}% of the time. The adjusted"
-            "\n  number is what compression adds on top of that."
+            f"  agreement, compressed vs original (A/B) : {eqv.p_ab * 100:6.2f}%"
+            f"  [{eqv.p_ab_ci[0] * 100:.1f}, {eqv.p_ab_ci[1] * 100:.1f}]"
+        )
+    if eqv.p_aa is not None and eqv.p_aa_ci is not None:
+        print(
+            f"  self-agreement, identical input (A/A)   : {eqv.p_aa * 100:6.2f}%"
+            f"  [{eqv.p_aa_ci[0] * 100:.1f}, {eqv.p_aa_ci[1] * 100:.1f}]  n={eqv.n_aa}"
+        )
+    if eqv.diff is not None and eqv.diff_ci is not None:
+        print(
+            f"  paired difference (A/B − A/A)           : {eqv.diff * 100:+6.2f}pp"
+            f" [{eqv.diff_ci[0] * 100:+.1f}, {eqv.diff_ci[1] * 100:+.1f}]"
+        )
+    if eqv.pct is not None:
+        ci = eqv.pct_ci
+        tail = f"  [{ci[0]:.1f}, {ci[1]:.1f}]" if ci else ""
+        label = f"decision-equivalence ({eqv.estimator})"
+        print(f"  {label:<39} : {eqv.pct:6.2f}%{tail}")
+    if eqv.estimator == "paired":
+        print(
+            "\n  Each sampled request was replayed THREE times — A and A' on the original"
+            "\n  context, B on the compressed one — so both arms are the same request. The"
+            "\n  paired difference is what compression costs on top of the model's own"
+            "\n  nondeterminism; it is allowed to be negative, and an interval spanning 0"
+            "\n  means no measurable change. Numbers only, never content."
         )
     else:
-        print(f"  decision-equivalence (unadjusted)     : {(1 - change) * 100:.2f}%")
         print(
-            f"\n  No A/A noise baseline yet ({led.aa_samples}/10 self-agreement samples) — the raw"
-            "\n  number conflates compression harm with sampling nondeterminism; treat it"
-            "\n  as a floor, not a verdict."
+            "\n  LEGACY (unpaired) rows: A/A and A/B were drawn as separate requests, so"
+            "\n  this is a comparison between two different samples of traffic, not a"
+            "\n  paired measurement. Collect v5 rows for a difference with an interval."
         )
-    print(
-        "\n  Each sampled request was run BOTH compressed and uncompressed; "
-        "equivalence\n  means the agent chose the same next action. Numbers only, never content."
-    )
-    if _ctrs:
-        # The RUNNING build's rate is the health signal; lifetime is context.
-        #
-        # These counters accumulate for the life of the install, so failures from a
-        # fixed bug stay in the displayed rate forever. Concretely: the temperature-0
-        # replay bug (fixed in 8c744df) left 295/323 failures behind, which pinned the
-        # lifetime rate at 42% while the rate since the fix was 5.3%. That does two
-        # things, and the second is the one that matters — a fixed bug makes the
-        # sampler look broken, and the next REAL regression has to clear a 42% noise
-        # floor before anyone notices it.
-        from .shadow import _counter_version
-
-        _by_version = _ctrs.get("by_version")
-        _cur = _by_version.get(_counter_version()) if isinstance(_by_version, dict) else None
-
-        def _line(src: dict, label: str) -> str:
-            seen, sampled = src.get("requests_seen", 0), src.get("sampled", 0)
-            attempted, failed = src.get("replay_attempted", 0), src.get("replay_failed", 0)
-            recorded = src.get("recorded", 0)
-            # A histogram, so a run mixing 400s, 429s and exceptions says so —
-            # `last_fail_reason` kept only the most recent, which made diagnosing
-            # the above archaeology rather than a read.
-            reasons = src.get("fail_reasons")
-            if isinstance(reasons, dict) and reasons:
-                top = sorted(reasons.items(), key=lambda kv: -kv[1])[:3]
-                why = " (" + ", ".join(f"{k}×{v}" for k, v in top) + ")"
-            else:
-                last = src.get("last_fail_reason", "")
-                why = f" (last: {last})" if last and failed else ""
-            rate = f" — {failed / attempted * 100:.1f}% of replays" if attempted and failed else ""
-            return (
-                f"  {label}: {seen} seen, {sampled} sampled, {attempted} attempted, "
-                f"{failed} failed{why}, {recorded} recorded{rate}"
+    if led.identical:
+        print(
+            f"\n  {led.identical} sample{'s' if led.identical != 1 else ''} compared"
+            " byte-identical bodies (compression changed nothing)"
+            "\n  and are booked as A/A, not as an A/B win."
+        )
+    _hot = led.pinned + led.unpinned
+    if _hot:
+        print(
+            f"\n  replays pinned to temperature 0: {led.pinned}/{_hot}"
+            f" ({led.pinned / _hot * 100:.0f}%) — the rest ran at the"
+            "\n  agent's own sampling (extended thinking and current models reject a pinned"
+            "\n  temperature). The A/A arm is what absorbs that noise."
+        )
+    _modes = {m: a for m, a in sorted(led.by_mode.items()) if a.ab_n or a.aa_n}
+    if len(_modes) > 1:
+        # lossless-only and digest are different experiments; pooling them reports
+        # the average of two things nobody runs.
+        print("\n  by compression mode:")
+        for _m, _a in _modes.items():
+            _d = f"{sum(_a.diffs) / len(_a.diffs) * 100:+.1f}pp" if _a.diffs else "—"
+            print(f"    {_m:<14} n={_a.ab_n} A/B, {_a.aa_n} A/A, paired diff {_d}")
+    _cost = led.cost()
+    if _cost is not None:
+        _lo, _hi = _cost.out_delta_ci
+        print(
+            f"\n  output tokens, compressed − original    : {_cost.out_delta_mean:+.1f}"
+            f" [{_lo:+.1f}, {_hi:+.1f}] per request (n={_cost.n})"
+        )
+        if _cost.priced:
+            label = f"net after output ({_cost.priced} priced)"
+            print(
+                f"  {label:<39} : ${_cost.net_usd:+.4f}"
+                f"  (input ${_cost.input_saved_usd:+.4f} − output ${_cost.output_extra_usd:+.4f})"
             )
-
-        print()
-        if isinstance(_cur, dict) and _cur:
-            print(_line(_cur, f"Sampling ({_counter_version()})"))
-            if _ctrs.get("replay_attempted", 0) > _cur.get("replay_attempted", 0):
-                print(_line(_ctrs, "  lifetime"))
-                print(
-                    "  (lifetime spans every build ever installed, including ones whose "
-                    "bugs are fixed —\n   judge the running build by its own line.)"
-                )
-        else:
-            # No per-version bucket yet: an install that has not shadowed anything
-            # since upgrading. Lifetime is all there is, and saying so is the point.
-            print(_line(_ctrs, "Sampling (lifetime — no samples yet on this build)"))
+            print(
+                "\n  Output is priced ~5x input: compression that makes the model answer at"
+                "\n  greater length can cost more than the prompt it shortened. A negative"
+                "\n  net is that trade going the wrong way."
+            )
+    _print_shadow_sampling(_ctrs)
     return 0
 
 
@@ -1699,17 +1803,17 @@ def cmd_statusline(args: argparse.Namespace) -> int:
             # comparable and must not drag a live verdict (see ADR: signature v2).
             led = ShadowLedger.load(current_only=True)
             # Only claim an equivalence rate once evidence is ROBUST — a percentage
-            # over a handful of samples is noise wearing a number, and the noise-
-            # adjusted rate divides by the A/A self-agreement, itself unstable at
-            # small n. Require both a solid A/B sample and a solid A/A baseline.
-            if led.samples >= VERDICT_MIN_AB and led.aa_samples >= VERDICT_MIN_AA:
-                n = led.samples
+            # over a handful of samples is noise wearing a number. Both arms must
+            # clear the shared floor.
+            _eq = led.equivalence()
+            if _eq.pct is not None:
+                n = _eq.n_ab
                 n_str = f"{n / 1000:.1f}k" if n >= 1000 else str(n)
-                # Noise-adjusted when an A/A baseline exists: agreement judged
-                # relative to the model's self-agreement on identical requests,
-                # so sampling nondeterminism doesn't read as compression harm.
-                # `distil shadow-stats` shows the full decomposition.
-                eq = 1 - led.adjusted_rate()
+                # The paired estimate: agreement judged against the model's own
+                # self-agreement on the SAME request, so sampling nondeterminism
+                # doesn't read as compression harm. 100% = compression cost nothing.
+                # `distil shadow-stats` shows the full decomposition and the CI.
+                eq = _eq.pct / 100.0
                 # Explicit 256-color hues (basic ANSI is terminal-theme roulette —
                 # 'magenta' renders as unreadable purple on many dark themes) and a
                 # health GLYPH so the state reads even without color: ✓ proven-safe,
@@ -1724,7 +1828,7 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                 # Same "de" label as the collecting state below, so the segment
                 # reads as one metric maturing: de 12/25 → ✓de 99.5% (30).
                 parts.append(c(hue, f"{glyph}de {eq * 100:.1f}%") + c("38;5;73", f" ({n_str})"))
-            elif led.samples > 0:
+            elif led.samples > 0 or led.aa_samples > 0:
                 # Below 25 samples we don't claim a rate (a % over a handful is noise).
                 # Distinguish "warming up" (a sampler fed the ledger recently) from
                 # "idle" (nothing sampling in >24h) — a frozen "de 1/25" reads as
