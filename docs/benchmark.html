@@ -185,8 +185,26 @@ It's not how many tokens you cut — it's which ones.</pre>
     </div>
 
     <h2 id="coding-agent">Coding-agent benchmark <span class="g">— cache-delta on read→edit→reread</span></h2>
-    <p>A second, <strong>messages-level</strong> benchmark targets the coding-agent hot path (<code>benchmarks/codebench.py</code>: 16 sessions / 256 turns of read → edit → <strong>re-read</strong>), scoring <strong>cache-aware real dollars</strong> against the <em>real</em> installed packages. Each method is a pure, deterministic, <strong>cache-monotonic</strong> function of the cumulative conversation — the same standard distil holds itself to. The competitors are driven the way they actually deploy: LLMLingua-2 over every tool result (memoised); Headroom via its whole-conversation router with <code>optimize=True</code>.</p>
+    <p>A second, <strong>messages-level</strong> benchmark targets the coding-agent hot path (<code>benchmarks/codebench.py</code>: 20 sessions / 320 turns of read → edit → <strong>re-read</strong>, re-run 2026-09-04), scoring <strong>cache-aware real dollars</strong> against the <em>real</em> installed packages: <code>headroom-ai</code> 0.37.0 (<code>[ml,code]</code> extras), <code>llmlingua</code> 0.2.2, distil 1.51.1. Each method is a pure, deterministic, <strong>cache-monotonic</strong> function of the cumulative conversation — the same standard distil holds itself to. Raw output committed at <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/2026-09-04"><code>benchmarks/results/2026-09-04/</code></a>.</p>
     <img src="assets/cache-delta.svg" alt="Cache-delta: read, edit, re-read — distil sends a reference + diff" class="svg-embed"/>
+    <table>
+      <thead><tr><th scope="col">method</th><th scope="col" style="text-align:right">token savings</th><th scope="col" style="text-align:right">$ savings (cache-aware)</th><th scope="col" style="text-align:right">latency / turn</th><th scope="col">fidelity</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">LLMLingua-2 (<code>llmlingua</code> 0.2.2, real)</th><td class="r">56.7%</td><td class="r">57.2%</td><td class="r">173.7 ms</td><td>lossy</td></tr>
+        <tr><th scope="row">distil-verbatim + cache-delta</th><td class="r">42.7%</td><td class="r">46.3%</td><td class="r">58.2 ms</td><td>reversible</td></tr>
+        <tr><th scope="row">distil + cache-delta</th><td class="r">34.9%</td><td class="r">43.8%</td><td class="r">59.4 ms</td><td>reversible</td></tr>
+        <tr><th scope="row">Headroom (<code>headroom-ai</code> 0.37.0, real, default)</th><td class="r">35.6%</td><td class="r">4.9%</td><td class="r">6.9 ms</td><td>lossy</td></tr>
+        <tr><th scope="row">distil-verbatim (Tier-0 only)</th><td class="r">18.5%</td><td class="r">3.7%</td><td class="r">0.5 ms</td><td>reversible</td></tr>
+        <tr style="background:rgba(139,123,255,.07)"><th scope="row"><b>distil</b> (PAYG digest)</th><td class="r">0.0%<sup>*</sup></td><td class="r">0.0%<sup>*</sup></td><td class="r">1.0 ms</td><td>reversible</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12.5px;color:#5b6177;">*By design, not a regression: this workload is read → edit → re-read, and once the agent has quoted a Read/Grep/Glob result byte-exact, that provenance is exempted from digest for the rest of the session — the exact-quote guarantee an <code>Edit</code> depends on. See <a href="changelog.html#v1-49-0">the 1.49.0 changelog entry</a>. Headroom's <code>ms/turn</code> above pays a one-time ModernBERT weight-load cost on this process's first invocation; a warm re-run (same token/$ percentages — see <code>codebench-warm-headroom-2026-09-04.out</code>) measures 2.2 ms/turn. distil has no model weights to load, so its own numbers don't move cold or warm.</p>
+    <div class="callout">
+      <b>Honest reading, 2026-09-04.</b> Once digested reads are exempt from re-digesting, the reversible floor on this workload comes from <strong>cache-delta, not the bare digest</strong>: <strong>distil + cache-delta holds 43.8% cache-aware $ savings, fully reversible</strong>. The bare PAYG digest correctly measures <strong>0.0% here</strong> — the 1.49.0 provenance-exemption fix protects the byte-exact quote an <code>Edit</code> needs, at the cost of the digest's savings on a workload that is nothing <em>but</em> re-reads. <strong>LLMLingua-2 still posts the highest raw compression (57.2%)</strong> — we don't hide it — but it's lossy and, even with the digest now doing far less work here, <strong>~175× slower</strong> than it. <strong>Headroom's own number is a real improvement over its June 2026-06-23 run below</strong>: token savings flipped from a net cost <em>increase</em> to a <strong>net decrease (4.9% cheaper)</strong> on a newer, non-ML code path — though its default read-lifecycle compression still leaves it well behind cache-delta's reversible 43.8%. Reproduce: <code>PYTHONPATH=. python benchmarks/codebench.py 20</code>.
+    </div>
+
+    <h3 id="coding-agent-2026-06-23" style="margin-top:22px;color:#8891a8;">Historical: the 2026-06-23 measurement</h3>
+    <p style="font-size:12.5px;color:#5b6177;">Kept for context, not current — superseded by the 2026-09-04 run above (newer package versions, a larger sample, and the 1.49.0 provenance-exemption fix that changes what the bare digest row even measures). This table ran against <code>headroom-ai</code> 0.27.0 with 16 sessions / 256 turns.</p>
     <table>
       <thead><tr><th scope="col">method</th><th scope="col" style="text-align:right">token savings</th><th scope="col" style="text-align:right">$ savings (cache-aware)</th><th scope="col" style="text-align:right">latency / turn</th><th scope="col">fidelity</th></tr></thead>
       <tbody>
@@ -198,9 +216,20 @@ It's not how many tokens you cut — it's which ones.</pre>
         <tr><th scope="row">Headroom (<code>headroom-ai</code> 0.27.0, real, default)</th><td class="r">22.4%</td><td class="r">&minus;16.8%</td><td class="r">5.3 ms</td><td>lossy</td></tr>
       </tbody>
     </table>
-    <div class="callout">
-      <b>Honest reading.</b> The <strong>Tier-1 reversible digest is the dominant lever</strong> (~91% cache-aware, reversible, 0.08 ms) — it already captures the re-reads, so cache-delta adds little <em>on top of</em> it. <strong>Cache-delta's real niche is verbatim / interactive mode</strong> (digest disallowed): there it turns a 0% floor into <strong>43.8%, reversible</strong>. <strong>LLMLingua-2 is genuinely strong on savings (57.2%)</strong> — we don't hide it — but it's lossy and <strong>~3,400× slower</strong>. <strong>Headroom reduces tokens 22.4% yet costs 16.8% <em>more</em></strong>: its default read-lifecycle compression rewrites earlier turns and busts the prompt cache (its prefix-freeze ships off — "marginal in practice", per Headroom's own config). A live proof of distil's thesis on a real competitor. This benchmark also caught two real distil bugs (a cache-monotonicity flip and a Tier-0 token inflation) — both fixed in v0.22.0; numbers are post-fix. Reproduce: <code>PYTHONPATH=. python benchmarks/codebench.py 16</code>.
-    </div>
+    <p style="font-size:12.5px;color:#5b6177;">Honest reading at the time: the Tier-1 reversible digest was the dominant lever (~91% cache-aware, reversible, 0.08 ms) — it already captured the re-reads, so cache-delta added little on top of it. LLMLingua-2 was genuinely strong on savings (57.2%) but lossy and <strong>~3,400× slower</strong>. Headroom reduced tokens 22.4% yet cost 16.8% <em>more</em>, busting the prompt cache with its default read-lifecycle compression. This benchmark also caught two real distil bugs (a cache-monotonicity flip and a Tier-0 token inflation) — both fixed in v0.22.0; the numbers above are post-fix.</p>
+
+    <hr/>
+
+    <h2 id="coding-agent-corpus">The <code>distil benchmark</code> corpus, warm <span class="g">— same 2026-09-04 re-run</span></h2>
+    <p>The deterministic corpus gate (9 domains, no API key) run against the same package versions. A cold process shows Headroom skipping compression entirely — its Kompress model is still loading — which trivially "passes" the decision-equivalence check on requests it never touched; the table below is the <strong>warm</strong> re-run, after Kompress finished loading.</p>
+    <table>
+      <thead><tr><th scope="col">technique</th><th scope="col" style="text-align:right">tokens saved</th><th scope="col" style="text-align:right">$ saved</th><th scope="col" style="text-align:right">decision-equiv</th><th scope="col">gate</th></tr></thead>
+      <tbody>
+        <tr style="background:rgba(139,123,255,.08)"><th scope="row"><b>distil-causal</b></th><td class="r">52.9%</td><td class="r">58.7%</td><td class="r">100%</td><td><span class="badge-pass">✔ PASS</span></td></tr>
+        <tr><th scope="row">Headroom (<code>headroom-ai</code> 0.37.0, real, warm)</th><td class="r">1.7%</td><td class="r">2.0%</td><td class="r">81%</td><td><span class="badge-fail">✘ FAIL</span></td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12.5px;color:#5b6177;">Cold-process artifact, for the record: the same run before Kompress finishes loading shows Headroom at a misleading 0.0% tokens / 100% "PASS" — it fails open while loading and passes through every request untouched, which trivially agrees with the ungated baseline. Preload before comparing. Raw output: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/2026-09-04"><code>benchmarks/results/2026-09-04/</code></a>.</p>
 
     <hr/>
 
