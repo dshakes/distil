@@ -1,5 +1,5 @@
 {
-  "$schema_note": "See docs/CLAIMS.md. Every numeric or comparative claim on the site gets one entry here. status: verified (backed by a named test/script/report and currently accurate), stale (backed, but the underlying run predates recent changes and needs a re-run), wrong (currently on the page and currently incorrect — a fix is tracked separately), unsourced (a number with no named artifact backing it on the page). locator: {page, anchor, snippet} where anchor is an HTML id and snippet is a verbatim substring of the page's source, used by tests/test_site_claims.py to catch drift.",
+  "$schema_note": "See docs/CLAIMS.md. Every numeric or comparative claim on the site gets one entry here. status: verified (backed by a named test/script/report and currently accurate), stale (backed, but the underlying run predates recent changes and needs a re-run), wrong (currently on the page and currently incorrect \u2014 a fix is tracked separately), unsourced (a number with no named artifact backing it on the page). locator: {page, anchor, snippet} where anchor is an HTML id and snippet is a verbatim substring of the page's source, used by tests/test_site_claims.py to catch drift.",
   "entries": [
     {
       "id": "v-e14-hero",
@@ -24,7 +24,7 @@
       "status": "verified",
       "page": "benchmark.html",
       "anchor": "coding-agent",
-      "snippet": "~3,400× slower",
+      "snippet": "~3,400\u00d7 slower",
       "claim": "Coding-agent (codebench) table: distil PAYG digest 91.5%/91.1%/0.08ms vs LLMLingua-2 56.8%/57.2%/274ms (~3,400x slower) vs Headroom 22.4%/-16.8%/5.3ms.",
       "note": "Reproduce: PYTHONPATH=. python benchmarks/codebench.py 16 (named on-page)."
     },
@@ -33,7 +33,7 @@
       "status": "verified",
       "page": "provider-compaction.html",
       "anchor": null,
-      "snippet": "roughly 7× better than deletion",
+      "snippet": "roughly 7\u00d7 better than deletion",
       "claim": "distil certify-provider: Anthropic context-clearing changes 92.5% of decisions at keep=0 (95-100% at the shipped keep=3 default), OpenAI compaction 12.5-20%; summarization ~7x safer than deletion; neither certifies at alpha=0.1.",
       "note": "Backed by certify-provider-compaction-plan (n=40 pre-registered runs)."
     },
@@ -85,19 +85,22 @@
     {
       "id": "w-shadow-sample",
       "status": "wrong",
-      "page": ["getting-started.html", "faq.html"],
+      "page": [
+        "getting-started.html",
+        "faq.html"
+      ],
       "anchor": null,
       "snippet": "1.13.0 / 116 sampled requests",
       "claim": "\"Live result: production validation (1.13.0 / 116 sampled requests) ... 100% of requests ... A/A self-agreement of 31/31\" is currently wrong: the 1.51.1 changelog (d1d92aa) found that shadow sample was biased by signed-thinking-block replays silently dying, inflating every live number it produced.",
-      "note": "VALUE NOT CHANGED IN THIS PR. Needs restating with SIG_VERSION 4 numbers once a clean re-sample exists — tracked as a separate fix, out of scope for docs/site-accuracy-and-ux."
+      "note": "VALUE NOT CHANGED IN THIS PR. Needs restating with SIG_VERSION 4 numbers once a clean re-sample exists \u2014 tracked as a separate fix, out of scope for docs/site-accuracy-and-ux."
     },
     {
       "id": "u-cache-hero-example",
       "status": "unsourced",
       "page": "index.html",
       "anchor": null,
-      "snippet": "▼75.0K",
-      "claim": "Hero terminal illustrative output (▼75.0K, 62% smaller, $0.31, total ▼27.0M, ✓eq 99.5%) has no linked command, log, or artifact backing those specific figures.",
+      "snippet": "\u25bc75.0K",
+      "claim": "Hero terminal illustrative output (\u25bc75.0K, 62% smaller, $0.31, total \u25bc27.0M, \u2713eq 99.5%) has no linked command, log, or artifact backing those specific figures.",
       "note": "Presented as \"real, reproducible output\" but the exact numbers shown are not tied to a named run."
     },
     {
@@ -134,7 +137,7 @@
       "anchor": "measured",
       "snippet": "Arms agreed (hook on vs off)",
       "claim": "Decision-equivalence table (5/5 arms agreed, 5/5 correct each arm, n=5 decision-bearing tasks) has no named task list or fixture.",
-      "note": "Page itself says n=5 with no A/A arm is \"not a certificate\" — self-scoped, but still unsourced as a locatable artifact."
+      "note": "Page itself says n=5 with no A/A arm is \"not a certificate\" \u2014 self-scoped, but still unsourced as a locatable artifact."
     },
     {
       "id": "u-subscription-corpus-tally",
@@ -142,7 +145,7 @@
       "page": "subscription.html",
       "anchor": "where-zero",
       "snippet": "corpus contains 43 tool-output blocks",
-      "claim": "\"distil's corpus contains 43 tool-output blocks; the five over 2KB have zero consecutive duplicate lines and zero JSON\" — no corpus file or command named.",
+      "claim": "\"distil's corpus contains 43 tool-output blocks; the five over 2KB have zero consecutive duplicate lines and zero JSON\" \u2014 no corpus file or command named.",
       "note": "Likely the same corpus as corpus.html; not cross-linked."
     },
     {
@@ -151,7 +154,7 @@
       "page": "techniques.html",
       "anchor": "keep-model",
       "snippet": "96.4%",
-      "claim": "Keep-model codec comparison table: LogisticKeepModel 96.4% accuracy / 0.98 F1, TransformerKeepModel 96.3% (demo) — held-out set not named or linked.",
+      "claim": "Keep-model codec comparison table: LogisticKeepModel 96.4% accuracy / 0.98 F1, TransformerKeepModel 96.3% (demo) \u2014 held-out set not named or linked.",
       "note": "One column literally says \"(demo)\" for the transformer row, but the logistic row's 96.4%/0.98 has no named eval set either."
     },
     {
@@ -160,7 +163,7 @@
       "page": "techniques.html",
       "anchor": "salience-protection",
       "snippet": "0/120 survival rate",
-      "claim": "\"Blind truncation at a 200-token target produced a 0/120 survival rate on decision-carrying lines ... with salience protection enabled, that becomes 120/120\" — no named corpus or reproduction command.",
+      "claim": "\"Blind truncation at a 200-token target produced a 0/120 survival rate on decision-carrying lines ... with salience protection enabled, that becomes 120/120\" \u2014 no named corpus or reproduction command.",
       "note": "The 120-trajectory corpus isn't identified on this page."
     },
     {
@@ -170,7 +173,7 @@
       "anchor": null,
       "snippet": "cache-aware lossless)          0.01023",
       "claim": "`distil savings --pricing claude-opus-4-8` sample output (32.8% vs baseline, 1,028 cache hits) is illustrative terminal output, not tied to a named trajectory fixture.",
-      "note": "Command is real and runnable, but the specific numbers shown depend on whatever trajectory is passed — none is named."
+      "note": "Command is real and runnable, but the specific numbers shown depend on whatever trajectory is passed \u2014 none is named."
     },
     {
       "id": "u-architecture-precondition",
@@ -187,8 +190,48 @@
       "page": "learn-compression.html",
       "anchor": null,
       "snippet": "id=\"te-turns\"",
-      "claim": "The multi-turn-tax interactive calculator's illustrative defaults (12 turns, 40,000-token fixed prefix, 3,000 new tokens/turn) are not tied to any measured session — they're calculator seed values, not a claim per se.",
+      "claim": "The multi-turn-tax interactive calculator's illustrative defaults (12 turns, 40,000-token fixed prefix, 3,000 new tokens/turn) are not tied to any measured session \u2014 they're calculator seed values, not a claim per se.",
       "note": "Flagged by the audit; recorded here rather than silently ignored, since it's numeric and reader-facing even though it's an adjustable widget rather than a fixed claim."
+    },
+    {
+      "id": "v-curve-lossless",
+      "status": "verified",
+      "page": "benchmark.html",
+      "anchor": "degradation-curve",
+      "snippet": "<td><b>47.0%</b></td><td>1.000</td><td>0.769</td>",
+      "claim": "Degradation curve: the shipped lossless rung removes 47.0% of tokens at 1.000 macro fact recall (0.769 visible), losing zero facts.",
+      "artifact": "benchmarks/results/curve.json",
+      "note": "Regenerate with `distil bench --curve`; shape asserted by tests/test_curve.py."
+    },
+    {
+      "id": "v-curve-aggressive",
+      "status": "verified",
+      "page": "benchmark.html",
+      "anchor": "degradation-curve",
+      "snippet": "<td>65.5%</td><td>0.551</td><td>0.551</td><td><b>828</b></td>",
+      "claim": "Degradation curve: the aggressive rung reaches 65.5% savings but drops to 0.551 recall, losing 828 facts irrecoverably (no handle).",
+      "artifact": "benchmarks/results/curve.json",
+      "note": "The cliff target_equivalence=1.0 stays away from. Regenerate with `distil bench --curve`."
+    },
+    {
+      "id": "v-curve-lossless-only-zero",
+      "status": "verified",
+      "page": "benchmark.html",
+      "anchor": "degradation-curve",
+      "snippet": "and still measures 0.0%",
+      "claim": "Degradation curve: lossless-only (the shipped subscription path, structured folds included) measures 0.0% savings on the 9-trajectory corpus \u2014 the folds need tabular output and the corpus is prose logs.",
+      "artifact": "benchmarks/results/curve.json",
+      "note": "Reproduces the live 4-arm A/B result. The `subscription` rung drives adapters/anthropic in verbatim mode, not a reconstruction."
+    },
+    {
+      "id": "v-coma-decoy-denial-of-savings",
+      "status": "verified",
+      "page": "threat-model.html",
+      "anchor": "unmitigated",
+      "snippet": "savings drop to <b>0.0%</b>",
+      "claim": "COMA battery: decoy verdict flooding cannot evict the genuine verdict, but drives that block's savings to exactly 0.0% \u2014 denial-of-savings, real and unmitigated.",
+      "artifact": "distil/harness.py",
+      "note": "Asserted by tests/test_adversarial_isolation.py::test_decoy_flooding_costs_savings_not_correctness; run `distil validate --adversarial`."
     }
   ]
 }
