@@ -592,7 +592,9 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 > byte-identical replays; statistically indistinguishable (p=0.63); 32 of the 44 A/B
 > samples had no bytes changed by compression. Below the 50 A/B + 30 A/A reporting
 > floor — not yet a verdict. The estimator (a ratio today, not a paired difference) is
-> also being replaced; a paired design is tracked for 1.53.0.
+> replaced in 1.52.0 by a paired design (three replays per sample, unclipped difference
+> with a bootstrap CI, one reporting floor); the numbers above are from the pre-1.52.0
+> unpaired estimator and will be superseded once the paired sample clears the floor.
 >
 > `▼` = tokens saved · `total` = lifetime · `de` = decision-equivalence (verdict once 50 A/B + 30 A/A shadow samples accrue). Sharing the line with git/cwd/model? `DISTIL_STATUSLINE=minimal` → `distil ▼7.8K · 27M total`. On a flat-rate **subscription**, dollars are notional and auto-hidden (`DISTIL_SUBSCRIPTION=0/1`).
 

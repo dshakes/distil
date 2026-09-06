@@ -93,7 +93,7 @@
       "anchor": null,
       "snippet": "44 A/B and 11 A/A samples",
       "claim": "The withdrawn 1.13.0 number (100% over 116 sampled requests, A/A 31/31) is replaced with the honest current reading: live shadow build 1.51.1, lossless-only, 44 A/B + 11 A/A samples; raw agreement 81.8% [67.3, 91.8]; self-agreement 84.8% [71.8, 92.4] over 46 byte-identical replays; p=0.63; 32 of 44 A/B samples had zero bytes changed. Below the 50/30 reporting floor — not yet a verdict.",
-      "note": "Resolved (was 'wrong'). Backed by benchmarks/results/shadow-live-2026-09-04.json (content-free summary of ~/.distil/shadow.jsonl, SIG_VERSION 4, post-1.51.1 thinking-block fix). See CHANGELOG.md 1.51.1 for why the prior number was withdrawn; the ratio estimator itself is tracked for a paired-design replacement in 1.53.0."
+      "note": "Resolved (was 'wrong'). Backed by benchmarks/results/shadow-live-2026-09-04.json (content-free summary of ~/.distil/shadow.jsonl, SIG_VERSION 4, post-1.51.1 thinking-block fix). See CHANGELOG.md 1.51.1 for why the prior number was withdrawn; the ratio estimator itself is replaced in 1.52.0 by a paired design (three replays per sample, unclipped difference with a bootstrap CI, one reporting floor); the numbers above are from the pre-1.52.0 unpaired estimator."
     },
     {
       "id": "u-cache-hero-example",
