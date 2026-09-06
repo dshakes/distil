@@ -53,6 +53,7 @@
         <li><a href="concepts.html">Concepts</a></li>
         <li><a href="techniques.html">Techniques</a></li>
         <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html">Cache Contract <span class="nav-badge">New</span></a></li>
         <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
         <li><a href="research.html">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
@@ -92,6 +93,7 @@
         <li><a href="security.html">Security</a></li>
         <li><a href="changelog.html">Changelog</a></li>
         <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html">Threat Model <span class="nav-badge">New</span></a></li>
         <li><a href="index.html">← Landing page</a></li>
       </ul>
     </nav>
@@ -329,6 +331,31 @@ distil <span class="c">benchmark</span> --corpus corpus_taubench --runner anthro
     <div class="callout warn">
       <strong>The honest boundary (why the corpus matters).</strong> On <em>decision-ambiguous</em> traffic the live model varies on identical context — on the original synthetic corpus its byte-exact change rate was ~50%, so <em>nothing</em> can certify and equivalence is undefined (it's the model's coin-flip, not the compressor's fault). The fix is not to spin the number — it's to certify on traffic where the decision is genuinely determined (as real agent steps are). That's why the determinism precondition is checked and reported, not assumed. Recalibrate on your own traffic; the guarantee is marginal over the calibration distribution, not a per-prompt promise.
     </div>
+
+    <h2 id="degradation-curve">The degradation curve <span class="g">— what each rung costs</span></h2>
+    <p>Everything above answers a yes/no question: is the shipped strategy non-inferior? That is the right question for a gate and the wrong one for a decision, because it says nothing about the shape of the tradeoff on either side of the operating point. This is that shape, measured over the offline corpus with <code>distil bench --curve</code>. No API calls, no model, no cost — so it runs per-commit rather than once a quarter.</p>
+
+    <img src="assets/curve.svg" alt="Fact recall plotted against token savings for each rung of the compression ladder. The none, tier-0 only, subscription and lossless rungs all sit at 1.0 recall and differ only in savings; the aggressive rung drops to 0.55 recall and is marked as not reversible." class="svg-embed"/>
+
+    <table>
+      <thead><tr><th>Rung</th><th>Savings</th><th>Recall</th><th>Visible</th><th>Facts lost</th><th>Reversible</th></tr></thead>
+      <tbody>
+        <tr><td><code>none</code></td><td>0.0%</td><td>1.000</td><td>1.000</td><td>0</td><td>yes</td></tr>
+        <tr><td><code>tier-0 only</code></td><td>0.0%</td><td>1.000</td><td>1.000</td><td>0</td><td>yes</td></tr>
+        <tr><td><code>subscription</code></td><td>0.0%</td><td>1.000</td><td>1.000</td><td>0</td><td>yes</td></tr>
+        <tr><td><code>lossless</code></td><td><b>47.0%</b></td><td>1.000</td><td>0.769</td><td>0</td><td>yes</td></tr>
+        <tr><td><code>aggressive</code></td><td>65.5%</td><td>0.551</td><td>0.551</td><td><b>828</b></td><td><b>no</b></td></tr>
+      </tbody>
+    </table>
+    <p style="color:#9aa1b3;font-size:13.5px;">Distil 1.51.1, 9-trajectory corpus, generated 2026-09-06. <em>Recall</em> is the macro average across domains, counting facts that are recoverable through an expand handle; <em>visible</em> counts only facts still readable in the forwarded text. <code>subscription</code> is the lossless-only path driven through the adapter's real verbatim branch, not a reconstruction of it. Every rung carries production's reject-if-bigger guard, so no rung can report savings the proxy would not take. Regenerate with <code>distil bench --curve</code>.</p>
+
+    <h3>Three things the curve says that the gate cannot</h3>
+    <ul>
+      <li><b>The digest is where the savings live, and it costs no facts.</b> <code>lossless</code> removes 47% of tokens while total recall stays at 1.000. Its <em>visible</em> recall drops to 0.769, which is the mechanism made legible: roughly a quarter of the facts moved behind a recovery handle rather than being deleted. That gap <em>is</em> Tier-1, drawn to scale.</li>
+      <li><b>Lossless-only saves nothing on this corpus — and that is the real path, not a proxy for it.</b> <code>subscription</code> runs the adapter's own verbatim branch, structured folds included, and still measures 0.0%: those folds need tabular or templated output, and this corpus is prose logs. It sits exactly on <code>tier-0 only</code>. This reproduces what the live 4-arm A/B found on real traffic, and it is the honest answer to "can I get the savings without the digest?" — on this shape of content, no.</li>
+      <li><b>The curve bends exactly once.</b> <code>aggressive</code> buys 18 more points of savings and pays 828 facts for them, irrecoverably, because it issues no handle. That is the cliff <code>target_equivalence = 1.0</code> exists to stay away from, and the reason the dial's default never reaches this rung.</li>
+    </ul>
+    <p>The results JSON is written to <code>benchmarks/results/curve.json</code> and the chart to <code>docs/assets/curve.svg</code>, both stamped with the version and date they were generated from. <code>tests/test_curve.py</code> asserts the shape rather than the pixels: reversible rungs must hold full recall, and the lossy rung must save more while losing facts. If the ladder ever changes shape, that test fails before this page goes stale.</p>
 
     <div class="site-footer">
       Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>

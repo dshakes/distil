@@ -33,6 +33,7 @@ LEARN: list[tuple[str, str, str | None]] = [
     ("concepts.html", "Concepts", None),
     ("techniques.html", "Techniques", None),
     ("architecture.html", "Architecture", None),
+    ("cache-contract.html", "Cache Contract", "New"),
     ("subscription.html", "Subscription", "New"),
     ("research.html", "Research &amp; Frontier", None),
     ("provider-compaction.html", "Provider Compaction", "New"),
@@ -79,6 +80,7 @@ MORE: list[tuple[str, str, str | None]] = [
     ("security.html", "Security", None),
     ("changelog.html", "Changelog", None),
     ("deploy-security.html", "Deploy &amp; Security", None),
+    ("threat-model.html", "Threat Model", "New"),
 ]
 
 # Every href the canonical sidebar/topbar can render — used by check_nav.py and

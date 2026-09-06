@@ -31,6 +31,11 @@ INTENTIONALLY_STATIC = {
     # and motion would only pull the eye along one path as if it were the
     # recommended one. The other diagrams animate because they show a *process*.
     "integration-surface.svg",
+    # A plot of measured results (distil bench --curve), regenerated from the corpus
+    # rather than drawn. The reader compares four fixed points; nothing here happens
+    # over time, and animating a measurement would imply a trend the data does not
+    # contain. The other diagrams animate because they show a *process*.
+    "curve.svg",
 }
 
 # The OpenGraph card is never in a reading order. It is fetched by scrapers and rendered
