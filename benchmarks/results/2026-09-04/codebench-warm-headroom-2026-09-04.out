@@ -1,0 +1,25 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/134 [00:00<?, ?it/s]Loading weights: 100%|██████████| 134/134 [00:00<00:00, 65490.18it/s]
+[transformers] [1mModernBertModel LOAD REPORT[0m from: answerdotai/ModernBERT-base
+Key               | Status     |  | 
+------------------+------------+--+-
+head.dense.weight | UNEXPECTED |  | 
+decoder.bias      | UNEXPECTED |  | 
+head.norm.weight  | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 28920.62it/s]
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (577 > 512). Running this sequence through the model will result in indexing errors
+coding-agent cache-delta benchmark  (20 sessions, 320 turns, read→edit→reread; cache-aware $, model=claude-opus-4-8)
+
+method                     tok save  $ save (cache)   ms/turn    fidelity
+-------------------------------------------------------------------------
+llmlingua-2 (real)            56.7%           57.2%    157.02       lossy
+distil-verbatim+cache-delta    42.7%           46.3%     64.72  reversible
+distil+cache-delta            34.9%           43.8%     64.73  reversible
+headroom (real)               35.6%            4.9%      2.18       lossy
+distil-verbatim               18.5%            3.7%      0.50  reversible
+none                           0.0%            0.0%      0.00  reversible
+distil (PAYG digest)           0.0%            0.0%      0.97  reversible
+-------------------------------------------------------------------------

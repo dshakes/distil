@@ -583,10 +583,16 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 > samples every request — proves equivalence in minutes at ~3× token cost, then drop
 > back to the default 2%).
 >
-> **Measured:** In live validation (signature v3 / 1.13.0), distil preserved the
-> agent's next decision on **100% of 116 sampled production requests** (0 changes);
-> temperature-0 A/A self-agreement of 31/31 confirms this is compression fidelity,
-> not sampling noise. Validated result — not a guarantee for all workloads.
+> **Measured:** The earlier number here (signature v3 / 1.13.0, 100% over 116 sampled
+> requests, A/A 31/31) is withdrawn — the 1.51.1 changelog found that every replay
+> carrying a prior `thinking` block failed with a signature error, biasing the sample
+> toward the minority of turns that had none. Honest current reading, live shadow
+> build 1.51.1, lossless-only: **44 A/B and 11 A/A samples**; raw agreement **81.8%**
+> [67.3, 91.8]; model self-agreement on identical input **84.8%** [71.8, 92.4] over 46
+> byte-identical replays; statistically indistinguishable (p=0.63); 32 of the 44 A/B
+> samples had no bytes changed by compression. Below the 50 A/B + 30 A/A reporting
+> floor — not yet a verdict. The estimator (a ratio today, not a paired difference) is
+> also being replaced; a paired design is tracked for 1.53.0.
 >
 > `▼` = tokens saved · `total` = lifetime · `de` = decision-equivalence (verdict once 50 A/B + 30 A/A shadow samples accrue). Sharing the line with git/cwd/model? `DISTIL_STATUSLINE=minimal` → `distil ▼7.8K · 27M total`. On a flat-rate **subscription**, dollars are notional and auto-hidden (`DISTIL_SUBSCRIPTION=0/1`).
 

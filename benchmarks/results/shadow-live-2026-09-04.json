@@ -1,0 +1,31 @@
+{
+  "_note": "Content-free summary of the maintainer's ~/.distil/shadow.jsonl, cited by docs/claims.json (w-shadow-sample). No prompt or response text is stored here — counts and agreement rates only.",
+  "date": "2026-09-04",
+  "distil_build": "1.51.1",
+  "sig_version": 4,
+  "mode": "lossless-only",
+  "n_ab_samples": 44,
+  "n_aa_samples": 11,
+  "raw_agreement_pct": 81.8,
+  "raw_agreement_ci95": [67.3, 91.8],
+  "self_agreement_pct": 84.8,
+  "self_agreement_ci95": [71.8, 92.4],
+  "self_agreement_byte_identical_replays": 46,
+  "fisher_exact_p": 0.63,
+  "ab_samples_zero_bytes_changed": 32,
+  "ab_samples_total": 44,
+  "reporting_floor": { "ab_min": 50, "aa_min": 30 },
+  "verdict": "below reporting floor — not yet a verdict",
+  "withdrawn_prior_result": {
+    "distil_build": "1.13.0",
+    "sig_version": 3,
+    "n_sampled": 116,
+    "agreement_pct": 100.0,
+    "aa_self_agreement": "31/31",
+    "withdrawal_reason": "Every replay carrying a prior thinking block failed with a signature error (thinking blocks are signed and bound to the request that produced them), silently excluding the majority of real turns. See CHANGELOG.md [1.51.1]."
+  },
+  "known_estimator_issues": [
+    "Estimator is an unpaired ratio (p_BA / p_AA), not a paired difference per request.",
+    "A paired design (per-request A, A', B with statistic 1{A=B} - 1{A=A'}, McNemar) is tracked for 1.53.0."
+  ]
+}
