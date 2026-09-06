@@ -12,12 +12,17 @@ and its own outbound call sees a compressed body, with no other code change::
 
 **Pure ASGI** — no Starlette/FastAPI import — so it works under any ASGI 3 server
 or framework. Reuses the exact body-shape detection and reversible compression
-:mod:`distil.aproxy` uses for the sidecar proxy rather than re-implementing it:
-``aproxy._COMPRESSIBLE_PATHS`` for the Anthropic/OpenAI-shaped routes,
-``adapters.gemini.is_gemini_path`` for Gemini's dynamic ``generateContent`` path,
-and ``adapters.anthropic.compress_messages`` / ``adapters.gemini.compress_generate_request``
+the sidecar proxy uses rather than re-implementing it: ``httpguard.is_compressible_path``
+for the Anthropic/OpenAI-shaped routes (the one path matcher all three servers
+share), ``adapters.gemini.is_gemini_path`` for Gemini's dynamic ``generateContent``
+path, and ``adapters.anthropic.compress_messages`` / ``adapters.gemini.compress_generate_request``
 for the transform itself — so a request compressed here is compressed identically
 to one that went through the sidecar proxy, sharing the same on-disk restore store.
+
+Only the Anthropic Messages and Gemini shapes (``messages`` / ``contents`` lists)
+are transformed here — a path this middleware recognizes but whose body it does
+not (OpenAI Responses' ``input`` list) fails open, unchanged, same as malformed
+JSON or an unknown shape.
 
 Fail-open: a non-JSON body, an unrecognized shape, or a compression error all pass
 the original bytes through unchanged rather than breaking the request.
@@ -31,8 +36,7 @@ from typing import Any
 
 from ..adapters.anthropic import compress_messages
 from ..adapters.gemini import compress_generate_request, is_gemini_path
-from ..aproxy import _COMPRESSIBLE_PATHS
-from ..httpguard import MAX_BODY_BYTES
+from ..httpguard import MAX_BODY_BYTES, is_compressible_path
 
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
@@ -44,7 +48,7 @@ __all__ = ["DistilMiddleware"]
 
 
 def _compressible(path: str) -> bool:
-    return path in _COMPRESSIBLE_PATHS or is_gemini_path(path)
+    return is_compressible_path(path) or is_gemini_path(path)
 
 
 class _BodyReader:
