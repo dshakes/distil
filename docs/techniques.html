@@ -430,7 +430,7 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
 
     <!-- Delta context -->
     <h2>Delta / append-only context</h2>
-    <p><strong>Module:</strong> <code>distil/delta.py</code> &middot; Loss profile: lossless</p>
+    <p><strong>Module:</strong> <code>distil/cachedelta.py</code> &middot; Loss profile: lossless</p>
 
     <p>Context history is append-only — a block present in turn N must carry identical bytes in turn N+1 (enforced by the byte-fidelity gate). The delta engine exploits this: only the <em>new</em> blocks added since the last turn are transmitted at full cost. Stable history is already in the cache and costs only cache-read price. The delta layer ensures no block is re-sent in a way that would corrupt the prefix hash.</p>
 

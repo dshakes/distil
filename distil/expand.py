@@ -61,6 +61,20 @@ EXPAND_TOOL_RESPONSES: dict[str, Any] = {
     "parameters": _EXPAND_PARAMS,
 }
 
+# OpenAI Chat Completions tool spec (``/v1/chat/completions``). Same semantics again,
+# and a THIRD schema: Chat Completions nests the name/description/parameters under a
+# ``function`` object, where Responses keeps them flat. The Anthropic spec above
+# (``input_schema``, no ``type``) is rejected outright by Chat Completions, so a proxy
+# that injected it turned every compressed OpenAI request into a 400.
+EXPAND_TOOL_CHAT: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": EXPAND_TOOL_NAME,
+        "description": _EXPAND_DESCRIPTION,
+        "parameters": _EXPAND_PARAMS,
+    },
+}
+
 # Where expand events are logged — the learning signal / moat data. Content-free by
 # default (handle + length only); the proxy can opt into storing the recovered text.
 # Resolved lazily so it honors DISTIL_HOME at call time (configurable / isolated tests).
@@ -76,7 +90,23 @@ def _default_signal_path() -> Path:
 
 
 def _has_expand_tool(tools: list[Any]) -> bool:
-    return any(isinstance(t, dict) and t.get("name") == EXPAND_TOOL_NAME for t in tools)
+    """True if ``distil_expand`` is already declared, in ANY provider's tool schema.
+
+    Anthropic and the Responses API name the tool at the top level; Chat Completions
+    nests it under ``function``. Recognising only the flat form made injection
+    non-idempotent on the Chat path — a second pass would append a duplicate tool
+    name, which OpenAI rejects, and would rewrite the tools array mid-session and
+    void the cached prefix.
+    """
+    for t in tools:
+        if not isinstance(t, dict):
+            continue
+        if t.get("name") == EXPAND_TOOL_NAME:
+            return True
+        fn = t.get("function")
+        if isinstance(fn, dict) and fn.get("name") == EXPAND_TOOL_NAME:
+            return True
+    return False
 
 
 def inject_expand_tool(body: dict[str, Any]) -> dict[str, Any]:
@@ -97,6 +127,16 @@ def inject_expand_tool_responses(body: dict[str, Any]) -> dict[str, Any]:
             return body
         return {**body, "tools": [*tools, EXPAND_TOOL_RESPONSES]}
     return {**body, "tools": [EXPAND_TOOL_RESPONSES]}
+
+
+def inject_expand_tool_chat(body: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the Chat Completions request body with distil_expand available."""
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        if _has_expand_tool(tools):
+            return body
+        return {**body, "tools": [*tools, EXPAND_TOOL_CHAT]}
+    return {**body, "tools": [EXPAND_TOOL_CHAT]}
 
 
 def _expand_calls(resp: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,6 +257,82 @@ def run_expand_loop(
             {"role": "assistant", "content": resp.get("content", [])},
             {"role": "user", "content": results},
         ]
+        resp = post({**body, "messages": messages})
+    return resp
+
+
+def _chat_message(resp: dict[str, Any]) -> dict[str, Any]:
+    """The assistant message of a Chat Completions response ({} on any odd shape)."""
+    try:
+        msg = resp["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError):
+        return {}
+    return msg if isinstance(msg, dict) else {}
+
+
+def _chat_tool_calls(msg: dict[str, Any], *, distil: bool) -> list[dict[str, Any]]:
+    """Tool calls in *msg*, either distil's own (``distil=True``) or the client's."""
+    out = []
+    for tc in msg.get("tool_calls") or []:
+        if not isinstance(tc, dict):
+            continue
+        name = (
+            (tc.get("function") or {}).get("name") if isinstance(tc.get("function"), dict) else None
+        )
+        if (name == EXPAND_TOOL_NAME) is distil:
+            out.append(tc)
+    return out
+
+
+def run_expand_loop_chat(
+    body: dict[str, Any],
+    first_response: dict[str, Any],
+    store: Any,
+    post: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    max_iters: int = 4,
+    on_signal: Callable[[str, str], None] | None = record_signal,
+) -> dict[str, Any]:
+    """Server-side recovery loop for OpenAI Chat Completions (``/v1/chat/completions``).
+
+    Mirrors :func:`run_expand_loop` for the third wire shape. The model asks to expand
+    with an assistant ``tool_calls`` entry whose ``function.name`` is ``distil_expand``
+    and whose ``function.arguments`` is a JSON *string*; the answer goes back as a
+    ``role:"tool"`` message keyed by ``tool_call_id``::
+
+        choices[0].message.tool_calls[] → {"id","type":"function","function":{"name","arguments"}}
+        resolved → append that assistant message + one role:"tool" message per call, re-POST
+
+    A turn that also carries a tool call only the CLIENT can run is returned untouched,
+    for the same reason as the Anthropic loop: replaying it would leave the client's
+    call unanswered and hide its ``finish_reason: tool_calls`` behind the continuation's.
+    """
+    resp = first_response
+    messages = list(body.get("messages") or [])
+    for _ in range(max_iters):
+        msg = _chat_message(resp)
+        if _chat_tool_calls(msg, distil=False):
+            return resp  # mixed turn: the agent must run its own tool call first
+        calls = _chat_tool_calls(msg, distil=True)
+        if not calls:
+            return resp
+        messages = [*messages, msg]
+        for call in calls:
+            handle = ""
+            try:
+                args = json.loads((call.get("function") or {}).get("arguments") or "{}")
+                handle = str(args.get("handle", "")).strip()
+            except (ValueError, TypeError, AttributeError):
+                handle = ""
+            try:
+                original = store.expand(handle)
+            except Exception:  # noqa: BLE001 — unknown/expired handle must not 500 the agent
+                original = miss_text(handle)
+            if on_signal is not None:
+                on_signal(handle, original)
+            messages.append(
+                {"role": "tool", "tool_call_id": call.get("id", ""), "content": original}
+            )
         resp = post({**body, "messages": messages})
     return resp
 

@@ -58,8 +58,13 @@ def test_agent_preset_env_var_contract():
     assert AGENT_PRESETS["claude"][0] == "ANTHROPIC_BASE_URL"
     assert AGENT_PRESETS["codex"][0] == "OPENAI_BASE_URL"
     assert AGENT_PRESETS["gemini"][0] == "GOOGLE_GEMINI_BASE_URL"
-    assert AGENT_PRESETS["aider"][0] == "OPENAI_BASE_URL"
-    assert AGENT_PRESETS["grok"][0] == "GROK_BASE_URL"
+    # aider goes through LiteLLM, which reads the OLDER name. OPENAI_BASE_URL is not
+    # a variable aider consults, so the preset used to report success and route
+    # nothing (aider.chat/docs/llms/openai-compat.html).
+    assert AGENT_PRESETS["aider"][0] == "OPENAI_API_BASE"
+    # GROK_BASE_URL does not exist; the documented override is this
+    # (docs.x.ai/build/settings). Same silent no-op as aider's.
+    assert AGENT_PRESETS["grok"][0] == "GROK_MODELS_BASE_URL"
     assert AGENT_PRESETS["openhands"][0] == "LLM_BASE_URL"
     # cursor-agent deliberately absent: its env contract is not publicly documented
     assert "cursor-agent" not in AGENT_PRESETS

@@ -844,6 +844,33 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
       </tbody>
     </table>
 
+    <h3 id="gateway-audit">distil gateway audit</h3>
+    <p>Print the gateway <strong>security audit trail</strong>: who authenticated, which key was used, and what was refused. Every auth decision, key issue/revoke, and quota rejection is appended to a local JSONL log — the record you need when someone asks why a tenant stopped getting answers. Content-free: it records identities, events and limits, never request bodies.</p>
+
+    <pre class="term"><span class="d"># Last 50 events (default), newest last</span>
+$ distil gateway audit
+when                 event          tenant           key          detail
+2026-09-01 09:14:02  auth.ok        team-search      gk_7f21c9    remote=10.0.4.18
+2026-09-01 09:14:56  rate.limited   team-search      -            limit_rpm=60, remote=10.0.4.18
+2026-09-01 11:02:33  auth.fail      -                -            reason=invalid or revoked gateway key, remote=10.0.4.31
+
+<span class="d"># Only failed authentications, last 200</span>
+$ distil gateway audit --event auth.fail -n 200
+
+<span class="d"># One tenant, as raw JSONL for piping into jq</span>
+$ distil gateway audit --tenant team-search --json | jq -r .event</pre>
+
+    <h4>gateway audit flags</h4>
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>-n, --limit &lt;N&gt;</code></th><td>50</td><td>Show only the last N events. <code>0</code> shows the whole trail.</td></tr>
+        <tr><th scope="row"><code>--event &lt;name&gt;</code></th><td>all</td><td>Filter by event name (e.g. <code>auth.fail</code>, <code>rate.limited</code>).</td></tr>
+        <tr><th scope="row"><code>--tenant &lt;name&gt;</code></th><td>all</td><td>Filter to a single tenant label.</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Emit the raw JSONL records instead of the table, for piping.</td></tr>
+      </tbody>
+    </table>
+
     <hr/>
 
     <!-- train-transformer -->

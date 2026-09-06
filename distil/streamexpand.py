@@ -333,6 +333,60 @@ def _close_stream(
         usage_sink.setdefault("output_tokens", usage_out)
 
 
+def sse_from_response(shape: str, resp: dict[str, Any]) -> bytes:
+    """Serialize an already-complete provider response as an SSE body.
+
+    The splice above speaks Anthropic Messages SSE and nothing else. When an OpenAI
+    or Gemini request asks for ``stream: true`` AND carries a recoverable digest
+    handle, the proxy buffers instead (see ``proxy._unstream_path``), runs the
+    shape-correct expand loop, and hands the finished answer back through here so the
+    client still gets the stream it asked for.
+
+    The whole answer arrives in one delta rather than token by token: the response is
+    already complete by the time this runs, so there is nothing left to pace.
+    ponytail: that costs TTFT on these three providers. The upgrade path is a real
+    per-provider splice in this module — same loop, three more wire formats to parse.
+    """
+    if shape == "gemini":
+        # Gemini SSE frames are whole GenerateContentResponse objects, one per event.
+        return f"data: {json.dumps(resp)}\n\n".encode()
+    if shape == "responses":
+        # The Responses stream is a typed event sequence; ``response.completed`` is the
+        # one the SDK reads the final object off (``stream.get_final_response()``).
+        created = {"type": "response.created", "sequence_number": 0, "response": resp}
+        done = {"type": "response.completed", "sequence_number": 1, "response": resp}
+        return _frame(created) + _frame(done)
+    # Chat Completions: two ``chat.completion.chunk`` frames then the [DONE] sentinel.
+    choice = (resp.get("choices") or [{}])[0] if isinstance(resp.get("choices"), list) else {}
+    msg = choice.get("message") or {} if isinstance(choice, dict) else {}
+    delta: dict[str, Any] = {"role": msg.get("role", "assistant")}
+    if msg.get("content") is not None:
+        delta["content"] = msg.get("content")
+    if msg.get("tool_calls"):
+        # Chunk-shaped tool_calls carry an explicit index; the buffered form does not.
+        delta["tool_calls"] = [{**tc, "index": i} for i, tc in enumerate(msg["tool_calls"])]
+    head = {
+        "id": resp.get("id", ""),
+        "object": "chat.completion.chunk",
+        "created": resp.get("created", 0),
+        "model": resp.get("model", ""),
+        "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+    }
+    tail = {
+        **head,
+        "choices": [
+            {"index": 0, "delta": {}, "finish_reason": choice.get("finish_reason", "stop")}
+        ],
+    }
+    if resp.get("usage"):
+        tail["usage"] = resp["usage"]
+    return (
+        f"data: {json.dumps(head)}\n\n".encode()
+        + f"data: {json.dumps(tail)}\n\n".encode()
+        + b"data: [DONE]\n\n"
+    )
+
+
 def _relay_raw(
     handler: BaseHTTPRequestHandler,
     resp: Any,
