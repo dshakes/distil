@@ -150,6 +150,10 @@ class Dissection:
     exit_note: str | None
     shadow_window_rows: int = 0
     shadow_window_agree: int = 0
+    #: Output-token accounting from the paired shadow replays in this window: the
+    #: mean (B − A) output-token delta and the net dollars after paying for it.
+    shadow_out_delta: float | None = None
+    shadow_net_usd: float | None = None
     # Derived digest inventory: handle -> {"sig", "tokens", "folds", "recoverable"}
     blocks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -837,11 +841,33 @@ def dissect(sid: str) -> Dissection:
         info["recoverable"] = (restore_dir / h).exists()
 
     if d.started and d.ended:
+        from .shadow import ReplayCost, cost_delta
+
+        costs: list[ReplayCost] = []
         for row in _read_jsonl(_state_dir() / "shadow.jsonl"):
             ts = float(row.get("ts") or 0.0)
             if d.started - 1 <= ts <= d.ended + 300:
                 d.shadow_window_rows += 1
                 d.shadow_window_agree += 1 if row.get("equivalent") else 0
+                if all(k in row for k in ("in_a", "in_b", "out_a", "out_b")):
+                    try:
+                        costs.append(
+                            ReplayCost(
+                                model=row.get("model")
+                                if isinstance(row.get("model"), str)
+                                else None,
+                                in_a=int(row["in_a"]),
+                                in_b=int(row["in_b"]),
+                                out_a=int(row["out_a"]),
+                                out_b=int(row["out_b"]),
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        pass
+        cd = cost_delta(costs)
+        if cd is not None:
+            d.shadow_out_delta = cd.out_delta_mean
+            d.shadow_net_usd = cd.net_usd if cd.priced else None
     return d
 
 
@@ -1129,6 +1155,13 @@ def render_text(
             f"  shadow verdicts in this session's time window (time-joined, not session-tagged): "
             f"{d.shadow_window_agree}/{d.shadow_window_rows} equivalent"
         )
+    if d.shadow_out_delta is not None:
+        # The compression paradox: a shorter prompt that buys a longer answer can
+        # cost more than it saved, because output is priced several times input.
+        line = f"  shadow output tokens (compressed − original): {d.shadow_out_delta:+.1f}/request"
+        if d.shadow_net_usd is not None:
+            line += f" · net after output ${d.shadow_net_usd:+.4f}"
+        out.append(line)
     elif not d.detail_available:
         out.append("  no session-scoped signal recorded for this session")
 
@@ -1329,6 +1362,8 @@ def to_json(
             "shadow_sampled_requests": d.shadow_sampled,
             "shadow_window_rows": d.shadow_window_rows,
             "shadow_window_agree": d.shadow_window_agree,
+            "shadow_output_token_delta": d.shadow_out_delta,
+            "shadow_net_usd_after_output": d.shadow_net_usd,
         },
         "liveness": {"marker": d.marker, "heartbeat": d.heartbeat, "exit": d.exit_note},
     }

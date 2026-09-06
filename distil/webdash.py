@@ -59,17 +59,15 @@ def _snapshot() -> dict:
 
 
 def _equivalence() -> dict:
+    """Paired decision-equivalence, suppressed below the shared reporting floor —
+    the same number `distil shadow-stats` and the census feed report."""
     try:
         from .shadow import ShadowLedger
 
-        led = ShadowLedger.load(current_only=True)
-        shadowed = int(led.samples)
-        pct = (
-            round((1.0 - led.adjusted_rate()) * 100.0, 2)
-            if shadowed and led.aa_agreement() is not None
-            else None
-        )
-        return {"pct": pct, "shadowed": shadowed}
+        eq = ShadowLedger.load(current_only=True).equivalence()
+        # {pct, shadowed} only — same shape the census feed is frozen to, so the
+        # dashboard and the community number can never drift apart.
+        return {"pct": None if eq.pct is None else round(eq.pct, 2), "shadowed": eq.n_ab}
     except Exception:  # noqa: BLE001
         return {"pct": None, "shadowed": 0}
 

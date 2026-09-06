@@ -108,21 +108,20 @@ def test_stats_json_mode(tmp_path, monkeypatch):
 # ---- cmd_shadow_stats with a populated ledger (samples-present branches) ----------
 
 
-class _FakeLedger:
-    def __init__(self, samples, aa, aa_samples=0):
-        self.samples = samples
-        self.changes = 1
-        self._aa = aa
-        self.aa_samples = aa_samples
-
-    def rate(self):
-        return 0.02
-
-    def aa_agreement(self):
-        return self._aa
-
-    def adjusted_rate(self):
-        return 0.05
+def _ledger(tmp_path, n_ab, n_aa=0, *, paired=False):
+    """A real ShadowLedger. Duck-typed stubs here used to drift from the class they
+    imitated and hide exactly the reporting bugs these tests exist to cover."""
+    led = shadow_mod.ShadowLedger()
+    p = tmp_path / "shadow.jsonl"
+    if paired:
+        for i in range(n_ab):
+            led.record(i > 0, kind="paired", evidence={"aa_equal": True}, path=p)
+        return led
+    for i in range(n_ab):
+        led.record(i > 0, path=p)
+    for _ in range(n_aa):
+        led.record(True, kind="aa", path=p)
+    return led
 
 
 def _run_stats_with_ledger(monkeypatch, tmp_path, led, counters=None):
@@ -139,31 +138,40 @@ def _run_stats_with_ledger(monkeypatch, tmp_path, led, counters=None):
     return buf.getvalue()
 
 
-def test_stats_samples_present_adjusted(tmp_path, monkeypatch):
+def test_stats_samples_present_paired(tmp_path, monkeypatch):
     out = _run_stats_with_ledger(
         monkeypatch,
         tmp_path,
-        _FakeLedger(30, aa=0.9, aa_samples=20),
+        _ledger(tmp_path, 60, paired=True),
         counters={
-            "requests_seen": 40,
-            "sampled": 30,
-            "replay_attempted": 30,
+            "requests_seen": 70,
+            "sampled": 60,
+            "replay_attempted": 60,
             "replay_failed": 1,
             "last_fail_reason": "500",
-            "recorded": 30,
+            "recorded": 60,
         },
     )
-    assert "30" in out
+    assert "paired difference" in out
+    assert "60" in out
 
 
-def test_stats_samples_present_unadjusted(tmp_path, monkeypatch):
-    out = _run_stats_with_ledger(monkeypatch, tmp_path, _FakeLedger(30, aa=None, aa_samples=3))
-    assert out
+def test_stats_samples_present_legacy_unpaired(tmp_path, monkeypatch):
+    out = _run_stats_with_ledger(monkeypatch, tmp_path, _ledger(tmp_path, 60, 40))
+    assert "legacy-unpaired" in out
 
 
-def test_stats_collecting(tmp_path, monkeypatch):
-    out = _run_stats_with_ledger(monkeypatch, tmp_path, _FakeLedger(5, aa=None))
-    assert out
+def test_stats_collecting_still_prints_the_diagnostics(tmp_path, monkeypatch):
+    """Below the floor there is no verdict — but the sampling counters must still
+    print, because a thin sample is usually a replay that is failing."""
+    out = _run_stats_with_ledger(
+        monkeypatch,
+        tmp_path,
+        _ledger(tmp_path, 5),
+        counters={"requests_seen": 40, "sampled": 5, "replay_attempted": 5, "replay_failed": 5},
+    )
+    assert "below reporting floor" in out
+    assert "5 failed" in out
 
 
 # ---- intent extraction edge shapes -----------------------------------------------

@@ -306,16 +306,23 @@ def _check_shadow() -> Check:
             "not running — no decision-equivalence samples",
             "start it in one command:  distil wrap --shadow 0.1 -- claude",
         )
+    from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB, floor_note
+
     smp = f"{led.samples} sample{'s' if led.samples != 1 else ''}"
-    if led.samples < 25:
-        # Same 25-sample floor the status line uses — a rate over a handful is noise.
+    eq = led.equivalence()
+    if eq.below_floor:
+        # ONE floor across every surface (status line, shadow-stats, census feed,
+        # dashboard, proof ledger). This check used a private 25 and the census feed
+        # used none at all, so the same ledger could be "collecting" here and a
+        # published percentage there.
         return Check(
             "shadow validation",
             INFO,
-            f"collecting — {smp} (need 25 for a decision-equivalence rate)",
+            f"collecting — {smp}; {floor_note(eq.n_ab, eq.n_aa)}",
+            f"a decision-equivalence rate needs {VERDICT_MIN_AB} A/B "
+            f"and {VERDICT_MIN_AA} A/A samples",
         )
-    eq = 100 * (1 - led.rate())
-    return Check("shadow validation", OK, f"{eq:.1f}% decision-equivalence over {smp}")
+    return Check("shadow validation", OK, f"{eq.line()} decision-equivalence")
 
 
 def _check_expand_recovery() -> Check:

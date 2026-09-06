@@ -491,39 +491,54 @@ def test_save_savings_is_fail_open(monkeypatch, tmp_path):
     assert not (blocker / "census-savings.json").exists()
 
 
+def _paired_ledger(tmp_path, n, *, ab_changes=0, aa_changes=0):
+    """A real ledger of v5 paired rows — one request, both arms."""
+    from distil.shadow import ShadowLedger
+
+    led = ShadowLedger()
+    for i in range(n):
+        led.record(
+            i >= ab_changes,
+            kind="paired",
+            evidence={"aa_equal": i >= aa_changes, "mode": "digest"},
+            path=tmp_path / "shadow.jsonl",
+        )
+    return led
+
+
 def test_equivalence_from_shadow(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     census.opt_in()
 
-    class _Led:
-        samples = 500
-
-        def aa_agreement(self):
-            return 1.0
-
-        def adjusted_rate(self):
-            return 0.0
-
-    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: _Led()))
+    led = _paired_ledger(tmp_path, 500)
+    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: led))
     assert census.build_payload()["equivalence"] == {"pct": 100.0, "shadowed": 500}
 
 
-def test_equivalence_null_without_baseline(tmp_path, monkeypatch):
+def test_equivalence_null_below_the_reporting_floor(tmp_path, monkeypatch):
+    """The feed used to publish a pct as soon as ANY A/A baseline existed (n>=10),
+    which is how the adoption ring came to be fed by a sample the status line
+    itself refused to render. One floor now, and below it the pct is null."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     census.opt_in()
 
-    class _Led:
-        samples = 4
-
-        def aa_agreement(self):
-            return None  # too few A/A samples
-
-        def adjusted_rate(self):
-            return 0.0
-
-    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: _Led()))
+    led = _paired_ledger(tmp_path, 4)
+    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: led))
     eq = census.build_payload()["equivalence"]
     assert eq == {"pct": None, "shadowed": 4}  # count sent, no fabricated pct
+
+
+def test_equivalence_pct_is_capped_for_the_wire(tmp_path, monkeypatch):
+    """The paired estimate can exceed 100% (compression agreed more often than the
+    model agreed with itself). The deployed worker rejects pct > 100, so the wire
+    value is capped — the uncapped number lives in `distil shadow-stats`."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    census.opt_in()
+
+    led = _paired_ledger(tmp_path, 60, ab_changes=0, aa_changes=10)
+    monkeypatch.setattr("distil.shadow.ShadowLedger.load", classmethod(lambda cls, **k: led))
+    assert led.equivalence().pct > 100.0
+    assert census.build_payload()["equivalence"] == {"pct": 100.0, "shadowed": 60}
 
 
 def test_helpers_fail_open_on_bad_data(tmp_path, monkeypatch):
