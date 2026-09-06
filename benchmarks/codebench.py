@@ -1,4 +1,20 @@
-"""Coding-agent cache-delta benchmark — messages-level, read/edit/reread sessions.
+"""Coding-agent cache-delta benchmark — an UPPER BOUND on the exact-quote forfeit.
+
+READ THIS BEFORE QUOTING A NUMBER FROM IT. Every session below is read → edit → RE-READ
+of the same few files, and nothing else. That is the one workload where distil's
+exact-quote guarantee (distil.compress.provenance) forfeits the most: ~55% of this
+corpus's tool-result tokens are file reads the agent must be able to quote back
+byte-exact, and what is left is short, so distil's digest row is correctly and
+deliberately 0.0%. Real traffic is not shaped like this — on 2,489 measured Claude Code
+sessions exact-quote-eligible reads are ~44% of tool-result mass, and the remainder is
+the large, digestible log and test output this corpus does not contain at all. So the
+digest rows below are a FLOOR on distil's savings and this corpus is an upper bound on
+what the guarantee costs. It exists to measure the cache-delta mechanism on its hot
+path, not to rank compressors. The exact share is printed under the table, computed
+with the same classifier the live path uses.
+
+The lossy competitors have no such guarantee: their savings on this corpus are bought by
+destroying the bytes the next Edit needs to match. That is not visible in a token count.
 
 Part 2 of the head-to-head (part 1 = the trajectory-level core comparison via
 `distil benchmark`). This one targets the coding-agent hot path the cache-delta
@@ -317,7 +333,36 @@ def run(corpus: list[list[list[dict]]], methods: list[tuple[str, bool, Callable]
     return rows
 
 
-def format_table(rows: list[Row], n_sessions: int, n_turns: int) -> str:
+def _guarantee_status(corpus: list[list[list[dict]]]) -> str:
+    """One line stating how much of this corpus the exact-quote guarantee protects.
+
+    A benchmark that forfeits savings on purpose has to say so where the numbers are
+    read, not only in a docstring nobody opens. Measured on the corpus itself, using the
+    same classifier the live path uses.
+    """
+    from distil.adapters.anthropic import exact_quote_tool_use_ids
+
+    protected = eligible = 0
+    for session in corpus:
+        msgs = session[-1]  # the cumulative final turn holds every tool result
+        exact = exact_quote_tool_use_ids(msgs)
+        for m in msgs:
+            for blk in m.get("content") or ():
+                if not isinstance(blk, dict) or blk.get("type") != "tool_result":
+                    continue
+                n = _tok.count(blk.get("content") or "")
+                eligible += n
+                if blk.get("tool_use_id") in exact:
+                    protected += n
+    pct = 100.0 * protected / eligible if eligible else 0.0
+    return (
+        f"exact-quote guarantee: {pct:.0f}% of tool-result tokens in this corpus are file "
+        "reads kept byte-exact, so distil's digest rows are a FLOOR (upper-bound workload; "
+        "~44% on real traffic)"
+    )
+
+
+def format_table(rows: list[Row], n_sessions: int, n_turns: int, status: str = "") -> str:
     rows = sorted(rows, key=lambda r: r.dollar_savings, reverse=True)
     out = [
         f"coding-agent cache-delta benchmark  ({n_sessions} sessions, {n_turns} turns, "
@@ -332,6 +377,8 @@ def format_table(rows: list[Row], n_sessions: int, n_turns: int) -> str:
             f"{r.ms_per_turn:>10.2f}{'reversible' if r.reversible else 'lossy':>12}"
         )
     out.append("-" * 73)
+    if status:
+        out.append(status)
     return "\n".join(out)
 
 
@@ -360,4 +407,4 @@ if __name__ == "__main__":
     corpus = make_corpus(n)
     n_turns = sum(len(s) for s in corpus)
     rows = run(corpus, methods)
-    print(format_table(rows, n, n_turns))
+    print(format_table(rows, n, n_turns, _guarantee_status(corpus)))

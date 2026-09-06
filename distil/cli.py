@@ -929,7 +929,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
             f"\nVALIDATE: FAIL — {len(rep['failures'])}/{rep['checks']} invariant checks violated."
         )
         return 1
-    invariants = "reversibility · reject-if-bigger · recency · fail-open · content-free"
+    invariants = (
+        "reversibility · reject-if-bigger · recency · quote-survival · fail-open · content-free"
+    )
     if args.adversarial:
         invariants += " · load-bearing"
     print(

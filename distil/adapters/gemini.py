@@ -71,10 +71,12 @@ from typing import Any
 
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
+from ..compress import provenance as _provenance
 from ..httpguard import strip_query
 from ..tokenizer import DEFAULT as _tokenizer
 from .anthropic import (
     RestoreStore,
+    _hazard_tls,
     _compress_text_content,
     _compress_tool_result_text,
     _intent_tls,
@@ -160,6 +162,59 @@ def _recent_gemini_verbatim_indices(contents: list[Any], k: int) -> set[int]:
 
 
 # ---------------------------------------------------------------------------
+# Exact-quote exemption (Gemini shape)
+# ---------------------------------------------------------------------------
+
+
+def _exact_quote_positions(contents: list[Any]) -> set[tuple[int, int]]:
+    """``(content index, part index)`` of every ``functionResponse`` to keep byte-exact.
+
+    Gemini gives a ``functionCall`` no id — the response is matched to its call by
+    ``name`` alone. So calls and responses are paired positionally: the k-th response
+    named *N* answers the k-th call named *N*, which is the order the API guarantees.
+    Synthetic ids (``name#k``) then feed the shared classifier, so Gemini gets exactly the
+    rule the other two adapters get.
+
+    This provider caches prefixes implicitly and commits everything it is sent, so a read
+    is never demoted once sent: ``cached_through`` is the last index.
+    """
+    calls: list[_provenance.ToolCall] = []
+    seen: dict[str, int] = {}
+    positions: dict[str, tuple[int, int]] = {}
+    answered: dict[str, int] = {}
+    for ci, content in enumerate(contents):
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for pi, part in enumerate(parts):
+            if not isinstance(part, dict):
+                continue
+            fc = part.get("functionCall")
+            if isinstance(fc, dict):
+                name = str(fc.get("name", ""))
+                k = seen[name] = seen.get(name, 0) + 1
+                args = fc.get("args") if isinstance(fc.get("args"), dict) else {}
+                calls.append(
+                    _provenance.ToolCall(
+                        id=f"{name}#{k}",
+                        name=name,
+                        command=_provenance.command_text(args),
+                        pos=ci,
+                    )
+                )
+                continue
+            fr = part.get("functionResponse")
+            if isinstance(fr, dict):
+                name = str(fr.get("name", ""))
+                k = answered[name] = answered.get(name, 0) + 1
+                positions[f"{name}#{k}"] = (ci, pi)
+    keep = _provenance.exact_quote_ids(calls, cached_through=len(contents) - 1)
+    return {positions[i] for i in keep if i in positions}
+
+
+# ---------------------------------------------------------------------------
 # Compression
 # ---------------------------------------------------------------------------
 
@@ -201,10 +256,18 @@ def _compress_json_value(
 
 
 def _compress_part(
-    part: Any, store: RestoreStore, role: str, verbatim: bool, is_recent: bool = False
+    part: Any,
+    store: RestoreStore,
+    role: str,
+    verbatim: bool,
+    is_recent: bool = False,
+    exact_quote: bool = False,
 ) -> Any:
     """Compress a single Gemini ``part``; returns the same object when unchanged."""
     if not isinstance(part, dict):
+        return part
+    if exact_quote:
+        # File content the agent must quote back verbatim to edit it.
         return part
 
     text = part.get("text")
@@ -247,6 +310,11 @@ def compress_generate_request(
     digester to pin lines the agent is actively looking for.
     """
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
+    # The quote-hazard counter is Messages-path only (that is where Edit/MultiEdit
+    # live), so it is CLEARED here rather than left alone: the proxy reads it per
+    # request off the same thread, and a stale count from an earlier Anthropic request
+    # would be reported against this one.
+    _hazard_tls.counts = None
     contents = body.get("contents")
     # Empty by design, not an oversight: this provider caches prefixes
     # implicitly and commits everything it is sent, so every block is cached
@@ -261,6 +329,8 @@ def compress_generate_request(
             return body, store
 
         recent = _recent_gemini_verbatim_indices(contents, _RECENCY_KEEP_TURNS)
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        exact = _exact_quote_positions(contents)
         new_contents: list[Any] = []
         changed = False
         for idx, content in enumerate(contents):
@@ -274,7 +344,12 @@ def compress_generate_request(
             role = content.get("role", "")
             is_recent = idx in recent
             content_verbatim = verbatim or is_recent
-            new_parts = [_compress_part(p, store, role, content_verbatim, is_recent) for p in parts]
+            new_parts = [
+                _compress_part(
+                    p, store, role, content_verbatim, is_recent, exact_quote=(idx, pi) in exact
+                )
+                for pi, p in enumerate(parts)
+            ]
             if any(np is not p for np, p in zip(new_parts, parts)):
                 new_contents.append({**content, "parts": new_parts})
                 changed = True

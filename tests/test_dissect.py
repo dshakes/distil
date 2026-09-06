@@ -1437,3 +1437,57 @@ class TestRetryRecovery:
             ]
         )
         assert d.retried_and_recovered() == 1
+
+
+class TestQuoteSurvival:
+    """Does the exact-quote guarantee actually hold on this session's traffic?"""
+
+    @staticmethod
+    def _session(home: Path, quotes: list[dict[str, int] | None]) -> str:
+        sess = home / "sessions"
+        sess.mkdir(exist_ok=True)
+        (sess / "s-quote.requests.jsonl").write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "ts": 1000.0 + i,
+                        "model": "m",
+                        "status": 200,
+                        "booked": True,
+                        "mode": "digest",
+                        "compressible_tokens": 1000,
+                        "tokens_saved": 100,
+                        "quotes": q,
+                    }
+                )
+                for i, q in enumerate(quotes)
+            )
+            + "\n"
+        )
+        return "s-quote"
+
+    def test_sums_hits_and_misses_across_requests(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path, [{"survived": 3, "lost": 0}, {"survived": 2, "lost": 1}, None]
+        )
+        assert dz.dissect(sid).quote_survival == (5, 1)
+
+    def test_absent_counter_reads_as_unknown_not_as_zero_lost(self, tmp_path, monkeypatch) -> None:
+        """A session recorded before the counter existed has not proved anything, and
+        must not render as "no quotes were lost"."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(tmp_path, [None, None])
+        assert dz.dissect(sid).quote_survival is None
+
+    def test_a_lost_quote_is_raised_as_an_anomaly(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(tmp_path, [{"survived": 4, "lost": 2}])
+        assert any("edit quotes had no byte-exact copy" in a for a in dz.dissect(sid).anomalies())
+
+    def test_all_quotes_surviving_raises_nothing(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(tmp_path, [{"survived": 4, "lost": 0}])
+        assert not any(
+            "edit quotes had no byte-exact copy" in a for a in dz.dissect(sid).anomalies()
+        )
