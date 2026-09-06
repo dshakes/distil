@@ -14,6 +14,12 @@ invariants distil sells:
   4. fail-open         — no input, however hostile, makes the compressor raise or the proxy 5xx.
   5. content-free       — after a recorded run, NO prompt/response/tool text lands in any on-disk
                          state file (only hashes, sizes, counts). Verified with a unique marker.
+  6. quote-survival    — every ``old_string`` a later Edit/MultiEdit will have to match is still
+                         present byte-exact in the compressed view. This is the guarantee behind
+                         the exact-quote exemption, and nothing gated it before: 1.49.0 shipped an
+                         exemption keyed on the tool NAME, which silently missed every file read
+                         issued through the shell (cat, head, sed -n) — a third of real
+                         tool-result mass — and no test noticed.
 
 Run it: ``distil validate`` (or ``python -m distil.harness``). Exit non-zero on any violation, so
 it doubles as a gate. It is deliberately separate from ``distil verify`` (corpus byte-fidelity)
@@ -92,8 +98,117 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
 
     convo = _convo
 
+    # Read-then-edit sessions, one per way an agent actually reads a file. Each ends with
+    # an Edit whose old_string is a literal slice of what was read, so the quote-survival
+    # invariant has something real to check.
+    module = "\n".join(
+        f"def handler_{i}(request):  # {_MARKER}\n    payload = request.json()\n"
+        f"    return {{'ok': True, 'n': {i}, 'payload': payload}}"
+        for i in range(40)
+    )
+    # Spans the line the tier-1 digester actually folds (the repeated `return`), not only
+    # the ones it pins — a quote that survives the digest by luck proves nothing.
+    quote = (
+        f"def handler_7(request):  # {_MARKER}\n    payload = request.json()\n"
+        "    return {'ok': True, 'n': 7, 'payload': payload}"
+    )
+    # A read whose CONTENT looks like distil's own digest output. A stub-shaped payload
+    # must not be mistaken for one already folded, and the quote must still survive.
+    stub_shaped = (
+        f"<< +999 lines, handle=deadbeef >>\n\u00abrows=5 cols=x\u00ab\n{module}\n"
+        "<< +12 lines, handle=cafe1234 >>"
+    )
+
+    def read_edit(reader: dict[str, Any], content: str, old_string: str) -> list[dict[str, Any]]:
+        """read -> many unrelated turns -> Edit quoting the read."""
+        msgs: list[dict[str, Any]] = [
+            {"role": "user", "content": "refactor the handlers"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "r1", **reader}]},
+            _tool_result("r1", content),
+        ]
+        for i in range(6):
+            msgs += [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": f"n{i}",
+                            "name": "Bash",
+                            "input": {"command": "pytest -q"},
+                        }
+                    ],
+                },
+                _tool_result(f"n{i}", "\n".join(f"test_{j} PASSED {_MARKER}" for j in range(40))),
+            ]
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "e1",
+                        "name": "Edit",
+                        "input": {
+                            "file_path": "/app/handlers.py",
+                            "old_string": old_string,
+                            "new_string": old_string + "  # patched",
+                        },
+                    }
+                ],
+            }
+        )
+        return msgs
+
+    _bash = {"name": "Bash", "input": {"command": "cat /app/handlers.py"}}
     return [
         ("empty_tool_result", convo("")),
+        (
+            "read_tool_then_edit",
+            read_edit({"name": "Read", "input": {"file_path": "/app/handlers.py"}}, module, quote),
+        ),
+        ("shell_cat_then_edit", read_edit(_bash, module, quote)),
+        (
+            "shell_head_then_edit",
+            read_edit(
+                {"name": "Bash", "input": {"command": "head -n 200 /app/handlers.py"}},
+                module,
+                quote,
+            ),
+        ),
+        (
+            "shell_sed_range_then_edit",
+            read_edit(
+                {"name": "Bash", "input": {"command": "sed -n '1,200p' /app/handlers.py"}},
+                module,
+                quote,
+            ),
+        ),
+        (
+            "shell_cat_n_then_edit",
+            read_edit(
+                {"name": "Bash", "input": {"command": "cat -n /app/handlers.py"}}, module, quote
+            ),
+        ),
+        (
+            "reread_then_edit_quotes_first_read",
+            read_edit(_bash, module, quote)
+            + [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "r2", **_bash}]},
+                _tool_result("r2", module),
+            ],
+        ),
+        ("stub_shaped_read_then_edit", read_edit(_bash, stub_shaped, quote)),
+        (
+            # The commonest read an agent actually issues, and the one a stricter
+            # every-stage-must-be-a-reader rule silently refused.
+            "shell_cd_then_cat_then_edit",
+            read_edit(
+                {"name": "Bash", "input": {"command": "cd /app && cat handlers.py"}},
+                module,
+                quote,
+            ),
+        ),
         ("big_log", convo(big_log)),
         ("code_heavy", convo(code)),
         ("json_array_foldable", convo(json_rows)),
@@ -254,6 +369,24 @@ def _check_recency_exact(messages: list[dict[str, Any]]) -> tuple[bool, str]:
     return True, ""
 
 
+def _check_quote_survival(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Every literal-match edit's ``old_string`` must still be findable byte-exact.
+
+    The one invariant that speaks the agent's language: an Edit does not apply unless its
+    quote is in the context it was sent. Cases without an edit are n/a.
+    """
+    from distil.compress.provenance import edit_quotes, observed_view, quote_hazard
+
+    quotes = edit_quotes(messages)
+    if not quotes:
+        return True, ""  # no literal-match edit in this case — not applicable
+    compressed, _store = _compress(messages)
+    survived, lost = quote_hazard(quotes, observed_view(compressed))
+    if lost:
+        return False, f"{lost}/{survived + lost} edit quotes no longer exist byte-exact"
+    return True, ""
+
+
 def _check_fail_open(messages: list[dict[str, Any]]) -> tuple[bool, str]:
     try:
         _compress(messages)
@@ -358,6 +491,7 @@ _INVARIANTS = [
     ("reversibility", _check_reversibility),
     ("reject-if-bigger", _check_reject_if_bigger),
     ("recency-exact", _check_recency_exact),
+    ("quote-survival", _check_quote_survival),
     ("fail-open", _check_fail_open),
 ]
 

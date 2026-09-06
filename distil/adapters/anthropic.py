@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from types import MappingProxyType
+from typing import Mapping
 from typing import Any
 
 from ..compress.tier0 import collapse_runs, minify_json
@@ -49,6 +51,7 @@ _MIN_LINES = 6
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS  # noqa: E402
 from ..compress.recency import cached_prefix_end as _cached_prefix_end  # noqa: E402
 from ..compress.recency import exempt_indices as _exempt_indices  # noqa: E402
+from ..compress import provenance as _provenance  # noqa: E402
 
 # Thread-local learned "keep byte-exact" predicate, scoped per compress_messages call
 # (ThreadingHTTPServer handles requests on separate threads, so this must be per-thread).
@@ -91,6 +94,22 @@ def _census(bucket: str, text: str) -> None:
     _census_tokens(bucket, _tokenizer.count(text))
 
 
+# Quote-hazard counter. Kept OUT of the census on purpose: the census is
+# token-denominated and must stay exhaustive (its sum is asserted against the payload),
+# and these are per-quote counts. Two integers, no text — the one measurement that says
+# whether the exact-quote guarantee is actually holding on live traffic.
+_hazard_tls = _threading.local()
+
+
+def take_quote_hazard() -> dict[str, int] | None:
+    """``{"survived": n, "lost": m}`` for the most recent compression on this thread.
+
+    None when the request carried no literal-match edit, which is most of them.
+    """
+    counts = getattr(_hazard_tls, "counts", None)
+    return dict(counts) if counts else None
+
+
 def take_census() -> dict[str, int] | None:
     """The census accumulated by the most recent ``compress_messages`` on this thread,
     or None if none ran. Read once per request, after compression."""
@@ -124,29 +143,41 @@ def _active_vision() -> Any:
     return getattr(_vision_tls, "dedup", None)
 
 
-# Tools whose result the agent must be able to quote back BYTE-EXACT. Claude Code's
-# edit tools match `old_string` literally against content the model read earlier, so a
-# digested read makes every subsequent edit unmatchable. Lowercased for comparison;
-# covers Claude Code, Codex/OpenAI and common MCP filesystem servers.
-_EXACT_QUOTE_TOOLS = frozenset(
-    {
-        "read",
-        "read_file",
-        "readfile",
-        "view",
-        "open",
-        "cat",
-        "str_replace_editor",
-        "str_replace_based_edit_tool",
-        "grep",
-        "glob",
-        "search_files",
-        "notebookread",
-    }
-)
+# Provenance-based exact-quote exemption. The tool NAME table and the shell-command
+# classifier both live in ``compress.provenance`` so all three adapters share one rule —
+# see that module for why a shell `cat`/`head`/`sed -n` read must be exempt too.
+_EXACT_QUOTE_TOOLS = _provenance.EXACT_QUOTE_TOOLS
 
 
-def _exact_quote_tool_use_ids(messages: list[dict[str, Any]]) -> set[str]:
+def _tool_calls(messages: list[dict[str, Any]]) -> list[_provenance.ToolCall]:
+    """Every ``tool_use`` block in the history, in order, as normalised calls."""
+    calls: list[_provenance.ToolCall] = []
+    for idx, m in enumerate(messages):
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict) or blk.get("type") != "tool_use":
+                continue
+            tid = blk.get("id")
+            if not isinstance(tid, str):
+                continue
+            calls.append(
+                _provenance.ToolCall(
+                    id=tid,
+                    name=str(blk.get("name", "")),
+                    command=_provenance.command_text(blk.get("input")),
+                    pos=idx,
+                )
+            )
+    return calls
+
+
+def exact_quote_tool_use_ids(
+    messages: list[dict[str, Any]], *, widen: bool = False
+) -> dict[str, str]:
     """tool_use ids whose results must stay byte-exact regardless of age.
 
     Recency alone is the wrong instrument here. It is positional, so a file read three
@@ -155,27 +186,25 @@ def _exact_quote_tool_use_ids(messages: list[dict[str, Any]]) -> set[str]:
     the read is a digest, no exact match exists: the edit silently fails, or the model
     stops attempting one, and the run ends with nothing written to disk.
 
-    So the exemption is keyed on *provenance* (which tool produced this result), not on
-    position. Content the agent merely reasons over — logs, test output, HTTP bodies —
-    is unaffected and still digests normally.
+    So the exemption is keyed on *provenance* — which tool produced this result, and for
+    a shell tool, what its command actually did — not on position. Content the agent
+    merely reasons over (logs, test output, HTTP bodies) is unaffected and still digests
+    normally.
+
+    Recomputed from the history on every request; ``widen`` drops the latest-per-path
+    supersession, which is how an observed quote miss turns the class off for the rest
+    of the session (the history only grows, so the reaction sticks by construction).
     """
-    ids: set[str] = set()
-    for m in messages:
-        if not isinstance(m, dict) or m.get("role") != "assistant":
-            continue
-        content = m.get("content")
-        if not isinstance(content, list):
-            continue
-        for blk in content:
-            if (
-                isinstance(blk, dict)
-                and blk.get("type") == "tool_use"
-                and str(blk.get("name", "")).lower() in _EXACT_QUOTE_TOOLS
-            ):
-                tid = blk.get("id")
-                if isinstance(tid, str):
-                    ids.add(tid)
-    return ids
+    boundary = _cached_prefix_end(messages)
+    return _provenance.exact_quote_ids(
+        _tool_calls(messages),
+        cached_through=boundary if boundary >= 0 else None,
+        widen=widen,
+    )
+
+
+# Backwards-compatible private alias — the 1.49.0 name, still used by tests and callers.
+_exact_quote_tool_use_ids = exact_quote_tool_use_ids
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -500,13 +529,37 @@ def _downscale_image_block(
     return [scaled, {"type": "text", "text": _scale.note_text(handle, before, after, saved)}]
 
 
+def _census_tool_result(bucket: str, content: Any) -> None:
+    """Attribute an untouched tool_result's whole payload to *bucket*.
+
+    A tool_result carries its content as a bare string OR as a list of text/image parts,
+    and a `Read` routinely arrives in the list shape. Counting only the string form left
+    those blocks in the payload but absent from the census, which breaks the one property
+    that makes the census worth reading: that it accounts for everything sent. Images are
+    counted the way the baseline counts them (by area, not by base64 length), so both
+    sides stay on one scale.
+    """
+    if isinstance(content, str):
+        _census(bucket, content)
+        return
+    if not isinstance(content, list):
+        return
+    for sub in content:
+        if not isinstance(sub, dict):
+            continue
+        if sub.get("type") == "image":
+            _census_tokens(bucket, _vision.block_tokens(sub))
+        elif isinstance(sub.get("text"), str):
+            _census(bucket, sub["text"])
+
+
 def _compress_content_item(
     item: dict[str, Any],
     store: RestoreStore,
     role: str,
     verbatim: bool,
     is_recent: bool = False,
-    exact_ids: frozenset[str] = frozenset(),
+    exact_ids: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) content block after compression.
 
@@ -553,9 +606,12 @@ def _compress_content_item(
         content = item.get("content")
         if content is None:
             return item
-        if item.get("tool_use_id") in exact_ids:
-            # File content the agent must quote back verbatim to edit it.
-            _census("tool_result_exact_quote", content if isinstance(content, str) else "")
+        bucket = exact_ids.get(str(item.get("tool_use_id") or ""))
+        if bucket:
+            # File content the agent must quote back verbatim to edit it. The bucket
+            # names WHICH rule froze it — the 1.49.0 tool-name table, or the shell-command
+            # classifier this replaced it with — so the cost of each is visible separately.
+            _census_tool_result(bucket, content)
             return item
 
         if isinstance(content, str):
@@ -610,7 +666,7 @@ def _compress_message(
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
-    exact_ids: frozenset[str] = frozenset(),
+    exact_ids: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) message dict after compressing its content."""
     role = msg.get("role", "")
@@ -663,6 +719,38 @@ def _compress_message(
 # ---------------------------------------------------------------------------
 
 
+def _guard_quotes(
+    messages: list[dict[str, Any]],
+    compressed: list[dict[str, Any]],
+    store: RestoreStore,
+    walk: Any,
+    verbatim: bool,
+) -> tuple[list[dict[str, Any]], RestoreStore]:
+    """Measure whether every literal-match edit can still find its ``old_string``, and
+    widen the exemption if one cannot.
+
+    The guarantee is only worth what it measures. This asks the question directly — for
+    each ``Edit``/``MultiEdit`` in the history, does its ``old_string`` still occur in the
+    payload we are about to forward? — and books the two counts. A miss means some
+    provenance class we digested was in fact quotable, so the whole class stops digesting:
+    supersession is dropped and every whole-file read stays verbatim.
+
+    ponytail: widening the class is the simplest safe reaction, and it is session-sticky for
+    free — the history only grows, so the same miss is re-detected on every later request
+    and the class stays off. The cost is one extra compression pass on those requests.
+    """
+    _hazard_tls.counts = None
+    quotes = _provenance.edit_quotes(messages)
+    if not quotes or verbatim:
+        return compressed, store
+    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
+    if lost:
+        compressed, store = walk(exact_quote_tool_use_ids(messages, widen=True))
+        survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
+    _hazard_tls.counts = {"survived": survived, "lost": lost}
+    return compressed, store
+
+
 def compress_messages(
     messages: list[dict[str, Any]],
     *,
@@ -698,15 +786,8 @@ def compress_messages(
     # which is the wanted behaviour — the census should describe the payload actually sent.
     _census_tls.counts = {}
     _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
-    # Vision duplicate elision (ADR 0003) — None unless the content type has been
-    # certified, so the default path is byte-for-byte what it was before.
-    _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
     try:
-        store = RestoreStore()
-        new_messages: list[dict[str, Any]] = []
         recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
-        # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact_ids = frozenset(_exact_quote_tool_use_ids(messages))
         # Query-aware salience is scoped to content the provider has NOT cached.
         # Intent terms come from the newest user turn and change every turn by
         # design, so letting them choose which lines survive in an already-cached
@@ -717,19 +798,40 @@ def compress_messages(
         # which is when it is new and the current question is most relevant to it.
         cached_through = _cached_prefix_end(messages)
         full_intent = _intent_tls.terms
-        for idx, msg in enumerate(messages):
-            if not isinstance(msg, dict):
-                new_messages.append(msg)  # malformed entry — pass through untouched
-                continue
-            # Force verbatim for the most recent turns so their tool_results are
-            # never replaced by a digest stub the agent must reason over blind.
-            msg_verbatim = verbatim or idx in recent
-            _intent_tls.terms = frozenset() if idx <= cached_through else full_intent
-            new_messages.append(
-                _compress_message(
-                    msg, store, msg_verbatim, is_recent=idx in recent, exact_ids=exact_ids
-                )
+
+        def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
+            # A census describes the payload actually sent, so it is reopened here and
+            # not outside — a second walk must not sum with the first one's counts.
+            _census_tls.counts = {}
+            _vision_tls.dedup = (
+                _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
             )
+            # Same reason, and it is not merely bookkeeping: the vision deduper elides an
+            # image it has ALREADY SEEN. Left alive across a quote-hazard retry it would
+            # have seen every image in the first pass, so the second pass would elide all
+            # of them and the model would receive none. Per-pass state, per-pass reset.
+            # ADR 0003 — None unless the content type has been certified, so the default
+            # path is byte-for-byte what it was before.
+            store = RestoreStore()
+            new_messages: list[dict[str, Any]] = []
+            for idx, msg in enumerate(messages):
+                if not isinstance(msg, dict):
+                    new_messages.append(msg)  # malformed entry — pass through untouched
+                    continue
+                # Force verbatim for the most recent turns so their tool_results are
+                # never replaced by a digest stub the agent must reason over blind.
+                msg_verbatim = verbatim or idx in recent
+                _intent_tls.terms = frozenset() if idx <= cached_through else full_intent
+                new_messages.append(
+                    _compress_message(
+                        msg, store, msg_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+                    )
+                )
+            return new_messages, store
+
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        new_messages, store = _walk(exact_quote_tool_use_ids(messages))
+        new_messages, store = _guard_quotes(messages, new_messages, store, _walk, verbatim)
         return new_messages, store
     finally:
         _keep_tls.fn = None

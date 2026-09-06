@@ -85,7 +85,9 @@ that before. Cache fields are deliberately not priced in: the two arms hit the p
 cache differently by construction.
 ## [Unreleased]
 
-Provider parity across all three servers. The Responses API was compressed by the
+### Provider parity across all three servers
+
+The Responses API was compressed by the
 sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat
 Completions was injected with Anthropic's expand-tool schema, which that provider
 rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted
@@ -98,6 +100,8 @@ The gateway no longer emits a digest stub it cannot restore. It injects no
 on every pay-as-you-go session — the marker named a recovery that did not exist. It
 is Tier-0 only until it grows the expand loop, which lowers its savings on
 unstructured content and makes what it does report honest.
+
+### AutoGen and ASGI integrations, copilot and kimi presets
 
 Two new integrations, both duck-typed and dependency-free like the rest of the
 package: `distil.integrations.autogen` (`compressing_tool`, `DistilModelClient`,
@@ -115,6 +119,107 @@ of collapsing the stream into one synthesized chunk.
 `wrap` gained presets for GitHub Copilot CLI (`copilot`) and Kimi CLI (`kimi`), and
 `goose` now also gets `ANTHROPIC_HOST` alongside `OPENAI_HOST` — `AGENT_PRESETS`
 supports multiple environment variables per preset for this.
+
+### The exact-quote guarantee now covers the shell, where most reads happen
+
+1.49.0 stopped distil from digesting file content the agent has to quote back
+byte-exact in an `Edit(old_string=...)`. It keyed that exemption on the tool **name**:
+`Read`, `Grep`, `Glob`, `view`, `str_replace_editor` and the common MCP filesystem
+equivalents. Correct rule, wrong half of the traffic.
+
+Measured over 2,489 local Claude Code sessions (52,937 tool results, 19.4M tool-result
+tokens, content-free):
+
+| | share of tool-result mass |
+|---|---|
+| reads matched by the 1.49.0 name table | 10.7% |
+| whole-file reads issued through the **shell** (`cat`, `head`, `tail`, `nl`, `sed -n '1,40p'`) | **33.6%** |
+
+Three quarters of the file reads on real traffic go through the generic Bash tool, and
+every one of them was still being digested. Of 3,445 `Edit`/`MultiEdit` quotes traced to
+a tool-result source, **39.3% had no surviving byte-exact copy** in what distil actually
+forwarded — and 629 of those 726 failures had a shell source. That is the same failure
+1.49.0 was written to stop: the edit cannot match, so it silently does nothing, and the
+run ends with the agent reporting success and the disk untouched.
+
+Provenance is now read from the **command**, not just the tool name. A shell call whose
+every stage is a whole-file reader, with no pipe and no redirection, produced file bytes
+and is exempt. The classifier is deliberately narrow, because the question it answers is
+narrow — *are the bytes the agent saw a verbatim slice of a file?*
+
+* `cat a b`, `head -n 50 f`, `cat -n f`, `sed -n '1,20p' f` — yes.
+* `cd /repo && cat main.py` — yes, and this one matters most: it is the commonest way an
+  agent reads a file, so a rule requiring *every* stage to be a reader would refuse it
+  and digest the quote. What the agent quotes from is what the **last** stage printed.
+* `cat f | grep x` — no. The agent saw grep's output, not the file's.
+* `cat f > out`, `… | tee out`, `cat << EOF` — no. Those bytes are not what came back.
+* `sed 's/a/b/' f` — no. That is a transform.
+
+Only the latest read per **(path, slice)** is kept: a superseded read is one the agent has
+a fresher byte-exact copy of. Slice, not path — `sed -n '1,80p' app.py` and
+`sed -n '200,280p' app.py` are two disjoint windows onto one file, and treating the second
+as a fresher copy of the first digests 80 lines the agent may still have to quote. A later
+read supersedes an earlier one only when it covers it: the identical slice again, or a
+whole-file read.
+
+Supersession also stops at the client's own `cache_control` breakpoint, because flipping a
+block the provider has already cached from verbatim to digest rewrites the entire prefix at
+the 1.25x write rate. That is the trade the recency carve-out was re-anchored to avoid, and
+it was measured at 2x the cost of compressing nothing at all.
+
+**What this costs, stated honestly.** The investigation projected 7.7pp of tool-result mass
+for a latest-per-path rule, against a 27pp upper bound for exempting every whole-file read.
+That 7.7pp assumes a superseded read can always be demoted. Here it cannot: under a client
+that marks most of its history cacheable — which is what Claude Code does — the cache gate
+means supersession rarely fires, and the exemption degrades toward keeping every whole-file
+read. **So the forfeited digest saving in practice sits much closer to the 27pp figure than
+to 7.7pp.**
+
+That is the intended trade, not a regression. There are three ways to handle a read the
+agent may quote: digest it and break the edit, demote it and rewrite an already-cached
+prefix at the write rate, or keep the bytes. Only the third costs nothing but tokens, and
+the tokens it costs are billed at the cache-read rate rather than re-written. Exempting
+every whole-file read outright would still be worse — it buys 187 more quotes for 3.8M more
+tokens with no cache benefit — so the slice-aware rule is kept.
+
+The rule lives in one place (`distil/compress/provenance.py`) and all three adapters use
+it. Chat Completions, the Responses API and Gemini `generateContent` had **no** exact-quote
+exemption at all before this — Codex and Gemini agents were exposed to the original 1.49.0
+bug in full.
+
+**`--session-delta` voided the guarantee outright.** `delta_encode` ran *before*
+compression and replaced tool-result bodies with delta references, including the reads the
+compressor was about to keep byte-exact. A reference is not a copy. The order stands —
+running delta after compression would delta against digest stubs and rewrite already-cached
+blocks, breaking the cache-monotonicity that suffix-only encoding exists to preserve — and
+delta now skips the exempt blocks instead. They stay registered as delta *bases*, so later
+re-reads still dedup against them.
+
+Two census buckets, not one: `tool_result_exact_quote` is what the 1.49.0 name rule
+froze, `tool_result_shell_read` is what this one adds. `distil dissect` sums them by
+reason with no change on its side, so the new rule's cost in production is a number you
+can read rather than one you have to infer.
+
+**The guarantee now measures itself.** Every request records, content-free, whether each
+literal-match edit's `old_string` still occurs in the payload distil forwarded: two counts,
+no text, surfaced in `distil dissect` and as an anomaly line when any quote is lost. On a
+miss the whole provenance class stops digesting for the rest of the session. `distil
+validate` gains a sixth invariant, **quote-survival**, over synthesized read-then-edit
+sessions (`Read`, `cat`, `head -n`, `sed -n`, `cat -n`, `cd … && cat`, a re-read, and a
+read whose content is shaped like a digest stub). Nothing gated this before, which is why
+1.49.0 shipped half-covered and nine releases went by without noticing.
+
+Known follow-up: the quote-hazard counter and the widen-on-miss reaction run on the
+Messages path only, where `Edit`/`MultiEdit` live. The other two adapters get the exemption
+but clear the counter rather than compute it, so a stale count is never reported against
+them. Wiring it through the Responses API, where Codex's `str_replace_editor` lives, is not
+done here.
+
+`benchmarks/codebench.py` is relabelled, not re-measured. It is an *upper bound* on what
+the guarantee costs: ~55% of its tool-result tokens are file reads that must stay
+byte-exact and the rest is too short to digest, so distil's 0.0% digest row there is the
+policy working, not the compressor failing. The share is now printed under the table,
+computed with the live classifier.
 
 ## [1.51.1] — shadow mode was measuring the wrong subset of your traffic
 
