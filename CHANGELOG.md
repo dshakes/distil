@@ -99,6 +99,23 @@ on every pay-as-you-go session — the marker named a recovery that did not exis
 is Tier-0 only until it grows the expand loop, which lowers its savings on
 unstructured content and makes what it does report honest.
 
+Two new integrations, both duck-typed and dependency-free like the rest of the
+package: `distil.integrations.autogen` (`compressing_tool`, `DistilModelClient`,
+`compress_messages` for Microsoft AutoGen) and `distil.integrations.asgi`
+(`DistilMiddleware`, for any app that hosts its own LLM-facing endpoint on Starlette,
+FastAPI, or another ASGI 3 framework). `compressing_tool`'s wrapper carries
+`functools.wraps` plus an explicit `__signature__`, so `FunctionTool`'s
+signature/annotation-based schema generation sees the original function, not
+`*args, **kwargs`. `DistilMiddleware` enforces its body-size cap while reading
+rather than after buffering the whole oversized body, and on the cap, a client
+disconnect mid-body, or a fail-open (malformed JSON, unrecognized shape,
+compression error), replays the exact original event sequence and headers instead
+of collapsing the stream into one synthesized chunk.
+
+`wrap` gained presets for GitHub Copilot CLI (`copilot`) and Kimi CLI (`kimi`), and
+`goose` now also gets `ANTHROPIC_HOST` alongside `OPENAI_HOST` — `AGENT_PRESETS`
+supports multiple environment variables per preset for this.
+
 ## [1.51.1] — shadow mode was measuring the wrong subset of your traffic
 
 Every shadow replay carrying a prior-turn `thinking` block failed with

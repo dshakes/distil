@@ -66,12 +66,17 @@ def test_agent_preset_env_var_contract():
     # (docs.x.ai/build/settings). Same silent no-op as aider's.
     assert AGENT_PRESETS["grok"][0] == "GROK_MODELS_BASE_URL"
     assert AGENT_PRESETS["openhands"][0] == "LLM_BASE_URL"
+    assert AGENT_PRESETS["copilot"][0] == "COPILOT_PROVIDER_BASE_URL"
+    assert AGENT_PRESETS["copilot"][3]["COPILOT_PROVIDER_TYPE"] == "anthropic"
+    assert AGENT_PRESETS["kimi"][0] == "KIMI_BASE_URL"
     # cursor-agent deliberately absent: its env contract is not publicly documented
     assert "cursor-agent" not in AGENT_PRESETS
-    # IDE extensions have no argv to wrap and no published env contract. Their
-    # supported path is the always-on proxy plus the editor's own base-URL setting
-    # (docs/IDE-AGENTS.md). A preset here would route nothing and report success.
-    for ide in ("cursor", "copilot", "cline", "continue", "windsurf"):
+    # IDE extensions (still, sans copilot — GitHub Copilot CLI has a documented
+    # BYOK contract and is a real preset now) have no argv to wrap and no
+    # published env contract. Their supported path is the always-on proxy plus
+    # the editor's own base-URL setting (docs/IDE-AGENTS.md). A preset here
+    # would route nothing and report success.
+    for ide in ("cursor", "cline", "continue", "windsurf"):
         assert ide not in AGENT_PRESETS, f"{ide} has no published env contract to honour"
 
 

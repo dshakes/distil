@@ -91,7 +91,9 @@
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
+            <li><a href="autogen.html">AutoGen</a></li>
             <li><a href="crewai.html">CrewAI</a></li>
+            <li><a href="asgi.html">ASGI Middleware</a></li>
           </ul></li>
         <li><a href="security.html">Security</a></li>
         <li><a href="changelog.html">Changelog</a></li>
@@ -205,6 +207,13 @@
           <td><a href="#strands">below</a></td>
         </tr>
         <tr>
+          <td><strong>Microsoft AutoGen</strong></td>
+          <td>Python</td>
+          <td><code>base_url=</code> in <code>OpenAIChatCompletionClient({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#autogen">below</a></td>
+        </tr>
+        <tr>
           <td><strong>Vercel AI SDK</strong> (<code>@ai-sdk/anthropic</code>)</td>
           <td>TypeScript</td>
           <td><code>baseURL</code> in <code>createAnthropic({…})</code></td>
@@ -227,6 +236,25 @@
         </tr>
       </tbody>
     </table>
+
+    <h2 id="config-file-agents">Config-file agents</h2>
+    <p>These are CLIs, but the base URL lives in a config file rather than an environment variable <code>distil wrap</code> can inject. Point the key below at the URL <code>distil proxy</code> prints (<code>http://127.0.0.1:8788/v1</code> if you started it as above), then verify with <code>distil doctor</code>. Full detail: <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md#config-file-agents">IDE-AGENTS.md</a>.</p>
+    <table>
+      <thead>
+        <tr><th>Agent</th><th>Config file</th><th>Key</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Mistral Vibe</strong></td><td><code>config.toml</code></td><td><code>[[providers]]</code> block's <code>api_base</code></td></tr>
+        <tr><td><strong>Oh My Pi</strong></td><td><code>models.yml</code></td><td><code>baseUrl</code></td></tr>
+        <tr><td><strong>OpenClaw</strong></td><td>config file</td><td><code>models.providers.&lt;id&gt;.baseUrl</code></td></tr>
+        <tr><td><strong>Continue</strong> (the <code>cn</code> CLI)</td><td><code>config.yaml</code></td><td><code>models[].apiBase</code>, loaded via <code>--config</code></td></tr>
+        <tr><td><strong>Amp</strong></td><td><code>settings.json</code></td><td><code>amp.url</code></td></tr>
+        <tr><td><strong>Crush</strong></td><td><code>crush.json</code></td><td><code>providers.&lt;id&gt;.base_url</code></td></tr>
+        <tr><td><strong>Factory Droid</strong></td><td><code>~/.factory/settings.json</code></td><td><code>customModels[].baseUrl</code></td></tr>
+        <tr><td><strong>Junie</strong></td><td>model profile</td><td><code>baseUrl</code></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Not routable today (IDE extensions with no base-URL override at all): Cline, Kilo Code, Roo Code, Warp, Snowflake Cortex Code. See <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md">IDE-AGENTS.md</a> for why.</p>
 
     <hr/>
 
@@ -348,8 +376,26 @@ model = OpenAIModel(
 )
 agent = Agent(model=model)</pre>
 
+    <h3 id="autogen">Microsoft AutoGen</h3>
+    <p>AutoGen's <code>OpenAIChatCompletionClient</code> takes <code>base_url</code> directly, same as the raw OpenAI client it wraps.</p>
+
+<pre class="term"><span class="d">$ pip install "autogen-agentchat" "autogen-ext[openai]"
+<span class="d">$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span></span>
+
+<span class="k">import</span> os
+<span class="k">from</span> autogen_agentchat.agents <span class="k">import</span> AssistantAgent
+<span class="k">from</span> autogen_ext.models.openai <span class="k">import</span> OpenAIChatCompletionClient
+
+client = OpenAIChatCompletionClient(
+    model=<span class="s">"gpt-4o"</span>,
+    api_key=os.environ[<span class="s">"OPENAI_API_KEY"</span>],
+    base_url=<span class="s">"http://127.0.0.1:8788/v1"</span>,  <span class="d"># ← the only change</span>
+)
+agent = AssistantAgent(<span class="s">"assistant"</span>, model_client=client)</pre>
+    <p>Prefer no sidecar at all? <code>distil.integrations.autogen</code> wraps a <code>ChatCompletionClient</code> or a <code>FunctionTool</code> callable in-process — see <a href="autogen.html">AutoGen &times; Distil</a> for both.</p>
+
     <div class="callout">
-      <b>Why there is no <code>distil-agno</code> or <code>distil-strands</code> package.</b> Both of these are two-line <code>base_url</code> redirects, and so is every other framework that speaks an OpenAI- or Anthropic-shaped API. distil is a proxy, so a framework is supported the moment it lets you set an endpoint — there is nothing to version, nothing to break on the framework's next release, and no per-framework code to maintain. The in-process hooks further down exist only for the cases where you want compression <em>without</em> running a proxy at all.
+      <b>Why there is no <code>distil-agno</code>, <code>distil-strands</code>, or <code>distil-autogen</code> package.</b> All three are two-line <code>base_url</code> redirects, and so is every other framework that speaks an OpenAI- or Anthropic-shaped API. distil is a proxy, so a framework is supported the moment it lets you set an endpoint — there is nothing to version, nothing to break on the framework's next release, and no per-framework code to maintain. The in-process hooks further down (and AutoGen's own page) exist only for the cases where you want compression <em>without</em> running a proxy at all.
     </div>
 
     <h3>Vercel AI SDK (TypeScript)</h3>
@@ -475,7 +521,7 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
 
     <hr/>
 
-    <h2>In-process hooks (LiteLLM · LangChain · LangGraph)</h2>
+    <h2>In-process hooks (LiteLLM · LangChain · LangGraph · AutoGen)</h2>
     <p>Prefer not to run a sidecar? Compress the request in-process — the same reversible
     compression, no proxy. Every helper lazy-imports (or duck-types) its framework, so distil stays zero-dep.</p>
     <pre class="term"><span class="d"># LiteLLM — drop-in for litellm.completion</span>
@@ -489,12 +535,19 @@ msgs = compress_messages(state[<span class="g">"messages"</span>], verbatim=<spa
 
 <span class="d"># LangGraph — compress graph state right before the model node</span>
 <span class="c">from</span> distil.integrations.langgraph <span class="c">import</span> pre_model_hook
-agent = create_react_agent(model, tools, pre_model_hook=pre_model_hook())</pre>
+agent = create_react_agent(model, tools, pre_model_hook=pre_model_hook())
+
+<span class="d"># AutoGen — compress a ChatCompletionClient's outgoing messages, or one tool's output</span>
+<span class="c">from</span> distil.integrations.autogen <span class="c">import</span> DistilModelClient, compressing_tool
+client = DistilModelClient(OpenAIChatCompletionClient(model=<span class="g">"gpt-4o"</span>))
+tool = FunctionTool(compressing_tool(get_weather), description=<span class="g">"..."</span>)</pre>
     <p>Tool/function messages get the reversible Tier-1 digest; human/system messages get
     Tier-0 lossless; the model's own words are never rewritten. <code>compress()</code> (LiteLLM),
-    <code>compress_messages()</code> (LangChain), and <code>pre_model_hook()</code> (LangGraph) are
-    framework-free and unit-tested. The LangGraph hook returns only the updated message list, so
-    every other state field is left intact.</p>
+    <code>compress_messages()</code> (LangChain), <code>pre_model_hook()</code> (LangGraph), and
+    <code>DistilModelClient</code>/<code>compressing_tool()</code> (AutoGen) are framework-free and
+    unit-tested. The LangGraph hook returns only the updated message list, so every other state
+    field is left intact; <code>DistilModelClient</code> delegates every attribute it doesn't wrap
+    straight to the real client.</p>
 
     <h3>LangChain / LangGraph as a package &mdash; <code>langchain-distil</code></h3>
     <p>The two hooks above are also published as a standalone package, listed in LangChain&rsquo;s own
@@ -510,6 +563,19 @@ graph = create_react_agent(model, tools, pre_model_hook=pre_model_hook())  <span
 chain = as_runnable() | llm                                       <span class="d"># or a chain step</span></pre>
     <p><code>as_runnable()</code> imports <code>langchain-core</code> lazily, so importing the package never
     requires it. See <a href="langchain.html">LangChain &times; Distil</a> for the full page.</p>
+
+    <hr/>
+
+    <h2 id="asgi">ASGI middleware &mdash; when you host the endpoint</h2>
+    <p>Every hook above sits in a <em>client</em> that calls out to a provider. If instead <strong>your own
+    backend</strong> is the thing building the provider request &mdash; a FastAPI/Starlette/Litestar app that
+    forwards to Anthropic/OpenAI/Gemini itself &mdash; wrap it once with <code>DistilMiddleware</code>, pure ASGI,
+    no Starlette import:</p>
+    <pre class="term"><span class="c">from</span> distil.integrations.asgi <span class="c">import</span> DistilMiddleware
+
+app = DistilMiddleware(app)  <span class="d"># wraps any ASGI 3 app; compresses matching POST bodies</span></pre>
+    <p>It reuses the exact path detection and reversible compression <code>distil proxy</code> uses, so a handle
+    minted here expands anywhere. See <a href="asgi.html">ASGI Middleware &times; Distil</a> for the full page.</p>
 
     <hr/>
 
