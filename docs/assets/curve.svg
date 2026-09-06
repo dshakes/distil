@@ -27,5 +27,5 @@
 <circle cx="478.1" cy="315.7" r="5" fill="#0b0c13" stroke="#ff6b6b" stroke-width="2"><title>aggressive: 65.5% savings, recall 0.551, NOT reversible</title></circle>
 <text x="488.1" y="305.7" font-size="11" font-weight="700" fill="#dbe0ee" text-anchor="start">aggressive</text>
 <text x="488.1" y="333.7" font-size="10" fill="#ff6b6b" text-anchor="start">828 facts lost · not reversible</text>
-<text x="696" y="24" font-size="10" fill="#7b8298" text-anchor="end">distil 1.51.1 · 2026-09-05</text>
+<text x="696" y="24" font-size="10" fill="#7b8298" text-anchor="end">distil 1.51.1 · 2026-09-06</text>
 </svg>

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05",
+  "generated": "2026-09-06",
   "version": "1.51.1",
   "corpus_trajectories": 9,
   "tokenizer": "HeuristicTokenizer",
@@ -23,7 +23,7 @@
       "visible_recall": 1.0,
       "lost_facts": 0,
       "reversible": true,
-      "latency_ms": 4.74
+      "latency_ms": 4.85
     },
     {
       "rung": "subscription",
@@ -33,7 +33,7 @@
       "visible_recall": 1.0,
       "lost_facts": 0,
       "reversible": true,
-      "latency_ms": 8.71
+      "latency_ms": 8.91
     },
     {
       "rung": "lossless",
@@ -43,7 +43,7 @@
       "visible_recall": 0.7692,
       "lost_facts": 0,
       "reversible": true,
-      "latency_ms": 16.12
+      "latency_ms": 16.73
     },
     {
       "rung": "aggressive",
@@ -53,7 +53,7 @@
       "visible_recall": 0.551,
       "lost_facts": 828,
       "reversible": false,
-      "latency_ms": 2.91
+      "latency_ms": 3.28
     }
   ]
 }
