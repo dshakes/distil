@@ -21,7 +21,7 @@ VALID_STATUSES = {"verified", "stale", "wrong", "unsourced"}
 # claims.json) whenever a claim is genuinely added or removed. A change here
 # without a matching, reviewed claims.json edit is exactly the drift this
 # test exists to catch.
-EXPECTED_ENTRY_COUNT = 21
+EXPECTED_ENTRY_COUNT = 26
 
 
 def _load_claims() -> list[dict]:

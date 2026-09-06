@@ -594,12 +594,50 @@ def cmd_certify(args: argparse.Namespace) -> int:
     return 0 if t.non_inferior else 1
 
 
+def _bench_curve(args: argparse.Namespace, entries: list) -> int:
+    """`distil bench --curve` — the degradation curve across every ladder rung.
+
+    Not a gate. `bench` proper answers "is the default non-inferior?"; this answers the
+    question that survives a yes — what each rung actually costs — and writes the results
+    JSON plus the chart the docs embed. Offline and free, so it can run per-commit.
+    """
+    from . import curve as _curve
+
+    points = _curve.run(entries)
+    print(
+        f"degradation curve — {len(entries)} trajectories | "
+        f"recall is the macro average across domains\n"
+    )
+    print(_curve.format_table(points))
+
+    out = Path(args.curve_out)
+    svg = Path(args.curve_svg)
+    _curve.write(points, corpus_size=len(entries), results_path=out, svg_path=svg)
+    print(f"\nwrote {out}\nwrote {svg}")
+
+    lossy = [p for p in points if not p.reversible]
+    if lossy:
+        print(
+            "\nnote: "
+            + "; ".join(
+                f"{p.rung} is NOT reversible and loses {p.lost_facts} facts outright" for p in lossy
+            )
+            + " — that is the cost the dial buys savings with, and why target_equivalence=1.0 "
+            "never reaches it."
+        )
+    return 0
+
+
 def cmd_bench(args: argparse.Namespace) -> int:
     """Corpus-wide gate (CI). Across every trajectory: price distil vs baseline,
     certify distil is non-inferior, and confirm the gate still rejects the
     aggressive lossy strategy. Exits non-zero if any distil run fails the
     contract or the gate fails to reject aggressive — i.e. a real CI gate."""
     entries = load_corpus(args.corpus) if args.corpus else load_corpus()
+
+    if getattr(args, "curve", False):
+        return _bench_curve(args, entries)
+
     price = pricing.get(args.pricing)
     tok = tokenizer.resolve(args.tokenizer, model=price.name)
     # Real ingested traces carry no DECISION labels, so the offline decision-
@@ -885,15 +923,18 @@ def cmd_validate(args: argparse.Namespace) -> int:
     from .harness import run
 
     print("distil validate — adversarial real-path invariant harness\n")
-    rep = run(verbose=True)
+    rep = run(verbose=True, adversarial=args.adversarial)
     if rep["failures"]:
         print(
             f"\nVALIDATE: FAIL — {len(rep['failures'])}/{rep['checks']} invariant checks violated."
         )
         return 1
+    invariants = "reversibility · reject-if-bigger · recency · fail-open · content-free"
+    if args.adversarial:
+        invariants += " · load-bearing"
     print(
         f"VALIDATE: PASS — {rep['passed']}/{rep['checks']} checks across {rep['cases']} "
-        "adversarial cases (reversibility · reject-if-bigger · recency · fail-open · content-free)."
+        f"adversarial cases ({invariants})."
     )
     return 0
 
@@ -4043,6 +4084,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="report savings only, skip the decision-equivalence gate (for real traces)",
     )
+    be.add_argument(
+        "--curve",
+        action="store_true",
+        help="trace the degradation curve instead of the gate: savings, fact recall, "
+        "reversibility and latency for every rung of the ladder (offline, no API calls)",
+    )
+    be.add_argument(
+        "--curve-out",
+        default="benchmarks/results/curve.json",
+        help="where --curve writes its results JSON (default: benchmarks/results/curve.json)",
+    )
+    be.add_argument(
+        "--curve-svg",
+        default="docs/assets/curve.svg",
+        help="where --curve writes its chart (default: docs/assets/curve.svg)",
+    )
     be.set_defaults(func=cmd_bench)
 
     os_ = sub.add_parser("output-savings", help="measure generation-side output-token savings A/B")
@@ -4267,6 +4324,13 @@ def build_parser() -> argparse.ArgumentParser:
     su.set_defaults(func=cmd_suite)
 
     va = sub.add_parser("validate", help="adversarial real-path gate: invariants on hostile inputs")
+    va.add_argument(
+        "--adversarial",
+        action="store_true",
+        help="add the COMA-class battery (arXiv 2510.22963): decoy verdicts, dedup/salience "
+        "baiting, forged handles, budget starvation, expand-tool injection — plus the "
+        "load-bearing invariant (the real DECISION survives, or is reversible and declared)",
+    )
     va.set_defaults(func=cmd_validate)
 
     ho = sub.add_parser("holdout", help="holdout A/B savings with a bootstrap CI (phase 5)")

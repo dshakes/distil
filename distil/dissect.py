@@ -403,13 +403,26 @@ class Dissection:
         Decides whether re-fold churn is actually expensive. A high share means the
         resent content is already billed at the cache-read rate, so the headline churn
         number overstates what any dedup mechanism could recover. None when no usage
-        was recorded."""
-        cached = sum(int(r.get("usage_cache_read") or 0) for r in self.booked_detail)
+        was recorded.
+
+        Older records carry only the aggregate ``usage_cache_tokens`` and neither split
+        field. Summing the split fields over those rows gives 0 cached against a nonzero
+        input total, so the share reads a confident **0.0%** — "the cache never hit" —
+        for a session where it was never measured. Those are opposite diagnoses, so
+        require at least one row to carry a split field before reporting anything.
+        """
+        detail = self.booked_detail
+        if not any(
+            r.get("usage_cache_read") is not None or r.get("usage_cache_create") is not None
+            for r in detail
+        ):
+            return None
+        cached = sum(int(r.get("usage_cache_read") or 0) for r in detail)
         total = sum(
             int(r.get("usage_input_tokens") or 0)
             + int(r.get("usage_cache_read") or 0)
             + int(r.get("usage_cache_create") or 0)
-            for r in self.booked_detail
+            for r in detail
         )
         return 100.0 * cached / total if total else None
 
@@ -1106,6 +1119,19 @@ def render_text(
             )
         else:
             out.append("  billed usage: not captured (older records or non-usage responses)")
+        # The cache contract (ADR 0008), as the provider scored it. distil promises the
+        # prefix it forwards is byte-stable across turns; this is the only number that
+        # says whether the provider agreed. A near-zero share on a long session means
+        # something rewrote the prefix — the failure is silent otherwise, because the
+        # requests all still succeed, they just cost ~2x.
+        share = d.cached_input_share
+        if share is None:
+            out.append("  cache-read share: not captured (no cache fields in these records)")
+        else:
+            out.append(
+                f"  cache-read share: {share:.1f}% of billed input was served from the "
+                "provider's prompt cache (at ~0.1x)"
+            )
         if d.billing == "subscription" and d.headroom_multiplier > 1:
             out.append(
                 f"  flat-rate headroom: the same context budget went ~{d.headroom_multiplier:.1f}x "
@@ -1312,6 +1338,11 @@ def to_json(
                 "input_tokens": d.usage_input_total,
                 "output_tokens": d.usage_output_total,
                 "requests_with_usage": d.usage_requests,
+                # None (not 0.0) when the records carry no cache fields — "we did not
+                # measure this" and "the cache never hit" are opposite diagnoses.
+                "cache_read_share_pct": (
+                    None if d.cached_input_share is None else round(d.cached_input_share, 1)
+                ),
                 "calibration": (
                     {"estimated": cal[0], "billed": cal[1]} if cal is not None else None
                 ),
