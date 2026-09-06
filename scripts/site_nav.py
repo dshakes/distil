@@ -71,7 +71,9 @@ INTEGRATIONS_SUB: list[tuple[str, str]] = [
     ("vercel-ai-sdk.html", "Vercel AI SDK"),
     ("agno.html", "Agno"),
     ("strands.html", "Strands"),
+    ("autogen.html", "AutoGen"),
     ("crewai.html", "CrewAI"),
+    ("asgi.html", "ASGI Middleware"),
 ]
 
 # faq.html, then integrations.html (spliced in with its sublist), then these.
