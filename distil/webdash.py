@@ -65,8 +65,11 @@ def _equivalence() -> dict:
         from .shadow import ShadowLedger
 
         eq = ShadowLedger.load(current_only=True).equivalence()
-        # {pct, shadowed} only — same shape the census feed is frozen to, so the
-        # dashboard and the community number can never drift apart.
+        # {pct, shadowed} — the same shape and the same floor as the census feed, but
+        # NOT the same cap: the feed clamps at 100 because the deployed validator
+        # rejects more, while this is your own machine and gets the real number. A
+        # paired estimate above 100 means compression agreed more often than the model
+        # agreed with itself, which is a fact about the model, not an error.
         return {"pct": None if eq.pct is None else round(eq.pct, 2), "shadowed": eq.n_ab}
     except Exception:  # noqa: BLE001
         return {"pct": None, "shadowed": 0}

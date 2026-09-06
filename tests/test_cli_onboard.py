@@ -641,6 +641,35 @@ def test_cmd_shadow_stats_ready(monkeypatch, capsys, tmp_path) -> None:
     assert "-4.00pp" in out or "-4.00" in out
 
 
+def test_leaderboard_json_reports_the_interval_in_the_same_unit(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """`decision_equivalence` has always been a fraction. Shipping its bounds in
+    percent beside it reads as a 100x disagreement to anything that plots both."""
+    from distil import ledger as ledger_mod, shadow as shadow_mod
+
+    p = tmp_path / "savings.jsonl"
+    ledger_mod.record(
+        trajectory_id="t1",
+        model="claude-opus-4-8",
+        turns=1,
+        baseline_dollars=0.01,
+        distil_dollars=0.005,
+        baseline_input_tokens=100,
+        distil_input_tokens=50,
+        path=p,
+    )
+    monkeypatch.setattr(ledger_mod, "default_path", lambda: p)
+    led = _paired_ledger(tmp_path, 60, ab_changes=6)
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
+    assert cli.cmd_leaderboard(argparse.Namespace(badge=False, json=True, html=None)) == 0
+    d = json.loads(capsys.readouterr().out)
+    lo, hi = d["decision_equivalence_ci"]
+    assert 0.0 <= lo <= d["decision_equivalence"] <= hi <= 1.5
+    assert d["decision_equivalence_estimator"] == "paired"
+    assert d["shadow_samples"] == 60
+
+
 def test_cmd_shadow_stats_json(monkeypatch, capsys) -> None:
     from distil import shadow as shadow_mod
 

@@ -257,10 +257,17 @@ class Equivalence:
     diff: float | None
     diff_ci: tuple[float, float] | None
     estimator: str  # "paired" | "legacy-unpaired"
+    n_paired: int = 0
 
     @property
     def below_floor(self) -> bool:
-        return self.n_ab < VERDICT_MIN_AB or self.n_aa < VERDICT_MIN_AA
+        if self.n_ab < VERDICT_MIN_AB or self.n_aa < VERDICT_MIN_AA:
+            return True
+        # A PAIRED verdict has to clear the floor on the paired pool itself. The arm
+        # totals also count legacy unpaired rows (``--all``, or a window spanning a
+        # DISTIL_SHADOW_PAIRED=0 stretch), so 50 legacy A/B rows plus one paired row
+        # would otherwise publish a difference and an interval computed from n=1.
+        return self.estimator == "paired" and self.n_paired < VERDICT_MIN_AB
 
     @property
     def pct(self) -> float | None:
@@ -284,7 +291,10 @@ class Equivalence:
     def line(self) -> str:
         """One honest sentence — the number with its interval and n, or why not."""
         if self.below_floor:
-            return floor_note(self.n_ab, self.n_aa)
+            note = floor_note(self.n_ab, self.n_aa)
+            if self.estimator == "paired" and self.n_paired < VERDICT_MIN_AB <= self.n_ab:
+                note += f" — only {self.n_paired} of them paired"
+            return note
         pct, ci = self.pct, self.pct_ci
         if pct is None:
             return floor_note(self.n_ab, self.n_aa)
@@ -865,6 +875,7 @@ class ShadowLedger:
             diff=(sum(diffs) / len(diffs)) if diffs else None,
             diff_ci=bootstrap_ci(diffs) if diffs else None,
             estimator="paired" if diffs else "legacy-unpaired",
+            n_paired=len(diffs),
         )
 
     def cost(self) -> CostDelta | None:

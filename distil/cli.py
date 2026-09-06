@@ -229,8 +229,11 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             # report the PAIRED estimate — consistent with every other surface.
             eq = ShadowLedger.load(current_only=True).equivalence()
             if eq.pct is not None:
+                # A FRACTION, and so is its interval — `decision_equivalence` has
+                # always been 0..1 here, and shipping the bound in percent next to it
+                # would read as a 100x disagreement to anything that plots the two.
                 d["decision_equivalence"] = eq.pct / 100.0
-                d["decision_equivalence_ci"] = list(eq.pct_ci or ())
+                d["decision_equivalence_ci"] = [b / 100.0 for b in (eq.pct_ci or ())]
                 d["decision_equivalence_estimator"] = eq.estimator
                 d["shadow_samples"] = eq.n_ab
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
@@ -1480,6 +1483,14 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
         # read as three different verdicts depending on where you looked.
         print(f"  {smp} — collecting; {floor_note(eqv.n_ab, eqv.n_aa)}")
         print("  keep using your agent; the rate appears once there's real evidence.")
+        if led.identical:
+            # The operational answer to "why is my A/B count stuck": compression that
+            # changes no bytes is an A/A sample, and lossless-only traffic is mostly
+            # that. Nothing is wrong; there is simply nothing to compare.
+            print(
+                f"  {led.identical} of them changed no bytes at all and count toward"
+                " the A/A arm only."
+            )
         _print_shadow_sampling(_ctrs)
         return 0
     print(f"  shadowed requests : {eqv.n_ab}")

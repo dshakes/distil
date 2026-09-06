@@ -903,6 +903,27 @@ def test_equivalence_is_silent_below_the_reporting_floor(tmp_path):
     assert eq.p_ab == 1.0 and eq.p_ab_ci is not None
 
 
+def test_a_paired_verdict_needs_a_paired_sample_not_a_padded_total(tmp_path):
+    """Legacy rows count toward the arm totals. Without a floor on the paired pool
+    itself, 50 unpaired A/B rows plus ONE paired row would publish a difference and
+    an interval computed from n=1."""
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
+
+    led = ShadowLedger()
+    p = tmp_path / "shadow.jsonl"
+    for _ in range(VERDICT_MIN_AB):
+        led.record(True, path=p)
+    for _ in range(VERDICT_MIN_AA):
+        led.record(True, kind="aa", path=p)
+    led.record(False, kind="paired", evidence={"aa_equal": True}, path=p)
+
+    eq = led.equivalence()
+    assert eq.estimator == "paired" and eq.n_paired == 1
+    assert eq.n_ab > VERDICT_MIN_AB and eq.n_aa > VERDICT_MIN_AA
+    assert eq.below_floor and eq.pct is None
+    assert "only 1 of them paired" in eq.line()
+
+
 def test_legacy_unpaired_rows_are_labelled_as_such(tmp_path):
     led = ShadowLedger()
     p = tmp_path / "shadow.jsonl"

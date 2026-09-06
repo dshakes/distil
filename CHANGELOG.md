@@ -68,6 +68,11 @@ the floor, because a thin sample is usually a replay that is failing.
   pinned and `shadow-stats` prints what share of the sample ran hot, and why the A/A
   arm is what absorbs it.
 
+One consequence worth knowing: on lossless-only traffic, where compression often
+changes no bytes at all, those samples now count toward the A/A arm only — so the A/B
+floor takes longer to clear, and `shadow-stats` says how many samples that was. The
+surfaces stay blank meanwhile. That is the honest state, not a regression.
+
 ### Output-token accounting
 
 The paired replays already return both responses, so the provider's own usage is free
