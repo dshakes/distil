@@ -183,6 +183,42 @@
       <strong>Field note — read the numbers honestly (2026).</strong> Headroom's headline is <em>60–95% (JSON) / 15–20% (coding)</em>, but its own published production telemetry shows a <strong>fleet-median compression of ~4.8%</strong> — the big ratios are best-case content, not what a typical agent session gets. Its accuracy claims (GSM8K, BFCL) are cited in the README but <strong>not reproduced on its own benchmarks page</strong>. And correctness is verified <strong>offline only</strong> (benchmark regression + Rust↔Python byte-parity) — there is no per-request check that the compressed request yields the same decision at runtime. Distil's wedge is exactly there: a <strong>live decision-equivalence gate on every request</strong>, savings <strong>calibrated to your billed usage</strong>, and a <strong>pure-Python install</strong> (Headroom's Rust core is mandatory — a missing native extension hard-exits). Where Headroom is genuinely strong: a real shipped model (Kompress-v2, ModernBERT/ONNX), prefix-freeze cache economics, its SmartCrusher JSON folder, and its multi-language CodeCompressor — all four Distil matches (learned salience; cache-aware compression; a <strong>reversible nested-JSON fold with constant-column collapse</strong>, ~62% on enum-heavy tool output; a <strong>zero-dependency code skeleton</strong> across JS/TS/Go/Rust/Java/C, ~44% on a TS file) without giving up the runtime proof its crusher can't offer — and Distil's code skeleton needs <em>no</em> native grammar, where a tree-sitter core would be one more mandatory native extension.
     </div>
 
+    <div class="callout" id="headroom-v0370-audit" style="border-color:#2a2550">
+      <strong>Headroom v0.37.0 — verified, as of v0.37.0, 2026-09-04.</strong> Read directly against the public <code>headroom-ai</code> 0.37.0 source (Apache-2.0); each line cites the file:line in that release so it can be checked against the tag.
+      <ul style="margin:10px 0 0 20px;padding:0">
+        <li><strong>No per-request behavioural check.</strong> There's no shadow or dual-send path anywhere in the codebase. <code>accuracy_guard="strict"</code> is echoed back on <code>/healthz</code> and <code>/stats</code> (<code>server.py:3341,4686</code>) but nothing branches on its value — setting it changes nothing.</li>
+        <li><strong>Reversibility is a TTL cache, not a certificate.</strong> The retrieval store (<code>CompressionStore</code>, SQLite-backed) expires entries after 1800 seconds with a 1000-entry FIFO cap, and performs no integrity or round-trip check on what it hands back.</li>
+        <li><strong>Lossy compression runs with no retrieval tool on four paths</strong>: OpenAI chat streaming (<code>openai.py:1205</code>), the Responses API under ChatGPT auth, Gemini streaming (<code>gemini.py:682</code>), and Bedrock, which has no retrieval path at all. Content removed on those paths is not recoverable.</li>
+        <li><strong>Savings are uncalibrated.</strong> The reported number falls back to <code>chars/3.5</code> (<code>prefix_tracker.py:1195-1252</code>) rather than a count reconciled against the provider's billed <code>usage.*</code>.</li>
+        <li><strong>The shipped default bypasses compression.</strong> Default mode <code>cache</code> (<code>server.py:5535</code>) is a full bypass of compression on Bedrock and freeze-only (no compression) on OpenAI.</li>
+        <li><strong>The one blocking CI eval doesn't check what it claims to.</strong> <code>compression_only.py:66</code>'s docstring claims a byte-exact round-trip; the assertion at <code>:112-114</code> is a case-insensitive substring scan.</li>
+        <li><strong>Genuinely strong: prompt-cache preservation.</strong> <code>overlay_cached_prefix</code> (<code>prefix_tracker.py:456-463</code>) replays previously-forwarded bytes with conversation-lineage scoping — real engineering, unlike the no-op <code>CacheAligner</code> stage next to it. Breadth is real too: 20 wrap targets and 6 framework integrations shipped.</li>
+      </ul>
+    </div>
+
+    <h2 id="headroom-fresh">Fresh head-to-head, 2026-09-04</h2>
+    <p>Re-run against <code>headroom-ai</code> 0.37.0 (<code>[ml,code]</code> extras), <code>llmlingua</code> 0.2.2, distil 1.51.1 (<code>main</code>), Python 3.12. Raw output and a versions note are committed at <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/2026-09-04"><code>benchmarks/results/2026-09-04/</code></a>.</p>
+
+    <table>
+      <thead><tr><th scope="col"><code>distil benchmark</code> corpus (9 domains, warm)</th><th scope="col">tokens</th><th scope="col">$</th><th scope="col">decision-equiv</th><th scope="col">gate</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">distil-causal</th><td>52.9%</td><td>58.7%</td><td>100%</td><td><span class="badge-pass">✔ PASS</span></td></tr>
+        <tr><th scope="row">Headroom</th><td>1.7%</td><td>2.0%</td><td>81%</td><td><span class="badge-fail">✘ FAIL</span></td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12.5px;color:#5b6177;">Warm run (Headroom's Kompress model preloaded before timing). A cold run instead shows a misleading Headroom 0.0% tokens / 100% PASS: its 274MB Kompress model loads in a background thread and fails open while loading, so the first requests pass through completely uncompressed and trivially "pass" the decision-equivalence check. Preload before comparing, or the cold number understates what it does and overstates its equivalence rate.</p>
+
+    <table>
+      <thead><tr><th scope="col">codebench (read&rarr;edit&rarr;reread, 20 sessions)</th><th scope="col">tokens</th><th scope="col">$ (cache-aware)</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Headroom 0.37.0</th><td>35.6%</td><td>+4.9%</td></tr>
+        <tr><th scope="row">distil digest (PAYG)</th><td>0.0%<sup>*</sup></td><td>0.0%<sup>*</sup></td></tr>
+        <tr><th scope="row">distil cache-delta</th><td>34.9%</td><td>43.8%</td></tr>
+        <tr><th scope="row">distil verbatim</th><td>18.5%</td><td>3.7%</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12.5px;color:#5b6177;">*By design, not a regression: this workload is read &rarr; edit &rarr; re-read, and once the agent has quoted a Read/Grep/Glob result byte-exact, that provenance is exempted from digest for the rest of the session — the exact-quote guarantee an <code>Edit</code> depends on. Headroom's own number here is a real improvement over the <a href="benchmark.html#coding-agent">June measurement</a> below: it moved from a net cost increase to a net decrease on a newer, non-ML code path, 2.4&times; faster per turn. That older benchmark.html table predates this re-run and is flagged stale in <a href="https://github.com/dshakes/distil/blob/main/docs/claims.json"><code>docs/claims.json</code></a> pending its own refresh.</p>
+
     <hr/>
 
     <h2 id="e8-outcomes">Real task success — SWE-bench Verified, official harness</h2>

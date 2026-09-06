@@ -84,15 +84,12 @@
     },
     {
       "id": "w-shadow-sample",
-      "status": "wrong",
-      "page": [
-        "getting-started.html",
-        "faq.html"
-      ],
+      "status": "verified",
+      "page": ["getting-started.html", "faq.html"],
       "anchor": null,
-      "snippet": "1.13.0 / 116 sampled requests",
-      "claim": "\"Live result: production validation (1.13.0 / 116 sampled requests) ... 100% of requests ... A/A self-agreement of 31/31\" is currently wrong: the 1.51.1 changelog (d1d92aa) found that shadow sample was biased by signed-thinking-block replays silently dying, inflating every live number it produced.",
-      "note": "VALUE NOT CHANGED IN THIS PR. Needs restating with SIG_VERSION 4 numbers once a clean re-sample exists \u2014 tracked as a separate fix, out of scope for docs/site-accuracy-and-ux."
+      "snippet": "44 A/B and 11 A/A samples",
+      "claim": "The withdrawn 1.13.0 number (100% over 116 sampled requests, A/A 31/31) is replaced with the honest current reading: live shadow build 1.51.1, lossless-only, 44 A/B + 11 A/A samples; raw agreement 81.8% [67.3, 91.8]; self-agreement 84.8% [71.8, 92.4] over 46 byte-identical replays; p=0.63; 32 of 44 A/B samples had zero bytes changed. Below the 50/30 reporting floor — not yet a verdict.",
+      "note": "Resolved (was 'wrong'). Backed by benchmarks/results/shadow-live-2026-09-04.json (content-free summary of ~/.distil/shadow.jsonl, SIG_VERSION 4, post-1.51.1 thinking-block fix). See CHANGELOG.md 1.51.1 for why the prior number was withdrawn; the ratio estimator itself is tracked for a paired-design replacement in 1.53.0."
     },
     {
       "id": "u-cache-hero-example",
@@ -183,6 +180,24 @@
       "snippet": "tokens provably free to drop: 615",
       "claim": "Step-2 \"Discover\" example output (doc-0/doc-1 PRUNE, obs-0/obs-1/system keep, 615 tokens free to drop) is illustrative sample output with no named input trajectory.",
       "note": "Demonstrates the DERC mechanism; not presented as a benchmark result."
+    },
+    {
+      "id": "v-compare-headroom-audit",
+      "status": "verified",
+      "page": "compare.html",
+      "anchor": "headroom-v0370-audit",
+      "snippet": "as of v0.37.0, 2026-09-04",
+      "claim": "Headroom v0.37.0 facts, each cited to file:line in the public headroom-ai 0.37.0 source: no per-request behavioural check (accuracy_guard=\"strict\" echoed on /healthz,/stats server.py:3341,4686 but branched on by nothing); reversibility is a TTL-cache CompressionStore (SQLite, 1800s TTL, 1000-entry FIFO cap, no integrity check); lossy compression with no retrieval tool on OpenAI chat streaming (openai.py:1205), Responses under ChatGPT auth, Gemini streaming (gemini.py:682), and Bedrock; savings fall back to chars/3.5 (prefix_tracker.py:1195-1252); shipped default mode `cache` (server.py:5535) bypasses compression on Bedrock and is freeze-only on OpenAI; the one blocking CI eval does a substring scan (compression_only.py:112-114) despite a byte-exact docstring (:66); genuinely strong prompt-cache replay via overlay_cached_prefix (prefix_tracker.py:456-463).",
+      "note": "Independent source read, 2026-09-04, against the tagged headroom-ai 0.37.0 release; see the accuracy-audit reports carried into this PR."
+    },
+    {
+      "id": "v-compare-fresh-headtohead",
+      "status": "verified",
+      "page": "compare.html",
+      "anchor": "headroom-fresh",
+      "snippet": "Fresh head-to-head, 2026-09-04",
+      "claim": "distil benchmark corpus (warm): distil-causal 52.9% tok / 58.7% $ / 100% decision-equiv / PASS vs Headroom 1.7% / 2.0% / 81% / FAIL (cold run shows a false 0.0%/100% PASS from Kompress loading fail-open). codebench read-edit-reread: Headroom 0.37.0 35.6% tok / +4.9% $; distil digest 0.0% by design (exact-quote guarantee); distil cache-delta 34.9% / 43.8%; distil verbatim 18.5% / 3.7%.",
+      "note": "Raw outputs committed at benchmarks/results/2026-09-04/ (distil 1.51.1 main, headroom-ai 0.37.0 [ml,code], llmlingua 0.2.2, py3.12); see benchmarks/results/2026-09-04/README.md for exact commands."
     },
     {
       "id": "u-learn-compression-calculator",

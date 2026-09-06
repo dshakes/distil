@@ -1,0 +1,36 @@
+Native content detection requires ONNX Runtime 1.24+; using pure-Python detection for this process.
+Kompress model not ready; requests will not be compressed. Check HuggingFace connectivity or pre-download: headroom-ai[ml] + first-run warmup.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/134 [00:00<?, ?it/s]Loading weights: 100%|██████████| 134/134 [00:00<00:00, 8827.89it/s]
+[transformers] [1mModernBertModel LOAD REPORT[0m from: answerdotai/ModernBERT-base
+Key               | Status     |  | 
+------------------+------------+--+-
+decoder.bias      | UNEXPECTED |  | 
+head.norm.weight  | UNEXPECTED |  | 
+head.dense.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 29343.39it/s]
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (782 > 512). Running this sequence through the model will result in indexing errors
+compression benchmark  (model=claude-opus-4-8, runner=deterministic, corpus gate)
+
+technique                tok save  $ save  equiv  certified  reversible
+---------------------------------------------------------------------------------
+distil-causal               52.9%   58.7%   100%     ✔ PASS       lossy
+LLMLingua-2                 56.7%   56.5%     0%    ✘ fails       lossy
+truncate-tail               44.2%   51.6%    31%    ✘ fails       lossy
+distil-lossless             34.1%   39.8%   100%     ✔ PASS  byte-exact
+distil-stream               34.1%   39.8%   100%     ✔ PASS       lossy
+distil-safe                 34.1%   39.8%   100%     ✔ PASS  byte-exact
+summarize                   12.0%   14.0%    22%    ✘ fails       lossy
+extractive-prune             4.9%    5.8%    75%    ✘ fails       lossy
+baseline (no compression)     0.0%    0.0%   100%     ✔ PASS  byte-exact
+minify-all                   0.0%    0.0%   100%     ✔ PASS  byte-exact
+Headroom                     0.0%    0.0%   100%     ✔ PASS       lossy
+---------------------------------------------------------------------------------
+
+LEADER (certified $ savings): distil-causal — 58.7% cheaper, 52.9% fewer tokens, 100% decision-equivalent.
+note: LLMLingua-2 removes more raw tokens (56.7%) but FAILS the decision-equivalence gate (0% equiv) — disqualified. Raw token savings is not savings if it changes the answer.
+
+Every technique scored on the same corpus, gate, and cache-aware cost model. Plug a real tool in with --external module:function to verify.
