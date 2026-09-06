@@ -103,6 +103,12 @@
     <p class="lead">Every notable change to Distil, newest first — generated from <a href="https://github.com/dshakes/distil/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a>, so this page can never drift from the source of truth.</p>
 
 <section class="changelog-entry">
+<h2 id="vUnreleased">Unreleased</h2>
+<p>Provider parity across all three servers. The Responses API was compressed by the sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat Completions was injected with Anthropic's expand-tool schema, which that provider rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted them; Azure OpenAI's paths matched nothing anywhere. The <code>aider</code> and <code>grok</code> wrap presets set environment variables those tools never read, so both routed nothing while reporting success.</p>
+<p>The gateway no longer emits a digest stub it cannot restore. It injects no <code>distil_expand</code> tool and runs no expand loop, so Tier-1 there was irreversibly lossy on every pay-as-you-go session — the marker named a recovery that did not exist. It is Tier-0 only until it grows the expand loop, which lowers its savings on unstructured content and makes what it does report honest.</p>
+</section>
+
+<section class="changelog-entry">
 <h2 id="v1-51-1">1.51.1 — shadow mode was measuring the wrong subset of your traffic</h2>
 <p>Every shadow replay carrying a prior-turn <code>thinking</code> block failed with <code>400 Invalid signature in thinking block</code>. A thinking block is signed and bound to the request that produced it, so replaying that conversation as a <em>new</em> request makes the provider re-validate a signature that cannot be valid. Verified live, including the workaround that does not work: the signature is checked even when the replay itself sets <code>thinking</code> off.</p>
 <p>Claude Code runs extended thinking <strong>by default</strong>, so most turns of a real session carry these blocks. Shadow could therefore only sample the minority of turns that had none — which did not merely shrink the sample, it <strong>biased</strong> it. Every decision-equivalence rate distil has published from live traffic was computed over whichever turns happened to be thinking-free, and the A/A control never reached its own n=30 reporting floor. Measured before this fix: 594 of 1,571 replays failed, ~94% of them 400s.</p>
