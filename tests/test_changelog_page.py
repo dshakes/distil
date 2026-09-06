@@ -166,12 +166,63 @@ def test_href_rejects_attribute_breakout_and_dangerous_schemes():
     assert "<a href" not in js, js
 
     # legitimate link forms actually used in CHANGELOG.md must still work
-    assert mod._inline("[docs/CACHE.md](docs/CACHE.md)") == (
-        '<a href="docs/CACHE.md">docs/CACHE.md</a>'
-    )
+    # (docs/CACHE.md is rewritten to cache.html -- see test below)
     assert mod._inline("[semver.org](https://semver.org/)") == (
         '<a href="https://semver.org/">semver.org</a>'
     )
+
+
+def test_repo_root_relative_links_are_rewritten():
+    """CHANGELOG.md's links are repo-root-relative (how GitHub renders it:
+    `docs/CACHE.md`, `CHANGELOG.md`, ...), but docs/changelog.html lives
+    *inside* docs/ -- a raw `docs/CACHE.md` href would resolve to the
+    nonexistent docs/docs/CACHE.md (this was live on #161)."""
+    mod = _load_builder()
+
+    # docs/<x>.md with a site page -> that page, dropping the docs/ prefix.
+    # (docs/cache.html exists in a different case than docs/CACHE.md's stem --
+    # the real on-disk name must win, or this 404s on case-sensitive hosting.)
+    assert mod._inline("[docs/CACHE.md](docs/CACHE.md)") == (
+        '<a href="cache.html">docs/CACHE.md</a>'
+    )
+    # docs/<x>.md with no site page -> the GitHub source, not a dead link.
+    assert mod._inline("[docs/ENTERPRISE.md](docs/ENTERPRISE.md)") == (
+        '<a href="https://github.com/dshakes/distil/blob/main/docs/ENTERPRISE.md">'
+        "docs/ENTERPRISE.md</a>"
+    )
+    # docs/<subdir>/<x>.md with no site page (the ADRs).
+    assert mod._inline("[the ADR](docs/adr/0005-x.md)") == (
+        '<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0005-x.md">the ADR</a>'
+    )
+    # docs/<x>.html is already a site page -- just drop the redundant prefix.
+    assert mod._inline("[cache docs](docs/cache.html)") == '<a href="cache.html">cache docs</a>'
+    # any other repo-root-relative path -> the GitHub source, verbatim.
+    assert mod._inline("[changelog](CHANGELOG.md)") == (
+        '<a href="https://github.com/dshakes/distil/blob/main/CHANGELOG.md">changelog</a>'
+    )
+    # #anchors and absolute URLs are untouched.
+    assert mod._inline("[jump](#v1-13-0)") == '<a href="#v1-13-0">jump</a>'
+
+
+def test_no_docs_relative_hrefs_survive_and_html_links_resolve():
+    """Page-wide check: nothing on the rendered page should still point at a
+    `docs/`-relative path (the exact bug class above), and every relative
+    `.html` href must exist in docs/ -- a rewritten link to a page that was
+    never built is just as broken as the original bug."""
+    mod = _load_builder()
+    page = mod.build()
+    hrefs = re.findall(r'<a\b[^>]*\bhref="([^"]+)"', page)
+    assert hrefs, "no <a href> found on the page"
+
+    bad_prefix = [h for h in hrefs if h.startswith("docs/")]
+    assert not bad_prefix, f"un-rewritten docs/-relative hrefs: {bad_prefix}"
+
+    missing = [
+        h
+        for h in hrefs
+        if h.endswith(".html") and "://" not in h and not (_ROOT / "docs" / h).is_file()
+    ]
+    assert not missing, f"relative .html hrefs with no matching page: {missing}"
 
 
 def test_indented_code_block_renders_as_pre_code():

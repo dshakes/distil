@@ -31,7 +31,21 @@ import site_nav  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CHANGELOG = _ROOT / "CHANGELOG.md"
-_OUT = _ROOT / "docs" / "changelog.html"
+_DOCS = _ROOT / "docs"
+_OUT = _DOCS / "changelog.html"
+_GITHUB_BLOB = "https://github.com/dshakes/distil/blob/main/"
+# Lookup keyed by lowercased path -> real on-disk name. Built from a directory
+# listing (not `Path.is_file()`): this repo has both docs/CACHE.md and
+# docs/cache.html (different case), and a case-insensitive dev filesystem (the
+# macOS/Windows default) would report docs/CACHE.html as existing -- and emit
+# that wrong-case href -- when only docs/cache.html actually exists. GitHub
+# Pages serves from a case-sensitive Linux filesystem, so a wrong-case href
+# 404s in production while looking fine locally.
+_DOCS_HTML_BY_LOWER = (
+    {str(p.relative_to(_DOCS)).lower(): str(p.relative_to(_DOCS)) for p in _DOCS.rglob("*.html")}
+    if _DOCS.is_dir()
+    else {}
+)
 
 _VERSION_RE = re.compile(r"^## \[([^\]]+)\](?: — (.*))?\s*$")
 _H3_RE = re.compile(r"^### (.*)$")
@@ -42,12 +56,43 @@ _URI_SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
 _SAFE_URI_SCHEMES = {"http", "https", "mailto"}
 
 
+def _rewrite_repo_link(href: str) -> str:
+    """CHANGELOG.md's relative links are repo-root-relative, the way GitHub
+    renders it (``docs/CACHE.md``, ``CHANGELOG.md``, ...) — but this page lives
+    *in* ``docs/``, so left alone a link like ``docs/CACHE.md`` resolves to the
+    nonexistent ``docs/docs/CACHE.md``.
+
+    - ``docs/<x>.html`` -> ``<x>.html``: already a site page, just drop the
+      now-redundant ``docs/`` prefix.
+    - ``docs/<x>.md`` -> ``<x>.html`` if that site page exists, else the
+      GitHub blob URL for the source markdown (most ``docs/*.md`` files, e.g.
+      the ADRs, have no rendered HTML counterpart).
+    - anything else repo-root-relative (``CHANGELOG.md``, ``distil/...``,
+      ``tests/...``) -> the GitHub blob URL, since nothing on the site can
+      serve it.
+
+    Absolute URLs, ``mailto:``, and bare ``#anchor`` fragments need no
+    rewriting and are returned unchanged.
+    """
+    if _URI_SCHEME_RE.match(href) or href.startswith("#"):
+        return href
+    if href.startswith("docs/"):
+        rest = href[len("docs/") :]
+        if rest.endswith(".html"):
+            return rest
+        if rest.endswith(".md"):
+            real = _DOCS_HTML_BY_LOWER.get(f"{rest[:-3]}.html".lower())
+            if real is not None:
+                return real
+    return _GITHUB_BLOB + href
+
+
 def _safe_href(url: str) -> str | None:
     """Reject dangerous URI schemes (``javascript:``, ``data:``, ...).
 
     A URL with no scheme at all — every relative path, ``#anchor``, ``./x``,
-    ``/x``, and the bare ``docs/x.md`` links CHANGELOG.md actually uses — is
-    left alone rather than rejected.
+    ``/x``, and the rewritten (see `_rewrite_repo_link`) site-relative links —
+    is left alone rather than rejected.
     """
     m = _URI_SCHEME_RE.match(url)
     if m is None:
@@ -135,7 +180,7 @@ def _inline(text: str) -> str:
             m = _LINK_RE.match(text, i)
             if m:
                 inner = _inline(m.group(1))
-                href = _safe_href(m.group(2).strip())
+                href = _safe_href(_rewrite_repo_link(m.group(2).strip()))
                 out.append(
                     f'<a href="{html.escape(href, quote=True)}">{inner}</a>'
                     if href is not None
