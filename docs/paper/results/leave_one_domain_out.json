@@ -1,0 +1,328 @@
+{
+  "summary": {
+    "reference": "full",
+    "candidate": "distil_gated",
+    "delta": 0.05,
+    "n": 500,
+    "divergence": {
+      "pooled_risk": 0.144,
+      "domains": 12,
+      "domains_held": 8,
+      "coverage": 0.6667,
+      "coverage_n10": 0.5556,
+      "domains_n10": 9,
+      "worst_domain": "xarray",
+      "worst_realized": 0.2727,
+      "spread": 0.2727,
+      "mean_exchangeable_coverage": 0.7271,
+      "dispersion": 1.3721,
+      "dispersion_pvalue": 0.4273,
+      "permutation_reps": 2000
+    },
+    "harm": {
+      "pooled_risk": 0.084,
+      "domains": 12,
+      "domains_held": 8,
+      "coverage": 0.6667,
+      "coverage_n10": 0.5556,
+      "domains_n10": 9,
+      "worst_domain": "sphinx",
+      "worst_realized": 0.1364,
+      "spread": 0.1364,
+      "mean_exchangeable_coverage": 0.761,
+      "dispersion": 0.5402,
+      "dispersion_pvalue": 0.7436,
+      "permutation_reps": 2000
+    }
+  },
+  "domains": [
+    {
+      "domain": "django",
+      "n_calib": 269,
+      "n_test": 231,
+      "mean_turns": 27.4,
+      "divergence": {
+        "calib_risk": 0.1561,
+        "certified_bound": 0.2084,
+        "realized_risk": 0.1299,
+        "held": true,
+        "exchangeable_coverage": 0.944,
+        "shift_pvalue": 0.8241,
+        "detectable_at_05": 0.1732
+      },
+      "harm": {
+        "calib_risk": 0.0967,
+        "certified_bound": 0.1412,
+        "realized_risk": 0.0693,
+        "held": true,
+        "exchangeable_coverage": 0.944,
+        "shift_pvalue": 0.8986,
+        "detectable_at_05": 0.1082
+      }
+    },
+    {
+      "domain": "sympy",
+      "n_calib": 425,
+      "n_test": 75,
+      "mean_turns": 27.0,
+      "divergence": {
+        "calib_risk": 0.1482,
+        "certified_bound": 0.1881,
+        "realized_risk": 0.12,
+        "held": true,
+        "exchangeable_coverage": 0.8385,
+        "shift_pvalue": 0.7846,
+        "detectable_at_05": 0.2133
+      },
+      "harm": {
+        "calib_risk": 0.0824,
+        "certified_bound": 0.1147,
+        "realized_risk": 0.0933,
+        "held": true,
+        "exchangeable_coverage": 0.8505,
+        "shift_pvalue": 0.4363,
+        "detectable_at_05": 0.1333
+      }
+    },
+    {
+      "domain": "sphinx",
+      "n_calib": 456,
+      "n_test": 44,
+      "mean_turns": 26.0,
+      "divergence": {
+        "calib_risk": 0.1404,
+        "certified_bound": 0.178,
+        "realized_risk": 0.1818,
+        "held": false,
+        "exchangeable_coverage": 0.694,
+        "shift_pvalue": 0.3063,
+        "detectable_at_05": 0.2273
+      },
+      "harm": {
+        "calib_risk": 0.0789,
+        "certified_bound": 0.1096,
+        "realized_risk": 0.1364,
+        "held": false,
+        "exchangeable_coverage": 0.691,
+        "shift_pvalue": 0.1464,
+        "detectable_at_05": 0.1591
+      }
+    },
+    {
+      "domain": "matplotlib",
+      "n_calib": 466,
+      "n_test": 34,
+      "mean_turns": 26.4,
+      "divergence": {
+        "calib_risk": 0.1438,
+        "certified_bound": 0.1813,
+        "realized_risk": 0.1471,
+        "held": true,
+        "exchangeable_coverage": 0.792,
+        "shift_pvalue": 0.5722,
+        "detectable_at_05": 0.2353
+      },
+      "harm": {
+        "calib_risk": 0.0858,
+        "certified_bound": 0.117,
+        "realized_risk": 0.0588,
+        "held": true,
+        "exchangeable_coverage": 0.662,
+        "shift_pvalue": 0.8056,
+        "detectable_at_05": 0.1765
+      }
+    },
+    {
+      "domain": "scikit-learn",
+      "n_calib": 468,
+      "n_test": 32,
+      "mean_turns": 28.4,
+      "divergence": {
+        "calib_risk": 0.1368,
+        "certified_bound": 0.1736,
+        "realized_risk": 0.25,
+        "held": false,
+        "exchangeable_coverage": 0.69,
+        "shift_pvalue": 0.0715,
+        "detectable_at_05": 0.25
+      },
+      "harm": {
+        "calib_risk": 0.0812,
+        "certified_bound": 0.1117,
+        "realized_risk": 0.125,
+        "held": false,
+        "exchangeable_coverage": 0.7065,
+        "shift_pvalue": 0.2939,
+        "detectable_at_05": 0.1562
+      }
+    },
+    {
+      "domain": "astropy",
+      "n_calib": 478,
+      "n_test": 22,
+      "mean_turns": 24.9,
+      "divergence": {
+        "calib_risk": 0.1423,
+        "certified_bound": 0.1791,
+        "realized_risk": 0.1818,
+        "held": false,
+        "exchangeable_coverage": 0.6195,
+        "shift_pvalue": 0.3808,
+        "detectable_at_05": 0.2727
+      },
+      "harm": {
+        "calib_risk": 0.0816,
+        "certified_bound": 0.1118,
+        "realized_risk": 0.1364,
+        "held": false,
+        "exchangeable_coverage": 0.716,
+        "shift_pvalue": 0.2844,
+        "detectable_at_05": 0.1818
+      }
+    },
+    {
+      "domain": "xarray",
+      "n_calib": 478,
+      "n_test": 22,
+      "mean_turns": 25.0,
+      "divergence": {
+        "calib_risk": 0.1381,
+        "certified_bound": 0.1746,
+        "realized_risk": 0.2727,
+        "held": false,
+        "exchangeable_coverage": 0.597,
+        "shift_pvalue": 0.0785,
+        "detectable_at_05": 0.2727
+      },
+      "harm": {
+        "calib_risk": 0.0816,
+        "certified_bound": 0.1118,
+        "realized_risk": 0.1364,
+        "held": false,
+        "exchangeable_coverage": 0.73,
+        "shift_pvalue": 0.2704,
+        "detectable_at_05": 0.1818
+      }
+    },
+    {
+      "domain": "pytest",
+      "n_calib": 481,
+      "n_test": 19,
+      "mean_turns": 21.3,
+      "divergence": {
+        "calib_risk": 0.1455,
+        "certified_bound": 0.1826,
+        "realized_risk": 0.1053,
+        "held": true,
+        "exchangeable_coverage": 0.7345,
+        "shift_pvalue": 0.7921,
+        "detectable_at_05": 0.2632
+      },
+      "harm": {
+        "calib_risk": 0.0852,
+        "certified_bound": 0.1158,
+        "realized_risk": 0.0526,
+        "held": true,
+        "exchangeable_coverage": 0.7735,
+        "shift_pvalue": 0.8296,
+        "detectable_at_05": 0.2105
+      }
+    },
+    {
+      "domain": "pylint",
+      "n_calib": 490,
+      "n_test": 10,
+      "mean_turns": 30,
+      "divergence": {
+        "calib_risk": 0.1469,
+        "certified_bound": 0.1837,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.5665,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 0.3
+      },
+      "harm": {
+        "calib_risk": 0.0857,
+        "certified_bound": 0.116,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.8075,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 0.2
+      }
+    },
+    {
+      "domain": "requests",
+      "n_calib": 492,
+      "n_test": 8,
+      "mean_turns": 24.5,
+      "divergence": {
+        "calib_risk": 0.1463,
+        "certified_bound": 0.183,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.667,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 0.375
+      },
+      "harm": {
+        "calib_risk": 0.0854,
+        "certified_bound": 0.1156,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.505,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 0.25
+      }
+    },
+    {
+      "domain": "seaborn",
+      "n_calib": 498,
+      "n_test": 2,
+      "mean_turns": 30,
+      "divergence": {
+        "calib_risk": 0.1446,
+        "certified_bound": 0.1808,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.7175,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 0.5
+      },
+      "harm": {
+        "calib_risk": 0.0843,
+        "certified_bound": 0.1142,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.824,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 0.5
+      }
+    },
+    {
+      "domain": "flask",
+      "n_calib": 499,
+      "n_test": 1,
+      "mean_turns": 30,
+      "divergence": {
+        "calib_risk": 0.1443,
+        "certified_bound": 0.1805,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.8645,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 1.0
+      },
+      "harm": {
+        "calib_risk": 0.0842,
+        "certified_bound": 0.114,
+        "realized_risk": 0.0,
+        "held": true,
+        "exchangeable_coverage": 0.9225,
+        "shift_pvalue": 1.0,
+        "detectable_at_05": 1.0
+      }
+    }
+  ]
+}

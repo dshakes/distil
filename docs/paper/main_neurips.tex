@@ -106,6 +106,20 @@
   \newcommand{\sweEeightGatedVsExpandP}{--}%
   \newcommand{\sweEeightTotalCost}{--}}
 
+% E3 leave-one-domain-out macros (benchmarks/leave_one_domain_out.py ->
+% report_to_latex.py --only loo loomacros). Fallbacks are the committed numbers.
+\newcommand{\LooN}{500}          \newcommand{\LooDomains}{12}
+\newcommand{\LooCandidate}{\texttt{distil\_gated}} \newcommand{\LooDelta}{0.05}
+\newcommand{\LooPooled}{14.4\%}  \newcommand{\LooHeld}{8}
+\newcommand{\LooCoverage}{66.7\%} \newcommand{\LooExchCoverage}{72.7\%}
+\newcommand{\LooWorstDomain}{\texttt{xarray}} \newcommand{\LooWorstRisk}{27.3\%}
+\newcommand{\LooDispP}{0.43}     \newcommand{\LooMinP}{0.07}
+\newcommand{\LooReps}{2000}
+\newcommand{\LooHarmPooled}{8.4\%} \newcommand{\LooHarmCoverage}{66.7\%}
+\newcommand{\LooHarmExchCoverage}{76.1\%} \newcommand{\LooHarmDispP}{0.74}
+\IfFileExists{generated/loomacros.tex}{\input{generated/loomacros.tex}}{}
+\newcommand{\PendingTODO}{\textcolor{distilred}{\textbf{[pending 1.52.0]}}}
+
 \definecolor{distilblue}{HTML}{2b6cb0}
 \definecolor{distilgreen}{HTML}{2f855a}
 \definecolor{distilred}{HTML}{c53030}
@@ -128,7 +142,9 @@ the same}. We reframe the objective from byte- or embedding-fidelity to
 action it would have on the uncompressed context. We make this objective \emph{certifiable}
 with a distribution-free, finite-sample guarantee via conformal risk control
 (Learn--Then--Test / CRC), the per-turn loss being a decision flip, and validate it
-out-of-sample on real SWE-bench traces (coverage $96.6\%$--$100\%$ at the $95\%$ target).
+out-of-sample on real SWE-bench traces (coverage $96.6\%$--$100\%$ at the $95\%$ target;
+the $15.7\%$ certified savings at $\alpha{=}0.15$ we quote throughout is measured on
+\emph{SWE-bench\_Lite edit-localization}, not a claim about agent workloads in general).
 Certifying a per-turn proxy is necessary but not sufficient: on a real end-to-end agent
 (SWE-bench Verified, official harness) we show---without hedging---that \emph{aggressive lossy}
 compression does not transfer to task success. The remedy is architectural: a
@@ -223,6 +239,30 @@ working set, compress the periphery) but operates on the \emph{re-sent request c
 rather than the KV cache, is \emph{reversible} (digested periphery is recoverable
 byte-exact on demand), and is selected \emph{under a decision-equivalence certificate}
 rather than a fixed heuristic.
+\paragraph{The 2026 agentic-compression literature.} Several 2026 results converge on what
+our E7--E8 find independently: compression benign on a static proxy is not benign inside an
+agent loop. \emph{Control Under Compression}~\cite{controlcompression} argues for
+degradation \emph{curves} over point estimates; \emph{Execution
+Instability}~\cite{execinstability} shows compressed agents fail non-monotonically on
+AppWorld; \emph{AGORA}~\cite{agora} names ``action-grammar destruction'', compression that
+keeps semantics while destroying the structure an agent parses to act---which is why our
+loss is defined on the decision, not the text; \emph{CompactionRL}~\cite{compactionrl}
+learns the compaction policy, complementary to certifying whichever policy results. Two
+papers target measurement: the compression paradox~\cite{compressionparadox} reports input
+savings repaid in \emph{output} tokens, a gap our input-side numbers share and do not close
+(\Cref{sec:todo}); a pre-registered production RCT~\cite{prodrct} argues offline corpora
+misestimate live savings, matching our own corpus-versus-live experience.
+CompressionAttack/COMA~\cite{coma} (ASE 2026) makes the compressor itself an attack
+surface; we have no adversarial evaluation and say so (\Cref{sec:todo}). \emph{Don't Break
+the Cache}~\cite{dontbreakcache} and \emph{The Pitfalls of KV Cache
+Compression}~\cite{kvpitfalls} (ACL 2026) isolate failures invisible to accuracy metrics---a
+compressor that rewrites earlier bytes voids the cache prefix, so token savings can coexist
+with a cost \emph{increase}. We hit that exact failure in production and fixed it in 1.45.0
+(\Cref{tab:provenance}). \emph{Provider-native compaction} (Anthropic
+\texttt{compact\_20260112}; OpenAI Responses \texttt{context\_management}) is now a
+first-party baseline: both summarize, neither publishes a fidelity guarantee, and both are
+simply further candidates the certificate can rank.
+
 \paragraph{Prompt caching} (e.g.\ LangChain Deep Agents~\cite{deepagents}) keeps a byte-stable
 static prefix cached across turns ($41$--$80\%$ cost cut; $-77\%$ on Haiku). It is
 \emph{complementary}, not a substitute: it discounts the stable prefix but never the volatile
@@ -379,6 +419,50 @@ held-out split, over 500 trajectory-level splits $\to$ empirical
 $\Pr(\text{realized}\le\alpha)$); \textbf{E3} leave-one-domain-out shift; \textbf{E4}
 downstream task success (trajectory keeps its outcome iff every decision is
 unchanged), vs.\ the uncompressed baseline with a bootstrap CI.
+
+\paragraph{Experiment provenance.} Every number in this paper is dated.
+\Cref{tab:provenance} gives the run date, the \texttt{distil} version each run executed
+against, the agent and model, the sample size, and the recorded API cost; dates and versions
+are recovered from the commit that first introduced each committed results artifact.
+E1--E14 ran against 0.24.0--1.8.0.dev0 in June--July 2026. Three later releases changed
+compression behaviour: \textbf{1.45.0} fixed a cache-monotonicity defect in the sliding
+recency window that had let a later turn rewrite an earlier turn's bytes and void the
+prompt-cache prefix, and \textbf{1.50.x}/\textbf{1.51.0} extended the digest to fold JSON
+arrays arriving wrapped in prose. All three raise realized compression on structured tool
+output without touching what the certificate measures --- the machinery of \Cref{sec:method}
+is compressor-agnostic --- but \textbf{the results here belong to the versions in
+\Cref{tab:provenance}} and a re-run is required before quoting them of any later release.
+Two baseline notes: LLMLingua-2 and LongLLMLingua were run for real (the \texttt{llmlingua}
+package, Apple-silicon MPS) and appear in E5, E7 and E8; they are absent from the E1
+frontier only because E1 sweeps \emph{distil's own ladder} at a fixed grader, with baselines
+belonging to the E5 head-to-head. And the E8 artifacts \textbf{do not record the Headroom
+package version}, so that comparison is against whatever release was installed on
+2026-06-26 and we cannot pin it; any re-run must record it.
+
+\begin{table}[t]
+\centering\small
+\caption{\textbf{Experiment provenance.} ``not recorded'' means the harness of the day wrote
+no cost field --- we do not reconstruct one. E3, E9 and E10 are offline re-analyses of
+already-collected outcomes.}
+\label{tab:provenance}
+\begin{tabular}{@{}llllrr@{}}
+\toprule
+experiment & date & \texttt{distil} & agent / model & $n$ & cost \\
+\midrule
+E1, E2, E4 (SWE-loc) & 2026-06-24 & 0.24.0 & grader \texttt{sonnet-4-6} & 300 & not rec. \\
+E1 ($\tau$-bench airline) & 2026-06-24 & 0.24.0 & grader \texttt{gpt-4o} & 25 & not rec. \\
+E5 (orig + shuffled) & 2026-06-24 & 0.24.0 & grader \texttt{sonnet-4-6} & 100 & not rec. \\
+E6 (op.-point sweep) & 2026-06-24 & 0.24.0 & grader \texttt{sonnet-4-6} & 100 & not rec. \\
+E7 (SWE-bench Verified) & 2026-06-25 & 0.24.0 & aider 0.86.2 / \texttt{sonnet-4-6} & 50 & \sweEsevenTotalCost \\
+E8 (long-horizon ReAct) & 2026-06-26 & 0.25.1 & ReAct / \texttt{claude-haiku-4-5} & 500 & \sweEeightTotalCost \\
+E9, E10 (traj.\ bound + cert.) & 2026-06-26 & 0.25.1 & offline, on E8 outcomes & 500 & \$0 \\
+E11 (DeepSeek-V3) & 2026-06-27 & 0.25.1 & ReAct / \texttt{deepseek-chat} & 200 & not rec. \\
+E11 (gpt-4.1, 4o-mini, Sonnet) & 2026-06-28 & 0.25.1 & ReAct / three models & 50 ea. & not rec. \\
+E14 (surprise digest) & 2026-07-03 & 1.8.0.dev0 & ReAct / \texttt{claude-haiku-4-5} & 500 & not rec. \\
+E3 (leave-one-domain-out) & 2026-09-04 & 1.51.1 & offline, on E8 outcomes & 500 & \$0 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Results}
 \label{sec:results}
@@ -726,6 +810,35 @@ still see the anomaly keeps acting. The trajectory-risk certificate (the shipped
 \texttt{certify\_trajectory\_risk} machinery) bounds degradation at
 \sweEfourteenTrajBound---experiment and product make the same statement with the same statistics.
 
+\section{Measurements this revision does not have}
+\label{sec:todo}
+
+Three results the 2026 literature now expects are \emph{not} here. Each has a harness in the
+repository and no run behind it, and each renders \PendingTODO{} until the measurement lands.
+
+% TODO(1.52.0): fill from `distil bench --curve` — task success as a continuous function of
+% compression ratio, with CIs. Do NOT remove \PendingTODO until the numbers are real.
+\paragraph{Degradation curve. \PendingTODO} We report point estimates at named ladder rungs,
+not task success as a continuous function of compression ratio~\cite{controlcompression}; E11
+already hints the cliff sits at a \emph{realized} compression fraction rather than a
+configured setting. Harness: \texttt{distil bench --curve}.
+
+% TODO(1.52.0): fill from `distil validate --adversarial` — attack success rate with and
+% without trusted/untrusted budget isolation, against the COMA threat model.
+\paragraph{Adversarial robustness. \PendingTODO} Every number here assumes benign context.
+COMA~\cite{coma} shows an adversary who knows the policy can shape context that survives
+compression and steers the agent; exchangeability is exactly what such an attacker breaks,
+so the certificate makes no claim under adversarial input. Harness:
+\texttt{distil validate --adversarial}.
+
+% TODO(1.52.0): fill from the shadow-mode paired runs — input tokens saved vs. output tokens
+% added, net cost, and whether the paradox reproduces on our traces.
+\paragraph{Output-token accounting. \PendingTODO} Our savings are input-side. The
+compression paradox~\cite{compressionparadox} reports thinner context repaid in longer
+outputs, which would make an input-side figure an overstatement of the net. Shadow mode
+collects the matched pairs; the analysis is not done. Until it is, read every savings figure
+here as an \emph{input-token} figure.
+
 \section{Conclusion}
 Decision-equivalence is the right contract for agent context compression, and it carries a
 distribution-free guarantee validated out-of-sample on real traces (coverage $96.6$--$100\%$
@@ -779,6 +892,34 @@ by betting.} J.~R.~Stat.~Soc.~B, 2023. arXiv:2010.09686.
 \bibitem{silverbullet} C.~Deng et al. \emph{A Silver Bullet or a Compromise for Full
 Attention? A Comprehensive Study of Gist Token-based Context Compression.} ACL, 2025.
 arXiv:2412.17483.
+\bibitem{controlcompression} \emph{Control Under Compression: Degradation Curves for
+Tool-Using Agents.} arXiv:2608.01056, 2026.
+
+\bibitem{execinstability} \emph{Execution Instability in Compressed Agent Trajectories.}
+arXiv:2608.06503, 2026.
+
+\bibitem{agora} \emph{AGORA: Action-Grammar Destruction in Compressed Agent Contexts.}
+arXiv:2605.26596, 2026.
+
+\bibitem{compactionrl} \emph{CompactionRL: Learning When and What to Compact.}
+arXiv:2607.05378, 2026.
+
+\bibitem{compressionparadox} \emph{The Compression Paradox: Input Savings Repaid in Output
+Tokens.} arXiv:2603.23527, 2026.
+
+\bibitem{prodrct} \emph{A Pre-Registered Randomized Trial of Context Compression in
+Production.} arXiv:2603.23525, 2026.
+
+\bibitem{coma} \emph{CompressionAttack (COMA): Prompt Compressors as an Attack Surface for
+LLM Agents.} arXiv:2510.22963, 2026. To appear, ASE 2026.
+
+\bibitem{dontbreakcache} \emph{Don't Break the Cache: Compression Under Prefix-Cache
+Constraints.} arXiv:2601.06007, 2026.
+
+\bibitem{kvpitfalls} A.~Chen, R.~Geh, A.~Grover, G.~Van den Broeck, D.~M. Israel.
+\emph{The Pitfalls of KV Cache Compression.} arXiv:2510.00231; ACL 2026 (Long Papers),
+pp.~41530--41553.
+
 \bibitem{contextcodec} \emph{Context Codec.} arXiv:2605.17304, 2026.
 \bibitem{damc} \emph{Decision-Aware Memory Cards.} arXiv:2606.08151, 2026.
 \end{thebibliography}
@@ -1036,7 +1177,9 @@ The generated tables below are auto-generated from \texttt{results.json} by
   \input{generated/tasksuccess.tex}\end{table}}{}
 % E3 (leave-one-domain-out distribution shift) requires >=2 domains graded by ONE
 % shared model; our domains were graded by different models (gpt-4o for tau, Claude for
-% SWE), so E3 is left to future work — we do not render an empty table.
+% SWE), so E3 runs instead at the TRAJECTORY level on the E8 outcomes, where the grader is
+% the deterministic official harness and instance ids carry a real domain label (source
+% repository) — see \Cref{sec:e3} and benchmarks/leave_one_domain_out.py.
 
 \begin{table}[t]
 \centering
@@ -1048,7 +1191,8 @@ Experiment & Quantity & Requirement enforced \\
 E1 frontier & savings vs.\ decision-change & structured grader; majority vote; \\
             &                               & both no-expand and $+$expand \\
 E2 coverage & $\Pr(\text{realized}\le\alpha)$ out-of-sample & trajectory-level disjoint splits \\
-E3 shift & realized risk under domain shift & exchangeability stress test \\
+E3 shift & realized risk on a held-out domain & one shared grader across domains; \\
+         & (\Cref{sec:e3}, trajectory level) & matched random-block control \\
 E4 task success & outcome retained vs.\ baseline (real $\tau$-bench) & bootstrap CI over trajectories \\
 \bottomrule
 \end{tabular}
@@ -1128,6 +1272,47 @@ on compact $\tau$-bench contexts.
 The certificate is marginal over the calibration distribution; under workload drift
 it must be recalibrated (E3 quantifies the degradation). Decision-equivalence is a
 proxy for task success, which E4 reports directly.
+
+\subsection{E3: leave-one-domain-out --- does the certificate survive a shift?}
+\label{sec:e3}
+
+Both certificates assume \textbf{exchangeability}: calibration and test items come from one
+pool, split at random. Deployment breaks that. E3 holds out a whole \emph{domain} instead.
+The per-turn corpora cannot answer it --- $\tau$-bench and SWE-bench were graded by
+different models, confounding shift with grader identity --- so E3 runs at the trajectory
+level on the E8 outcomes, where every condition is scored by the same deterministic official
+harness and each instance id carries a real domain label: its source repository. For each of
+the \LooDomains{} repositories we calibrate the $(1{-}\delta)$ bound on the other eleven and
+check the realized risk on the held-out one.
+
+\begin{table}[t]
+\centering\small
+\caption{\textbf{E3: leave-one-repository-out} on the E10 trajectory certificate
+(\LooCandidate{} vs.\ full, $n{=}\LooN$, $\delta{=}\LooDelta$, pooled divergence
+\LooPooled{}). ``exch.\ cov.'' applies the identical certify-then-check procedure to a
+\emph{random} block of the same size over \LooReps{} permutations --- the yardstick the
+``held?'' column must be read against. $p$ is the permutation probability that a random
+same-sized block reaches this repository's realized risk. Per-repository savings is absent:
+E8 recorded context reduction only in aggregate ($52.8\%$ for the gated tier).}
+\label{tab:e3}
+\input{generated/loo.tex}
+\end{table}
+
+\paragraph{The coverage drop is a small-sample artefact, not a shift.} The bound holds on
+\LooHeld{}/\LooDomains{} repositories (\LooCoverage{}), far under the $95\%$ target --- but
+the matched control, which destroys the domain labels while keeping the block sizes,
+attains only \LooExchCoverage{} (\LooHarmExchCoverage{} for harm). The procedure fails about
+as often with no shift present. A permutation test on between-repository dispersion detects
+no heterogeneity ($p=\LooDispP$ divergence, $p=\LooHarmDispP$ harm); no repository is
+individually significant (smallest of twelve $p$-values \LooMinP{}, uncorrected). The gap is
+a mismatch of units: a $(1{-}\delta)$ bound constrains a \emph{population} risk, and a
+$22$-instance empirical rate carries a $\approx$$7$\,pp standard error, so it overshoots
+routinely. Operationally, a small tenant exceeding $\beta$ is evidence of nothing;
+recalibration should wait for enough traffic to estimate the rate. \textbf{Scope:} a null
+result with known power --- a $22$-instance repository needs $27.3\%$ realized divergence to
+separate from chance at $p<0.05$ --- over twelve Python repositories of one benchmark, one
+agent, one model. A shift across language, tool surface or scaffold is not tested and not
+claimed. Reproducible offline via \texttt{benchmarks/leave\_one\_domain\_out.py}.
 
 \subsection{E11: cross-model generality (a second, stronger model)}
 \label{sec:e11}

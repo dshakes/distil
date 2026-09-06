@@ -266,7 +266,10 @@ expanded; 135 recoveries total). (4) The honest catch: D's *realised* coding sav
 **modest (~7%)** — the agent expands most of what it edits — so the win is *task-success
 parity at a modest discount*, not the proxy headline ratios. **Keep compression
 recoverable.** Per-instance breakdown: `benchmarks/swe_bench_e2e/` and
-`docs/paper/results/swe_bench_verified_e2e.json`. Total API spend: $50.04.
+`docs/paper/results/swe_bench_verified_e2e.json`. Total API spend: **$67.31**
+(`total_cost_usd` in that JSON — the sum across all five conditions A–E: $17.63 + $4.00 +
+$12.03 + $16.38 + $17.27. An earlier figure of $50.04 here omitted condition E, the
+relevance-gated run, and was wrong).
 
 ### 6.0.4 Long-horizon agent task-success (E8) — the gate's proper test
 
@@ -551,8 +554,18 @@ May 20th"). We now normalize the action (case/punctuation-folded) and case-fold 
 target; the robust fix is a **structured / forced-tool grader** (the `anthropic`
 runner emits a tool call, not prose) — recommended for the headline run.
 
-**E2 / E3 / E4** on the valid run (majority vote + structured grader, with and without
-`--expand`): pending — compute-bound, specified in §Reproducing.
+**E2 / E4** on the valid run (majority vote + structured grader, with and without
+`--expand`): done, §6. **E3** is done too, but not at the per-turn unit: τ-bench and
+SWE-bench were graded by *different* models (gpt-4o vs Claude), so a cross-domain
+comparison there confounds shift with grader identity and we refuse to report it. E3 runs
+instead at the **trajectory** level on the E8 outcomes, where the grader is the
+deterministic official SWE-bench harness and every instance id carries a real domain label
+— its source repository. `benchmarks/leave_one_domain_out.py` calibrates the E10
+trajectory certificate on 11 of 12 repositories and checks the held-out one, with a matched
+permutation control. Result: the bound holds on 8/12 (66.7%), *but* the same procedure on
+random blocks of the same sizes attains only 72.7% — the drop is small-sample noise, not
+shift. Between-repository dispersion is not significant (permutation `p=0.43` divergence,
+`p=0.74` harm). Runs offline, no API calls. See §E3 in `docs/paper/main.tex`.
 
 ## 7. Analysis & limitations
 
