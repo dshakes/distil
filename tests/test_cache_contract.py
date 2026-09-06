@@ -50,7 +50,15 @@ def _log(n: int, tag: str) -> str:
 
 
 def _key(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True)
+    """Serialize the way the proxy actually forwards a changed body.
+
+    Deliberately NOT ``sort_keys=True``. The provider's cache matches on exact bytes, so
+    key order is part of the prefix — normalising it here would let a transform that
+    reorders a dict bust the cache in production while every assertion below stayed
+    green. Same separators and ``ensure_ascii`` as ``proxy._serialize_if_changed``, so
+    what this compares is what actually goes on the wire.
+    """
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
 
 
 # --------------------------------------------------------------------------- shapes
@@ -328,3 +336,34 @@ def test_handles_are_content_addressed_not_per_request() -> None:
     assert seen == {hashlib.sha256(text.encode()).hexdigest()[:8]}, (
         "handle is not the content address of the block it replaces"
     )
+
+
+def test_key_reordering_is_caught_by_the_comparison() -> None:
+    """The tests above only mean something if `_key` can see key order.
+
+    With `sort_keys=True` a transform that rebuilt a dict in a different order would
+    forward different bytes, bust the provider's prefix cache, and still pass every
+    assertion here. This drives that exact transform and asserts the comparison rejects
+    it — a negative test for the harness rather than for the compressor.
+    """
+    original = {"role": "user", "content": "hello", "cache_control": {"type": "ephemeral"}}
+    reordered = {k: original[k] for k in reversed(list(original))}
+
+    assert original == reordered, "same mapping — only the serialized key order differs"
+    assert _key(original) != _key(reordered), (
+        "_key normalises key order, so a reordering transform would go undetected"
+    )
+    assert json.dumps(original, sort_keys=True) == json.dumps(reordered, sort_keys=True), (
+        "sort_keys is what would have hidden it — if this fails the fixture is wrong"
+    )
+
+
+def test_key_serializes_the_way_the_proxy_forwards() -> None:
+    """`_key` must not drift from the proxy's encoder, or the contract is asserted
+    against bytes nobody sends."""
+    from distil.proxy import _serialize_if_changed
+
+    body = {"z": "café", "a": [1, {"b": 2}]}
+    # A body that differs from `raw` forces the re-serialize branch — the one that
+    # decides the bytes actually forwarded when a transform changed something.
+    assert _key(body).encode() == _serialize_if_changed(b'{"different":1}', body)
