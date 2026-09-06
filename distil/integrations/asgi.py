@@ -78,6 +78,18 @@ class _BodyReader:
                 return b"".join(m.get("body", b"") for m in self.consumed)
 
 
+def _verbatim_receiver(consumed: list[Message], receive: Receive) -> Receive:
+    """Return a ``receive`` that replays *consumed* first, then falls through to *receive*."""
+    queue = list(consumed)
+
+    async def _replay() -> Message:
+        if queue:
+            return queue.pop(0)
+        return await receive()
+
+    return _replay
+
+
 def _compress_body(body: bytes, *, verbatim: bool) -> bytes:
     """Return a compressed body, or *body* unchanged on any unrecognized shape/error."""
     try:
@@ -149,17 +161,17 @@ class DistilMiddleware:
             # was already consumed (a disconnect included, if that is why we
             # stopped), then hand any further receive() straight to the real
             # channel.
-            queue = list(reader.consumed)
-
-            async def _replay_verbatim() -> Message:
-                if queue:
-                    return queue.pop(0)
-                return await receive()
-
-            await self.app(scope, _replay_verbatim, send)
+            await self.app(scope, _verbatim_receiver(reader.consumed, receive), send)
             return
 
         new_body = _compress_body(body, verbatim=self.verbatim)
+
+        if new_body == body:
+            # Fail-open (malformed JSON, unrecognized shape, or a compression error):
+            # replay the exact original event sequence and headers, not a synthesized
+            # single chunk — an app that inspects chunking must see no difference.
+            await self.app(scope, _verbatim_receiver(reader.consumed, receive), send)
+            return
 
         new_scope = dict(scope)
         new_scope["headers"] = _with_content_length(list(scope.get("headers", [])), len(new_body))

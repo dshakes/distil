@@ -378,6 +378,33 @@ def test_asgi_passes_through_malformed_json() -> None:
     assert captured["body"] == body
 
 
+def test_asgi_fail_open_replays_original_stream_and_headers() -> None:
+    """Fail-open (malformed JSON here) must replay the exact original event sequence
+    and headers, not a synthesized single chunk with a rewritten content-length."""
+    body = b"not json"
+    headers = [(b"content-length", str(len(body)).encode()), (b"x-custom", b"1")]
+    scope = {"type": "http", "method": "POST", "path": "/v1/messages", "headers": headers}
+    captured = {}
+
+    async def app(inner_scope: dict, receive, send) -> None:
+        captured["headers"] = inner_scope["headers"]
+        events = []
+        while True:
+            msg = await receive()
+            events.append(msg)
+            if msg["type"] == "http.disconnect":
+                break
+        captured["events"] = events
+
+    _run_through(app, scope, body)
+
+    assert captured["headers"] == headers
+    assert captured["events"] == [
+        {"type": "http.request", "body": body, "more_body": False},
+        {"type": "http.disconnect"},
+    ]
+
+
 def test_asgi_skips_oversized_body(monkeypatch) -> None:
     import distil.integrations.asgi as asgi_mod
 
