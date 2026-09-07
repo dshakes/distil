@@ -133,6 +133,113 @@ The Responses path gets the same widen-on-miss reaction as the Messages path. No
 changed downstream: both adapters already share one thread-local counter, so `distil
 dissect` reports Codex through the line it already had.
 
+### The cached prefix now survives the client rewriting its own history
+
+ADR 0008 promised byte-stable forwarding *when the client re-sends a message
+byte-identical*, and clause (d) said a client that rewrites its own history gets no
+promise. That clause was written as an edge case. It is the common case: agentic clients
+rewrite their history on **every turn** without changing a token the model reads — the
+`cache_control` breakpoint advances to the newest block, an SDK shim stamps positional
+`index` fields, a string becomes a single text block and back again. distil forwards what
+it receives, so all of it reached the provider as changed bytes and missed a prefix the
+provider was already holding, at the write rate.
+
+Measured offline against distil's own adapters (`benchmarks/prefix_replay_stability.py`,
+8 turns; share of re-sent messages forwarded byte-identical to the previous turn):
+
+| provider shape | rewrite | before | after |
+|---|---|---|---|
+| anthropic/messages | `index` stamped | 0.0% | 100.0% |
+| anthropic/messages | string/block sugar | 0.0% | 100.0% |
+| openai/chat-completions | `index` stamped | 14.6% | 100.0% |
+| openai/chat-completions | string/block sugar | 0.0% | 100.0% |
+| openai/responses | `index` stamped | 0.0% | 100.0% |
+| openai/responses | string/block sugar | 0.0% | 100.0% |
+| gemini/generateContent | `index` stamped | 0.0% | 100.0% |
+
+Zero, not merely degraded. The un-rewritten control reads 100% before and after, so
+replay repairs rewrites and does nothing when there is nothing to repair. Added latency
+is ~0.13 ms per request. **This is what distil forwards, not what the provider billed** —
+that is the cache-read share in `distil dissect`, and it needs a live soak.
+
+- **Forwarded-bytes prefix replay** (`distil/prefixreplay.py`, ADR 0011). Per conversation
+  lineage — leading system-run + model + tools + the canonicalised head, per session —
+  distil remembers the previous turn's `(original, forwarded)` pair. For the longest
+  canonically-equal leading prefix it forwards **the bytes it forwarded last turn**,
+  re-placing the client's current `cache_control` markers at the client's current block
+  positions, and compresses only the divergent suffix. Where a marker has nowhere to sit
+  on last turn's form — the client re-spells a bare string as one text block and puts its
+  breakpoint on it — replay stops there rather than forward a form with the breakpoint
+  missing: on Anthropic the breakpoint is the cache entry, and dropping it would buy the
+  hit by destroying the thing being hit. On by default;
+  **`--no-prefix-replay`** opts out on both `wrap` and `proxy`. State is in-memory,
+  LRU-bounded, and deliberately not persisted: it holds message bytes, and the TTL'd
+  restore store is the only place content is allowed to rest on disk. Fail-open — any
+  exception forwards exactly what the compressor produced.
+- **The comparison ignores four things and nothing else**: `cache_control`, `index`, the
+  interchangeable spellings of a single text block (bare string, `text`, `input_text`,
+  `output_text`), and JSON key order. Tool payloads are opaque — the arguments going out
+  and the result coming back, compared as they arrive and never structurally rewritten,
+  because those rules are about message structure and none of them hold one level down: a
+  payload can carry a key called `content` (folding it would call two different tool calls
+  equal) or a key called `index` that is data. Gemini's `functionResponse.response` is
+  arbitrary tool output, and stripping `index` inside it would forward one result's bytes
+  for a different result. `citations`/`annotations` are deliberately left out: the cost of
+  excluding them is a missed hit, the cost of including them wrongly is a wrong prefix.
+- **Replay restores bytes, never decisions** — the clause that makes it safe, and not the
+  obvious design. distil's compressor is not a pure function of one message: the
+  exact-quote guarantee keeps a tool result verbatim because of an `Edit` that arrives
+  *later* in the list, so a block legitimately digested at turn N can need to be verbatim
+  at turn N+1. Overlaying turn N's stub there would break the agent's next edit to buy a
+  cache hit. So a message is replayed only when this turn's forwarded form is itself
+  canonically equal to last turn's, which makes "replay never changes semantic content"
+  the loop condition rather than a claim. `distil validate` asserts it as a sixth
+  invariant anyway, because a loop condition is what a later optimisation deletes.
+- **Proof.** `tests/test_cache_contract.py` gains the three rewrite shapes × four request
+  shapes, each with a **control arm**: the test fails unless the rewrite demonstrably
+  shortened the byte-stable prefix without replay and demonstrably did not with it — a
+  stability assertion whose control never destabilises proves nothing. Plus: a semantic
+  edit breaks the prefix at exactly its index; a changed `tool_result` is never overlaid
+  with older bytes; a re-signed `thinking` block breaks the prefix while an unchanged one
+  is replayed byte-for-byte; the lineage never crosses a model/tools/system change; state
+  is bounded and an oversized history is released rather than held; and the two transforms
+  that share the cache contract are driven together through the real proxy — a re-read
+  delta stub (ADR 0010) is forwarded byte-identical on the next turn, and when a later
+  `Edit` makes the compressor withdraw that stub the verbatim block goes out instead of
+  last turn's bytes. Replay never writes back into the state it replayed from, so a
+  concurrent request on the same conversation cannot be handed this one's marker
+  placement. The canonicalizer's strip set is pinned from both sides — a dropped `else` in
+  its recursion once made every message canonicalise to `{}`, and the parametrized tests
+  caught it only by luck.
+- **Measurable.** The per-request record gains content-free `replay_hits` /
+  `replay_misses` / `replay_restored`, and `distil dissect` reports them per session beside
+  the cache-read share. `restored` is never folded into `hits`: hits with zero restored is
+  the healthy steady state, and adding them together would make a dead mechanism look
+  identical to a working one. A session run with `--no-prefix-replay` records **no**
+  counters rather than zeros, and `dissect` prints *not recorded*: zeros there would
+  report a switched-off feature as one that ran and held nothing, directly beside the
+  cache-read share you would be using them to explain.
+- **All three servers get it**, through one shared `prefixreplay.apply` at the same point
+  in each: the threaded proxy, the async proxy (`--async`, which now honours
+  `--no-prefix-replay` too), and the multi-tenant gateway. A default-on feature that only
+  one server has is a feature its users do not have — the 1.46.0 lesson, since managed
+  installs run `distil proxy`. A server that re-serialises every body still benefits: its
+  output is deterministic given the same items, so replaying the items is what makes its
+  prefix stable. Each scopes the lineage by whose credential it is, because a cached
+  prefix belongs to one credential and the lineage key is otherwise content-derived: the
+  gateway **per tenant**, and the plain proxies by a **hash of the client's own API key**,
+  which is the only identity they have. Asserted on both by a test that posts the
+  identical conversation under two identities and fails if the second is served the
+  first's bytes. All three carry
+  **`--no-prefix-replay`**, including the gateway, whose chart exposes it as
+  `gateway.prefixReplay` — the chart is where a default-on feature silently becomes
+  default-off, so the value and the arg that reads it are both pinned by a test.
+- A block whose `cache_control` marker did not move is returned untouched rather than
+  rebuilt. Rebuilding moves the marker to the end of the key order, and JSON key order is
+  part of the bytes the provider hashes — so the naive marker re-placement busted the
+  prefix the first time it replayed a block whose marker was not already last. The
+  per-server tests caught it; the adapter-level ones could not.
+
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 

@@ -28,6 +28,7 @@ and ``distil bench`` (corpus non-inferiority) — this is the adversarial, real-
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -582,12 +583,65 @@ def _check_load_bearing(messages: list[dict[str, Any]], needle: str) -> tuple[bo
     )
 
 
+def _check_prefix_replay_semantics(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Prefix replay never changes semantic content — ADR 0011.
+
+    Replay forwards the bytes distil sent LAST turn for the canonically-equal leading
+    prefix, so the one way it can go wrong is by restoring bytes that mean something
+    different from what this turn would have sent. That is guarded by a loop condition
+    inside ``prefixreplay.replay``, and a loop condition is exactly the kind of thing a
+    later optimisation deletes, so it is asserted here against the real compressor.
+
+    The drive is a client rewriting its own history the way real agents do — the
+    cache_control marker advances to the newest block, and an SDK stamps positional
+    ``index`` fields on blocks that had none. Neither changes a token the model reads,
+    so every replayed message must still canonicalise to what this turn produced.
+    """
+    from distil import prefixreplay as _pr
+
+    key = "harness-" + hashlib.sha256(json.dumps(messages, default=str).encode()).hexdigest()[:12]
+    _pr.reset()
+    prev_out: list[Any] | None = None
+    for turn in range(3):
+        churned: list[Any] = []
+        for i, m in enumerate(messages):
+            m2 = {k: v for k, v in m.items() if k != "cache_control"}
+            c = m2.get("content")
+            if isinstance(c, list):
+                blocks = []
+                for j, b in enumerate(c):
+                    if isinstance(b, dict):
+                        b = {k: v for k, v in b.items() if k != "cache_control"}
+                        b["index"] = j + turn  # SDK bookkeeping, renumbered every turn
+                        if i == len(messages) - 1 and j == len(c) - 1:
+                            b["cache_control"] = {"type": "ephemeral"}  # marker advances
+                    blocks.append(b)
+                m2["content"] = blocks
+            churned.append(m2)
+        fresh, _store = _compress(churned)
+        out, stats = _pr.replay(key, churned, fresh)
+        if len(out) != len(fresh):
+            return False, "replay changed the message count"
+        for i in range(stats.hits):
+            if _pr.canonical(out[i]) != _pr.canonical(fresh[i]):
+                return False, (
+                    f"replayed message {i} is not canonically what this turn produced "
+                    "— replay changed semantic content"
+                )
+        if turn and prev_out is not None and stats.hits == 0 and len(messages) > 1:
+            return False, "replay never held a single message across a non-semantic rewrite"
+        prev_out = out
+    _pr.reset()
+    return True, ""
+
+
 _INVARIANTS = [
     ("reversibility", _check_reversibility),
     ("reject-if-bigger", _check_reject_if_bigger),
     ("recency-exact", _check_recency_exact),
     ("quote-survival", _check_quote_survival),
     ("fail-open", _check_fail_open),
+    ("prefix-replay-semantics", _check_prefix_replay_semantics),
 ]
 
 

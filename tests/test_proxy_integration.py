@@ -253,3 +253,124 @@ def test_stalled_client_cannot_pin_a_handler_thread(proxy_factory, monkeypatch):
         assert elapsed < 20, f"connection held {elapsed:.1f}s — client timeout not applied"
     finally:
         s.close()
+
+
+def _churned(turn):
+    """The same conversation the client keeps re-spelling: an SDK stamps a positional
+    `index` on every content block and renumbers it each turn, and the cache_control
+    breakpoint advances to the newest block. Neither changes a token the model reads."""
+    payload = _digestible()
+    for i, m in enumerate(payload["messages"]):
+        if isinstance(m.get("content"), list):
+            for j, b in enumerate(m["content"]):
+                b["index"] = j + turn
+    last = payload["messages"][-1]
+    last["content"] = [{"type": "text", "text": last["content"], "cache_control": {"type": "e"}}]
+    return payload
+
+
+def test_prefix_replay_holds_the_forwarded_bytes_through_a_client_rewrite(proxy_factory):
+    """End to end through the real proxy: what reaches the upstream must not change when
+    the client rewrites its history non-semantically. Asserted on the bytes the stub
+    upstream actually received, so the whole path — compress, replay, serialize — is in
+    the measurement, and paired with the same session run with the feature off."""
+    port = proxy_factory()
+    _post(port, _churned(1))
+    first = _LAST_BODY["raw"]
+    _post(port, _churned(2))
+    assert _LAST_BODY["raw"] == first, "a non-semantic client rewrite changed the wire bytes"
+
+    off = proxy_factory(prefix_replay=False)
+    _post(off, _churned(1))
+    before = _LAST_BODY["raw"]
+    _post(off, _churned(2))
+    assert _LAST_BODY["raw"] != before, (
+        "the rewrite does not move bytes even without replay — this test proves nothing"
+    )
+
+
+def test_replay_converges_on_a_body_the_compressor_left_untouched(proxy_factory):
+    """The one case where "the bytes we forwarded last turn" is not literal, pinned.
+
+    A short request compresses to nothing, so the proxy deliberately forwards the
+    client's ORIGINAL bytes rather than re-encoding them (`_serialize_if_changed`) —
+    pretty-printing, spacing and all. Replay stores items, not those bytes, so the first
+    restoration re-encodes compactly: one cache write, once, at the first repair. What
+    matters is that it converges — from there every turn is byte-identical, which is the
+    whole point and is what a client re-stamping `index` never achieves on its own.
+    """
+    # lossless-only: no expand tool is injected, so a short body really is untouched.
+    port = proxy_factory(lossless_only=True)
+
+    def post(port, turn):
+        payload = {
+            "model": "claude-test",
+            "max_tokens": 64,
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "ship it", "index": turn}]}
+            ],
+        }
+        # A client that pretty-prints its JSON: bytes distil must not re-encode for free.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/messages",
+            data=json.dumps(payload, indent=2).encode(),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+        return _LAST_BODY["raw"]
+
+    one, two, three = post(port, 1), post(port, 2), post(port, 3)
+    assert b'\n  "model"' in one, "nothing was compressed, so the raw bytes should pass through"
+    assert one != two, "the first repair re-encodes: that is the one cache write this costs"
+    assert two == three, (
+        "prefix replay never converged on an uncompressed body — the provider is re-billed "
+        "the whole prefix on every turn"
+    )
+
+    # The control: without replay the same session never converges at all.
+    off = proxy_factory(lossless_only=True, prefix_replay=False)
+    assert post(off, 2) != post(off, 3), "the churn does not move bytes — this proves nothing"
+
+
+def test_a_replay_off_request_records_no_counters_at_all() -> None:
+    """`distil dissect` distinguishes "replay did not run" from "replay held nothing",
+    and prints the first as *not recorded* right beside the cache-read share. That only
+    works if a `--no-prefix-replay` request writes no counters — zeros there would report
+    a switched-off feature as a working one that found nothing to do."""
+    from distil.dissect import Dissection
+    from distil.proxy import _replay_record
+
+    assert _replay_record({}) == {}, "a request that never ran replay recorded counters"
+    assert _replay_record({"x-distil-replay-hits": "0"}) == {
+        "replay_hits": 0,
+        "replay_misses": 0,
+        "replay_restored": 0,
+    }, "a replay that genuinely held nothing must still record its zeros"
+
+    def _d(rows):
+        return Dissection("s", None, [], rows, None, None, None)
+
+    assert _d([_replay_record({})]).replay is None
+    assert _d([_replay_record({"x-distil-replay-hits": "0"})]).replay == (0, 0, 0)
+
+
+def test_prefix_replay_counters_reach_the_response_headers(proxy_factory):
+    """The measurable has to survive the proxy, not just the module. `restored` is the
+    count that moved money and is reported apart from `hits`."""
+    port = proxy_factory()
+
+    def headers(payload):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/messages",
+            data=json.dumps(payload).encode(),
+            headers={"content-type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return dict(r.headers)
+
+    headers(_churned(1))
+    h = headers(_churned(2))
+    assert int(h["x-distil-replay-hits"]) == 3
+    assert int(h["x-distil-replay-restored"]) >= 1
+    assert int(h["x-distil-replay-misses"]) == 0

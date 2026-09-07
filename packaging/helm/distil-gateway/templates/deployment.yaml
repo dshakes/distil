@@ -57,6 +57,9 @@ spec:
             {{- if .Values.gateway.perTenant.dailyTokens }}
             - --tenant-daily-tokens={{ .Values.gateway.perTenant.dailyTokens }}
             {{- end }}
+            {{- if not .Values.gateway.prefixReplay }}
+            - --no-prefix-replay
+            {{- end }}
           env:
             # Admin token guards /distil/stats and /distil/dashboard. Passed by env
             # rather than argv so it never appears in `ps` or a pod spec dump.

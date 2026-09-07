@@ -113,6 +113,7 @@ def make_app(
     verbatim: bool = False,
     shape_output: str = "off",
     savings: Any = None,
+    prefix_replay: bool = True,
 ) -> Any:
     """Build and return an ``aiohttp.web.Application``.
 
@@ -263,6 +264,10 @@ def make_app(
         # Savings are booked only after a confirmed 2xx (P0-1): (before, after, model).
         _pending_savings: tuple[int, int, str | None] | None = None
 
+        # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
+        # conversation, and the items as the CLIENT sent them this turn.
+        _replay_key: str | None = None
+        _replay_orig: list[Any] | None = None
         try:
             body: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
@@ -282,6 +287,7 @@ def make_app(
                 from .adapters.openai import compress_responses_input, count_responses_tokens
 
                 _orig_input: list[dict[str, Any]] = body["input"]
+                _replay_key, _replay_orig = "input", _orig_input
                 before_tok = count_responses_tokens(_orig_input)
                 try:
                     _compressed_input, _store = compress_responses_input(
@@ -308,6 +314,7 @@ def make_app(
 
             elif "messages" in body and isinstance(body["messages"], list):
                 original: list[dict[str, Any]] = body["messages"]
+                _replay_key, _replay_orig = "messages", original
                 # Chat Completions needs its own adapter (role:"tool" list content is
                 # Tier-1); /v1/messages stays on the Anthropic one.
                 if is_chat_completions_path(request.path):
@@ -339,6 +346,7 @@ def make_app(
 
             elif "contents" in body and isinstance(body["contents"], list):
                 # Gemini generateContent shape (reversible content compression).
+                _replay_key, _replay_orig = "contents", body["contents"]
                 before_tok = _gemini_count(body)
                 try:
                     body, _store = compress_generate_request(body, verbatim=verbatim)
@@ -352,6 +360,21 @@ def make_app(
                 if savings is not None:
                     _pending_savings = (before_tok, before_tok - saved, None)
 
+            # Forwarded-bytes prefix replay (ADR 0011). Same point as the threaded
+            # proxy: the final body, after every transform, right before it is
+            # serialized. This server re-encodes unconditionally, so the prefix is
+            # byte-stable only as long as the ITEMS are — which is exactly what replay
+            # restores when the client re-spells its own history.
+            if prefix_replay and _replay_orig is not None and _replay_key is not None:
+                from . import prefixreplay as _prep
+
+                body = _prep.apply(
+                    body,
+                    _replay_key,
+                    _replay_orig,
+                    scope=_prep.credential_scope(fwd_headers),
+                    extras=extras,
+                )
             body_bytes = json.dumps(body).encode()
 
         url = _upstream + request.path
@@ -440,6 +463,7 @@ def serve(
     shape_output: str = "off",
     record: bool = True,
     pricing_model: str = "claude-opus-4-8",
+    prefix_replay: bool = True,
 ) -> None:
     """Run an async aiohttp proxy server.
 
@@ -474,6 +498,7 @@ def serve(
         verbatim=verbatim,
         shape_output=shape_output,
         savings=savings,
+        prefix_replay=prefix_replay,
     )
     print(f"distil async proxy listening on http://{host}:{port}")
     print(f"  → upstream: {upstream}")

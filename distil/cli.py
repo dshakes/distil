@@ -930,7 +930,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         )
         return 1
     invariants = (
-        "reversibility · reject-if-bigger · recency · quote-survival · fail-open · content-free"
+        "reversibility · reject-if-bigger · recency · quote-survival · fail-open · "
+        "prefix-replay-semantics · content-free"
     )
     if args.adversarial:
         invariants += " · load-bearing"
@@ -1109,6 +1110,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
             shape_output=args.shape_output,
             record=not args.no_record,
             pricing_model=args.pricing,
+            prefix_replay=not getattr(args, "no_prefix_replay", False),
         )
     else:
         from .proxy import serve
@@ -1126,6 +1128,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
             shadow_rate=args.shadow,
             retention_rate=getattr(args, "retention", 0.0),
             session_delta=args.session_delta,
+            prefix_replay=not getattr(args, "no_prefix_replay", False),
         )
     return 0
 
@@ -2967,6 +2970,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         env_var=env_var,
         expand=args.expand,
         session_delta=args.session_delta,
+        prefix_replay=not getattr(args, "no_prefix_replay", False),
         shadow_rate=args.shadow,
         retention_rate=getattr(args, "retention", 0.0),
         extra_env=extra_env,
@@ -3122,6 +3126,7 @@ def cmd_gateway(args: argparse.Namespace) -> int:
         require_keys=args.require_keys,
         tenant_rpm=args.tenant_rpm,
         tenant_daily_tokens=args.tenant_daily_tokens,
+        prefix_replay=not getattr(args, "no_prefix_replay", False),
     )
     return 0
 
@@ -4432,6 +4437,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="cache-delta coding: cross-turn dedup + cross-version delta (re-reads after "
         "edits sent as a diff), cache-monotonic and reversible (sync proxy only)",
     )
+    px.add_argument(
+        "--no-prefix-replay",
+        action="store_true",
+        help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by default: when the client re-sends its history with only non-semantic churn — the cache_control marker advanced, an SDK added `index`, a string became a text block — distil forwards the bytes it forwarded last turn so the provider's prompt cache still hits. Content is never changed either way; pass this to forward exactly what the compressor produced.",
+    )
     px.set_defaults(func=cmd_proxy)
 
     pw = sub.add_parser(
@@ -4698,6 +4708,11 @@ def build_parser() -> argparse.ArgumentParser:
         "edits sent as a diff), cache-monotonic and reversible",
     )
     wr.add_argument(
+        "--no-prefix-replay",
+        action="store_true",
+        help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by default: when the client re-sends its history with only non-semantic churn — the cache_control marker advanced, an SDK added `index`, a string became a text block — distil forwards the bytes it forwarded last turn so the provider's prompt cache still hits. Content is never changed either way; pass this to forward exactly what the compressor produced.",
+    )
+    wr.add_argument(
         "--retention",
         type=float,
         default=0.05,
@@ -4842,6 +4857,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="honor client-supplied x-distil-tenant for accounting (default: "
         "tenant is derived from the credential, never a client header)",
+    )
+    gw.add_argument(
+        "--no-prefix-replay",
+        action="store_true",
+        help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by "
+        "default and scoped per tenant here: when a client re-sends its history with "
+        "only non-semantic churn, the gateway forwards the bytes it forwarded last "
+        "turn so the provider's prompt cache still hits. Content is never changed "
+        "either way; pass this to forward exactly what the compressor produced.",
     )
     gw.add_argument(
         "--require-keys",

@@ -96,6 +96,7 @@ class WorkerConfig:
     pricing_model: str = "claude-opus-4-8"
     expand: bool = False
     session_delta: bool = False
+    prefix_replay: bool = True
     shadow_rate: float = 0.0
     retention_rate: float = 0.0
 
@@ -199,6 +200,7 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
         savings=savings,
         expand=cfg.expand,
         session_delta=cfg.session_delta,
+        prefix_replay=cfg.prefix_replay,
         shadow_rate=cfg.shadow_rate,
         retention_rate=cfg.retention_rate,
     )

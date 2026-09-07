@@ -234,6 +234,24 @@ class Dissection:
         return sum(int(r.get("delta_tokens_saved") or 0) for r in self.booked_detail)
 
     @property
+    def replay(self) -> tuple[int, int, int] | None:
+        """(hits, misses, restored) for forwarded-bytes prefix replay — ADR 0011.
+
+        ``None`` when no record carries the fields at all: a session proxied before
+        1.52, or one run with ``--no-prefix-replay``. Rendering 0/0/0 there would say
+        "replay found nothing to hold", which is the opposite diagnosis from "replay
+        did not run", and the cache-read share below is read against it.
+        """
+        rows = [r for r in self.requests if r.get("replay_hits") is not None]
+        if not rows:
+            return None
+        return (
+            sum(int(r.get("replay_hits") or 0) for r in rows),
+            sum(int(r.get("replay_misses") or 0) for r in rows),
+            sum(int(r.get("replay_restored") or 0) for r in rows),
+        )
+
+    @property
     def overhead_tokens_avg(self) -> int:
         vals = [int(r.get("overhead_tokens") or 0) for r in self.requests]
         return sum(vals) // len(vals) if vals else 0
@@ -963,6 +981,12 @@ def render_sessions_text(sessions: list[SessionOverview], *, color: bool = True)
 def _flags_line(man: dict[str, Any]) -> str:
     flags = man.get("flags") or {}
     on = [k for k in ("expand", "session_delta", "lossless_only", "verbatim") if flags.get(k)]
+    # Opt-OUTs read the other way round: prefix replay is on by default, so the fact
+    # worth printing is that this session ran WITHOUT it. Absent (older manifests) is
+    # not off — it is a session recorded before the flag existed, and printing "no-
+    # prefix-replay" there would blame the wrong thing for a low cache-read share.
+    if flags.get("prefix_replay") is False:
+        on.append("no-prefix-replay")
     if float(flags.get("shadow_rate") or 0.0) > 0:
         on.append(f"shadow={flags['shadow_rate']}")
     if (flags.get("shape_output") or "off") != "off":
@@ -1161,6 +1185,19 @@ def render_text(
             out.append(
                 f"  cache-read share: {share:.1f}% of billed input was served from the "
                 "provider's prompt cache (at ~0.1x)"
+            )
+        # What distil DID to hold that share. `restored` is the number that moved
+        # money: messages the client rewrote non-semantically and distil forwarded as
+        # previously sent, so the prefix survived a rewrite it would otherwise have
+        # lost. Hits with zero restored is the healthy steady state, not a dead feature.
+        rep = d.replay
+        if rep is None:
+            out.append("  prefix replay: not recorded (older records, or --no-prefix-replay)")
+        else:
+            hits, misses, restored = rep
+            out.append(
+                f"  prefix replay: {hits:,} messages forwarded as previously sent, "
+                f"{misses:,} compressed fresh; {restored:,} client rewrites repaired"
             )
         if d.billing == "subscription" and d.headroom_multiplier > 1:
             out.append(
@@ -1378,6 +1415,16 @@ def to_json(
                 # measure this" and "the cache never hit" are opposite diagnoses.
                 "cache_read_share_pct": (
                     None if d.cached_input_share is None else round(d.cached_input_share, 1)
+                ),
+                # None, not zeros, when the records predate ADR 0011 or replay was off.
+                "prefix_replay": (
+                    None
+                    if d.replay is None
+                    else {
+                        "hits": d.replay[0],
+                        "misses": d.replay[1],
+                        "restored": d.replay[2],
+                    }
                 ),
                 "calibration": (
                     {"estimated": cal[0], "billed": cal[1]} if cal is not None else None
