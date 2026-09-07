@@ -20,6 +20,7 @@ Or as a module::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import ssl
@@ -30,7 +31,7 @@ import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Callable
 
 from ._log import log
 from .adapters.anthropic import compress_messages
@@ -2190,6 +2191,7 @@ def wrap_run(
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
+    config_ctx: Callable[[str, str], contextlib.AbstractContextManager[list[str]]] | None = None,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
 
@@ -2198,6 +2200,11 @@ def wrap_run(
     any base-url-honoring SDK routes through compression with no code change,
     runs the command to completion, then tears the proxy down — flushing genuine
     savings to the local ledger. Returns the child process's exit code.
+
+    ``config_ctx``, when given, is a ``(upstream, base) -> contextmanager``
+    factory for a tool whose only routing knob is a config file rather than
+    an env var (see ``distil.config_wrap``) — entered before the child spawns
+    and exited in the same ``finally`` that already covers SIGTERM/SIGHUP.
     """
     import subprocess
     import sys
@@ -2402,6 +2409,20 @@ def wrap_run(
     except Exception:  # noqa: BLE001 — never fail wrap over terminal bookkeeping
         _saved_tty = None
 
+    # Config-file wrap targets (tools with no env-var contract, e.g. Continue,
+    # Factory Droid, Oh My Pi — see distil/config_wrap.py): entered here so
+    # its cleanup rides the SAME finally block SIGTERM/SIGHUP already funnel
+    # into below, and exited there too — no separate signal handling needed.
+    config_argv: list[str] = []
+    _config_cm: contextlib.AbstractContextManager[list[str]] | None = None
+    if config_ctx is not None:
+        _config_cm = config_ctx(upstream, base)
+        try:
+            config_argv = _config_cm.__enter__()
+        except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
+            log.warning("config-file injection failed; running without it", exc_info=True)
+            config_argv, _config_cm = [], None
+
     code = 0
     proc_holder: list = []
     _install_sigterm_flush(proc_holder)
@@ -2439,7 +2460,7 @@ def wrap_run(
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.
         proc_holder.append(None)
-        proc_holder[0] = proc = subprocess.Popen(command, env=child_env)
+        proc_holder[0] = proc = subprocess.Popen([*command, *config_argv], env=child_env)
         code = proc.wait()
     except FileNotFoundError:
         print(f"distil wrap: command not found: {command[0]}", file=sys.stderr)
@@ -2447,6 +2468,8 @@ def wrap_run(
     except KeyboardInterrupt:
         code = 130  # SIGTERM, translated by _install_sigterm_flush (child already terminated)
     finally:
+        if _config_cm is not None:
+            _config_cm.__exit__(None, None, None)
         if supervisor is not None:
             # Worker owns the flushes: its SIGTERM drain finishes in-flight
             # requests, drains shadow, and flushes savings before exiting.
