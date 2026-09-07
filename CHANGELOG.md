@@ -2586,9 +2586,9 @@ noise. (Prerelease train: rc1–rc7.)
 
 **[Withdrawn 2026-09-04]** This 100%/31-31 number was computed over a biased
 subset of traffic (thinking-heavy turns all failed to replay and were silently
-excluded — see [1.51.1](#v1-51-1));
-the current, honest reading is a raw 82.9% decision-equivalence rate against a
-90.9% A/A self-agreement floor (n=41), not the number above.
+excluded — see [1.51.1](#v1-51-1)); the current, honest reading is 44 A/B and
+11 A/A samples with raw agreement 81.8% [67.3, 91.8] and self-agreement 84.8%
+[71.8, 92.4] over 46 byte-identical replays (p=0.63), not the number above.
 
 ### Added
 

@@ -288,7 +288,7 @@
       "anchor": "v1-13-0",
       "snippet": "100% decision-equivalence over 116 sampled production requests",
       "claim": "The 1.13.0 changelog entry still reads 100% decision-equivalence over 116 sampled requests, 31/31 A/A — this is the withdrawn number, kept verbatim as a historical record rather than rewritten.",
-      "note": "The entry now carries an inline [Withdrawn 2026-09-04] note pointing to 1.51.1 (biased sample, thinking-heavy replays all 400’d) and the honest current reading (82.9% raw, 90.9% A/A, n=41). This ledger entry exists so the ledger never implies the site is free of the withdrawn number."
+      "note": "The entry now carries an inline [Withdrawn 2026-09-04] note pointing to 1.51.1 (biased sample, thinking-heavy replays all 400’d) and the honest current reading (44 A/B and 11 A/A samples, raw agreement 81.8%, self-agreement 84.8%). This ledger entry exists so the ledger never implies the site is free of the withdrawn number."
     }
   ]
 }
