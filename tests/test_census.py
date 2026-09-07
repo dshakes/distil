@@ -8,6 +8,7 @@ be, the test fails loudly.
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -247,6 +248,11 @@ def test_live_heartbeat_total_is_monotonic_and_shared_with_census(monkeypatch):
     assert census.build_payload()["tokens_saved"] == 1000
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="depends on fcntl.flock blocking writer B behind writer A, a no-op on "
+    "Windows (_savings_locked degrades to last-write-wins there, per its own docstring)",
+)
 def test_second_writer_reads_inside_the_lock(monkeypatch):
     """distil runs as several processes at once (wrap, proxy worker, gateway,
     webdash) and two of them advance this counter: the daily census and the
@@ -287,6 +293,11 @@ def test_second_writer_reads_inside_the_lock(monkeypatch):
     assert census._load_savings()["tokens"]["saved"] == 5000
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="monotonic-under-concurrency depends on fcntl.flock, a no-op on Windows "
+    "(_savings_locked degrades to last-write-wins there, per its own docstring)",
+)
 def test_concurrent_writers_never_lower_the_total(monkeypatch):
     """The invariant the adoption page publishes: the shared total is
     monotonic under concurrency, not just per-process."""
@@ -311,6 +322,42 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
     on_disk = census._load_savings()["tokens"]["saved"]
     assert on_disk >= max(readings), "a concurrent writer rewound the shared total"
     assert on_disk > 0
+
+
+@pytest.mark.parametrize(
+    "arm",
+    [
+        pytest.param(
+            lambda monkeypatch: monkeypatch.setattr(
+                __import__("fcntl"), "flock", lambda *a: (_ for _ in ()).throw(OSError("no flock"))
+            ),
+            id="flock-raises-oserror",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="fcntl module does not exist on Windows to mock"
+            ),
+        ),
+        pytest.param(
+            # Needs no real fcntl, so it runs on actual Windows too: this is
+            # the real Windows case, `import fcntl` itself raising ImportError.
+            lambda monkeypatch: monkeypatch.setitem(sys.modules, "fcntl", None),
+            id="fcntl-unimportable",
+        ),
+    ],
+)
+def test_savings_locked_without_flock_still_writes(monkeypatch, arm):
+    """flock unavailable (e.g. Windows) → the lock degrades to a no-op, but a
+    lone writer still reads, steps, and persists correctly. Only *concurrent*
+    writers lose the monotonic guarantee on that platform — see the two tests
+    above, which document and skip that gap instead of asserting it away.
+
+    Covers both branches of `except (ImportError, OSError)` in
+    `_savings_locked`: flock present but failing, and fcntl absent entirely
+    (what real Windows hits, since the module doesn't exist there)."""
+    arm(monkeypatch)
+    census.opt_in()
+    with census._savings_locked(True) as st:
+        census._step(st["tokens"], 1000, 1.0)
+    assert census._load_savings()["tokens"]["saved"] == 1000
 
 
 class _Sum:
