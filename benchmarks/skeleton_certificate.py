@@ -28,9 +28,12 @@ by construction.
 
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 from pathlib import Path
+
+from benchmarks.outpath import add_out_args, resolve_out
 
 from distil.compress.tier1 import _handle
 from distil.corpus import load_corpus
@@ -106,11 +109,17 @@ def decision_equivalence() -> dict:
     }
 
 
+TRACKED_OUT = ROOT / "docs/paper/results/swe_e2e_longhorizon/skeleton_certificate.json"
+
+
 def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    add_out_args(ap, TRACKED_OUT)
+    args = ap.parse_args()
+    out = resolve_out(args, TRACKED_OUT)
     rev = reversibility_check()
     de = decision_equivalence()
     report = {"reversibility": rev, "decision_equivalence": de}
-    out = ROOT / "docs/paper/results/swe_e2e_longhorizon/skeleton_certificate.json"
     out.write_text(json.dumps(report, indent=2) + "\n")
     print("=== Skeleton digest certificate ===")
     print(

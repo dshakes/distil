@@ -3096,9 +3096,17 @@ def cmd_certify_provider(args: argparse.Namespace) -> int:
     )
     print(f"distil provider-compaction certificate ({arms.target})\n")
     print(f"  cases (fired/total)  : {report.cases_fired}/{report.cases_total}")
-    print(f"  A/B change rate      : {report.ab_change_rate * 100:.2f}% (fired cases)")
+    ab_lo, ab_hi = report.ab_change_rate_ci
+    ex_lo, ex_hi = report.excess_change_rate_ci
+    print(
+        f"  A/B change rate      : {report.ab_change_rate * 100:.2f}% "
+        f"[{ab_lo * 100:.2f}, {ab_hi * 100:.2f}] (fired cases)"
+    )
     print(f"  A/A noise floor      : {report.aa_change_rate * 100:.2f}%")
-    print(f"  adjusted change rate : {report.adjusted_change_rate * 100:.2f}%")
+    print(
+        f"  paired excess        : {report.excess_change_rate * 100:+.2f}pp "
+        f"[{ex_lo * 100:+.2f}, {ex_hi * 100:+.2f}] (n={report.n_paired})"
+    )
     print(f"  risk bound (1-δ)     : {report.risk_bound * 100:.2f}%")
     print(f"  live calls made      : {report.calls_made}")
     print(f"  tokens cleared (sum) : {report.total_cleared_input_tokens}")

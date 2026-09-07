@@ -38,6 +38,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from benchmarks.outpath import add_out_args, resolve_out
 from benchmarks.swe_bench_e2e.compress_proxy import (
     COMPRESSORS,
     EXPAND_CONDITION,
@@ -248,7 +249,7 @@ def main() -> None:
         default=ROOT / "docs/paper/results/swe_e2e/sample_full.json",
     )
     ap.add_argument("--condition", choices=CONDITIONS, required=True)
-    ap.add_argument("--out-dir", type=Path, default=ROOT / "docs/paper/results/swe_e2e")
+    add_out_args(ap, ROOT / "docs/paper/results/swe_e2e", flag="--out-dir")
     ap.add_argument("--cache-dir", type=Path, default=ROOT / ".e7_cache/repos")
     ap.add_argument("--work-root", type=Path, default=ROOT / ".e7_cache/work")
     ap.add_argument("--timeout", type=float, default=900.0, help="per-instance aider timeout (s)")
@@ -277,7 +278,9 @@ def main() -> None:
     if args.limit:
         instances = instances[: args.limit]
 
-    pred_dir = args.out_dir / "predictions"
+    pred_dir = (
+        resolve_out(args, ROOT / "docs/paper/results/swe_e2e", dest="out_dir") / "predictions"
+    )
     pred_dir.mkdir(parents=True, exist_ok=True)
     out_path = pred_dir / f"{args.condition}.jsonl"
     done = set()

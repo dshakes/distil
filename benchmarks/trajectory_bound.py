@@ -47,6 +47,8 @@ import math
 import statistics as st
 from pathlib import Path
 
+from benchmarks.outpath import add_out_args, resolve_out
+
 ROOT = Path(__file__).resolve().parents[1]
 LH = ROOT / "docs/paper/results/swe_e2e_longhorizon"
 
@@ -113,10 +115,11 @@ def main() -> None:
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     ap.add_argument("--candidate", default="distil_gated")
     ap.add_argument("--reference", default="full")
-    ap.add_argument("--out", type=Path, default=LH / "trajectory_bound.json")
+    add_out_args(ap, LH / "trajectory_bound.json")
     args = ap.parse_args()
+    out = resolve_out(args, LH / "trajectory_bound.json")
     r = analyze(args.alpha, args.candidate, args.reference)
-    args.out.write_text(json.dumps(r, indent=2) + "\n")
+    out.write_text(json.dumps(r, indent=2) + "\n")
     print(f"alpha={r['alpha']:.3f}  mean_turns={r['mean_turns']:.1f}  n={r['n']}")
     print(
         f"observed trajectory divergence ({args.candidate} vs {args.reference}): "
@@ -131,7 +134,7 @@ def main() -> None:
         f"(exact {r['k_consequential_exact']:.2f}) of {r['mean_turns']:.0f} "
         f"= {r['consequential_fraction'] * 100:.1f}% of the trajectory"
     )
-    print(f"-> {args.out}")
+    print(f"-> {out}")
 
 
 if __name__ == "__main__":

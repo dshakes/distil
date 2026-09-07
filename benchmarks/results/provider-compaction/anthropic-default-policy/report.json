@@ -1,11 +1,26 @@
 {
   "aa_change_rate": 0.025,
+  "aa_change_rate_ci": [
+    0.0044267174077949195,
+    0.1288165948800778
+  ],
+  "aa_change_rate_paired": 0.025,
   "ab_change_rate": 0.95,
-  "adjusted_change_rate": 0.9487179487179487,
+  "ab_change_rate_ci": [
+    0.834958291820748,
+    0.9861796228538989
+  ],
   "calls_made": 360,
   "cases_fired": 40,
   "cases_total": 40,
   "certified": false,
+  "excess_change_rate": 0.925,
+  "excess_change_rate_ci": [
+    0.85,
+    1.0
+  ],
+  "legacy_adjusted_change_rate": 0.9487179487179487,
+  "n_paired": 40,
   "p_value": 1.0,
   "protocol": {
     "alpha": 0.1,
@@ -345,7 +360,7 @@
     }
   ],
   "risk_bound": 0.994816497746246,
-  "statement": "Anthropic context editing changed the agent's decision on 95.0% of 40 fired cases (A/A noise floor 2.5%, adjusted 94.9%). (95%-confidence upper bound on the raw rate: 99.5%.) NOT certified at \u03b1=0.1 \u2014 publish this number either way.",
+  "statement": "Anthropic context editing changed the agent's decision on 95.0% [83.5, 98.6] of 40 fired cases (A/A noise floor 2.5%); paired excess over the model's own resampling +92.5pp [+85.0, +100.0] on n=40. (95%-confidence upper bound on the raw rate: 99.5%.) NOT certified at \u03b1=0.1 \u2014 publish this number either way.",
   "total_cleared_input_tokens": 141321,
   "underpowered": false
 }

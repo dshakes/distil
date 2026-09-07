@@ -36,9 +36,14 @@ is the shift, not the n.
 
 Usage::
 
-    python benchmarks/leave_one_domain_out.py
+    python benchmarks/leave_one_domain_out.py                  # -> benchmarks/results/scratch/
+    python benchmarks/leave_one_domain_out.py --write-tracked   # -> the paper's E3 artifact
     python benchmarks/report_to_latex.py \\
         docs/paper/results/leave_one_domain_out.json --only loo loomacros
+
+The default output is a scratch path on purpose: a reduced smoke run
+(``--control-reps 5``) once overwrote the committed E3 artifact. Publishing takes
+``--write-tracked``.
 """
 
 from __future__ import annotations
@@ -52,11 +57,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from benchmarks.outpath import add_out_args, resolve_out  # noqa: E402
 from distil.conformal import certified_risk_bound  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 LH = ROOT / "docs/paper/results/swe_e2e_longhorizon"
-DEFAULT_OUT = ROOT / "docs/paper/results/leave_one_domain_out.json"
+# The paper's E3 source. NOT the default --out: see benchmarks/outpath.
+TRACKED_OUT = ROOT / "docs/paper/results/leave_one_domain_out.json"
 
 
 def _resolved_ids(condition: str) -> set[str]:
@@ -242,8 +249,9 @@ def main() -> None:
     ap.add_argument("--candidate", default="distil_gated")
     ap.add_argument("--delta", type=float, default=0.05)
     ap.add_argument("--control-reps", type=int, default=2000, help="permutation reps")
-    ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    add_out_args(ap, TRACKED_OUT)
     args = ap.parse_args()
+    out = resolve_out(args, TRACKED_OUT)
 
     try:
         res = leave_one_domain_out(
@@ -254,7 +262,7 @@ def main() -> None:
         )
     except ValueError as e:  # a usage error deserves usage output, not a traceback
         ap.error(str(e))
-    args.out.write_text(json.dumps(res, indent=2) + "\n")
+    out.write_text(json.dumps(res, indent=2) + "\n")
 
     s = res["summary"]
     print(f"=== E3 leave-one-domain-out: {args.candidate} vs {args.reference} ===")
@@ -277,7 +285,7 @@ def main() -> None:
             f"harm {hm['realized_risk'] * 100:5.1f}% vs b={hm['certified_bound'] * 100:.1f}% "
             f"{'FAIL' if not hm['held'] else 'ok  '} p={hm['shift_pvalue']:.3f}"
         )
-    print(f"-> {args.out}")
+    print(f"-> {out}")
 
 
 def _selftest() -> None:

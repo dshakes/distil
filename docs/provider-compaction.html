@@ -107,7 +107,7 @@
     <p class="lead">Anthropic context editing silently <em>clears</em> old tool results before the model sees them. OpenAI server-side compaction silently <em>summarizes</em> them into an opaque item. Every customer of these features is exposed to them; neither vendor publishes what they do to an agent's decisions. That is a structural conflict of interest, not a roadmap gap — <strong>no vendor will ship a tool that measures its own degradation</strong>. A third party on the wire can. <code>distil certify-provider</code> is that measurement.</p>
 
     <div class="callout">
-      <strong>Method — the same contract distil applies to itself.</strong> Each case is a multi-turn tool transcript replayed three ways against the same model: <strong>baseline</strong> (manipulation off), <strong>edited</strong> (manipulation on), and a <strong>second independent baseline</strong> — the A/A arm that measures the model's self-agreement on identical input, without which any change rate is uninterpretable sampling noise. Decisions are majority-of-3 per arm and compared with the same normalized signature the <a href="research.html">shadow gate</a> uses (SIG v3). Firing is <strong>ground-truthed per request</strong> — Anthropic's <code>applied_edits</code> response field, OpenAI's <code>compaction</code> output item — and cases where the manipulation never fired are excluded from the sample rather than diluting it. The protocol (n, α, δ, votes, trigger, model) is written to disk <em>before the first API call</em>; live calls are hard-capped in code; the decision-change rate carries a distribution-free Hoeffding–Bentkus upper bound. Pre-registration matters because deciding n after seeing results is exactly the failure mode this project criticises in others.
+      <strong>Method — the same contract distil applies to itself.</strong> Each case is a multi-turn tool transcript replayed three ways against the same model: <strong>baseline</strong> (manipulation off), <strong>edited</strong> (manipulation on), and a <strong>second independent baseline</strong> — the A/A arm that measures the model's self-agreement on identical input, without which any change rate is uninterpretable sampling noise. Decisions are majority-of-3 per arm and compared with the same normalized signature the <a href="research.html">shadow gate</a> uses (SIG v3). All three arms run on the <em>same</em> case, so the headline is a <strong>paired</strong> statistic: the per-case difference <code>1{edited &ne; baseline} &minus; 1{baseline&prime; &ne; baseline}</code>, averaged, with a bootstrap 95% interval. It is signed and unclipped on purpose &mdash; an estimator that cannot go negative cannot report that a manipulation was harmless, only that it was harmful. Firing is <strong>ground-truthed per request</strong> — Anthropic's <code>applied_edits</code> response field, OpenAI's <code>compaction</code> output item — and cases where the manipulation never fired are excluded from the sample rather than diluting it. The protocol (n, α, δ, votes, trigger, model) is written to disk <em>before the first API call</em>; live calls are hard-capped in code; the decision-change rate carries a distribution-free Hoeffding–Bentkus upper bound. Pre-registration matters because deciding n after seeing results is exactly the failure mode this project criticises in others.
     </div>
 
     <hr/>
@@ -116,10 +116,10 @@
     <p><strong>Corpus:</strong> 40 seeded synthetic support transcripts (~1.7k tokens, two tool rounds) built so every decision-bearing fact lives in a tool result buried in log noise, with no directive telling the model what to do &middot; <strong>Config:</strong> maximally aggressive — Anthropic <code>clear_tool_uses</code> with <code>keep=0</code>, trigger 500 tokens; OpenAI <code>compact_threshold=1000</code> (the API minimum) &middot; <strong>Subjects:</strong> <code>claude-opus-4-8</code>, <code>gpt-5.2</code> &middot; <strong>Spend:</strong> 360 hard-capped calls per provider &middot; <strong>Numbers:</strong> <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/provider-compaction">benchmarks/results/provider-compaction/</a></p>
 
     <table>
-      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Adjusted</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
+      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Paired excess (95% CI)</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
       <tbody>
-        <tr><td>Anthropic context editing (clear, <code>keep=0</code>)</td><td>40/40</td><td><strong>92.5%</strong></td><td>7.5%</td><td>91.9%</td><td>98.6%</td><td>No</td></tr>
-        <tr><td>OpenAI server-side compaction</td><td>40/40</td><td><strong>12.5%</strong></td><td>0.0%</td><td>12.5%</td><td>27.8%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing (clear, <code>keep=0</code>)</td><td>40/40</td><td><strong>92.5%</strong></td><td>7.5%</td><td>+85.0pp [+70.0, +95.0]</td><td>98.6%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>40/40</td><td><strong>12.5%</strong></td><td>0.0%</td><td>+12.5pp [+2.5, +22.5]</td><td>27.8%</td><td>No</td></tr>
       </tbody>
     </table>
 
@@ -137,11 +137,11 @@
     <p><strong>Corpus:</strong> 40 seeded transcripts of <strong>7 tool rounds</strong> (~4.3k tokens): two decision-bearing rounds at the head (the order and billing records), then four routine ones — inventory, shipping scans, comms log, promotions — carrying no decision-relevant fact &middot; <strong>Config:</strong> <code>keep=3</code>, the default policy, at a 3k-token trigger &middot; <strong>Subjects:</strong> <code>claude-opus-4-8</code>, <code>gpt-5.2</code> &middot; <strong>Spend:</strong> 360 hard-capped calls per run</p>
 
     <table>
-      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Adjusted</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
+      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Paired excess (95% CI)</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
       <tbody>
-        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 1</td><td>40/40</td><td><strong>95.0%</strong></td><td>2.5%</td><td>94.9%</td><td>99.5%</td><td>No</td></tr>
-        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 2</td><td>40/40</td><td><strong>100%</strong></td><td>2.5%</td><td>100%</td><td>100%</td><td>No</td></tr>
-        <tr><td>OpenAI server-side compaction (<code>compact_threshold=3000</code>)</td><td>40/40</td><td><strong>20.0%</strong></td><td>2.5%</td><td>17.9%</td><td>36.7%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 1</td><td>40/40</td><td><strong>95.0%</strong></td><td>2.5%</td><td>+92.5pp [+85.0, +100.0]</td><td>99.5%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 2</td><td>40/40</td><td><strong>100%</strong></td><td>2.5%</td><td>+97.5pp [+92.5, +100.0]</td><td>100%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction (<code>compact_threshold=3000</code>)</td><td>40/40</td><td><strong>20.0%</strong></td><td>2.5%</td><td>+17.5pp [+7.5, +30.0]</td><td>36.7%</td><td>No</td></tr>
       </tbody>
     </table>
 

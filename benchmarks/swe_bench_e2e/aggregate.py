@@ -29,6 +29,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from benchmarks.outpath import add_out_args, resolve_out  # noqa: E402
 from benchmarks.swe_bench_e2e.stats import noninferiority_paired, wilson_ci  # noqa: E402
 from distil.pricing import get as get_pricing  # noqa: E402
 
@@ -283,11 +284,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--results-dir", type=Path, default=ROOT / "docs/paper/results/swe_e2e")
     ap.add_argument("--sample", type=Path, default=ROOT / "docs/paper/results/swe_e2e/sample.json")
-    ap.add_argument(
-        "--out",
-        type=Path,
-        default=ROOT / "docs/paper/results/swe_bench_verified_e2e.json",
-    )
+    add_out_args(ap, ROOT / "docs/paper/results/swe_bench_verified_e2e.json")
     ap.add_argument("--macros", type=Path, default=ROOT / "docs/paper/generated/swe_e2e_macros.tex")
     ap.add_argument("--wall-clock-seconds", type=float, default=None)
     # Overrides for non-E7 runs (e.g. the E8 long-horizon ReAct sweep on Haiku). Defaults
@@ -327,9 +324,10 @@ def main() -> None:
         "total_cost_usd": total_cost,
         "wall_clock_seconds": args.wall_clock_seconds,
     }
-    args.out.write_text(json.dumps(agg, indent=2) + "\n")
+    out = resolve_out(args, ROOT / "docs/paper/results/swe_bench_verified_e2e.json")
+    out.write_text(json.dumps(agg, indent=2) + "\n")
     write_macros(agg, args.macros, prefix=args.macro_prefix)
-    print(f"results -> {args.out}")
+    print(f"results -> {out}")
     print(f"macros  -> {args.macros}")
     for c in conditions:
         print(

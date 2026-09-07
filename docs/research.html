@@ -125,13 +125,13 @@
     live calls hard-capped, Hoeffding&ndash;Bentkus upper bound.</p>
 
     <table>
-      <thead><tr><th>Provider manipulation</th><th>Config</th><th>A/B change</th><th>A/A floor</th><th>Adjusted</th><th>95% bound</th><th>Certified at &alpha;=0.1</th></tr></thead>
+      <thead><tr><th>Provider manipulation</th><th>Config</th><th>A/B change</th><th>A/A floor</th><th>Paired excess</th><th>95% bound</th><th>Certified at &alpha;=0.1</th></tr></thead>
       <tbody>
-        <tr><td>Anthropic context editing &mdash; <strong>default policy</strong>, run 2</td><td>keep=3, trigger 3k</td><td><strong>100.0%</strong></td><td>2.5%</td><td>100.0%</td><td>100.0%</td><td>No</td></tr>
-        <tr><td>Anthropic context editing &mdash; <strong>default policy</strong>, run 1</td><td>keep=3, trigger 3k</td><td><strong>95.0%</strong></td><td>2.5%</td><td>94.9%</td><td>99.5%</td><td>No</td></tr>
-        <tr><td>Anthropic context editing &mdash; aggressive</td><td>keep=0, trigger 500</td><td>92.5%</td><td>7.5%</td><td>91.9%</td><td>98.6%</td><td>No</td></tr>
-        <tr><td>OpenAI server-side compaction</td><td>threshold 3k</td><td>20.0%</td><td>2.5%</td><td>17.9%</td><td>36.7%</td><td>No</td></tr>
-        <tr><td>OpenAI server-side compaction</td><td>threshold 1k</td><td>12.5%</td><td>0.0%</td><td>12.5%</td><td>27.8%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing &mdash; <strong>default policy</strong>, run 2</td><td>keep=3, trigger 3k</td><td><strong>100.0%</strong></td><td>2.5%</td><td>+97.5pp</td><td>100.0%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing &mdash; <strong>default policy</strong>, run 1</td><td>keep=3, trigger 3k</td><td><strong>95.0%</strong></td><td>2.5%</td><td>+92.5pp</td><td>99.5%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing &mdash; aggressive</td><td>keep=0, trigger 500</td><td>92.5%</td><td>7.5%</td><td>+85.0pp</td><td>98.6%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>threshold 3k</td><td>20.0%</td><td>2.5%</td><td>+17.5pp</td><td>36.7%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>threshold 1k</td><td>12.5%</td><td>0.0%</td><td>+12.5pp</td><td>27.8%</td><td>No</td></tr>
       </tbody>
     </table>
 

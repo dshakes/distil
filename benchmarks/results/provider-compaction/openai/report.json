@@ -1,11 +1,26 @@
 {
   "aa_change_rate": 0.0,
+  "aa_change_rate_ci": [
+    0.0,
+    0.08762453925039232
+  ],
+  "aa_change_rate_paired": 0.0,
   "ab_change_rate": 0.125,
-  "adjusted_change_rate": 0.125,
+  "ab_change_rate_ci": [
+    0.05459419773541284,
+    0.26112420670238146
+  ],
   "calls_made": 360,
   "cases_fired": 40,
   "cases_total": 40,
   "certified": false,
+  "excess_change_rate": 0.125,
+  "excess_change_rate_ci": [
+    0.025,
+    0.225
+  ],
+  "legacy_adjusted_change_rate": 0.125,
+  "n_paired": 40,
   "p_value": 1.0,
   "protocol": {
     "alpha": 0.1,
@@ -345,7 +360,7 @@
     }
   ],
   "risk_bound": 0.2776124781357333,
-  "statement": "OpenAI server-side compaction changed the agent's decision on 12.5% of 40 fired cases (A/A noise floor 0.0%, adjusted 12.5%). (95%-confidence upper bound on the raw rate: 27.8%.) NOT certified at \u03b1=0.1 \u2014 publish this number either way.",
+  "statement": "OpenAI server-side compaction changed the agent's decision on 12.5% [5.5, 26.1] of 40 fired cases (A/A noise floor 0.0%); paired excess over the model's own resampling +12.5pp [+2.5, +22.5] on n=40. (95%-confidence upper bound on the raw rate: 27.8%.) NOT certified at \u03b1=0.1 \u2014 publish this number either way.",
   "total_cleared_input_tokens": 0,
   "underpowered": false
 }
