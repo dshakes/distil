@@ -2933,6 +2933,18 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         if not upstream:
             upstream = preset_upstream
 
+    # Config-file wrap targets (Continue, Factory Droid, Oh My Pi, Crush — no env
+    # var contract, see distil/config_wrap.py) live in a SEPARATE registry from
+    # AGENT_PRESETS above, so a bare `distil wrap -- droid` never got a chance at
+    # the preset's own default upstream and fell all the way to the hardcoded
+    # Anthropic one — silently defeating a preset (droid) that only fires for an
+    # OpenAI-shaped upstream. Resolved here, before that hardcoded fallback.
+    from . import config_wrap
+
+    config_preset = config_wrap.CONFIG_PRESETS.get(cmd_name)
+    if config_preset is not None and not upstream and config_preset.default_upstream:
+        upstream = config_preset.default_upstream
+
     if not env_var:
         env_var = "ANTHROPIC_BASE_URL"
     if not upstream:
@@ -2955,14 +2967,11 @@ def cmd_wrap(args: argparse.Namespace) -> int:
             return 1
         print(f"  ⚠ {_conflict.message()}", file=sys.stderr)
 
-    # Config-file wrap targets (Continue, Factory Droid, Oh My Pi — no env var
-    # contract, see distil/config_wrap.py). Recover a stale backup from a
-    # previous crashed wrap first, unconditionally — it may belong to a
-    # different tool than the one being wrapped right now.
-    from . import config_wrap
-
+    # Recover a stale backup from a previous crashed config-file wrap first,
+    # unconditionally — it may belong to a different tool than the one being
+    # wrapped right now. `config_preset` itself was already resolved above,
+    # where its default upstream (if any) needed to take effect.
     config_wrap.restore_stale_backups()
-    config_preset = config_wrap.CONFIG_PRESETS.get(cmd_name)
     if config_preset is not None:
         print(
             f"  preset: {config_preset.label} detected → config-file injection ({config_preset.strategy})"
