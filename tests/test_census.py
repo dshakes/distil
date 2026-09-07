@@ -324,6 +324,21 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
     assert on_disk > 0
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl module does not exist on Windows")
+def test_savings_locked_without_flock_still_writes(monkeypatch):
+    """flock unavailable (e.g. Windows) → the lock degrades to a no-op, but a
+    lone writer still reads, steps, and persists correctly. Only *concurrent*
+    writers lose the monotonic guarantee on that platform — see the two tests
+    above, which document and skip that gap instead of asserting it away."""
+    import fcntl
+
+    monkeypatch.setattr(fcntl, "flock", lambda *a: (_ for _ in ()).throw(OSError("no flock")))
+    census.opt_in()
+    with census._savings_locked(True) as st:
+        census._step(st["tokens"], 1000, 1.0)
+    assert census._load_savings()["tokens"]["saved"] == 1000
+
+
 class _Sum:
     def __init__(self, tokens):
         self.total_tokens_saved = tokens
