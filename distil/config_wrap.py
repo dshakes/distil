@@ -164,18 +164,30 @@ def _pid_is_alive(pid: int) -> bool:
         except OSError:
             return True  # exists but not signalable by us — still alive
         return True
-    # Windows: OpenProcess via ctypes rather than a pywin32/psutil dependency.
+    # Windows: OpenProcess + GetExitCodeProcess via ctypes rather than a
+    # pywin32/psutil dependency. A non-null handle alone does NOT mean
+    # alive — Windows can still open a handle to a pid that already exited —
+    # so the real test is GetExitCodeProcess() == STILL_ACTIVE.
     try:
         import ctypes
 
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
-            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-        )
+        STILL_ACTIVE = 259
+        ERROR_INVALID_PARAMETER = 87
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
-            return False
-        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
-        return True
+            # No such pid reads ERROR_INVALID_PARAMETER — confirmed dead.
+            # Anything else (e.g. access denied on a pid we don't own) is
+            # fail-safe: we couldn't disprove it's alive.
+            return kernel32.GetLastError() != ERROR_INVALID_PARAMETER
+        try:
+            exit_code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return True  # couldn't ask — fail-safe, assume alive
+            return exit_code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     except OSError:
         return True  # couldn't ask — fail-safe, assume alive
 

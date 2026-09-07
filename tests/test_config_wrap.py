@@ -34,6 +34,57 @@ def test_family_infers_from_upstream_host():
 
 
 # ---------------------------------------------------------------------------
+# _pid_is_alive — the Windows branch only actually runs on Windows CI, so
+# fake os.name + ctypes.windll here to exercise its real logic everywhere
+# else. Regression coverage for a real bug: a non-null OpenProcess handle
+# does NOT mean alive (Windows can still hand one back for an exited pid) —
+# only GetExitCodeProcess() == STILL_ACTIVE does.
+# ---------------------------------------------------------------------------
+
+
+def test_pid_is_alive_windows_branch_checks_exit_code_not_just_the_handle(monkeypatch):
+    import ctypes
+    import types
+
+    monkeypatch.setattr(config_wrap.os, "name", "nt")
+    state = {"handle": 1234, "exit_code": 259, "last_error": 0}  # STILL_ACTIVE = 259
+
+    def fake_open_process(access, inherit, pid):
+        return state["handle"]
+
+    def fake_get_exit_code_process(handle, out_ptr):
+        out_ptr._obj.value = state["exit_code"]
+        return 1  # non-zero == WinAPI success
+
+    fake_kernel32 = types.SimpleNamespace(
+        OpenProcess=fake_open_process,
+        GetExitCodeProcess=fake_get_exit_code_process,
+        CloseHandle=lambda h: 1,
+        GetLastError=lambda: state["last_error"],
+    )
+    monkeypatch.setattr(
+        ctypes, "windll", types.SimpleNamespace(kernel32=fake_kernel32), raising=False
+    )
+
+    # A handle whose exit code is STILL_ACTIVE → alive.
+    assert config_wrap._pid_is_alive(999) is True
+
+    # The bug this guards against: same non-null handle, but the process has
+    # actually exited.
+    state["exit_code"] = 0
+    assert config_wrap._pid_is_alive(999) is False
+
+    # OpenProcess itself fails because the pid never existed → confirmed dead.
+    state["handle"] = 0
+    state["last_error"] = 87  # ERROR_INVALID_PARAMETER
+    assert config_wrap._pid_is_alive(999) is False
+
+    # OpenProcess fails for any other reason (e.g. access denied) → fail-safe alive.
+    state["last_error"] = 5  # ERROR_ACCESS_DENIED
+    assert config_wrap._pid_is_alive(999) is True
+
+
+# ---------------------------------------------------------------------------
 # Continue (`cn`) — flag strategy: nothing on disk but a throwaway temp file.
 # ---------------------------------------------------------------------------
 
