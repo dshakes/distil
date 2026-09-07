@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1788766318,
+  "generated_ts": 1788808791,
   "installs": {
     "census_total": 2,
     "active_7d": 1,
@@ -7,19 +7,19 @@
     "contributing_7d": 1,
     "contributing_30d": 1,
     "by_version": {
-      "1.51.1": 1
+      "1.52.0": 1
     }
   },
   "savings": {
-    "tokens": 2889304281,
+    "tokens": 2890368523,
     "dollars": 0,
-    "dollars_notional": 13036.25,
+    "dollars_notional": 13045.51,
     "instances": 2,
     "contributing": 1,
-    "as_of_ts": 1788721583,
-    "rate_per_sec": 5.84,
-    "total_runs": 26342,
-    "avg_per_run": 109684,
+    "as_of_ts": 1788808780,
+    "rate_per_sec": 12.21,
+    "total_runs": 28654,
+    "avg_per_run": 100871,
     "history": [
       {
         "ts": 1784522481,
@@ -136,6 +136,10 @@
       {
         "ts": 1788721583,
         "tokens": 2889304281
+      },
+      {
+        "ts": 1788808780,
+        "tokens": 2890368523
       }
     ]
   },
@@ -145,10 +149,10 @@
   },
   "usage": {
     "by_model": {
-      "claude-opus-5": 1437512003,
+      "claude-opus-5": 1437825381,
       "claude-opus-4-8": 638058935,
       "claude-sonnet-4-6": 525499662,
-      "claude-sonnet-5": 314939117,
+      "claude-sonnet-5": 314966345,
       "claude-fable-5": 85675407
     },
     "billing": {
@@ -159,10 +163,10 @@
     },
     "surfaces": {
       "proxy": 49374,
-      "wrap": 39839
+      "wrap": 46619
     },
     "shapes": {
-      "anthropic": 89213
+      "anthropic": 95993
     },
     "modes": {
       "interactive": 16
