@@ -87,6 +87,16 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 # proxy plus the editor's own "custom base URL"/OpenAI-compatible setting; see
 # docs/IDE-AGENTS.md. Adding a preset here without a published contract is how
 # you ship a lie that looks like a feature.
+#
+# ALSO ABSENT (on purpose, not an oversight): the Continue CLI (`cn`), Factory
+# Droid (`droid`), and Oh My Pi (`omp`). Unlike everything above, these DO have
+# a published routing contract — it's just a config file, not an env var, so
+# they can't live in this dict's 4-tuple shape. See config_wrap.CONFIG_PRESETS
+# for their (doc-cited) config-injection presets instead. Crush, Amp, Mistral
+# Vibe, and OpenClaw were investigated for the same treatment and rejected —
+# no verifiable base-URL override exists for the first three, and OpenClaw is
+# a persistent multi-channel gateway rather than a per-session CLI; see
+# docs/IDE-AGENTS.md.
 AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
     # cmd_name: (env_var, upstream_base_url, human_label, extra_env)
     # extra_env values: "$BASE" mirrors the primary env_var's value, "$VARNAME"
