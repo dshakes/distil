@@ -139,7 +139,8 @@ response = client.messages.create(
         <ul>
           <li>User text blocks: Tier-0 lossless transforms (JSON minify + run collapse).</li>
           <li>Tool result blocks with ≥ 6 lines: Tier-1 reversible digest, original stored in a local <code>RestoreStore</code>.</li>
-          <li>Assistant text, <code>tool_use</code>, and <code>image</code> blocks: passed through unchanged.</li>
+          <li>Assistant text and <code>tool_use</code> blocks: passed through unchanged.</li>
+          <li><code>image</code> blocks: a duplicate of an already-seen image (certificate-gated, ADR 0003) is elided to a reversible reference; the first occurrence is always left untouched.</li>
         </ul>
       </li>
       <li><strong>Pins the cache prefix</strong> via <code>place_cache_control()</code>: marks the last stable system block with <code>{"cache_control": {"type": "ephemeral"}}</code>, so the first call pays the cache-write price and every subsequent call pays the ~0.1× cache-read price.</li>
@@ -321,9 +322,9 @@ distil proxy listening on http://127.0.0.1:8788
           <td>—</td>
         </tr>
         <tr>
-          <td><code>inlineData</code>, <code>fileData</code></td>
-          <td>Passed through untouched</td>
-          <td>—</td>
+          <td><code>inlineData</code>, <code>fileData</code> (non-model role)</td>
+          <td>A duplicate of an already-seen image is elided to a reversible reference (certificate-gated, ADR 0003, same rule as the Anthropic/OpenAI adapters); first occurrence untouched. A <code>fileData.fileUri</code> is only treated as a duplicate when it embeds a <code>data:</code> URI — a plain URL is never proof of identical bytes.</td>
+          <td>Reversible via local <code>RestoreStore</code> (never sent to model, zero tokens)</td>
         </tr>
         <tr>
           <td><code>systemInstruction</code></td>

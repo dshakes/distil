@@ -54,7 +54,7 @@ import json
 import os
 import struct
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Anthropic bills vision at roughly (width x height) / 750 input tokens, capped
 # by the provider's own resize at ~1568px on the long edge. Used for savings
@@ -273,23 +273,51 @@ def estimate_tokens(raw: bytes | None) -> int:
 # ---------------------------------------------------------------------------
 
 
-def block_tokens(block: Any) -> int:
-    """Billed token cost of a vision content block, from its `source`.
+def _b64_payload(source: dict[str, Any]) -> str | None:
+    """The base64 image payload proving *source*'s identity, wherever it lives.
 
-    The single definition of that rule. It is consumed by two callers that MUST agree —
+    Anthropic carries it under ``data``; OpenAI's ``image_url``/``input_image``
+    shapes and Gemini's ``fileData`` carry a plain URL that MAY itself be a
+    ``data:...;base64,`` URI — that embeds the actual bytes just as surely as a
+    dedicated ``data`` field does, so it counts as proof of identity too. A
+    non-data URL returns None: see :meth:`ImageDedup._key` for why that case is
+    refused rather than approximated.
+    """
+    data = source.get("data")
+    if isinstance(data, str) and data:
+        return data
+    url = source.get("url")
+    if isinstance(url, str) and ";base64," in url and url.startswith("data:"):
+        return url.split(";base64,", 1)[1]
+    return None
+
+
+def source_tokens(source: dict[str, Any] | None) -> int:
+    """Billed token cost of an image source dict (``{"data": ...}`` or a URL field).
+
+    The single definition of that rule, shared by every provider's ``block_tokens``/
+    census wrapper so they all land on the SAME scale — see :func:`block_tokens`.
+    """
+    if not isinstance(source, dict):
+        return 0
+    payload = _b64_payload(source)
+    if payload:
+        return estimate_tokens(_decode_b64(payload))
+    # A non-data-URI url source: real cost, unknown dimensions. estimate_tokens' own
+    # conservative floor is the honest answer — never zero, never flattering.
+    return estimate_tokens(None) if isinstance(source.get("url"), str) else 0
+
+
+def block_tokens(block: Any) -> int:
+    """Billed token cost of an Anthropic vision content block, from its `source`.
+
+    The single definition of that rule. It is consumed by callers that MUST agree —
     the request baseline (`proxy._count_messages`) and the eligibility census
     (`adapters.anthropic`) — and an exhaustiveness invariant compares their sums. Two
     copies of this arithmetic would let the census silently fail to add up.
     """
     src = block.get("source") if isinstance(block, dict) else None
-    if not isinstance(src, dict):
-        return 0
-    data = src.get("data")
-    if not isinstance(data, str) or not data:
-        # A url source: real cost, unknown dimensions. estimate_tokens' own conservative
-        # floor is the honest answer — never zero, never flattering.
-        return estimate_tokens(None) if isinstance(src.get("url"), str) else 0
-    return estimate_tokens(_decode_b64(data))
+    return source_tokens(src)
 
 
 def _handle(payload: str) -> str:
@@ -347,24 +375,24 @@ class ImageDedup:
     def _key(source: dict[str, Any]) -> str | None:
         """Identity of an image payload, or None if we cannot prove identity.
 
-        ONLY inline base64 payloads are keyed, because only there do we hold the
-        actual bytes. URL sources are deliberately excluded: two occurrences of
-        the same URL are not evidence of the same image. Dashboards, signed
-        URLs, `?t=` cache-busted screenshots and auth-dependent resources all
-        return different pixels from a stable URL, so keying on the URL would
-        let a *different* second image be replaced by a stub asserting it is
-        identical — a false claim, and a silent one, since expand would return
-        the first image's bytes.
+        ONLY an actual base64 payload is keyed, wherever the provider's shape
+        carries it (a dedicated ``data`` field, or a ``data:...;base64,`` URI in
+        a ``url`` field — see :func:`_b64_payload`), because only there do we
+        hold the actual bytes. A plain (non-data) URL is deliberately excluded:
+        two occurrences of the same URL are not evidence of the same image.
+        Dashboards, signed URLs, `?t=` cache-busted screenshots and
+        auth-dependent resources all return different pixels from a stable URL,
+        so keying on the URL would let a *different* second image be replaced
+        by a stub asserting it is identical — a false claim, and a silent one,
+        since expand would return the first image's bytes.
 
         That is the reversibility contract broken, not merely a missed saving,
-        so the URL case is refused rather than approximated. Deduping it safely
-        would need a verified content digest of the fetched bytes, which means
-        fetching them, which this module does not do.
+        so the plain-URL case is refused rather than approximated. Deduping it
+        safely would need a verified content digest of the fetched bytes, which
+        means fetching them, which this module does not do.
         """
-        data = source.get("data")
-        if isinstance(data, str) and data:
-            return f"b64:{data}"
-        return None
+        payload = _b64_payload(source)
+        return f"b64:{payload}" if payload else None
 
     def elide(self, source: dict[str, Any]) -> tuple[str, str, int] | None:
         """Decide the fate of one image ``source``.
@@ -391,7 +419,7 @@ class ImageDedup:
 
         original = json.dumps(source, sort_keys=True)
         handle = _handle(original)
-        raw = _decode_b64(source.get("data"))
+        raw = _decode_b64(_b64_payload(source))
         tokens = estimate_tokens(raw)
 
         # Reject-if-bigger, the same invariant every other compressor obeys: a
@@ -410,6 +438,48 @@ class ImageDedup:
         self.elided += 1
         self.tokens_saved += tokens
         return handle, original, tokens
+
+
+def elide_or_keep(
+    dedup: "ImageDedup | None",
+    source: dict[str, Any] | None,
+    store: Any,
+    census: Callable[[str, int], None],
+    verbatim: bool,
+    is_recent: bool,
+) -> str | None:
+    """Shared elide-or-keep decision, one call site per provider adapter.
+
+    Ports ``adapters.anthropic._compress_image_block``'s non-downscale path (the
+    part every provider shares) so OpenAI and Gemini get the exact same
+    census reasons, the same reject-if-bigger arithmetic, and the same
+    ``RestoreStore`` handle collision guard as the Anthropic path — one
+    definition instead of three copies that could drift.
+
+    Returns replacement TEXT for the block when this is a byte-identical
+    repeat worth eliding. Returns None to leave the block untouched: disabled,
+    a first sighting, too small, verbatim/recency-exempt, malformed, or an
+    8-hex handle collision (a stub there would expand to the wrong image, so
+    the safe answer is always to keep the block).
+    """
+    tokens_kept = source_tokens(source)
+    census("image_kept", tokens_kept)
+    if dedup is None or not isinstance(source, dict):
+        return None
+    if verbatim or is_recent:
+        dedup.note(source)
+        return None
+    verdict = dedup.elide(source)
+    if verdict is None:
+        return None
+    handle, original, tokens = verdict
+    if not store._record(handle, original):
+        return None
+    # Reclassify: this one was actually elided, not kept. Moved rather than
+    # added, so the total still matches the payload.
+    census("image_kept", -tokens_kept)
+    census("image_elided", tokens_kept)
+    return reference_text(handle, tokens)
 
 
 def _decode_b64(data: Any) -> bytes | None:

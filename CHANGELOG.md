@@ -300,6 +300,34 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   prefix the first time it replayed a block whose marker was not already last. The
   per-server tests caught it; the adapter-level ones could not.
 
+### Windows ran every file-backed store with no lock, and two adapters saw every repeated image at full price
+
+Two platform gaps, closed together because both are "works on Linux, quietly worse on
+Windows" — the kind of defect a Linux CI matrix cannot see.
+
+- **File locking degraded silently on Windows.** `gateway_keys.py`, `audit.py`,
+  `ledger.py`, `census.py`, `shadow.py`, `retention.py`, `surfaces.py`, and
+  `mcp_server.py` each guarded `import fcntl` with a bare `except ImportError` and fell
+  back to **no lock at all** rather than an equivalent one — a concurrent-writer race
+  that Linux/macOS CI never exercises because `fcntl` always imports there. `_filelock.py`
+  is now the one place any of them ask for mutual exclusion: `fcntl.flock` on POSIX,
+  `msvcrt.locking` against a `<path>.lock` sidecar on Windows, fail-open (no lock, not a
+  crash) if the platform call itself errors. All eight call sites now route through it,
+  and the tests that were skipped under `win32` run unconditionally by exercising the
+  Windows branch directly rather than requiring a Windows runner.
+- **Vision duplicate elision (ADR 0003) was Anthropic-only.** The certificate-gated
+  dedup that replaces a repeated image with a reversible reference — same first-occurrence
+  rule, same "a URL is never proof of identical bytes" rule — only ever saw Anthropic's
+  `image` blocks. OpenAI's `image_url` (Chat Completions) and `input_image` (Responses
+  API) parts, and Gemini's `inlineData`/`fileData` parts, passed through untouched, so an
+  agent looping OpenAI or Gemini paid full price on every repeat of a screenshot it had
+  already sent. The identity/elision logic now lives once in `compress/vision.py`
+  (`elide_or_keep`), shared by all three adapters behind the same certificate gate and the
+  same `image_kept`/`image_elided` census reasons `distil dissect` already reports.
+  `proxy._count_messages` gained the matching `image_url` token count so the before/after
+  savings are on the same scale as the new elisions — without it, an elided OpenAI image
+  reported zero savings despite being genuinely removed.
+
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 
