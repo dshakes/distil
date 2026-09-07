@@ -2952,6 +2952,19 @@ def cmd_wrap(args: argparse.Namespace) -> int:
             return 1
         print(f"  ⚠ {_conflict.message()}", file=sys.stderr)
 
+    # Config-file wrap targets (Continue, Factory Droid, Oh My Pi — no env var
+    # contract, see distil/config_wrap.py). Recover a stale backup from a
+    # previous crashed wrap first, unconditionally — it may belong to a
+    # different tool than the one being wrapped right now.
+    from . import config_wrap
+
+    config_wrap.restore_stale_backups()
+    config_preset = config_wrap.CONFIG_PRESETS.get(cmd_name)
+    if config_preset is not None:
+        print(
+            f"  preset: {config_preset.label} detected → config-file injection ({config_preset.strategy})"
+        )
+
     _apply_subscription_safe_default(args)
     from .proxy import wrap_run
 
@@ -2970,6 +2983,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         shadow_rate=args.shadow,
         retention_rate=getattr(args, "retention", 0.0),
         extra_env=extra_env,
+        config_ctx=config_preset.apply if config_preset is not None else None,
     )
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can
