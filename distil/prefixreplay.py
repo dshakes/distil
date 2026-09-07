@@ -184,19 +184,29 @@ def _remark(replayed: Any, client: Any) -> Any:
     part of the span's content. Replaying last turn's marker position would pin the
     breakpoint behind the conversation and defeat the point of an agent that advances
     it, so the markers follow the client, block index for block index.
+
+    Returns ``None`` when a marker the client placed has nowhere to go on last turn's
+    form — the client sent one text block *with* a breakpoint where the previous turn
+    sent a bare string, say, which the comparison key calls equal and which has no block
+    to carry the marker. Silently dropping it would delete the breakpoint the client
+    asked for and, on Anthropic, the cache entry with it: a cache hit bought by
+    destroying the cache. The caller stops replaying there instead.
     """
     if not isinstance(replayed, dict) or not isinstance(client, dict):
         return replayed
     out = _reput(replayed, client.get("cache_control"))
-    blocks = out.get("content")
-    if not isinstance(blocks, list):
-        return out
     cc = client.get("content")
     marks: List[Any] = (
         [b.get("cache_control") if isinstance(b, dict) else None for b in cc]
         if isinstance(cc, list)
         else []
     )
+    blocks = out.get("content")
+    if not isinstance(blocks, list):
+        return None if any(m is not None for m in marks) else out
+    if any(m is not None for m in marks[len(blocks) :]):
+        # A marker past the last block we have to put it on — same loss, same answer.
+        return None
     new_blocks: List[Any] = []
     for j, b in enumerate(blocks):
         if not isinstance(b, dict):
@@ -325,6 +335,10 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
                 # never decisions — so this is a divergence like any other.
                 break
             item = _remark(prev.forwarded[i], original[i])
+            if item is None:
+                # The client's breakpoint has nowhere to sit on last turn's form. A
+                # replay that drops it trades the entry for the hit — stop here.
+                break
             if _wire(item) != _wire(forwarded[i]):
                 stats.restored += 1
             out[i] = item

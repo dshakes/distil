@@ -167,7 +167,11 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   distil remembers the previous turn's `(original, forwarded)` pair. For the longest
   canonically-equal leading prefix it forwards **the bytes it forwarded last turn**,
   re-placing the client's current `cache_control` markers at the client's current block
-  positions, and compresses only the divergent suffix. On by default;
+  positions, and compresses only the divergent suffix. Where a marker has nowhere to sit
+  on last turn's form — the client re-spells a bare string as one text block and puts its
+  breakpoint on it — replay stops there rather than forward a form with the breakpoint
+  missing: on Anthropic the breakpoint is the cache entry, and dropping it would buy the
+  hit by destroying the thing being hit. On by default;
   **`--no-prefix-replay`** opts out on both `wrap` and `proxy`. State is in-memory,
   LRU-bounded, and deliberately not persisted: it holds message bytes, and the TTL'd
   restore store is the only place content is allowed to rest on disk. Fail-open — any

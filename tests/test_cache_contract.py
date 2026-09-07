@@ -749,6 +749,40 @@ def test_canonical_only_ignores_the_fields_it_names() -> None:
     assert prefixreplay.canonical(marked) == key
 
 
+def test_a_breakpoint_with_nowhere_to_sit_stops_the_replay() -> None:
+    """The client re-spells a bare string as one text block *and* puts its breakpoint on
+    it. The comparison key calls those two the same input — that is the sugar rule, and
+    it is what makes the rewrite repairable — but last turn's form is a string with no
+    block to carry the marker. Forwarding it anyway would delete the breakpoint the
+    client asked for, and on Anthropic the breakpoint IS the cache entry: a hit bought by
+    destroying the thing being hit. Replay stops at that index instead.
+    """
+    prefixreplay.reset()
+    plain: list[Any] = [{"role": "user", "content": "hello"}]
+    marked: list[Any] = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "hello", "cache_control": {"type": "ephemeral"}}],
+        }
+    ]
+
+    prefixreplay.replay("mark", plain, _clone(plain))
+    out, stats = prefixreplay.replay("mark", marked, _clone(marked))
+    assert stats.hits == 0, "replay held a message whose breakpoint it could not carry"
+    assert _key(out) == _key(marked), (
+        f"the client's breakpoint was dropped on the way out: forwarded {_key(out)}"
+    )
+
+    # The other direction is a genuine repair and must still happen: the client has no
+    # marker this turn, so last turn's block spelling goes out with the marker stripped.
+    prefixreplay.reset()
+    prefixreplay.replay("mark", marked, _clone(marked))
+    back, stats2 = prefixreplay.replay("mark", plain, _clone(plain))
+    assert stats2.hits == 1, "a re-spelling with no marker to carry is still replayable"
+    assert "cache_control" not in _key(back), "last turn's breakpoint was left behind"
+    prefixreplay.reset()
+
+
 def test_a_tool_payload_is_never_canonicalised_away() -> None:
     """The strip set applies to MESSAGE structure, not one level down inside a tool
     payload. Gemini's ``functionResponse.response`` is arbitrary tool output, and a key

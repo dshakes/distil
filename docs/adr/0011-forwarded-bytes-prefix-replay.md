@@ -110,7 +110,11 @@ because a loop condition is exactly the kind of thing a later optimisation delet
   moves `cache_control` to the end of the key order, and JSON key order is part of the bytes
   the provider hashes, so the naive version busts the prefix the first time it replays a
   block whose marker was not already last. Caught by the per-server tests, not by the
-  adapter-level ones.
+  adapter-level ones. And where a marker has **nowhere to sit** on last turn's form — the
+  client re-spells a bare string as one text block and puts its breakpoint on it, which the
+  comparison key calls the same input — replay stops at that index rather than forward a
+  form with the breakpoint missing. On Anthropic the breakpoint is the cache entry, so
+  dropping it would buy the hit by destroying the thing being hit.
 - **Fail-open.** Any exception forwards exactly what the compressor produced.
 
 ### Prior art
