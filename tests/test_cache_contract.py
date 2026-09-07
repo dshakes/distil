@@ -909,14 +909,20 @@ def test_the_gateway_holds_the_prefix_and_never_shares_it_between_tenants() -> N
     try:
         first = post("acme", 1)
         assert post("acme", 2) == first, "the gateway re-billed the prefix"
-        # A second tenant's first turn has no state to replay from, so it forwards what
-        # the compressor produced — with the client's own turn-3 `index` values in it.
-        # If the tenants shared a lineage it would come back as acme's turn-1 bytes.
+
+        # Cross-tenant isolation, stated as the value that would differ. globex posts
+        # the same conversation with its own turn-3 `index` stamps. The canonical
+        # comparison IGNORES `index`, so a shared lineage would find globex's request
+        # canonically equal to acme's and overlay acme's stored bytes — `index` would
+        # come back 1, acme's number, in a request globex sent with 3. Verified by
+        # mutation: dropping `scope=tenant` from gateway.py fails both asserts below.
         other = post("globex", 3)
-        assert other != first, "one tenant's forwarded bytes leaked into another's request"
-        assert json.loads(other)["messages"][0]["content"][0]["index"] == 3, (
-            "globex was served acme's replayed bytes"
+        served = json.loads(other)["messages"][0]["content"][0]["index"]
+        assert served == 3, (
+            f"cross-tenant leak: globex sent index=3 and the gateway forwarded index="
+            f"{served}, which is acme's — the tenants are sharing replay state"
         )
+        assert other != first, "one tenant's forwarded bytes leaked into another's request"
     finally:
         gw.shutdown()
         up.shutdown()
