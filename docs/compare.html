@@ -177,7 +177,7 @@
           <td><span class="badge-pass">✔</span> suffix-only and cache-monotonic, enforced as an invariant — <a href="cache-contract.html">the contract</a></td>
           <td><span class="badge-pass">✔</span> genuinely strong prefix replay (<code>overlay_cached_prefix</code>, <code>prefix_tracker.py:456-463</code>) — real engineering</td>
           <td>n/a — not an LLM API relay</td>
-          <td><span class="badge-fail">✘</span> recompresses the whole prompt</td>
+          <td><span class="badge-fail">✘</span> no prefix-stability mechanism — the compressed prompt changes as the conversation grows</td>
           <td><span class="badge-pass">✔</span> it <em>is</em> the cache</td>
         </tr>
         <tr>
