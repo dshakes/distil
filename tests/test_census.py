@@ -8,6 +8,7 @@ be, the test fails loudly.
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -287,6 +288,11 @@ def test_second_writer_reads_inside_the_lock(monkeypatch):
     assert census._load_savings()["tokens"]["saved"] == 5000
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="monotonic-under-concurrency depends on fcntl.flock, a no-op on Windows "
+    "(_savings_locked degrades to last-write-wins there, per its own docstring)",
+)
 def test_concurrent_writers_never_lower_the_total(monkeypatch):
     """The invariant the adoption page publishes: the shared total is
     monotonic under concurrency, not just per-process."""
