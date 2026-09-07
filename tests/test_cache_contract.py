@@ -1164,6 +1164,21 @@ def test_the_credential_scope_is_a_hash_and_nothing_else() -> None:
     assert prefixreplay.credential_scope({"authorization": f"Bearer {key}"}) not in ("", scope)
     assert prefixreplay.credential_scope({"content-type": "application/json"}) == ""
 
+    # Both headers at once (Azure, the Gemini SDKs): keying on whichever came first would
+    # let two callers that agree on one and differ on the other share a lineage. And the
+    # order they arrive in must not fork the scope of an otherwise identical caller.
+    both = {"authorization": "Bearer A", "x-api-key": "B"}
+    assert prefixreplay.credential_scope(both) not in (
+        prefixreplay.credential_scope({"authorization": "Bearer A"}),
+        prefixreplay.credential_scope({"x-api-key": "B"}),
+    ), "a second credential header made no difference to the scope"
+    assert prefixreplay.credential_scope(both) == prefixreplay.credential_scope(
+        {"X-Api-Key": "B", "Authorization": "Bearer A"}
+    ), "header order forked the scope"
+    assert prefixreplay.credential_scope(both) != prefixreplay.credential_scope(
+        {"authorization": "Bearer A", "x-api-key": "C"}
+    ), "a changed second credential was ignored"
+
 
 def test_the_gateway_holds_the_prefix_and_never_shares_it_between_tenants() -> None:
     """Plus the property that only the gateway has: a cached prefix belongs to one
