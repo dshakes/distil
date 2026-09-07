@@ -23,12 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-try:
-    import fcntl as _fcntl
-
-    _HAVE_FCNTL = True
-except ImportError:  # pragma: no cover - Windows
-    _HAVE_FCNTL = False
+from distil import _filelock
 
 #: Events an operator can filter on. Kept as plain strings so a log stays readable
 #: without this module, and so adding one never breaks an existing consumer.
@@ -58,15 +53,17 @@ def record(event: str, **fields: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         # 0600 at creation: the trail names tenants and key ids, so it is not for
         # every local user to read. Opened O_APPEND so concurrent writers cannot
-        # overwrite each other's offsets.
-        # 0600 at creation, O_APPEND so concurrent writers never clobber offsets.
-        with os.fdopen(
-            os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "a", encoding="utf-8"
-        ) as fh:
-            if _HAVE_FCNTL:
-                # The gateway serves requests concurrently and a record can exceed
-                # the atomic-append size; lock so lines never interleave.
-                _fcntl.flock(fh.fileno(), _fcntl.LOCK_EX)
+        # overwrite each other's offsets. Locked (cross-platform, see _filelock)
+        # so a record longer than the atomic-append size never interleaves with
+        # another writer's.
+        with (
+            _filelock.locked(path),
+            os.fdopen(
+                os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600),
+                "a",
+                encoding="utf-8",
+            ) as fh,
+        ):
             fh.write(json.dumps(rec, sort_keys=True) + "\n")
     except (OSError, TypeError, ValueError):
         pass  # ponytail: an audit write must never break the request it describes

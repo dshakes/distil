@@ -32,6 +32,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from distil import _filelock
+
 DEFAULT_ENDPOINT = "https://distil-census.vercel.app/v1/ping"
 DEFAULT_BEAT_ENDPOINT = "https://distil-census.vercel.app/v1/beat"
 SEND_TIMEOUT_S = 1.5
@@ -371,28 +373,27 @@ def _savings_locked(persist: bool) -> Iterator[dict]:
     try:
         p = _savings_path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        fh = open(p, "a+", encoding="utf-8")
     except OSError:
         yield _load_savings()  # fail-open: accrue in memory, lose only the write
         return
-    try:
+    with _filelock.locked(p):
         try:
-            import fcntl
-
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        except (ImportError, OSError):
-            pass  # no flock (e.g. Windows): degrades to the old last-write-wins
-        fh.seek(0)
-        st = _parse_savings(fh.read())
-        yield st
+            fh = open(p, "a+", encoding="utf-8")
+        except OSError:
+            yield _load_savings()  # fail-open: accrue in memory, lose only the write
+            return
         try:
             fh.seek(0)
-            fh.truncate()
-            json.dump(st, fh)
-        except OSError:
-            pass  # a lost write just re-accrues the same delta next time
-    finally:
-        fh.close()
+            st = _parse_savings(fh.read())
+            yield st
+            try:
+                fh.seek(0)
+                fh.truncate()
+                json.dump(st, fh)
+            except OSError:
+                pass  # a lost write just re-accrues the same delta next time
+        finally:
+            fh.close()
 
 
 def _save_savings(st: dict) -> None:

@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import atrest
+from . import _filelock, atrest
 from .compress.tier1 import _handle, digest
 from .tokenizer import DEFAULT as _tokenizer
 
@@ -49,28 +49,17 @@ def _store_path() -> Path:
     return base / "mcp_store.json"
 
 
-try:
-    import fcntl  # POSIX advisory locking; absent on Windows
-
-    _HAVE_FCNTL = True
-except ImportError:  # pragma: no cover - Windows
-    _HAVE_FCNTL = False
-
-
 def _store_add(handle: str, text: str) -> None:
     """Read-modify-write the store under an advisory lock.
 
     Two concurrent ``distil_compress`` calls (e.g. two agent sessions sharing
     this MCP server's store) would otherwise race load/load/save/save and
     silently drop one handle — a later ``distil_expand`` on it then fails.
-    Locks a sidecar file so the save itself can stay a simple rewrite.
+    Locks a sidecar file (cross-platform, see ``_filelock``) so the save
+    itself can stay a simple rewrite.
     """
-    lock_path = _store_path().with_suffix(".lock")
     try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("w", encoding="utf-8") as lk:
-            if _HAVE_FCNTL:
-                fcntl.flock(lk.fileno(), fcntl.LOCK_EX)
+        with _filelock.locked(_store_path()):
             store = _load_store()
             store[handle] = text
             _save_store(store)
