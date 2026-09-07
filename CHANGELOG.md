@@ -269,11 +269,11 @@ baiting, salience baiting, handle forging, budget starvation, expand-tool inject
 and cross-block starvation. **102/102 checks pass across 19 cases**, with two honest
 findings pinned by tests rather than smoothed over:
 
-* **dedup baiting is a real hit.** Shape-based dedup normalises digits away, so 300
+- **dedup baiting is a real hit.** Shape-based dedup normalises digits away, so 300
   attacker lines differing from the genuine error only in a shard number collapse
   with it and the real line IS folded. Reversibility saves it. Its test fails if the
   behaviour changes in either direction, so an improvement stays deliberate.
-* **decoy flooding costs savings, not correctness.** It drives a block to exactly
+- **decoy flooding costs savings, not correctness.** It drives a block to exactly
   0.0%. Correct trade, real cost, stated as such — denial of savings, not denial of
   the answer.
 
