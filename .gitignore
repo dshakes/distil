@@ -61,3 +61,8 @@ launch/
 
 # local eval run artifacts (predictions/scores from bench runs)
 benchmarks/swe_bench_e2e/results_*/
+
+# Benchmark scratch output. Every E-series script that can overwrite a committed
+# paper artifact now defaults its --out here instead (benchmarks/outpath.py);
+# publishing takes --write-tracked.
+benchmarks/results/scratch/

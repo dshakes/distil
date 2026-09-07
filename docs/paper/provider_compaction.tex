@@ -42,23 +42,28 @@
   reported number will render as a placeholder. Run
   benchmarks/provider_compaction_to_latex.py before distributing this PDF.}%
   \newcommand{\pcAnthropicDefaultTwoAB}{--}\newcommand{\pcAnthropicDefaultTwoAA}{--}%
-  \newcommand{\pcAnthropicDefaultTwoAdj}{--}\newcommand{\pcAnthropicDefaultTwoBound}{--}%
+  \newcommand{\pcAnthropicDefaultTwoExcess}{--}\newcommand{\pcAnthropicDefaultTwoExcessCI}{--}%
+  \newcommand{\pcAnthropicDefaultTwoABCI}{--}\newcommand{\pcAnthropicDefaultTwoBound}{--}%
   \newcommand{\pcAnthropicDefaultTwoFired}{--}\newcommand{\pcAnthropicDefaultTwoCalls}{--}%
   \newcommand{\pcAnthropicDefaultTwoModel}{--}%
   \newcommand{\pcAnthropicDefaultOneAB}{--}\newcommand{\pcAnthropicDefaultOneAA}{--}%
-  \newcommand{\pcAnthropicDefaultOneAdj}{--}\newcommand{\pcAnthropicDefaultOneBound}{--}%
+  \newcommand{\pcAnthropicDefaultOneExcess}{--}\newcommand{\pcAnthropicDefaultOneExcessCI}{--}%
+  \newcommand{\pcAnthropicDefaultOneABCI}{--}\newcommand{\pcAnthropicDefaultOneBound}{--}%
   \newcommand{\pcAnthropicDefaultOneFired}{--}\newcommand{\pcAnthropicDefaultOneCalls}{--}%
   \newcommand{\pcAnthropicDefaultOneModel}{--}%
   \newcommand{\pcAnthropicAggressiveAB}{--}\newcommand{\pcAnthropicAggressiveAA}{--}%
-  \newcommand{\pcAnthropicAggressiveAdj}{--}\newcommand{\pcAnthropicAggressiveBound}{--}%
+  \newcommand{\pcAnthropicAggressiveExcess}{--}\newcommand{\pcAnthropicAggressiveExcessCI}{--}%
+  \newcommand{\pcAnthropicAggressiveABCI}{--}\newcommand{\pcAnthropicAggressiveBound}{--}%
   \newcommand{\pcAnthropicAggressiveFired}{--}\newcommand{\pcAnthropicAggressiveCalls}{--}%
   \newcommand{\pcAnthropicAggressiveModel}{--}%
   \newcommand{\pcOpenAIThreeKAB}{--}\newcommand{\pcOpenAIThreeKAA}{--}%
-  \newcommand{\pcOpenAIThreeKAdj}{--}\newcommand{\pcOpenAIThreeKBound}{--}%
+  \newcommand{\pcOpenAIThreeKExcess}{--}\newcommand{\pcOpenAIThreeKExcessCI}{--}%
+  \newcommand{\pcOpenAIThreeKABCI}{--}\newcommand{\pcOpenAIThreeKBound}{--}%
   \newcommand{\pcOpenAIThreeKFired}{--}\newcommand{\pcOpenAIThreeKCalls}{--}%
   \newcommand{\pcOpenAIThreeKModel}{--}%
   \newcommand{\pcOpenAIOneKAB}{--}\newcommand{\pcOpenAIOneKAA}{--}%
-  \newcommand{\pcOpenAIOneKAdj}{--}\newcommand{\pcOpenAIOneKBound}{--}%
+  \newcommand{\pcOpenAIOneKExcess}{--}\newcommand{\pcOpenAIOneKExcessCI}{--}%
+  \newcommand{\pcOpenAIOneKABCI}{--}\newcommand{\pcOpenAIOneKBound}{--}%
   \newcommand{\pcOpenAIOneKFired}{--}\newcommand{\pcOpenAIOneKCalls}{--}%
   \newcommand{\pcOpenAIOneKModel}{--}%
   \newcommand{\pcN}{--}\newcommand{\pcVotes}{--}\newcommand{\pcAlpha}{--}%
@@ -202,13 +207,32 @@ unchanged. Actions are compared by a normalized signature over the tool name and
 arguments, so that formatting differences do not register as behavioral change and
 a switch from a tool call to prose does.
 
-\paragraph{The A/A arm.}
+\paragraph{The A/A arm, and a paired estimator.}
 A raw $A/B$ change rate is uninterpretable on its own, because a nonzero
 temperature model does not always agree with itself. We therefore run a second,
-independent baseline arm on identical input. The resulting $A/A$ rate is the
-self-agreement floor; we report it alongside every $A/B$ rate and also report an
-adjusted rate that discounts it. Each arm's decision is the majority of
-\pcVotes{} samples.
+independent baseline arm on identical input; the resulting $A/A$ rate is the
+self-agreement floor, reported alongside every $A/B$ rate. Each arm's decision is
+the majority of \pcVotes{} samples.
+
+Crucially all three arms are observed on the \emph{same} episode, so the design is
+paired and the two rates should not be divided. Writing $A'$ for the second
+baseline, we report the per-episode difference
+\[
+  \widehat{\Delta} \;=\; \frac{1}{n}\sum_{i=1}^{n}
+  \Bigl( \mathbf{1}\{B_i \neq A_i\} - \mathbf{1}\{A'_i \neq A_i\} \Bigr),
+\]
+the \emph{excess} decision-change attributable to the manipulation over the
+model's own resampling, with a percentile bootstrap $95\%$ interval and Wilson
+intervals on the two raw rates. $\widehat{\Delta}$ is signed and unclipped, and
+this matters: an estimator constrained to $[0,1]$ --- such as the clamped ratio
+$\max\{0,\,1-(1-p_{AB})/(1-p_{AA})\}$ this replaces --- reports exactly zero harm
+whenever the manipulated arm happens to move fewer decisions than plain
+resampling, and therefore cannot report a harmless manipulation, only a harmful
+one. A measurement that can only point one way is not a measurement. On these
+runs the substitution moves no headline: the $A/B$ rates are unchanged by
+construction, and $\widehat{\Delta}$ differs from the clamped ratio by at most
+$6.9$ percentage points (\pcAnthropicAggressiveExcess{} versus $91.9\%$ on the
+aggressive Anthropic configuration).
 
 \paragraph{Pre-registration.}
 The protocol --- $n$, $\alpha$, $\delta$, vote count, trigger threshold, retention
@@ -257,19 +281,27 @@ per run; each run made \pcAnthropicDefaultOneCalls{} calls. Subjects are
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{llccccc}
 \toprule
-Manipulation & Config & A/B & A/A & Adj. & 95\% bd. & Cert. \\
+Manipulation & Config & A/B & A/A & $\widehat{\Delta}$ & 95\% bd. & Cert. \\
 \midrule
 \pcTableBody
 \bottomrule
 \end{tabular}
 \caption{Decision-change rates for provider-native context manipulation,
 $n=\pcN$ fired episodes per run, majority-of-\pcVotes{} decisions per arm.
-``Certified'' is at $\alpha=\pcAlpha$ against the distribution-free upper bound.
+$\widehat{\Delta}$ is the paired per-episode excess over the $A/A$ arm
+(bootstrap $95\%$ intervals in the text); ``95\% bd.'' is the distribution-free
+upper bound on the raw $A/B$ rate. ``Certified'' is at $\alpha=\pcAlpha$ against that bound.
 No configuration of either feature certifies decision-safe.}
 \label{tab:main}
 \end{table}
 
-\Cref{tab:main} reports every run. Three results stand out.
+\Cref{tab:main} reports every run. The paired excess carries a bootstrap $95\%$
+interval of \pcAnthropicAggressiveExcessCI{} percentage points for the aggressive
+Anthropic configuration, \pcAnthropicDefaultOneExcessCI{} and
+\pcAnthropicDefaultTwoExcessCI{} for the two default-policy runs, and
+\pcOpenAIOneKExcessCI{} and \pcOpenAIThreeKExcessCI{} for the two OpenAI
+thresholds; every interval excludes zero, so no configuration is
+indistinguishable from the model's own resampling. Three results stand out.
 
 \paragraph{The default policy is not safer than deleting everything.}
 Anthropic's aggressive configuration changed \pcAnthropicAggressiveAB{} of

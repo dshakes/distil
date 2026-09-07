@@ -18,8 +18,9 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from pathlib import Path
 from typing import Any
+
+from benchmarks.outpath import ROOT, add_out_args, resolve_out
 
 SEED = 1729
 DATASET = "princeton-nlp/SWE-bench_Verified"
@@ -66,22 +67,17 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("-n", type=int, default=50, help="sample size (default 50)")
     ap.add_argument("--seed", type=int, default=SEED)
-    ap.add_argument(
-        "--out",
-        type=Path,
-        default=Path("docs/paper/results/swe_e2e/sample.json"),
-        help="where to write the resolved sample manifest",
-    )
+    add_out_args(ap, ROOT / "docs/paper/results/swe_e2e/sample.json")
     args = ap.parse_args()
+    out = resolve_out(args, ROOT / "docs/paper/results/swe_e2e/sample.json")
     sample = build_sample(args.n, args.seed)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
     # Manifest (ids only) is tiny and committable; the full instances blob stays local.
     manifest = {k: v for k, v in sample.items() if k != "instances"}
-    args.out.write_text(json.dumps(manifest, indent=2) + "\n")
-    full = args.out.with_name(args.out.stem + "_full.json")
+    out.write_text(json.dumps(manifest, indent=2) + "\n")
+    full = out.with_name(out.stem + "_full.json")
     full.write_text(json.dumps(sample, indent=2) + "\n")
     print(f"sample: n={args.n} seed={args.seed} pool={sample['pool_size']}")
-    print(f"manifest -> {args.out}")
+    print(f"manifest -> {out}")
     print(f"full     -> {full}")
     for i in sample["instance_ids"]:
         print("  ", i)

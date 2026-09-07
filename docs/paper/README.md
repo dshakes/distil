@@ -82,13 +82,24 @@ outcomes instead, where the grader is the deterministic official SWE-bench harne
 each instance id carries a real domain label (its source repository):
 
 ```bash
-python benchmarks/leave_one_domain_out.py            # -> results/leave_one_domain_out.json
+python benchmarks/leave_one_domain_out.py                  # -> benchmarks/results/scratch/
+python benchmarks/leave_one_domain_out.py --write-tracked  # -> the paper's E3 artifact
 python benchmarks/report_to_latex.py \
     docs/paper/results/leave_one_domain_out.json --only loo loomacros
 python benchmarks/leave_one_domain_out.py --selftest # guards the domain parser + E10 agreement
 ```
 
-No API calls, no Docker, ~1 min. It reuses `distil.conformal.certified_risk_bound` and the
+No API calls, no Docker, ~1 min.
+
+**`--out` defaults to scratch, on purpose.** E3 used to default straight onto
+`docs/paper/results/leave_one_domain_out.json`, so a reduced smoke run
+(`--control-reps 5`) silently replaced the paper's source with a number nobody meant
+to publish. Every benchmark that can reach a committed artifact now writes to the
+git-ignored `benchmarks/results/scratch/` unless you pass `--write-tracked` (or spell
+the tracked path out in `--out`), and each prints where it wrote. The same guard covers
+`trajectory_certificate.py`, `trajectory_bound.py`, `skeleton_certificate.py`, and the
+E7 runners under `benchmarks/swe_bench_e2e/` — see `benchmarks/outpath.py` and
+`tests/test_benchmark_outpath.py`. It reuses `distil.conformal.certified_risk_bound` and the
 same labels `benchmarks/trajectory_certificate.py` publishes (the selftest asserts the two
 agree to 5e-4), so E3 and E10 cannot silently diverge.
 
@@ -111,9 +122,19 @@ own compressor, this one points the same instrument outward, at Anthropic contex
 editing and OpenAI server-side compaction.
 
 ```bash
+# 1. re-derive every report.json from its own per-case arm signatures (offline, free)
+#    and regenerate the macro fragment the paper \input{}s
+python benchmarks/provider_compaction_to_latex.py --recompute
+# 2. build
 cd docs/paper && tectonic -X compile provider_compaction.tex --outdir .
 # or: latexmk -pdf provider_compaction.tex
 ```
+
+`--recompute` exists because the *estimator* can change after the experiment is
+paid for. Each `report.json` records all three arm decisions per case, so the derived
+statistics (the paired excess `Δ`, the Wilson and bootstrap intervals, the
+distribution-free bound) are recoverable without a single API call. Drop `--recompute`
+when you only want the LaTeX refreshed.
 
 **Its PDF is deliberately not committed.** `main.pdf` / `main_neurips.pdf` are
 tracked and CI fails if they drift from source; that guard works because CI rebuilds

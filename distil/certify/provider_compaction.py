@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from ..conformal import certified_risk_bound, hb_pvalue
-from ..shadow import SIG_VERSION, decision_signature
+from ..shadow import SIG_VERSION, bootstrap_ci, decision_signature, wilson_ci
 
 CONTEXT_MGMT_BETA = "context-management-2025-06-27"
 
@@ -520,13 +520,28 @@ class CaseResult:
 
 @dataclass
 class ProviderCompactionReport:
+    """The derived numbers, with the raw counts they came from.
+
+    The headline is ``ab_change_rate``: how often the provider's manipulation
+    changed the agent's next action, over FIRED cases only. It is raw and needs
+    the A/A floor beside it to be read at all, which is what
+    ``excess_change_rate`` supplies — see :func:`summarize`.
+    """
+
     protocol: dict[str, Any]
     protocol_sha256: str
     cases_total: int
     cases_fired: int
     ab_change_rate: float  # over FIRED cases only
+    ab_change_rate_ci: tuple[float, float]  # Wilson 95% on the raw rate
     aa_change_rate: float  # over all cases — the sampling-noise floor
-    adjusted_change_rate: float
+    aa_change_rate_ci: tuple[float, float]
+    aa_change_rate_paired: float  # the same floor over the FIRED cases the diff pairs on
+    excess_change_rate: float  # paired: mean over fired of (ab_loss - aa_loss); UNCLIPPED
+    excess_change_rate_ci: tuple[float, float]  # percentile bootstrap 95%
+    n_paired: int
+    # the clipped ratio #165 removed from shadow — kept so old artifacts parse, never reported
+    legacy_adjusted_change_rate: float
     risk_bound: float  # (1-delta) upper bound on the raw A/B rate, fired cases
     certified: bool  # P(change rate <= alpha) >= 1-delta held on fired cases
     p_value: float
@@ -546,11 +561,15 @@ class ProviderCompactionReport:
             )
         a = self.protocol["alpha"]
         d = self.protocol["delta"]
+        ab_lo, ab_hi = self.ab_change_rate_ci
+        ex_lo, ex_hi = self.excess_change_rate_ci
         head = (
             f"{label} changed the agent's decision on "
-            f"{self.ab_change_rate * 100:.1f}% of {self.cases_fired} fired cases "
-            f"(A/A noise floor {self.aa_change_rate * 100:.1f}%, adjusted "
-            f"{self.adjusted_change_rate * 100:.1f}%). "
+            f"{self.ab_change_rate * 100:.1f}% [{ab_lo * 100:.1f}, {ab_hi * 100:.1f}] of "
+            f"{self.cases_fired} fired cases (A/A noise floor "
+            f"{self.aa_change_rate * 100:.1f}%); paired excess over the model's own "
+            f"resampling {self.excess_change_rate * 100:+.1f}pp "
+            f"[{ex_lo * 100:+.1f}, {ex_hi * 100:+.1f}] on n={self.n_paired}. "
             f"({1 - d:.0%}-confidence upper bound on the raw rate: "
             f"{self.risk_bound * 100:.1f}%.)"
         )
@@ -695,38 +714,133 @@ def run_experiment(
             fh.write(json.dumps({**asdict(result), "i": i, "proto": proto_sha}) + "\n")
             fh.flush()
 
-    fired = [r for r in results if r.fired]
-    n_ab = len(fired)
-    ab_rate = sum(r.ab_loss for r in fired) / n_ab if n_ab else 0.0
-    aa_rate = sum(r.aa_loss for r in results) / len(results) if results else 0.0
-    aa_agreement = 1.0 - aa_rate
-    adjusted = (
-        max(0.0, 1.0 - min(1.0, (1.0 - ab_rate) / aa_agreement)) if aa_agreement > 0 else ab_rate
-    )
-    need = min_fired if min_fired is not None else max(1, len(cases) // 2)
-    underpowered = n_ab < need
-    p = hb_pvalue(ab_rate, n_ab, alpha)
-    report = ProviderCompactionReport(
+    report = summarize(
+        results,
         protocol=protocol,
         protocol_sha256=proto_sha,
-        cases_total=len(results),
+        alpha=alpha,
+        delta=delta,
+        min_fired=min_fired,
+        # what the experiment cost in total, not just what this invocation spent:
+        # a replayed case was still bought, one resume earlier.
+        calls_made=arms.calls_made + replayed * 3 * votes,
+    )
+    write_report(out_dir, report)
+    return report
+
+
+def summarize(
+    results: list[CaseResult],
+    *,
+    protocol: dict[str, Any],
+    protocol_sha256: str,
+    alpha: float,
+    delta: float,
+    min_fired: int | None,
+    calls_made: int,
+) -> ProviderCompactionReport:
+    """Derive every reported number from the per-case arm signatures. No I/O, no calls.
+
+    **The estimator is PAIRED.** Every case is observed three times — baseline, a
+    second independent baseline (A/A), and the manipulated arm — so the A/B and A/A
+    observations are not two independent samples to be divided, they are two
+    observations *of the same case*. The statistic is therefore the per-case
+    difference ``1{B != A} - 1{A' != A}``, averaged, with a percentile bootstrap
+    95% interval: how much MORE often the provider's manipulation moved the
+    decision than the model moved it by resampling.
+
+    It is deliberately UNCLIPPED and may be negative. The thing it replaces
+    (``max(0, 1 - (1 - p_ab) / (1 - p_aa))``, kept as
+    ``legacy_adjusted_change_rate``) is the same clipped ratio #165 removed from
+    the live shadow estimator, and it carries the same two defects: it divides
+    rates computed over different denominators (A/B over fired cases, A/A over
+    all of them), and its clamp deletes the entire favourable tail, so a run where
+    manipulation happened to change FEWER decisions than plain resampling can only
+    ever print 0.0%. An estimator that cannot express a negative cannot express a
+    harmless manipulation either, and one that cannot be wrong is not a
+    measurement.
+
+    Raw rates are kept exactly as they were and reported with Wilson intervals,
+    which is what the certification bound and the paper's headline rest on. The
+    reporting floor is ``min_fired`` (``underpowered``), unchanged.
+    """
+    fired = [r for r in results if r.fired]
+    n_ab = len(fired)
+    n_all = len(results)
+    ab_changes = int(sum(r.ab_loss for r in fired))
+    aa_changes = int(sum(r.aa_loss for r in results))
+    ab_rate = ab_changes / n_ab if n_ab else 0.0
+    aa_rate = aa_changes / n_all if n_all else 0.0
+
+    # Paired over the FIRED cases: those are the only ones where the manipulated arm
+    # carries evidence, and the pairing must use the A/A observation of the SAME case.
+    diffs = [r.ab_loss - r.aa_loss for r in fired]
+    aa_changes_fired = int(sum(r.aa_loss for r in fired))
+
+    aa_agreement = 1.0 - aa_rate
+    legacy = (
+        max(0.0, 1.0 - min(1.0, (1.0 - ab_rate) / aa_agreement)) if aa_agreement > 0 else ab_rate
+    )
+    need = min_fired if min_fired is not None else max(1, n_all // 2)
+    underpowered = n_ab < need
+    p = hb_pvalue(ab_rate, n_ab, alpha)
+    return ProviderCompactionReport(
+        protocol=protocol,
+        protocol_sha256=protocol_sha256,
+        cases_total=n_all,
         cases_fired=n_ab,
         ab_change_rate=ab_rate,
+        ab_change_rate_ci=wilson_ci(ab_changes, n_ab),
         aa_change_rate=aa_rate,
-        adjusted_change_rate=adjusted,
+        aa_change_rate_ci=wilson_ci(aa_changes, n_all),
+        aa_change_rate_paired=(aa_changes_fired / n_ab) if n_ab else 0.0,
+        excess_change_rate=(sum(diffs) / len(diffs)) if diffs else 0.0,
+        excess_change_rate_ci=bootstrap_ci(diffs) if diffs else (0.0, 0.0),
+        n_paired=len(diffs),
+        legacy_adjusted_change_rate=legacy,
         risk_bound=certified_risk_bound(ab_rate, n_ab, delta),
         certified=(not underpowered) and p <= delta,
         p_value=p,
         underpowered=underpowered,
-        # what the experiment cost in total, not just what this invocation spent:
-        # a replayed case was still bought, one resume earlier.
-        calls_made=arms.calls_made + replayed * 3 * votes,
+        calls_made=calls_made,
         total_cleared_input_tokens=sum(r.cleared_input_tokens for r in results),
         results=results,
     )
+
+
+def write_report(out_dir: Path, report: ProviderCompactionReport) -> Path:
+    """Serialize a report to ``<out_dir>/report.json``, statement included."""
     payload = asdict(report)
     payload["statement"] = report.statement
-    (out_dir / "report.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    path = out_dir / "report.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def recompute_report(out_dir: Path, *, min_fired: int | None = None) -> ProviderCompactionReport:
+    """Re-derive ``report.json`` from the per-case arm signatures it already carries.
+
+    Offline and free: the expensive part of a certification run is the three arms
+    per case, and those decisions are recorded per case in the report. When the
+    estimator changes, the committed artifacts get the new numbers without buying
+    the experiment again. ``alpha``/``delta`` come from the embedded protocol, so
+    the pre-registered parameters cannot drift in a recompute.
+    """
+    payload = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
+    protocol = payload.get("protocol") or {}
+    results = [
+        CaseResult(**{k: row[k] for k in CaseResult.__dataclass_fields__ if k in row})
+        for row in payload.get("results") or []
+        if isinstance(row, dict)
+    ]
+    report = summarize(
+        results,
+        protocol=protocol,
+        protocol_sha256=payload.get("protocol_sha256", ""),
+        alpha=float(protocol.get("alpha", 0.1)),
+        delta=float(protocol.get("delta", 0.05)),
+        min_fired=min_fired,
+        calls_made=int(payload.get("calls_made", 0)),
     )
+    write_report(out_dir, report)
     return report

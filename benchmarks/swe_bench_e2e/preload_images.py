@@ -30,6 +30,8 @@ import sys
 import time
 from pathlib import Path
 
+from benchmarks.outpath import add_out_args, resolve_out
+
 ROOT = Path(__file__).resolve().parents[2]
 NAMESPACE = "swebench"
 ARCH = "x86_64"
@@ -108,13 +110,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sample", type=Path, default=ROOT / "docs/paper/results/swe_e2e/sample.json")
     ap.add_argument("--tar-dir", type=Path, default=ROOT / ".e7_cache/tars")
-    ap.add_argument(
-        "--report",
-        type=Path,
-        default=ROOT / "docs/paper/results/swe_e2e/preload_report.json",
-    )
+    add_out_args(ap, ROOT / "docs/paper/results/swe_e2e/preload_report.json", flag="--report")
     ap.add_argument("--only", type=str, default=None)
     args = ap.parse_args()
+    report = resolve_out(
+        args, ROOT / "docs/paper/results/swe_e2e/preload_report.json", dest="report"
+    )
 
     ids = json.loads(args.sample.read_text())["instance_ids"]
     if args.only:
@@ -131,10 +132,10 @@ def main() -> None:
             res = {"instance_id": iid, "ref": image_ref(iid), "status": "timeout"}
         results.append(res)
         print(f"    {res['status']} ({res.get('seconds', 0)}s)", flush=True)
-        args.report.write_text(json.dumps(results, indent=2) + "\n")
+        report.write_text(json.dumps(results, indent=2) + "\n")
 
     ok = sum(1 for r in results if r["status"] in ("loaded", "cached"))
-    print(f"\npreloaded {ok}/{len(ids)} images; report -> {args.report}")
+    print(f"\npreloaded {ok}/{len(ids)} images; report -> {report}")
     if ok < len(ids):
         print(
             "FAILURES:",

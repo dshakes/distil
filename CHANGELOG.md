@@ -5,6 +5,66 @@ All notable changes to Distil are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### The provider-compaction certifier was scoring itself with the estimator we deleted
+
+`#165` removed a clipped ratio from the live shadow estimator: `max(0, 1 - p_AB / p_AA)`
+divides one arm by the other, clamps the result at zero, and therefore prints a perfect
+score whenever the A/B draw beats the A/A draw by chance. An estimator that cannot come
+back negative cannot report that compression was harmless — only that it was harmful —
+so it can never fail.
+
+The same statistic was still running in `distil certify-provider`, which is the harness
+behind the *Recency Is Not Relevance* paper's numbers on Anthropic context editing and
+OpenAI server-side compaction. It had the defect twice over: the clamp, and a division of
+an A/B rate computed over *fired* cases by an A/A rate computed over *all* of them.
+
+The design was paired the whole time and nobody used it. Every case is observed three
+times — baseline, a second independent baseline, and the manipulated arm — on the same
+transcript. So the reported statistic is now the per-case difference
+
+```
+Δ = mean over fired cases of   1{edited ≠ baseline} − 1{baseline′ ≠ baseline}
+```
+
+with a percentile bootstrap 95% interval, unclipped and signed: how much *more* often the
+provider's manipulation moved the decision than the model moved it by resampling. The raw
+A/B and A/A rates are unchanged and now carry Wilson intervals; certification still rests
+on the distribution-free bound on the raw rate. The old field survives as
+`legacy_adjusted_change_rate` so pre-existing artifacts still parse.
+
+**No published number moved.** The committed run artifacts were re-derived offline from
+the per-case arm signatures they already record (`provider_compaction_to_latex.py
+--recompute` — no API calls, the experiment was not re-bought), and every headline is
+byte-identical: Anthropic's aggressive configuration still 92.5%, its default policy still
+95.0% and 100%, OpenAI still 12.5% and 20.0%, nothing certified at α=0.1. What changed is
+the column beside them:
+
+| Run | old clipped ratio | paired Δ (95% CI) |
+|---|---|---|
+| Anthropic, default `keep=3`, run 2 | 100.0% | +97.5pp [+92.5, +100.0] |
+| Anthropic, default `keep=3`, run 1 | 94.9% | +92.5pp [+85.0, +100.0] |
+| Anthropic, aggressive `keep=0` | 91.9% | +85.0pp [+70.0, +95.0] |
+| OpenAI, threshold 3k | 17.9% | +17.5pp [+7.5, +30.0] |
+| OpenAI, threshold 1k | 12.5% | +12.5pp [+2.5, +22.5] |
+
+Every interval excludes zero, which is a claim the old statistic was not capable of
+making — and the largest correction, 6.9pp, was in the direction that *overstated* harm.
+
+### A smoke run could overwrite the paper's source data
+
+`benchmarks/leave_one_domain_out.py` defaulted `--out` to
+`docs/paper/results/leave_one_domain_out.json`, a tracked artifact. A reduced run
+(`--control-reps 5`) therefore replaced the paper's E3 numbers with a smoke test's, in
+place, silently. It was caught by reading a diff, which is not a control.
+
+Every benchmark that can reach a committed results file now defaults to the git-ignored
+`benchmarks/results/scratch/` and prints where it wrote. Publishing takes `--write-tracked`
+or spelling the tracked path out in full. That covers `leave_one_domain_out.py`,
+`trajectory_certificate.py`, `trajectory_bound.py`, `skeleton_certificate.py`, and the E7
+runners `swe_bench_e2e/{sample,aggregate,preload_images,run_agent}.py`. A test greps
+`benchmarks/` for writers that reach `docs/paper/results/` and fails on any that is not
+guarded, so the next script to reach for a tracked default trips CI rather than a reviewer.
+
 ### The second read of a file need not re-send the first one's lines
 
 The exact-quote guarantee keeps file content byte-exact forever, and that is expensive on

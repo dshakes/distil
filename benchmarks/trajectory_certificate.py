@@ -32,6 +32,7 @@ import json
 import random
 from pathlib import Path
 
+from benchmarks.outpath import add_out_args, resolve_out
 from distil.conformal import certified_risk_bound
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,10 +112,11 @@ def main() -> None:
     ap.add_argument("--reference", default="full")
     ap.add_argument("--candidate", default="distil_gated")
     ap.add_argument("--delta", type=float, default=0.05)
-    ap.add_argument("--out", type=Path, default=LH / "trajectory_certificate.json")
+    add_out_args(ap, LH / "trajectory_certificate.json")
     args = ap.parse_args()
+    out = resolve_out(args, LH / "trajectory_certificate.json")
     cert = certificate(args.reference, args.candidate, delta=args.delta)
-    args.out.write_text(json.dumps(cert, indent=2) + "\n")
+    out.write_text(json.dumps(cert, indent=2) + "\n")
     print(
         f"=== Trajectory Decision-Equivalence Certificate: {args.candidate} vs {args.reference} ==="
     )
@@ -128,7 +130,7 @@ def main() -> None:
             f"OOS coverage {o['coverage'] * 100:.1f}% (target {o['target'] * 100:.0f}%, "
             f"β̄={o['mean_certified_beta'] * 100:.1f}% vs test {o['mean_test_rate'] * 100:.1f}%)"
         )
-    print(f"-> {args.out}")
+    print(f"-> {out}")
 
 
 if __name__ == "__main__":

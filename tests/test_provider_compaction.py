@@ -14,11 +14,14 @@ import pytest
 from distil.certify.provider_compaction import (
     CONTEXT_MGMT_BETA,
     Case,
+    CaseResult,
     OpenAIArms,
     ProviderArms,
     edit_config,
     load_episodes,
+    recompute_report,
     run_experiment,
+    summarize,
     to_case,
 )
 
@@ -600,7 +603,160 @@ def test_aa_noise_floor_adjusts_ab_rate(tmp_path):
     arms = ProviderArms(client=client)
     report = run_experiment([_case()] * 2, arms, tmp_path, votes=1, min_fired=1)
     assert report.aa_change_rate > 0.0
-    assert report.adjusted_change_rate <= report.ab_change_rate or report.ab_change_rate == 0.0
+    assert report.excess_change_rate <= report.ab_change_rate
+
+
+# --------------------------------------------------------------------------- #
+# The paired estimator (see summarize.__doc__)
+# --------------------------------------------------------------------------- #
+
+_PROTOCOL = {"alpha": 0.1, "delta": 0.05, "label": "Test manipulation"}
+
+
+def _rows(spec: str, *, fired: bool = True) -> list[CaseResult]:
+    """Build synthetic cases from a compact spec, one char per case:
+
+    ``.`` both arms agree with baseline, ``b`` only the edited arm changed,
+    ``a`` only the A/A arm changed, ``x`` both changed.
+    """
+    out = []
+    for i, ch in enumerate(spec):
+        edited = "X" if ch in "bx" else "keep"
+        aa = "X" if ch in "ax" else "keep"
+        out.append(
+            CaseResult(
+                case_id=f"c{i}",
+                baseline_sig="keep",
+                edited_sig=edited,
+                aa_sig=aa,
+                fired=fired,
+                cleared_input_tokens=10,
+            )
+        )
+    return out
+
+
+def _summ(rows, **kw):
+    kw.setdefault("min_fired", 1)
+    return summarize(
+        rows,
+        protocol=_PROTOCOL,
+        protocol_sha256="deadbeef",
+        alpha=0.1,
+        delta=0.05,
+        calls_made=0,
+        **kw,
+    )
+
+
+def test_paired_excess_is_the_per_case_difference():
+    # 40 cases: 24 changed by the manipulation alone, 8 by resampling alone.
+    rep = _summ(_rows("bbbbbbaa.." * 4))
+    assert rep.ab_change_rate == 0.6
+    assert rep.aa_change_rate_paired == 0.2
+    assert rep.excess_change_rate == pytest.approx(0.4)
+    assert rep.n_paired == 40
+    lo, hi = rep.excess_change_rate_ci
+    assert lo <= rep.excess_change_rate <= hi
+    assert lo > 0.0, "a clear harm must have an interval that excludes zero"
+
+
+def test_harmful_manipulation_the_clipped_ratio_could_not_express():
+    """The case the old estimator was structurally unable to report.
+
+    Resampling alone moves 8 of 10 decisions; the manipulated arm moves only 2. The
+    manipulation is *less* disruptive than the model's own nondeterminism, so the
+    honest statistic is negative. ``max(0, 1 - (1-p_ab)/(1-p_aa))`` clamps that
+    entire branch to 0.0 and prints "no harm detected" for a measurement it never
+    made — the same defect #165 removed from the live shadow estimator.
+    """
+    rep = _summ(_rows("bbaaaaaaaa" * 4))
+    assert rep.ab_change_rate == 0.2
+    assert rep.aa_change_rate == 0.8
+    assert rep.excess_change_rate == pytest.approx(-0.6)
+    lo, hi = rep.excess_change_rate_ci
+    assert hi < 0.0, "the interval must be able to sit entirely below zero"
+    # ...and the statistic it replaces cannot:
+    assert rep.legacy_adjusted_change_rate == 0.0
+
+
+def test_excess_is_never_clipped_at_the_boundary():
+    """Both extremes are representable: every decision moved, and none did."""
+    assert _summ(_rows("bbbb")).excess_change_rate == 1.0
+    assert _summ(_rows("aaaa")).excess_change_rate == -1.0
+    assert _summ(_rows("xxxx")).excess_change_rate == 0.0
+    assert _summ(_rows("....")).excess_change_rate == 0.0
+
+
+def test_pairing_uses_the_aa_arm_of_the_fired_cases_only():
+    """Unfired cases carry no A/B evidence, so their A/A noise must not enter the
+    difference. The old ratio divided an A/B rate over fired cases by an A/A rate
+    over ALL of them — two different denominators, one quotient."""
+    rows = _rows("b.") + _rows("aaaa", fired=False)
+    rep = _summ(rows)
+    assert rep.cases_fired == 2
+    assert rep.ab_change_rate == 0.5
+    assert rep.aa_change_rate_paired == 0.0  # the fired pair's own A/A arm
+    assert rep.aa_change_rate == pytest.approx(4 / 6)  # all cases — reported, not divided
+    assert rep.excess_change_rate == 0.5
+    # The legacy ratio divides by an A/A agreement measured largely on cases it never
+    # paired against — here it inflates the floor past the observed A/B rate, and the
+    # clamp then prints 0.0%: "no harm" for a run where half the fired decisions moved.
+    assert rep.legacy_adjusted_change_rate == 0.0
+
+
+def test_raw_rates_keep_wilson_intervals_and_the_certification_bound():
+    rep = _summ(_rows("b........."))
+    assert rep.ab_change_rate == 0.1
+    lo, hi = rep.ab_change_rate_ci
+    assert 0.0 < lo < 0.1 < hi < 1.0, "Wilson must not collapse to a point at small n"
+    assert rep.aa_change_rate_ci == (0.0, pytest.approx(0.27753, abs=1e-4))
+    # certification still rests on the raw rate's distribution-free bound
+    assert rep.risk_bound >= rep.ab_change_rate
+
+
+def test_empty_and_zero_fired_samples_do_not_divide_by_zero():
+    rep = _summ([], min_fired=None)
+    assert rep.excess_change_rate == 0.0 and rep.excess_change_rate_ci == (0.0, 0.0)
+    assert rep.n_paired == 0 and rep.underpowered
+    unfired = _summ(_rows("bb", fired=False))
+    assert unfired.cases_fired == 0 and unfired.excess_change_rate == 0.0
+
+
+def test_statement_reports_the_excess_and_never_the_legacy_ratio():
+    line = _summ(_rows("bbaaaaaaaa" * 4)).statement
+    assert "-60.0pp" in line
+    assert "adjusted" not in line
+
+
+def test_recompute_rederives_from_committed_case_signatures(tmp_path):
+    """The estimator can change without re-buying the experiment: report.json
+    carries every arm's decision per case, so the derived numbers are recoverable
+    offline. This is how the committed benchmarks/results/ artifacts were updated."""
+    client = _FakeClient(
+        {"baseline": [_tool_resp("a", {})], "edited": [_tool_resp("z", {}, _FIRED)]}
+    )
+    report = run_experiment([_case()] * 4, ProviderArms(client=client), tmp_path, votes=1)
+    before = json.loads((tmp_path / "report.json").read_text())
+
+    again = recompute_report(tmp_path)
+    after = json.loads((tmp_path / "report.json").read_text())
+    assert after == before, "a recompute on unchanged code must be a no-op"
+    assert again.ab_change_rate == report.ab_change_rate
+    assert again.excess_change_rate == report.excess_change_rate
+    # alpha/delta come from the embedded protocol, not from a fresh default
+    assert again.protocol["alpha"] == report.protocol["alpha"]
+
+
+def test_report_json_keeps_the_legacy_field_under_a_legacy_name(tmp_path):
+    client = _FakeClient(
+        {"baseline": [_tool_resp("a", {})], "edited": [_tool_resp("z", {}, _FIRED)]}
+    )
+    run_experiment([_case()] * 2, ProviderArms(client=client), tmp_path, votes=1, min_fired=1)
+    saved = json.loads((tmp_path / "report.json").read_text())
+    assert "legacy_adjusted_change_rate" in saved
+    assert "adjusted_change_rate" not in saved
+    assert saved["excess_change_rate"] == 1.0
 
 
 def test_cli_live_path_with_patched_arm(tmp_path, capsys, monkeypatch):
