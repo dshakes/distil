@@ -67,10 +67,10 @@ settings for "base URL" or "OpenAI compatible".
 
 ## Config-file agents `wrap` now reaches
 
-Continue (the `cn` CLI), Factory Droid, and Oh My Pi are CLIs whose *only*
-routing mechanism is a config file, not an environment variable — but `wrap`
-can still reach them, by managing that file for the duration of the session
-instead of setting an env var:
+Continue (the `cn` CLI), Factory Droid, Oh My Pi, and Crush are CLIs whose
+*only* routing mechanism is a config file, not an environment variable — but
+`wrap` can still reach them, by managing that file for the duration of the
+session instead of setting an env var:
 
 ```bash
 distil wrap -- cn       # Continue CLI — generates a session-only temp config,
@@ -79,13 +79,22 @@ distil wrap -- droid    # Factory Droid — merges a `distil` entry into the
                          # local-override layer settings.local.json
 distil wrap -- omp      # Oh My Pi — splices a marker-fenced block into
                          # models.yml
+distil wrap -- crush    # Crush — adds a `distil` provider entry to the
+                         # legacy crush.json
 ```
 
-`droid` and `omp` back up whatever was already there byte-for-byte and restore
-it on exit — including on `SIGTERM`/`SIGKILL` or a crash, checked and repaired
-at the start of the *next* `distil wrap` if the previous session never got to
-clean up. See `distil/config_wrap.py` for the implementation and
+`droid`, `omp`, and `crush` back up whatever was already there byte-for-byte
+and restore it on exit — including on `SIGTERM`/`SIGKILL` or a crash, checked
+and repaired at the start of the *next* `distil wrap` if the previous session
+never got to clean up. See `distil/config_wrap.py` for the implementation and
 `tests/test_config_wrap.py` for the backup/restore/crash-recovery proof.
+
+Crush's *current* config format is a Bash script (`crushrc`), not JSON — its
+own docs call `crush.json` the deprecated predecessor, still read (lower
+priority than `crushrc`) but "not receiving new features". `wrap` targets the
+legacy JSON file because it is the one shape a script can safely splice and
+restore; a `crushrc` with a `distil` provider already defined there takes
+precedence over the injected entry.
 
 ## Config-file agents `wrap` cannot reach
 
@@ -96,8 +105,7 @@ above) is still a one-line config edit rather than a code change.
 | Agent | Config file | Key | Why not wrapped |
 |---|---|---|---|
 | **Mistral Vibe** | `config.toml` | `[[providers]]` block's `api_base` | Config shape could not be verified against an authoritative source |
-| **Amp** | `settings.json` | `amp.url` | Config shape could not be verified against an authoritative source |
-| **Crush** | `crush.json` | `providers.<id>.base_url` | Config shape could not be verified against an authoritative source |
+| **Amp** | — | — | `amp.url` is a real, current setting, but it belongs to the VS Code *extension* only — the standalone CLI `wrap` would launch has no base-URL setting at all in its own settings reference (`ampcode.com/docs/cli/settings`); its documented way to redirect traffic is `HTTP_PROXY`/`HTTPS_PROXY`, a whole-process proxy rather than a per-request base URL, which is a different mechanism than every other preset here |
 | **OpenClaw** | `~/.openclaw/openclaw.json` | `models.providers.<id>.baseUrl` | Verified, but OpenClaw is a persistent multi-channel gateway daemon (WhatsApp/Telegram, a control UI, cron automations) — it does not fit `wrap`'s one-shot-session model |
 | **Junie** | model profile | `baseUrl` | Config shape could not be verified against an authoritative source |
 
