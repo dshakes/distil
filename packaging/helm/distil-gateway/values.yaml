@@ -34,6 +34,11 @@ gateway:
   perTenant:
     rpm: 0            # 0 = unlimited
     dailyTokens: 0    # 0 = unlimited
+  # Forwarded-bytes prefix replay (ADR 0011): re-send the bytes we forwarded last
+  # turn when the client re-spells its own history without changing meaning, so the
+  # provider's prompt cache still hits. Scoped per tenant. Content is never changed
+  # either way. Off only to forward exactly what the compressor produced.
+  prefixReplay: true
 
 # Admin token guards /distil/stats and /distil/dashboard. REQUIRED on a
 # non-loopback bind, which is every in-cluster deployment.

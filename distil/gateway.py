@@ -716,6 +716,7 @@ def build_gateway_handler(
     rate_limiter: _RateLimiter | None = None,
     default_rpm: int = 0,
     default_daily_tokens: int = 0,
+    prefix_replay: bool = True,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a BaseHTTPRequestHandler subclass for the multi-tenant gateway.
 
@@ -1326,7 +1327,7 @@ def build_gateway_handler(
             # the same conversation must never share replay state — the lineage key is
             # already content-derived, and without the tenant prefix that is exactly
             # what "the same conversation" would mean.
-            if _replay_orig is not None and _replay_key is not None:
+            if prefix_replay and _replay_orig is not None and _replay_key is not None:
                 from . import prefixreplay as _prep
 
                 body = _prep.apply(
@@ -1509,6 +1510,7 @@ def serve_gateway(
     require_keys: bool = False,
     tenant_rpm: int = 0,
     tenant_daily_tokens: int = 0,
+    prefix_replay: bool = True,
 ) -> None:
     """Run a blocking ThreadingHTTPServer gateway.
 
@@ -1550,6 +1552,7 @@ def serve_gateway(
         require_keys=require_keys,
         default_rpm=tenant_rpm,
         default_daily_tokens=tenant_daily_tokens,
+        prefix_replay=prefix_replay,
     )
     server = QuietHTTPServer((host, port), handler)
     print(f"distil gateway listening on http://{host}:{port}")

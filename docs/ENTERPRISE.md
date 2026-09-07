@@ -34,6 +34,9 @@ that way (`tests/test_packaging_assets.py`):
 
 - `requireKeys: true` — a gateway reachable on a cluster network is never open
 - `trustTenantHeader: false` — otherwise any client can bill another tenant's quota
+- `prefixReplay: true` — forwarded-bytes prefix replay (ADR 0011), scoped per tenant;
+  the one default here that is on for cost rather than safety, and `false` forwards
+  exactly what the compressor produced
 - non-root, read-only root filesystem, all capabilities dropped, seccomp
   `RuntimeDefault`
 - `maxUnavailable: 0` on rollout — the gateway is in the request path

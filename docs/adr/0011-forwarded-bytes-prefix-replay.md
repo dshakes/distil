@@ -154,6 +154,10 @@ write. That is the correct trade for not opening a second content-at-rest surfac
   at the provider. The lineage key is content-derived, so without the tenant prefix two
   tenants posting the same conversation would be "the same lineage" and one tenant's
   forwarded bytes could land in another's request. Asserted directly.
+- **The off switch exists wherever the feature does.** `--no-prefix-replay` on `wrap`,
+  `proxy` (both sync and async) and `gateway`, plus `gateway.prefixReplay` in the Helm
+  chart. An operator who can turn a thing on in one place and not off in another does
+  not really have a flag.
 - A client that sends non-compact JSON pays one extra cache write the first time replay
   fires, because `_serialize_if_changed` forwards the client's original bytes when nothing
   changed and compact bytes when something did. From the next turn on both sides are

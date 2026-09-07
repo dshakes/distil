@@ -3126,6 +3126,7 @@ def cmd_gateway(args: argparse.Namespace) -> int:
         require_keys=args.require_keys,
         tenant_rpm=args.tenant_rpm,
         tenant_daily_tokens=args.tenant_daily_tokens,
+        prefix_replay=not getattr(args, "no_prefix_replay", False),
     )
     return 0
 
@@ -4856,6 +4857,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="honor client-supplied x-distil-tenant for accounting (default: "
         "tenant is derived from the credential, never a client header)",
+    )
+    gw.add_argument(
+        "--no-prefix-replay",
+        action="store_true",
+        help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by "
+        "default and scoped per tenant here: when a client re-sends its history with "
+        "only non-semantic churn, the gateway forwards the bytes it forwarded last "
+        "turn so the provider's prompt cache still hits. Content is never changed "
+        "either way; pass this to forward exactly what the compressor produced.",
     )
     gw.add_argument(
         "--require-keys",

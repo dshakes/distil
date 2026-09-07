@@ -76,6 +76,11 @@ def test_chart_defaults_are_secure():
     )
     assert "runAsNonRoot: true" in v
     assert "readOnlyRootFilesystem: true" in v
+    # Not a security default — a cost one, and the reason it is pinned here is the
+    # same: the chart is where a default-on feature silently becomes default-off.
+    assert "prefixReplay: true" in v, "the chart must not ship prefix replay disabled"
+    dep = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
+    assert "--no-prefix-replay" in dep, "the value is defined but nothing passes it"
 
 
 # --- README integrity ---------------------------------------------------------

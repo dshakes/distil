@@ -211,7 +211,10 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   output is deterministic given the same items, so replaying the items is what makes its
   prefix stable. The gateway scopes the lineage **per tenant**, because a cached prefix
   belongs to one credential and the lineage key is otherwise content-derived; asserted by
-  a test that posts the identical conversation as two tenants.
+  a test that posts the identical conversation as two tenants. All three carry
+  **`--no-prefix-replay`**, including the gateway, whose chart exposes it as
+  `gateway.prefixReplay` — the chart is where a default-on feature silently becomes
+  default-off, so the value and the arg that reads it are both pinned by a test.
 - A block whose `cache_control` marker did not move is returned untouched rather than
   rebuilt. Rebuilding moves the marker to the end of the key order, and JSON key order is
   part of the bytes the provider hashes — so the naive marker re-placement busted the
