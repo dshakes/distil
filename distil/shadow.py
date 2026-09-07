@@ -37,16 +37,12 @@ import random
 import threading
 import time
 
-try:
-    import fcntl  # POSIX advisory locking; absent on Windows
-
-    _HAVE_FCNTL = True
-except ImportError:  # pragma: no cover - windows
-    _HAVE_FCNTL = False
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from distil import _filelock
 
 
 def _state_dir() -> Path:
@@ -912,18 +908,12 @@ class ShadowLedger:
         try:
             p = path or (_state_dir() / "shadow.jsonl")
             p.parent.mkdir(parents=True, exist_ok=True)
-            with p.open("a", encoding="utf-8") as f:
-                # Concurrent wrap sessions append here (shadow is on by default);
-                # lock like ledger.py does — rc4 rows carry two signatures and can
-                # exceed the pipe-atomicity size a bare append silently relies on.
-                if _HAVE_FCNTL:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                try:
-                    f.write(json.dumps(rec) + "\n")
-                    f.flush()
-                finally:
-                    if _HAVE_FCNTL:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            # Concurrent wrap sessions append here (shadow is on by default);
+            # lock like ledger.py does — rc4 rows carry two signatures and can
+            # exceed the pipe-atomicity size a bare append silently relies on.
+            with _filelock.locked(p), p.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + "\n")
+                f.flush()
         except OSError:
             pass  # telemetry must never break the request path
 
@@ -1033,59 +1023,53 @@ class ShadowCounters:
     def _write(self, deltas: dict[str, int], fail_reason: str) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, "a+") as f:
-                if _HAVE_FCNTL:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            with _filelock.locked(self._path), open(self._path, "a+") as f:
+                f.seek(0)
                 try:
-                    f.seek(0)
-                    try:
-                        data: dict[str, Any] = json.load(f)
-                    except (json.JSONDecodeError, ValueError):
-                        data = {}
-                    for k, v in deltas.items():
-                        data[k] = data.get(k, 0) + v
-                    # Per-version buckets, mirroring what ShadowLedger already does
-                    # for its rows. Without them these counters accumulate for the
-                    # life of the install, so failures from an ALREADY-FIXED bug stay
-                    # in the displayed rate forever: the temperature-0 replay bug
-                    # (fixed in 8c744df) left 295/323 failures behind, which held the
-                    # lifetime rate at 42% while the real rate since the fix was 5.3%.
-                    #
-                    # Two costs, and the second is the one that matters: a fixed bug
-                    # makes the sampler look broken, and the next REAL regression has
-                    # to clear that stale noise floor before anyone can see it.
-                    #
-                    # Deliberately NOT resetting on a version change — that would lose
-                    # the trend and make the opposite mistake, hiding a rate that
-                    # degrades across releases. Lifetime totals stay for continuity.
-                    by_version = data.get("by_version")
-                    if not isinstance(by_version, dict):
-                        by_version = {}
-                    bucket = by_version.get(_counter_version())
-                    if not isinstance(bucket, dict):
-                        bucket = {}
-                    for k, v in deltas.items():
-                        bucket[k] = int(bucket.get(k, 0)) + v
-                    if fail_reason:
-                        # A histogram, not a single value. `last_fail_reason` keeps
-                        # only the most recent, so a run mixing 400s, 429s and
-                        # exceptions reported whichever landed last — which turned
-                        # diagnosing the above into archaeology.
-                        reasons = bucket.get("fail_reasons")
-                        if not isinstance(reasons, dict):
-                            reasons = {}
-                        reasons[fail_reason] = int(reasons.get(fail_reason, 0)) + 1
-                        bucket["fail_reasons"] = reasons
-                    by_version[_counter_version()] = bucket
-                    data["by_version"] = by_version
-                    if fail_reason:
-                        data["last_fail_reason"] = fail_reason
-                    f.seek(0)
-                    f.truncate()
-                    json.dump(data, f)
-                finally:
-                    if _HAVE_FCNTL:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    data: dict[str, Any] = json.load(f)
+                except (json.JSONDecodeError, ValueError):
+                    data = {}
+                for k, v in deltas.items():
+                    data[k] = data.get(k, 0) + v
+                # Per-version buckets, mirroring what ShadowLedger already does
+                # for its rows. Without them these counters accumulate for the
+                # life of the install, so failures from an ALREADY-FIXED bug stay
+                # in the displayed rate forever: the temperature-0 replay bug
+                # (fixed in 8c744df) left 295/323 failures behind, which held the
+                # lifetime rate at 42% while the real rate since the fix was 5.3%.
+                #
+                # Two costs, and the second is the one that matters: a fixed bug
+                # makes the sampler look broken, and the next REAL regression has
+                # to clear that stale noise floor before anyone can see it.
+                #
+                # Deliberately NOT resetting on a version change — that would lose
+                # the trend and make the opposite mistake, hiding a rate that
+                # degrades across releases. Lifetime totals stay for continuity.
+                by_version = data.get("by_version")
+                if not isinstance(by_version, dict):
+                    by_version = {}
+                bucket = by_version.get(_counter_version())
+                if not isinstance(bucket, dict):
+                    bucket = {}
+                for k, v in deltas.items():
+                    bucket[k] = int(bucket.get(k, 0)) + v
+                if fail_reason:
+                    # A histogram, not a single value. `last_fail_reason` keeps
+                    # only the most recent, so a run mixing 400s, 429s and
+                    # exceptions reported whichever landed last — which turned
+                    # diagnosing the above into archaeology.
+                    reasons = bucket.get("fail_reasons")
+                    if not isinstance(reasons, dict):
+                        reasons = {}
+                    reasons[fail_reason] = int(reasons.get(fail_reason, 0)) + 1
+                    bucket["fail_reasons"] = reasons
+                by_version[_counter_version()] = bucket
+                data["by_version"] = by_version
+                if fail_reason:
+                    data["last_fail_reason"] = fail_reason
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f)
         except OSError:
             pass
 
@@ -1096,16 +1080,11 @@ class ShadowCounters:
             p = path or (_state_dir() / cls._FILENAME)
             if not p.exists():
                 return {}
-            with open(p) as f:
-                if _HAVE_FCNTL:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            with _filelock.locked(p), open(p) as f:
                 try:
                     return json.load(f)
                 except (json.JSONDecodeError, ValueError):
                     return {}
-                finally:
-                    if _HAVE_FCNTL:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except OSError:
             return {}
 

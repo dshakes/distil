@@ -39,14 +39,10 @@ def test_records_are_written_0600_and_readable_back(tmp_path) -> None:
     assert oct(os.stat(audit.audit_path()).st_mode & 0o777) == "0o600"
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="line-atomic appends rely on flock, which is POSIX-only; without it concurrent writes can splice",
-)
 def test_concurrent_appends_never_interleave(tmp_path) -> None:
     """The gateway serves requests concurrently; JSONL lines must stay whole.
 
-    Without the flock, two records larger than the atomic-append size can splice
+    Without the lock, two records larger than the atomic-append size can splice
     into one another and corrupt the trail exactly when it matters most.
     """
     from distil import audit
