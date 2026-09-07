@@ -92,6 +92,7 @@
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
             <li><a href="autogen.html">AutoGen</a></li>
+            <li><a href="llamaindex.html">LlamaIndex</a></li>
             <li><a href="crewai.html">CrewAI</a></li>
             <li><a href="asgi.html">ASGI Middleware</a></li>
           </ul></li>
@@ -212,6 +213,13 @@
           <td><code>base_url=</code> in <code>OpenAIChatCompletionClient({…})</code></td>
           <td><code>http://127.0.0.1:8788/v1</code></td>
           <td><a href="#autogen">below</a></td>
+        </tr>
+        <tr>
+          <td><strong>LlamaIndex</strong></td>
+          <td>Python</td>
+          <td><code>api_base=</code> in <code>OpenAI({…})</code></td>
+          <td><code>http://127.0.0.1:8788/v1</code></td>
+          <td><a href="#llamaindex">below</a></td>
         </tr>
         <tr>
           <td><strong>Vercel AI SDK</strong> (<code>@ai-sdk/anthropic</code>)</td>
@@ -398,6 +406,18 @@ agent = AssistantAgent(<span class="s">"assistant"</span>, model_client=client)<
       <b>Why there is no <code>distil-agno</code>, <code>distil-strands</code>, or <code>distil-autogen</code> package.</b> All three are two-line <code>base_url</code> redirects, and so is every other framework that speaks an OpenAI- or Anthropic-shaped API. distil is a proxy, so a framework is supported the moment it lets you set an endpoint — there is nothing to version, nothing to break on the framework's next release, and no per-framework code to maintain. The in-process hooks further down (and AutoGen's own page) exist only for the cases where you want compression <em>without</em> running a proxy at all.
     </div>
 
+    <h3 id="llamaindex">LlamaIndex</h3>
+    <p>LlamaIndex's <code>OpenAI</code>/<code>Anthropic</code> LLM classes take <code>api_base</code> directly, same as the raw client each one wraps.</p>
+
+<pre class="term"><span class="d">$ pip install llama-index
+$ distil proxy --port 8788 --upstream https://api.openai.com &amp;</span>
+
+<span class="k">from</span> llama_index.llms.openai <span class="k">import</span> OpenAI
+
+llm = OpenAI(model=<span class="s">"gpt-5"</span>, api_base=<span class="s">"http://127.0.0.1:8788/v1"</span>)  <span class="d"># ← the only change</span>
+query_engine = index.as_query_engine(llm=llm)</pre>
+    <p>Prefer no sidecar at all? <code>distil.integrations.llamaindex</code> gives you a node postprocessor for retrieved context, an <code>LLM</code> wrapper, and a <code>FunctionTool</code> callable wrapper, all in-process — see <a href="llamaindex.html">LlamaIndex &times; Distil</a> for all three.</p>
+
     <h3>Vercel AI SDK (TypeScript)</h3>
     <pre class="term"><span class="c">import</span> { createAnthropic } <span class="c">from</span> <span class="g">"@ai-sdk/anthropic"</span>;
 <span class="c">import</span> { generateText } <span class="c">from</span> <span class="g">"ai"</span>;
@@ -521,7 +541,7 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
 
     <hr/>
 
-    <h2>In-process hooks (LiteLLM · LangChain · LangGraph · AutoGen)</h2>
+    <h2>In-process hooks (LiteLLM · LangChain · LangGraph · AutoGen · LlamaIndex)</h2>
     <p>Prefer not to run a sidecar? Compress the request in-process — the same reversible
     compression, no proxy. Every helper lazy-imports (or duck-types) its framework, so distil stays zero-dep.</p>
     <pre class="term"><span class="d"># LiteLLM — drop-in for litellm.completion</span>
@@ -540,14 +560,22 @@ agent = create_react_agent(model, tools, pre_model_hook=pre_model_hook())
 <span class="d"># AutoGen — compress a ChatCompletionClient's outgoing messages, or one tool's output</span>
 <span class="c">from</span> distil.integrations.autogen <span class="c">import</span> DistilModelClient, compressing_tool
 client = DistilModelClient(OpenAIChatCompletionClient(model=<span class="g">"gpt-4o"</span>))
-tool = FunctionTool(compressing_tool(get_weather), description=<span class="g">"..."</span>)</pre>
-    <p>Tool/function messages get the reversible Tier-1 digest; human/system messages get
-    Tier-0 lossless; the model's own words are never rewritten. <code>compress()</code> (LiteLLM),
-    <code>compress_messages()</code> (LangChain), <code>pre_model_hook()</code> (LangGraph), and
-    <code>DistilModelClient</code>/<code>compressing_tool()</code> (AutoGen) are framework-free and
+tool = FunctionTool(compressing_tool(get_weather), description=<span class="g">"..."</span>)
+
+<span class="d"># LlamaIndex — compress retrieved nodes, an LLM's outgoing calls, or one tool's output</span>
+<span class="c">from</span> distil.integrations.llamaindex <span class="c">import</span> DistilNodePostprocessor, DistilLLM
+query_engine = index.as_query_engine(
+    llm=DistilLLM(OpenAI(model=<span class="g">"gpt-5"</span>)),
+    node_postprocessors=[DistilNodePostprocessor()],
+)</pre>
+    <p>Tool/function messages and retrieved nodes get the reversible Tier-1 digest; human/system
+    messages get Tier-0 lossless; the model's own words are never rewritten. <code>compress()</code>
+    (LiteLLM), <code>compress_messages()</code> (LangChain), <code>pre_model_hook()</code>
+    (LangGraph), <code>DistilModelClient</code>/<code>compressing_tool()</code> (AutoGen), and
+    <code>DistilLLM</code>/<code>DistilNodePostprocessor</code> (LlamaIndex) are framework-free and
     unit-tested. The LangGraph hook returns only the updated message list, so every other state
-    field is left intact; <code>DistilModelClient</code> delegates every attribute it doesn't wrap
-    straight to the real client.</p>
+    field is left intact; <code>DistilModelClient</code>/<code>DistilLLM</code> delegate every
+    attribute they don't wrap straight to the real client.</p>
 
     <h3>LangChain / LangGraph as a package &mdash; <code>langchain-distil</code></h3>
     <p>The two hooks above are also published as a standalone package, listed in LangChain&rsquo;s own
