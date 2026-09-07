@@ -328,6 +328,37 @@ Windows" — the kind of defect a Linux CI matrix cannot see.
   savings are on the same scale as the new elisions — without it, an elided OpenAI image
   reported zero savings despite being genuinely removed.
 
+### `wrap` reaches config-file-only agents, and a LlamaIndex integration
+
+`distil wrap` previously covered only tools with a documented environment-variable
+routing contract (`AGENT_PRESETS`). Continue, Factory Droid, and Oh My Pi have no
+such contract — the base URL lives only in a config file — so wrapping them silently
+did nothing. A second registry, `distil.config_wrap.CONFIG_PRESETS`, adds three
+strategies for this shape: `cn` (Continue) generates a session-only temp config passed
+via `--config`, so nothing stable is ever touched; `droid` (Factory Droid) JSON-merges
+a `distil` entry into the local-override layer `settings.local.json`, byte-exact
+backed up and restored if the file already existed, created and deleted if it didn't;
+`omp` (Oh My Pi) splices a marker-fenced block into `models.yml` with the same
+backup/restore contract. All three restore on normal exit, on `SIGTERM`/`SIGHUP` (the
+existing signal-to-`KeyboardInterrupt` path), and — for the case nothing can catch,
+`SIGKILL` or power loss — `restore_stale_backups()` sweeps every registered path at
+the top of the next `distil wrap` and repairs it before that session starts. No
+credential is ever invented: a preset that needs an API key skips silently (touching
+nothing) when that key isn't set, matching `AGENT_PRESETS`' `extra_env` rule.
+
+Crush, Amp, Mistral Vibe, and OpenClaw were investigated and are deliberately **not**
+included: Crush/Amp/Mistral Vibe's config shape could not be verified against an
+authoritative source, and OpenClaw's `models.providers.<id>.baseUrl` is verified but
+belongs to a persistent multi-channel gateway daemon, not the one-shot session
+`distil wrap` models — wrapping it would misrepresent what the flag does.
+
+`distil.integrations.llamaindex` adds LlamaIndex to the duck-typed, dependency-free
+integration set alongside AutoGen and Agno: `DistilNodePostprocessor` compresses
+retrieved node text (drops into `node_postprocessors=[...]`, no subclassing required
+— LlamaIndex calls `postprocess_nodes`/`apostprocess_nodes` directly, with no
+`isinstance` check), `DistilLLM` wraps an `LLM` so outgoing `chat`/`complete` calls
+(and their async/streaming siblings) are compressed transparently, and
+`compressing_tool` wraps a plain callable for `FunctionTool.from_defaults(fn=...)`.
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 

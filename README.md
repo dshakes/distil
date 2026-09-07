@@ -50,7 +50,7 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 - **Run a proxy** — point any `base_url` client at it. Python, TypeScript, any language, any framework. Sync proxy, async proxy, and a standalone gateway, with the **same** provider coverage in each: Anthropic Messages, OpenAI Chat Completions **and** the Responses API, Azure OpenAI, and Gemini `generateContent`.
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
-- **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands · AutoGen, in-process, no network hop — plus an **ASGI middleware** for any Starlette/FastAPI app that hosts its own LLM endpoint, and the [npm package](https://www.npmjs.com/package/distil-llm) for the Vercel AI SDK.
+- **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands · AutoGen · LlamaIndex, in-process, no network hop — plus an **ASGI middleware** for any Starlette/FastAPI app that hosts its own LLM endpoint, and the [npm package](https://www.npmjs.com/package/distil-llm) for the Vercel AI SDK.
 - **On a subscription** — `distil hook --install`: Claude Code compresses its own tool output through
   the documented `PostToolUse` extension point. No proxy, no credentials touched. `distil quota` shows
   the rate-limit window it buys back. [Details →](https://dshakes.github.io/distil/subscription.html)
@@ -194,7 +194,7 @@ distil wrap -- claude -p "summarise this diff"
 distil wrap -- python my_agent_sdk_script.py
 ```
 
-> **Using Cursor, Cline, Continue, or Windsurf?** They are IDE extensions — no argv to wrap and no documented env var, so `distil wrap` cannot reach them. Run a proxy and point the editor's base-URL setting at it: [docs/IDE-AGENTS.md](docs/IDE-AGENTS.md). (GitHub Copilot is not redirectable at all, and that page says so rather than wasting your afternoon.)
+> **Using Cursor, Cline, or Windsurf?** They are IDE extensions — no argv to wrap and no documented env var, so `distil wrap` cannot reach them. Run a proxy and point the editor's base-URL setting at it: [docs/IDE-AGENTS.md](docs/IDE-AGENTS.md). (GitHub Copilot is not redirectable at all, and that page says so rather than wasting your afternoon. The **Continue CLI** — as opposed to its VS Code extension — routes only through a config file, and `distil wrap -- cn` manages that file for you; see the same page.)
 
 Each recognized agent (`claude` / `codex` / `gemini` / `aider` / `opencode` / `qwen` / `goose`) auto-selects the right env var and upstream — no `--env-var` or `--upstream` flag needed. Prints `preset: <agent> detected → <VAR>` on start. Explicit flags always win.
 
@@ -393,7 +393,7 @@ const client = new Anthropic({ baseURL: distilBaseURL() });
 | Google Gemini | `--upstream https://generativelanguage.googleapis.com` | [`examples/python_gemini.py`](examples/python_gemini.py) |
 | Codex · aider · Cursor-agent · **any `base_url` client** | `distil wrap -- <agent>` or `OPENAI_BASE_URL` | — |
 
-Anything that speaks the Anthropic / OpenAI / Gemini wire format works — the proxy is framework-agnostic, so CrewAI, AutoGen, Agno, Strands, Bedrock, etc. route through it unchanged by pointing their client's base URL at distil.
+Anything that speaks the Anthropic / OpenAI / Gemini wire format works — the proxy is framework-agnostic, so CrewAI, AutoGen, LlamaIndex, Agno, Strands, Bedrock, etc. route through it unchanged by pointing their client's base URL at distil.
 
 Prefer in-process? Wrap the client directly — still no call-site change:
 
@@ -413,6 +413,7 @@ client = wrap(anthropic.Anthropic())   # compresses the request, keeps the cache
 | LangGraph | `pre_model_hook=pre_model_hook()` (compresses graph state before the model node) | [`examples/python_langgraph.py`](examples/python_langgraph.py) |
 | Agno | `distil.integrations.agno.compressed_model(model)` | — |
 | Strands | `distil.integrations.strands.compressing_hook()` | — |
+| LlamaIndex | `DistilNodePostprocessor()` (node postprocessor) · `DistilLLM(llm)` · `compressing_tool(fn)` | [`llamaindex.html`](https://dshakes.github.io/distil/llamaindex.html) |
 
 ### LangChain / LangGraph — `langchain-distil`
 
