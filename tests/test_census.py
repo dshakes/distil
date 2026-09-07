@@ -248,6 +248,11 @@ def test_live_heartbeat_total_is_monotonic_and_shared_with_census(monkeypatch):
     assert census.build_payload()["tokens_saved"] == 1000
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="depends on fcntl.flock blocking writer B behind writer A, a no-op on "
+    "Windows (_savings_locked degrades to last-write-wins there, per its own docstring)",
+)
 def test_second_writer_reads_inside_the_lock(monkeypatch):
     """distil runs as several processes at once (wrap, proxy worker, gateway,
     webdash) and two of them advance this counter: the daily census and the
