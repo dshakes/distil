@@ -112,6 +112,9 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
         f"def handler_7(request):  # {_MARKER}\n    payload = request.json()\n"
         "    return {'ok': True, 'n': 7, 'payload': payload}"
     )
+    # The same module as `cat -n` prints it. Every line is prefixed, so it contains no
+    # byte-exact copy of `quote` — which is the point of the case below.
+    numbered = "\n".join(f"{i:6}\t{line}" for i, line in enumerate(module.split("\n"), 1))
     # A read whose CONTENT looks like distil's own digest output. A stub-shaped payload
     # must not be mistaken for one already folded, and the quote must still survive.
     stub_shaped = (
@@ -189,6 +192,31 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
             read_edit(
                 {"name": "Bash", "input": {"command": "cat -n /app/handlers.py"}}, module, quote
             ),
+        ),
+        (
+            # A numbered re-read is NOT a copy of the file: its bytes carry line numbers,
+            # so it must not supersede the plain read the Edit's old_string came from.
+            # This shape stays green even on the classifier that got it wrong, because
+            # the quote guard re-runs widened and repairs it — at the price of the whole
+            # supersession class for the rest of the session. The teeth are in
+            # tests/test_exact_quote_adapters.py, where no Edit exists yet and the guard
+            # has nothing to measure. Here it pins the end-to-end shape.
+            "numbered_reread_does_not_supersede_the_plain_read",
+            read_edit(_bash, module, quote)
+            + [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "r2",
+                            "name": "Bash",
+                            "input": {"command": "cat -n /app/handlers.py"},
+                        }
+                    ],
+                },
+                _tool_result("r2", numbered),
+            ],
         ),
         (
             "reread_then_edit_quotes_first_read",

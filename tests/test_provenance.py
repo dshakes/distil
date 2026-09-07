@@ -179,6 +179,67 @@ def test_a_narrower_reread_does_not_supersede_a_wider_one() -> None:
     assert set(exact_quote_ids(calls)) == {"t1", "t2"}
 
 
+def test_a_decorated_read_never_supersedes_a_byte_exact_one() -> None:
+    """`cat -n` prefixes every line with a number, so it is not a copy of the file.
+
+    Letting it supersede an earlier plain `cat` digests the one byte-exact copy in the
+    conversation, and the next Edit's old_string — lifted from the plain read — is gone.
+    """
+    calls = [_shell(1, "cat app.py", 1), _shell(2, "cat -n app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_a_byte_exact_read_does_not_supersede_a_decorated_one_either() -> None:
+    """The other direction: plain output is not a superset of numbered output.
+
+    The agent may still be quoting the numbers it was shown, so the decorated read stays.
+    """
+    calls = [_shell(1, "cat -n app.py", 1), _shell(2, "cat app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_nl_does_not_supersede_a_partial_byte_exact_read() -> None:
+    calls = [_shell(1, "sed -n '1,80p' app.py", 1), _shell(2, "nl -ba app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_squeezed_blank_lines_are_decorated_too() -> None:
+    """`cat -s` collapses runs of blank lines: a quote spanning one no longer matches."""
+    calls = [_shell(1, "cat app.py", 1), _shell(2, "cat -s app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_a_numbered_pager_is_decorated() -> None:
+    calls = [_shell(1, "cat app.py", 1), _shell(2, "less -N app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
+def test_a_formatting_neutral_flag_still_supersedes() -> None:
+    """`cat -u` only changes buffering. The table is per flag, not "any flag at all"."""
+    calls = [_shell(1, "cat app.py", 1), _shell(2, "cat -u app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t2"}
+
+
+def test_bare_bat_does_not_supersede_but_plain_bat_does() -> None:
+    """bat decorates by default; only `--plain` emits the file's own bytes."""
+    decorated = [_shell(1, "cat app.py", 1), _shell(2, "bat app.py", 5)]
+    assert set(exact_quote_ids(decorated)) == {"t1", "t2"}
+    plain = [_shell(1, "cat app.py", 1), _shell(2, "bat --plain app.py", 5)]
+    assert set(exact_quote_ids(plain)) == {"t2"}
+
+
+def test_an_identical_decorated_reread_still_supersedes() -> None:
+    """Two `cat -n` reads of one file ARE copies of each other."""
+    calls = [_shell(1, "cat -n app.py", 1), _shell(2, "cat -n app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t2"}
+
+
+def test_differently_decorated_reads_do_not_supersede_each_other() -> None:
+    """`cat -b` numbers only non-blank lines, so its bytes are not `cat -n`'s."""
+    calls = [_shell(1, "cat -n app.py", 1), _shell(2, "cat -b app.py", 5)]
+    assert set(exact_quote_ids(calls)) == {"t1", "t2"}
+
+
 def test_an_identical_reread_still_supersedes() -> None:
     """The case supersession exists for: the same slice, read again."""
     calls = [_shell(1, "head -n 50 app.py", 1), _shell(2, "head -n 50 app.py", 5)]
@@ -189,13 +250,28 @@ def test_an_identical_reread_still_supersedes() -> None:
     ("command", "span"),
     [
         ("cat app.py", "all"),
-        ("cat -n app.py", "all"),  # numbering is formatting, not extent
-        ("nl -ba app.py", "all"),
-        ("bat app.py", "all"),
-        ("bat -r 10:20 app.py", "bat:-r 10:20"),  # ranged bat is partial
+        ("cat -u app.py", "all"),  # unbuffered output is still the file's own bytes
+        ("less app.py", "all"),
+        # Decorated: the model saw numbered or marked-up lines, not the file's own bytes,
+        # so this covers nothing and nothing covers it. It is still exempt itself.
+        ("cat -n app.py", "decorated:cat:-n"),
+        ("cat -b app.py", "decorated:cat:-b"),
+        ("cat -A app.py", "decorated:cat:-A"),
+        ("cat -s app.py", "decorated:cat:-s"),  # squeezing blank lines rewrites them
+        ("cat --number app.py", "decorated:cat:--number"),
+        ("cat -nb app.py", "decorated:cat:-nb"),  # bundled short flags
+        ("less -N app.py", "decorated:less:-N"),
+        ("head -v -n 50 app.py", "decorated:head:-v -n 50"),  # -v adds a file header
+        ("nl -ba app.py", "decorated:nl:-ba"),  # nl always numbers; no plain form
+        ("bat app.py", "decorated:bat:"),  # bat decorates by default
+        ("bat -p app.py", "all"),  # --plain turns all of it off
+        ("bat --plain app.py", "all"),
+        ("bat --style=plain app.py", "all"),
+        ("bat -r 10:20 app.py", "decorated:bat:-r 10:20"),  # decorated AND partial
+        ("bat -p -r 10:20 app.py", "bat:-p -r 10:20"),  # plain, but still partial
         ("head -n 50 app.py", "head:-n 50"),
         ("tail -n 5 app.py", "tail:-n 5"),
-        ("sed -n '1,80p' app.py", "sed:-n 1,80p"),
+        ("sed -n '1,80p' app.py", "sed:-n 1,80p"),  # sed prints, it does not decorate
         ("cd /repo && cat app.py", "all"),
     ],
 )
