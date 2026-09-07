@@ -419,8 +419,9 @@ def main() -> int:
             "curve",
             "curvefig",
         ],
-        help="emit only these fragments (default: all prove.py fragments; e5macros, "
-        "loo and loomacros are opt-in because they need a prefix or a different report)",
+        help="emit only these fragments (default: all prove.py fragments; e5macros, loo, "
+        "loomacros, curve and curvefig are opt-in because they need a prefix or a "
+        "different report)",
     )
     ap.add_argument(
         "--macro-prefix",

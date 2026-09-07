@@ -426,8 +426,10 @@ forfeited digest saving in practice sits much closer to $27$\,pp. That is the in
 The guarantee also measures itself: every request records, content-free, whether each
 literal-match edit's \texttt{old\_string} still occurs in the payload distil forwarded, and on a
 miss the whole provenance class stops digesting for the rest of the session. It is enforced as a
-sixth real-path invariant, \emph{quote-survival}, in \texttt{distil validate}. Measured on build
-1.52.0; artifacts in \texttt{benchmarks/results/2026-09-04}.
+sixth real-path invariant, \emph{quote-survival}, in \texttt{distil validate}. Measured on build 1.52.0, over the maintainer's own local
+session history; the rule lives in \texttt{distil/compress/provenance.py} and the measurement is
+recorded in that release's changelog entry. The session transcripts themselves are not
+redistributable, so the counts are published and the corpus is not.
 
 \subsection{The Decision-Equivalence Risk Certificate}
 We calibrate the per-turn losses for each ladder level on calibration traffic
