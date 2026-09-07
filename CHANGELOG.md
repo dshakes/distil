@@ -3,123 +3,25 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 
-### An estimator that can say no
+The through-line: distil's guarantees were narrower than the traffic they claimed to
+cover, and the instruments pointed at them could not report bad news. The
+exact-quote rule keyed on tool names and missed three quarters of the file reads on
+real traffic; the Responses API was compressed by one server of three; the shadow
+estimator was clamped so it could print 100% and could never report harm. Each of
+those is now the size it says it is. The proof surface grows a written cache
+contract, an adversarial suite, and a measured degradation curve.
 
-Live shadow, build 1.51.1, on the maintainer's lossless-only traffic: **44 A/B and 11
-A/A samples. Raw agreement 81.8% [67.3, 91.8]; the model's self-agreement on
-identical input 84.8% [71.8, 92.4] over 46 byte-identical replays. Statistically
-indistinguishable (Fisher p=0.63)** — and 32 of the 44 "A/B" samples had no bytes
-changed by compression at all. Below the reporting floor, and not a verdict. Reading
-the sample end to end turned up an estimator that could not have told us otherwise.
-
-### The arms were not what they said they were
-
-- **Byte-identical bodies were labelled A/B.** `_serialize_if_changed` returns the
-  ORIGINAL bytes when no transform fired (deliberately — re-encoding busts the prompt
-  cache), but the sample was still labelled by an independent 1/3 coin. So the two
-  arms were the same bytes and the row measured the model against itself, filed as
-  evidence that compression is safe. Reclassified at spawn time: identical bytes are
-  an A/A sample, whatever the coin said. It also costs one fewer replay.
-- **The A/A arm replayed the COMPRESSED body twice.** That is a B/B arm. Under digest
-  mode it measured self-agreement on the wrong distribution entirely, and it could
-  not detect a compressor that changed every decision *consistently*. A/A now replays
-  the original.
-- **The call order was fixed**, so the warm-prefix-cache read always landed on the
-  same arm. The replays are now issued in shuffled order.
-
-### An estimator with an interval, allowed to be negative
-
-The old number was `p_BA / p_AA` between two **disjoint** request sets, clamped with
-`max(0, ...)`. It printed exactly 100% whenever the A/B draw beat the A/A draw by
-chance, and it could never report harm. The paper defines a *paired difference*
-(§ "A/A self-agreement control"); the serving path now implements it:
-
-- each sampled request is replayed **three times** — A and A' on the original context,
-  B on the compressed one — and the row stores `1{A==B} − 1{A==A'}`;
-- reported as a mean difference with a bootstrap 95% CI, unclipped, alongside raw
-  `p_AB` and `p_AA` with Wilson intervals;
-- 1.5x the replay budget on samples where compression actually changed something, and
-  only there. `DISTIL_SHADOW_PAIRED=0` restores the cheaper two-replay design (with
-  the A/A arm fixed).
-
-`SIG_VERSION` goes to **5**: the rule on the constant is to bump on any change to how
-the compared sample is generated, and v4 rows are not comparable to these. Old rows
-stay readable under `--all`, labelled `legacy-unpaired`.
-
-### One reporting floor, everywhere
-
-There were three. `VERDICT_MIN_AB`/`VERDICT_MIN_AA` (50/30) gated the status line and
-the proof ledger; `shadow-stats` printed at 25/10; the census feed and the web
-dashboard published as soon as *any* A/A baseline existed (n≥10). The lowest of the
-three fed the adoption page's decision-equivalence ring, so the most public claim
-rested on the weakest evidence. Every surface now uses the same pair and says
-`below reporting floor (n=…)` otherwise — and the adoption caption states the
-estimator rather than the word "provably". The sampling diagnostics still print below
-the floor, because a thin sample is usually a replay that is failing.
-
-### Two things the reports were quiet about
-
-- **Per mode.** lossless-only and digest measure different things; pooled, they report
-  the average of two experiments nobody runs. Each row now carries its mode and
-  `shadow-stats` breaks them out.
-- **Temperature.** `force_deterministic` only pins temperature 0 when the body already
-  carries the field and thinking is off. On Claude Code traffic neither holds, so the
-  replays sample hot. Rather than fake determinism, each row records whether it was
-  pinned and `shadow-stats` prints what share of the sample ran hot, and why the A/A
-  arm is what absorbs it.
-
-One consequence worth knowing: on lossless-only traffic, where compression often
-changes no bytes at all, those samples now count toward the A/A arm only — so the A/B
-floor takes longer to clear, and `shadow-stats` says how many samples that was. The
-surfaces stay blank meanwhile. That is the honest state, not a regression.
-
-### Output-token accounting
-
-The paired replays already return both responses, so the provider's own usage is free
-to record. Each row now carries input and output tokens for the A and B arms, and
-`shadow-stats` and `distil dissect` report the mean output-token delta with a CI plus
-the net dollars — input saved at input prices *minus* extra output at output prices.
-Output is priced several times input, so compression that makes the model answer at
-greater length can cost more than the prompt it shortened; nothing in distil could see
-that before. Cache fields are deliberately not priced in: the two arms hit the prefix
-cache differently by construction.
-
-### Provider parity across all three servers
-
-The Responses API was compressed by the
-sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat
-Completions was injected with Anthropic's expand-tool schema, which that provider
-rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted
-them; Azure OpenAI's paths matched nothing anywhere. The `aider` and `grok` wrap
-presets set environment variables those tools never read, so both routed nothing
-while reporting success.
-
-The gateway no longer emits a digest stub it cannot restore. It injects no
-`distil_expand` tool and runs no expand loop, so Tier-1 there was irreversibly lossy
-on every pay-as-you-go session — the marker named a recovery that did not exist. It
-is Tier-0 only until it grows the expand loop, which lowers its savings on
-unstructured content and makes what it does report honest.
-
-### AutoGen and ASGI integrations, copilot and kimi presets
-
-Two new integrations, both duck-typed and dependency-free like the rest of the
-package: `distil.integrations.autogen` (`compressing_tool`, `DistilModelClient`,
-`compress_messages` for Microsoft AutoGen) and `distil.integrations.asgi`
-(`DistilMiddleware`, for any app that hosts its own LLM-facing endpoint on Starlette,
-FastAPI, or another ASGI 3 framework). `compressing_tool`'s wrapper carries
-`functools.wraps` plus an explicit `__signature__`, so `FunctionTool`'s
-signature/annotation-based schema generation sees the original function, not
-`*args, **kwargs`. `DistilMiddleware` enforces its body-size cap while reading
-rather than after buffering the whole oversized body, and on the cap, a client
-disconnect mid-body, or a fail-open (malformed JSON, unrecognized shape,
-compression error), replays the exact original event sequence and headers instead
-of collapsing the stream into one synthesized chunk.
-
-`wrap` gained presets for GitHub Copilot CLI (`copilot`) and Kimi CLI (`kimi`), and
-`goose` now also gets `ANTHROPIC_HOST` alongside `OPENAI_HOST` — `AGENT_PRESETS`
-supports multiple environment variables per preset for this.
+**This release skips the rc soak.** RELEASING.md requires any release that changes
+runtime behaviour to bake as an rc for at least three days of real work first, and
+this one changes the request path substantially: all three server adapters, the
+compressor's provenance rule, the shadow sampler. The maintainer's decision is to
+ship on the gates instead — the suite, the coverage floor, `bench`, `verify`,
+`validate --adversarial`, the retention and fidelity harnesses, and the certificate.
+What that costs is worth stating rather than hiding: these paths carry no hours of
+real use, and the failure mode the soak policy exists to catch is precisely the one
+that looks correct in review. The 1.10.0→1.11.3 day is the precedent.
 
 ### The exact-quote guarantee now covers the shell, where most reads happen
 
@@ -148,13 +50,13 @@ every stage is a whole-file reader, with no pipe and no redirection, produced fi
 and is exempt. The classifier is deliberately narrow, because the question it answers is
 narrow — *are the bytes the agent saw a verbatim slice of a file?*
 
-* `cat a b`, `head -n 50 f`, `cat -n f`, `sed -n '1,20p' f` — yes.
-* `cd /repo && cat main.py` — yes, and this one matters most: it is the commonest way an
+- `cat a b`, `head -n 50 f`, `cat -n f`, `sed -n '1,20p' f` — yes.
+- `cd /repo && cat main.py` — yes, and this one matters most: it is the commonest way an
   agent reads a file, so a rule requiring *every* stage to be a reader would refuse it
   and digest the quote. What the agent quotes from is what the **last** stage printed.
-* `cat f | grep x` — no. The agent saw grep's output, not the file's.
-* `cat f > out`, `… | tee out`, `cat << EOF` — no. Those bytes are not what came back.
-* `sed 's/a/b/' f` — no. That is a transform.
+- `cat f | grep x` — no. The agent saw grep's output, not the file's.
+- `cat f > out`, `… | tee out`, `cat << EOF` — no. Those bytes are not what came back.
+- `sed 's/a/b/' f` — no. That is a transform.
 
 Only the latest read per **(path, slice)** is kept: a superseded read is one the agent has
 a fresher byte-exact copy of. Slice, not path — `sed -n '1,80p' app.py` and
@@ -234,6 +136,306 @@ the guarantee costs: ~55% of its tool-result tokens are file reads that must sta
 byte-exact and the rest is too short to digest, so distil's 0.0% digest row there is the
 policy working, not the compressor failing. The share is now printed under the table,
 computed with the live classifier.
+
+### Shadow mode: an estimator that can say no
+
+Live shadow, build 1.51.1, on the maintainer's lossless-only traffic: **44 A/B and
+11 A/A samples. Raw agreement 81.8% [67.3, 91.8]; the model's self-agreement on
+identical input 84.8% [71.8, 92.4] over 46 byte-identical replays. Statistically
+indistinguishable (Fisher p=0.63)** — and 32 of the 44 "A/B" samples had no bytes
+changed by compression at all. Below the reporting floor, and not a verdict. Reading
+that sample end to end turned up an estimator that could not have told us otherwise.
+
+**The arms were not what they said they were.** `_serialize_if_changed` returns the
+ORIGINAL bytes when no transform fired (deliberately — re-encoding busts the prompt
+cache), but the sample was still labelled by an independent 1/3 coin. So the two
+arms were the same bytes and the row measured the model against itself, filed as
+evidence that compression is safe. Identical bytes are now reclassified at spawn
+time as an A/A sample, whatever the coin said; it also costs one fewer replay. The
+A/A arm itself replayed the COMPRESSED body twice — that is a B/B arm, which under
+digest mode measured self-agreement on the wrong distribution entirely and could not
+detect a compressor that changed every decision *consistently*. A/A now replays the
+original. And the call order was fixed, so the warm-prefix-cache read always landed
+on the same arm; the replays are now issued in shuffled order.
+
+**The estimator has an interval, and is allowed to be negative.** The old number was
+`p_BA / p_AA` between two **disjoint** request sets, clamped with `max(0, ...)`. It
+printed exactly 100% whenever the A/B draw beat the A/A draw by chance, and it could
+never report harm. The paper defines a *paired difference* (§ "A/A self-agreement
+control"); the serving path now implements it. Each sampled request is replayed
+**three times** — A and A' on the original context, B on the compressed one — and the
+row stores `1{A==B} − 1{A==A'}`, reported as a mean difference with a bootstrap 95%
+CI, unclipped, alongside raw `p_AB` and `p_AA` with Wilson intervals. That is 1.5x
+the replay budget on samples where compression actually changed something, and only
+there; `DISTIL_SHADOW_PAIRED=0` restores the cheaper two-replay design (with the A/A
+arm fixed). `SIG_VERSION` goes to **5** — the rule on that constant is to bump on any
+change to how the compared sample is generated, and v4 rows are not comparable to
+these. Old rows stay readable under `--all`, labelled `legacy-unpaired`.
+
+**One reporting floor, everywhere.** There were three. `VERDICT_MIN_AB`/
+`VERDICT_MIN_AA` (50/30) gated the status line and the proof ledger; `shadow-stats`
+printed at 25/10; the census feed and the web dashboard published as soon as *any*
+A/A baseline existed (n≥10). The lowest of the three fed the adoption page's
+decision-equivalence ring, so the most public claim rested on the weakest evidence.
+Every surface now uses the same pair and says `below reporting floor (n=…)`
+otherwise — and the adoption caption states the estimator rather than the word
+"provably". The sampling diagnostics still print below the floor, because a thin
+sample is usually a replay that is failing.
+
+**Two things the reports were quiet about.** lossless-only and digest measure
+different things; pooled, they report the average of two experiments nobody runs, so
+each row now carries its mode and `shadow-stats` breaks them out. And
+`force_deterministic` only pins temperature 0 when the body already carries the field
+and thinking is off — on Claude Code traffic neither holds, so the replays sample
+hot. Rather than fake determinism, each row records whether it was pinned and
+`shadow-stats` prints what share of the sample ran hot, and why the A/A arm is what
+absorbs it.
+
+One consequence worth knowing: on lossless-only traffic, where compression often
+changes no bytes at all, those samples now count toward the A/A arm only — so the A/B
+floor takes longer to clear, and `shadow-stats` says how many samples that was. The
+surfaces stay blank meanwhile. That is the honest state, not a regression.
+
+**Output-token accounting.** The paired replays already return both responses, so the
+provider's own usage is free to record. Each row now carries input and output tokens
+for the A and B arms, and `shadow-stats` and `distil dissect` report the mean
+output-token delta with a CI plus the net dollars — input saved at input prices
+*minus* extra output at output prices. Output is priced several times input, so
+compression that makes the model answer at greater length can cost more than the
+prompt it shortened; nothing in distil could see that before. Cache fields are
+deliberately not priced in: the two arms hit the prefix cache differently by
+construction.
+
+### Provider parity across all three servers
+
+The Responses API was compressed by the sync proxy and forwarded raw by the async
+proxy and the gateway; OpenAI Chat Completions was injected with Anthropic's
+expand-tool schema, which that provider rejects; the Anthropic SSE splice ran on
+OpenAI and Gemini streams and corrupted them; Azure OpenAI's paths matched nothing
+anywhere. The `aider` and `grok` wrap presets set environment variables those tools
+never read, so both routed nothing while reporting success.
+
+The gateway no longer emits a digest stub it cannot restore. It injects no
+`distil_expand` tool and runs no expand loop, so Tier-1 there was irreversibly lossy
+on every pay-as-you-go session — the marker named a recovery that did not exist. It
+is Tier-0 only until it grows the expand loop, which lowers its savings on
+unstructured content and makes what it does report honest.
+
+### The cache contract, written down and made falsifiable
+
+Prompt caching is the largest term in the cost model and it fails silently: rewrite
+one byte at or before the provider's boundary and the entry for the whole prefix is
+discarded, the request still succeeds, and the only symptom is the bill. distil has
+been on the wrong side of this once already — a recency window counted back from the
+end of the message list produced zero cache reads and 2x the cost of compressing
+nothing.
+
+ADR 0008 states four clauses: same bytes in means same bytes out at or before the
+boundary; compression touches only the volatile suffix; digests are deterministic
+because handles are content-addressed; and what is explicitly NOT promised (a client
+that rewrites its own history, provider TTL, and the last-k window when no marker is
+sent at all). `tests/test_cache_contract.py` replays growing six-turn sessions
+through the same public entry points the proxy calls, for all three provider shapes
+and three Anthropic marker placements, using a high-water mark rather than the
+current turn's boundary — once the provider has cached through an index, rewriting it
+later invalidates the entry. Bodies are compared as the proxy serializes them, not
+in a normalized form: key order is part of the prefix, so a transform that rebuilt a
+dict in a different order would bust the cache and still pass a `sort_keys`
+comparison.
+
+The contract holds; no bug was found. That is worth a test, because the property was
+true and undefended. `dissect` grows a cache-read share line so the contract can be
+checked against what the provider actually did — and it renders None, never 0.0, when
+the fields are absent. "Not measured" and "never hit" are opposite diagnoses.
+
+### Compression as an attack surface
+
+COMA (arXiv 2510.22963, ASE 2026) shows an attacker who controls untrusted input can
+perturb it so the **compressor** discards task-critical content. The agent then acts
+on a context missing the line that mattered, and nothing reports a fault: the request
+succeeds, the savings look good, the certificate is unaffected, the answer is wrong.
+This lands harder on distil than on a summariser, because the keep policy is legible
+— a heuristic anyone can read is a heuristic anyone can bait.
+
+So ADR 0009 declines to claim the keep policy as a security boundary. Reversibility
+is the boundary. The invariant asserted against hostile input is a disjunction: the
+load-bearing line survives in what distil forwards, OR it was folded, the block is
+reversible through a handle distil issued, and the stub declares the elision. An
+attacker can push a line from the first branch to the second; they cannot push it out
+of both.
+
+`distil validate --adversarial` adds seven cases — decoy verdict flooding, dedup
+baiting, salience baiting, handle forging, budget starvation, expand-tool injection,
+and cross-block starvation. **102/102 checks pass across 19 cases**, with two honest
+findings pinned by tests rather than smoothed over:
+
+* **dedup baiting is a real hit.** Shape-based dedup normalises digits away, so 300
+  attacker lines differing from the genuine error only in a shard number collapse
+  with it and the real line IS folded. Reversibility saves it. Its test fails if the
+  behaviour changes in either direction, so an improvement stays deliberate.
+* **decoy flooding costs savings, not correctness.** It drives a block to exactly
+  0.0%. Correct trade, real cost, stated as such — denial of savings, not denial of
+  the answer.
+
+The paper's mitigation (trusted/untrusted budget isolation) already holds here by
+construction rather than by policy: there is no global keep budget anywhere. That is
+a claim about an absence, and an absence is what a plausible future "keep top N lines
+per request" optimisation would quietly fill in — so it is asserted as an equality. A
+trusted block must compress to exactly the same bytes with or without a 4000-line
+attacker block beside it, in either order.
+
+### `distil bench --curve` — the shape of the tradeoff, not just the verdict
+
+`distil bench` answers "is the shipped strategy non-inferior?" with a yes. That is
+the right question for a gate and the wrong one for a decision: it says nothing about
+the shape of the tradeoff on either side of the operating point. Anyone choosing
+between lossless-only and the digest, or wondering what the aggressive rung would
+buy, has had no measured answer.
+
+`distil bench --curve` measures every rung over the offline corpus — token savings,
+fact recall from the retention harness, reversibility, and latency. No API calls, no
+network, no model, so it runs per-commit rather than once a quarter. Results go to
+`benchmarks/results/curve.json` and a stdlib-generated chart to
+`docs/assets/curve.svg`, both stamped with the version and date they came from.
+
+Measured on the 9-trajectory corpus at 1.51.1:
+
+    rung             savings   recall  visible  lost  reversible
+    none                0.0%    1.000    1.000     0     yes
+    tier-0 only         0.0%    1.000    1.000     0     yes
+    subscription        0.0%    1.000    1.000     0     yes
+    lossless           47.0%    1.000    0.769     0     yes
+    aggressive         65.5%    0.551    0.551   828     NO
+
+Three things the gate cannot say. The digest carries the savings and costs no facts —
+visible recall drops to 0.769 while total recall holds at 1.000, which is Tier-1
+drawn to scale: a quarter of the facts moved behind a handle rather than being
+deleted. Lossless-only measures 0.0% here, reproducing what the live 4-arm A/B found
+on real traffic, and is the honest answer to "can I have the savings without the
+digest?". And the curve bends exactly once, at the rung that issues no handle.
+
+The rungs are what the proxy runs, not a reconstruction of it. Every rung enforces
+reject-if-bigger per block and by tokens, as `_apply_tier0` does — a run-collapse
+marker can cost more tokens than the whitespace it removes, so a curve measured
+without the guard would report savings the proxy would never take. It rescues 0 of
+112 blocks on this corpus, which is why it also gets a direct unit test rather than
+relying on the corpus to contain an inflating block. The rung once labelled
+`byte-exact` is renamed `tier-0 only` (what it really was), and a `subscription` rung
+added that calls the adapter's own verbatim branch — the live verbatim path also
+applies the in-context structured folds for older non-recent tool output, and those
+are most of what a subscription user actually saves. It still measures 0.0% here
+because this corpus is prose logs rather than tabular output, and that is now a real
+measurement instead of a reconstruction that happened to agree.
+
+### Reach: AutoGen, ASGI, and two more agent presets
+
+Two new integrations, both duck-typed and dependency-free like the rest of the
+package: `distil.integrations.autogen` (`compressing_tool`, `DistilModelClient`,
+`compress_messages` for Microsoft AutoGen) and `distil.integrations.asgi`
+(`DistilMiddleware`, for any app that hosts its own LLM-facing endpoint on Starlette,
+FastAPI, or another ASGI 3 framework). `compressing_tool`'s wrapper carries
+`functools.wraps` plus an explicit `__signature__`, so `FunctionTool`'s
+signature/annotation-based schema generation sees the original function, not
+`*args, **kwargs`. `DistilMiddleware` enforces its body-size cap while reading rather
+than after buffering the whole oversized body, and on the cap, a client disconnect
+mid-body, or a fail-open (malformed JSON, unrecognized shape, compression error),
+replays the exact original event sequence and headers instead of collapsing the
+stream into one synthesized chunk.
+
+`wrap` gained presets for GitHub Copilot CLI (`copilot`) and Kimi CLI (`kimi`), and
+`goose` now also gets `ANTHROPIC_HOST` alongside `OPENAI_HOST` — `AGENT_PRESETS`
+supports multiple environment variables per preset for this.
+
+### The site: a changelog page, a claims ledger, and a withdrawn number
+
+CHANGELOG.md only ever existed in the repo; the site had no changelog page at all.
+`scripts/build_changelog_page.py` renders `docs/changelog.html` from it, verified
+byte-for-byte by a test so the two cannot drift. The nav was hand-duplicated on every
+page and had drifted accordingly — `benchmarks.html` was a near-orphan reachable only
+from the FAQ, the Learn course was two clicks deep, and nothing on-site pointed at
+`SECURITY.md`, the security whitepaper, or the deploy-security guide.
+`scripts/site_nav.py` now renders the canonical topbar and sidebar from one data
+structure, with a checker and a test asserting every page matches; a new
+`docs/security.html` points at the three source-of-truth documents rather than
+restating them. The search index is rebuilt across 38 pages and 761 headings, and the
+site serves light mode with JavaScript disabled (the theme was set entirely by an
+inline head script, so a light-preferring visitor with no JS got a dark page).
+
+**No number without an entry.** `docs/claims.json` records one entry per reader-facing
+number: which page, a stable anchor or verbatim snippet locator rather than a line
+number, and a status — verified, stale, wrong, or unsourced. The first pass found 21,
+of which 6 were verified, 2 stale, 1 wrong and 11 unsourced. `tests/test_site_claims.py`
+freezes the count, so a claim cannot be added or removed without a reviewed diff, and
+re-checks every locator against the live page. The count moves with each release that
+publishes a number; the pages added here brought their own entries with them,
+including the curve's provenance line, so a regenerated curve fails the test until the
+page is updated.
+
+The one entry marked **wrong** was distil's own: the "1.13.0, 116 sampled requests,
+A/A 31/31, 100%" shadow figure on the getting-started and FAQ pages and in
+README.md. 1.51.1 traced that sample to replays that were silently failing on signed
+thinking blocks, so it is withdrawn and replaced with the current reading — 44 A/B
+and 11 A/A samples, 81.8% raw against 84.8% self-agreement, below the 50/30 reporting
+floor and explicitly not a verdict — backed by a content-free `shadow.jsonl` summary.
+The head-to-head and coding-agent benchmark tables are re-run dated 2026-09-04
+against current competitor versions rather than June's, with the raw outputs and
+versions committed under `benchmarks/results/2026-09-04/`; the June table is kept as a
+dated historical block rather than deleted. distil's 0.0% digest row there is linked
+to the exact-quote guarantee that causes it. The site also stops claiming the shadow
+replay pins temperature 0, which it does not on real traffic.
+
+### The paper: the experiment we promised, and the scope we omitted
+
+§5 has promised E3 (leave-one-domain-out distribution shift) since the first revision
+and §6 never had it. The stated blocker was real but applied only to the per-turn
+unit, where tau-bench and SWE-bench were graded by different models. The E8
+trajectory outcomes have no such problem — one deterministic official SWE-bench
+harness, and all 500 instance ids carry a real domain label — so E3 runs at the
+trajectory level, on the E10 certificate, offline, for $0.
+
+The result is a null with known power, and the control is what makes it readable. The
+bound holds on 8 of 12 repositories (66.7%), far under the 95% target — but the same
+certify-then-check procedure on random same-sized blocks attains only 72.7%. It fails
+about as often with no shift present. A permutation test on between-repository
+dispersion finds no heterogeneity (p=0.43 divergence, p=0.74 harm, 2000 reps), and no
+repository is individually significant (smallest of twelve p-values 0.07,
+uncorrected). The apparent failure is a mismatch of units: a (1−δ) bound constrains a
+population risk, and a 22-instance empirical rate carries a ~7pp standard error.
+
+Scope honesty in the same pass. The abstract now says the 15.7% @ α=0.15 headline is
+SWE-bench edit-localization, not agent workloads in general. E1 gains a Wilson-CI
+table whose aggressive rungs' intervals overlap almost completely, so the figure's
+ordering is suggestive rather than established, and the caption says so. A new
+experiment-provenance table gives date, distil version, model, n and cost for every
+experiment: E1–E14 ran on 0.24.0–1.8.0.dev0 in June and July 2026, and 1.45.0, 1.50.x
+and 1.51.0 have changed compression since, with the expected direction of effect
+stated as reasoning rather than measurement. E7's cost is corrected from $50.04 to
+$67.31 — the old figure omitted condition E entirely. LLMLingua-2's absence from E1 is
+explained rather than left to inference, and the E8 artifacts' missing Headroom
+package version is flagged as a gap rather than guessed at. Related work gains the
+2026 cluster with arXiv ids, and provider-native compaction as a first-party baseline.
+
+A new section names the three measurements that revision does not have — degradation
+curve, adversarial robustness, output-token accounting — each rendering
+`[pending 1.52.0]`, so a half-finished refresh can never read as a result. This
+release produces all three (`bench --curve`, `validate --adversarial`, and the shadow
+paired runs); folding them back into the paper is not done here, and those markers
+still render pending.
+
+CI is now the canonical deterministic paper build: `paper-build` uploads both tracked
+PDFs at the same `SOURCE_DATE_EPOCH` pin the staleness check rebuilds with, so an
+author with no local TeX Live can satisfy the gate by downloading the artifact and
+committing it. Determinism was verified rather than assumed — two runs over identical
+paper source produced byte-identical `main.pdf`.
+
+### Also
+
+`distil onboard` hands the terminal to `distil wrap -- claude` with a plain
+`subprocess.run`, and the terminal delivers SIGINT to the whole foreground group.
+Claude Code uses the first Ctrl+C to cancel a turn rather than to exit, so the same
+key raised `KeyboardInterrupt` in onboard's parent and dumped a traceback over the
+still-running agent. onboard now installs the same no-op Python-level SIGINT handler
+wrap's parent already uses, and restores the caller's handler after the handover.
 
 ## [1.51.1] — shadow mode was measuring the wrong subset of your traffic
 
