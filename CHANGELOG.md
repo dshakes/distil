@@ -163,6 +163,19 @@ as a fresher copy of the first digests 80 lines the agent may still have to quot
 read supersedes an earlier one only when it covers it: the identical slice again, or a
 whole-file read.
 
+A **numbered listing is not a byte-exact copy of the file**, and the first cut of this
+classifier read `cat -n app.py` as a whole-file read like any other — so it superseded an
+earlier plain `cat app.py` and digested the one copy the next `Edit(old_string=...)` had to
+match. `nl`, `cat -b`, `cat -A`/`-v`/`-E`/`-T`, `cat -s`, `less -N`, `head -v` and bare
+`bat` all rewrite the bytes they print. Each is now tagged *decorated* from a per-command
+flag table, and a decorated read covers nothing but an identical decorated re-read — in
+both directions, since plain output is no superset of numbered output either. It stays
+exempt itself, so nothing the agent saw is lost; it just cannot stand in for the file.
+Flags that only change buffering (`cat -u`) are still a whole-file read, and `bat --plain`
+prints the file's own bytes so it supersedes normally. The quote guard did repair this
+after the fact, but only once an `Edit` was already in the history — the request that
+digests the read is sent *before* the model writes that edit.
+
 Supersession also stops at the client's own `cache_control` breakpoint, because flipping a
 block the provider has already cached from verbatim to digest rewrites the entire prefix at
 the 1.25x write rate. That is the trade the recency carve-out was re-anchored to avoid, and

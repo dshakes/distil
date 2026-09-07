@@ -92,6 +92,33 @@ def test_ordinary_shell_output_beside_it_still_digests() -> None:
     assert "handle=" in _result(out, "n0"), "routine test output should still digest"
 
 
+def test_a_numbered_reread_does_not_digest_the_plain_read() -> None:
+    """`cat -n` prints line numbers, so it is not a fresher copy of the file.
+
+    Superseding on it digests the only byte-exact copy in the conversation. The quote
+    guard cannot repair this one: the Edit that needs the quote has not been written yet
+    when this request is compressed, so there is nothing for it to measure.
+    """
+    numbered = "\n".join(f"{i:6}\t{line}" for i, line in enumerate(SRC.split("\n"), 1))
+    msgs = _anthropic_session("cat /app/handlers.py") + [
+        _bash_call("r2", "cat -n /app/handlers.py"),
+        _tool_result("r2", numbered),
+    ]
+    out, _store = compress_messages(msgs)
+    assert _result(out, "r1") == SRC, "the plain read was digested in favour of a numbered one"
+
+
+def test_a_plain_reread_still_supersedes_the_older_copy() -> None:
+    """The optimisation the rule above must not disable: an identical `cat` is a copy."""
+    msgs = _anthropic_session("cat /app/handlers.py") + [
+        _bash_call("r2", "cat /app/handlers.py"),
+        _tool_result("r2", SRC),
+    ]
+    out, _store = compress_messages(msgs)
+    assert "handle=" in _result(out, "r1"), "a genuine re-read should still free the older copy"
+    assert _result(out, "r2") == SRC
+
+
 def test_a_cd_prefixed_read_is_still_a_read() -> None:
     """`cd /repo && cat main.py` is the commonest way an agent reads a file. Requiring
     every stage to be a reader refused it, which digested the quote."""

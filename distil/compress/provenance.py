@@ -22,7 +22,9 @@ in this tool result a verbatim slice of a file on disk?*
 * redirection (``cat f > out``, ``… | tee``) — no. The bytes went to a file, not the agent.
 * ``sed`` without ``-n`` + a pure print range — no. That is a transform, not a read.
 * ``cat a b``, ``head -n 50 f``, ``cat -n f``, ``sed -n '1,20p' f`` — yes. The agent quotes
-  from what it saw, and what it saw is file content.
+  from what it saw, and what it saw is file content. ``cat -n`` is exempt but *decorated*:
+  its line numbers mean it is not a byte-exact copy of the file, so it neither supersedes
+  a plain read nor is superseded by one (see :func:`read_span`).
 
 Sequences (``a && b``, ``a; b``) print onto one stream, and what the agent quotes from is
 what the **last** stage printed — so that is what is classified. ``cd /repo && cat main.py``
@@ -112,6 +114,42 @@ _VALUE_FLAGS: dict[str, frozenset[str]] = {
     "less": frozenset(),
     "more": frozenset(),
 }
+
+# Flags that change the bytes a reader prints — line numbers, whitespace markers, a
+# `==> file <==` header. Output carrying one of these is NOT a copy of the file, so it
+# neither supersedes nor is superseded (see :func:`read_span`). Short flags are matched
+# per character, so a bundle like `cat -nb` counts. `nl` and bare `bat` are always
+# decorated and are handled in :func:`_decorates`.
+_DECORATING_SHORT: dict[str, str] = {
+    "cat": "nbAeEtTvs",  # number, show-all/ends/tabs/nonprinting, squeeze-blank
+    "head": "v",  # -v forces the filename header on
+    "tail": "v",
+    "less": "N",  # line numbers
+    "more": "N",
+}
+_DECORATING_LONG: dict[str, frozenset[str]] = {
+    "cat": frozenset(
+        {
+            "--number",
+            "--number-nonblank",
+            "--show-all",
+            "--show-ends",
+            "--show-tabs",
+            "--show-nonprinting",
+            "--squeeze-blank",
+        }
+    ),
+    "head": frozenset({"--verbose"}),
+    "tail": frozenset({"--verbose"}),
+    "less": frozenset({"--LINE-NUMBERS"}),
+    "more": frozenset(),
+}
+
+# Readers that always print the whole file: their flags change formatting, never extent.
+_WHOLE_FILE = frozenset({"cat", "nl", "less", "more"})
+
+# Span prefix marking a read whose bytes are not the file's own.
+_DECORATED = "decorated:"
 
 # A `sed` script that only prints line ranges: `5p`, `1,40p`, `10,$p`, `3,+5p`.
 _SED_PRINT = re.compile(r"^[0-9$,+~]+p$")
@@ -237,17 +275,64 @@ def whole_file_read_paths(command: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(_stage_paths(stages[-1])))
 
 
+def _bat_ranged(args: Sequence[str]) -> bool:
+    """Whether a ``bat`` call was given a line range, making it a partial read."""
+    return any(a in ("-r", "--line-range") or a.startswith("--line-range=") for a in args)
+
+
+def _decorates(cmd: str, args: Sequence[str]) -> bool:
+    """Whether these flags make *cmd* print something other than the file's own bytes."""
+    if cmd == "nl":
+        return True  # nl always numbers; it has no plain form
+    if cmd == "bat":
+        # bat numbers and highlights by default; only --plain turns all of it off.
+        joined = " ".join(args)
+        return not (
+            "-p" in args
+            or "--plain" in args
+            or "--style=plain" in args
+            or "--style plain" in joined
+        )
+    short = _DECORATING_SHORT.get(cmd, "")
+    long_flags = _DECORATING_LONG.get(cmd, frozenset())
+    for arg in args:
+        if arg in long_flags:
+            return True
+        if arg.startswith("--") or not arg.startswith("-") or arg == "-":
+            continue
+        if any(char in short for char in arg[1:]):
+            return True
+    return False
+
+
 def read_span(command: str) -> str:
     """How much of the file the read put in front of the model.
 
-    ``"all"`` for a whole-file reader; otherwise a tag naming the exact slice, built from
-    the reader's non-path arguments (``head:-n 50``, ``sed:-n 1,80p``).
+    ``"all"`` only for a reader that emitted the file's own bytes; otherwise a tag naming
+    what makes this read different (``head:-n 50``, ``sed:-n 1,80p``,
+    ``decorated:cat:-n``).
 
-    Only two answers matter for supersession, so only two are computed: a whole-file read
-    covers anything read earlier, and a partial read covers only an *identical* partial
-    read. That is what stops ``sed -n '1,80p' app.py`` from being superseded by
-    ``sed -n '200,280p' app.py`` — disjoint windows onto one file, where treating the
-    second as a fresher copy of the first digests 80 lines the agent may still quote.
+    Only ``"all"`` covers another read, so only ``"all"`` may supersede one. A partial read
+    covers only an *identical* partial read. That is what stops ``sed -n '1,80p' app.py``
+    from being superseded by ``sed -n '200,280p' app.py`` — disjoint windows onto one file,
+    where treating the second as a fresher copy of the first digests 80 lines the agent may
+    still quote.
+
+    **A decorated read is not a copy either.** ``cat -n``, ``cat -b``, ``nl`` and bare
+    ``bat`` prefix every line with a number; ``cat -A``/``-v``/``-E``/``-T`` mark up
+    whitespace, ``cat -s`` drops blank lines, ``head -v`` adds a filename header. The bytes
+    the model saw are not the file's, so an ``Edit(old_string=...)`` lifted from a plain
+    ``cat`` will not be found in them. Which flags decorate is a per-command table
+    (``_DECORATING_SHORT``/``_DECORATING_LONG``); everything else is formatting-neutral
+    and keeps the read whole (``cat -u app.py`` is still ``"all"``).
+
+    **The rule, both directions: a decorated read never supersedes and is never
+    superseded.** Letting ``cat -n app.py`` supersede an earlier ``cat app.py`` digests the
+    one byte-exact copy in the conversation, and the next Edit's ``old_string`` is gone.
+    The reverse is refused too: plain output is not a superset of numbered output, so a
+    later ``cat`` does not cover an earlier ``cat -n``. Decorated reads stay exempt
+    themselves — the agent may still quote what it saw — they just cover nothing but an
+    identical decorated re-read.
 
     ponytail: no range arithmetic. ``sed -n '1,300p'`` after ``sed -n '50,100p'`` keeps a
     block it could in principle drop. That costs tokens, never a quote, and it is the
@@ -263,11 +348,12 @@ def read_span(command: str) -> str:
     if not tokens:
         return "all"
     cmd = tokens[0].rsplit("/", 1)[-1]
-    # cat/nl/less/more take no slice: their flags change formatting, not extent.
-    if cmd in ("cat", "nl", "less", "more"):
-        return "all"
     args = [t for t in tokens[1:] if t not in set(whole_file_read_paths(command))]
-    if cmd == "bat" and not any(a in ("-r", "--line-range") for a in args):
+    if _decorates(cmd, args):
+        # Tagged with the flags, not just "decorated": `cat -n` and `cat -b` are not
+        # copies of each other either, so only an identical decorated re-read covers one.
+        return f"{_DECORATED}{cmd}:{' '.join(args)}"
+    if cmd in _WHOLE_FILE or (cmd == "bat" and not _bat_ranged(args)):
         return "all"
     return f"{cmd}:{' '.join(args)}"
 
@@ -322,9 +408,14 @@ def exact_quote_ids(
         reads.append((call, paths, span))
     for pos, (call, paths, span) in enumerate(reads):
         # Superseded only where every path it read has a strictly later read that COVERS
-        # it: the same slice again, or a whole-file read.
+        # it: the same slice again, or a whole-file read. A DECORATED read (`cat -n`, `nl`,
+        # bare `bat`) is covered only by an identical one — a later plain `cat` prints
+        # different bytes, not a superset of numbered ones, and the agent may still be
+        # quoting the numbers it saw.
+        decorated = span.startswith(_DECORATED)
         superseded = all(
-            last_exact.get((p, span), -1) > pos or last_all.get(p, -1) > pos for p in paths
+            last_exact.get((p, span), -1) > pos or (not decorated and last_all.get(p, -1) > pos)
+            for p in paths
         )
         committed = cached_through is not None and call.pos <= cached_through
         if superseded and not committed and not widen:
