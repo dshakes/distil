@@ -85,14 +85,16 @@ def test_every_benchmark_that_can_reach_a_tracked_path_is_guarded() -> None:
     this test rather than a reviewer noticing the diff a week later. A module that
     only *reads* those artifacts (or writes to generated/) is exempt by name.
     """
-    reads_only = {
+    exempt = {
         # emits LaTeX macros into docs/paper/generated/, never into results/
         "benchmarks/e14_macros.py",
         # --out is required, so it has no default to get wrong
         "benchmarks/swe_bench_e2e/score.py",
+        # the guard itself — its docstring shows the usage, it writes nothing
+        "benchmarks/outpath.py",
     }
     hits = subprocess.run(
-        ["git", "grep", "-l", "docs/paper/results", "--", "benchmarks/*.py", "benchmarks/**/*.py"],
+        ["git", "grep", "-l", "docs/paper/results", "--", "benchmarks/"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -101,11 +103,16 @@ def test_every_benchmark_that_can_reach_a_tracked_path_is_guarded() -> None:
     writers = {
         h
         for h in hits
-        if h not in reads_only and ".write_text(" in (ROOT / h).read_text(encoding="utf-8")
+        if h.endswith(".py")
+        and h not in exempt
+        and ".write_text(" in (ROOT / h).read_text(encoding="utf-8")
     }
+    assert writers, "the grep found nothing — the pathspec or the literal has drifted"
     guarded = {h for h in writers if "add_out_args" in (ROOT / h).read_text(encoding="utf-8")}
     assert writers == guarded, f"unguarded tracked-results writers: {sorted(writers - guarded)}"
-    assert len(guarded) == len(GUARDED)
+    # ...and every one of them is parametrized above, so the default-path test covers it
+    listed = {m.replace(".", "/") + ".py" for m, _, _ in GUARDED}
+    assert guarded == listed, f"GUARDED is out of sync: {sorted(guarded ^ listed)}"
 
 
 def test_scratch_directory_is_git_ignored() -> None:
