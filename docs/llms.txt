@@ -19,7 +19,7 @@ dependencies. Four ways to use it, and they do not all reach the same tier:
     plus `distilMiddleware()` for the Vercel AI SDK's wrapLanguageModel.
 
 Framework hooks (in-process, no network hop): LiteLLM, LangChain, LangGraph,
-Agno, Strands, AutoGen. A generic ASGI middleware (distil.integrations.asgi)
+Agno, Strands, AutoGen, LlamaIndex. A generic ASGI middleware (distil.integrations.asgi)
 compresses provider-shaped POST bodies for apps that host their own LLM-facing
 endpoint. An MCP server exposes distil_compress / distil_expand /
 distil_savings to any MCP client.
@@ -169,10 +169,11 @@ cost more, and how distil stays cache-monotonic):
 https://dshakes.github.io/distil/cache.html
 
 Integrations (framework hooks and SDK adapters — LiteLLM, LangChain, LangGraph,
-Agno, Strands, AutoGen, an ASGI middleware, Vercel AI SDK, OpenAI, Anthropic,
-Gemini):
+Agno, Strands, AutoGen, LlamaIndex, an ASGI middleware, Vercel AI SDK, OpenAI,
+Anthropic, Gemini):
 https://dshakes.github.io/distil/integrations.html
 https://dshakes.github.io/distil/autogen.html
+https://dshakes.github.io/distil/llamaindex.html
 https://dshakes.github.io/distil/asgi.html
 
 Adoption (install counts and community savings, and why an opt-in census can
