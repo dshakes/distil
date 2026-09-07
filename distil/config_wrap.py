@@ -32,6 +32,17 @@ Three strategies, cheapest/safest first:
 Every preset also refuses to invent a credential: if the api-key env var it
 would embed isn't set, it prints why and leaves the tool's config untouched
 (same rule ``proxy.wrap_run``'s ``extra_env`` already follows).
+
+Every write that can put a credential on disk — the real config file, and
+its ``.distil-backup`` copy of what was there before — goes through
+``_atomic_write_secure``: 0600-at-creation (POSIX) plus a same-directory
+temp file swapped in with ``os.replace``, so a write that fails partway
+(disk full, permission denied) leaves the original bytes untouched instead
+of a half-written file, and the credential is never briefly world-readable
+at the umask default. Process death (SIGKILL, power loss) mid-session is a
+separate case, covered by the existing ``finally``/signal-handling in
+``proxy.wrap_run`` for anything short of SIGKILL, and by
+``restore_stale_backups()`` at the top of the next ``distil wrap`` for that.
 """
 
 from __future__ import annotations
@@ -70,6 +81,42 @@ def _created_marker(path: Path) -> Path:
     there's no `.distil-backup` to restore from, so restore means *delete*,
     and this marks that that's the right thing to do even after a crash."""
     return path.with_name(path.name + ".distil-created")
+
+
+def _create_mode() -> int:
+    # ponytail: 0o600 is a real owner-only restriction on POSIX. On Windows
+    # os.open's mode argument is documented as ignored (NTFS ACLs, not mode
+    # bits) — skip pretending it does anything there rather than chasing it
+    # with a chmod call that has nothing to bite on; 0o666 matches what
+    # write_text/write_bytes already produced there before this fix.
+    return 0o600 if os.name == "posix" else 0o666
+
+
+def _atomic_write_secure(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` so a mid-write failure can never corrupt it
+    and a credential embedded in ``data`` is never briefly world-readable.
+
+    A sibling temp file (same directory, so ``os.replace`` is a same-
+    filesystem atomic rename) is created 0600 *at* ``os.open`` — not
+    chmod-after, the same fix gateway_keys.py's ``_save_locked`` and
+    atrest.py's ``_load_key`` already apply, both of which measured a real
+    window at the process umask (0o644) between an ordinary write and a
+    trailing chmod — then fsync'd and swapped into place with one
+    ``os.replace``. If anything raises before that replace (disk full,
+    permission denied, an unparseable existing file upstream of this call),
+    ``path`` is left completely untouched; the temp file never survives this
+    function either way, success or failure.
+    """
+    tmp = path.with_name(path.name + ".distil-tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _create_mode())
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)  # no-op once os.replace has moved it; else cleanup
 
 
 @dataclass(frozen=True)
@@ -208,10 +255,10 @@ def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
     sentinel = _created_marker(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if existed:
-        backup.write_bytes(original)  # type: ignore[arg-type]
+        _atomic_write_secure(backup, original)  # type: ignore[arg-type]
     else:
         sentinel.touch()
-    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
     print(
         f'  → merged a "distil" entry into {path}\'s customModels — '
         "select it in droid's model picker if it isn't already active"
@@ -220,7 +267,7 @@ def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
     finally:
         if existed:
-            path.write_bytes(original)  # type: ignore[arg-type]
+            _atomic_write_secure(path, original)  # type: ignore[arg-type]
         else:
             path.unlink(missing_ok=True)
         backup.unlink(missing_ok=True)
@@ -304,10 +351,10 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
     sentinel = _created_marker(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if existed:
-        backup.write_bytes(original)  # type: ignore[arg-type]
+        _atomic_write_secure(backup, original)  # type: ignore[arg-type]
     else:
         sentinel.touch()
-    path.write_text(new_text, encoding="utf-8")
+    _atomic_write_secure(path, new_text.encode("utf-8"))
     print(
         f'  → wrote provider "distil" into {path} — select it with '
         "`omp models set distil/<model>` if it isn't already active"
@@ -316,7 +363,7 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
     finally:
         if existed:
-            path.write_bytes(original)  # type: ignore[arg-type]
+            _atomic_write_secure(path, original)  # type: ignore[arg-type]
         else:
             path.unlink(missing_ok=True)
         backup.unlink(missing_ok=True)
@@ -388,10 +435,10 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
     sentinel = _created_marker(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if existed:
-        backup.write_bytes(original)  # type: ignore[arg-type]
+        _atomic_write_secure(backup, original)  # type: ignore[arg-type]
     else:
         sentinel.touch()
-    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
     print(
         f'  → wrote provider "distil" into {path} — pick it from Crush\'s '
         "model picker (ctrl+l), or run `model add distil/<id>` in crushrc "
@@ -401,7 +448,7 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
     finally:
         if existed:
-            path.write_bytes(original)  # type: ignore[arg-type]
+            _atomic_write_secure(path, original)  # type: ignore[arg-type]
         else:
             path.unlink(missing_ok=True)
         backup.unlink(missing_ok=True)

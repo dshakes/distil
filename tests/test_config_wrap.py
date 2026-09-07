@@ -12,8 +12,10 @@ to.
 from __future__ import annotations
 
 import json
+import stat
 import sys
 
+import pytest
 
 from distil import config_wrap
 
@@ -304,6 +306,94 @@ def test_crush_apply_treats_unparseable_json_as_empty(tmp_path, monkeypatch):
         assert list(doc["providers"]) == ["distil"]
 
     assert path.read_text() == "not json", "original garbage bytes are still restored exactly"
+
+
+# ---------------------------------------------------------------------------
+# 0600 + atomic writes — every write that can carry a credential.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits")
+@pytest.mark.parametrize(
+    ("preset_name", "path_attr", "upstream", "key_var"),
+    [
+        ("droid", "_factory_settings_path", "https://api.openai.com", "OPENAI_API_KEY"),
+        ("omp", "_omp_models_path", "https://api.anthropic.com", "ANTHROPIC_API_KEY"),
+        ("crush", "_crush_config_path", "https://api.anthropic.com", "ANTHROPIC_API_KEY"),
+    ],
+)
+def test_apply_creates_config_file_owner_only(
+    tmp_path, monkeypatch, preset_name, path_attr, upstream, key_var
+):
+    path = tmp_path / "cfg"
+    monkeypatch.setattr(config_wrap, path_attr, lambda: path)
+    monkeypatch.setenv(key_var, "sk-test")
+
+    with config_wrap.CONFIG_PRESETS[preset_name].apply(upstream, "http://127.0.0.1:1234"):
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == 0o600, f"{preset_name} wrote {path} with a credential at mode {oct(mode)}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits")
+def test_apply_backup_of_a_preexisting_file_is_also_owner_only(tmp_path, monkeypatch):
+    path = tmp_path / "models.yml"
+    path.write_text("providers:\n  spark:\n    baseUrl: http://elsewhere\n")
+    path.chmod(0o644)  # the user's own file, at the ordinary umask default
+    monkeypatch.setattr(config_wrap, "_omp_models_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._omp_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
+        backup = config_wrap._backup_path(path)
+        mode = stat.S_IMODE(backup.stat().st_mode)
+        assert mode == 0o600, "the backup is a copy of the user's config and may carry its own keys"
+
+
+def test_atomic_write_secure_leaves_original_untouched_on_failure(tmp_path, monkeypatch):
+    path = tmp_path / "target"
+    path.write_bytes(b"original bytes")
+
+    def _boom(*a, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_wrap.os, "replace", _boom)
+    with pytest.raises(OSError):
+        config_wrap._atomic_write_secure(path, b"new bytes")
+
+    assert path.read_bytes() == b"original bytes", "a failed replace must not touch the target"
+    leftovers = list(tmp_path.iterdir())
+    assert leftovers == [path], f"a temp file survived the failed write: {leftovers}"
+
+
+def test_atomic_write_secure_round_trips_new_content(tmp_path):
+    path = tmp_path / "target"
+    config_wrap._atomic_write_secure(path, b"hello")
+    assert path.read_bytes() == b"hello"
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_config_survives_the_wrapped_child_being_killed(tmp_path, monkeypatch):
+    """The wrap process itself keeps running when the CHILD dies by signal —
+    proxy.wrap_run's finally block (which __exit__s the config context
+    manager) must still run, restoring the config exactly as apply/restore
+    do on a clean exit."""
+    import signal
+
+    from distil import proxy
+
+    path = tmp_path / "models.yml"
+    original = "providers:\n  spark:\n    baseUrl: http://elsewhere\n"
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_omp_models_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    code = proxy.wrap_run(
+        [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"],
+        record=False,
+        config_ctx=config_wrap.CONFIG_PRESETS["omp"].apply,
+    )
+    assert code == -signal.SIGKILL
+    assert path.read_text() == original, "child crash left the injected provider block behind"
+    assert not config_wrap._backup_path(path).exists()
 
 
 # ---------------------------------------------------------------------------
