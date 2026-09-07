@@ -6,9 +6,11 @@ Each preset is doc-cited (URL + verification date). Where a docs page turned
 out to be client-rendered and returned nothing over a plain fetch, the field
 names come from the tool's own schema/source on GitHub instead of a guess —
 that's called out per preset below. A tool whose config shape could NOT be
-pinned down this way (Crush's current bash-script ``crushrc``, Amp, Mistral
-Vibe, and OpenClaw — a persistent multi-channel gateway, not a per-session
-CLI) is deliberately not here; see docs/IDE-AGENTS.md for why.
+pinned down this way (Amp — its only verified base-URL setting, `amp.url`,
+belongs to the VS Code extension, not the standalone CLI `wrap` launches,
+whose own settings reference has no such key; Mistral Vibe; and OpenClaw — a
+persistent multi-channel gateway, not a per-session CLI) is deliberately not
+here; see docs/IDE-AGENTS.md for why.
 
 Three strategies, cheapest/safest first:
 
@@ -321,6 +323,91 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
         sentinel.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# Crush (`crush`) — providers.<id>.base_url in the legacy ~/.config/crush/
+# crush.json.
+#
+# Verified 2026-09-07 against charmbracelet/crush's own schema.json
+# ($defs.ProviderConfig: id/name/type/base_url/api_key/models, `type` enum
+# includes "anthropic" and "openai") and docs/config/README.md, both on the
+# `main` branch. Crush's *current* config format is a Bash script
+# (`crushrc`, run with shell privileges); `crush.json` is explicitly the
+# deprecated predecessor — "we plan to support it for the foreseeable
+# future" — read from the same directory tier, lower priority than crushrc,
+# so a `distil` provider entry there only takes effect where crushrc doesn't
+# already define one with the same id. No `models` array is written: per
+# ProviderConfig, `models` is optional and `discover_models` defaults to
+# true, and inventing per-model cost/context-window figures Crush's schema
+# would otherwise require is exactly the kind of guessed value this file
+# exists to avoid.
+# ---------------------------------------------------------------------------
+
+
+def _crush_config_path() -> Path:
+    return Path.home() / ".config" / "crush" / "crush.json"
+
+
+@contextlib.contextmanager
+def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
+    family = _family(upstream)
+    key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
+    api_key = os.environ.get(key_var, "")
+    if not api_key:
+        print(
+            f"  ⚠ Crush: {key_var} is not set — skipping the crush.json "
+            "provider entry (never inventing a credential)."
+        )
+        yield []
+        return
+
+    path = _crush_config_path()
+    existed = path.exists()
+    original = path.read_bytes() if existed else None
+    try:
+        doc = json.loads(original) if original else {}
+        if not isinstance(doc, dict):
+            raise ValueError("crush.json root is not an object")
+    except (json.JSONDecodeError, ValueError):
+        # ponytail: an unparseable crush.json is treated as empty rather than
+        # aborting the wrap — the ORIGINAL bytes are still backed up and
+        # restored untouched on exit either way.
+        doc = {}
+    providers = doc.get("providers")
+    if not isinstance(providers, dict):
+        providers = {}
+    providers["distil"] = {
+        "id": "distil",
+        "name": "Distil (compressed)",
+        "type": family,
+        "base_url": base,
+        "api_key": api_key,
+    }
+    doc["providers"] = providers
+
+    backup = _backup_path(path)
+    sentinel = _created_marker(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if existed:
+        backup.write_bytes(original)  # type: ignore[arg-type]
+    else:
+        sentinel.touch()
+    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    print(
+        f'  → wrote provider "distil" into {path} — pick it from Crush\'s '
+        "model picker (ctrl+l), or run `model add distil/<id>` in crushrc "
+        "if it has no models listed yet"
+    )
+    try:
+        yield []
+    finally:
+        if existed:
+            path.write_bytes(original)  # type: ignore[arg-type]
+        else:
+            path.unlink(missing_ok=True)
+        backup.unlink(missing_ok=True)
+        sentinel.unlink(missing_ok=True)
+
+
 CONFIG_PRESETS: dict[str, ConfigPreset] = {
     "cn": ConfigPreset(
         label="Continue",
@@ -345,6 +432,14 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         verified="2026-09-06",
         apply=_omp_apply,
         paths=lambda: [_omp_models_path()],
+    ),
+    "crush": ConfigPreset(
+        label="Crush",
+        strategy="patch",
+        doc_url="https://github.com/charmbracelet/crush/blob/main/docs/config/README.md",
+        verified="2026-09-07",
+        apply=_crush_apply,
+        paths=lambda: [_crush_config_path()],
     ),
 }
 
