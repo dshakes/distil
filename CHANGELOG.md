@@ -225,9 +225,12 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   one server has is a feature its users do not have — the 1.46.0 lesson, since managed
   installs run `distil proxy`. A server that re-serialises every body still benefits: its
   output is deterministic given the same items, so replaying the items is what makes its
-  prefix stable. The gateway scopes the lineage **per tenant**, because a cached prefix
-  belongs to one credential and the lineage key is otherwise content-derived; asserted by
-  a test that posts the identical conversation as two tenants. All three carry
+  prefix stable. Each scopes the lineage by whose credential it is, because a cached
+  prefix belongs to one credential and the lineage key is otherwise content-derived: the
+  gateway **per tenant**, and the plain proxies by a **hash of the client's own API key**,
+  which is the only identity they have. Asserted on both by a test that posts the
+  identical conversation under two identities and fails if the second is served the
+  first's bytes. All three carry
   **`--no-prefix-replay`**, including the gateway, whose chart exposes it as
   `gateway.prefixReplay` — the chart is where a default-on feature silently becomes
   default-off, so the value and the arg that reads it are both pinned by a test.

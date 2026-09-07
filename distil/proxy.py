@@ -1214,7 +1214,13 @@ def build_handler(
             if prefix_replay and _replay_orig is not None and _replay_key is not None:
                 from . import prefixreplay as _prep
 
-                body = _prep.apply(body, _replay_key, _replay_orig, extras=extras)
+                body = _prep.apply(
+                    body,
+                    _replay_key,
+                    _replay_orig,
+                    scope=_prep.credential_scope(headers),
+                    extras=extras,
+                )
 
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"

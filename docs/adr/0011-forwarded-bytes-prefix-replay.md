@@ -161,10 +161,14 @@ write. That is the correct trade for not opening a second content-at-rest surfac
   re-serialises every body (the async proxy, the gateway) still benefits: its output is
   deterministic given the same items, so replaying the items is what makes its prefix
   stable.
-- **The gateway scopes the lineage by tenant.** A cached prefix belongs to one credential
-  at the provider. The lineage key is content-derived, so without the tenant prefix two
-  tenants posting the same conversation would be "the same lineage" and one tenant's
-  forwarded bytes could land in another's request. Asserted directly.
+- **Every server scopes the lineage by whose credential it is.** A cached prefix belongs
+  to one credential at the provider, and the lineage key is content-derived, so without a
+  scope two callers posting the same conversation would be "the same lineage" and one
+  caller's forwarded bytes could land in the other's request. The gateway scopes by
+  tenant, which it knows. The plain proxies forward the client's own key and have no
+  tenants, so they scope by a **hash of that key** — the same boundary, drawn with the
+  only identity available, and free on the single-user proxy `wrap` actually runs, where
+  every request carries the same key. Asserted directly on both.
 - **The off switch exists wherever the feature does.** `--no-prefix-replay` on `wrap`,
   `proxy` (both sync and async) and `gateway`, plus `gateway.prefixReplay` in the Helm
   chart. An operator who can turn a thing on in one place and not off in another does

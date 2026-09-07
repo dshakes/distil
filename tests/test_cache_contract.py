@@ -1109,6 +1109,62 @@ def test_replay_never_overlays_a_stub_the_compressor_has_taken_back() -> None:
     assert _key(second[2]) == _key(first[2]), "the divergence was applied to the wrong index"
 
 
+def test_the_plain_proxy_never_shares_a_lineage_between_two_credentials() -> None:
+    """The gateway scopes by tenant because it knows its tenants. The plain proxies
+    forward the client's own key, so they scope by the key itself, hashed — the same
+    boundary drawn with the only identity available. A proxy bound wider than loopback
+    can serve two credentials, and a cached prefix belongs to one of them.
+    """
+    from distil.proxy import build_handler
+
+    prefixreplay.reset()
+    up, seen = _stub_upstream()
+    px = _serve_threaded(build_handler(f"http://127.0.0.1:{up.server_address[1]}"))
+    port = px.server_address[1]
+
+    def post(api_key: str, turn: int) -> bytes:
+        import urllib.request
+
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/messages",
+            data=json.dumps(_churned_body(turn)).encode(),
+            headers={"content-type": "application/json", "x-api-key": api_key},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+        return seen["raw"]
+
+    try:
+        first = post("sk-one", 1)
+        assert post("sk-one", 2) == first, "the same credential lost its own prefix"
+
+        # `index` is ignored by the comparison, so a shared lineage would call the second
+        # credential's request equal to the first's and overlay the first's stored bytes.
+        other = post("sk-two", 3)
+        served = json.loads(other)["messages"][0]["content"][0]["index"]
+        assert served == 3, (
+            f"cross-credential leak: sk-two sent index=3 and the proxy forwarded index="
+            f"{served}, which is sk-one's — the two keys are sharing replay state"
+        )
+    finally:
+        px.shutdown()
+        up.shutdown()
+        prefixreplay.reset()
+
+
+def test_the_credential_scope_is_a_hash_and_nothing_else() -> None:
+    """It goes in a lineage key that lives in memory and in no log, but it is derived
+    from a secret, so it is hashed rather than carried. No credential header at all is
+    an empty scope, which is the single-user proxy and must not become a fourth lineage."""
+    key = "sk-ant-secret-value"
+    scope = prefixreplay.credential_scope({"x-api-key": key})
+    assert key not in scope and scope, "the raw credential reached the lineage key"
+    assert scope == prefixreplay.credential_scope({"X-Api-Key": key}), "header case forked it"
+    assert scope != prefixreplay.credential_scope({"x-api-key": key + "2"})
+    assert prefixreplay.credential_scope({"authorization": f"Bearer {key}"}) not in ("", scope)
+    assert prefixreplay.credential_scope({"content-type": "application/json"}) == ""
+
+
 def test_the_gateway_holds_the_prefix_and_never_shares_it_between_tenants() -> None:
     """Plus the property that only the gateway has: a cached prefix belongs to one
     credential at the provider, so two tenants posting the identical conversation must

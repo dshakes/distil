@@ -368,7 +368,13 @@ def make_app(
             if prefix_replay and _replay_orig is not None and _replay_key is not None:
                 from . import prefixreplay as _prep
 
-                body = _prep.apply(body, _replay_key, _replay_orig, extras=extras)
+                body = _prep.apply(
+                    body,
+                    _replay_key,
+                    _replay_orig,
+                    scope=_prep.credential_scope(fwd_headers),
+                    extras=extras,
+                )
             body_bytes = json.dumps(body).encode()
 
         url = _upstream + request.path

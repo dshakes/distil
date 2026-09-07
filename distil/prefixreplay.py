@@ -277,6 +277,26 @@ def lineage_key(body: Mapping[str, Any], items: List[Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()[:16]
 
 
+# Header names that carry the upstream credential, lower-cased. A cached prefix belongs
+# to one credential at the provider, so two credentials must never share a lineage.
+_CREDENTIAL_HEADERS = ("authorization", "x-api-key", "api-key", "x-goog-api-key")
+
+
+def credential_scope(headers: Mapping[str, str]) -> str:
+    """Lineage scope for whichever upstream credential *headers* carries, or ``""``.
+
+    The gateway scopes by tenant because it knows who its tenants are. The plain proxies
+    do not — they forward the client's own key — so they scope by the key itself, hashed:
+    the same boundary, drawn with the only identity available. Content-free and never
+    stored raw, and a single-user proxy (every request the same key) is unaffected,
+    which is the shape `distil wrap` actually runs.
+    """
+    for k, v in headers.items():
+        if k.lower() in _CREDENTIAL_HEADERS and isinstance(v, str) and v:
+            return hashlib.sha256(v.encode("utf-8", "replace")).hexdigest()[:12] + "\0"
+    return ""
+
+
 def _get(key: str) -> Optional[_Lineage]:
     with _LOCK:
         lin = _LINEAGES.get(key)
