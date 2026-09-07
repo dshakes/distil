@@ -324,7 +324,6 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
     assert on_disk > 0
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="fcntl module does not exist on Windows")
 @pytest.mark.parametrize(
     "arm",
     [
@@ -333,10 +332,15 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
                 __import__("fcntl"), "flock", lambda *a: (_ for _ in ()).throw(OSError("no flock"))
             ),
             id="flock-raises-oserror",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="fcntl module does not exist on Windows to mock"
+            ),
         ),
         pytest.param(
+            # Needs no real fcntl, so it runs on actual Windows too: this is
+            # the real Windows case, `import fcntl` itself raising ImportError.
             lambda monkeypatch: monkeypatch.setitem(sys.modules, "fcntl", None),
-            id="fcntl-unimportable",  # the real Windows case: `import fcntl` itself raises ImportError
+            id="fcntl-unimportable",
         ),
     ],
 )
