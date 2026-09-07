@@ -1195,21 +1195,9 @@ def build_handler(
             # Runs last, on the final body, so it is the one thing between distil's
             # decisions and the wire. Fail-open: any exception forwards as compressed.
             if prefix_replay and _replay_orig is not None and _replay_key is not None:
-                try:
-                    from . import prefixreplay as _prep
+                from . import prefixreplay as _prep
 
-                    _fwd = body.get(_replay_key)
-                    if isinstance(_fwd, list):
-                        _rout, _rst = _prep.replay(
-                            _prep.lineage_key(body, _replay_orig), _replay_orig, _fwd
-                        )
-                        if _rst.restored:
-                            body = {**body, _replay_key: _rout}
-                        extras["x-distil-replay-hits"] = str(_rst.hits)
-                        extras["x-distil-replay-misses"] = str(_rst.misses)
-                        extras["x-distil-replay-restored"] = str(_rst.restored)
-                except Exception:  # noqa: BLE001 — never break a request for a cache hit
-                    log.debug("prefix replay failed; forwarding as compressed", exc_info=True)
+                body = _prep.apply(body, _replay_key, _replay_orig, extras=extras)
 
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"

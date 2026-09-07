@@ -203,9 +203,20 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   the cache-read share. `restored` is never folded into `hits`: hits with zero restored is
   the healthy steady state, and adding them together would make a dead mechanism look
   identical to a working one.
-- `distil proxy --async` now says out loud that it has no prefix replay. Replay is on by
-  default, so a user who passes no flag at all was silently getting a different product;
-  the async proxy re-serialises every body and has no byte-stable prefix to replay.
+- **All three servers get it**, through one shared `prefixreplay.apply` at the same point
+  in each: the threaded proxy, the async proxy (`--async`, which now honours
+  `--no-prefix-replay` too), and the multi-tenant gateway. A default-on feature that only
+  one server has is a feature its users do not have — the 1.46.0 lesson, since managed
+  installs run `distil proxy`. A server that re-serialises every body still benefits: its
+  output is deterministic given the same items, so replaying the items is what makes its
+  prefix stable. The gateway scopes the lineage **per tenant**, because a cached prefix
+  belongs to one credential and the lineage key is otherwise content-derived; asserted by
+  a test that posts the identical conversation as two tenants.
+- A block whose `cache_control` marker did not move is returned untouched rather than
+  rebuilt. Rebuilding moves the marker to the end of the key order, and JSON key order is
+  part of the bytes the provider hashes — so the naive marker re-placement busted the
+  prefix the first time it replayed a block whose marker was not already last. The
+  per-server tests caught it; the adapter-level ones could not.
 
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no

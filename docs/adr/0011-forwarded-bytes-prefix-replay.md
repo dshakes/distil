@@ -98,7 +98,12 @@ because a loop condition is exactly the kind of thing a later optimisation delet
   clause (d), unchanged.
 - **Breakpoints follow the client.** The replayed bytes carry the client's *current*
   `cache_control` placement, block index for block index. The marker delimits the cached
-  span and is not part of it; `prefix._flatten` has taken that position since 1.41.
+  span and is not part of it; `prefix._flatten` has taken that position since 1.41. A
+  block whose marker did **not** move is returned untouched rather than rebuilt — rebuilding
+  moves `cache_control` to the end of the key order, and JSON key order is part of the bytes
+  the provider hashes, so the naive version busts the prefix the first time it replays a
+  block whose marker was not already last. Caught by the per-server tests, not by the
+  adapter-level ones.
 - **Fail-open.** Any exception forwards exactly what the compressor produced.
 
 ### Prior art
@@ -135,9 +140,20 @@ write. That is the correct trade for not opening a second content-at-rest surfac
   healthy steady state (the client re-sent the prefix byte-identical and there was nothing
   to fix), and folding the two together would make a dead mechanism indistinguishable from
   a working one — the same failure mode ADR 0008 called out for `None` vs `0.0%`.
-- The async proxy (`--async`) does not implement replay; it re-serialises every body, so
-  there is no byte-stable prefix to replay in the first place. `distil proxy --async` now
-  says so rather than silently being a different product.
+- **All three servers, not one.** The threaded proxy, the async proxy (`--async`) and the
+  multi-tenant gateway apply replay at the same point — the final forwarded body, after
+  every transform, immediately before serialization — through one shared `prefixreplay.apply`,
+  so the fail-open exists once instead of three times. The first draft shipped it on the
+  threaded proxy only and had `--async` *announce* its absence, which is the 1.46.0 mistake
+  in a new costume: managed installs run `distil proxy`, and a default-on feature missing
+  from the server they happen to use is a feature they do not have. A server that
+  re-serialises every body (the async proxy, the gateway) still benefits: its output is
+  deterministic given the same items, so replaying the items is what makes its prefix
+  stable.
+- **The gateway scopes the lineage by tenant.** A cached prefix belongs to one credential
+  at the provider. The lineage key is content-derived, so without the tenant prefix two
+  tenants posting the same conversation would be "the same lineage" and one tenant's
+  forwarded bytes could land in another's request. Asserted directly.
 - A client that sends non-compact JSON pays one extra cache write the first time replay
   fires, because `_serialize_if_changed` forwards the client's original bytes when nothing
   changed and compact bytes when something did. From the next turn on both sides are

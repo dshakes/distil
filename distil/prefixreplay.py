@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 from collections import OrderedDict
@@ -88,6 +89,8 @@ _MAX_LINEAGES = 16
 # history exceeds this simply stops being replayed (and keeps working); if long-context
 # sessions ever need it, spill the prefix to the restore store instead of growing this.
 _MAX_STATE_BYTES = 8 * 1024 * 1024
+
+log = logging.getLogger("distil.prefixreplay")
 
 
 def _text_sugar(value: Any) -> Any:
@@ -150,6 +153,23 @@ def _wire(item: Any) -> str:
     return json.dumps(item, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
+def _reput(node: Dict[str, Any], marker: Any) -> Dict[str, Any]:
+    """*node* carrying *marker* as its ``cache_control``, or none if *marker* is not one.
+
+    Returns the node UNTOUCHED when it already carries exactly that marker, and that is
+    load-bearing rather than an optimisation: rebuilding the dict moves ``cache_control``
+    to the end of the key order, and JSON key order is part of the bytes the provider
+    hashes. A block whose marker never moved would otherwise be re-ordered the first
+    time it was replayed and bust the very prefix this module exists to hold.
+    """
+    if node.get("cache_control") == marker:
+        return node
+    out = {k: v for k, v in node.items() if k != "cache_control"}
+    if isinstance(marker, dict):
+        out["cache_control"] = marker
+    return out
+
+
 def _remark(replayed: Any, client: Any) -> Any:
     """Previously-forwarded *replayed* item, carrying *client*'s CURRENT breakpoints.
 
@@ -160,9 +180,7 @@ def _remark(replayed: Any, client: Any) -> Any:
     """
     if not isinstance(replayed, dict) or not isinstance(client, dict):
         return replayed
-    out = {k: v for k, v in replayed.items() if k != "cache_control"}
-    if isinstance(client.get("cache_control"), dict):
-        out["cache_control"] = client["cache_control"]
+    out = _reput(replayed, client.get("cache_control"))
     blocks = out.get("content")
     if not isinstance(blocks, list):
         return out
@@ -177,11 +195,7 @@ def _remark(replayed: Any, client: Any) -> Any:
         if not isinstance(b, dict):
             new_blocks.append(b)
             continue
-        nb = {k: v for k, v in b.items() if k != "cache_control"}
-        m = marks[j] if j < len(marks) else None
-        if isinstance(m, dict):
-            nb["cache_control"] = m
-        new_blocks.append(nb)
+        new_blocks.append(_reput(b, marks[j] if j < len(marks) else None))
     out["content"] = new_blocks
     return out
 
@@ -305,3 +319,40 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
 
     _put(key, _Lineage(canon=cur_canon, forwarded=out, fwd_canon=fwd_canon))
     return out, stats
+
+
+def apply(
+    body: Dict[str, Any],
+    list_key: str,
+    original: List[Any],
+    *,
+    scope: str = "",
+    extras: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Replay the prefix of ``body[list_key]`` and record the counters in *extras*.
+
+    The whole integration, in one place. All three servers — the threaded proxy, the
+    async proxy, and the multi-tenant gateway — call this at the same point: on the
+    final forwarded body, after every transform, immediately before serialization.
+    Splitting the fail-open across three copies is how one of them ends up without it.
+
+    *scope* prefixes the lineage key. The gateway passes the tenant, so two tenants
+    posting the same conversation never share replay state; a cached prefix is the
+    provider's, per credential, and crossing that boundary would forward one tenant's
+    bytes into another's request.
+    """
+    try:
+        forwarded = body.get(list_key)
+        if not isinstance(forwarded, list):
+            return body
+        out, stats = replay(scope + lineage_key(body, original), original, forwarded)
+        if extras is not None:
+            extras["x-distil-replay-hits"] = str(stats.hits)
+            extras["x-distil-replay-misses"] = str(stats.misses)
+            extras["x-distil-replay-restored"] = str(stats.restored)
+        # Only rebuild the body when bytes actually changed, so an unmodified request
+        # keeps whatever fast path its server has for forwarding the original bytes.
+        return {**body, list_key: out} if stats.restored else body
+    except Exception:  # noqa: BLE001 — never break a request for a cache hit
+        log.debug("prefix replay failed; forwarding as compressed", exc_info=True)
+        return body

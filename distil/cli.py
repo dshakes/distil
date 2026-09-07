@@ -1101,16 +1101,6 @@ def cmd_proxy(args: argparse.Namespace) -> int:
                 "handles typical agent concurrency).",
                 file=_sys.stderr,
             )
-        # Not in `_unsupported`: prefix replay is on by DEFAULT, so a user who passes
-        # no flag at all still silently loses it here. Say so rather than let the async
-        # proxy quietly be a different product.
-        print(
-            "distil proxy --async: forwarded-bytes prefix replay (ADR 0011, on by "
-            "default on the standard proxy) is not implemented here — the async proxy "
-            "re-serializes every body, so there is no byte-stable prefix to replay. "
-            "Drop --async for it.",
-            file=_sys.stderr,
-        )
         aserve(
             host=args.host,
             port=args.port,
@@ -1120,6 +1110,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
             shape_output=args.shape_output,
             record=not args.no_record,
             pricing_model=args.pricing,
+            prefix_replay=not getattr(args, "no_prefix_replay", False),
         )
     else:
         from .proxy import serve

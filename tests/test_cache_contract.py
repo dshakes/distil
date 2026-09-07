@@ -782,3 +782,187 @@ def test_replay_forwards_unchanged_on_shapes_it_does_not_understand() -> None:
     assert out2[1]["cache_control"] == {"type": "ephemeral"}
     assert out2[1]["content"][0] == "a bare block"
     prefixreplay.reset()
+
+
+# --------------------------------------------------------------------------- servers
+# distil ships three servers, and a default-on property that only one of them has is a
+# property users do not have. These drive the Anthropic shape through each server's own
+# entry point, against a stub upstream, and assert on the bytes the upstream received —
+# so compression, replay and serialization are all inside the measurement.
+
+
+def _churned_body(turn: int) -> dict[str, Any]:
+    """One conversation, re-spelled the way a real client re-spells it every turn: an
+    SDK stamps a positional `index` on each block and renumbers it, and the
+    cache_control breakpoint advances to the newest block."""
+    msgs = _anthropic(3, "moving")
+    for m in msgs:
+        for j, b in enumerate(m["content"]):
+            b["index"] = j + turn
+    return {"model": "claude-test", "max_tokens": 64, "messages": msgs}
+
+
+def _stub_upstream():
+    """A threaded HTTP server that records the last body it was posted."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen: dict[str, bytes] = {}
+    payload = json.dumps(
+        {
+            "id": "m1",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}],
+            "model": "claude-test",
+            "usage": {"input_tokens": 10, "output_tokens": 1},
+        }
+    ).encode()
+
+    class _H(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            seen["raw"] = self.rfile.read(int(self.headers.get("content-length", 0)))
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, seen
+
+
+def _post_json(port: int, body: dict[str, Any]) -> None:
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/v1/messages",
+        data=json.dumps(body).encode(),
+        headers={"content-type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        r.read()
+
+
+def _serve_threaded(handler_cls):
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_the_threaded_proxy_holds_the_prefix() -> None:
+    from distil.proxy import build_handler
+
+    prefixreplay.reset()
+    up, seen = _stub_upstream()
+    px = _serve_threaded(build_handler(f"http://127.0.0.1:{up.server_address[1]}"))
+    try:
+        _post_json(px.server_address[1], _churned_body(1))
+        first = seen["raw"]
+        _post_json(px.server_address[1], _churned_body(2))
+        assert seen["raw"] == first, "the threaded proxy re-billed the prefix"
+    finally:
+        px.shutdown()
+        up.shutdown()
+        prefixreplay.reset()
+
+
+def test_the_gateway_holds_the_prefix_and_never_shares_it_between_tenants() -> None:
+    """Plus the property that only the gateway has: a cached prefix belongs to one
+    credential at the provider, so two tenants posting the identical conversation must
+    not share replay state."""
+    from distil.gateway import GatewayState, build_gateway_handler
+    from distil.pricing import get as pricing_get
+
+    prefixreplay.reset()
+    up, seen = _stub_upstream()
+    price = pricing_get("claude-opus-4-8")
+    gw = _serve_threaded(
+        build_gateway_handler(
+            f"http://127.0.0.1:{up.server_address[1]}",
+            GatewayState(price),
+            price,
+            trust_tenant_header=True,
+        )
+    )
+    port = gw.server_address[1]
+
+    def post(tenant: str, turn: int) -> bytes:
+        import urllib.request
+
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/messages",
+            data=json.dumps(_churned_body(turn)).encode(),
+            headers={"content-type": "application/json", "x-distil-tenant": tenant},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+        return seen["raw"]
+
+    try:
+        first = post("acme", 1)
+        assert post("acme", 2) == first, "the gateway re-billed the prefix"
+        # A second tenant's first turn has no state to replay from, so it forwards what
+        # the compressor produced — with the client's own turn-3 `index` values in it.
+        # If the tenants shared a lineage it would come back as acme's turn-1 bytes.
+        other = post("globex", 3)
+        assert other != first, "one tenant's forwarded bytes leaked into another's request"
+        assert json.loads(other)["messages"][0]["content"][0]["index"] == 3, (
+            "globex was served acme's replayed bytes"
+        )
+    finally:
+        gw.shutdown()
+        up.shutdown()
+        prefixreplay.reset()
+
+
+def test_the_async_proxy_holds_the_prefix() -> None:
+    """The async proxy re-serializes every body, so its prefix is byte-stable only as
+    long as the ITEMS are — which is what replay restores. It ran without this until the
+    managed-install path made a default-on feature missing from one server a real gap."""
+    aiohttp = pytest.importorskip("aiohttp")
+    import asyncio
+
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from distil.aproxy import make_app
+
+    seen: dict[str, bytes] = {}
+
+    async def echo(request):
+        seen["raw"] = await request.read()
+        return web.Response(body=b'{"ok":1}', content_type="application/json")
+
+    async def go() -> None:
+        up = web.Application()
+        up.router.add_post("/v1/messages", echo)
+        up_srv = TestServer(up)
+        await up_srv.start_server()
+        try:
+            base = f"http://127.0.0.1:{up_srv.port}"
+            client = TestClient(TestServer(make_app(base)))
+            await client.start_server()
+            try:
+                await (await client.post("/v1/messages", json=_churned_body(1))).read()
+                first = seen["raw"]
+                await (await client.post("/v1/messages", json=_churned_body(2))).read()
+                assert seen["raw"] == first, "the async proxy re-billed the prefix"
+            finally:
+                await client.close()
+        finally:
+            await up_srv.close()
+
+    prefixreplay.reset()
+    try:
+        asyncio.run(go())
+    finally:
+        prefixreplay.reset()
+    assert aiohttp is not None

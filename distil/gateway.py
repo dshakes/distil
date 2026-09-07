@@ -1238,6 +1238,10 @@ def build_gateway_handler(
             extras: dict[str, str] = {}
             # Tenant accounting is booked only after a confirmed 2xx (P0-1).
             _pending_tenant_record: tuple[str, int, int] | None = None
+            # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
+            # conversation, and the items as the CLIENT sent them this turn.
+            _replay_key: str | None = None
+            _replay_orig: list[Any] | None = None
             if not tenant.startswith("anon-"):
                 extras["x-distil-tenant"] = tenant
 
@@ -1251,6 +1255,7 @@ def build_gateway_handler(
                 from .adapters.openai import compress_responses_input, count_responses_tokens
 
                 _orig_input: list[dict[str, Any]] = body["input"]
+                _replay_key, _replay_orig = "input", _orig_input
                 baseline_tokens = count_responses_tokens(_orig_input)
                 if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
                     return
@@ -1271,6 +1276,7 @@ def build_gateway_handler(
 
             elif "messages" in body and isinstance(body["messages"], list):
                 original: list[dict[str, Any]] = body["messages"]
+                _replay_key, _replay_orig = "messages", original
                 # Chat Completions needs its own adapter (role:"tool" list content is
                 # Tier-1); /v1/messages stays on the Anthropic one.
                 if is_chat_completions_path(_path):
@@ -1301,6 +1307,7 @@ def build_gateway_handler(
             elif "contents" in body and isinstance(body["contents"], list):
                 # Gemini generateContent shape. Same per-key-over-default quota
                 # precedence as the messages branch above.
+                _replay_key, _replay_orig = "contents", body["contents"]
                 baseline_tokens = _gemini_count(body)
                 if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
                     return
@@ -1313,6 +1320,18 @@ def build_gateway_handler(
                 _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
                 extras["x-distil-compressed"] = "1"
                 extras["x-distil-tokens-saved"] = str(tokens_saved)
+
+            # Forwarded-bytes prefix replay (ADR 0011), scoped PER TENANT. A cached
+            # prefix belongs to one credential at the provider, so two tenants posting
+            # the same conversation must never share replay state — the lineage key is
+            # already content-derived, and without the tenant prefix that is exactly
+            # what "the same conversation" would mean.
+            if _replay_orig is not None and _replay_key is not None:
+                from . import prefixreplay as _prep
+
+                body = _prep.apply(
+                    body, _replay_key, _replay_orig, scope=tenant + "\0", extras=extras
+                )
 
             new_raw = json.dumps(body).encode()
             # Streamed requests relay incrementally — TTFT preserved per tenant.
