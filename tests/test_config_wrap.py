@@ -244,6 +244,69 @@ def test_omp_apply_skips_without_a_credential(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Crush (`crush`) — patch strategy: the legacy crush.json, no override layer.
+# ---------------------------------------------------------------------------
+
+
+def test_crush_apply_creates_and_deletes_when_absent(tmp_path, monkeypatch):
+    path = tmp_path / "crush.json"
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+        doc = json.loads(path.read_text())
+        entry = doc["providers"]["distil"]
+        assert entry["base_url"] == "http://127.0.0.1:1234"
+        assert entry["api_key"] == "sk-ant-test"
+        assert entry["type"] == "anthropic"
+        assert "models" not in entry, "no models array — discover_models defaults to true"
+
+    assert not path.exists(), "a crush.json we created must not survive the wrap"
+    assert not config_wrap._created_marker(path).exists()
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_crush_apply_merges_and_restores_when_present(tmp_path, monkeypatch):
+    path = tmp_path / "crush.json"
+    original = json.dumps({"providers": {"openai": {"id": "openai", "api_key": "$OPENAI_API_KEY"}}})
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-test")
+
+    with config_wrap._crush_apply("https://api.openai.com", "http://127.0.0.1:1234"):
+        doc = json.loads(path.read_text())
+        assert set(doc["providers"]) == {"openai", "distil"}, "must ADD, not replace"
+        assert doc["providers"]["distil"]["type"] == "openai"
+
+    assert path.read_text() == original, "restore must be byte-for-byte, not a re-serialization"
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_crush_apply_skips_without_a_credential(tmp_path, monkeypatch):
+    path = tmp_path / "crush.json"
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+    assert not path.exists()
+
+
+def test_crush_apply_treats_unparseable_json_as_empty(tmp_path, monkeypatch):
+    path = tmp_path / "crush.json"
+    path.write_text("not json")
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
+        doc = json.loads(path.read_text())
+        assert list(doc["providers"]) == ["distil"]
+
+    assert path.read_text() == "not json", "original garbage bytes are still restored exactly"
+
+
+# ---------------------------------------------------------------------------
 # Crash recovery
 # ---------------------------------------------------------------------------
 
