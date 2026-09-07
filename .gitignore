@@ -18,8 +18,10 @@ rust/**/target/
 temp/
 
 # Named competitor comparison — kept local-only (public docs stay neutral)
+# (benchmarks/*_adapter.py no longer excluded: naming Headroom on the site is
+# fine as of 2026-09-04, and codebench.py/README.md now depend on these files
+# being committed and importable.)
 benchmarks/named-comparison.local.md
-benchmarks/*_adapter.py
 benchmarks/README.md
 
 # Local secrets — never commit
