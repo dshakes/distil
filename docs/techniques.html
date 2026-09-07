@@ -498,6 +498,32 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
 
     <hr/>
 
+    <!-- Technique: re-read delta -->
+    <h2 id="reread-delta">Re-read delta <span class="g">(on by default, inside the exact-quote guarantee)</span></h2>
+    <p><strong>Module:</strong> <code>distil/compress/rereaddelta.py</code> &middot; <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0010-the-re-read-delta.md">ADR 0010</a> &middot; Loss profile: reversible</p>
+
+    <p>Cache-delta above compares <em>blocks</em>. That is the wrong unit for how agents actually re-read. Measured over 2,489 Claude Code sessions: <strong>51.4%</strong> of file reads are a re-read of a path already read in the session, but only <strong>12.8%</strong> are byte-identical &mdash; the rest are a different line range of the same file, or the same file with one hunk changed. Two disjoint windows onto one file are not 50% similar as blocks even when every line they share is identical, so the near-duplicate gate misses <strong>608 of 726</strong> changed re-reads.</p>
+
+    <p>The line is the right unit. <strong>50.6% of a re-read's tokens are lines already delivered verbatim earlier in the same conversation.</strong> So the re-read delta matches on line content: the longest run the new read shares with an earlier read of the same path becomes a reference stub, and every other line stays verbatim.</p>
+
+    <p>This runs <em>inside</em> the exact-quote exemption rather than around it, so it is the one transform that recovers savings on content distil has promised to keep byte-exact. It stays safe because the guarantee is about the <strong>conversation</strong>, not about any one block &mdash; an <code>Edit(old_string=&hellip;)</code> applies if its quote occurs byte-exact anywhere in the forwarded payload:</p>
+
+    <ul>
+      <li>Only reads matched by the tool-<strong>name</strong> table (<code>Read</code>, <code>view</code>, &hellip;) may be referenced. Those are never superseded, so the referenced lines cannot leave the conversation later. A shell <code>cat</code> may be a target but never a base.</li>
+      <li>References never chain: a block that has been elided is not itself a base.</li>
+      <li>Cuts interior to the block are pulled back <strong>20 lines</strong>, so a quote straddling the boundary still occurs contiguously in the base.</li>
+      <li>A run under <strong>8 lines</strong> is not worth a stub and is left alone.</li>
+      <li>The <strong>freshest</strong> tool output is never elided. A re-read the agent has just issued is exactly the output it reasons over to choose its next action, so the recency carve-out applies here like everywhere else.</li>
+    </ul>
+
+    <p>It is cache-safe by the same construction as cache-delta and for the reason <a href="cache-contract.html">the cache contract</a> actually requires: the plan is a pure function of the message <em>prefix</em>, so a block encodes to the same bytes on every later turn and there is never anything to invalidate. The elided lines are recoverable byte-exact via <code>distil_expand</code>.</p>
+
+    <div class="callout good">
+      <b>Measured.</b> On the read &rarr; edit &rarr; re-read workload (<code>benchmarks/codebench.py</code>, 20 sessions / 320 turns) under the client shape that bills &mdash; newest turn pinned, whole history cached &mdash; the PAYG digest row moves from <strong>31.4% to 41.7% token savings</strong> and 35.8% to 49.1% cache-aware dollar savings, with the quote-survival invariant intact. That corpus is nothing but reads, so it is an upper bound; on real traffic the addressable share is about <strong>2.8% of tool-result mass</strong>. <code>distil bench</code> is unchanged &mdash; its corpus has no re-read of one path.
+    </div>
+
+    <hr/>
+
     <!-- Technique: AST-structural delta -->
     <h2 id="ast-structural-delta">AST-structural delta <span class="g">(deepest layer of cache-delta)</span></h2>
     <p><strong>Module:</strong> <code>distil/astdelta.py</code> &middot; stdlib <code>ast</code> &middot; model-free &middot; Loss profile: lossless</p>

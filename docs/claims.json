@@ -352,6 +352,16 @@
       "claim": "Shadow mode's shipped estimator is the paired statistic 1{A=B} - 1{A=A'} over three replays per sampled request, reported as a mean with a percentile bootstrap 95% CI and no clamp at zero, at SIG_VERSION 5; one reporting floor (50 A/B + 30 A/A) gates every surface and prints 'below reporting floor' otherwise. The current live sample is below that floor.",
       "artifact": "distil/shadow.py",
       "note": "See CHANGELOG.md [1.52.0]; the pre-fix unpaired numbers are w-shadow-sample. The paper's methods section (docs/paper/main.tex, sec:todo-output) describes the same estimator."
+    },
+    {
+      "id": "v-reread-delta-codebench",
+      "status": "verified",
+      "page": "techniques.html",
+      "anchor": "reread-delta",
+      "snippet": "31.4% to 41.7% token savings",
+      "claim": "Re-read delta (ADR 0010): on the codebench corpus (read->edit->reread, 20 sessions / 320 turns) under the client shape that bills (newest turn pinned, whole history cached) distil's PAYG digest row moves from 31.4% to 41.7% token savings and 35.8% to 49.1% cache-aware dollar savings, with the quote-survival invariant intact. Live ceiling is ~2.8% of tool-result mass; distil bench is unchanged.",
+      "artifact": "benchmarks/results/2026-09-06/",
+      "note": "Raw before/after stdout from origin/main 4cf076b and feat/reread-delta, both client shapes via benchmarks/codebench_marked.py; invariants in tests/test_reread_delta.py. codebench is an upper-bound corpus by construction, and its UNMARKED shape prices a cache an unmarked Anthropic request never gets — that row reads -15.4% dollars and is documented in the results README rather than hidden."
     }
   ]
 }

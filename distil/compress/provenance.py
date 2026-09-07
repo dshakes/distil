@@ -65,7 +65,9 @@ __all__ = [
     "observed_view",
     "quote_hazard",
     "read_span",
+    "read_target",
     "required_quotes",
+    "response_edit_quotes",
     "whole_file_read_paths",
 ]
 
@@ -158,6 +160,48 @@ _SED_QUIET = frozenset({"-n", "--quiet", "--silent"})
 
 # Where a shell tool puts its command line, across the tool schemas we see.
 _COMMAND_KEYS = ("command", "cmd", "shell_command", "script")
+
+# Name-keyed tools whose result is the content of ONE named file, so two of them can be
+# compared line-for-line (see :mod:`distil.compress.rereaddelta`). A strict subset of
+# EXACT_QUOTE_TOOLS: `grep`/`glob`/`search_files` are exempt but their `path` argument is
+# a search root, not the file whose bytes came back, and keying a re-read delta on it
+# would compare two unrelated result sets.
+_FILE_READ_TOOLS = frozenset(
+    {
+        "read",
+        "read_file",
+        "readfile",
+        "view",
+        "open",
+        "cat",
+        "notebookread",
+    }
+)
+
+# Where those tools put the path, across the schemas we see.
+_PATH_KEYS = (
+    "file_path",
+    "path",
+    "filename",
+    "file",
+    "target_file",
+    "absolute_path",
+    "notebook_path",
+)
+
+# Responses-API item types that carry the MODEL's own output. Excluded from the observed
+# view for the same reason assistant messages are: a `custom_tool_call` carrying an
+# `apply_patch` body quotes the file verbatim, so a view containing it would report every
+# quote as surviving no matter what was digested.
+_MODEL_OUTPUT_ITEMS = frozenset(
+    {
+        "function_call",
+        "custom_tool_call",
+        "reasoning",
+        "computer_call",
+        "local_shell_call",
+    }
+)
 
 
 class ToolCall(NamedTuple):
@@ -424,14 +468,97 @@ def exact_quote_ids(
     return keep
 
 
+def read_target(name: str, inp: Any, command: str = "") -> str | None:
+    """The single file whose verbatim bytes this call put in front of the model.
+
+    ``None`` whenever that is not exactly one file — a search over a directory, a
+    ``cat a b`` that concatenates two, an unrecognised tool. None is the safe answer: it
+    only means the result is not a re-read-delta candidate and stays verbatim.
+    """
+    lname = name.lower()
+    if lname in _FILE_READ_TOOLS and isinstance(inp, dict):
+        for key in _PATH_KEYS:
+            val = inp.get(key)
+            if isinstance(val, str) and val:
+                return val
+        return None
+    paths = whole_file_read_paths(command or command_text(inp))
+    return paths[0] if len(paths) == 1 else None
+
+
+def patch_quotes(patch: str) -> list[str]:
+    """The pre-image of every hunk in an ``apply_patch`` envelope — Codex's ``old_string``.
+
+    ``apply_patch`` is the edit format the Codex family uses, and on GPT-5 models it is a
+    *freeform* custom tool: the argument is the patch body itself, not JSON, so there is no
+    ``old_string`` field to read. Per the tool's own Lark grammar the body is
+
+    ::
+
+        *** Begin Patch
+        *** Update File: app/handlers.py
+        @@ def handle():
+         context line
+        -removed line
+        +added line
+        *** End Patch
+
+    A hunk applies only if its **pre-image** — the context (`` ``) and removed (``-``)
+    lines in order, with the added (``+``) lines dropped — occurs contiguously in the file.
+    So the pre-image is what has to survive in the forwarded view, and it deliberately runs
+    *through* ``+`` lines: an added line is not part of what the patcher is matching. Only
+    an ``@@`` header or a new file section breaks the run.
+
+    Add/Delete File hunks carry no pre-image and yield nothing, which is correct — there is
+    nothing for them to match. Single-line runs are skipped: one line of context matches
+    almost anything, and counting it as a survivor would flatter the hazard gauge rather
+    than measure it.
+    """
+    quotes: list[str] = []
+    run: list[str] = []
+
+    def flush() -> None:
+        if len(run) >= 2 and "".join(run).strip():
+            quotes.append("\n".join(run))
+        run.clear()
+
+    for line in patch.splitlines():
+        if line.startswith("***") or line.startswith("@@"):
+            flush()
+            continue
+        if line.startswith("+"):
+            continue  # not part of the pre-image; the run continues across it
+        if line.startswith("-") or line.startswith(" "):
+            run.append(line[1:])
+            continue
+        flush()
+    flush()
+    return quotes
+
+
 def required_quotes(inputs: Iterable[tuple[str, Any]]) -> list[str]:
     """Every ``old_string`` a literal-match edit will have to find in the forwarded view.
 
-    Takes ``(tool_name, tool_input)`` pairs. MultiEdit nests its quotes under ``edits``.
+    Takes ``(tool_name, tool_input)`` pairs. MultiEdit nests its quotes under ``edits``;
+    ``apply_patch`` carries a whole patch body instead (see :func:`patch_quotes`), either
+    as the bare freeform argument or under an ``input``/``patch`` key.
     """
     quotes: list[str] = []
     for name, inp in inputs:
-        if name.lower() not in _EDIT_TOOLS or not isinstance(inp, dict):
+        if name.lower() not in _EDIT_TOOLS:
+            continue
+        if name.lower() == "apply_patch":
+            body = inp if isinstance(inp, str) else None
+            if isinstance(inp, dict):
+                for key in ("input", "patch", "patch_text"):
+                    val = inp.get(key)
+                    if isinstance(val, str) and val:
+                        body = val
+                        break
+            if body:
+                quotes.extend(patch_quotes(body))
+            continue
+        if not isinstance(inp, dict):
             continue
         for key in ("old_string", "old_str"):
             val = inp.get(key)
@@ -449,18 +576,27 @@ def required_quotes(inputs: Iterable[tuple[str, Any]]) -> list[str]:
     return quotes
 
 
+def _is_model_output(entry: Any) -> bool:
+    """Whether this message/item is something the MODEL wrote rather than something it saw."""
+    if not isinstance(entry, dict):
+        return False
+    return entry.get("role") == "assistant" or entry.get("type") in _MODEL_OUTPUT_ITEMS
+
+
 def observed_view(messages: Iterable[Any]) -> str:
     """The forwarded payload as JSON, with the model's own turns removed.
 
-    This is the population a quote has to survive in. Assistant turns are excluded for a
-    specific reason: the ``Edit`` block *itself* carries ``old_string`` verbatim, so a view
-    that included it would report every quote as surviving no matter how thoroughly the
-    source read had been digested — a check that can only pass is not a check.
+    This is the population a quote has to survive in. The model's own output is excluded
+    for a specific reason: the ``Edit`` block (or the ``apply_patch`` envelope) *itself*
+    carries the quote verbatim, so a view that included it would report every quote as
+    surviving no matter how thoroughly the source read had been digested — a check that
+    can only pass is not a check.
+
+    Handles both request shapes. A Messages/Chat history marks model output with
+    ``role: "assistant"``; a Responses ``input`` array marks it with an item ``type``
+    (``function_call``, ``custom_tool_call``, ``reasoning``, …).
     """
-    return json.dumps(
-        [m for m in messages if not (isinstance(m, dict) and m.get("role") == "assistant")],
-        default=str,
-    )
+    return json.dumps([m for m in messages if not _is_model_output(m)], default=str)
 
 
 def edit_quotes(messages: Iterable[Any]) -> list[str]:
@@ -475,6 +611,35 @@ def edit_quotes(messages: Iterable[Any]) -> list[str]:
         for blk in content:
             if isinstance(blk, dict) and blk.get("type") == "tool_use":
                 pairs.append((str(blk.get("name", "")), blk.get("input")))
+    return required_quotes(pairs)
+
+
+def response_edit_quotes(items: Iterable[Any]) -> list[str]:
+    """:func:`required_quotes` over an OpenAI Responses ``input`` array — Codex's shape.
+
+    Two item types carry an edit. A JSON function tool arrives as ``function_call`` with
+    ``arguments`` as a JSON string; the freeform ``apply_patch`` tool GPT-5 models are
+    given arrives as ``custom_tool_call`` with the patch body raw in ``input``. Both are
+    normalised here so the Responses path measures the same guarantee the Messages path
+    does.
+    """
+    pairs: list[tuple[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        itype = item.get("type")
+        if itype == "custom_tool_call":
+            pairs.append((str(item.get("name", "")), item.get("input")))
+            continue
+        if itype != "function_call":
+            continue
+        args = item.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                pass  # not JSON: a freeform patch body sent through the function shape
+        pairs.append((str(item.get("name", "")), args))
     return required_quotes(pairs)
 
 

@@ -365,10 +365,15 @@ def _response_tool_calls(items: list[dict[str, Any]]) -> list[_provenance.ToolCa
     return calls
 
 
-def exact_quote_call_ids(items: list[dict[str, Any]]) -> dict[str, str]:
+def exact_quote_call_ids(items: list[dict[str, Any]], *, widen: bool = False) -> dict[str, str]:
     """``call_id``s whose ``function_call_output`` must stay byte-exact. See
-    :func:`exact_quote_tool_call_ids` — same rule, Responses shape."""
-    return _provenance.exact_quote_ids(_response_tool_calls(items), cached_through=len(items) - 1)
+    :func:`exact_quote_tool_call_ids` — same rule, Responses shape.
+
+    ``widen`` drops supersession, the reaction to an observed quote miss (see
+    :func:`_guard_response_quotes`)."""
+    return _provenance.exact_quote_ids(
+        _response_tool_calls(items), cached_through=len(items) - 1, widen=widen
+    )
 
 
 def _compress_response_item(
@@ -440,6 +445,39 @@ def _compress_response_item(
     return item
 
 
+def _guard_response_quotes(
+    items: list[dict[str, Any]],
+    compressed: list[dict[str, Any]],
+    store: RestoreStore,
+    walk: Any,
+    verbatim: bool,
+) -> tuple[list[dict[str, Any]], RestoreStore]:
+    """The Messages path's quote guard, for the shape Codex actually speaks.
+
+    1.51 shipped the exact-quote exemption on all three adapters but the *measurement* on
+    the Messages path only, on the reasoning that ``Edit``/``MultiEdit`` live there. Codex
+    does the same edits through different names: ``apply_patch``, whose argument on GPT-5
+    models is a freeform patch body rather than JSON, and ``str_replace_editor``. Its
+    pre-image — the context and removed lines of each hunk — has to be found byte-exact in
+    the file just as an ``old_string`` does, so the same guarantee applies and, until now,
+    the same guarantee went unmeasured. ``distil dissect`` reads one counter for every
+    provider; wiring this one means Codex traffic stops being reported as "no edit here".
+
+    Same reaction as the Messages path: on a miss, supersession is dropped for the rest of
+    the session (the history only grows, so the miss is re-detected every turn).
+    """
+    _hazard_tls.counts = None
+    quotes = _provenance.response_edit_quotes(items)
+    if not quotes or verbatim:
+        return compressed, store
+    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
+    if lost:
+        compressed, store = walk(exact_quote_call_ids(items, widen=True))
+        survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
+    _hazard_tls.counts = {"survived": survived, "lost": lost}
+    return compressed, store
+
+
 def compress_responses_input(
     items: list[dict[str, Any]],
     *,
@@ -477,10 +515,9 @@ def compress_responses_input(
     """
     _keep_tls.fn = keep
     _census_tls.counts = {}
-    # The quote-hazard counter is Messages-path only (that is where Edit/MultiEdit
-    # live), so it is CLEARED here rather than left alone: the proxy reads it per
-    # request off the same thread, and a stale count from an earlier Anthropic request
-    # would be reported against this one.
+    # Cleared, then recomputed below: the proxy reads this counter per request off the
+    # same thread, so a stale count from an earlier Anthropic request must never be
+    # reported against this one.
     _hazard_tls.counts = None
     # Empty by design, not an oversight: this provider caches prefixes
     # implicitly and commits everything it is sent, so every block is cached
@@ -490,22 +527,27 @@ def compress_responses_input(
     # See compress.recency.exempt_indices.
     _intent_tls.terms = frozenset()
     try:
-        store = RestoreStore()
-        new_items: list[dict[str, Any]] = []
         recent = _recent_response_verbatim_indices(items, _RECENCY_KEEP_TURNS)
-        # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact_ids = exact_quote_call_ids(items)
-        for idx, item in enumerate(items):
-            if not isinstance(item, dict):
-                new_items.append(item)  # malformed entry — pass through
-                continue
-            item_verbatim = verbatim or idx in recent
-            new_items.append(
-                _compress_response_item(
-                    item, store, item_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+
+        def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
+            _census_tls.counts = {}
+            store = RestoreStore()
+            new_items: list[dict[str, Any]] = []
+            for idx, item in enumerate(items):
+                if not isinstance(item, dict):
+                    new_items.append(item)  # malformed entry — pass through
+                    continue
+                item_verbatim = verbatim or idx in recent
+                new_items.append(
+                    _compress_response_item(
+                        item, store, item_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+                    )
                 )
-            )
-        return new_items, store
+            return new_items, store
+
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        new_items, store = _walk(exact_quote_call_ids(items))
+        return _guard_response_quotes(items, new_items, store, _walk, verbatim)
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()

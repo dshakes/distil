@@ -122,6 +122,31 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
         "<< +12 lines, handle=cafe1234 >>"
     )
 
+    # Line windows of that module, for the re-read cases. A coding agent re-reads a file
+    # far more often than it reads one for the first time (51.4% of reads on 2,489 measured
+    # sessions), and almost never at the same offset — so these are the shapes the re-read
+    # delta actually meets, and each ends with an Edit quoting a line the delta elided.
+    _mod_lines = module.split("\n")
+    win_head = "\n".join(_mod_lines[:80])  # a first read of the top of the file
+    win_tail = "\n".join(_mod_lines[40:])  # a re-read at an offset, overlapping 40 lines
+    win_mid = "\n".join(_mod_lines[20:80])  # a partial read the later whole-file read covers
+    # Quotes drawn from inside what the overlap makes elidable, so a delta that dropped
+    # those lines without leaving a byte-exact copy in the base read fails the invariant.
+    quote_in_overlap = (
+        f"def handler_15(request):  # {_MARKER}\n    payload = request.json()\n"
+        "    return {'ok': True, 'n': 15, 'payload': payload}"
+    )
+    # Straddles a cut: handler_19 ends the elided run's neighbourhood and handler_20 starts
+    # what stays verbatim. Neither block holds it alone unless the edge margin is honoured.
+    quote_across_cut = (
+        f"def handler_19(request):  # {_MARKER}\n    payload = request.json()\n"
+        "    return {'ok': True, 'n': 19, 'payload': payload}\n"
+        f"def handler_20(request):  # {_MARKER}\n    payload = request.json()\n"
+        "    return {'ok': True, 'n': 20, 'payload': payload}"
+    )
+    # The same module after an edit landed: one hunk differs, every other line is identical.
+    edited = module.replace("'n': 3,", "'n': 3, 'patched': True,")
+
     def read_edit(reader: dict[str, Any], content: str, old_string: str) -> list[dict[str, Any]]:
         """read -> many unrelated turns -> Edit quoting the read."""
         msgs: list[dict[str, Any]] = [
@@ -164,6 +189,7 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
         return msgs
 
     _bash = {"name": "Bash", "input": {"command": "cat /app/handlers.py"}}
+    _read = {"name": "Read", "input": {"file_path": "/app/handlers.py"}}
     return [
         ("empty_tool_result", convo("")),
         (
@@ -227,6 +253,47 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
             ],
         ),
         ("stub_shaped_read_then_edit", read_edit(_bash, stub_shaped, quote)),
+        (
+            # A re-read at a DIFFERENT offset — the commonest re-read there is, and the one
+            # cachedelta's whole-block similarity gate cannot see. The Edit quotes a line
+            # inside the overlap, so it can only be served by the first read.
+            "reread_at_an_offset_then_edit",
+            read_edit(_read, win_head, quote_in_overlap)
+            + [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
+                _tool_result("r3", win_tail),
+            ],
+        ),
+        (
+            # The quote lies across the boundary between what the delta elides and what it
+            # keeps. Only the edge margin makes it survivable.
+            "reread_edit_quotes_across_the_cut",
+            read_edit(_read, win_head, quote_across_cut)
+            + [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
+                _tool_result("r3", win_tail),
+            ],
+        ),
+        (
+            # read -> edit -> re-read: the same file with one hunk changed. Every other line
+            # is a byte-exact repeat, and the Edit quotes one of them.
+            "edited_then_reread_then_edit",
+            read_edit(_read, module, quote)
+            + [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
+                _tool_result("r3", edited),
+            ],
+        ),
+        (
+            # A whole-file read after a partial one: the partial is entirely contained, so
+            # the delta has an interior run with a cut on BOTH sides.
+            "whole_file_after_partial_then_edit",
+            read_edit(_read, win_mid, quote_in_overlap)
+            + [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
+                _tool_result("r3", module),
+            ],
+        ),
         (
             # The commonest read an agent actually issues, and the one a stricter
             # every-stage-must-be-a-reader rule silently refused.

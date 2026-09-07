@@ -52,6 +52,7 @@ from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS  # noqa
 from ..compress.recency import cached_prefix_end as _cached_prefix_end  # noqa: E402
 from ..compress.recency import exempt_indices as _exempt_indices  # noqa: E402
 from ..compress import provenance as _provenance  # noqa: E402
+from ..compress import rereaddelta as _rereaddelta  # noqa: E402
 
 # Thread-local learned "keep byte-exact" predicate, scoped per compress_messages call
 # (ThreadingHTTPServer handles requests on separate threads, so this must be per-thread).
@@ -205,6 +206,95 @@ def exact_quote_tool_use_ids(
 
 # Backwards-compatible private alias — the 1.49.0 name, still used by tests and callers.
 _exact_quote_tool_use_ids = exact_quote_tool_use_ids
+
+
+def _result_text(content: Any) -> str | None:
+    """The one text payload of a tool_result, or None when it is not exactly one.
+
+    A result carrying an image, or several text parts, is not a single verbatim slice of a
+    file and is left alone. None is always the safe answer here.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list) and len(content) == 1:
+        sub = content[0]
+        if isinstance(sub, dict) and sub.get("type") == "text" and isinstance(sub.get("text"), str):
+            return sub["text"]
+    return None
+
+
+def _replace_result_text(item: dict[str, Any], text: str) -> dict[str, Any]:
+    """Put *text* back into a tool_result, preserving whichever shape it arrived in."""
+    content = item.get("content")
+    if isinstance(content, list):
+        return {**item, "content": [{**content[0], "text": text}]}
+    return {**item, "content": text}
+
+
+def _reread_plan(
+    messages: list[dict[str, Any]], exact_ids: Mapping[str, str]
+) -> dict[str, _rereaddelta.Elision]:
+    """Which exempt reads may drop a line run already delivered by an earlier read.
+
+    One pass over the history pairs each ``tool_use`` with the ``tool_result`` that answers
+    it; the pairs the exact-quote rule is about to freeze go to
+    :func:`distil.compress.rereaddelta.plan` in conversation order. Only reads matched by
+    the tool-NAME table may serve as a base — see that module for why a shell read may not.
+    """
+    paths: dict[str, tuple[str, str]] = {}
+    results: dict[str, str] = {}
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict):
+                continue
+            btype = blk.get("type")
+            if btype == "tool_use":
+                tid = blk.get("id")
+                name = str(blk.get("name", ""))
+                if not isinstance(tid, str) or tid not in exact_ids:
+                    continue
+                inp = blk.get("input")
+                path = _provenance.read_target(name, inp, _provenance.command_text(inp))
+                if path is not None:
+                    paths[tid] = (path, name.lower())
+            elif btype == "tool_result":
+                tid = blk.get("tool_use_id")
+                text = _result_text(blk.get("content"))
+                if isinstance(tid, str) and text is not None:
+                    results[tid] = text
+
+    blocks = [
+        _rereaddelta.ReadBlock(
+            id=tid, path=path, text=results[tid], base_ok=name in _EXACT_QUOTE_TOOLS
+        )
+        for tid, (path, name) in paths.items()
+        if tid in results
+    ]
+    return _rereaddelta.plan(blocks)
+
+
+def _apply_reread(text: str, elision: _rereaddelta.Elision, store: RestoreStore) -> str:
+    """Replace the elided run with its reference stub, or return *text* unchanged.
+
+    Unchanged on either of two conditions, each of which makes the stub the wrong trade: an
+    8-hex handle collision (expand would return another block's lines), or a stub that
+    costs more tokens than the lines it removes (distil never inflates).
+    """
+    lines = text.splitlines(keepends=True)
+    elided = "".join(lines[elision.start : elision.end])
+    handle = _handle(elided)
+    if not store._record(handle, elided):
+        return text
+    stub = _rereaddelta.stub_text(elision, handle)
+    if _tokenizer.count(stub) >= _tokenizer.count(elided):
+        return text
+    kept_tail = "".join(lines[elision.end :])
+    return "".join(lines[: elision.start]) + stub + ("\n" if kept_tail else "") + kept_tail
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -560,6 +650,7 @@ def _compress_content_item(
     verbatim: bool,
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
+    reread: Mapping[str, _rereaddelta.Elision] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) content block after compression.
 
@@ -606,11 +697,26 @@ def _compress_content_item(
         content = item.get("content")
         if content is None:
             return item
-        bucket = exact_ids.get(str(item.get("tool_use_id") or ""))
+        tid = str(item.get("tool_use_id") or "")
+        bucket = exact_ids.get(tid)
         if bucket:
             # File content the agent must quote back verbatim to edit it. The bucket
             # names WHICH rule froze it — the 1.49.0 tool-name table, or the shell-command
             # classifier this replaced it with — so the cost of each is visible separately.
+            elision = reread.get(tid)
+            text = _result_text(content) if elision is not None else None
+            if elision is not None and text is not None:
+                new_text = _apply_reread(text, elision, store)
+                if new_text != text:
+                    lines = text.splitlines(keepends=True)
+                    # Split the attribution rather than adding to it: the census must stay
+                    # exhaustive against the payload, so the elided run moves to its own
+                    # bucket and what stays verbatim keeps the exemption's.
+                    _census(
+                        "tool_result_reread_elided", "".join(lines[elision.start : elision.end])
+                    )
+                    _census(bucket, "".join(lines[: elision.start] + lines[elision.end :]))
+                    return _replace_result_text(item, new_text)
             _census_tool_result(bucket, content)
             return item
 
@@ -667,6 +773,7 @@ def _compress_message(
     verbatim: bool,
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
+    reread: Mapping[str, _rereaddelta.Elision] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Return a (possibly new) message dict after compressing its content."""
     role = msg.get("role", "")
@@ -694,7 +801,9 @@ def _compress_message(
         changed = False
         for item in content:
             if isinstance(item, dict):
-                new_item = _compress_content_item(item, store, role, verbatim, is_recent, exact_ids)
+                new_item = _compress_content_item(
+                    item, store, role, verbatim, is_recent, exact_ids, reread
+                )
                 if isinstance(new_item, list):
                     # A block may expand into a PAIR (a downscaled image plus the
                     # note carrying its recovery handle). Splice rather than nest:
@@ -733,7 +842,8 @@ def _guard_quotes(
     each ``Edit``/``MultiEdit`` in the history, does its ``old_string`` still occur in the
     payload we are about to forward? — and books the two counts. A miss means some
     provenance class we digested was in fact quotable, so the whole class stops digesting:
-    supersession is dropped and every whole-file read stays verbatim.
+    supersession is dropped, every whole-file read stays verbatim, and the re-read delta is
+    turned off so that even a quote straddling one of its cuts is put back.
 
     ponytail: widening the class is the simplest safe reaction, and it is session-sticky for
     free — the history only grows, so the same miss is re-detected on every later request
@@ -745,7 +855,7 @@ def _guard_quotes(
         return compressed, store
     survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
     if lost:
-        compressed, store = walk(exact_quote_tool_use_ids(messages, widen=True))
+        compressed, store = walk(exact_quote_tool_use_ids(messages, widen=True), {})
         survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
     _hazard_tls.counts = {"survived": survived, "lost": lost}
     return compressed, store
@@ -799,7 +909,10 @@ def compress_messages(
         cached_through = _cached_prefix_end(messages)
         full_intent = _intent_tls.terms
 
-        def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
+        def _walk(
+            exact_ids: Mapping[str, str],
+            reread: Mapping[str, _rereaddelta.Elision],
+        ) -> tuple[list[dict[str, Any]], RestoreStore]:
             # A census describes the payload actually sent, so it is reopened here and
             # not outside — a second walk must not sum with the first one's counts.
             _census_tls.counts = {}
@@ -824,13 +937,24 @@ def compress_messages(
                 _intent_tls.terms = frozenset() if idx <= cached_through else full_intent
                 new_messages.append(
                     _compress_message(
-                        msg, store, msg_verbatim, is_recent=idx in recent, exact_ids=exact_ids
+                        msg,
+                        store,
+                        msg_verbatim,
+                        is_recent=idx in recent,
+                        exact_ids=exact_ids,
+                        reread=reread,
                     )
                 )
             return new_messages, store
 
         # Results the agent must quote back byte-exact to edit — provenance, not position.
-        new_messages, store = _walk(exact_quote_tool_use_ids(messages))
+        exact_ids = exact_quote_tool_use_ids(messages)
+        # ...and, among those, the line runs a later read of the same file need not repeat,
+        # because an earlier read still carries them verbatim. Off in verbatim mode: that
+        # contract is that the model sees semantically identical content in place, and a
+        # cross-block reference is not that. See compress/rereaddelta.py and ADR 0010.
+        reread = {} if verbatim else _reread_plan(messages, exact_ids)
+        new_messages, store = _walk(exact_ids, reread)
         new_messages, store = _guard_quotes(messages, new_messages, store, _walk, verbatim)
         return new_messages, store
     finally:
