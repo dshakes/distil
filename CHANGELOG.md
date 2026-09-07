@@ -3,6 +3,110 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### The second read of a file need not re-send the first one's lines
+
+The exact-quote guarantee keeps file content byte-exact forever, and that is expensive on
+exactly the traffic it protects: under a client that caches its whole history — which is
+what Claude Code does — a superseded read cannot be demoted either, so the bytes stay.
+The same investigation measured what those bytes are.
+
+| | |
+|---|---|
+| `Read`/`cat` results that re-read a path already read this session | **51.4%** |
+| of those, byte-identical to the earlier read | 12.8% |
+| of a re-read's tokens, lines already delivered verbatim earlier in the conversation | **50.6%** |
+
+Half the mass of a re-read is a second copy of lines the model is already looking at, and
+neither existing mechanism could see it. Exact dedup needs identical bytes, and 87% of
+re-reads are not identical. `cachedelta`'s near-duplicate gate compares whole blocks at a
+0.5 `difflib` ratio and misses **608 of 726** changed re-reads, because two disjoint
+windows onto one file are not 50% similar *as blocks* even when every line they share is
+byte-identical. It fires on 5.2% of re-reads and removes 0.23% of tool-result mass.
+
+The unit was wrong. Block similarity asks "is this nearly the same document"; the useful
+question is "which of these lines have I already sent". So the new transform matches on
+line content: the longest run a read shares with an earlier read of the same path becomes
+a reference stub, every other line stays verbatim, and the elided lines come back
+byte-exact from `distil_expand` like every other distil stub.
+
+```
+«distil-reread handle=a1b2c3d4» lines 1-20 of this result are byte-identical to
+lines 41-60 of the earlier read of /app/handlers.py, which is still in this
+conversation verbatim. Call distil_expand with this handle to recover them here.
+```
+
+**Why this does not weaken the guarantee.** The promise is about the *conversation*, not
+about any one block: an `Edit(old_string=…)` applies if its quote occurs byte-exact
+anywhere in the payload distil forwarded, and an agent quoting lines it saw can be served
+by either copy. Four rules keep that true.
+
+* **Only a read matched by the tool-NAME table may be referenced.** `Read`, `view`,
+  `read_file` and friends are exempt unconditionally, so the referenced lines cannot leave
+  the conversation later. A shell `cat` may be a *target* but never a base: its exemption
+  is conditional on not being superseded, and a whole-file shell re-read supersedes exactly
+  the block it would want to point at. Pinning the base to stop that would forfeit the
+  base's whole digest to save the same bytes on the copy — a wash at best.
+* **References never chain.** An elided block is not itself a base, so every stub points at
+  literal bytes.
+* **Cuts interior to the block are pulled back 20 lines.** A quote inside the elided run
+  survives in the base and one outside it survives here; only a quote *straddling* a cut is
+  in neither contiguously, so the cut is moved far enough that it would have to overhang by
+  more than twenty lines to break. A run reaching the block's own first or last line takes
+  no margin there — the agent saw nothing beyond it in this block.
+* **Runs under 8 lines are left alone**, so a coincidental match on blank lines or a
+  repeated `return None` never produces a stub.
+
+**Why it is cache-safe without a volatile-suffix gate.** The plan is a pure function of the
+message *prefix* — what a block encodes to depends only on the blocks before it — so a
+block's bytes never change across turns at all. That is stronger than the contract asks
+for, and it is the only construction that works here: ADR 0008 records that under the
+Claude Code shape the whole history is cached and there is no uncached tail, so a transform
+gated on the boundary would never run. Worse, such a gate flips a block from stub to
+verbatim exactly as the boundary advances past it — the failure the contract exists to
+catch. The cache contract gains clause **(e)**, `tests/test_reread_delta.py` asserts
+byte-stability under the moving-marker shape, and ADR 0010 states the trade.
+
+**Measured, and small.** On `benchmarks/codebench.py` (read → edit → re-read, 20 sessions /
+320 turns) the PAYG digest row moves from **0.0% to 10.3% token savings** and 0.0% to
+**12.2% cache-aware dollar savings** — before/after output in
+`benchmarks/results/2026-09-06/`. `distil bench` is unchanged byte for byte: its corpus has
+no re-read of one path through a name-keyed read tool, so the delta never fires there. And
+codebench is nothing but reads, so it overstates. On real traffic name-keyed reads are
+10.7% of tool-result mass, about half are re-reads, and about half of a re-read's tokens
+were already delivered — a live ceiling near **2.8% of tool-result mass**. That is the
+honest number; the 10.3% is the mechanism working on its own hot path, not a headline.
+
+`distil validate` gains four re-read shapes under the existing quote-survival invariant — a
+re-read at a different offset, a quote straddling a cut, read → edit → re-read, and a
+whole-file read after a partial one — plus a test that fails if none of them still produces
+a stub, so a silently-dead transform cannot pass as a silently-safe one. On an observed
+quote miss the widen reaction now turns the re-read delta off for the rest of the session
+alongside dropping supersession. The planner costs 0.053 ms/turn.
+
+### The quote-hazard counter now covers Codex
+
+1.51.0 shipped the exact-quote exemption on all three adapters but the *measurement* on the
+Messages path only, on the reasoning that `Edit`/`MultiEdit` live there, and listed the
+Responses API as a known follow-up. Codex does the same edits under different names, so
+Codex traffic was reported to `distil dissect` as carrying no edits at all.
+
+`apply_patch` is the gap. On GPT-5 models it is a **freeform** custom tool: per its own Lark
+grammar the argument is the patch body itself, not JSON, so there is no `old_string` field
+to read. What has to match the file is each hunk's **pre-image** — the context and removed
+lines in order — and it runs *through* the `+` lines, since an added line is not part of
+what the patcher is looking for. `provenance.patch_quotes` extracts exactly that;
+`response_edit_quotes` normalises both the `custom_tool_call` and `function_call` shapes.
+`observed_view` now excludes model-output *item types* (`function_call`, `custom_tool_call`,
+`reasoning`, …) as well as assistant messages — without that the patch envelope quotes the
+file to itself and the check could only ever pass.
+
+The Responses path gets the same widen-on-miss reaction as the Messages path. Nothing
+changed downstream: both adapters already share one thread-local counter, so `distil
+dissect` reports Codex through the line it already had.
+
+
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 
 The through-line: distil's guarantees were narrower than the traffic they claimed to

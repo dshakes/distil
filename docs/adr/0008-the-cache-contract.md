@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-09-04
 - **Relates to:** `distil/compress/recency.py`, `distil/adapters/*.py`, `tests/test_cache_contract.py`
+- **Amended by:** ADR 0010, which adds clause (e) — prefix determinism as a second, stronger way to satisfy (a) where there is no volatile suffix to confine a transform to
 
 ## Context
 
