@@ -107,7 +107,8 @@
     <p class="lead">Every notable change to Distil, newest first — generated from <a href="https://github.com/dshakes/distil/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a>, so this page can never drift from the source of truth.</p>
 
 <section class="changelog-entry">
-<h2 id="vUnreleased">Unreleased — an estimator that can say no</h2>
+<h2 id="vUnreleased">Unreleased</h2>
+<h3>An estimator that can say no</h3>
 <p>Live shadow, build 1.51.1, on the maintainer's lossless-only traffic: <strong>44 A/B and 11 A/A samples. Raw agreement 81.8% [67.3, 91.8]; the model's self-agreement on identical input 84.8% [71.8, 92.4] over 46 byte-identical replays. Statistically indistinguishable (Fisher p=0.63)</strong> — and 32 of the 44 "A/B" samples had no bytes changed by compression at all. Below the reporting floor, and not a verdict. Reading the sample end to end turned up an estimator that could not have told us otherwise.</p>
 <h3>The arms were not what they said they were</h3>
 <ul>
@@ -133,10 +134,6 @@
 <p>One consequence worth knowing: on lossless-only traffic, where compression often changes no bytes at all, those samples now count toward the A/A arm only — so the A/B floor takes longer to clear, and <code>shadow-stats</code> says how many samples that was. The surfaces stay blank meanwhile. That is the honest state, not a regression.</p>
 <h3>Output-token accounting</h3>
 <p>The paired replays already return both responses, so the provider's own usage is free to record. Each row now carries input and output tokens for the A and B arms, and <code>shadow-stats</code> and <code>distil dissect</code> report the mean output-token delta with a CI plus the net dollars — input saved at input prices <em>minus</em> extra output at output prices. Output is priced several times input, so compression that makes the model answer at greater length can cost more than the prompt it shortened; nothing in distil could see that before. Cache fields are deliberately not priced in: the two arms hit the prefix cache differently by construction.</p>
-</section>
-
-<section class="changelog-entry">
-<h2 id="vUnreleased-2">Unreleased</h2>
 <h3>Provider parity across all three servers</h3>
 <p>The Responses API was compressed by the sync proxy and forwarded raw by the async proxy and the gateway; OpenAI Chat Completions was injected with Anthropic's expand-tool schema, which that provider rejects; the Anthropic SSE splice ran on OpenAI and Gemini streams and corrupted them; Azure OpenAI's paths matched nothing anywhere. The <code>aider</code> and <code>grok</code> wrap presets set environment variables those tools never read, so both routed nothing while reporting success.</p>
 <p>The gateway no longer emits a digest stub it cannot restore. It injects no <code>distil_expand</code> tool and runs no expand loop, so Tier-1 there was irreversibly lossy on every pay-as-you-go session — the marker named a recovery that did not exist. It is Tier-0 only until it grows the expand loop, which lowers its savings on unstructured content and makes what it does report honest.</p>
