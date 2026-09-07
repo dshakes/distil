@@ -367,3 +367,418 @@ def test_key_serializes_the_way_the_proxy_forwards() -> None:
     # A body that differs from `raw` forces the re-serialize branch — the one that
     # decides the bytes actually forwarded when a transform changed something.
     assert _key(body).encode() == _serialize_if_changed(b'{"different":1}', body)
+
+
+# ===========================================================================
+# ADR 0011 — forwarded-bytes prefix replay
+#
+# Clause (d) above says a client that rewrites its own history gets no promise. Real
+# agentic clients rewrite it on every turn without changing a token the model reads,
+# so "no promise" was costing the whole prefix. Replay closes that: for the longest
+# canonically-equal leading prefix, distil forwards the bytes it forwarded last turn.
+#
+# The assertion is relative, and has to be. distil already moves some bytes on purpose
+# (the recency carve-out, clause (d) again), so "nothing drifted" would fail on a
+# healthy session and tell us nothing about replay. What replay promises is narrower
+# and exactly measurable: **a non-semantic client rewrite adds no drift the same
+# session would not have had anyway.** Each test below therefore compares three arms —
+# the un-rewritten session, the rewritten session, and the rewritten session with
+# replay on — so the control proves the rewrite was expensive before the fix claims to
+# have made it free.
+# ===========================================================================
+
+from distil import prefixreplay  # noqa: E402
+
+
+def _strip_marks(node: Any) -> Any:
+    """Same payload with every ``cache_control`` removed.
+
+    The comparison is "did the content bytes hold", not "did the marker stay put". The
+    marker tells the provider where to cut the cached span; it is not part of the span,
+    and ``prefix._flatten`` has skipped it since 1.41 for the same reason. Replay lets
+    it follow the client, so comparing with it in would flag the one movement that is
+    supposed to happen.
+    """
+    if isinstance(node, dict):
+        return {k: _strip_marks(v) for k, v in node.items() if k != "cache_control"}
+    if isinstance(node, list):
+        return [_strip_marks(x) for x in node]
+    return node
+
+
+def _clone(item: Any) -> Any:
+    return json.loads(_key(item))
+
+
+def _churn_marker(items: list[dict[str, Any]], turn: int) -> list[dict[str, Any]]:
+    """The client advances its ``cache_control`` breakpoint to the newest block."""
+    out = [_clone(_strip_marks(m)) for m in items]
+    if out:
+        blocks = out[-1].get("content")
+        if isinstance(blocks, list) and blocks and isinstance(blocks[-1], dict):
+            blocks[-1]["cache_control"] = {"type": "ephemeral"}
+        else:
+            out[-1]["cache_control"] = {"type": "ephemeral"}
+    return out
+
+
+def _churn_index(items: list[dict[str, Any]], turn: int) -> list[dict[str, Any]]:
+    """An SDK shim stamps positional ``index`` fields, renumbered every turn.
+
+    Stamped wherever that SDK would put them: content/parts blocks on the block-shaped
+    providers, and ``tool_calls`` entries on Chat Completions, which is where the OpenAI
+    streaming types actually carry an index.
+    """
+    out = [_clone(m) for m in items]
+    for m in out:
+        for key in ("content", "parts", "tool_calls"):
+            for j, b in enumerate(m.get(key) or []):
+                if isinstance(b, dict):
+                    b["index"] = j + turn
+    return out
+
+
+def _churn_sugar(items: list[dict[str, Any]], turn: int) -> list[dict[str, Any]]:
+    """String content and a single text block, flipped on alternating turns.
+
+    Both spellings are legal wherever the other is, and SDK round-trips flip between
+    them. To the model they are the same bytes; to a byte-exact prefix cache they are
+    not.
+    """
+    to_list = turn % 2 == 0
+
+    def flip(node: Any) -> Any:
+        if isinstance(node, list):
+            return [flip(x) for x in node]
+        if not isinstance(node, dict):
+            return node
+        out = {k: flip(v) for k, v in node.items()}
+        c = out.get("content")
+        if to_list and isinstance(c, str):
+            out["content"] = [{"type": "text", "text": c}]
+        elif (
+            not to_list
+            and isinstance(c, list)
+            and len(c) == 1
+            and isinstance(c[0], dict)
+            and set(c[0]) == {"type", "text"}
+        ):
+            out["content"] = c[0]["text"]
+        return out
+
+    return [flip(_clone(m)) for m in items]
+
+
+# Gemini's `parts` have no string/single-block sugar to flip — there is no second
+# spelling — so that pairing is skipped by name rather than silently passing on a churn
+# that did nothing.
+_NOT_APPLICABLE = {("gemini/generateContent", "string-block-sugar")}
+
+CHURNS = [
+    ("marker-advances", _churn_marker),
+    ("index-stamped", _churn_index),
+    ("string-block-sugar", _churn_sugar),
+]
+
+
+def _stable_prefix(
+    shape: str, build: Builder, forward: Forwarder, mark: str, churn: Any, *, replay: bool
+) -> list[int]:
+    """Per turn, how many LEADING messages went out byte-identical to the previous turn.
+
+    A provider cache entry covers a byte prefix, so this is the number that bills: what
+    happens after the first changed byte is already uncached and costs nothing extra to
+    change again. Counting total drifted indices instead would score churn in the
+    volatile tail — which distil creates on purpose (clause (d)) — as a regression.
+
+    ``churn=None`` is the client that does not rewrite its history.
+    """
+    prefixreplay.reset()
+    key = f"{shape}/{getattr(churn, '__name__', 'none')}/{replay}"
+    prev: list[str] | None = None
+    lens: list[int] = []
+    for turns in range(1, TURNS + 1):
+        items = build(turns, mark)
+        if churn is not None:
+            items = churn(items, turns)
+        sent = forward(items)
+        if replay:
+            sent, _stats = prefixreplay.replay(key, items, sent)
+        cur = [_key(_strip_marks(m)) for m in sent]
+        if prev is not None:
+            n = 0
+            while n < min(len(prev), len(cur)) and prev[n] == cur[n]:
+                n += 1
+            lens.append(n)
+        prev = cur
+    prefixreplay.reset()
+    return lens
+
+
+@pytest.mark.parametrize(("churn_name", "churn"), CHURNS, ids=[c[0] for c in CHURNS])
+@pytest.mark.parametrize(("shape", "build", "forward", "mark"), SHAPES, ids=[s[0] for s in SHAPES])
+def test_a_client_rewrite_costs_bytes_without_replay(
+    shape: str, build, forward, mark: str, churn_name: str, churn
+) -> None:
+    """The control arm: with replay off, each rewrite shape really does move bytes the
+    un-rewritten session would have held. Without this, the test below could stay green
+    through a total removal of the mechanism.
+
+    ``marker-advances`` is exempt and that is a finding, not a hole: anchoring the
+    recency carve-out to the client's breakpoint (ADR 0008) already made a moving marker
+    free, so there is nothing left for replay to repair there. The test below still runs
+    it, to catch replay *re-introducing* the drift.
+    """
+    if (shape, churn_name) in _NOT_APPLICABLE:
+        pytest.skip("this provider has no second spelling for that field")
+    if churn_name == "marker-advances":
+        pytest.skip("already neutralised by breakpoint-anchored recency (ADR 0008)")
+    baseline = _stable_prefix(shape, build, forward, mark, None, replay=False)
+    control = _stable_prefix(shape, build, forward, mark, churn, replay=False)
+    assert any(c < b for c, b in zip(control, baseline)), (
+        f"{shape} under a {churn_name} rewrite keeps as much prefix as the un-rewritten "
+        f"session ({control} vs {baseline}) — this fixture proves nothing"
+    )
+
+
+@pytest.mark.parametrize(("churn_name", "churn"), CHURNS, ids=[c[0] for c in CHURNS])
+@pytest.mark.parametrize(("shape", "build", "forward", "mark"), SHAPES, ids=[s[0] for s in SHAPES])
+def test_replay_holds_the_prefix_through_a_client_rewrite(
+    shape: str, build, forward, mark: str, churn_name: str, churn
+) -> None:
+    """The headline: a non-semantic client rewrite costs no byte-stable prefix.
+
+    Compared with the proxy's own serializer (no ``sort_keys`` — see ``_key``), so a
+    transform that merely re-ordered keys would still be caught.
+    """
+    if (shape, churn_name) in _NOT_APPLICABLE:
+        pytest.skip("this provider has no second spelling for that field")
+    baseline = _stable_prefix(shape, build, forward, mark, None, replay=False)
+    with_replay = _stable_prefix(shape, build, forward, mark, churn, replay=True)
+    short = [(t, r, b) for t, (r, b) in enumerate(zip(with_replay, baseline), start=2) if r < b]
+    assert not short, (
+        f"{shape} under a {churn_name} rewrite forwarded a SHORTER byte-stable prefix "
+        f"than the un-rewritten session at (turn, with-replay, baseline) {short} — the "
+        "provider re-bills the difference"
+    )
+
+
+def test_a_semantic_edit_breaks_the_prefix_at_exactly_that_index() -> None:
+    """Replay stops at the first divergence, and the first divergence is where the client
+    actually changed something. Not one index earlier (a lost cache hit), and emphatically
+    not one later (stale bytes forwarded over a real edit)."""
+    prefixreplay.reset()
+    base = _anthropic(4, "moving")
+    prefixreplay.replay("edit", base, _fwd_anthropic(base))
+
+    edited = _clone(base)
+    target = 3  # an assistant tool_use in the middle of the history
+    edited[target]["content"][0]["input"] = {"cmd": "something else entirely"}
+    fresh = _fwd_anthropic(edited)
+    out, stats = prefixreplay.replay("edit", edited, fresh)
+
+    assert stats.hits == target, f"replay stopped at {stats.hits}, expected exactly {target}"
+    assert stats.misses == len(edited) - target
+    assert _key(out[target]) == _key(fresh[target]), (
+        "the edited message was overlaid with older bytes"
+    )
+    prefixreplay.reset()
+
+
+def test_a_changed_tool_result_is_never_overlaid_with_old_bytes() -> None:
+    """The failure that would matter: a tool_result whose bytes changed keeps the new
+    bytes. A file re-read after an edit is exactly this shape, and forwarding the old
+    version would hand the agent a stale view of a file it just wrote."""
+    prefixreplay.reset()
+    first = _anthropic(3, "moving")
+    prefixreplay.replay("tr", first, _fwd_anthropic(first))
+
+    second = _clone(first)
+    idx = 2  # the first tool_result
+    assert second[idx]["content"][0]["type"] == "tool_result", "fixture drifted"
+    second[idx]["content"][0]["content"] = _log(40, "step0") + "\nNEW LINE AFTER THE EDIT"
+    fresh = _fwd_anthropic(second)
+    out, stats = prefixreplay.replay("tr", second, fresh)
+
+    assert stats.hits == idx, f"replay reached index {stats.hits}, past the changed result"
+    assert _key(out[idx]) == _key(fresh[idx]), "the changed tool_result was replayed"
+    blob = json.dumps(out[idx])
+    assert "NEW LINE AFTER THE EDIT" in blob or "handle=" in blob, (
+        "the changed tool_result was neither forwarded verbatim nor digested"
+    )
+    prefixreplay.reset()
+
+
+def test_thinking_signatures_are_never_touched() -> None:
+    """Signed thinking blocks are cryptographic: a signature that does not match its text
+    is rejected by the provider, and a replay that paired one turn's signature with
+    another turn's text would do exactly that. Replaying identical bytes is safe; a
+    changed signature must break the prefix like any other content change. (Replays have
+    died on signed thinking blocks before — see the 1.51.1 shadow fix.)"""
+    prefixreplay.reset()
+
+    def convo(sig: str) -> list[dict[str, Any]]:
+        return [
+            {"role": "user", "content": [{"type": "text", "text": "think about it"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "step one, step two", "signature": sig},
+                    {"type": "redacted_thinking", "data": "AAAA" + sig},
+                ],
+            },
+            {"role": "user", "content": [{"type": "text", "text": "go on"}]},
+        ]
+
+    turn1 = convo("SIGNATURE-ONE")
+    out1, _ = prefixreplay.replay("sig", turn1, _fwd_anthropic(turn1))
+    assert "SIGNATURE-ONE" in json.dumps(out1)
+
+    # Same signature, non-semantic churn only: replayed byte-for-byte, signature intact.
+    turn2 = _churn_index(convo("SIGNATURE-ONE"), 1)
+    out2, stats2 = prefixreplay.replay("sig", turn2, _fwd_anthropic(turn2))
+    assert stats2.hits >= 2, "a purely non-semantic rewrite should have held the prefix"
+    assert _key(out2[1]) == _key(out1[1]), "the signed block's bytes moved"
+
+    # A re-signed block is a content change: it must break the prefix at its index.
+    turn3 = convo("SIGNATURE-TWO")
+    out3, stats3 = prefixreplay.replay("sig", turn3, _fwd_anthropic(turn3))
+    assert stats3.hits == 1, f"replay held a re-signed block (hits={stats3.hits})"
+    assert "SIGNATURE-TWO" in json.dumps(out3[1]), "the new signature was overwritten by the old"
+    assert "SIGNATURE-ONE" not in json.dumps(out3)
+    prefixreplay.reset()
+
+
+def test_replay_never_crosses_a_model_or_tools_change() -> None:
+    """A cached prefix belongs to one model + system + tool set. Replaying across a change
+    would forward a history the provider holds no entry for and the client did not send."""
+    msgs = _anthropic(3, "moving")
+    a = prefixreplay.lineage_key({"model": "claude-opus-4-8", "tools": []}, msgs)
+    assert a != prefixreplay.lineage_key({"model": "claude-sonnet-5", "tools": []}, msgs)
+    assert a != prefixreplay.lineage_key(
+        {"model": "claude-opus-4-8", "tools": [{"name": "bash"}]}, msgs
+    )
+    assert a != prefixreplay.lineage_key(
+        {"model": "claude-opus-4-8", "tools": [], "system": "be brief"}, msgs
+    )
+    assert a == prefixreplay.lineage_key({"model": "claude-opus-4-8", "tools": []}, msgs)
+
+
+def test_a_moving_marker_does_not_fork_the_lineage() -> None:
+    """The lineage is pinned by the conversation's head message, and on the Claude Code
+    shape that head is where a one-turn session puts its marker. Keying on the raw head
+    would start a fresh lineage the moment the marker advanced — every session's first
+    replay, lost."""
+    head_marked = _anthropic(1, "first")
+    head_bare = _anthropic(1, "none")
+    body = {"model": "claude-opus-4-8"}
+    assert prefixreplay.lineage_key(body, head_marked) == prefixreplay.lineage_key(body, head_bare)
+
+
+def test_lineage_state_is_bounded() -> None:
+    """Unbounded per-session state in a long-lived proxy is a leak with a nice name."""
+    prefixreplay.reset()
+    for n in range(prefixreplay._MAX_LINEAGES * 3):
+        msgs = [{"role": "user", "content": f"session {n}"}]
+        prefixreplay.replay(f"k{n}", msgs, msgs)
+    assert len(prefixreplay._LINEAGES) == prefixreplay._MAX_LINEAGES
+    prefixreplay.reset()
+
+
+def test_an_oversized_history_is_forgotten_rather_than_held() -> None:
+    """The byte ceiling has to release the memory, not merely stop replaying."""
+    prefixreplay.reset()
+    small = [{"role": "user", "content": "hello"}]
+    prefixreplay.replay("big", small, small)
+    assert "big" in prefixreplay._LINEAGES
+    huge = [{"role": "user", "content": "x" * (prefixreplay._MAX_STATE_BYTES + 1)}]
+    out, stats = prefixreplay.replay("big", huge, huge)
+    assert out == huge and stats.hits == 0
+    assert "big" not in prefixreplay._LINEAGES, "an oversized session stayed resident"
+    prefixreplay.reset()
+
+
+def test_canonical_only_ignores_the_fields_it_names() -> None:
+    """The strip set, pinned from the other side.
+
+    Everything ``prefixreplay`` does rests on its comparison key being *narrow*: each
+    field it ignores is a promise that two items differing only in that field are the
+    same input, and a key that ignores too much declares different inputs equal and
+    forwards stale content. A dropped ``else`` in the recursion once made every message
+    canonicalise to ``{}`` — caught by the parametrized tests above, but only because
+    they happened to cover it. This says it directly.
+    """
+    base = {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "t0", "content": "the output"},
+            {"type": "thinking", "thinking": "reasoning", "signature": "SIG"},
+            {"type": "tool_use", "id": "t1", "name": "bash", "input": {"cmd": "ls"}},
+            {"type": "image", "source": {"type": "base64", "data": "AAAA"}},
+        ],
+    }
+    key = prefixreplay.canonical(base)
+
+    def mutate(path: list[Any], value: Any) -> dict[str, Any]:
+        out = json.loads(_key(base))
+        node: Any = out
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+        return out
+
+    for path, value, what in [
+        (["role"], "assistant", "role"),
+        (["content", 0, "content"], "different output", "tool_result content"),
+        (["content", 0, "tool_use_id"], "t9", "tool_use_id"),
+        (["content", 1, "thinking"], "other reasoning", "thinking text"),
+        (["content", 1, "signature"], "OTHER", "thinking signature"),
+        (["content", 2, "input"], {"cmd": "rm"}, "tool input"),
+        (["content", 2, "name"], "python", "tool name"),
+        (["content", 3, "source"], {"type": "base64", "data": "BBBB"}, "image data"),
+        (["content", 0, "type"], "text", "block type"),
+    ]:
+        assert prefixreplay.canonical(mutate(path, value)) != key, (
+            f"canonical() ignores {what} — a change there would be replayed away"
+        )
+
+    # ...and the two it does ignore, on the same fixture.
+    marked = json.loads(_key(base))
+    marked["content"][0]["cache_control"] = {"type": "ephemeral"}
+    marked["content"][1]["index"] = 7
+    assert prefixreplay.canonical(marked) == key
+
+
+def test_wire_serializes_the_way_the_proxy_forwards() -> None:
+    """``prefixreplay._wire`` decides whether a repair is counted as one. If it drifts
+    from the proxy's encoder it is measuring bytes nobody sends."""
+    from distil.proxy import _serialize_if_changed
+
+    body = {"z": "café", "a": [1, {"b": 2}]}
+    assert prefixreplay._wire(body).encode() == _serialize_if_changed(b'{"different":1}', body)
+
+
+def test_replay_forwards_unchanged_on_shapes_it_does_not_understand() -> None:
+    """Fail-open, on the hottest path in the product. Anything replay cannot reason
+    about — a non-list payload, a non-dict message, a block that is a bare string — is
+    forwarded exactly as the compressor produced it, and the marker re-placement copes
+    with a message-level ``cache_control`` as well as a per-block one."""
+    prefixreplay.reset()
+    out, stats = prefixreplay.replay("odd", {"not": "a list"}, {"not": "a list"})  # type: ignore[arg-type]
+    assert out == {"not": "a list"} and stats.hits == 0
+
+    weird: list[Any] = [
+        "a bare string where a message should be",
+        {"role": "user", "content": ["a bare block", {"type": "text", "text": "hi"}]},
+        {"role": "user", "content": "flat", "cache_control": {"type": "ephemeral"}},
+    ]
+    prefixreplay.replay("odd", weird, weird)
+    again = json.loads(_key(weird))
+    again[2].pop("cache_control")  # the client moved its message-level marker off
+    again[1]["cache_control"] = {"type": "ephemeral"}  # ...and onto the one before it
+    out2, stats2 = prefixreplay.replay("odd", again, again)
+    assert stats2.hits == len(again), "a marker move is not a content change"
+    assert "cache_control" not in out2[2]
+    assert out2[1]["cache_control"] == {"type": "ephemeral"}
+    assert out2[1]["content"][0] == "a bare block"
+    prefixreplay.reset()

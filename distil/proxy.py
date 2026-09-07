@@ -545,6 +545,7 @@ def build_handler(
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     session_delta: bool = False,
+    prefix_replay: bool = True,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
 
@@ -891,6 +892,11 @@ def build_handler(
                 return  # _read_body already sent the error response
             headers = self._client_headers(identity=True)
             extras: dict[str, str] = {}
+            # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
+            # conversation, and the items as the CLIENT sent them this turn. Set by
+            # whichever adapter branch runs; consumed once, just before serialization.
+            _replay_key: str | None = None
+            _replay_orig: list[Any] | None = None
             store: Any = None  # RestoreStore once messages are compressed (for expand)
             before_tok: int | None = None  # set only if a messages/gemini branch below runs
             after_tok: int | None = None
@@ -929,6 +935,7 @@ def build_handler(
                 from .adapters.openai import compress_responses_input, count_responses_tokens
 
                 _orig_input: list[dict[str, Any]] = body["input"]
+                _replay_key, _replay_orig = "input", _orig_input
                 before_tok = count_responses_tokens(_orig_input)
                 try:
                     _compressed_input, store = compress_responses_input(
@@ -967,6 +974,7 @@ def build_handler(
 
             elif "messages" in body and isinstance(body["messages"], list):
                 original: list[dict[str, Any]] = body["messages"]
+                _replay_key, _replay_orig = "messages", original
                 # Cache-delta coding (opt-in): cross-turn dedup + cross-version delta,
                 # applied to the ORIGINALS before compression so re-reads match across
                 # turns. Cache-monotonic (suffix-only) and reversible.
@@ -1135,6 +1143,7 @@ def build_handler(
 
             elif "contents" in body and isinstance(body["contents"], list):
                 # Gemini generateContent shape. Content compression + output shaping.
+                _replay_key, _replay_orig = "contents", body["contents"]
                 before_tok = count_tokens(body)
                 try:
                     body, store = compress_generate_request(
@@ -1176,6 +1185,31 @@ def build_handler(
                     from .expand import inject_expand_tool_gemini
 
                     body = inject_expand_tool_gemini(body)
+
+            # Forwarded-bytes prefix replay (ADR 0011). Agentic clients rewrite their
+            # own history every turn without changing a token the model reads — the
+            # cache_control marker advances, an SDK adds `index`, a string becomes a
+            # single text block — and distil forwards what it receives, so the provider
+            # misses a prefix it already holds. For the longest canonically-equal
+            # leading prefix, forward the bytes we forwarded LAST turn instead.
+            # Runs last, on the final body, so it is the one thing between distil's
+            # decisions and the wire. Fail-open: any exception forwards as compressed.
+            if prefix_replay and _replay_orig is not None and _replay_key is not None:
+                try:
+                    from . import prefixreplay as _prep
+
+                    _fwd = body.get(_replay_key)
+                    if isinstance(_fwd, list):
+                        _rout, _rst = _prep.replay(
+                            _prep.lineage_key(body, _replay_orig), _replay_orig, _fwd
+                        )
+                        if _rst.restored:
+                            body = {**body, _replay_key: _rout}
+                        extras["x-distil-replay-hits"] = str(_rst.hits)
+                        extras["x-distil-replay-misses"] = str(_rst.misses)
+                        extras["x-distil-replay-restored"] = str(_rst.restored)
+                except Exception:  # noqa: BLE001 — never break a request for a cache hit
+                    log.debug("prefix replay failed; forwarding as compressed", exc_info=True)
 
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
@@ -1676,6 +1710,12 @@ def build_handler(
                     "delta_refs": int(extras.get("x-distil-cache-refs", 0) or 0),
                     "delta_tokens_saved": int(extras.get("x-distil-cache-tokens-saved", 0) or 0),
                     "prefix_msgs": int(extras.get("x-distil-cache-prefix-msgs", 0) or 0),
+                    # Prefix replay (ADR 0011), content-free. `hits` without `restored`
+                    # is the healthy case — nothing needed repairing. `restored` is the
+                    # only one that moved money, so it is not folded into the other two.
+                    "replay_hits": int(extras.get("x-distil-replay-hits", 0) or 0),
+                    "replay_misses": int(extras.get("x-distil-replay-misses", 0) or 0),
+                    "replay_restored": int(extras.get("x-distil-replay-restored", 0) or 0),
                     # Provider-reported quota state (counters/timestamps only). Billed
                     # tokens say what was sent; this says what it cost the plan's budget.
                     "ratelimit": getattr(self, "_distil_ratelimit", None),
@@ -2003,6 +2043,7 @@ def serve(
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     session_delta: bool = False,
+    prefix_replay: bool = True,
 ) -> None:
     """Run a blocking :class:`ThreadingHTTPServer` proxy.
 
@@ -2047,6 +2088,7 @@ def serve(
         shadow_rate=shadow_rate,
         retention_rate=retention_rate,
         session_delta=session_delta,
+        prefix_replay=prefix_replay,
     )
     server, activated = _listen(host, port, handler)
     print(f"distil proxy listening on http://{host}:{port}")
@@ -2112,6 +2154,7 @@ def wrap_run(
     env_var: str = "ANTHROPIC_BASE_URL",
     expand: bool = False,
     session_delta: bool = False,
+    prefix_replay: bool = True,
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
@@ -2189,6 +2232,7 @@ def wrap_run(
                     "shape_output": shape_output,
                     "expand": expand,
                     "session_delta": session_delta,
+                    "prefix_replay": prefix_replay,
                     "shadow_rate": shadow_rate,
                     "retention_rate": retention_rate,
                 },
@@ -2217,6 +2261,7 @@ def wrap_run(
                     pricing_model=pricing_model,
                     expand=expand,
                     session_delta=session_delta,
+                    prefix_replay=prefix_replay,
                     shadow_rate=shadow_rate,
                     retention_rate=retention_rate,
                 ),
@@ -2245,6 +2290,7 @@ def wrap_run(
             savings=savings,
             expand=expand,
             session_delta=session_delta,
+            prefix_replay=prefix_replay,
             shadow_rate=shadow_rate,
             retention_rate=retention_rate,
         )

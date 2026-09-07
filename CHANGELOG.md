@@ -133,6 +133,80 @@ The Responses path gets the same widen-on-miss reaction as the Messages path. No
 changed downstream: both adapters already share one thread-local counter, so `distil
 dissect` reports Codex through the line it already had.
 
+### The cached prefix now survives the client rewriting its own history
+
+ADR 0008 promised byte-stable forwarding *when the client re-sends a message
+byte-identical*, and clause (d) said a client that rewrites its own history gets no
+promise. That clause was written as an edge case. It is the common case: agentic clients
+rewrite their history on **every turn** without changing a token the model reads — the
+`cache_control` breakpoint advances to the newest block, an SDK shim stamps positional
+`index` fields, a string becomes a single text block and back again. distil forwards what
+it receives, so all of it reached the provider as changed bytes and missed a prefix the
+provider was already holding, at the write rate.
+
+Measured offline against distil's own adapters (`benchmarks/prefix_replay_stability.py`,
+8 turns; share of re-sent messages forwarded byte-identical to the previous turn):
+
+| provider shape | rewrite | before | after |
+|---|---|---|---|
+| anthropic/messages | `index` stamped | 0.0% | 100.0% |
+| anthropic/messages | string/block sugar | 0.0% | 100.0% |
+| openai/chat-completions | `index` stamped | 14.6% | 100.0% |
+| openai/chat-completions | string/block sugar | 0.0% | 100.0% |
+| openai/responses | `index` stamped | 0.0% | 100.0% |
+| openai/responses | string/block sugar | 0.0% | 100.0% |
+| gemini/generateContent | `index` stamped | 0.0% | 100.0% |
+
+Zero, not merely degraded. The un-rewritten control reads 100% before and after, so
+replay repairs rewrites and does nothing when there is nothing to repair. Added latency
+is ~0.13 ms per request. **This is what distil forwards, not what the provider billed** —
+that is the cache-read share in `distil dissect`, and it needs a live soak.
+
+- **Forwarded-bytes prefix replay** (`distil/prefixreplay.py`, ADR 0011). Per conversation
+  lineage — leading system-run + model + tools + the canonicalised head, per session —
+  distil remembers the previous turn's `(original, forwarded)` pair. For the longest
+  canonically-equal leading prefix it forwards **the bytes it forwarded last turn**,
+  re-placing the client's current `cache_control` markers at the client's current block
+  positions, and compresses only the divergent suffix. On by default;
+  **`--no-prefix-replay`** opts out on both `wrap` and `proxy`. State is in-memory,
+  LRU-bounded, and deliberately not persisted: it holds message bytes, and the TTL'd
+  restore store is the only place content is allowed to rest on disk. Fail-open — any
+  exception forwards exactly what the compressor produced.
+- **The comparison ignores four things and nothing else**: `cache_control`, `index`, the
+  interchangeable spellings of a single text block (bare string, `text`, `input_text`,
+  `output_text`), and JSON key order. Tool inputs are opaque — compared as they arrive,
+  never structurally rewritten, because a tool input can itself contain a key called
+  `content` and applying the message-level sugar there would call two different tool calls
+  equal. `citations`/`annotations` are deliberately left out: the cost of excluding them is
+  a missed hit, the cost of including them wrongly is a wrong prefix.
+- **Replay restores bytes, never decisions** — the clause that makes it safe, and not the
+  obvious design. distil's compressor is not a pure function of one message: the
+  exact-quote guarantee keeps a tool result verbatim because of an `Edit` that arrives
+  *later* in the list, so a block legitimately digested at turn N can need to be verbatim
+  at turn N+1. Overlaying turn N's stub there would break the agent's next edit to buy a
+  cache hit. So a message is replayed only when this turn's forwarded form is itself
+  canonically equal to last turn's, which makes "replay never changes semantic content"
+  the loop condition rather than a claim. `distil validate` asserts it as a sixth
+  invariant anyway, because a loop condition is what a later optimisation deletes.
+- **Proof.** `tests/test_cache_contract.py` gains the three rewrite shapes × four request
+  shapes, each with a **control arm**: the test fails unless the rewrite demonstrably
+  shortened the byte-stable prefix without replay and demonstrably did not with it — a
+  stability assertion whose control never destabilises proves nothing. Plus: a semantic
+  edit breaks the prefix at exactly its index; a changed `tool_result` is never overlaid
+  with older bytes; a re-signed `thinking` block breaks the prefix while an unchanged one
+  is replayed byte-for-byte; the lineage never crosses a model/tools/system change; state
+  is bounded and an oversized history is released rather than held. The canonicalizer's
+  strip set is pinned from both sides — a dropped `else` in its recursion once made every
+  message canonicalise to `{}`, and the parametrized tests caught it only by luck.
+- **Measurable.** The per-request record gains content-free `replay_hits` /
+  `replay_misses` / `replay_restored`, and `distil dissect` reports them per session beside
+  the cache-read share. `restored` is never folded into `hits`: hits with zero restored is
+  the healthy steady state, and adding them together would make a dead mechanism look
+  identical to a working one.
+- `distil proxy --async` now says out loud that it has no prefix replay. Replay is on by
+  default, so a user who passes no flag at all was silently getting a different product;
+  the async proxy re-serialises every body and has no byte-stable prefix to replay.
+
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 

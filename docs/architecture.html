@@ -221,6 +221,9 @@
       <p class="note"><strong>Scope:</strong> these numbers are the simulated cache-aware strategy on the corpus. The live adapter reaches the same property only from 1.45 — before that its recency carve-out slid forward each turn and rewrote already-cached content, costing every cache read. See <a href="https://github.com/dshakes/distil/blob/main/docs/CACHE.md">CACHE.md</a>.</p>
     </div>
 
+    <p>Both of those keep <em>Distil's</em> output stable. The other half of the problem is the client, which rewrites its own history every turn without changing a token the model reads — the <code>cache_control</code> breakpoint advances to the newest block, an SDK stamps positional <code>index</code> fields, a string becomes a single text block. Distil forwards what it receives, so each of those reached the provider as changed bytes and missed a prefix it was already holding. Measured offline, that cost <strong>the entire prefix, on every provider, on every turn</strong>.</p>
+    <p><strong>Forwarded-bytes prefix replay</strong> (<code>prefixreplay.py</code>, on by default) closes it. Distil remembers the previous turn's forwarded bytes per conversation lineage and, for the longest canonically-equal leading prefix, forwards <em>the bytes it forwarded last turn</em> rather than the bytes it would produce now — re-placing the client's current breakpoint markers at the client's current positions, and stopping at the first real divergence. The comparison ignores <code>cache_control</code>, <code>index</code>, the interchangeable spellings of a single text block, and JSON key order, and nothing else. Replay restores bytes, never decisions: a message is replayed only when what Distil would send this turn is itself canonically equal to what it sent last turn, so the exact-quote guarantee can never be overwritten by an older stub. See <a href="cache-contract.html">the cache contract</a>, clause (e).</p>
+
     <img src="assets/cache-aware.svg" alt="Cache-aware savings vs naive recompression" class="svg-embed"/>
 
     <hr/>
@@ -479,6 +482,7 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         <tr><td><code>adapters/openai.py</code></td><td>First-class OpenAI adapter — Chat Completions and Responses API shapes; same Tier-0/1 machinery as the Anthropic adapter</td></tr>
         <tr><td><code>adapters/gemini.py</code></td><td>Gemini adapter — generateContent / streamGenerateContent; recency carve-out, query-aware intent from functionCall args, output shaping via shape="gemini"</td></tr>
         <tr><td><code>proxy.py</code></td><td>HTTP proxy for framework-agnostic adoption</td></tr>
+        <tr><td><code>prefixreplay.py</code></td><td>Forwarded-bytes prefix replay (ADR 0011) — holds the provider's cached prefix through a client's non-semantic rewrite of its own history</td></tr>
         <tr><td><code>proof_ledger.py</code></td><td>End-of-session Proof Ledger — calibrated tokens/cost, shadow verdict, restorability; printed by <code>distil wrap</code> on exit</td></tr>
         <tr><td><code>atrest.py</code></td><td>Authenticated encryption at rest (HMAC-SHA256-CTR + encrypt-then-MAC, DSTL1 header) for the restore store</td></tr>
         <tr><td><code>gateway_keys.py</code></td><td>Gateway key store — issued dsk- keys hashed at rest; <code>distil gateway keys issue|list|revoke</code></td></tr>

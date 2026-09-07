@@ -930,7 +930,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         )
         return 1
     invariants = (
-        "reversibility · reject-if-bigger · recency · quote-survival · fail-open · content-free"
+        "reversibility · reject-if-bigger · recency · quote-survival · fail-open · "
+        "prefix-replay-semantics · content-free"
     )
     if args.adversarial:
         invariants += " · load-bearing"
@@ -1100,6 +1101,16 @@ def cmd_proxy(args: argparse.Namespace) -> int:
                 "handles typical agent concurrency).",
                 file=_sys.stderr,
             )
+        # Not in `_unsupported`: prefix replay is on by DEFAULT, so a user who passes
+        # no flag at all still silently loses it here. Say so rather than let the async
+        # proxy quietly be a different product.
+        print(
+            "distil proxy --async: forwarded-bytes prefix replay (ADR 0011, on by "
+            "default on the standard proxy) is not implemented here — the async proxy "
+            "re-serializes every body, so there is no byte-stable prefix to replay. "
+            "Drop --async for it.",
+            file=_sys.stderr,
+        )
         aserve(
             host=args.host,
             port=args.port,
@@ -1126,6 +1137,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
             shadow_rate=args.shadow,
             retention_rate=getattr(args, "retention", 0.0),
             session_delta=args.session_delta,
+            prefix_replay=not getattr(args, "no_prefix_replay", False),
         )
     return 0
 
@@ -2967,6 +2979,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         env_var=env_var,
         expand=args.expand,
         session_delta=args.session_delta,
+        prefix_replay=not getattr(args, "no_prefix_replay", False),
         shadow_rate=args.shadow,
         retention_rate=getattr(args, "retention", 0.0),
         extra_env=extra_env,
@@ -4432,6 +4445,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="cache-delta coding: cross-turn dedup + cross-version delta (re-reads after "
         "edits sent as a diff), cache-monotonic and reversible (sync proxy only)",
     )
+    px.add_argument(
+        "--no-prefix-replay",
+        action="store_true",
+        help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by default: when the client re-sends its history with only non-semantic churn — the cache_control marker advanced, an SDK added `index`, a string became a text block — distil forwards the bytes it forwarded last turn so the provider's prompt cache still hits. Content is never changed either way; pass this to forward exactly what the compressor produced.",
+    )
     px.set_defaults(func=cmd_proxy)
 
     pw = sub.add_parser(
@@ -4696,6 +4714,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="cache-delta coding: cross-turn dedup + cross-version delta (re-reads after "
         "edits sent as a diff), cache-monotonic and reversible",
+    )
+    wr.add_argument(
+        "--no-prefix-replay",
+        action="store_true",
+        help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by default: when the client re-sends its history with only non-semantic churn — the cache_control marker advanced, an SDK added `index`, a string became a text block — distil forwards the bytes it forwarded last turn so the provider's prompt cache still hits. Content is never changed either way; pass this to forward exactly what the compressor produced.",
     )
     wr.add_argument(
         "--retention",

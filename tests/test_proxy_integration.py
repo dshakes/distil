@@ -253,3 +253,58 @@ def test_stalled_client_cannot_pin_a_handler_thread(proxy_factory, monkeypatch):
         assert elapsed < 20, f"connection held {elapsed:.1f}s — client timeout not applied"
     finally:
         s.close()
+
+
+def _churned(turn):
+    """The same conversation the client keeps re-spelling: an SDK stamps a positional
+    `index` on every content block and renumbers it each turn, and the cache_control
+    breakpoint advances to the newest block. Neither changes a token the model reads."""
+    payload = _digestible()
+    for i, m in enumerate(payload["messages"]):
+        if isinstance(m.get("content"), list):
+            for j, b in enumerate(m["content"]):
+                b["index"] = j + turn
+    last = payload["messages"][-1]
+    last["content"] = [{"type": "text", "text": last["content"], "cache_control": {"type": "e"}}]
+    return payload
+
+
+def test_prefix_replay_holds_the_forwarded_bytes_through_a_client_rewrite(proxy_factory):
+    """End to end through the real proxy: what reaches the upstream must not change when
+    the client rewrites its history non-semantically. Asserted on the bytes the stub
+    upstream actually received, so the whole path — compress, replay, serialize — is in
+    the measurement, and paired with the same session run with the feature off."""
+    port = proxy_factory()
+    _post(port, _churned(1))
+    first = _LAST_BODY["raw"]
+    _post(port, _churned(2))
+    assert _LAST_BODY["raw"] == first, "a non-semantic client rewrite changed the wire bytes"
+
+    off = proxy_factory(prefix_replay=False)
+    _post(off, _churned(1))
+    before = _LAST_BODY["raw"]
+    _post(off, _churned(2))
+    assert _LAST_BODY["raw"] != before, (
+        "the rewrite does not move bytes even without replay — this test proves nothing"
+    )
+
+
+def test_prefix_replay_counters_reach_the_response_headers(proxy_factory):
+    """The measurable has to survive the proxy, not just the module. `restored` is the
+    count that moved money and is reported apart from `hits`."""
+    port = proxy_factory()
+
+    def headers(payload):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/messages",
+            data=json.dumps(payload).encode(),
+            headers={"content-type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return dict(r.headers)
+
+    headers(_churned(1))
+    h = headers(_churned(2))
+    assert int(h["x-distil-replay-hits"]) == 3
+    assert int(h["x-distil-replay-restored"]) >= 1
+    assert int(h["x-distil-replay-misses"]) == 0
