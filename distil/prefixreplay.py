@@ -65,11 +65,18 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 # excluding them is a missed hit, not a wrong prefix.
 _NON_SEMANTIC = frozenset({"cache_control", "index"})
 
-# Keys whose values are the agent's own tool payloads. Opaque: compared as they are,
-# never structurally rewritten. A tool input may itself contain a key called
-# "content" holding a string, and applying the message-level string/text-block sugar
-# to it would declare two genuinely different tool calls equal.
-_OPAQUE = frozenset({"input", "arguments", "args"})
+# Keys whose values are the agent's own tool payloads — the arguments going out and the
+# result coming back. Opaque: compared as they are, never structurally rewritten, because
+# the rules above are about MESSAGE structure and neither holds one level down:
+#
+# * a payload may carry a key called "content" holding a string, and applying the
+#   string/text-block sugar there would declare two different tool calls equal;
+# * a payload may carry a key called "index" that is DATA. Gemini's
+#   `functionResponse.response` is arbitrary tool output, so stripping `index` inside it
+#   would call `{"index":1,"value":"A"}` and `{"index":2,"value":"A"}` the same result and
+#   forward the first one's bytes for the second — a stale tool result, which is the one
+#   failure this module must never produce.
+_OPAQUE = frozenset({"input", "arguments", "args", "response", "output"})
 
 # The spellings of "one block of text". Anthropic accepts a bare string or
 # ``[{"type":"text",...}]``; the Responses API spells the same block ``input_text`` /
@@ -196,6 +203,14 @@ def _remark(replayed: Any, client: Any) -> Any:
             new_blocks.append(b)
             continue
         new_blocks.append(_reput(b, marks[j] if j < len(marks) else None))
+    if out is replayed:
+        # Copy on write. `replayed` is the PREVIOUS turn's stored item, shared with the
+        # lineage and — in a threaded server — with any concurrent request on it, and
+        # `_reput` hands it straight back when the message-level marker did not move.
+        # Assigning `content` here would write this turn's marker placement into state
+        # another request is about to read. Rebuild rather than mutate, preserving key
+        # ORDER, because the order is part of the bytes the provider hashes.
+        return {k: (new_blocks if k == "content" else v) for k, v in replayed.items()}
     out["content"] = new_blocks
     return out
 

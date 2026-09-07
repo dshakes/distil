@@ -174,11 +174,14 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   exception forwards exactly what the compressor produced.
 - **The comparison ignores four things and nothing else**: `cache_control`, `index`, the
   interchangeable spellings of a single text block (bare string, `text`, `input_text`,
-  `output_text`), and JSON key order. Tool inputs are opaque — compared as they arrive,
-  never structurally rewritten, because a tool input can itself contain a key called
-  `content` and applying the message-level sugar there would call two different tool calls
-  equal. `citations`/`annotations` are deliberately left out: the cost of excluding them is
-  a missed hit, the cost of including them wrongly is a wrong prefix.
+  `output_text`), and JSON key order. Tool payloads are opaque — the arguments going out
+  and the result coming back, compared as they arrive and never structurally rewritten,
+  because those rules are about message structure and none of them hold one level down: a
+  payload can carry a key called `content` (folding it would call two different tool calls
+  equal) or a key called `index` that is data. Gemini's `functionResponse.response` is
+  arbitrary tool output, and stripping `index` inside it would forward one result's bytes
+  for a different result. `citations`/`annotations` are deliberately left out: the cost of
+  excluding them is a missed hit, the cost of including them wrongly is a wrong prefix.
 - **Replay restores bytes, never decisions** — the clause that makes it safe, and not the
   obvious design. distil's compressor is not a pure function of one message: the
   exact-quote guarantee keeps a tool result verbatim because of an `Edit` that arrives
@@ -195,14 +198,23 @@ that is the cache-read share in `distil dissect`, and it needs a live soak.
   edit breaks the prefix at exactly its index; a changed `tool_result` is never overlaid
   with older bytes; a re-signed `thinking` block breaks the prefix while an unchanged one
   is replayed byte-for-byte; the lineage never crosses a model/tools/system change; state
-  is bounded and an oversized history is released rather than held. The canonicalizer's
-  strip set is pinned from both sides — a dropped `else` in its recursion once made every
-  message canonicalise to `{}`, and the parametrized tests caught it only by luck.
+  is bounded and an oversized history is released rather than held; and the two transforms
+  that share the cache contract are driven together through the real proxy — a re-read
+  delta stub (ADR 0010) is forwarded byte-identical on the next turn, and when a later
+  `Edit` makes the compressor withdraw that stub the verbatim block goes out instead of
+  last turn's bytes. Replay never writes back into the state it replayed from, so a
+  concurrent request on the same conversation cannot be handed this one's marker
+  placement. The canonicalizer's strip set is pinned from both sides — a dropped `else` in
+  its recursion once made every message canonicalise to `{}`, and the parametrized tests
+  caught it only by luck.
 - **Measurable.** The per-request record gains content-free `replay_hits` /
   `replay_misses` / `replay_restored`, and `distil dissect` reports them per session beside
   the cache-read share. `restored` is never folded into `hits`: hits with zero restored is
   the healthy steady state, and adding them together would make a dead mechanism look
-  identical to a working one.
+  identical to a working one. A session run with `--no-prefix-replay` records **no**
+  counters rather than zeros, and `dissect` prints *not recorded*: zeros there would
+  report a switched-off feature as one that ran and held nothing, directly beside the
+  cache-read share you would be using them to explain.
 - **All three servers get it**, through one shared `prefixreplay.apply` at the same point
   in each: the threaded proxy, the async proxy (`--async`, which now honours
   `--no-prefix-replay` too), and the multi-tenant gateway. A default-on feature that only

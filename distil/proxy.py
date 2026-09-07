@@ -117,6 +117,23 @@ def _upstream_error_type(status: int, rbody: bytes) -> str | None:
     return f"http_{status}"
 
 
+def _replay_record(extras: dict[str, str]) -> dict[str, int]:
+    """The three prefix-replay counters, or nothing at all when replay did not run.
+
+    `distil dissect` reports `None` for a session with no such fields and says so in
+    words ("not recorded"). Writing zeros for a `--no-prefix-replay` session would make
+    that read "replay ran and held nothing", which is the opposite diagnosis and sits
+    directly beside the cache-read share it would be used to explain.
+    """
+    if "x-distil-replay-hits" not in extras:
+        return {}
+    return {
+        "replay_hits": int(extras.get("x-distil-replay-hits", 0) or 0),
+        "replay_misses": int(extras.get("x-distil-replay-misses", 0) or 0),
+        "replay_restored": int(extras.get("x-distil-replay-restored", 0) or 0),
+    }
+
+
 def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
     """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
 
@@ -1701,9 +1718,10 @@ def build_handler(
                     # Prefix replay (ADR 0011), content-free. `hits` without `restored`
                     # is the healthy case — nothing needed repairing. `restored` is the
                     # only one that moved money, so it is not folded into the other two.
-                    "replay_hits": int(extras.get("x-distil-replay-hits", 0) or 0),
-                    "replay_misses": int(extras.get("x-distil-replay-misses", 0) or 0),
-                    "replay_restored": int(extras.get("x-distil-replay-restored", 0) or 0),
+                    # ABSENT rather than zero when replay did not run: `distil dissect`
+                    # reads the absence as "did not run", and zeros would report a
+                    # switched-off feature as one that ran and found nothing to hold.
+                    **_replay_record(extras),
                     # Provider-reported quota state (counters/timestamps only). Billed
                     # tokens say what was sent; this says what it cost the plan's budget.
                     "ratelimit": getattr(self, "_distil_ratelimit", None),

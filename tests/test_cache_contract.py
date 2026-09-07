@@ -749,6 +749,75 @@ def test_canonical_only_ignores_the_fields_it_names() -> None:
     assert prefixreplay.canonical(marked) == key
 
 
+def test_a_tool_payload_is_never_canonicalised_away() -> None:
+    """The strip set applies to MESSAGE structure, not one level down inside a tool
+    payload. Gemini's ``functionResponse.response`` is arbitrary tool output, and a key
+    in it called ``index`` is data — stripping it there would declare two different
+    results equal and forward the first one's bytes for the second. Same for the
+    Responses API's ``output``. A stale tool result is the one failure this module must
+    never produce, so the payload keys are compared opaquely.
+    """
+    shapes = {
+        "gemini functionResponse": lambda n: [
+            {
+                "role": "user",
+                "parts": [
+                    {"functionResponse": {"name": "rows", "response": {"index": n, "v": "A"}}}
+                ],
+            }
+        ],
+        "responses function_call_output": lambda n: [
+            {"type": "function_call_output", "call_id": "c1", "output": {"index": n, "v": "A"}}
+        ],
+    }
+    for what, convo in shapes.items():
+        prefixreplay.reset()
+        first = convo(1)
+        prefixreplay.replay(what, first, _clone(first))
+        second = convo(2)
+        out, stats = prefixreplay.replay(what, second, _clone(second))
+        assert stats.hits == 0, f"{what}: a changed tool payload was treated as unchanged"
+        assert _key(out) == _key(second), (
+            f"{what}: the client sent index=2 and distil forwarded {_key(out)} — "
+            f"the previous turn's tool output was replayed over a different one"
+        )
+    prefixreplay.reset()
+
+
+def test_replay_never_writes_back_into_the_state_it_replayed_from() -> None:
+    """Re-placing the client's markers must build a new item, not write through to the
+    stored one. The stored item is shared with the lineage and, in a threaded server,
+    with any concurrent request on the same conversation; mutating it in place would
+    hand that request this request's marker placement — and would leave the lineage
+    holding bytes it never actually forwarded.
+    """
+    prefixreplay.reset()
+
+    def convo(mark: int) -> list[dict[str, Any]]:
+        msgs: list[dict[str, Any]] = [
+            {"role": "user", "content": [{"type": "text", "text": "kick off the run"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "on it"}]},
+        ]
+        msgs[mark]["content"][0]["cache_control"] = {"type": "ephemeral"}
+        return msgs
+
+    first = convo(0)
+    prefixreplay.replay("cow", first, _clone(first))
+    held = prefixreplay._LINEAGES["cow"].forwarded[0]
+    before = _key(held)
+    assert "cache_control" in before, "fixture drifted — nothing for the marker to move off"
+
+    second = convo(1)  # the client advanced its breakpoint to the newest block
+    out, stats = prefixreplay.replay("cow", second, _clone(second))
+    assert stats.hits == 2, "a marker move is not a content change"
+    assert "cache_control" not in _key(out[0]), "the replayed item kept last turn's marker"
+    assert _key(held) == before, (
+        "replay mutated the item it replayed from — the stored bytes now carry this "
+        "turn's marker placement, which no request ever sent"
+    )
+    prefixreplay.reset()
+
+
 def test_wire_serializes_the_way_the_proxy_forwards() -> None:
     """``prefixreplay._wire`` decides whether a repair is counted as one. If it drifts
     from the proxy's encoder it is measuring bytes nobody sends."""
@@ -872,6 +941,138 @@ def test_the_threaded_proxy_holds_the_prefix() -> None:
         px.shutdown()
         up.shutdown()
         prefixreplay.reset()
+
+
+# ----------------------------------------------------------------- re-read × replay
+# The re-read delta (ADR 0010, clause (e)) replaces a run of lines in a re-read with a
+# reference to the earlier read that still carries them. It is prefix-deterministic by
+# construction, and replay is the thing that decides whether that determinism reaches
+# the wire — so the two are driven together, through the server, not asserted apart.
+
+_HANDLERS = 60
+
+
+def _module_lines() -> list[str]:
+    """A file of many same-shaped, individually identifiable blocks (3 lines each)."""
+    out: list[str] = []
+    for i in range(_HANDLERS):
+        out += [
+            f"def handler_{i}(request):  # MARK",
+            "    payload = request.json()",
+            f"    return {{'ok': True, 'n': {i}, 'payload': payload}}",
+        ]
+    return out
+
+
+def _handler(i: int) -> str:
+    return "\n".join(_module_lines()[3 * i : 3 * i + 3])
+
+
+def _reread_body(turn: int, *, extra: int = 0, edit: str | None = None) -> dict[str, Any]:
+    """A read → re-read session (the delta fires on the second one), re-spelled the way a
+    real client re-spells its history every turn: `index` stamps renumbered, breakpoint
+    advanced to the newest block."""
+    lines = _module_lines()
+
+    def use(tid: str, name: str, inp: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": tid, "name": name, "input": inp}],
+        }
+
+    def res(tid: str, text: str) -> dict[str, Any]:
+        return {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": tid, "content": text}],
+        }
+
+    path = {"file_path": "/app/handlers.py"}
+    msgs: list[dict[str, Any]] = [
+        {"role": "user", "content": [{"type": "text", "text": "refactor the handlers"}]},
+        use("r1", "Read", path),
+        res("r1", "\n".join(lines[:120])),  # the base
+        use("r2", "Read", path),
+        res("r2", "\n".join(lines[60:])),  # the re-read: overlaps the base by 60 lines
+    ]
+    if edit is not None:
+        msgs += [
+            use("e1", "Edit", {**path, "old_string": edit, "new_string": edit + "  # patched"}),
+            res("e1", "applied"),
+        ]
+    for k in range(extra):
+        msgs += [use(f"b{k}", "bash", {"cmd": "pytest -q"}), res(f"b{k}", _log(30, f"run{k}"))]
+    for m in msgs:
+        for j, b in enumerate(m["content"]):
+            b["index"] = j + turn
+    msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
+    return {"model": "claude-test", "max_tokens": 64, "messages": msgs}
+
+
+def _through_the_proxy(*bodies: dict[str, Any], replay: bool = True) -> list[list[dict[str, Any]]]:
+    """Post each body to the threaded proxy in order; return the messages the upstream
+    actually received for each."""
+    from distil.proxy import build_handler
+
+    prefixreplay.reset()
+    up, seen = _stub_upstream()
+    px = _serve_threaded(
+        build_handler(f"http://127.0.0.1:{up.server_address[1]}", prefix_replay=replay)
+    )
+    out: list[list[dict[str, Any]]] = []
+    try:
+        for body in bodies:
+            _post_json(px.server_address[1], body)
+            out.append(json.loads(seen["raw"])["messages"])
+    finally:
+        px.shutdown()
+        up.shutdown()
+        prefixreplay.reset()
+    return out
+
+
+def test_a_re_read_stub_is_forwarded_byte_identical_on_the_next_turn() -> None:
+    """The two transforms have to agree about determinism. The re-read delta emits a
+    stub whose bytes are a pure function of the message prefix (ADR 0010), and replay
+    forwards a message only when its canonical form has not changed — so the stub the
+    provider cached at turn N must be the stub it is shown at turn N+1, right through
+    the client renumbering its `index` stamps and advancing its breakpoint underneath.
+    """
+    turns = (_reread_body(1), _reread_body(2, extra=1))
+    first, second = _through_the_proxy(*turns)
+
+    assert "«distil-reread" in _key(first), "the re-read delta never fired — fixture is stale"
+    # The control arm, same session with replay off: the rewrite really does move these
+    # bytes, so the assertion below cannot pass through a dead mechanism.
+    off1, off2 = _through_the_proxy(*turns, replay=False)
+    assert [i for i in range(5) if _key(_strip_marks(off2[i])) != _key(_strip_marks(off1[i]))], (
+        "the fixture stopped churning — a stability assertion with no churn proves nothing"
+    )
+    # Marks stripped for the same reason as `_stable_prefix`: the client moved its own
+    # breakpoint this turn and replay re-places it where the client now wants it, which
+    # is the one difference that is not a rewrite of the cached span.
+    drift = [i for i in range(5) if _key(_strip_marks(second[i])) != _key(_strip_marks(first[i]))]
+    assert not drift, f"the re-read session was re-billed at {drift}"
+
+
+def test_replay_never_overlays_a_stub_the_compressor_has_taken_back() -> None:
+    """The guard, on the transform most able to trip it. An `Edit` arriving at turn N+1
+    whose `old_string` straddles the elision cut and runs past the base's last line is
+    quotable from neither copy, so `_guard_quotes` withdraws the re-read delta and the
+    block goes back to verbatim. Replay restores bytes, never decisions: it must forward
+    that verbatim block, not last turn's stub, even though the client re-sent the message
+    byte-identical and the whole prefix is otherwise a hit.
+    """
+    quote = "\n".join(_handler(i) for i in range(32, 42))
+    first, second = _through_the_proxy(_reread_body(1), _reread_body(2, edit=quote))
+
+    assert "«distil-reread" in _key(first[4]), "the re-read delta never fired — fixture is stale"
+    assert "«distil-reread" not in _key(second[4]), (
+        "replay overlaid the stub the compressor had just taken back — the agent's Edit "
+        "now has no byte-exact copy of the lines it quotes"
+    )
+    assert quote in _key(second[4]).replace("\\n", "\n"), "the withdrawn lines did not come back"
+    # ...and it stopped at exactly that message: the base read before it still replays.
+    assert _key(second[2]) == _key(first[2]), "the divergence was applied to the wrong index"
 
 
 def test_the_gateway_holds_the_prefix_and_never_shares_it_between_tenants() -> None:

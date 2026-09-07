@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-09-06
 - **Relates to:** `distil/prefixreplay.py`, `distil/proxy.py`, `tests/test_cache_contract.py`, ADR 0008
+- **Amends:** ADR 0008 — adds clause (f): a canonically-equal prefix is forwarded as previously sent
 
 ## Context
 
@@ -62,10 +63,16 @@ Canonicalisation ignores `cache_control` and `index`, normalises the spellings o
 text block (bare string, `text`, `input_text`, `output_text`), and normalises JSON key
 order. It ignores nothing else. `citations`, `annotations` and their relatives are **not**
 in the set: they may carry meaning, and the cost of leaving them out is a missed hit, not a
-wrong prefix. Tool inputs (`input`, `arguments`, `args`) are **opaque** — compared as they
-arrive, never structurally rewritten, because a tool input may itself contain a key called
-`content` and applying the message-level sugar to it would declare two different tool calls
-equal.
+wrong prefix. Tool payloads (`input`, `arguments`, `args` going out;
+`response`, `output` coming back) are **opaque** — compared as they arrive, never
+structurally rewritten, because the rules above are about message structure and none of
+them hold one level down. A tool payload may contain a key called `content` (applying the
+sugar there would declare two different tool calls equal) or a key called `index` that is
+data: Gemini's `functionResponse.response` is arbitrary tool output, and stripping `index`
+inside it would call two different results the same result and forward the first one's
+bytes for the second. A stale tool result is the one failure this mechanism must never
+produce, so the boundary is drawn at the payload rather than at a list of field names
+inside it.
 
 The comparison key and the forwarded bytes are separate things and never touched to each
 other: the key is `sort_keys` JSON, the wire is not.
@@ -110,7 +117,7 @@ because a loop condition is exactly the kind of thing a later optimisation delet
 
 Headroom's `PrefixCacheTracker.overlay_cached_prefix` does the same thing — replay
 previously-forwarded bytes while a canonical comparison holds, with the same
-comparison-key/forwarded-bytes separation, the same opaque treatment of tool inputs,
+comparison-key/forwarded-bytes separation, the same opaque treatment of tool payloads,
 breakpoint re-placement at the client's positions, and conversation-lineage scoping. It is
 the right mechanism and there is no point pretending otherwise. What distil adds is the
 guard above (Headroom classifies a miss rather than repairing it, and has no
@@ -161,7 +168,10 @@ write. That is the correct trade for not opening a second content-at-rest surfac
 - A client that sends non-compact JSON pays one extra cache write the first time replay
   fires, because `_serialize_if_changed` forwards the client's original bytes when nothing
   changed and compact bytes when something did. From the next turn on both sides are
-  compact and stable. Not worth per-item byte plumbing to remove.
+  compact and stable. Not worth per-item byte plumbing to remove — and pinned as
+  convergence rather than left as a claim, with a control arm showing the same session
+  never converges at all with replay off
+  (`tests/test_proxy_integration.py::test_replay_converges_on_a_body_the_compressor_left_untouched`).
 - This constrains future transforms in a new way. Anything whose output for message *i*
   depends on messages after *i* will find replay declining to hold it — correctly. If that
   ever becomes the common case, the guard is where to look, not the symptom.
