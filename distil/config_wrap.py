@@ -50,7 +50,10 @@ unconditionally). ``_claim_session``/``_release_session`` track that with a
 per-target-path registry of pid-tagged entries, so a live sibling's
 backup/sentinel is never mistaken for crash leftovers, and whichever session
 turns out to be the LAST one running does the real restore — regardless of
-exit order.
+exit order. Every claim-and-write and release-and-restore transition holds
+``_session_lock(path)`` for its whole extent, so a release's "no live
+siblings remain" check and a fresh sibling's claim can never straddle each
+other — the failure mode a lock-free registry check alone still allows.
 """
 
 from __future__ import annotations
@@ -92,32 +95,29 @@ def _created_marker(path: Path) -> Path:
     return path.with_name(path.name + ".distil-created")
 
 
-def _create_mode() -> int:
-    # ponytail: 0o600 is a real owner-only restriction on POSIX. On Windows
-    # os.open's mode argument is documented as ignored (NTFS ACLs, not mode
-    # bits) — skip pretending it does anything there rather than chasing it
-    # with a chmod call that has nothing to bite on; 0o666 matches what
-    # write_text/write_bytes already produced there before this fix.
-    return 0o600 if os.name == "posix" else 0o666
-
-
 def _atomic_write_secure(path: Path, data: bytes) -> None:
-    """Write ``data`` to ``path`` so a mid-write failure can never corrupt it
-    and a credential embedded in ``data`` is never briefly world-readable.
+    """Write ``data`` to ``path`` so a mid-write failure can never corrupt it,
+    two concurrent writers can never collide, and a credential embedded in
+    ``data`` is never briefly world-readable.
 
-    A sibling temp file (same directory, so ``os.replace`` is a same-
-    filesystem atomic rename) is created 0600 *at* ``os.open`` — not
-    chmod-after, the same fix gateway_keys.py's ``_save_locked`` and
-    atrest.py's ``_load_key`` already apply, both of which measured a real
-    window at the process umask (0o644) between an ordinary write and a
-    trailing chmod — then fsync'd and swapped into place with one
-    ``os.replace``. If anything raises before that replace (disk full,
-    permission denied, an unparseable existing file upstream of this call),
-    ``path`` is left completely untouched; the temp file never survives this
-    function either way, success or failure.
+    A same-directory temp file (so ``os.replace`` is a same-filesystem atomic
+    rename) with a name UNIQUE per call — ``tempfile.mkstemp`` rather than a
+    static ``<name>.distil-tmp`` — is created 0600 *at* creation (the mode
+    ``mkstemp`` always uses, POSIX or not) — not chmod-after, the same fix
+    gateway_keys.py's ``_save_locked`` and atrest.py's ``_load_key`` already
+    apply, both of which measured a real window at the process umask (0o644)
+    between an ordinary write and a trailing chmod. A static temp name let
+    two concurrent writers to the same target open/truncate the SAME temp
+    file, so one's ``os.replace`` could publish the other's half-written
+    bytes; a unique name per call makes that structurally impossible. The
+    temp is fsync'd and swapped into place with one ``os.replace``. If
+    anything raises before that replace (disk full, permission denied, an
+    unparseable existing file upstream of this call), ``path`` is left
+    completely untouched; the temp file never survives this function either
+    way, success or failure.
     """
-    tmp = path.with_name(path.name + ".distil-tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _create_mode())
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".distil-", suffix=".tmp")
+    tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -205,6 +205,66 @@ def _prune_dead_registrants(registry_dir: Path) -> None:
         pid_str = entry.name.split(".", 1)[0]
         if not pid_str.isdigit() or not _pid_is_alive(int(pid_str)):
             entry.unlink(missing_ok=True)
+
+
+def _lock_fd(fd: int) -> None:
+    if os.name == "posix":
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    else:
+        import msvcrt
+
+        os.write(fd, b"\0")  # msvcrt.locking needs >=1 byte in the file to lock
+        while True:
+            try:
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+                return
+            except OSError:
+                time.sleep(0.01)  # another session holds it — poll (no blocking primitive here)
+
+
+def _unlock_fd(fd: int) -> None:
+    if os.name == "posix":
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    else:
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+
+
+@contextlib.contextmanager
+def _session_lock(path: Path) -> Iterator[None]:
+    """Cooperative cross-process lock over the WHOLE claim-and-write /
+    release-and-restore transition for ``path`` — not just the registry
+    dir's own mkdir, which is atomic on its own but not enough. Without
+    this, a release deciding "no live siblings remain, I must restore" and a
+    fresh claim ("register me, I'm about to write my own config") can
+    interleave: release sees an empty registry, a new session claims and
+    writes its fresh config in that gap, and release's restore then
+    clobbers it. Callers hold this for their entire claim+write or
+    release+restore block, so the two transitions can never straddle each
+    other, regardless of which starts first.
+
+    ponytail: a small local fcntl/msvcrt lockfile scoped to this module —
+    swap for the shared ``distil._filelock`` helper landing in #177 once it
+    merges, rather than maintaining two copies of the same platform shim.
+    """
+    lock_path = path.with_name(path.name + ".distil-sessions.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        _lock_fd(fd)
+        try:
+            yield
+        finally:
+            _unlock_fd(fd)
+    finally:
+        os.close(fd)
 
 
 def _claim_session(path: Path) -> tuple[Path, str, bool]:
@@ -386,15 +446,16 @@ def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
     doc["customModels"] = models
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    registry_dir, my_id, is_first = _claim_session(path)
     backup = _backup_path(path)
     sentinel = _created_marker(path)
-    if is_first:
-        if existed:
-            _atomic_write_secure(backup, original)  # type: ignore[arg-type]
-        else:
-            sentinel.touch()
-    _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
+    with _session_lock(path):
+        registry_dir, my_id, is_first = _claim_session(path)
+        if is_first:
+            if existed:
+                _atomic_write_secure(backup, original)  # type: ignore[arg-type]
+            else:
+                sentinel.touch()
+        _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
     print(
         f'  → merged a "distil" entry into {path}\'s customModels — '
         "select it in droid's model picker if it isn't already active"
@@ -402,13 +463,14 @@ def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
     try:
         yield []
     finally:
-        if _release_session(registry_dir, my_id):
-            if backup.exists():
-                _atomic_write_secure(path, backup.read_bytes())
-                backup.unlink(missing_ok=True)
-            elif sentinel.exists():
-                path.unlink(missing_ok=True)
-                sentinel.unlink(missing_ok=True)
+        with _session_lock(path):
+            if _release_session(registry_dir, my_id):
+                if backup.exists():
+                    _atomic_write_secure(path, backup.read_bytes())
+                    backup.unlink(missing_ok=True)
+                elif sentinel.exists():
+                    path.unlink(missing_ok=True)
+                    sentinel.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -485,15 +547,16 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
     new_text = _omp_patch(original.decode("utf-8") if original else None, fenced)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    registry_dir, my_id, is_first = _claim_session(path)
     backup = _backup_path(path)
     sentinel = _created_marker(path)
-    if is_first:
-        if existed:
-            _atomic_write_secure(backup, original)  # type: ignore[arg-type]
-        else:
-            sentinel.touch()
-    _atomic_write_secure(path, new_text.encode("utf-8"))
+    with _session_lock(path):
+        registry_dir, my_id, is_first = _claim_session(path)
+        if is_first:
+            if existed:
+                _atomic_write_secure(backup, original)  # type: ignore[arg-type]
+            else:
+                sentinel.touch()
+        _atomic_write_secure(path, new_text.encode("utf-8"))
     print(
         f'  → wrote provider "distil" into {path} — select it with '
         "`omp models set distil/<model>` if it isn't already active"
@@ -501,13 +564,14 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
     try:
         yield []
     finally:
-        if _release_session(registry_dir, my_id):
-            if backup.exists():
-                _atomic_write_secure(path, backup.read_bytes())
-                backup.unlink(missing_ok=True)
-            elif sentinel.exists():
-                path.unlink(missing_ok=True)
-                sentinel.unlink(missing_ok=True)
+        with _session_lock(path):
+            if _release_session(registry_dir, my_id):
+                if backup.exists():
+                    _atomic_write_secure(path, backup.read_bytes())
+                    backup.unlink(missing_ok=True)
+                elif sentinel.exists():
+                    path.unlink(missing_ok=True)
+                    sentinel.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -572,15 +636,16 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
     doc["providers"] = providers
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    registry_dir, my_id, is_first = _claim_session(path)
     backup = _backup_path(path)
     sentinel = _created_marker(path)
-    if is_first:
-        if existed:
-            _atomic_write_secure(backup, original)  # type: ignore[arg-type]
-        else:
-            sentinel.touch()
-    _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
+    with _session_lock(path):
+        registry_dir, my_id, is_first = _claim_session(path)
+        if is_first:
+            if existed:
+                _atomic_write_secure(backup, original)  # type: ignore[arg-type]
+            else:
+                sentinel.touch()
+        _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
     print(
         f'  → wrote provider "distil" into {path} — pick it from Crush\'s '
         "model picker (ctrl+l), or run `model add distil/<id>` in crushrc "
@@ -589,13 +654,14 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
     try:
         yield []
     finally:
-        if _release_session(registry_dir, my_id):
-            if backup.exists():
-                _atomic_write_secure(path, backup.read_bytes())
-                backup.unlink(missing_ok=True)
-            elif sentinel.exists():
-                path.unlink(missing_ok=True)
-                sentinel.unlink(missing_ok=True)
+        with _session_lock(path):
+            if _release_session(registry_dir, my_id):
+                if backup.exists():
+                    _atomic_write_secure(path, backup.read_bytes())
+                    backup.unlink(missing_ok=True)
+                elif sentinel.exists():
+                    path.unlink(missing_ok=True)
+                    sentinel.unlink(missing_ok=True)
 
 
 CONFIG_PRESETS: dict[str, ConfigPreset] = {
@@ -663,22 +729,23 @@ def restore_stale_backups() -> None:
             if not backup.exists() and not sentinel.exists():
                 continue
             registry_dir = _registry_dir(path)
-            _prune_dead_registrants(registry_dir)
-            try:
-                still_live = any(registry_dir.iterdir())
-            except FileNotFoundError:
-                still_live = False
-            if still_live:
-                continue  # a live sibling session owns this path — not ours to touch
-            try:
-                if backup.exists():
-                    backup.replace(path)
-                    print(f"distil wrap: restored {path} from a previous session's backup")
-                elif sentinel.exists():
-                    path.unlink(missing_ok=True)
-                    sentinel.unlink()
-                    print(f"distil wrap: removed {path} left behind by a previous session")
-                with contextlib.suppress(OSError):
-                    registry_dir.rmdir()
-            except OSError:
-                pass  # best-effort; never block a new wrap over old cleanup
+            with _session_lock(path):
+                _prune_dead_registrants(registry_dir)
+                try:
+                    still_live = any(registry_dir.iterdir())
+                except FileNotFoundError:
+                    still_live = False
+                if still_live:
+                    continue  # a live sibling session owns this path — not ours to touch
+                try:
+                    if backup.exists():
+                        backup.replace(path)
+                        print(f"distil wrap: restored {path} from a previous session's backup")
+                    elif sentinel.exists():
+                        path.unlink(missing_ok=True)
+                        sentinel.unlink()
+                        print(f"distil wrap: removed {path} left behind by a previous session")
+                    with contextlib.suppress(OSError):
+                        registry_dir.rmdir()
+                except OSError:
+                    pass  # best-effort; never block a new wrap over old cleanup

@@ -16,6 +16,8 @@ import os
 import stat
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -424,6 +426,44 @@ def test_atomic_write_secure_round_trips_new_content(tmp_path):
     assert list(tmp_path.iterdir()) == [path]
 
 
+def test_atomic_write_secure_concurrent_writers_never_produce_a_mixed_file(tmp_path):
+    """Regression: a STATIC temp name (``<name>.distil-tmp``) let two
+    concurrent writers open/truncate the SAME temp file, so one's
+    ``os.replace`` could publish the other's half-written bytes, or a stale
+    temp could survive. A unique temp name per call (``tempfile.mkstemp``)
+    makes that structurally impossible — the final file must be byte-exact
+    to exactly one writer's payload, never a mix, and no temp survives
+    either writer."""
+    path = tmp_path / "target"
+    payload_a = b"A" * 500_000
+    payload_b = b"B" * 500_000
+    start = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def _write(data: bytes) -> None:
+        start.wait()
+        try:
+            for _ in range(10):
+                config_wrap._atomic_write_secure(path, data)
+        except BaseException as exc:  # noqa: BLE001 — a collision must fail the test, not just warn
+            errors.append(exc)
+
+    t1 = threading.Thread(target=_write, args=(payload_a,))
+    t2 = threading.Thread(target=_write, args=(payload_b,))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert not errors, f"concurrent writers collided: {errors!r}"
+    final = path.read_bytes()
+    assert final in (payload_a, payload_b), (
+        "the file must be one writer's whole payload, never a mix"
+    )
+    leftovers = [p for p in tmp_path.iterdir() if p != path]
+    assert leftovers == [], f"a temp file survived concurrent writes: {leftovers}"
+
+
 def test_config_survives_the_wrapped_child_being_killed(tmp_path, monkeypatch):
     """The wrap process itself keeps running when the CHILD dies by signal —
     proxy.wrap_run's finally block (which __exit__s the config context
@@ -579,6 +619,65 @@ def test_overlapping_sessions_on_the_same_config_restore_to_the_true_original(
         assert path.read_text() == true_original, f"exit order {exit_order} lost the true original"
         assert not config_wrap._backup_path(path).exists()
         assert not config_wrap._registry_dir(path).exists()
+
+
+def test_session_lock_serializes_a_release_against_a_concurrent_claim(tmp_path, monkeypatch):
+    """Regression for the exact race `_session_lock` exists to close: A is
+    the last live session and is about to restore; B claims fresh in the gap
+    between A unlinking its own registry entry and A evaluating "no live
+    siblings remain" — the caller-side restore then runs and would silently
+    clobber B's brand-new config. `_prune_dead_registrants` is patched to
+    pause right there (the exact point named in the bug report) while a
+    second thread races to claim; the lock must force one transition to
+    fully finish before the other starts, so B's config is never clobbered
+    no matter which one wins the race to go first."""
+    path = tmp_path / "crush.json"
+    path.write_text("true original")
+    config_wrap._backup_path(path).write_text("true original")
+    registry_dir = config_wrap._registry_dir(path)
+    registry_dir.mkdir()
+    (registry_dir / "111.1").touch()  # A is the sole, about-to-release registrant
+
+    order: list[str] = []
+    a_paused_after_unlink = threading.Event()
+    let_a_continue = threading.Event()
+    real_prune = config_wrap._prune_dead_registrants
+
+    def _paused_prune(rd: object) -> None:
+        order.append("a_paused_after_unlink")
+        a_paused_after_unlink.set()
+        let_a_continue.wait(timeout=2)
+        real_prune(rd)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(config_wrap, "_prune_dead_registrants", _paused_prune)
+
+    def _release_a() -> None:
+        with config_wrap._session_lock(path):
+            if config_wrap._release_session(registry_dir, "111.1"):
+                path.write_text(config_wrap._backup_path(path).read_text())
+        order.append("a_done")
+
+    def _claim_b() -> None:
+        assert a_paused_after_unlink.wait(timeout=2), "A never reached the race window"
+        with config_wrap._session_lock(path):
+            order.append("b_claimed")
+            config_wrap._claim_session(path)
+            path.write_text("b's fresh config")
+
+    t_a = threading.Thread(target=_release_a)
+    t_b = threading.Thread(target=_claim_b)
+    t_a.start()
+    t_b.start()
+    a_paused_after_unlink.wait(timeout=2)
+    time.sleep(0.05)  # give B a real chance to try (and correctly fail) to jump the lock
+    let_a_continue.set()
+    t_a.join(timeout=2)
+    t_b.join(timeout=2)
+
+    assert order == ["a_paused_after_unlink", "a_done", "b_claimed"], (
+        "B's claim must not straddle A's release — it must fully follow it"
+    )
+    assert path.read_text() == "b's fresh config", "A's restore must not clobber B's fresh config"
 
 
 # ---------------------------------------------------------------------------
