@@ -142,7 +142,33 @@ python benchmarks/derc_live_compare.py
 <span class="d">export ANTHROPIC_API_KEY=sk-ant-…</span>
 distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner anthropic --tokenizer anthropic</pre>
 
+    <p><strong>Those three numbers are from 2026-06 and are superseded.</strong> A fresh head-to-head was run on 2026-09-04 against <code>headroom-ai</code> 0.37.0 <code>[ml,code]</code>, <code>llmlingua</code> 0.2.2 and distil 1.51.1 on Python 3.12, with raw output committed at <code>benchmarks/results/2026-09-04/</code>: on the 9-domain corpus gate (warm, with Headroom's Kompress model preloaded) distil-causal reaches <strong>52.9% tokens / 58.7% $ / 100% decision-equivalent / PASS</strong> against Headroom's <strong>1.7% / 2.0% / 81% / FAIL</strong>. See <a href="compare.html#headroom-fresh">the fresh head-to-head</a> for the coding-agent workload too, where the ordering reverses for a reason worth reading.</p>
+
     <p>Full methodology, corpus generation script, and caveats are in <a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md" target="_blank" rel="noopener">BENCHMARKS.md</a>. For a step-by-step walkthrough of every headline number — all three CI gates, real-model grading via <code>prove.py</code>, the invariant scorecard, and the E7 negative result — see <a href="benchmarks.html"><strong>Reproduce the Numbers</strong></a>.</p>
+
+    <hr/>
+
+    <h2>"How is this different from Headroom?"</h2>
+
+    <p>Headroom is a real, adopted compressor and the closest thing to a peer. The difference is not the compression ratio — it is what each project is willing to be held to. Read directly against the public <code>headroom-ai</code> 0.37.0 source on <strong>2026-09-04</strong>, with every line cited to a <code>file:line</code> in that release (<a href="compare.html#headroom-v0370-audit">the full audit</a>):</p>
+
+    <ul>
+      <li><strong>No per-request behavioural check.</strong> There is no shadow or dual-send path anywhere in the codebase. <code>accuracy_guard="strict"</code> is echoed back on <code>/healthz</code> and <code>/stats</code>, but nothing branches on its value.</li>
+      <li><strong>Recovery is a TTL cache, not a guarantee.</strong> The store expires entries after 1800 seconds with a 1000-entry FIFO cap and does no integrity or round-trip check on what it returns. Distil's is content-addressed, verified by a gate, and the agent can call it mid-task.</li>
+      <li><strong>Four lossy paths ship with no retrieval at all</strong> — OpenAI chat streaming, Responses under ChatGPT auth, Gemini streaming, and Bedrock. Distil's gateway ships Tier-0 only rather than emit a stub it cannot restore.</li>
+      <li><strong>Savings are uncalibrated</strong>, falling back to <code>chars/3.5</code>; distil reconciles its count against the provider's billed <code>usage</code>.</li>
+      <li><strong>Where it is genuinely strong</strong>, and we say so: its prompt-cache prefix replay is real engineering, and its breadth — 20 wrap targets, 6 framework integrations — is real.</li>
+    </ul>
+
+    <p>On measured output, 2026-09-04: distil <strong>52.9%/58.7%/100%/PASS</strong> vs Headroom <strong>1.7%/2.0%/81%/FAIL</strong> on the corpus gate — and on a read→edit→re-read coding workload Headroom reaches <strong>35.6%</strong> tokens where distil's digest is <strong>0.0% by design</strong>, because a file the agent may have to quote back byte-exact is exempt from digestion. Both numbers are on <a href="compare.html#headroom-fresh">one page</a>, not just the flattering one.</p>
+
+    <hr/>
+
+    <h2>"Isn't provider-native context compaction the same thing?"</h2>
+
+    <p>No, and we measured it rather than argued it. <code>distil certify-provider</code> ran pre-registered, replicated experiments (n=40 per run) against both providers' own context management. Anthropic's <strong>default</strong> context-editing policy (<code>keep=3</code>) changed the agent's next action in <strong>95–100%</strong> of cases against a 2.5% A/A noise floor — keeping the three most recent tool uses did not lower the change rate, it turned <em>stalling</em> into <em>acting on missing facts</em>. OpenAI's compaction changed <strong>12.5–20%</strong>. Summarisation is roughly 7× safer than deletion, and neither certifies at α=0.1. <a href="provider-compaction.html">The study, and how to re-run it on your own config →</a></p>
+
+    <p>The structural difference: provider compaction is server-side, on by default, and reports nothing about what it removed. Distil's folds are reversible, declared in-context, and the agent can pull the original back. The two are not alternatives — you can run distil precisely to <em>measure</em> what the provider's compaction is costing you.</p>
 
     <hr/>
 

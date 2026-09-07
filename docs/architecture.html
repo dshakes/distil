@@ -183,7 +183,7 @@
     <p class="archfig-hint"><b>Interactive</b> — select any block (click, or Tab then Enter) to open the concept or technique behind it.</p>
 
     <div class="callout">
-      <strong>The six-layer story.</strong> (1) Cache-aware compression keeps the prefix byte-stable. (2) Tier-0 lossless transforms run unconditionally. (3) Tier-1 reversible digests handle large tool outputs behind content handles. (4) Causal/counterfactual pruning discovers what is safe to drop. (5) The conformal DERC certificate gates everything lossy. (6) Salience protection and a sub-millisecond, model-free hot path make it viable as an inline proxy.
+      <strong>The six-layer story.</strong> (1) Cache-aware compression keeps the prefix byte-stable. (2) Tier-0 lossless transforms run unconditionally. (3) Tier-1 reversible digests handle large tool outputs behind content handles. (4) Causal/counterfactual pruning discovers what is safe to drop. (5) The conformal DERC certificate gates everything lossy. (6) Salience protection and a sub-millisecond, model-free hot path make it viable as an inline proxy. Two constraints run <em>across</em> all six rather than sitting in one of them: <strong>exact-quote provenance</strong> (<code>compress/provenance.py</code>) exempts any block whose bytes are a verbatim slice of a file — read from the shell command, not just the tool name — so a later <code>Edit(old_string=…)</code> still matches; and <strong>no keep budget is shared between blocks anywhere</strong>, which is what makes an untrusted block unable to starve a trusted one (<a href="threat-model.html">threat model</a>).
     </div>
 
     <hr/>
@@ -458,6 +458,8 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         <tr><td><code>compress/stabilize.py</code></td><td>Schema canonicalization + volatile-field extraction</td></tr>
         <tr><td><code>compress/tier0.py</code></td><td>Tier-0 lossless transforms (JSON minify, run-length collapse)</td></tr>
         <tr><td><code>compress/tier1.py</code></td><td>Tier-1 reversible digest + content handle embedding</td></tr>
+        <tr><td><code>compress/provenance.py</code></td><td>Exact-quote provenance — which blocks are a verbatim slice of a file and must never be digested; one rule, used by all three adapters</td></tr>
+        <tr><td><code>curve.py</code></td><td>The degradation curve — savings vs. fact recall at every ladder rung (<code>distil bench --curve</code>)</td></tr>
         <tr><td><code>compress/salience.py</code></td><td>Model-free salience protection (pre-gate safety net) + surprise-preserving retention</td></tr>
         <tr><td><code>compress/guideline.py</code></td><td>Outcome-guided compression policy — protects content classes whose digestion co-occurs with trajectory-level regressions</td></tr>
         <tr><td><code>compress/strategies.py</code></td><td>Strategy registry + reject-if-bigger invariant</td></tr>

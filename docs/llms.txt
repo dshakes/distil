@@ -10,8 +10,10 @@ dependencies. Four ways to use it, and they do not all reach the same tier:
     opencode, qwen, goose, grok, openhands, copilot (GitHub Copilot CLI, BYOK
     mode), kimi (Kimi CLI). Zero config. (openhands additionally needs its own
     --override-with-envs flag before it will read the environment.)
-  - HTTP proxy for Anthropic, OpenAI (Chat Completions + Responses API), and
-    Google Gemini. Point any base_url client at it.
+  - HTTP proxy for Anthropic Messages, OpenAI (Chat Completions + the Responses
+    API), Azure OpenAI, and Google Gemini generateContent. Point any base_url
+    client at it. The same provider coverage is in all three servers: the sync
+    proxy, the async proxy, and the standalone gateway.
   - Python library: `from distil import compress_messages, expand_handle`.
   - TypeScript library: `compress(messages)` from the `distil-llm` npm package,
     plus `distilMiddleware()` for the Vercel AI SDK's wrapLanguageModel.
@@ -33,6 +35,32 @@ output the certificate does not cover.
 Graded on SWE-bench Verified: 42.0% task success
 vs 39.2% full context (paired non-inferiority certified; superiority not
 significant). 83.2% savings at 0% decision-change rate on a live head-to-head.
+
+Five properties are checked rather than asserted, and each is separately
+runnable:
+
+  - Cache contract: compression is suffix-only and cache-monotonic — it may
+    never rewrite bytes the provider has already cached. Enforced as an
+    invariant, after shipping the bug once and measuring it at 2x the cost of
+    compressing nothing.
+  - Exact-quote guarantee: a block whose bytes are a verbatim slice of a file is
+    never digested, so a later Edit(old_string=...) still matches. Provenance is
+    read from the shell command (cat, head, sed -n), not just the tool name.
+    Byte-exact quote loss on real coding traffic: 39.3% -> 16.2%.
+  - Adversarial validation: `distil validate --adversarial` runs a COMA-class
+    battery through the same public path the proxy uses. No keep budget is
+    shared between blocks anywhere, asserted as an equality in CI. Two findings
+    are published rather than smoothed over: dedup-baiting does fold the genuine
+    error line (reversibility recovers it), and decoy-verdict flooding is a real,
+    unmitigated denial of savings.
+  - Degradation curve: `distil bench --curve` reports savings, fact recall,
+    visible recall, facts lost and reversibility at every rung of the ladder,
+    offline and free.
+  - Paired live estimator: shadow mode replays a sampled request three times (A
+    and A' on the original, B on the compressed context) and reports the paired
+    difference 1{A=B} - 1{A=A'} with a bootstrap 95% CI, unclipped, so it can
+    report harm. One reporting floor (50 A/B + 30 A/A) gates every surface, and
+    below it every surface prints "below reporting floor" rather than a number.
 
 ## Key sources
 
@@ -126,6 +154,15 @@ https://dshakes.github.io/distil/benchmark-independent.html
 Research (the negative results too: where compression did NOT survive real
 end-to-end execution, and what that bounds):
 https://dshakes.github.io/distil/research.html
+
+Cache contract (the invariant: compression may never rewrite bytes the provider
+has already cached, and what happens when it does):
+https://dshakes.github.io/distil/cache-contract.html
+
+Threat model (compression as an attack surface: the COMA-class battery, what is
+mitigated by construction, what is only detected, and the two cases that do not
+come back clean):
+https://dshakes.github.io/distil/threat-model.html
 
 Cache (prompt-prefix economics: why a compressor that removes tokens can still
 cost more, and how distil stays cache-monotonic):

@@ -31,15 +31,26 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 </td></tr>
 </table>
 
-<p align="center">Distil also <b>compresses</b> — the tool output, logs, and history your agent re-sends every turn, reversibly.<br/>It's the one context operation that ships with its own certificate.</p>
+<p align="center">Distil also <b>compresses</b> — the tool output, logs, and history your agent re-sends every turn, reversibly.<br/>It's the one context operation that ships with its own certificate, its own adversarial gate, and a number it is willing to refuse to print.</p>
+
+<h3 align="center">The 60-second version</h3>
+
+<p align="center">Compression that <b>cannot be checked</b> is a guess about your agent's behaviour.<br/>Distil is built so every part of it is checkable, and so the checks are allowed to come back <b>no</b>.</p>
+
+- **It proves decision-equivalence per request — and can say no.** Shadow mode replays a sampled request three times: twice on the original context and once on the compressed one, then reports `1{A=B} − 1{A=A'}` — a *paired difference* against the model's own self-agreement, with a bootstrap 95% CI, **unclipped, so it is allowed to be negative**. One reporting floor (50 A/B + 30 A/A) gates every surface; below it, every surface says *below reporting floor* instead of a number. The current live sample is below that floor, and the status line says so.
+- **What it folds, it can give back byte-exact.** A digest is a marker plus a handle into a local content-addressed store, and the agent gets a `distil_expand` tool to recover the original mid-task. The gateway ships **Tier-0 only** rather than emit a stub it cannot restore.
+- **It will not digest a line your agent has to quote back.** An `Edit(old_string=…)` is a literal match. Reading exact-quote provenance from the *shell command*, not just the tool name, took byte-exact quote loss from **39.3% → 16.2%** on real coding traffic — and it costs real savings, which we price rather than hide.
+- **It does not break your prompt cache.** Compression is suffix-only and cache-monotonic by construction: a later turn may never rewrite bytes the provider has already cached. We shipped that bug once, measured it at *2× the cost of compressing nothing*, and made the invariant enforced. **[The cache contract →](https://dshakes.github.io/distil/cache-contract.html)**
+- **It has been pointed at a hostile input, not just a hard one.** `distil validate --adversarial` runs a COMA-class battery through the same path the proxy uses, and we publish the two cases that do not come back clean. **[Threat model →](https://dshakes.github.io/distil/threat-model.html)**
+- **Every rung of the dial is measured, not just the default.** `distil bench --curve` traces savings against fact recall across the whole ladder, offline and free. **[The curve →](https://dshakes.github.io/distil/benchmark.html#degradation-curve)**
 
 ## What it does
 
-- **Wrap your agent** — `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen` · `goose` · `grok` · `openhands` · `copilot` · `kimi`. Zero config, no code change.
-- **Run a proxy** — point any `base_url` client at it. Python, TypeScript, any language, any framework.
+- **Wrap your agent** — 11 presets: `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen` · `goose` · `grok` · `openhands` · `copilot` · `kimi`. Zero config, no code change.
+- **Run a proxy** — point any `base_url` client at it. Python, TypeScript, any language, any framework. Sync proxy, async proxy, and a standalone gateway, with the **same** provider coverage in each: Anthropic Messages, OpenAI Chat Completions **and** the Responses API, Azure OpenAI, and Gemini `generateContent`.
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
-- **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands, in-process, no network hop.
+- **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands · AutoGen, in-process, no network hop — plus an **ASGI middleware** for any Starlette/FastAPI app that hosts its own LLM endpoint, and the [npm package](https://www.npmjs.com/package/distil-llm) for the Vercel AI SDK.
 - **On a subscription** — `distil hook --install`: Claude Code compresses its own tool output through
   the documented `PostToolUse` extension point. No proxy, no credentials touched. `distil quota` shows
   the rate-limit window it buys back. [Details →](https://dshakes.github.io/distil/subscription.html)
@@ -118,7 +129,7 @@ TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs
 
 <h3 align="center" id="why-trust-it">Why trust it 📊</h3>
 
-<p align="center"><b>Every other compressor asks you to <i>trust</i> it won't break your agent. Distil is the only one that proves it won't.</b><br/>On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b>: <b>42.0% vs 39.2%</b>. <sub>(SWE-bench Verified)</sub></p>
+<p align="center"><b>Every other compressor asks you to <i>trust</i> it won't break your agent. Distil is the only one that proves it won't.</b><br/>On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b>: <b>42.0% vs 39.2% tasks solved</b>. <sub>(SWE-bench Verified)</sub></p>
 
 <p align="center"><sub>Honest scope: +2.8pp is a point estimate (CI −0.6..+6.2pp — <b>non-inferiority certified, superiority not yet</b>). <a href="#-the-proof">Details, incl. what doesn't transfer →</a></sub></p>
 
@@ -132,6 +143,24 @@ TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs
 <tr><td>LLMLingua-2 <sub>(lossy — only 16/500 runs completed)</sub></td><td align="center">2.4%</td><td align="center">❌ −36.8pp</td><td align="center">❌</td></tr>
 <tr><td>no compression <sub>(full)</sub></td><td align="center">39.2%</td><td align="center">—</td><td align="center">—</td></tr>
 </table>
+
+<h4 align="center">Why Distil — the properties, not the adjectives</h4>
+
+<p align="center"><sub>Headroom column read directly against the public <a href="https://dshakes.github.io/distil/compare.html#headroom-v0370-audit"><code>headroom-ai</code> 0.37.0 source</a>, <b>as of v0.37.0, 2026-09-04</b>; every line there cites a <code>file:line</code> in that release. Facts, not adjectives — and where it is genuinely strong, we say so.</sub></p>
+
+| Property | Distil | Headroom 0.37.0 <sub>(2026-09-04)</sub> |
+|---|---|---|
+| **Per-request behavioural check** | Paired A/A′/B replay, unclipped difference, bootstrap CI, one reporting floor | No shadow or dual-send path in the codebase; `accuracy_guard="strict"` is echoed on `/healthz` and `/stats` but nothing branches on it |
+| **Recovery of what was folded** | Content-addressed store + agent-facing `distil_expand`, byte-exact, verified by a gate | A TTL cache (SQLite, 1800s, 1000-entry FIFO), no integrity or round-trip check |
+| **Lossy paths with no recovery** | None — the gateway ships Tier-0 only rather than emit a stub it cannot restore | Four: OpenAI chat streaming, Responses under ChatGPT auth, Gemini streaming, Bedrock |
+| **Savings number** | Counted, then calibrated against the provider's billed `usage` | Falls back to `chars/3.5` |
+| **Exact-quote guarantee for coding agents** | Provenance read from the shell command, not just the tool name; **quote loss 39.3% → 16.2%** | Not a property the tool has |
+| **Cache contract** | Suffix-only, cache-monotonic, enforced as an invariant | Genuinely strong prompt-cache replay (`overlay_cached_prefix`) — real engineering |
+| **Adversarial gate** | COMA-class battery in CI; the two cases that don't come back clean are published | None shipped |
+| **Degradation curve** | Every ladder rung measured, offline and free | Point configuration only |
+| **Shipped default** | Compresses | Mode `cache` — a full bypass on Bedrock, freeze-only on OpenAI |
+
+<p align="center"><sub>On the same corpus, re-run 2026-09-04 with Headroom's model preloaded: <b>distil 52.9% tokens / 58.7% $ / 100% decision-equivalent / PASS</b> vs <b>Headroom 1.7% / 2.0% / 81% / FAIL</b>. On a read→edit→re-read coding workload Headroom reaches 35.6% tokens where distil's digest is <b>0.0% by design</b> — that is the exact-quote guarantee being paid for, and <a href="https://dshakes.github.io/distil/compare.html#headroom-fresh">both numbers are on one page</a> with the raw output committed.</sub></p>
 
 <p align="center"><b>Distil is the only compressor statistically tied with full context — its v1.7 surprise-preserving digest reaches 42.0% vs 39.2% (paired non-inferiority certified; superiority not significant)</b> while every lossy tool craters. And on the live head-to-head above (graded by <code>claude-opus-4-8</code>), it certifies <b>83.2% savings at a 0% decision-change rate</b>, ~1,000× faster than the nearest tool <sub>(distil is pure-Python heuristics — no local ML model; competitors run transformer inference)</sub>. <a href="#-the-proof">Full breakdown ↓</a></p>
 
@@ -226,6 +255,10 @@ Honest scope: that's next-action equivalence — a **proxy**, not task success (
 You don't need byte-equivalence — you need **decision-equivalence**: your agent taking the *same actions* with compressed context. That's measurable and certifiable.
 
 - **Certified, not estimated** — a strategy ships only if a non-inferiority test passes; can't certify → full context.
+- **An estimator that can report harm** — the live check is a *paired* statistic, `1{A=B} − 1{A=A'}`, with a bootstrap 95% CI and no clamp at zero. The old ratio estimator printed exactly 100% whenever chance favoured it and could not express harm at all. One reporting floor now gates the status line, the proof ledger, `shadow-stats`, the census feed and the public dashboard alike — and prints *below reporting floor* rather than a flattering number.
+- **Byte-exact quotes survive, so `Edit` still applies** — an `Edit(old_string=…)` is a literal match against bytes the agent read earlier; digest that read and the edit silently does nothing while the agent reports success. Provenance is read from the shell command (`cat`, `head`, `sed -n`), not just the tool name — that is **33.6% of tool-result mass** the name rule never covered. It costs savings, and the [changelog prices it](CHANGELOG.md) instead of hiding it.
+- **Adversarially gated, and honest about the two hits** — `distil validate --adversarial` runs seven COMA-class cases through the same public path the proxy uses. Trusted/untrusted budget isolation is structural: there is **no keep budget shared between blocks anywhere**, asserted as an equality in CI. Two results we publish rather than smooth over: dedup-baiting *does* fold the genuine error line (reversibility is what saves it), and decoy-verdict flooding is a real, unmitigated **denial of savings** — 0.0% on that block.
+- **The whole dial is measured, not just the default** — `distil bench --curve` reports savings, fact recall, visible recall, facts lost and reversibility at every rung, offline and free.
 - **Certified end-to-end, too** — `distil certify-trajectories` bounds how many solvable tasks compression can cost (no other compressor certifies either level).
 - **Reversible, not lossy** — digests behind a handle, keeps the original, hands the agent a `distil_expand` tool. Compress fearlessly.
 - **Keeps the answer, folds the noise** — a per-content-type keep policy pins each kind's load-bearing lines (a log's pass/fail verdict, a traceback's frames, a diff's hunk headers); repeated near-identical error spam is deduped, and on a green run dedup tightens further since that noise didn't fail anything.
