@@ -265,7 +265,7 @@ distil bench   --tokenizer anthropic</pre>
 
     <ul>
       <li>The proxy intercepts <code>/v1/chat/completions</code> and <code>/v1/responses</code> in addition to <code>/v1/messages</code>, making it compatible with OpenAI-format APIs.</li>
-      <li>A first-class <strong>OpenAI adapter</strong> (<code>distil/adapters/openai.py</code>) handles both Chat Completions and the Responses API. The same Tier-0/1 machinery and recency carve-out apply; the only difference is the shape-walking for OpenAI's <code>role:"tool"</code> content (bare string or list-of-parts) and the Responses API's <code>input</code> array. Documented seams: expand-tool injection and output shaping for the Responses shape are not yet wired.</li>
+      <li>A first-class <strong>OpenAI adapter</strong> (<code>distil/adapters/openai.py</code>) handles both Chat Completions and the Responses API. The same Tier-0/1 machinery and recency carve-out apply; the only difference is the shape-walking for OpenAI's <code>role:"tool"</code> content (bare string or list-of-parts) and the Responses API's <code>input</code> array. A duplicate <code>image_url</code>/<code>input_image</code> is elided to a reversible reference, same certificate gate as the Anthropic adapter (ADR 0003). Documented seams: expand-tool injection and output shaping for the Responses shape are not yet wired.</li>
       <li>Token counts and dollar figures use Anthropic pricing by default; other models can be added to the pricing catalog.</li>
       <li>The TOST gate and causal ablation are purely statistical and format-independent.</li>
     </ul>
@@ -273,7 +273,7 @@ distil bench   --tokenizer anthropic</pre>
     <h3>Google Gemini</h3>
     <p>The Gemini adapter (<code>distil/adapters/gemini.py</code>) intercepts <code>generateContent</code> and <code>streamGenerateContent</code> requests when the proxy runs with <code>--upstream https://generativelanguage.googleapis.com</code>. What works today:</p>
     <ul>
-      <li><strong>Request compression:</strong> <code>text</code> parts from non-model turns — Tier-0 lossless. <code>functionResponse</code> payloads — Tier-1 reversible digest. <code>functionCall</code>, <code>inlineData</code>, <code>fileData</code>, model-authored text, and <code>systemInstruction</code> pass through untouched.</li>
+      <li><strong>Request compression:</strong> <code>text</code> parts from non-model turns — Tier-0 lossless. <code>functionResponse</code> payloads — Tier-1 reversible digest. A duplicate <code>inlineData</code>/<code>fileData</code> image is elided to a reversible reference, same certificate gate as the Anthropic adapter (ADR 0003); first occurrence, <code>functionCall</code>, model-authored text, and <code>systemInstruction</code> pass through untouched.</li>
       <li><strong>Recency carve-out:</strong> the most recent <code>functionResponse</code> turns are kept byte-exact (same as the Anthropic/OpenAI adapters), so the agent always sees its freshest tool output uncompressed.</li>
       <li><strong>Query-aware intent:</strong> the agent's intent is extracted from the most recent <code>functionCall</code> arguments and used to pin relevant lines in large tool outputs — the same additive mechanism as the other adapters.</li>
       <li><strong>Output shaping:</strong> pass <code>shape="gemini"</code> in the wrap/proxy flags to enable generation-side verbosity shaping tuned for Gemini's output structure.</li>

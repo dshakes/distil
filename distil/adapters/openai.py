@@ -61,9 +61,12 @@ from ..compress.intent import terms_of
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
 from ..compress import provenance as _provenance
+from ..compress import vision as _vision
 from .anthropic import (
+    _active_vision,
     _census,
     _census_tls,
+    _census_tokens,
     _census_tool_result,
     _hazard_tls,
     RestoreStore,
@@ -71,6 +74,7 @@ from .anthropic import (
     _compress_tool_result_text,
     _intent_tls,
     _keep_tls,
+    _vision_tls,
 )
 
 
@@ -212,6 +216,19 @@ def _compress_openai_message(
             if not isinstance(part, dict):
                 new_parts.append(part)
                 continue
+            if part.get("type") == "image_url" and isinstance(part.get("image_url"), dict):
+                # Repeated-image elision (ADR 0003) — same certificate gate, same
+                # census reasons, same RestoreStore handle contract as the
+                # Anthropic path. See compress.vision.elide_or_keep.
+                replacement = _vision.elide_or_keep(
+                    _active_vision(), part["image_url"], store, _census_tokens, verbatim, is_recent
+                )
+                if replacement is not None:
+                    new_parts.append({"type": "text", "text": replacement})
+                    changed = True
+                    continue
+                new_parts.append(part)
+                continue
             if part.get("type") == "text" and isinstance(part.get("text"), str):
                 if role == "tool":
                     # OpenAI tool messages with list content: every text part is a
@@ -298,6 +315,11 @@ def compress_chat_completions(
     # See compress.recency.exempt_indices.
     _intent_tls.terms = frozenset()
     try:
+        # ADR 0003 — None unless the content type has been certified, so the
+        # default path is byte-for-byte what it was before. Reset every call so a
+        # thread that previously served a different request cannot leak "already
+        # seen" state into this one.
+        _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
         store = RestoreStore()
         new_messages: list[dict[str, Any]] = []
         recent = _recent_chat_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
@@ -317,6 +339,7 @@ def compress_chat_completions(
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
+        _vision_tls.dedup = None
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +451,20 @@ def _compress_response_item(
             if not isinstance(part, dict):
                 new_parts.append(part)
                 continue
+            if part.get("type") == "input_image" and isinstance(part.get("image_url"), str):
+                # Repeated-image elision (ADR 0003). Responses carries the URL/data-URI
+                # as a bare string (unlike Chat Completions' nested image_url object),
+                # so it is wrapped in a source dict for the shared helper.
+                source = {"url": part["image_url"]}
+                replacement = _vision.elide_or_keep(
+                    _active_vision(), source, store, _census_tokens, verbatim, is_recent
+                )
+                if replacement is not None:
+                    new_parts.append({"type": "input_text", "text": replacement})
+                    changed = True
+                    continue
+                new_parts.append(part)
+                continue
             # input_text → user content (Tier-0 lossless); output_text → model content (skip)
             if part.get("type") == "input_text" and isinstance(part.get("text"), str):
                 _census("user_text", part["text"])
@@ -531,6 +568,13 @@ def compress_responses_input(
 
         def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
             _census_tls.counts = {}
+            # Reset per attempt, same reason the Anthropic path resets inside its own
+            # _walk: a quote-hazard retry must not treat images the FIRST pass already
+            # elided as "already seen" — that would elide every image on the retry and
+            # the model would receive none. ADR 0003 — None unless certified.
+            _vision_tls.dedup = (
+                _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
+            )
             store = RestoreStore()
             new_items: list[dict[str, Any]] = []
             for idx, item in enumerate(items):
@@ -551,15 +595,19 @@ def compress_responses_input(
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
+        _vision_tls.dedup = None
 
 
 def count_responses_tokens(items: list[dict[str, Any]]) -> int:
     """Heuristic token count for a Responses API ``input`` array.
 
-    Counts only the *compressible* content — ``function_call_output`` output strings
-    and user message ``input_text`` parts.  Passthrough items (``function_call``,
-    assistant messages, etc.) are excluded, matching the ``x-distil-compressible-tokens``
-    semantics in the proxy's messages path.
+    Counts the *compressible* content — ``function_call_output`` output strings,
+    user message ``input_text`` parts, and ``input_image`` parts (billed by pixel
+    area via ``vision.source_tokens``, same as the eligibility census, so an
+    elided repeat's before/after diff lands on the same scale it was censused
+    on). Passthrough items (``function_call``, assistant messages, etc.) are
+    excluded, matching the ``x-distil-compressible-tokens`` semantics in the
+    proxy's messages path.
     """
     from ..tokenizer import DEFAULT as _tokenizer
 
@@ -576,8 +624,14 @@ def count_responses_tokens(items: list[dict[str, Any]]) -> int:
             content = item.get("content", [])
             if isinstance(content, list):
                 for part in content:
-                    if isinstance(part, dict) and part.get("type") == "input_text":
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") == "input_text":
                         v = part.get("text", "")
                         if isinstance(v, str):
                             total += _tokenizer.count(v)
+                    elif part.get("type") == "input_image" and isinstance(
+                        part.get("image_url"), str
+                    ):
+                        total += _vision.source_tokens({"url": part["image_url"]})
     return total

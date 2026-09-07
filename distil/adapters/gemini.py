@@ -72,15 +72,20 @@ from typing import Any
 from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
 from ..compress import provenance as _provenance
+from ..compress import vision as _vision
 from ..httpguard import strip_query
 from ..tokenizer import DEFAULT as _tokenizer
 from .anthropic import (
     RestoreStore,
+    _active_vision,
+    _census_tls,
+    _census_tokens,
     _hazard_tls,
     _compress_text_content,
     _compress_tool_result_text,
     _intent_tls,
     _keep_tls,
+    _vision_tls,
 )
 
 # /v1beta/models/{model}:generateContent  — also :streamGenerateContent and the /v1 host.
@@ -285,7 +290,32 @@ def _compress_part(
             return part
         return {**part, "functionResponse": {**fr, "response": new_resp}}
 
-    # functionCall / inlineData / fileData / executableCode / unknown — untouched.
+    if role != "model":
+        # Repeated-image elision (ADR 0003) — same certificate gate, same census
+        # reasons, same RestoreStore handle contract as the Anthropic path. See
+        # compress.vision.elide_or_keep. inlineData already carries the base64
+        # payload under "data"; fileData's "fileUri" is a plain URL wrapped into
+        # a source dict for the shared helper (proof of identity only when it is
+        # itself a data: URI — see vision._b64_payload).
+        inline = part.get("inlineData")
+        if isinstance(inline, dict):
+            replacement = _vision.elide_or_keep(
+                _active_vision(), inline, store, _census_tokens, verbatim, is_recent
+            )
+            if replacement is not None:
+                return {"text": replacement}
+            return part
+        file_data = part.get("fileData")
+        if isinstance(file_data, dict) and isinstance(file_data.get("fileUri"), str):
+            source = {"url": file_data["fileUri"]}
+            replacement = _vision.elide_or_keep(
+                _active_vision(), source, store, _census_tokens, verbatim, is_recent
+            )
+            if replacement is not None:
+                return {"text": replacement}
+            return part
+
+    # functionCall / executableCode / unknown — untouched.
     return part
 
 
@@ -315,6 +345,12 @@ def compress_generate_request(
     # request off the same thread, and a stale count from an earlier Anthropic request
     # would be reported against this one.
     _hazard_tls.counts = None
+    # ponytail: Gemini's text/functionResponse walking has no census of its own yet
+    # (a separate, pre-existing gap this adapter never opened one for). Opened here
+    # only so the NEW image buckets below are attributed rather than silently dropped
+    # (an unopened census is a no-op, per _census_tokens), and so a stale census from
+    # a prior request on this thread cannot leak into this one's images.
+    _census_tls.counts = {}
     contents = body.get("contents")
     # Empty by design, not an oversight: this provider caches prefixes
     # implicitly and commits everything it is sent, so every block is cached
@@ -324,6 +360,9 @@ def compress_generate_request(
     # See compress.recency.exempt_indices.
     _intent_tls.terms = frozenset()
     try:
+        # ADR 0003 — None unless the content type has been certified, so the
+        # default path is byte-for-byte what it was before.
+        _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
         store = RestoreStore()
         if not isinstance(contents, list):
             return body, store
@@ -362,6 +401,7 @@ def compress_generate_request(
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
+        _vision_tls.dedup = None
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +422,15 @@ def _part_tokens(part: Any) -> int:
     fc = part.get("functionCall")
     if isinstance(fc, dict):
         total += _tokenizer.count(json.dumps(fc.get("args"), default=str, sort_keys=True))
+    inline = part.get("inlineData")
+    if isinstance(inline, dict):
+        # Billed by pixel area, not base64 length — same rule as the eligibility
+        # census (vision.source_tokens), so an elided repeat's before/after diff
+        # lands on the scale it was censused on.
+        total += _vision.source_tokens(inline)
+    file_data = part.get("fileData")
+    if isinstance(file_data, dict) and isinstance(file_data.get("fileUri"), str):
+        total += _vision.source_tokens({"url": file_data["fileUri"]})
     return total
 
 

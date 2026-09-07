@@ -404,6 +404,20 @@ def _image_tokens(block: dict[str, Any]) -> int:
     return block_tokens(block)
 
 
+def _image_url_tokens(block: dict[str, Any]) -> int:
+    """Billed token cost of an OpenAI ``image_url`` content part.
+
+    Same rule as :func:`_image_tokens`, on OpenAI's shape: the source dict lives
+    under ``image_url`` rather than ``source``. Shared with
+    ``adapters.openai``'s eligibility census via ``vision.source_tokens`` so both
+    sides of the exhaustiveness check agree.
+    """
+    from .compress.vision import source_tokens
+
+    src = block.get("image_url")
+    return source_tokens(src if isinstance(src, dict) else None)
+
+
 def _count_messages(msgs: list[dict[str, Any]]) -> int:
     """Heuristic token count of an Anthropic/OpenAI messages list."""
     total = 0
@@ -417,6 +431,9 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
                     continue
                 if block.get("type") == "image":
                     total += _image_tokens(block)
+                    continue
+                if block.get("type") == "image_url":
+                    total += _image_url_tokens(block)
                     continue
                 # Extended thinking carries its payload under `thinking`, not `text`.
                 # On Claude 4.6+ prior-turn thinking is re-sent as input and BILLED, so
@@ -447,6 +464,9 @@ def _count_messages(msgs: list[dict[str, Any]]) -> int:
                             if isinstance(sub, dict):
                                 if sub.get("type") == "image":
                                     total += _image_tokens(sub)
+                                    continue
+                                if sub.get("type") == "image_url":
+                                    total += _image_url_tokens(sub)
                                     continue
                                 sv = sub.get("text", "")
                                 if isinstance(sv, str):

@@ -479,8 +479,8 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         <tr><td><code>native.py</code></td><td>Rust hot-path bridge with pure-Python fallback (<code>rust/distil-core</code>)</td></tr>
         <tr><td><code>corpus.py</code></td><td>Multi-domain corpus loader + structural validation</td></tr>
         <tr><td><code>adapters/anthropic.py</code></td><td>In-process drop-in adapter (wrap + cache-control)</td></tr>
-        <tr><td><code>adapters/openai.py</code></td><td>First-class OpenAI adapter — Chat Completions and Responses API shapes; same Tier-0/1 machinery as the Anthropic adapter</td></tr>
-        <tr><td><code>adapters/gemini.py</code></td><td>Gemini adapter — generateContent / streamGenerateContent; recency carve-out, query-aware intent from functionCall args, output shaping via shape="gemini"</td></tr>
+        <tr><td><code>adapters/openai.py</code></td><td>First-class OpenAI adapter — Chat Completions and Responses API shapes; same Tier-0/1 machinery as the Anthropic adapter; duplicate <code>image_url</code>/<code>input_image</code> elision (ADR 0003, same certificate gate as Anthropic)</td></tr>
+        <tr><td><code>adapters/gemini.py</code></td><td>Gemini adapter — generateContent / streamGenerateContent; recency carve-out, query-aware intent from functionCall args, output shaping via shape="gemini"; duplicate <code>inlineData</code>/<code>fileData</code> elision (ADR 0003, same certificate gate as Anthropic)</td></tr>
         <tr><td><code>proxy.py</code></td><td>HTTP proxy for framework-agnostic adoption</td></tr>
         <tr><td><code>prefixreplay.py</code></td><td>Forwarded-bytes prefix replay (ADR 0011) — holds the provider's cached prefix through a client's non-semantic rewrite of its own history</td></tr>
         <tr><td><code>proof_ledger.py</code></td><td>End-of-session Proof Ledger — calibrated tokens/cost, shadow verdict, restorability; printed by <code>distil wrap</code> on exit</td></tr>
