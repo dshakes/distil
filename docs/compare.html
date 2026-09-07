@@ -172,7 +172,47 @@
           <td>not published</td>
           <td>— orthogonal, provider-side</td>
         </tr>
-      </tbody>
+              <tr>
+          <th scope="row">Cache contract (compression may never rewrite already-cached bytes)</th>
+          <td><span class="badge-pass">✔</span> suffix-only and cache-monotonic, enforced as an invariant — <a href="cache-contract.html">the contract</a></td>
+          <td><span class="badge-pass">✔</span> genuinely strong prefix replay (<code>overlay_cached_prefix</code>, <code>prefix_tracker.py:456-463</code>) — real engineering</td>
+          <td>n/a — not an LLM API relay</td>
+          <td><span class="badge-fail">✘</span> no prefix-stability mechanism — the compressed prompt changes as the conversation grows</td>
+          <td><span class="badge-pass">✔</span> it <em>is</em> the cache</td>
+        </tr>
+        <tr>
+          <th scope="row">Adversarial validation (COMA-class, in CI)</th>
+          <td><span class="badge-pass">✔</span> <code>distil validate --adversarial</code>, seven COMA-class cases; no keep budget shared between blocks, asserted as an equality — <a href="threat-model.html">threat model</a></td>
+          <td>not published</td>
+          <td>not published</td>
+          <td>not published</td>
+          <td>— nothing is removed, so there is nothing to bait</td>
+        </tr>
+        <tr>
+          <th scope="row">Degradation curve across every rung (not one operating point)</th>
+          <td><span class="badge-pass">✔</span> <code>distil bench --curve</code>, offline and free — <a href="benchmark.html#degradation-curve">the curve</a></td>
+          <td>not published</td>
+          <td>not published</td>
+          <td>not published</td>
+          <td>— no dial to sweep</td>
+        </tr>
+        <tr>
+          <th scope="row">Exact-quote guarantee (an <code>Edit</code> still matches the file that was read)</th>
+          <td><span class="badge-pass">✔</span> provenance read from the shell command, not just the tool name; quote survival is a CI invariant</td>
+          <td><span class="badge-fail">✘</span> not a property the tool has</td>
+          <td>n/a — strips known boilerplate, does not fold file reads</td>
+          <td><span class="badge-fail">✘</span> lossy on all content alike</td>
+          <td><span class="badge-pass">✔</span> trivially — nothing is removed</td>
+        </tr>
+        <tr>
+          <th scope="row">Paired live estimator that can report harm</th>
+          <td><span class="badge-pass">✔</span> A/A′/B replay, unclipped difference with a bootstrap CI, one reporting floor on every surface</td>
+          <td><span class="badge-fail">✘</span> no shadow or dual-send path in the codebase</td>
+          <td>— no decision risk to measure</td>
+          <td><span class="badge-fail">✘</span> raw score deltas, not an equivalence test</td>
+          <td>— no decision risk to measure</td>
+        </tr>
+</tbody>
     </table>
 
     <div class="callout">

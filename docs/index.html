@@ -377,7 +377,12 @@
     <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference).
     That pair is <em>task success</em>, not a compression ratio — how much smaller the context got is a
     separate number, and it depends on your traffic: see <a href="research.html">the measured savings</a>.</small></p>
-  <p class="sub" style="font-size:15px;margin-top:22px">New to this? <a href="#plain"><b>See how it works in plain English →</b></a></p>
+  <p class="sub" style="font-size:15px;margin-top:26px">Four things are proven rather than promised, and each has its own page:
+    a <a href="cache-contract.html"><b>cache contract</b></a> (compression may never rewrite bytes the provider already cached),
+    a <a href="threat-model.html"><b>COMA-class adversarial gate</b></a> (with the two cases that don't come back clean published),
+    a <a href="benchmark.html#degradation-curve"><b>degradation curve</b></a> across every rung of the dial,
+    and an <a href="benchmark.html#coding-agent"><b>exact-quote guarantee</b></a> so an <code>Edit</code> still matches the file the agent read.</p>
+  <p class="sub" style="font-size:15px;margin-top:16px">New to this? <a href="#plain"><b>See how it works in plain English →</b></a></p>
 
   <!-- Install, above the fold. A visitor's first question is "how do I get this", and it
        used to be answerable only by scrolling into a terminal card whose first line is a
@@ -532,6 +537,8 @@
       <ul>
         <li><b>Certifies decision-equivalence</b> before it ever serves</li>
         <li>A shadow gate re-checks live decisions with <b>paired replays</b> — a self-agreement control absorbs sampling noise</li>
+        <li><b>Gives back what it folds</b> — byte-exact, from a content-addressed store, through a tool the agent can call mid-task</li>
+        <li><b>Tested against hostile input</b>, not just hard input — and the two cases that fail are on the page</li>
         <li><b>Fails closed</b> — if quality would drop, it doesn't compress</li>
       </ul>
       <div class="vfoot">signed certificate · <span style="color:var(--good)">✓eq 99.5%</span></div>
@@ -588,6 +595,30 @@
       block, replay, did any decision change? Blocks that never change a decision are
       <b>provably</b> free to drop: speculative retrievals, stale history. The measurement
       <i>produces</i> the compression policy.</p>
+    </div>
+    <div class="card">
+      <span class="tag">TECHNIQUE #3</span>
+      <h3>Exact-quote provenance</h3>
+      <p>A coding agent's <code>Edit</code> is a <b>literal match</b> against bytes it read
+      earlier. Digest that read and the decision is unchanged — the edit is simply
+      <b>skipped</b>, and the run ends with the agent reporting success and the file
+      untouched. Distil reads provenance from the <b>shell command</b>
+      (<code>cat</code>, <code>head</code>, <code>sed -n</code>), not just the tool name,
+      and refuses to digest a verbatim slice of a file.</p>
+      <p class="note">Measured content-free over 2,489 local sessions: shell reads are
+      <b>33.6%</b> of tool-result mass, against 10.7% matched by a tool-name rule.
+      Byte-exact quote loss falls <b>39.3% → 16.2%</b>. It costs savings — that price is
+      published rather than hidden.</p>
+    </div>
+    <div class="card">
+      <span class="tag">TECHNIQUE #4</span>
+      <h3>An estimator allowed to say no</h3>
+      <p>Shadow mode replays a sampled request three times — twice on the original context,
+      once on the compressed one — and reports the <b>paired difference</b>
+      <code>1{A=B} − 1{A=A′}</code> with a bootstrap 95% CI, <b>unclipped</b>. A ratio
+      clamped at zero can never report harm; a difference can. One reporting floor
+      (50 A/B + 30 A/A) gates every surface, and below it each one prints
+      <i>below reporting floor</i> instead of a number.</p>
     </div>
   </div>
 
