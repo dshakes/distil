@@ -57,6 +57,14 @@ by either copy. Four rules keep that true.
   no margin there — the agent saw nothing beyond it in this block.
 * **Runs under 8 lines are left alone**, so a coincidental match on blank lines or a
   repeated `return None` never produces a stub.
+* **Lines carry their terminators into the comparison.** Stripping them would call a CRLF
+  read and an LF read of one file identical, and eliding the only LF copy while the base
+  holds CRLF bytes makes the stub's claim of byte-identity false.
+* **The freshest tool output is never elided.** The recency carve-out applies here like
+  everywhere else: a re-read the agent has just issued is exactly the output it reasons over
+  to choose its next action. The plan is computed from the prefix regardless — which blocks
+  may serve as bases never depends on the sliding window — and only its application is
+  gated, so nothing the provider has cached moves.
 
 **Why it is cache-safe without a volatile-suffix gate.** The plan is a pure function of the
 message *prefix* — what a block encodes to depends only on the blocks before it — so a
@@ -68,15 +76,29 @@ verbatim exactly as the boundary advances past it — the failure the contract e
 catch. The cache contract gains clause **(e)**, `tests/test_reread_delta.py` asserts
 byte-stability under the moving-marker shape, and ADR 0010 states the trade.
 
-**Measured, and small.** On `benchmarks/codebench.py` (read → edit → re-read, 20 sessions /
-320 turns) the PAYG digest row moves from **0.0% to 10.3% token savings** and 0.0% to
-**12.2% cache-aware dollar savings** — before/after output in
-`benchmarks/results/2026-09-06/`. `distil bench` is unchanged byte for byte: its corpus has
-no re-read of one path through a name-keyed read tool, so the delta never fires there. And
-codebench is nothing but reads, so it overstates. On real traffic name-keyed reads are
-10.7% of tool-result mass, about half are re-reads, and about half of a re-read's tokens
-were already delivered — a live ceiling near **2.8% of tool-result mass**. That is the
-honest number; the 10.3% is the mechanism working on its own hot path, not a headline.
+**Measured.** On the codebench corpus (read → edit → re-read, 20 sessions / 320 turns)
+under the client shape that bills — newest turn pinned, whole history cached — the PAYG
+digest row moves from **31.4% to 41.7% token savings** and 35.8% to **49.1% cache-aware
+dollar savings**. Before/after output in `benchmarks/results/2026-09-06/`. `distil bench` is
+unchanged byte for byte: its corpus has no re-read of one path through a name-keyed read
+tool, so the delta never fires there.
+
+**And codebench is nothing but reads, so it overstates.** On real traffic name-keyed reads
+are 10.7% of tool-result mass, about half are re-reads, and about half of a re-read's
+tokens were already delivered — a live ceiling near **2.8% of tool-result mass**. That is
+the number to quote.
+
+**One benchmark caveat this surfaced, stated rather than hidden.** `benchmarks/codebench.py`
+builds its sessions with no `cache_control` marker and then prices them *with* a cache —
+the longest stable prefix is billed at the cache-read rate. No Anthropic client looks like
+that: Anthropic caches only what the client marks, so an unmarked request has no cached
+prefix at all, and every recency-anchored carve-out distil has is charged there for busting
+a cache that was never created. Under that shape the digest row reads 7.1% tokens for
+**−15.4% dollars**. The artefact predates this release — `distil-verbatim` shows 18.5%
+tokens for 3.7% dollars on the same corpus — and was invisible only while the digest row
+was 0.0% and nothing moved. New runner `benchmarks/codebench_marked.py` replays both shapes
+so it is reproducible rather than asserted. The corpus itself is left alone: changing it
+would move the competitor rows on `docs/compare.html` too.
 
 `distil validate` gains four re-read shapes under the existing quote-survival invariant — a
 re-read at a different offset, a quote straddling a cut, read → edit → re-read, and a
@@ -97,7 +119,12 @@ grammar the argument is the patch body itself, not JSON, so there is no `old_str
 to read. What has to match the file is each hunk's **pre-image** — the context and removed
 lines in order — and it runs *through* the `+` lines, since an added line is not part of
 what the patcher is looking for. `provenance.patch_quotes` extracts exactly that;
-`response_edit_quotes` normalises both the `custom_tool_call` and `function_call` shapes.
+`response_edit_quotes` normalises both the `custom_tool_call` and `function_call` shapes. A
+one-line hunk counts only when the line is long enough to discriminate: single-line hunks
+are common, so dropping them all would blind the gauge exactly where it is meant to see
+Codex, but a one-line quote of `}` occurs in any payload and would be booked as a survivor
+on a request where nothing survived. Under-counting is silence; over-counting is a false
+all-clear on a safety gauge.
 `observed_view` now excludes model-output *item types* (`function_call`, `custom_tool_call`,
 `reasoning`, …) as well as assistant messages — without that the patch envelope quotes the
 file to itself and the check could only ever pass.

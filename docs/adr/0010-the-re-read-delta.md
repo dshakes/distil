@@ -53,6 +53,12 @@ block: an `Edit(old_string=…)` applies if its quote occurs byte-exact somewher
 payload distil forwarded. An agent quoting lines it saw can be served by either copy. Four
 rules keep that true.
 
+0. **The freshest tool output is never elided.** The recency carve-out applies here like
+   everywhere else: a re-read the agent has just issued is precisely the output it reasons
+   over to choose its next action. The *plan* is computed from the prefix regardless — so
+   which blocks may serve as bases never depends on the sliding window — and only its
+   application is gated. Where a client marks a cacheable prefix that window is empty or
+   lies wholly after the boundary, so this costs nothing on the traffic that bills.
 1. **The base must be exempt unconditionally.** Only reads matched by the tool-NAME table
    (`Read`, `view`, `read_file`, …) may be referenced. Those are never superseded and never
    digested at any age, so the referenced lines cannot leave the conversation later. Shell
@@ -109,9 +115,20 @@ gate, and `tests/test_reread_delta.py` asserts it against the moving-marker shap
 
 ## Consequences
 
-- On `benchmarks/codebench.py` (read → edit → re-read, 20 sessions / 320 turns) the PAYG
-  digest row moves from **0.0% to 10.3% token savings and 0.0% to 12.2% cache-aware dollar
-  savings**. Raw before/after output: `benchmarks/results/2026-09-06/`.
+- On the codebench corpus (read → edit → re-read, 20 sessions / 320 turns) under the client
+  shape that bills — newest turn pinned, whole history cached — the PAYG digest row moves
+  from **31.4% to 41.7% token savings and 35.8% to 49.1% cache-aware dollar savings**. Raw
+  before/after output: `benchmarks/results/2026-09-06/`.
+- **`benchmarks/codebench.py` as shipped sends no cache marker, and that shape now has to be
+  read with a caveat.** It prices the longest stable prefix at the cache-read rate while
+  building sessions no client would send: Anthropic caches only what the client marks, so an
+  unmarked request has no cached prefix at all, and every recency-anchored carve-out distil
+  has is charged there for busting a cache that was never created. The digest row reads 7.1%
+  tokens for **−15.4%** dollars under that shape. The artefact predates this change —
+  `distil-verbatim` shows 18.5% tokens for 3.7% dollars on the same corpus — and was
+  invisible only while the digest row was 0.0% and nothing moved. `benchmarks/codebench_marked.py`
+  replays both shapes so it is reproducible rather than asserted. The corpus itself is left
+  alone: changing it would move the competitor rows on `docs/compare.html` too.
 - `distil bench` is **unchanged byte for byte**. Its corpus contains no re-read of one path
   through a name-keyed read tool, so the delta never fires there. That is the honest
   reading: this transform is narrow.
