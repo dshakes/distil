@@ -325,14 +325,31 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fcntl module does not exist on Windows")
-def test_savings_locked_without_flock_still_writes(monkeypatch):
+@pytest.mark.parametrize(
+    "arm",
+    [
+        pytest.param(
+            lambda monkeypatch: monkeypatch.setattr(
+                __import__("fcntl"), "flock", lambda *a: (_ for _ in ()).throw(OSError("no flock"))
+            ),
+            id="flock-raises-oserror",
+        ),
+        pytest.param(
+            lambda monkeypatch: monkeypatch.setitem(sys.modules, "fcntl", None),
+            id="fcntl-unimportable",  # the real Windows case: `import fcntl` itself raises ImportError
+        ),
+    ],
+)
+def test_savings_locked_without_flock_still_writes(monkeypatch, arm):
     """flock unavailable (e.g. Windows) → the lock degrades to a no-op, but a
     lone writer still reads, steps, and persists correctly. Only *concurrent*
     writers lose the monotonic guarantee on that platform — see the two tests
-    above, which document and skip that gap instead of asserting it away."""
-    import fcntl
+    above, which document and skip that gap instead of asserting it away.
 
-    monkeypatch.setattr(fcntl, "flock", lambda *a: (_ for _ in ()).throw(OSError("no flock")))
+    Covers both branches of `except (ImportError, OSError)` in
+    `_savings_locked`: flock present but failing, and fcntl absent entirely
+    (what real Windows hits, since the module doesn't exist there)."""
+    arm(monkeypatch)
     census.opt_in()
     with census._savings_locked(True) as st:
         census._step(st["tokens"], 1000, 1.0)
