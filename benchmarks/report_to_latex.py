@@ -95,6 +95,63 @@ def e5_macros(rep: dict, prefix: str = "Shuf") -> str:
     return "\n".join(out) + "\n"
 
 
+def _curve_points(rep: dict) -> list[dict]:
+    """Rows of a ``distil bench --curve`` report (``benchmarks/results/curve.json``).
+
+    A different shape from a ``prove.py`` report — the curve is an offline,
+    deterministic sweep over the corpus, not a graded run — so it gets its own
+    accessor and its builders stay opt-in.
+    """
+    pts = rep.get("points")
+    if not pts:
+        raise SystemExit(
+            "ERROR: no 'points' key — --only curve/curvefig expects a `distil bench "
+            "--curve` report (benchmarks/results/curve.json), not a prove.py one."
+        )
+    return list(pts)
+
+
+def curve(rep: dict) -> str:
+    """The degradation curve as a table: savings against recall at every ladder rung."""
+    out = [
+        "% auto-generated degradation curve (distil bench --curve) — do not edit",
+        r"\begin{tabular}{@{}lrrrrc@{}}",
+        r"\toprule",
+        r"rung & savings & recall & visible & facts lost & reversible \\",
+        r"\midrule",
+    ]
+    for r in _curve_points(rep):
+        mark = CHECK if r["reversible"] else CROSS
+        out.append(
+            f"{_tex(r['rung'])} & {r['savings_pct']:.1f}\\% & {r['recall']:.3f} & "
+            f"{r['visible_recall']:.3f} & {r['lost_facts']} & {mark}{EOL}"
+        )
+    out += [r"\bottomrule", r"\end{tabular}"]
+    return "\n".join(out) + "\n"
+
+
+def curve_fig(rep: dict) -> str:
+    """The same rungs plotted: realized savings on x, fact recall on y, twice — once
+    counting what ``distil_expand`` can recover, once counting only what is visible
+    inline. The gap between the two series IS reversibility."""
+    pts = _curve_points(rep)
+    both = " ".join(f"({r['savings_pct']:.2f},{r['recall'] * 100:.2f})" for r in pts)
+    visible = " ".join(f"({r['savings_pct']:.2f},{r['visible_recall'] * 100:.2f})" for r in pts)
+    xmax = max([r["savings_pct"] for r in pts] + [10]) + 8
+    return (
+        "% auto-generated degradation curve figure — do not edit\n"
+        "\\begin{tikzpicture}\n\\begin{axis}[width=0.72\\textwidth,height=6cm,"
+        "xlabel={realized token savings (\\%)},ylabel={fact recall (\\%)},"
+        f"xmin=-3,xmax={xmax:.0f},ymin=45,ymax=105,"
+        "legend style={font=\\scriptsize,at={(0.02,0.35)},anchor=north west}]\n"
+        f"\\addplot[mark=*,distilgreen,thick] coordinates {{{both}}};\n"
+        "\\addlegendentry{recall (with \\texttt{distil\\_expand})}\n"
+        f"\\addplot[mark=triangle*,distilred,dashed] coordinates {{{visible}}};\n"
+        "\\addlegendentry{visible recall (inline only)}\n"
+        "\\end{axis}\n\\end{tikzpicture}\n"
+    )
+
+
 def frontier(rep: dict) -> str:
     rows = rep.get("frontier") or []
     alpha = (rep.get("coverage") or {}).get("alpha", 0.05)
@@ -359,6 +416,8 @@ def main() -> int:
             "e5macros",
             "loo",
             "loomacros",
+            "curve",
+            "curvefig",
         ],
         help="emit only these fragments (default: all prove.py fragments; e5macros, "
         "loo and loomacros are opt-in because they need a prefix or a different report)",
@@ -396,10 +455,13 @@ def main() -> int:
         "e5macros": lambda r: e5_macros(r, prefix=args.macro_prefix),
         "loo": loo,
         "loomacros": loo_macros,
+        "curve": curve,
+        "curvefig": curve_fig,
     }
-    # e5macros needs a prefix and loo/loomacros read a leave_one_domain_out.py report
-    # rather than a prove.py one, so the default "all" set excludes all three.
-    opt_in = {"e5macros", "loo", "loomacros"}
+    # e5macros needs a prefix; loo/loomacros read a leave_one_domain_out.py report and
+    # curve/curvefig a `distil bench --curve` one, rather than a prove.py report — so
+    # the default "all" set excludes all five.
+    opt_in = {"e5macros", "loo", "loomacros", "curve", "curvefig"}
     selected = args.only or [k for k in builders if k not in opt_in]
     for name in selected:
         (out / f"{name}{args.suffix}.tex").write_text(builders[name](rep))

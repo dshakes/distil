@@ -118,7 +118,6 @@
 \newcommand{\LooHarmPooled}{8.4\%} \newcommand{\LooHarmCoverage}{66.7\%}
 \newcommand{\LooHarmExchCoverage}{76.1\%} \newcommand{\LooHarmDispP}{0.74}
 \IfFileExists{generated/loomacros.tex}{\input{generated/loomacros.tex}}{}
-\newcommand{\PendingTODO}{\textcolor{distilred}{\textbf{[pending 1.52.0]}}}
 
 \definecolor{distilblue}{HTML}{2b6cb0}
 \definecolor{distilgreen}{HTML}{2f855a}
@@ -242,18 +241,22 @@ rather than a fixed heuristic.
 \paragraph{The 2026 agentic-compression literature.} Several 2026 results converge on what
 our E7--E8 find independently: compression benign on a static proxy is not benign inside an
 agent loop. \emph{Control Under Compression}~\cite{controlcompression} argues for
-degradation \emph{curves} over point estimates; \emph{Execution
+degradation \emph{curves} over point estimates, which we now trace across the shipped ladder
+(\Cref{sec:todo}) on fact recall rather than task success; \emph{Execution
 Instability}~\cite{execinstability} shows compressed agents fail non-monotonically on
 AppWorld; \emph{AGORA}~\cite{agora} names ``action-grammar destruction'', compression that
 keeps semantics while destroying the structure an agent parses to act---which is why our
 loss is defined on the decision, not the text; \emph{CompactionRL}~\cite{compactionrl}
 learns the compaction policy, complementary to certifying whichever policy results. Two
 papers target measurement: the compression paradox~\cite{compressionparadox} reports input
-savings repaid in \emph{output} tokens, a gap our input-side numbers share and do not close
-(\Cref{sec:todo}); a pre-registered production RCT~\cite{prodrct} argues offline corpora
+savings repaid in \emph{output} tokens; the serving path now records both arms' output
+tokens and prices the net, though our live paired sample is still below its reporting floor
+(\Cref{sec:todo}), so our figures remain input-side; a pre-registered production RCT~\cite{prodrct} argues offline corpora
 misestimate live savings, matching our own corpus-versus-live experience.
 CompressionAttack/COMA~\cite{coma} (ASE 2026) makes the compressor itself an attack
-surface; we have no adversarial evaluation and say so (\Cref{sec:todo}). \emph{Don't Break
+surface; its validated mitigation --- trusted/untrusted budget isolation --- is distil's shape
+by construction, and we now test it on a seven-case COMA-class battery (\Cref{sec:todo}),
+which is a regression battery rather than a red team. \emph{Don't Break
 the Cache}~\cite{dontbreakcache} and \emph{The Pitfalls of KV Cache
 Compression}~\cite{kvpitfalls} (ACL 2026) isolate failures invisible to accuracy metrics---a
 compressor that rewrites earlier bytes voids the cache prefix, so token savings can coexist
@@ -338,6 +341,28 @@ tier digests a verbose tool output to a compact marker
 content-addressed store; the model can recover any block on demand via a
 \texttt{distil\_expand} tool. Compression is thus \emph{lossless} (byte-in-context),
 \emph{reversible} (digested but recoverable), or \emph{lossy} (the rest).
+
+\paragraph{Exact-quote provenance.} Decision-equivalence is necessary but not sufficient in a
+coding agent: an \texttt{Edit(old\_string=\ldots)} is a literal match against bytes read
+earlier, so digesting a read the agent must quote back does not change the decision --- it
+makes the edit silently fail to apply, and the run ends with the agent reporting success and
+the disk untouched. Blocks whose bytes are a verbatim slice of a file are therefore exempt
+from digestion. Keying that on the tool name covers the wrong half of real traffic: measured
+content-free over $2{,}489$ Claude Code sessions ($52{,}937$ tool results, $19.4$M
+tool-result tokens), the name table matches $10.7\%$ of tool-result mass while whole-file
+reads issued through the \emph{shell} (\texttt{cat}, \texttt{head}, \texttt{sed -n}) account
+for $33.6\%$. Of $3{,}445$ edit quotes traced to a tool-result source, $39.3\%$ had no
+surviving byte-exact copy under the name rule; reading provenance from the \emph{command}
+instead --- last stage a whole-file reader, no pipe, no redirection, and a decorated listing
+(\texttt{cat -n}, \texttt{nl}) never counting as a copy of the file --- takes that to
+$16.2\%$. The cost is stated as a cost: $7.7$\,pp of tool-result mass projected for a
+latest-read-per-slice rule against a $27$\,pp bound for exempting every whole-file read, but
+under a client that marks most of its history cacheable the supersession step rarely fires,
+so the forfeited saving sits much closer to $27$\,pp. The guarantee measures itself --- each
+request records content-free whether every literal-match quote still occurs in the forwarded
+payload, and a miss stops the class digesting for the session --- and is enforced as a sixth
+real-path invariant, \emph{quote-survival}. Build 1.52.0; artifacts in
+\texttt{benchmarks/results/2026-09-04}.
 
 \subsection{The Decision-Equivalence Risk Certificate}
 We calibrate the per-turn losses for each ladder level on calibration traffic
@@ -810,34 +835,103 @@ still see the anomaly keeps acting. The trajectory-risk certificate (the shipped
 \texttt{certify\_trajectory\_risk} machinery) bounds degradation at
 \sweEfourteenTrajBound---experiment and product make the same statement with the same statistics.
 
-\section{Measurements this revision does not have}
+\section{Three measurements the 2026 literature expects}
 \label{sec:todo}
 
-Three results the 2026 literature now expects are \emph{not} here. Each has a harness in the
-repository and no run behind it, and each renders \PendingTODO{} until the measurement lands.
+The previous revision named three results the 2026 literature expects and did not have. Two
+are now measured; the third has a shipped estimator and a live sample below its own
+reporting floor, which is what we report.
 
-% TODO(1.52.0): fill from `distil bench --curve` — task success as a continuous function of
-% compression ratio, with CIs. Do NOT remove \PendingTODO until the numbers are real.
-\paragraph{Degradation curve. \PendingTODO} We report point estimates at named ladder rungs,
-not task success as a continuous function of compression ratio~\cite{controlcompression}; E11
-already hints the cliff sits at a \emph{realized} compression fraction rather than a
-configured setting. Harness: \texttt{distil bench --curve}.
+\paragraph{Degradation curve.} \texttt{distil bench -{}-curve} traces every rung of the
+shipped ladder in one offline, deterministic pass over the bundled nine-trajectory corpus
+($112$ volatile blocks, $1{,}094$ probed facts; no API calls, so it runs per commit).
+\Cref{tab:curve} is emitted to LaTeX by \texttt{benchmarks/report\_to\_latex.py}; nothing is
+hand-copied. The curve is flat, then it falls off a cliff, and the cliff is not where the
+savings are. The three lossless rungs sit at $0.0\%$ savings and recall $1.000$ --- on this
+corpus not one volatile block shrinks under Tier-0 or the in-context structured folds once
+\texttt{reject-if-bigger} applies, so every realized saving comes from the reversible digest.
+That rung reaches $47.0\%$ at recall $1.000$: $682$ of $1{,}094$ facts move behind a
+\texttt{distil\_expand} handle and none is lost, which is why its \emph{visible} recall is
+$0.769$ and its true recall is not. The aggressive rung buys $18.5$\,pp more savings
+($65.5\%$) by losing $828$ of $1{,}094$ facts outright (macro recall $0.551$) --- the
+discontinuity sits exactly where the recovery handle disappears. \emph{Honest scope}: the
+$y$-axis is fact recall from the retention harness, not task success
+(\cite{controlcompression} measures the latter, and a task-success curve per rung would need
+the E7/E8 apparatus once per rung); there are no confidence intervals because the sweep is
+deterministic, so the variance a CI would express is corpus-to-corpus and one corpus cannot
+estimate it. Read the shape as the result and the levels as corpus-specific. What the curve
+adds to \cite{controlcompression}'s framing is an axis their setting lacks: whether the
+elided content is recoverable. On an irreversible compressor the recall and visible-recall
+series coincide identically.
 
-% TODO(1.52.0): fill from `distil validate --adversarial` — attack success rate with and
-% without trusted/untrusted budget isolation, against the COMA threat model.
-\paragraph{Adversarial robustness. \PendingTODO} Every number here assumes benign context.
-COMA~\cite{coma} shows an adversary who knows the policy can shape context that survives
-compression and steers the agent; exchangeability is exactly what such an attacker breaks,
-so the certificate makes no claim under adversarial input. Harness:
-\texttt{distil validate --adversarial}.
+\IfFileExists{generated/curve.tex}{%
+\begin{table}[t]
+\centering\small
+\caption{\textbf{Degradation curve across the shipped ladder} (\texttt{distil bench
+-{}-curve}, build 1.51.1). \emph{recall} counts facts a \texttt{distil\_expand} handle can
+recover; \emph{visible} counts only what remains inline; \emph{facts lost} is the micro count
+recoverable by neither route.}
+\label{tab:curve}
+\input{generated/curve.tex}
+\end{table}}{}
 
-% TODO(1.52.0): fill from the shadow-mode paired runs — input tokens saved vs. output tokens
-% added, net cost, and whether the paradox reproduces on our traces.
-\paragraph{Output-token accounting. \PendingTODO} Our savings are input-side. The
-compression paradox~\cite{compressionparadox} reports thinner context repaid in longer
-outputs, which would make an input-side figure an overstatement of the net. Shadow mode
-collects the matched pairs; the analysis is not done. Until it is, read every savings figure
-here as an \emph{input-token} figure.
+\paragraph{Adversarial robustness.} Every other number here assumes benign context.
+COMA~\cite{coma} shows an adversary controlling untrusted input can shape it so the
+\emph{compressor} discards task-critical content, with nothing reporting a fault. distil is
+more exposed than a summariser, because its keep policy is legible and therefore imitable. We
+decline to claim the keep policy resists an adaptive attacker; the property we assert is
+structural and is a disjunction --- \emph{the load-bearing line survives verbatim, or it was
+folded, is reversible through a handle distil issued, and the stub declares the elision}. An
+attacker can move a line between the branches but not out of both, because the second does
+not depend on any judgement they influence. \cite{coma}'s validated mitigation, isolating
+trusted from untrusted content into separate budgets, is distil's shape by construction:
+there is \emph{no} keep budget shared between blocks anywhere, and
+\texttt{tests/test\_adversarial\_isolation.py} asserts that as an equality (a trusted block
+compresses to identical bytes with or without a $4000$-line attacker block beside it, in
+either order), because a future ``keep top $N$ lines per request'' optimisation would
+silently construct the budget COMA attacks. \texttt{distil validate -{}-adversarial} runs
+seven COMA-class cases through the same public path the proxy uses, against the five existing
+real-path invariants plus a sixth, \emph{load-bearing}; the whole gate ($28$ cases, $175$
+checks) passes. Two results stated plainly. \textbf{\texttt{dedup\_baiting} is a real hit that
+reversibility saves}: outcome-aware dedup normalises digits to a line's shape, so $300$
+attacker lines differing from the genuine error only in a shard number collapse together with
+it and the real line is folded --- recoverable and declared, so the invariant holds by its
+second branch, but the keep policy did lose it (a regression test fails if this changes in
+either direction). \textbf{Denial of savings is real and unmitigated}: $400$ fabricated
+\texttt{DECISION:} lines drive that block's savings to exactly $0.0\%$, since verdict lines
+are exempt from dedup and always kept. That is the correct trade and it is stated as a cost
+--- distil is not a security control. This is a regression battery, not a red team: no
+attack-success rate against an adaptive attacker is measured or claimed, and the certificate
+still makes no claim under adversarial input.
+
+\paragraph{Output-token accounting.} The compression paradox~\cite{compressionparadox}
+reports thinner context repaid in longer outputs; output is priced several times input, so
+compression that lengthens the answer can cost more than the prompt it shortened. Nothing in
+distil could see this before. Shadow mode's serving-path estimator was, until build 1.51.1,
+$p_{BA}/p_{AA}$ between two \emph{disjoint} request sets clamped by $\max(0,\cdot)$ --- it
+printed exactly $100\%$ whenever the A/B draw beat the A/A draw by chance and could never
+express harm; byte-identical bodies were labelled A/B by an independent coin, and the ``A/A''
+arm replayed the compressed body twice, making it a B/B arm. Those are estimator defects, not
+compressor results. The serving path now implements the paired statistic this paper already
+defines (\Cref{sec:livecert}): three replays per sampled request, $A$ and $A'$ on the original
+and $B$ on the compressed context in shuffled order, storing $D = \mathbf{1}\{A{=}B\} -
+\mathbf{1}\{A{=}A'\}$, reported as a mean with a percentile bootstrap $95\%$ CI, unclipped, so
+it can come back negative. Signature version $5$; v4 rows are not comparable. One reporting
+floor ($50$ A/B, $30$ A/A) now gates every surface, replacing three. Because the replays
+return both responses, the provider's own \texttt{usage} gives per-arm input and output
+tokens: we report mean $\Delta_{\text{out}} = \text{out}_B - \text{out}_A$ with a bootstrap CI
+and the net dollars, input saved at input prices minus extra output at output prices. Cache
+fields are deliberately unpriced --- the arms hit the prefix cache differently by
+construction. \textbf{Result: as of this revision the live paired sample is below the floor,
+so we report no equivalence number, no $\Delta_{\text{out}}$, and no net cost.} The pre-fix
+measurement it replaces, for the record: $44$ A/B and $11$ A/A on lossless-only traffic, raw
+agreement $81.8\%$ $[67.3, 91.8]$ against a self-agreement floor of $84.8\%$ $[71.8, 92.4]$,
+Fisher exact $p=0.63$ --- already below the floor and withdrawn on reclassification, because
+$32$ of the $44$ ``A/B'' samples had no bytes changed by compression at all. An earlier
+$n{=}116$, $100\%$-agreement result is withdrawn outright: every replay carrying a prior
+thinking block failed with a signature error, silently excluding the majority of real turns.
+No claim is retracted and none is added --- \textbf{every savings figure here remains an
+input-token figure} --- but the gap is now a sample-size gap, not a methods gap.
 
 \section{Conclusion}
 Decision-equivalence is the right contract for agent context compression, and it carries a
