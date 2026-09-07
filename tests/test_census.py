@@ -305,10 +305,24 @@ def test_concurrent_writers_never_lower_the_total(monkeypatch):
 
     census.opt_in()
     monkeypatch.setattr("distil.calibration.factor", lambda model=None, path=None: (1.0, 99))
+
+    # ponytail: monkeypatch.setattr itself isn't thread-safe — calling it once
+    # per thread (the old shape) raced on the SAME global attribute and made
+    # the test flaky for reasons that had nothing to do with the invariant
+    # under test. Patch `summary` exactly once, before any thread starts, and
+    # let each thread select its own raw value through a per-thread key —
+    # ordinary dict item assignment on distinct keys is race-free under the
+    # GIL, so the only real concurrency left is the one this test means to
+    # exercise: the lock inside `_current_saved_tokens`/`_savings_locked`.
+    raw_by_thread: dict[int, int] = {}
+    monkeypatch.setattr(
+        "distil.ledger.summary",
+        lambda: _fake_summary(raw_by_thread[threading.get_ident()]),
+    )
     readings, lock = [], threading.Lock()
 
     def bump(raw):
-        monkeypatch.setattr("distil.ledger.summary", lambda raw=raw: _fake_summary(raw))
+        raw_by_thread[threading.get_ident()] = raw
         val = census._current_saved_tokens()
         with lock:
             readings.append(val)
