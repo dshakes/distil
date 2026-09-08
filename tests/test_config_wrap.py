@@ -617,6 +617,38 @@ _PATCH_TARGETS = {
 }
 
 
+def test_two_sessions_in_one_process_never_share_a_registry_entry(tmp_path, monkeypatch):
+    """Registry entries used to be named `<pid>.<time.monotonic_ns()>`, which
+    assumes the clock advances between two claims. It does not on Windows:
+    3.12's monotonic clock there ticks about every 15.6ms, so two sessions
+    starting inside one tick got the SAME filename — the second's `touch()`
+    landed on the first's entry, and whichever exited first unlinked the only
+    entry, concluded it was the last session, and restored the config out from
+    under its live sibling. Windows CI saw it as a *missing* distil entry after
+    the inner session exited; on a fast clock it never reproduces at all.
+
+    The name now comes from the filesystem, so the clock installed here — one
+    that never moves — cannot collide."""
+    monkeypatch.setattr(time, "monotonic_ns", lambda: 1_000)
+    path = tmp_path / "crush.json"
+    original = '{"providers": {"spark": {"id": "spark"}}}'
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    preset = config_wrap.CONFIG_PRESETS["crush"]
+
+    with preset.apply("https://api.anthropic.com", "http://a"):
+        with preset.apply("https://api.anthropic.com", "http://b"):
+            entries = list(config_wrap._registry_dir(path).iterdir())
+            assert len(entries) == 2, f"two sessions collided on one entry: {entries}"
+        assert '"id": "distil"' in path.read_text(), (
+            "the first session to exit restored the config out from under its live sibling"
+        )
+
+    assert path.read_text() == original
+    assert not config_wrap._registry_dir(path).exists()
+
+
 @pytest.mark.parametrize("tool", sorted(_PATCH_TARGETS))
 def test_patching_an_already_patched_config_never_appends_a_second_entry(
     tool, tmp_path, monkeypatch

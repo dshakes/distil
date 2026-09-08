@@ -379,6 +379,17 @@ recovery but stop the CLI from starting. Both it and `restore_stale_backups()` a
 fail-open per path: a registry in any shape at all costs you crash recovery for that
 run, never the wrap.
 
+A third one sat underneath those, and it is the one that made concurrent config-file
+wrap genuinely wrong on Windows. A session's registry entry was named
+`<pid>.<time.monotonic_ns()>`, which assumes the clock advances between two claims. It
+does not on Windows, where 3.12's monotonic clock ticks about every 15.6ms: two sessions
+starting inside one tick got the SAME filename, the second's `touch()` landed on the
+first's entry, and whichever exited first unlinked the only entry, concluded it was the
+last session, and restored the config out from under its still-running sibling. The
+entry is now named and created in one step by `tempfile.mkstemp`, so the filesystem
+guarantees uniqueness rather than a clock. The regression test installs a clock that
+never moves at all, which reproduces the Windows-only failure on any platform.
+
 Amp, Mistral Vibe, and OpenClaw were investigated and are deliberately **not**
 included. Mistral Vibe's config shape could not be verified against an authoritative
 source. Amp's `amp.url` setting is real and current, but it belongs to the VS Code

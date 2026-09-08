@@ -74,7 +74,6 @@ import json
 import os
 import re
 import tempfile
-import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,18 +149,10 @@ def _atomic_write_secure(path: Path, data: bytes) -> None:
 # whether that shared copy is still spoken for: two overlapping sessions on
 # the same config used to collide on it directly (restore_stale_backups()
 # couldn't tell a live sibling's bookkeeping from a dead one's), so this adds
-# a per-session registry entry (pid + a monotonic token, so two sessions
-# never share a registry filename) that both restore_stale_backups() and each
+# a per-session registry entry (named `<pid>.<unique>`, so two sessions never
+# share a registry filename) that both restore_stale_backups() and each
 # session's own exit consult before touching the shared backup/sentinel.
 # ---------------------------------------------------------------------------
-
-
-def _session_id() -> str:
-    # ponytail: pid + a monotonic timestamp, not a random uuid — stdlib, and
-    # enough to keep two registrations from the SAME pid (a fast-recycled pid,
-    # or a nested wrap) from landing on the same filename. Liveness itself is
-    # checked on the pid alone.
-    return f"{os.getpid()}.{time.monotonic_ns()}"
 
 
 def _configure_kernel32(kernel32: Any) -> Any:
@@ -284,13 +275,24 @@ def _claim_session(path: Path) -> tuple[Path, str]:
     There is deliberately no "am I the first claimant?" answer here any
     more: which session writes the shared backup is decided by whether the
     backup *file* exists — see ``_own_config`` for why registry emptiness
-    was the wrong question."""
+    was the wrong question.
+
+    The entry is named and created in one step by ``tempfile.mkstemp``, so
+    the FILESYSTEM guarantees two sessions never collide. The name used to
+    be ``<pid>.<time.monotonic_ns()>``, which quietly assumes the clock
+    advances between two claims — it does not on Windows, where 3.12's
+    monotonic clock ticks about every 15.6ms. Two sessions starting inside
+    one tick got the same filename, the second's ``touch()`` was a no-op on
+    the first's entry, and whichever exited first unlinked the only entry,
+    concluded it was the last session, and restored the config out from
+    under its live sibling. The pid stays as the prefix because that is what
+    ``_prune_dead_registrants`` reads liveness from."""
     registry_dir = _registry_dir(path)
     registry_dir.mkdir(parents=True, exist_ok=True)
     _prune_dead_registrants(registry_dir)
-    my_id = _session_id()
-    (registry_dir / my_id).touch()
-    return registry_dir, my_id
+    fd, name = tempfile.mkstemp(dir=registry_dir, prefix=f"{os.getpid()}.")
+    os.close(fd)
+    return registry_dir, Path(name).name
 
 
 def _release_session(registry_dir: Path, my_id: str) -> bool:
