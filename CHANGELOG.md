@@ -349,6 +349,23 @@ the next `distil wrap` and repairs it before that session starts. No credential 
 ever invented: a preset that needs an API key skips silently (touching nothing) when
 that key isn't set, matching `AGENT_PRESETS`' `extra_env` rule.
 
+The one crash a backup-and-restore contract cannot survive is a crash *before* the
+backup exists, and the session registry that lets concurrent wraps share one config
+opened exactly that window: "do I write the backup?" was answered by "was the registry
+empty?", and the registry entry went in first. A `SIGKILL` between the two left a
+registry holding one dead entry, so the next `distil wrap` read "not first", skipped
+the backup, and patched the real config anyway — an injected `distil` block with
+nothing on disk able to undo it, duplicated on every subsequent run for the two
+splice-strategy tools. The claim, the backup and the patch are now one critical
+section, in that order, under one `distil._filelock` lock (the cross-platform helper
+from the entry above, replacing this module's own fcntl/msvcrt shim), and the backup
+is created based on whether the backup *file* exists — so a crash at any point either
+leaves the config untouched or leaves the recovery material behind. Every patch is
+idempotent besides: re-patching a config that already carries a `distil` entry
+replaces it rather than appending a second one. `restore_stale_backups()` also sweeps
+a registry directory whose registrants are all dead but that has no backup beside it —
+a dead session's bookkeeping, which used to claim the path forever.
+
 Amp, Mistral Vibe, and OpenClaw were investigated and are deliberately **not**
 included. Mistral Vibe's config shape could not be verified against an authoritative
 source. Amp's `amp.url` setting is real and current, but it belongs to the VS Code

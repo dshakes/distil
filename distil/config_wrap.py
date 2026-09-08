@@ -54,6 +54,17 @@ exit order. Every claim-and-write and release-and-restore transition holds
 ``_session_lock(path)`` for its whole extent, so a release's "no live
 siblings remain" check and a fresh sibling's claim can never straddle each
 other — the failure mode a lock-free registry check alone still allows.
+
+The registry says who is running; it does NOT say whether the shared backup
+exists. ``_own_config`` decides that from the backup file itself, in the
+same critical section as the claim and strictly before the patch, so no
+crash can leave a config patched with nothing to restore it from. Patching
+is idempotent for every strategy that touches a real file — droid and crush
+key their entry (drop-and-re-append / dict assignment), omp strips its own
+marker fence before splicing a new one — so re-patching an already-patched
+config replaces the ``distil`` entry instead of stacking a second one; cn
+never re-patches anything, since it renders a fresh self-contained temp
+config per invocation and leaves the user's own files alone.
 """
 
 from __future__ import annotations
@@ -67,6 +78,8 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+
+from distil import _filelock
 
 #: Wraps a marker-fenced block spliced into a "patch"-strategy file, so a
 #: human (or a future distil session) can tell our block apart from the rest
@@ -207,38 +220,7 @@ def _prune_dead_registrants(registry_dir: Path) -> None:
             entry.unlink(missing_ok=True)
 
 
-def _lock_fd(fd: int) -> None:
-    if os.name == "posix":
-        import fcntl
-
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    else:
-        import msvcrt
-
-        os.write(fd, b"\0")  # msvcrt.locking needs >=1 byte in the file to lock
-        while True:
-            try:
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
-                return
-            except OSError:
-                time.sleep(0.01)  # another session holds it — poll (no blocking primitive here)
-
-
-def _unlock_fd(fd: int) -> None:
-    if os.name == "posix":
-        import fcntl
-
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    else:
-        import msvcrt
-
-        os.lseek(fd, 0, os.SEEK_SET)
-        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
-
-
-@contextlib.contextmanager
-def _session_lock(path: Path) -> Iterator[None]:
+def _session_lock(path: Path) -> contextlib.AbstractContextManager[None]:
     """Cooperative cross-process lock over the WHOLE claim-and-write /
     release-and-restore transition for ``path`` — not just the registry
     dir's own mkdir, which is atomic on its own but not enough. Without
@@ -250,40 +232,31 @@ def _session_lock(path: Path) -> Iterator[None]:
     release+restore block, so the two transitions can never straddle each
     other, regardless of which starts first.
 
-    ponytail: a small local fcntl/msvcrt lockfile scoped to this module —
-    swap for the shared ``distil._filelock`` helper landing in #177 once it
-    merges, rather than maintaining two copies of the same platform shim.
+    ``distil._filelock`` is the platform half (``fcntl.flock`` on POSIX,
+    ``msvcrt.locking`` on Windows, fail-open if the platform call itself
+    errors); the sidecar it locks is named after the session registry, so
+    the wrapped config file is never touched by the locking itself.
     """
-    lock_path = path.with_name(path.name + ".distil-sessions.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        _lock_fd(fd)
-        try:
-            yield
-        finally:
-            _unlock_fd(fd)
-    finally:
-        os.close(fd)
+    return _filelock.locked(_registry_dir(path))
 
 
-def _claim_session(path: Path) -> tuple[Path, str, bool]:
+def _claim_session(path: Path) -> tuple[Path, str]:
     """Register this process as one of possibly several concurrent sessions
-    patching ``path``. Returns ``(registry_dir, my_id, is_first)``.
-    ``is_first`` comes from ``Path.mkdir()``'s own atomicity — it either
-    creates the directory or raises ``FileExistsError``, with no window where
-    two concurrent callers can both see "created" — so this needs no separate
-    lock file. Only the first claimant writes the shared backup/created
-    marker; every later concurrent session just registers alongside it."""
+    patching ``path``, dropping any provably-dead registrant first so a
+    crashed session can't keep a path claimed forever. Callers hold
+    ``_session_lock(path)`` across this and everything they do with the
+    result. Returns ``(registry_dir, my_id)``.
+
+    There is deliberately no "am I the first claimant?" answer here any
+    more: which session writes the shared backup is decided by whether the
+    backup *file* exists — see ``_own_config`` for why registry emptiness
+    was the wrong question."""
     registry_dir = _registry_dir(path)
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    _prune_dead_registrants(registry_dir)
     my_id = _session_id()
-    try:
-        registry_dir.mkdir(parents=True)
-        is_first = True
-    except FileExistsError:
-        is_first = False
     (registry_dir / my_id).touch()
-    return registry_dir, my_id, is_first
+    return registry_dir, my_id
 
 
 def _release_session(registry_dir: Path, my_id: str) -> bool:
@@ -303,6 +276,52 @@ def _release_session(registry_dir: Path, my_id: str) -> bool:
         with contextlib.suppress(OSError):
             registry_dir.rmdir()
     return last
+
+
+@contextlib.contextmanager
+def _own_config(path: Path, render: Callable[[bytes | None], bytes]) -> Iterator[None]:
+    """Claim ``path`` for this session, make sure its true pre-wrap bytes stay
+    recoverable, write ``render(current_bytes)``, and restore when the last
+    live session on ``path`` exits. Every preset that touches a real config
+    file goes through here, so the invariant below is stated once.
+
+    The claim, the backup and the patch are ONE critical section under
+    ``_session_lock(path)``, in that order, and "does the backup still need
+    creating?" is answered by *whether the backup file exists* — never by
+    "was the session registry empty?". Deciding it from registry emptiness
+    left a window a SIGKILL could land in: a session that registered and
+    died before writing its backup left a registry holding one dead entry,
+    so the next ``distil wrap`` read ``is_first=False``, skipped the backup,
+    and patched the real config anyway — the injected ``distil`` block was
+    then permanent, with nothing left on disk that could undo it. Ordered
+    this way there is no such window: nothing is patched until the backup
+    (or the created-sentinel that stands in for one, when there was no file
+    to back up) is on disk, so a crash at any point either leaves the config
+    untouched or leaves ``restore_stale_backups()`` exactly what it needs.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    backup = _backup_path(path)
+    sentinel = _created_marker(path)
+    with _session_lock(path):
+        registry_dir, my_id = _claim_session(path)
+        current = path.read_bytes() if path.exists() else None
+        if not backup.exists() and not sentinel.exists():
+            if current is None:
+                sentinel.touch()
+            else:
+                _atomic_write_secure(backup, current)
+        _atomic_write_secure(path, render(current))
+    try:
+        yield
+    finally:
+        with _session_lock(path):
+            if _release_session(registry_dir, my_id):
+                if backup.exists():
+                    _atomic_write_secure(path, backup.read_bytes())
+                    backup.unlink(missing_ok=True)
+                elif sentinel.exists():
+                    path.unlink(missing_ok=True)
+                    sentinel.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -418,59 +437,44 @@ def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
         return
 
     path = _factory_settings_path()
-    existed = path.exists()
-    original = path.read_bytes() if existed else None
-    try:
-        doc = json.loads(original) if original else {}
-        if not isinstance(doc, dict):
-            raise ValueError("settings.local.json root is not an object")
-    except (json.JSONDecodeError, ValueError):
-        # ponytail: an unparseable settings.local.json is treated as empty
-        # rather than aborting the wrap — the ORIGINAL bytes are still
-        # backed up and restored untouched on exit either way.
-        doc = {}
-    models = [
-        m
-        for m in doc.get("customModels", [])
-        if not (isinstance(m, dict) and m.get("model") == "distil")
-    ]
-    models.append(
-        {
-            "model": "distil",
-            "displayName": "Distil (compressed)",
-            "baseUrl": base,
-            "apiKey": api_key,
-            "provider": "generic-chat-completion-api",
-        }
-    )
-    doc["customModels"] = models
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    backup = _backup_path(path)
-    sentinel = _created_marker(path)
-    with _session_lock(path):
-        registry_dir, my_id, is_first = _claim_session(path)
-        if is_first:
-            if existed:
-                _atomic_write_secure(backup, original)  # type: ignore[arg-type]
-            else:
-                sentinel.touch()
-        _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
-    print(
-        f'  → merged a "distil" entry into {path}\'s customModels — '
-        "select it in droid's model picker if it isn't already active"
-    )
-    try:
+    def _render(current: bytes | None) -> bytes:
+        try:
+            doc = json.loads(current) if current else {}
+            if not isinstance(doc, dict):
+                raise ValueError("settings.local.json root is not an object")
+        except (json.JSONDecodeError, ValueError):
+            # ponytail: an unparseable settings.local.json is treated as empty
+            # rather than aborting the wrap — the ORIGINAL bytes are still
+            # backed up and restored untouched on exit either way.
+            doc = {}
+        # Idempotent: any customModels entry we (or a sibling session) already
+        # wrote is dropped before ours is appended, so patching an
+        # already-patched overlay replaces the entry instead of stacking a
+        # second one that would outlive the restore.
+        models = [
+            m
+            for m in doc.get("customModels", [])
+            if not (isinstance(m, dict) and m.get("model") == "distil")
+        ]
+        models.append(
+            {
+                "model": "distil",
+                "displayName": "Distil (compressed)",
+                "baseUrl": base,
+                "apiKey": api_key,
+                "provider": "generic-chat-completion-api",
+            }
+        )
+        doc["customModels"] = models
+        return (json.dumps(doc, indent=2) + "\n").encode("utf-8")
+
+    with _own_config(path, _render):
+        print(
+            f'  → merged a "distil" entry into {path}\'s customModels — '
+            "select it in droid's model picker if it isn't already active"
+        )
         yield []
-    finally:
-        with _session_lock(path):
-            if _release_session(registry_dir, my_id):
-                if backup.exists():
-                    _atomic_write_secure(path, backup.read_bytes())
-                    backup.unlink(missing_ok=True)
-                elif sentinel.exists():
-                    path.unlink(missing_ok=True)
-                    sentinel.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +493,12 @@ def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
 # ---------------------------------------------------------------------------
 
 _PROVIDERS_LINE_RE = re.compile(r"^providers:[ \t]*\r?\n", re.MULTILINE)
+
+#: A whole block distil spliced in previously, fence lines included.
+_FENCED_BLOCK_RE = re.compile(
+    re.escape(_MARKER_BEGIN) + r".*?" + re.escape(_MARKER_END) + r"[ \t]*\r?\n?",
+    re.DOTALL,
+)
 
 
 def _omp_models_path() -> Path:
@@ -514,6 +524,12 @@ def _omp_fenced_block(family: str, base: str, api_key: str) -> str:
 def _omp_patch(text: str | None, fenced: str) -> str:
     if text is None:
         return f"providers:\n{fenced}"
+    # Idempotent: strip a block we spliced in earlier (a sibling session's, or
+    # one a crash left behind) before splicing the new one. Without this,
+    # patching an already-patched models.yml appended a SECOND `distil`
+    # provider — duplicate YAML keys, and one block too many for any single
+    # restore to undo.
+    text = _FENCED_BLOCK_RE.sub("", text)
     m = _PROVIDERS_LINE_RE.search(text)
     if m is None:
         # ponytail: appends a new top-level `providers:` section at EOF
@@ -541,37 +557,18 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
         return
 
     path = _omp_models_path()
-    existed = path.exists()
-    original = path.read_bytes() if existed else None
     fenced = _omp_fenced_block(family, base, api_key)
-    new_text = _omp_patch(original.decode("utf-8") if original else None, fenced)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    backup = _backup_path(path)
-    sentinel = _created_marker(path)
-    with _session_lock(path):
-        registry_dir, my_id, is_first = _claim_session(path)
-        if is_first:
-            if existed:
-                _atomic_write_secure(backup, original)  # type: ignore[arg-type]
-            else:
-                sentinel.touch()
-        _atomic_write_secure(path, new_text.encode("utf-8"))
-    print(
-        f'  → wrote provider "distil" into {path} — select it with '
-        "`omp models set distil/<model>` if it isn't already active"
-    )
-    try:
+    def _render(current: bytes | None) -> bytes:
+        text = current.decode("utf-8") if current is not None else None
+        return _omp_patch(text, fenced).encode("utf-8")
+
+    with _own_config(path, _render):
+        print(
+            f'  → wrote provider "distil" into {path} — select it with '
+            "`omp models set distil/<model>` if it isn't already active"
+        )
         yield []
-    finally:
-        with _session_lock(path):
-            if _release_session(registry_dir, my_id):
-                if backup.exists():
-                    _atomic_write_secure(path, backup.read_bytes())
-                    backup.unlink(missing_ok=True)
-                elif sentinel.exists():
-                    path.unlink(missing_ok=True)
-                    sentinel.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -612,56 +609,39 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
         return
 
     path = _crush_config_path()
-    existed = path.exists()
-    original = path.read_bytes() if existed else None
-    try:
-        doc = json.loads(original) if original else {}
-        if not isinstance(doc, dict):
-            raise ValueError("crush.json root is not an object")
-    except (json.JSONDecodeError, ValueError):
-        # ponytail: an unparseable crush.json is treated as empty rather than
-        # aborting the wrap — the ORIGINAL bytes are still backed up and
-        # restored untouched on exit either way.
-        doc = {}
-    providers = doc.get("providers")
-    if not isinstance(providers, dict):
-        providers = {}
-    providers["distil"] = {
-        "id": "distil",
-        "name": "Distil (compressed)",
-        "type": family,
-        "base_url": base,
-        "api_key": api_key,
-    }
-    doc["providers"] = providers
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    backup = _backup_path(path)
-    sentinel = _created_marker(path)
-    with _session_lock(path):
-        registry_dir, my_id, is_first = _claim_session(path)
-        if is_first:
-            if existed:
-                _atomic_write_secure(backup, original)  # type: ignore[arg-type]
-            else:
-                sentinel.touch()
-        _atomic_write_secure(path, (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
-    print(
-        f'  → wrote provider "distil" into {path} — pick it from Crush\'s '
-        "model picker (ctrl+l), or run `model add distil/<id>` in crushrc "
-        "if it has no models listed yet"
-    )
-    try:
+    def _render(current: bytes | None) -> bytes:
+        try:
+            doc = json.loads(current) if current else {}
+            if not isinstance(doc, dict):
+                raise ValueError("crush.json root is not an object")
+        except (json.JSONDecodeError, ValueError):
+            # ponytail: an unparseable crush.json is treated as empty rather
+            # than aborting the wrap — the ORIGINAL bytes are still backed up
+            # and restored untouched on exit either way.
+            doc = {}
+        providers = doc.get("providers")
+        if not isinstance(providers, dict):
+            providers = {}
+        # Idempotent: keyed assignment, so re-patching replaces our provider
+        # rather than adding a second one.
+        providers["distil"] = {
+            "id": "distil",
+            "name": "Distil (compressed)",
+            "type": family,
+            "base_url": base,
+            "api_key": api_key,
+        }
+        doc["providers"] = providers
+        return (json.dumps(doc, indent=2) + "\n").encode("utf-8")
+
+    with _own_config(path, _render):
+        print(
+            f'  → wrote provider "distil" into {path} — pick it from Crush\'s '
+            "model picker (ctrl+l), or run `model add distil/<id>` in crushrc "
+            "if it has no models listed yet"
+        )
         yield []
-    finally:
-        with _session_lock(path):
-            if _release_session(registry_dir, my_id):
-                if backup.exists():
-                    _atomic_write_secure(path, backup.read_bytes())
-                    backup.unlink(missing_ok=True)
-                elif sentinel.exists():
-                    path.unlink(missing_ok=True)
-                    sentinel.unlink(missing_ok=True)
 
 
 CONFIG_PRESETS: dict[str, ConfigPreset] = {
@@ -721,14 +701,21 @@ def restore_stale_backups() -> None:
     live one remains; if it does, this is a live session, not a crash
     leftover, and must be left completely alone. Fail-safe: if liveness
     can't be disproven for every registrant, treat the path as still owned.
+
+    A registry directory whose registrants are all dead is swept even when
+    there is no backup and no sentinel beside it: that is the shape a crash
+    between the claim and the backup write leaves (nothing was patched yet),
+    and the shape a restore that already consumed its backup leaves. Either
+    way the leftover directory is bookkeeping for a session that no longer
+    exists, and the config file itself is left alone.
     """
     for preset in CONFIG_PRESETS.values():
         for path in preset.paths():
             backup = _backup_path(path)
             sentinel = _created_marker(path)
-            if not backup.exists() and not sentinel.exists():
-                continue
             registry_dir = _registry_dir(path)
+            if not backup.exists() and not sentinel.exists() and not registry_dir.exists():
+                continue
             with _session_lock(path):
                 _prune_dead_registrants(registry_dir)
                 try:

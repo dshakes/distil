@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import NamedTuple
 
 import pytest
 
@@ -261,6 +262,24 @@ def test_omp_patch_appends_providers_section_when_key_missing():
     assert text == "modelRoles:\n  default: spark/x\nproviders:\n  distil:\n    baseUrl: X\n"
 
 
+def test_omp_patch_replaces_its_own_block_instead_of_stacking_a_second():
+    """Patching an already-patched models.yml must REPLACE distil's fenced
+    block, not append another one: two blocks mean duplicate `distil:` keys
+    under `providers:`, and one block too many for a single restore to undo."""
+    original = "providers:\n  spark:\n    baseUrl: http://elsewhere\n"
+    once = config_wrap._omp_patch(
+        original, config_wrap._omp_fenced_block("anthropic", "http://a", "k")
+    )
+    twice = config_wrap._omp_patch(
+        once, config_wrap._omp_fenced_block("anthropic", "http://b", "k")
+    )
+
+    assert twice.count(config_wrap._MARKER_BEGIN) == 1
+    assert twice.count(config_wrap._MARKER_END) == 1
+    assert "baseUrl: http://b" in twice and "baseUrl: http://a" not in twice
+    assert "spark:" in twice, "the user's own provider must survive the re-patch"
+
+
 def test_omp_apply_restores_exact_bytes_when_file_existed(tmp_path, monkeypatch):
     path = tmp_path / "models.yml"
     original = "providers:\n  spark:\n    baseUrl: http://elsewhere\n"
@@ -496,8 +515,122 @@ def test_config_survives_the_wrapped_child_being_killed(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Idempotence — every strategy that touches a real config file. `cn` is absent
+# on purpose: it renders a fresh self-contained temp config per invocation and
+# never re-patches anything, so there is nothing to be idempotent about.
+# ---------------------------------------------------------------------------
+
+
+class _PatchTarget(NamedTuple):
+    path_attr: str  # the module attribute naming the real config path
+    filename: str
+    upstream: str
+    key_var: str
+    original: str
+    theirs: str  # a substring of the user's own config that must survive
+    ours: str  # the substring that marks exactly ONE distil entry
+
+
+_PATCH_TARGETS = {
+    "droid": _PatchTarget(
+        "_factory_settings_path",
+        "settings.local.json",
+        "https://api.openai.com",
+        "OPENAI_API_KEY",
+        '{"customModels": [{"model": "their-own"}]}',
+        "their-own",
+        '"model": "distil"',
+    ),
+    "omp": _PatchTarget(
+        "_omp_models_path",
+        "models.yml",
+        "https://api.anthropic.com",
+        "ANTHROPIC_API_KEY",
+        "providers:\n  spark:\n    baseUrl: http://elsewhere\n",
+        "spark:",
+        config_wrap._MARKER_BEGIN,
+    ),
+    "crush": _PatchTarget(
+        "_crush_config_path",
+        "crush.json",
+        "https://api.anthropic.com",
+        "ANTHROPIC_API_KEY",
+        '{"providers": {"spark": {"id": "spark"}}}',
+        '"spark"',
+        '"id": "distil"',
+    ),
+}
+
+
+@pytest.mark.parametrize("tool", sorted(_PATCH_TARGETS))
+def test_patching_an_already_patched_config_never_appends_a_second_entry(
+    tool, tmp_path, monkeypatch
+):
+    """A config can legitimately arrive already carrying a `distil` entry — a
+    concurrent sibling session put it there, or a crash left one behind — and
+    a second patch must REPLACE it. Appending a second entry survives the
+    restore (only one can be undone) and, for the YAML splice, writes a
+    duplicate key. droid drops-and-re-appends its customModels entry and crush
+    assigns a dict key, so both were already safe; omp appended."""
+    target = _PATCH_TARGETS[tool]
+    path = tmp_path / target.filename
+    path.write_text(target.original)
+    monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
+    monkeypatch.setenv(target.key_var, "sk-test")
+    preset = config_wrap.CONFIG_PRESETS[tool]
+
+    with preset.apply(target.upstream, "http://a"):
+        with preset.apply(target.upstream, "http://b"):  # patches over our own patch
+            text = path.read_text()
+            assert text.count(target.ours) == 1, f"a second distil entry was appended:\n{text}"
+            assert target.theirs in text, "the user's own entry must survive the re-patch"
+        assert path.read_text().count(target.ours) == 1
+
+    assert path.read_text() == target.original, "the true original must come back byte-for-byte"
+    assert not config_wrap._backup_path(path).exists()
+    assert not config_wrap._registry_dir(path).exists()
+
+
+# ---------------------------------------------------------------------------
 # Crash recovery
 # ---------------------------------------------------------------------------
+
+
+def _dead_pid() -> int:
+    """A pid that provably isn't in use: spawned, exited, and reaped."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def test_a_crash_between_the_claim_and_the_backup_does_not_strand_the_injection(
+    tmp_path, monkeypatch
+):
+    """The blocking defect. "Do I create the backup?" used to be answered by
+    "was the session registry empty?", and the backup was written after the
+    claim. A SIGKILL in that window left a registry holding one dead entry, so
+    the NEXT `distil wrap` computed is_first=False, wrote no backup, and
+    patched the real config anyway — the injected block was then permanent,
+    with nothing on disk able to undo it. That crash is reproduced exactly
+    here: a dead pid registered against the path, no backup, no sentinel."""
+    path = tmp_path / "models.yml"
+    original = "providers:\n  spark:\n    baseUrl: http://elsewhere\n"
+    path.write_text(original)
+    registry_dir = config_wrap._registry_dir(path)
+    registry_dir.mkdir()
+    (registry_dir / f"{_dead_pid()}.1").touch()  # claimed, then killed before backing up
+    monkeypatch.setattr(config_wrap, "_omp_models_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._omp_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
+        assert config_wrap._MARKER_BEGIN in path.read_text(), "nothing was injected at all"
+        assert config_wrap._backup_path(path).read_text() == original, (
+            "a dead session's claim must not stand in for a backup that was never written"
+        )
+
+    assert path.read_text() == original, "the injected block outlived the session"
+    assert not config_wrap._backup_path(path).exists()
+    assert not registry_dir.exists()
 
 
 def test_restore_stale_backups_restores_a_leftover_backup(tmp_path, monkeypatch):
@@ -563,6 +696,37 @@ def test_restore_stale_backups_reclaims_a_registrant_from_a_dead_pid(tmp_path, m
     assert not registry_dir.exists()
 
 
+def test_restore_stale_backups_clears_a_registry_a_crash_left_without_a_backup(
+    tmp_path, monkeypatch, capsys
+):
+    """Every registrant dead and NO backup or sentinel beside the config: the
+    backup is written before the patch, so nothing was ever patched and there
+    is nothing to restore — but the registry directory is a dead session's
+    bookkeeping and must not be left behind claiming the path. The config
+    itself is not touched, and nothing is reported (nothing was repaired)."""
+    path = tmp_path / "models.yml"
+    original = "providers:\n  spark: {}\n"
+    path.write_text(original)
+    registry_dir = config_wrap._registry_dir(path)
+    registry_dir.mkdir()
+    (registry_dir / f"{_dead_pid()}.1").touch()
+    monkeypatch.setattr(config_wrap, "CONFIG_PRESETS", {"omp": config_wrap.CONFIG_PRESETS["omp"]})
+    monkeypatch.setattr(config_wrap, "_omp_models_path", lambda: path)
+
+    config_wrap.restore_stale_backups()
+
+    assert not registry_dir.exists(), "a dead session's registry kept the path claimed forever"
+    assert path.read_text() == original, "there was nothing to restore — leave the config alone"
+    assert capsys.readouterr().out == "", "nothing was repaired, so nothing to report"
+
+    # ...and the same sweep must still leave a LIVE registrant's claim alone.
+    registry_dir.mkdir()
+    mine = registry_dir / f"{os.getpid()}.1"
+    mine.touch()
+    config_wrap.restore_stale_backups()
+    assert mine.exists(), "a live session's claim was swept"
+
+
 def test_restore_stale_backups_does_not_reclaim_a_live_pid(tmp_path, monkeypatch):
     """The exact scenario the fix targets: a second, unrelated `distil wrap`
     invocation must not restore a config a LIVE sibling session still owns,
@@ -621,16 +785,21 @@ def test_overlapping_sessions_on_the_same_config_restore_to_the_true_original(
         assert not config_wrap._registry_dir(path).exists()
 
 
-def test_session_lock_serializes_a_release_against_a_concurrent_claim(tmp_path, monkeypatch):
-    """Regression for the exact race `_session_lock` exists to close: A is
-    the last live session and is about to restore; B claims fresh in the gap
-    between A unlinking its own registry entry and A evaluating "no live
-    siblings remain" — the caller-side restore then runs and would silently
-    clobber B's brand-new config. `_prune_dead_registrants` is patched to
-    pause right there (the exact point named in the bug report) while a
-    second thread races to claim; the lock must force one transition to
-    fully finish before the other starts, so B's config is never clobbered
-    no matter which one wins the race to go first."""
+def test_session_lock_serializes_a_release_against_a_concurrent_claim(tmp_path):
+    """Regression for the exact race `_session_lock` exists to close: A is the
+    last live session and has already decided it must restore; B claims fresh
+    before A's restore actually lands, and that restore then silently clobbers
+    B's brand-new config. A is parked in exactly that window on purpose while
+    B races to claim.
+
+    Both threads are JOINED before anything is asserted, and what's asserted
+    is the property rather than a fixed event ordering measured at a fixed
+    instant: an earlier version pinned `order` while B was still legitimately
+    blocked, which on Windows recorded only A's two events and failed — the
+    lock doing its job, scored as a bug (msvcrt's LK_LOCK retries on a ~1s
+    cadence, so B lands about a second later, not microseconds). Remove the
+    lock and both assertions below still fail: B writes its config inside A's
+    window, and A's restore overwrites it."""
     path = tmp_path / "crush.json"
     path.write_text("true original")
     config_wrap._backup_path(path).write_text("true original")
@@ -639,43 +808,48 @@ def test_session_lock_serializes_a_release_against_a_concurrent_claim(tmp_path, 
     (registry_dir / "111.1").touch()  # A is the sole, about-to-release registrant
 
     order: list[str] = []
-    a_paused_after_unlink = threading.Event()
+    a_in_the_restore_window = threading.Event()
     let_a_continue = threading.Event()
-    real_prune = config_wrap._prune_dead_registrants
-
-    def _paused_prune(rd: object) -> None:
-        order.append("a_paused_after_unlink")
-        a_paused_after_unlink.set()
-        let_a_continue.wait(timeout=2)
-        real_prune(rd)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(config_wrap, "_prune_dead_registrants", _paused_prune)
+    errors: list[BaseException] = []
 
     def _release_a() -> None:
-        with config_wrap._session_lock(path):
-            if config_wrap._release_session(registry_dir, "111.1"):
-                path.write_text(config_wrap._backup_path(path).read_text())
-        order.append("a_done")
+        # The caller-side shape of every preset's `finally`: release, then (if
+        # last) restore — with the pause in the window between the two.
+        try:
+            with config_wrap._session_lock(path):
+                last = config_wrap._release_session(registry_dir, "111.1")
+                a_in_the_restore_window.set()
+                let_a_continue.wait(timeout=30)
+                if last:
+                    path.write_text(config_wrap._backup_path(path).read_text())
+                    order.append("a_restored")
+        except BaseException as exc:  # noqa: BLE001 — a thread failure must fail the test
+            errors.append(exc)
 
     def _claim_b() -> None:
-        assert a_paused_after_unlink.wait(timeout=2), "A never reached the race window"
-        with config_wrap._session_lock(path):
-            order.append("b_claimed")
-            config_wrap._claim_session(path)
-            path.write_text("b's fresh config")
+        try:
+            assert a_in_the_restore_window.wait(timeout=30), "A never reached the race window"
+            with config_wrap._session_lock(path):
+                order.append("b_claimed")
+                config_wrap._claim_session(path)
+                path.write_text("b's fresh config")
+        except BaseException as exc:  # noqa: BLE001 — a thread failure must fail the test
+            errors.append(exc)
 
     t_a = threading.Thread(target=_release_a)
     t_b = threading.Thread(target=_claim_b)
     t_a.start()
     t_b.start()
-    a_paused_after_unlink.wait(timeout=2)
+    assert a_in_the_restore_window.wait(timeout=30), "A never reached the race window"
     time.sleep(0.05)  # give B a real chance to try (and correctly fail) to jump the lock
     let_a_continue.set()
-    t_a.join(timeout=2)
-    t_b.join(timeout=2)
+    t_a.join(timeout=60)
+    t_b.join(timeout=60)
 
-    assert order == ["a_paused_after_unlink", "a_done", "b_claimed"], (
-        "B's claim must not straddle A's release — it must fully follow it"
+    assert not t_a.is_alive() and not t_b.is_alive(), "a thread never finished — lock deadlock?"
+    assert not errors, f"a thread raised: {errors!r}"
+    assert order == ["a_restored", "b_claimed"], (
+        "B's claim must not straddle A's release-and-restore — it must fully follow it"
     )
     assert path.read_text() == "b's fresh config", "A's restore must not clobber B's fresh config"
 
