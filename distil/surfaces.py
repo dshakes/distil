@@ -25,6 +25,8 @@ import os
 import threading
 from pathlib import Path
 
+from distil import _filelock
+
 SURFACES = frozenset({"wrap", "proxy", "gateway"})
 SHAPES = frozenset({"anthropic", "openai-chat", "openai-responses", "gemini"})
 FLUSH_EVERY = 20
@@ -88,13 +90,7 @@ def _flush_locked() -> None:
         return
     p = store_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "a+", encoding="utf-8") as f:
-        try:
-            import fcntl
-
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        except (ImportError, OSError):
-            pass  # no flock (e.g. Windows): lossy merge beats no data
+    with _filelock.locked(p), open(p, "a+", encoding="utf-8") as f:
         f.seek(0)
         try:
             disk = json.loads(f.read() or "{}")

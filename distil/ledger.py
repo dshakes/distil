@@ -20,12 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    import fcntl  # POSIX advisory locking; absent on Windows
-
-    _HAVE_FCNTL = True
-except ImportError:  # pragma: no cover - Windows
-    _HAVE_FCNTL = False
+from distil import _filelock
 
 # Back up the ledger once it has grown this much past the last .bak (cheap, bounded).
 _BACKUP_GROWTH_BYTES = 256 * 1024
@@ -94,12 +89,10 @@ def append_session_request(rec: dict[str, Any], sid: str | None = None) -> None:
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            if _HAVE_FCNTL:
-                # ThreadingHTTPServer serves requests concurrently; a multi-block rec
-                # exceeds the atomic-append size, so lock to stop interleaved writes
-                # corrupting a JSONL line (same guard as Savings.flush).
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        # ThreadingHTTPServer serves requests concurrently; a multi-block rec
+        # exceeds the atomic-append size, so lock to stop interleaved writes
+        # corrupting a JSONL line (same guard as Savings.flush).
+        with _filelock.locked(path), path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, sort_keys=True) + "\n")
     except OSError:
         pass
@@ -163,11 +156,9 @@ def record(
     path = path or default_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     _maybe_backup(path)
-    with path.open("a", encoding="utf-8") as f:
-        if _HAVE_FCNTL:
-            # Serialize appends from concurrent proxies (advisory; released on close)
-            # so interleaved writes can't corrupt a line.
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+    # Serialize appends from concurrent proxies so interleaved writes can't
+    # corrupt a line.
+    with _filelock.locked(path), path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(asdict(rec)) + "\n")
     return rec
 

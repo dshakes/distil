@@ -110,10 +110,6 @@ def test_serve_loop_over_stdio():
     assert [o["id"] for o in out_lines] == [1, 2]
 
 
-@pytest.mark.skipif(
-    __import__("distil.mcp_server", fromlist=["_HAVE_FCNTL"])._HAVE_FCNTL is False,
-    reason="no fcntl on Windows — advisory locking unavailable (same as ledger)",
-)
 def test_concurrent_compress_calls_do_not_drop_handles():
     """Two racing distil_compress calls must both survive in the store —
     the unlocked load/load/save/save interleaving used to drop one."""

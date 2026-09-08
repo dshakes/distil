@@ -31,12 +31,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    import fcntl as _fcntl  # POSIX advisory locking; absent on Windows
-
-    _HAVE_FCNTL = True
-except ImportError:
-    _HAVE_FCNTL = False
+from distil import _filelock
 
 _KEY_PREFIX = "dsk-"
 _KEYS_FILE = "gateway_keys.json"
@@ -176,15 +171,14 @@ class GatewayKeyStore:
         # the process umask (0644 on a default macOS/Linux box) for the whole write.
         # That window is real and catchable: a polling thread observed mode 0644 on
         # this path during a 400-key issue loop before this fix.
-        with os.fdopen(
-            os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8"
-        ) as f:
-            if _HAVE_FCNTL:
-                _fcntl.flock(f.fileno(), _fcntl.LOCK_EX)
-            f.write(json.dumps(data, indent=2))
-            f.flush()
-        os.replace(tmp, self._path)
-        self._path.chmod(0o600)
+        with _filelock.locked(self._path):
+            with os.fdopen(
+                os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8"
+            ) as f:
+                f.write(json.dumps(data, indent=2))
+                f.flush()
+            os.replace(tmp, self._path)
+            self._path.chmod(0o600)
         # Update the in-memory state so the next lookup doesn't re-read immediately.
         self._cache = cache
         try:

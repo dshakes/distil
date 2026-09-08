@@ -46,13 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    import fcntl
-
-    _HAVE_FCNTL = True
-except ImportError:  # pragma: no cover - Windows
-    _HAVE_FCNTL = False
-
+from . import _filelock
 from .compress.keep_policy import _ERR_RE
 from .compress.tier0 import Tier0Lossless
 from .compress.tier1 import Tier1Reversible
@@ -861,17 +855,11 @@ class LiveMeter:
                 for name, tally in dims.items()
             },
         }
-        with path.open("a", encoding="utf-8") as fh:
-            # Concurrent wrap sessions and proxy workers append here; lock like
-            # ledger.py and shadow.py do.
-            if _HAVE_FCNTL:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            try:
-                fh.write(json.dumps(record) + "\n")
-                fh.flush()
-            finally:
-                if _HAVE_FCNTL:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        # Concurrent wrap sessions and proxy workers append here; lock like
+        # ledger.py and shadow.py do.
+        with _filelock.locked(path), path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+            fh.flush()
 
 
 def _live_path() -> Path:
