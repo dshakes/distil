@@ -21,6 +21,10 @@ source on GitHub (``llama-index-core``, main branch) on 2026-09-06:
 * ``FunctionTool.from_defaults(fn=..., async_fn=...)`` wraps a plain callable (sync or
   async) for use by LlamaIndex agents — wrapping that callable is the seam for
   compressing a tool's return value before the agent ever sees it.
+* An ``llm=`` argument, unlike a node postprocessor, IS type-checked: ``resolve_llm()``
+  asserts ``isinstance(llm, LLM)`` and Pydantic components declare ``llm: LLM``. That is
+  why ``DistilLLM`` re-types rather than wraps — see its docstring (re-measured against
+  llama-index-core 0.14.24 on 2026-09-08).
 * ``BaseLLM.chat/achat/stream_chat/astream_chat`` take ``messages: Sequence[ChatMessage]``;
   ``.complete/.acomplete/.stream_complete/.astream_complete`` take a plain string
   ``prompt``. ``ChatMessage.content`` is a property backed by ``.blocks`` (a list of
@@ -50,6 +54,7 @@ the other integrations use, so a handle minted here is expandable anywhere.
 
 from __future__ import annotations
 
+import copy
 import functools
 import inspect
 from collections.abc import Callable
@@ -214,18 +219,14 @@ def _compress_in(
     return args, kwargs
 
 
-class DistilLLM:
-    """Wrap a LlamaIndex ``LLM`` so outgoing chat/completion calls are compressed.
+class _DelegatingLLM:
+    """Fallback: delegate every attribute to the wrapped LLM, compressing the
+    chat/completion calls on the way through.
 
-    Duck-typed against ``chat``/``complete`` and their async/streaming siblings; every
-    other attribute (``metadata``, ``callback_manager``, ``class_name``, ...) is
-    delegated untouched, so this is safe to hand anywhere the real LLM is expected::
-
-        llm = DistilLLM(OpenAI(model="gpt-5"))
-        query_engine = index.as_query_engine(llm=llm)
-
-    Streaming methods return the real generator unmodified — only the outgoing
-    messages/prompt are compressed, never the model's streamed reply.
+    Reached only when the LLM's class can't be subclassed or its instance
+    can't be re-typed (see ``DistilLLM``). Correct for anything duck-typed,
+    but it is NOT an instance of the wrapped class, so a caller that checks
+    the type rejects it.
     """
 
     def __init__(self, llm: Any, *, verbatim: bool = False) -> None:
@@ -245,5 +246,74 @@ class DistilLLM:
 
         return _wrapped
 
-    def __repr__(self) -> str:  # pragma: no cover - diagnostic affordance
+    def __repr__(self) -> str:
         return f"<distil-compressed {self._llm!r}>"
+
+
+def _compressing_override(name: str, inner: Callable[..., Any], verbatim: bool) -> Any:
+    """One method for the subclass below: compress the outgoing messages/prompt,
+    then call the ORIGINAL instance's bound method — never ``self``'s, which is
+    this override, so nothing re-enters."""
+    if inspect.iscoroutinefunction(inner):
+
+        async def _amethod(self: Any, *args: Any, **kwargs: Any) -> Any:
+            a, kw = _compress_in(name, args, kwargs, verbatim)
+            return await inner(*a, **kw)
+
+        return functools.wraps(inner)(_amethod)
+
+    def _method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        a, kw = _compress_in(name, args, kwargs, verbatim)
+        return inner(*a, **kw)
+
+    return functools.wraps(inner)(_method)
+
+
+def DistilLLM(llm: Any, *, verbatim: bool = False) -> Any:  # noqa: N802 — called like the class it replaces
+    """Wrap a LlamaIndex ``LLM`` so outgoing chat/completion calls are compressed::
+
+        llm = DistilLLM(OpenAI(model="gpt-5"))
+        query_engine = index.as_query_engine(llm=llm)
+
+    Returns *llm* re-typed as a transparent subclass of its own class, rather
+    than a wrapper object around it. Delegation alone is not enough, because
+    LlamaIndex validates an ``llm=`` argument by TYPE — measured against
+    llama-index-core 0.14.24 on 2026-09-08:
+
+    * ``resolve_llm()``, which both ``index.as_query_engine(llm=...)`` and
+      ``Settings.llm = ...`` go through, ends in ``assert isinstance(llm, LLM)``
+      (``llama_index/core/llms/utils.py``);
+    * every Pydantic component with an ``llm: LLM`` field (``FunctionAgent``
+      among them) rejects a non-instance outright — *Input should be a valid
+      dictionary or instance of LLM*.
+
+    Registering as a virtual subclass does not help: Pydantic disables
+    ``register()``-based ``isinstance`` support and warns that it does.
+    Subclassing whatever class we were handed satisfies both checks for any
+    LLM implementation, first-party or not, and still imports nothing.
+
+    A shallow copy of *llm* carries its state into the subclass, and the
+    compressing overrides call the ORIGINAL instance's bound methods, so what
+    runs is the wrapped model's own behaviour. Every other attribute
+    (``metadata``, ``callback_manager``, ``class_name``, ...) is the copy's,
+    untouched. Streaming methods return the real generator unmodified — only
+    the outgoing messages/prompt are compressed, never the model's reply.
+
+    Anything whose class can't be subclassed, or whose instance can't be
+    re-typed, falls back to plain delegation (``_DelegatingLLM``): a
+    duck-typed object keeps working, at the cost of failing a type check.
+    """
+    try:
+        ns: dict[str, Any] = {"__repr__": lambda self: f"<distil-compressed {llm!r}>"}
+        for name in _CALL_METHODS:
+            inner = getattr(llm, name, None)
+            if callable(inner):
+                ns[name] = _compressing_override(name, inner, verbatim)
+        # ponytail: a throwaway subclass per wrapped instance — an app wraps its
+        # LLM once, so caching by (class, verbatim) would buy nothing.
+        subclass = type(f"Distil{type(llm).__name__}", (type(llm),), ns)
+        retyped = copy.copy(llm)
+        retyped.__class__ = subclass
+        return retyped
+    except Exception:  # noqa: BLE001 — any class we can't re-type: stay duck-typed
+        return _DelegatingLLM(llm, verbatim=verbatim)

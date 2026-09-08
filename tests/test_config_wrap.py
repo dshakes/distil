@@ -87,6 +87,61 @@ def test_pid_is_alive_windows_branch_checks_exit_code_not_just_the_handle(monkey
     assert config_wrap._pid_is_alive(999) is True
 
 
+def test_kernel32_signatures_are_pinned_so_a_win64_handle_is_not_truncated():
+    """ctypes defaults a foreign function's restype to c_int, which TRUNCATES
+    the 64-bit HANDLE OpenProcess returns on Win64 — GetExitCodeProcess and
+    CloseHandle then fail with ERROR_INVALID_HANDLE, the fail-safe fires, and
+    every pid reads alive: crash recovery silently dead on the one platform
+    this registry exists for.
+
+    This asserts the configuration rather than the behaviour, because the
+    fake kernel32 in the test above CANNOT catch this class of bug — a Python
+    stand-in has no ABI, so its "handle" round-trips through any restype at
+    all. Only a real Windows runner can prove the ABI; what is provable
+    everywhere is that the signatures are still being pinned."""
+    import ctypes
+    import types
+
+    kernel32 = types.SimpleNamespace(
+        # SimpleNamespace stands in for a ctypes _FuncPtr: all that matters
+        # here is that restype/argtypes assignment lands somewhere readable.
+        OpenProcess=types.SimpleNamespace(),
+        GetExitCodeProcess=types.SimpleNamespace(),
+        CloseHandle=types.SimpleNamespace(),
+    )
+    assert config_wrap._configure_kernel32(kernel32) is kernel32
+
+    # A pointer-width return type, never ctypes' default c_int.
+    assert kernel32.OpenProcess.restype is ctypes.c_void_p
+    assert kernel32.OpenProcess.argtypes == (ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32)
+    # ...and the handle goes back IN as a pointer too, not as a truncated int.
+    assert kernel32.GetExitCodeProcess.argtypes[0] is ctypes.c_void_p
+    assert kernel32.CloseHandle.argtypes == (ctypes.c_void_p,)
+
+
+def test_pid_is_alive_is_fail_safe_when_the_windows_api_cannot_be_reached(monkeypatch):
+    """`restore_stale_backups()` runs at the top of every `distil wrap`, so an
+    exception out of the liveness check doesn't degrade crash recovery — it
+    stops the CLI from starting at all. ctypes raises AttributeError, not
+    OSError, when `windll` is missing on a platform that is neither posix nor
+    real Windows, so the catch has to be wider than OSError."""
+    import ctypes
+    import types
+
+    monkeypatch.setattr(config_wrap.os, "name", "nt")
+
+    def _boom(*a, **kw):
+        raise AttributeError("no windll here")
+
+    monkeypatch.setattr(
+        ctypes,
+        "windll",
+        types.SimpleNamespace(kernel32=types.SimpleNamespace(OpenProcess=_boom)),
+        raising=False,
+    )
+    assert config_wrap._pid_is_alive(999) is True
+
+
 # ---------------------------------------------------------------------------
 # Continue (`cn`) — flag strategy: nothing on disk but a throwaway temp file.
 # ---------------------------------------------------------------------------
@@ -725,6 +780,25 @@ def test_restore_stale_backups_clears_a_registry_a_crash_left_without_a_backup(
     mine.touch()
     config_wrap.restore_stale_backups()
     assert mine.exists(), "a live session's claim was swept"
+
+
+def test_restore_stale_backups_never_blocks_a_wrap_over_old_cleanup(tmp_path, monkeypatch):
+    """This is the first thing `distil wrap` does. A registry left in a shape
+    the sweep can't handle — by an older distil, a half-finished manual
+    cleanup, a filesystem answering something unexpected — must degrade to
+    "no crash recovery this run", never to a CLI that won't start."""
+    path = tmp_path / "models.yml"
+    path.write_text("providers:\n  spark: {}\n")
+    config_wrap._registry_dir(path).mkdir()
+    monkeypatch.setattr(config_wrap, "CONFIG_PRESETS", {"omp": config_wrap.CONFIG_PRESETS["omp"]})
+    monkeypatch.setattr(config_wrap, "_omp_models_path", lambda: path)
+
+    def _boom(_registry_dir):
+        raise RuntimeError("registry is in a shape we've never seen")
+
+    monkeypatch.setattr(config_wrap, "_prune_dead_registrants", _boom)
+
+    config_wrap.restore_stale_backups()  # must not raise
 
 
 def test_restore_stale_backups_does_not_reclaim_a_live_pid(tmp_path, monkeypatch):

@@ -78,6 +78,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from distil import _filelock
 
@@ -163,12 +164,43 @@ def _session_id() -> str:
     return f"{os.getpid()}.{time.monotonic_ns()}"
 
 
+def _configure_kernel32(kernel32: Any) -> Any:
+    """Pin explicit signatures on the three kernel32 calls below and return
+    the same object.
+
+    ctypes defaults every foreign function's ``restype`` to ``c_int``, which
+    TRUNCATES a 64-bit ``HANDLE`` on Win64: ``OpenProcess`` hands back a
+    mangled handle, ``GetExitCodeProcess``/``CloseHandle`` then fail with
+    ERROR_INVALID_HANDLE, the fail-safe below fires, and EVERY pid reads
+    alive — crash recovery silently dead on the one platform this whole
+    registry exists for.
+
+    Split out from ``_pid_is_alive`` so the configuration itself is
+    assertable: the fake-kernel32 test can prove the branching logic but
+    never this, because a Python stand-in has no ABI to get wrong."""
+    import ctypes
+
+    # Plain ctypes types rather than ctypes.wintypes — wintypes doesn't
+    # import at all off Windows, and these are its DWORD/BOOL/HANDLE.
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32)
+    kernel32.GetExitCodeProcess.restype = ctypes.c_int32
+    kernel32.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
+    kernel32.CloseHandle.restype = ctypes.c_int32
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    return kernel32
+
+
 def _pid_is_alive(pid: int) -> bool:
     """Best-effort, stdlib-only, psutil-free liveness check. Fail-safe:
     anything short of a confirmed "no such process" counts as alive, since
     wrongly reclaiming a still-running session's config (restored or deleted
     out from under it) is far worse than leaving a truly-dead session's
-    bookkeeping around a little longer."""
+    bookkeeping around a little longer.
+
+    Called from ``restore_stale_backups()`` at the top of EVERY
+    ``distil wrap``, so it must not raise for any reason: an exception here
+    doesn't degrade crash recovery, it stops the CLI from starting at all."""
     if os.name == "posix":
         try:
             os.kill(pid, 0)
@@ -187,21 +219,23 @@ def _pid_is_alive(pid: int) -> bool:
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         STILL_ACTIVE = 259
         ERROR_INVALID_PARAMETER = 87
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = _configure_kernel32(ctypes.windll.kernel32)  # type: ignore[attr-defined]
         handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
             # No such pid reads ERROR_INVALID_PARAMETER — confirmed dead.
             # Anything else (e.g. access denied on a pid we don't own) is
-            # fail-safe: we couldn't disprove it's alive.
+            # fail-safe: we couldn't disprove it's alive. Only pure Python
+            # runs between OpenProcess and this read, so the thread's last
+            # error is still the one OpenProcess set.
             return kernel32.GetLastError() != ERROR_INVALID_PARAMETER
         try:
-            exit_code = ctypes.c_ulong()
+            exit_code = ctypes.c_uint32()
             if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
                 return True  # couldn't ask — fail-safe, assume alive
             return exit_code.value == STILL_ACTIVE
         finally:
             kernel32.CloseHandle(handle)
-    except OSError:
+    except Exception:  # noqa: BLE001 — see the docstring: raising here breaks `distil wrap`
         return True  # couldn't ask — fail-safe, assume alive
 
 
@@ -708,31 +742,44 @@ def restore_stale_backups() -> None:
     and the shape a restore that already consumed its backup leaves. Either
     way the leftover directory is bookkeeping for a session that no longer
     exists, and the config file itself is left alone.
+
+    Every path is swept inside its own catch-all: this is the first thing
+    `distil wrap` does, so a registry left in any shape at all — by an older
+    distil, by a half-finished manual cleanup, by a filesystem that answers
+    an unexpected error — must not be able to stop the wrap from running.
     """
     for preset in CONFIG_PRESETS.values():
         for path in preset.paths():
-            backup = _backup_path(path)
-            sentinel = _created_marker(path)
-            registry_dir = _registry_dir(path)
-            if not backup.exists() and not sentinel.exists() and not registry_dir.exists():
-                continue
-            with _session_lock(path):
-                _prune_dead_registrants(registry_dir)
-                try:
-                    still_live = any(registry_dir.iterdir())
-                except FileNotFoundError:
-                    still_live = False
-                if still_live:
-                    continue  # a live sibling session owns this path — not ours to touch
-                try:
-                    if backup.exists():
-                        backup.replace(path)
-                        print(f"distil wrap: restored {path} from a previous session's backup")
-                    elif sentinel.exists():
-                        path.unlink(missing_ok=True)
-                        sentinel.unlink()
-                        print(f"distil wrap: removed {path} left behind by a previous session")
-                    with contextlib.suppress(OSError):
-                        registry_dir.rmdir()
-                except OSError:
-                    pass  # best-effort; never block a new wrap over old cleanup
+            try:
+                _restore_one(path)
+            except Exception:  # noqa: BLE001 — old cleanup must never block a new wrap
+                pass
+
+
+def _restore_one(path: Path) -> None:
+    """One target path's share of ``restore_stale_backups``; see there."""
+    backup = _backup_path(path)
+    sentinel = _created_marker(path)
+    registry_dir = _registry_dir(path)
+    if not backup.exists() and not sentinel.exists() and not registry_dir.exists():
+        return
+    with _session_lock(path):
+        _prune_dead_registrants(registry_dir)
+        try:
+            still_live = any(registry_dir.iterdir())
+        except FileNotFoundError:
+            still_live = False
+        if still_live:
+            return  # a live sibling session owns this path — not ours to touch
+        try:
+            if backup.exists():
+                backup.replace(path)
+                print(f"distil wrap: restored {path} from a previous session's backup")
+            elif sentinel.exists():
+                path.unlink(missing_ok=True)
+                sentinel.unlink()
+                print(f"distil wrap: removed {path} left behind by a previous session")
+            with contextlib.suppress(OSError):
+                registry_dir.rmdir()
+        except OSError:
+            pass  # best-effort; never block a new wrap over old cleanup

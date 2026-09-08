@@ -366,6 +366,19 @@ replaces it rather than appending a second one. `restore_stale_backups()` also s
 a registry directory whose registrants are all dead but that has no backup beside it —
 a dead session's bookkeeping, which used to claim the path forever.
 
+Two more from the same review, both Windows-shaped. `_pid_is_alive` called `OpenProcess`
+through ctypes without pinning a `restype`, so ctypes' default `c_int` **truncated the
+64-bit HANDLE on Win64**: `GetExitCodeProcess`/`CloseHandle` then failed with
+ERROR_INVALID_HANDLE, the fail-safe fired, and every pid read as alive — crash recovery
+silently inert on the platform this registry exists for. The three signatures are now
+pinned explicitly and asserted by a test, because the fake-kernel32 test cannot catch an
+ABI bug: a Python stand-in has no ABI. And the liveness check caught only `OSError`,
+while a platform that is neither POSIX nor real Windows raises `AttributeError` from
+`ctypes.windll` — an exception at the top of `distil wrap` that wouldn't degrade crash
+recovery but stop the CLI from starting. Both it and `restore_stale_backups()` are now
+fail-open per path: a registry in any shape at all costs you crash recovery for that
+run, never the wrap.
+
 Amp, Mistral Vibe, and OpenClaw were investigated and are deliberately **not**
 included. Mistral Vibe's config shape could not be verified against an authoritative
 source. Amp's `amp.url` setting is real and current, but it belongs to the VS Code
@@ -383,6 +396,17 @@ retrieved node text (drops into `node_postprocessors=[...]`, no subclassing requ
 `isinstance` check), `DistilLLM` wraps an `LLM` so outgoing `chat`/`complete` calls
 (and their async/streaming siblings) are compressed transparently, and
 `compressing_tool` wraps a plain callable for `FunctionTool.from_defaults(fn=...)`.
+
+`DistilLLM` hands back the LLM re-typed as a transparent subclass of that LLM's own class
+rather than a wrapper object around it. A node postprocessor really is only duck-typed,
+but an `llm=` argument is not: measured against llama-index-core 0.14.24, `resolve_llm()`
+— behind both `index.as_query_engine(llm=...)` and `Settings.llm = ...` — ends in
+`assert isinstance(llm, LLM)`, and every Pydantic component with an `llm: LLM` field
+(`FunctionAgent` among them) rejects a non-instance outright. The delegating wrapper
+therefore failed this module's own documented example. Registering as a virtual subclass
+is not a fix either — Pydantic disables `register()`-based `isinstance` support and warns
+that it does. The module still imports nothing from llama_index, and anything whose class
+can't be subclassed falls back to plain delegation.
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 

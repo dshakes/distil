@@ -574,8 +574,10 @@ query_engine = index.as_query_engine(
     (LangGraph), <code>DistilModelClient</code>/<code>compressing_tool()</code> (AutoGen), and
     <code>DistilLLM</code>/<code>DistilNodePostprocessor</code> (LlamaIndex) are framework-free and
     unit-tested. The LangGraph hook returns only the updated message list, so every other state
-    field is left intact; <code>DistilModelClient</code>/<code>DistilLLM</code> delegate every
-    attribute they don't wrap straight to the real client.</p>
+    field is left intact; <code>DistilModelClient</code> delegates every attribute it doesn't wrap
+    straight to the real client, and <code>DistilLLM</code> re-types the LLM you pass as a
+    transparent subclass of its own class, so it still satisfies the <code>isinstance</code>
+    checks LlamaIndex performs on an <code>llm=</code> argument.</p>
 
     <h3>LangChain / LangGraph as a package &mdash; <code>langchain-distil</code></h3>
     <p>The two hooks above are also published as a standalone package, listed in LangChain&rsquo;s own
