@@ -328,6 +328,96 @@ Windows" — the kind of defect a Linux CI matrix cannot see.
   savings are on the same scale as the new elisions — without it, an elided OpenAI image
   reported zero savings despite being genuinely removed.
 
+### `wrap` reaches config-file-only agents, and a LlamaIndex integration
+
+`distil wrap` previously covered only tools with a documented environment-variable
+routing contract (`AGENT_PRESETS`). Continue, Factory Droid, Oh My Pi, and Crush have
+no such contract — the base URL lives only in a config file — so wrapping them
+silently did nothing. A second registry, `distil.config_wrap.CONFIG_PRESETS`, adds
+four strategies for this shape: `cn` (Continue) generates a session-only temp config
+passed via `--config`, so nothing stable is ever touched; `droid` (Factory Droid)
+JSON-merges a `distil` entry into the local-override layer `settings.local.json`,
+byte-exact backed up and restored if the file already existed, created and deleted if
+it didn't; `omp` (Oh My Pi) splices a marker-fenced block into `models.yml` with the
+same backup/restore contract; `crush` (Crush) JSON-merges a `distil` provider entry
+into the legacy `crush.json` — Crush's current config format is a Bash script
+(`crushrc`), whose own docs call the JSON format deprecated but still read, one tier
+below `crushrc`. All four restore on normal exit, on `SIGTERM`/`SIGHUP` (the existing
+signal-to-`KeyboardInterrupt` path), and — for the case nothing can catch, `SIGKILL`
+or power loss — `restore_stale_backups()` sweeps every registered path at the top of
+the next `distil wrap` and repairs it before that session starts. No credential is
+ever invented: a preset that needs an API key skips silently (touching nothing) when
+that key isn't set, matching `AGENT_PRESETS`' `extra_env` rule.
+
+The one crash a backup-and-restore contract cannot survive is a crash *before* the
+backup exists, and the session registry that lets concurrent wraps share one config
+opened exactly that window: "do I write the backup?" was answered by "was the registry
+empty?", and the registry entry went in first. A `SIGKILL` between the two left a
+registry holding one dead entry, so the next `distil wrap` read "not first", skipped
+the backup, and patched the real config anyway — an injected `distil` block with
+nothing on disk able to undo it, duplicated on every subsequent run for the two
+splice-strategy tools. The claim, the backup and the patch are now one critical
+section, in that order, under one `distil._filelock` lock (the cross-platform helper
+from the entry above, replacing this module's own fcntl/msvcrt shim), and the backup
+is created based on whether the backup *file* exists — so a crash at any point either
+leaves the config untouched or leaves the recovery material behind. Every patch is
+idempotent besides: re-patching a config that already carries a `distil` entry
+replaces it rather than appending a second one. `restore_stale_backups()` also sweeps
+a registry directory whose registrants are all dead but that has no backup beside it —
+a dead session's bookkeeping, which used to claim the path forever.
+
+Two more from the same review, both Windows-shaped. `_pid_is_alive` called `OpenProcess`
+through ctypes without pinning a `restype`, so ctypes' default `c_int` **truncated the
+64-bit HANDLE on Win64**: `GetExitCodeProcess`/`CloseHandle` then failed with
+ERROR_INVALID_HANDLE, the fail-safe fired, and every pid read as alive — crash recovery
+silently inert on the platform this registry exists for. The three signatures are now
+pinned explicitly and asserted by a test, because the fake-kernel32 test cannot catch an
+ABI bug: a Python stand-in has no ABI. And the liveness check caught only `OSError`,
+while a platform that is neither POSIX nor real Windows raises `AttributeError` from
+`ctypes.windll` — an exception at the top of `distil wrap` that wouldn't degrade crash
+recovery but stop the CLI from starting. Both it and `restore_stale_backups()` are now
+fail-open per path: a registry in any shape at all costs you crash recovery for that
+run, never the wrap.
+
+A third one sat underneath those, and it is the one that made concurrent config-file
+wrap genuinely wrong on Windows. A session's registry entry was named
+`<pid>.<time.monotonic_ns()>`, which assumes the clock advances between two claims. It
+does not on Windows, where 3.12's monotonic clock ticks about every 15.6ms: two sessions
+starting inside one tick got the SAME filename, the second's `touch()` landed on the
+first's entry, and whichever exited first unlinked the only entry, concluded it was the
+last session, and restored the config out from under its still-running sibling. The
+entry is now named and created in one step by `tempfile.mkstemp`, so the filesystem
+guarantees uniqueness rather than a clock. The regression test installs a clock that
+never moves at all, which reproduces the Windows-only failure on any platform.
+
+Amp, Mistral Vibe, and OpenClaw were investigated and are deliberately **not**
+included. Mistral Vibe's config shape could not be verified against an authoritative
+source. Amp's `amp.url` setting is real and current, but it belongs to the VS Code
+extension's own settings schema, not the standalone CLI `wrap` would launch — that
+CLI's settings reference has no base-URL key at all, and documents `HTTP_PROXY` as
+its own traffic-redirect mechanism, a different shape than the rest of this registry.
+OpenClaw's `models.providers.<id>.baseUrl` is verified but belongs to a persistent
+multi-channel gateway daemon, not the one-shot session `distil wrap` models — wrapping
+it would misrepresent what the flag does.
+
+`distil.integrations.llamaindex` adds LlamaIndex to the duck-typed, dependency-free
+integration set alongside AutoGen and Agno: `DistilNodePostprocessor` compresses
+retrieved node text (drops into `node_postprocessors=[...]`, no subclassing required
+— LlamaIndex calls `postprocess_nodes`/`apostprocess_nodes` directly, with no
+`isinstance` check), `DistilLLM` wraps an `LLM` so outgoing `chat`/`complete` calls
+(and their async/streaming siblings) are compressed transparently, and
+`compressing_tool` wraps a plain callable for `FunctionTool.from_defaults(fn=...)`.
+
+`DistilLLM` hands back the LLM re-typed as a transparent subclass of that LLM's own class
+rather than a wrapper object around it. A node postprocessor really is only duck-typed,
+but an `llm=` argument is not: measured against llama-index-core 0.14.24, `resolve_llm()`
+— behind both `index.as_query_engine(llm=...)` and `Settings.llm = ...` — ends in
+`assert isinstance(llm, LLM)`, and every Pydantic component with an `llm: LLM` field
+(`FunctionAgent` among them) rejects a non-instance outright. The delegating wrapper
+therefore failed this module's own documented example. Registering as a virtual subclass
+is not a fix either — Pydantic disables `register()`-based `isinstance` support and warns
+that it does. The module still imports nothing from llama_index, and anything whose class
+can't be subclassed falls back to plain delegation.
 
 ## [1.52.0] — the guarantee covered the wrong half, and the estimator could not say no
 

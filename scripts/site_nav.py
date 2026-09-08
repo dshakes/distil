@@ -72,6 +72,7 @@ INTEGRATIONS_SUB: list[tuple[str, str]] = [
     ("agno.html", "Agno"),
     ("strands.html", "Strands"),
     ("autogen.html", "AutoGen"),
+    ("llamaindex.html", "LlamaIndex"),
     ("crewai.html", "CrewAI"),
     ("asgi.html", "ASGI Middleware"),
 ]

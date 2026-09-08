@@ -65,27 +65,56 @@ if the probe fails, nothing is written.
 Paths move between releases; if a menu has been renamed, search the editor's
 settings for "base URL" or "OpenAI compatible".
 
-## Config-file agents
+## Config-file agents `wrap` now reaches
 
-These are CLIs, but the base URL lives in a config file rather than an
-environment variable `wrap` can inject — so `wrap` still can't reach them, but
-pointing them at a running `distil proxy` (see step 1 above) is a one-line
-config edit rather than a code change:
+Continue (the `cn` CLI), Factory Droid, Oh My Pi, and Crush are CLIs whose
+*only* routing mechanism is a config file, not an environment variable — but
+`wrap` can still reach them, by managing that file for the duration of the
+session instead of setting an env var:
 
-| Agent | Config file | Key |
-|---|---|---|
-| **Mistral Vibe** | `config.toml` | `[[providers]]` block's `api_base` |
-| **Oh My Pi** | `models.yml` | `baseUrl` |
-| **OpenClaw** | config file | `models.providers.<id>.baseUrl` |
-| **Continue** (the `cn` CLI) | `config.yaml` | `models[].apiBase`, loaded via `--config` |
-| **Amp** | `settings.json` | `amp.url` |
-| **Crush** | `crush.json` | `providers.<id>.base_url` |
-| **Factory Droid** | `~/.factory/settings.json` | `customModels[].baseUrl` |
-| **Junie** | model profile | `baseUrl` |
+```bash
+distil wrap -- cn       # Continue CLI — generates a session-only temp config,
+                         # passed via --config; nothing on disk is touched
+distil wrap -- droid    # Factory Droid — merges a `distil` entry into the
+                         # local-override layer settings.local.json
+distil wrap -- omp      # Oh My Pi — splices a marker-fenced block into
+                         # models.yml
+distil wrap -- crush    # Crush — adds a `distil` provider entry to the
+                         # legacy crush.json
+```
+
+`droid`, `omp`, and `crush` back up whatever was already there byte-for-byte
+and restore it on exit — including on `SIGTERM`/`SIGKILL` or a crash, checked
+and repaired at the start of the *next* `distil wrap` if the previous session
+never got to clean up. See `distil/config_wrap.py` for the implementation and
+`tests/test_config_wrap.py` for the backup/restore/crash-recovery proof.
+
+Crush's *current* config format is a Bash script (`crushrc`), not JSON — its
+own docs call `crush.json` the deprecated predecessor, still read (lower
+priority than `crushrc`) but "not receiving new features". `wrap` targets the
+legacy JSON file because it is the one shape a script can safely splice and
+restore; a `crushrc` with a `distil` provider already defined there takes
+precedence over the injected entry.
+
+## Config-file agents `wrap` cannot reach
+
+These are also CLIs with a config-file-only routing mechanism, but `wrap`
+does not manage them: pointing them at a running `distil proxy` (see step 1
+above) is still a one-line config edit rather than a code change.
+
+| Agent | Config file | Key | Why not wrapped |
+|---|---|---|---|
+| **Mistral Vibe** | `config.toml` | `[[providers]]` block's `api_base` | Config shape could not be verified against an authoritative source |
+| **Amp** | — | — | `amp.url` is a real, current setting, but it belongs to the VS Code *extension* only — the standalone CLI `wrap` would launch has no base-URL setting at all in its own settings reference (`ampcode.com/docs/cli/settings`); its documented way to redirect traffic is `HTTP_PROXY`/`HTTPS_PROXY`, a whole-process proxy rather than a per-request base URL, which is a different mechanism than every other preset here |
+| **OpenClaw** | `~/.openclaw/openclaw.json` | `models.providers.<id>.baseUrl` | Verified, but OpenClaw is a persistent multi-channel gateway daemon (WhatsApp/Telegram, a control UI, cron automations) — it does not fit `wrap`'s one-shot-session model |
+| **Junie** | model profile | `baseUrl` | Config shape could not be verified against an authoritative source |
 
 Set each to the URL `distil proxy` prints (`http://127.0.0.1:8788/v1` if you
 started it as in step 1), then verify with `distil doctor`/`distil dashboard`
-exactly as in step 3 above.
+exactly as in step 3 above. If one of these tools' config shape becomes
+verifiable against its own official docs, it belongs in the table above
+instead — see `distil/config_wrap.py`'s module docstring for what
+"verified" means here.
 
 ### 3. Verify it is actually routing
 
