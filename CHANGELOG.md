@@ -3,7 +3,44 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
+
+The through-line: the other end already has the bytes. Inside the conversation, half the
+mass of a re-read is lines the model is already looking at — a unit nothing here could
+see, because the near-duplicate gate asked whether two blocks were *similar* rather than
+which *lines* had already been sent. At the provider, a cached prefix was being missed on
+every single turn by clients that rewrite their own history without changing a token the
+model reads. Neither change is a new way to compress; both are accounting for what has
+already been delivered.
+
+The rest of the release closes gaps that share one shape — a rule written for every
+surface but enforced on one. The quote-hazard counter reported Codex traffic as carrying
+no edits at all, because `apply_patch` is a freeform tool with no `old_string` to read.
+Vision duplicate elision was Anthropic-only, so an agent looping OpenAI or Gemini paid
+full price on every repeat of a screenshot it had already sent. Eight file-backed stores
+fell back to *no lock* on Windows rather than to an equivalent one. `distil wrap` reached
+only agents with an environment-variable routing contract, so Continue, Factory Droid, Oh
+My Pi and Crush were wrapped by doing nothing — and the registry meant to make concurrent
+wraps safe collided with itself on Windows' 15.6 ms clock, restoring a config out from
+under a live sibling. LlamaIndex joins the duck-typed integration set, after the
+delegating wrapper it started as turned out to fail LlamaIndex's own `isinstance` checks
+— which made this module's documented example raise. A benchmark could overwrite the
+paper's committed source data in place from a smoke run. And the provider-compaction
+certifier was still scoring itself with the clipped estimator `#165` removed from shadow
+mode; it is now the paired, signed difference it was designed to be all along — **no
+published number moved**, but every interval now excludes zero, which the old statistic
+was incapable of saying.
+
+**This one soaks as an rc.** 1.52.0 went straight to GA on the maintainer's call and its
+entry said what that cost. This release does not repeat it. Two of the changes below sit
+on the request path — the re-read delta rewrites tool results, and prefix replay decides
+which bytes are forwarded at all — and between them they carry **zero hours of real
+traffic**. Every offline gate is green, which is precisely the condition the soak policy
+exists to distrust: the 1.10.0→1.11.3 day was six releases that each passed review and
+each broke under use. The soak is the maintainer's own machine under `distil wrap`,
+through **2026-09-14**. It is also the only instrument that can finish the measurement —
+the 0%→100% replay table below reports what distil *forwards*, not what a provider
+*billed*. That is the cache-read share in `distil dissect`, and only a live run closes it.
 
 ### The provider-compaction certifier was scoring itself with the estimator we deleted
 
@@ -100,27 +137,27 @@ conversation verbatim. Call distil_expand with this handle to recover them here.
 **Why this does not weaken the guarantee.** The promise is about the *conversation*, not
 about any one block: an `Edit(old_string=…)` applies if its quote occurs byte-exact
 anywhere in the payload distil forwarded, and an agent quoting lines it saw can be served
-by either copy. Four rules keep that true.
+by either copy. Six rules keep that true.
 
-* **Only a read matched by the tool-NAME table may be referenced.** `Read`, `view`,
+- **Only a read matched by the tool-NAME table may be referenced.** `Read`, `view`,
   `read_file` and friends are exempt unconditionally, so the referenced lines cannot leave
   the conversation later. A shell `cat` may be a *target* but never a base: its exemption
   is conditional on not being superseded, and a whole-file shell re-read supersedes exactly
   the block it would want to point at. Pinning the base to stop that would forfeit the
   base's whole digest to save the same bytes on the copy — a wash at best.
-* **References never chain.** An elided block is not itself a base, so every stub points at
+- **References never chain.** An elided block is not itself a base, so every stub points at
   literal bytes.
-* **Cuts interior to the block are pulled back 20 lines.** A quote inside the elided run
+- **Cuts interior to the block are pulled back 20 lines.** A quote inside the elided run
   survives in the base and one outside it survives here; only a quote *straddling* a cut is
   in neither contiguously, so the cut is moved far enough that it would have to overhang by
   more than twenty lines to break. A run reaching the block's own first or last line takes
   no margin there — the agent saw nothing beyond it in this block.
-* **Runs under 8 lines are left alone**, so a coincidental match on blank lines or a
+- **Runs under 8 lines are left alone**, so a coincidental match on blank lines or a
   repeated `return None` never produces a stub.
-* **Lines carry their terminators into the comparison.** Stripping them would call a CRLF
+- **Lines carry their terminators into the comparison.** Stripping them would call a CRLF
   read and an LF read of one file identical, and eliding the only LF copy while the base
   holds CRLF bytes makes the stub's claim of byte-identity false.
-* **The freshest tool output is never elided.** The recency carve-out applies here like
+- **The freshest tool output is never elided.** The recency carve-out applies here like
   everywhere else: a re-read the agent has just issued is exactly the output it reasons over
   to choose its next action. The plan is computed from the prefix regardless — which blocks
   may serve as bases never depends on the sliding window — and only its application is
