@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1789197614,
+  "generated_ts": 1789237372,
   "installs": {
     "census_total": 2,
     "active_7d": 1,
@@ -11,15 +11,15 @@
     }
   },
   "savings": {
-    "tokens": 2892276063,
-    "dollars": 13054.96,
-    "dollars_notional": 0.0,
+    "tokens": 3041524957,
+    "dollars": 0,
+    "dollars_notional": 12080.52,
     "instances": 2,
     "contributing": 1,
-    "as_of_ts": 1789005835,
-    "rate_per_sec": 8.02,
-    "total_runs": 32095,
-    "avg_per_run": 90116,
+    "as_of_ts": 1789237363,
+    "rate_per_sec": 644.63,
+    "total_runs": 33693,
+    "avg_per_run": 90272,
     "history": [
       {
         "ts": 1784522481,
@@ -148,37 +148,40 @@
       {
         "ts": 1789005835,
         "tokens": 2892276063
+      },
+      {
+        "ts": 1789237363,
+        "tokens": 3041524957
       }
     ]
   },
   "equivalence": {
-    "pct": 100.0,
-    "shadowed": 192
+    "pct": 98.88,
+    "shadowed": 267
   },
   "usage": {
     "by_model": {
-      "claude-opus-5": 1440118507,
-      "claude-opus-4-8": 638058935,
-      "claude-sonnet-4-6": 525499662,
-      "claude-sonnet-5": 315012461,
-      "claude-fable-5": 85675407
+      "claude-opus-5": 1731091561,
+      "claude-opus-4-8": 510020416,
+      "claude-sonnet-4-6": 490687256,
+      "claude-sonnet-5": 288377939,
+      "claude-fable-5-1": 101129426
     },
     "billing": {
-      "metered": 1,
-      "subscription": 1
+      "subscription": 2
     },
     "agents": {
       "claude": 2
     },
     "surfaces": {
-      "wrap": 55039,
+      "wrap": 58759,
       "proxy": 49374
     },
     "shapes": {
-      "anthropic": 104413
+      "anthropic": 108133
     },
     "modes": {
-      "interactive": 22
+      "interactive": 26
     }
   },
   "channels": {
