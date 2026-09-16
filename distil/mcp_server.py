@@ -94,8 +94,11 @@ def _save_store(store: dict[str, str]) -> None:
             store.pop(next(iter(store)))
         p.parent.mkdir(parents=True, exist_ok=True)
         raw = json.dumps(store).encode()
-        p.write_bytes(atrest.encrypt_bytes(raw))
-        p.chmod(0o600)  # encrypted content at rest — owner-only
+        # Owner-only AT CREATION, not by a chmod after the write: chmod-ing
+        # afterwards leaves the file at the process umask (0644 on a default box)
+        # for the whole write, and under DISTIL_NO_ENCRYPT_AT_REST what sits in
+        # that window is plaintext agent tool output.
+        atrest.write_owner_only(p, atrest.encrypt_bytes(raw))
     except OSError:
         pass  # best-effort; never crash a tool call
 
@@ -149,11 +152,6 @@ def _read_restore_text(p: Path) -> str | None:
         return decrypted.decode("utf-8")
     except UnicodeDecodeError:
         return None
-
-
-def _owner_only(path: str, flags: int) -> int:
-    """``os.open`` with 0600 applied AT CREATION, not chmod-ed on afterwards."""
-    return os.open(path, flags, 0o600)
 
 
 def _live_restore_text(p: Path) -> str | None:
@@ -232,7 +230,7 @@ def record_restore(handle: str, original: str) -> bool:
         # 32-bit collision the second would clobber the first — precisely the outcome
         # this guard exists to prevent, in precisely the concurrent case it was added for.
         try:
-            with open(p, "xb", opener=_owner_only) as fh:
+            with open(p, "xb", opener=atrest.owner_only) as fh:
                 fh.write(payload)
         except FileExistsError:
             # Collision guard, mirroring RestoreStore._record's in-memory check: if this
@@ -245,7 +243,7 @@ def record_restore(handle: str, original: str) -> bool:
             # Same content, unreadable (auth failure/corrupt), or past its TTL — all
             # rewrite. The rewrite refreshes mtime for the sweep AND upgrades a legacy
             # plaintext file to the encrypted format.
-            with open(p, "wb", opener=_owner_only) as fh:
+            with open(p, "wb", opener=atrest.owner_only) as fh:
                 fh.write(payload)
         p.chmod(0o600)  # belt-and-braces: a pre-existing file keeps its old mode
         _maybe_sweep(d)

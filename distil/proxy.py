@@ -39,6 +39,7 @@ from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens
 from .adapters.gemini import is_gemini_path
 from .httpguard import (
+    framing_rejection,
     is_chat_completions_path,
     is_compressible_path,
     is_messages_path,
@@ -821,20 +822,35 @@ def build_handler(
         def _read_body(self) -> bytes | None:
             """Read the request body; on a malformed/oversized/chunked request,
             send the error response itself and return None (caller just returns)."""
-            if not self.headers.get("Content-Length") and "chunked" in (
-                self.headers.get("Transfer-Encoding") or ""
-            ):
-                # A chunked body would otherwise be read as empty and silently
+            framing = framing_rejection(
+                self.headers.get_all("Content-Length") or [],
+                self.headers.get_all("Transfer-Encoding") or [],
+            )
+            if framing.reject is not None:
+                # A TE-framed body would otherwise be read as empty and silently
                 # dropped — fail loudly instead (LLM SDKs always send a length).
-                self._reject(411, "chunked request bodies are not supported; send Content-Length")
+                # _reject closes the connection: the undrained body is still queued
+                # on the socket, and parsing it as the next request is the desync
+                # this rejection exists to prevent.
+                self._reject(*framing.reject)
                 return None
-            length = parse_content_length(self.headers.get("Content-Length"))
+            # The guard's canonical value — see the gateway's _read_body.
+            length = parse_content_length(framing.content_length)
             if length is None:
                 self._reject(413, "request body too large or malformed Content-Length")
                 return None
             return self.rfile.read(length) if length else b""
 
         def _reject(self, code: int, message: str) -> None:
+            # Close the connection on EVERY rejection. All of them answer from the
+            # headers alone, before _read_body runs, so whatever body the client
+            # already sent is still queued on the socket; on a keep-alive HTTP/1.1
+            # connection the next parse would read those bytes as a second request,
+            # which is request smuggling. Framing was only the loudest case of it —
+            # a 413, a 400 on the path, and every auth 401/403/429 leave exactly the
+            # same undrained body behind. One close here covers every caller, and
+            # the cost on an error path is one reconnect.
+            self.close_connection = True
             body = json.dumps({"error": message}).encode()
             self._relay(code, {"Content-Type": "application/json"}, body)
 

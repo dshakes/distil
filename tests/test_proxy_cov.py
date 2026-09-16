@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -207,6 +208,174 @@ def test_proxy_chunked_body_rejected_411(echo_proxy: int) -> None:
     conn.close()
     assert resp.status == 411
     assert b"chunked" in data.lower()
+
+
+_CHUNKED_REJECTION = b'{"error": "chunked request bodies are not supported; send Content-Length"}'
+
+
+_OVERSIZED_REJECTION = b'{"error": "request body too large or malformed Content-Length"}'
+
+
+def test_proxy_chunked_rejection_closes_the_connection(echo_proxy: int) -> None:
+    """The 411 is only half the fix: an unread TE body is still queued on the
+    socket, so a keep-alive connection would parse it as the next request."""
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+            b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 411 "), out[:80]
+    # Exactly one message on the wire: the rejection body is the last byte sent,
+    # so the smuggled GET was never parsed and the socket did not stay open.
+    _head, _, body = out.partition(b"\r\n\r\n")
+    assert body == _CHUNKED_REJECTION, body
+
+
+def test_proxy_content_length_with_transfer_encoding_rejected_400(echo_proxy: int) -> None:
+    """Both framings on one request — refuse rather than pick a winner."""
+    conn = http.client.HTTPConnection("127.0.0.1", echo_proxy, timeout=5)
+    conn.putrequest("POST", "/v1/messages", skip_accept_encoding=True)
+    conn.putheader("Content-Length", "2")
+    conn.putheader("Transfer-Encoding", "chunked")
+    conn.endheaders()
+    resp = conn.getresponse()
+    data = resp.read()
+    conn.close()
+    assert resp.status == 400
+    assert b"conflicting" in data.lower()
+
+
+def test_proxy_empty_first_transfer_encoding_cannot_hide_a_chunked_second(
+    echo_proxy: int,
+) -> None:
+    """TE.TE on the proxy: same shared guard, same 411, same closed connection."""
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Transfer-Encoding: \r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+            b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 411 "), out[:80]
+    _head, _, payload = out.partition(b"\r\n\r\n")
+    assert payload == _CHUNKED_REJECTION, payload
+    assert b'"status"' not in out, out
+
+
+def test_proxy_comma_list_content_length_is_served_not_413d(echo_proxy: int) -> None:
+    """Identical values folded into one header line are legal; the proxy must read
+    the body rather than 413 on a string int() happens to refuse."""
+    body = b'{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}]}'
+    n = str(len(body)).encode()
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + n + b", " + n + b"\r\n\r\n" + body
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 200 "), out[:200]
+    assert b"too large" not in out, out[:300]
+
+
+def test_proxy_duplicate_content_length_cannot_smuggle_a_second_request(
+    echo_proxy: int,
+) -> None:
+    """CL.CL on the proxy: same guard, same shared helper, same refusal."""
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: 5\r\n"
+            b"Content-Length: 0\r\n\r\n"
+            b"hello"
+            b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 400 "), out[:80]
+    _head, _, payload = out.partition(b"\r\n\r\n")
+    assert payload == b'{"error": "conflicting Content-Length headers"}', payload
+    assert b'"status"' not in out, out
+
+
+def test_proxy_oversized_cl_cannot_smuggle_a_second_request(echo_proxy: int) -> None:
+    """Same desync as the chunked case, reached through the 413: the rejection
+    answers from the headers, leaving the already-sent body on the socket."""
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: 99999999999\r\n\r\n"
+            b"hello"
+            b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 413 "), out[:80]
+    _head, _, body = out.partition(b"\r\n\r\n")
+    assert body == _OVERSIZED_REJECTION, body
+    # /distil/health answers locally and unauthenticated; its body is the tell.
+    assert b"status" not in out, out
 
 
 def test_proxy_oversized_cl_rejected_413(echo_proxy: int) -> None:

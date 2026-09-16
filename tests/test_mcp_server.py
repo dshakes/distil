@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import stat
+import sys
+from pathlib import Path
 import time
 
 import pytest
@@ -161,6 +165,49 @@ def test_record_restore_expires_by_age(tmp_path, monkeypatch):
     m.record_restore("bbbbbbbb", "new content")
     assert not old_file.exists()
     assert (m._restore_dir() / "bbbbbbbb").exists()
+
+
+# ---------------------------------------------------------------------------
+# Owner-only at creation, not by a chmod afterwards
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _no_chmod(monkeypatch):
+    """Neuter Path.chmod and pin the umask.
+
+    The invariant under test is that the mode is applied by os.open AT CREATION.
+    A post-write chmod reaches 0600 too — a plain mode assertion passes either
+    way — so the only way to test the window is to take the chmod away: what is
+    left is whatever the file was created with.
+    """
+    monkeypatch.setattr(Path, "chmod", lambda *a, **k: None)
+    old = os.umask(0o022)
+    yield
+    os.umask(old)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX modes only; Windows reads back 0o666 whatever we ask for",
+)
+def test_restore_blob_is_created_owner_only(tmp_path, _no_chmod):
+    """The blob holds one agent's tool output — and under
+    DISTIL_NO_ENCRYPT_AT_REST it holds it as plaintext, which is exactly the
+    documented configuration where the 0644 window was observable."""
+    mcp.record_restore("a" * 8, "some captured tool output")
+    blob = tmp_path / "restore" / ("a" * 8)
+    assert blob.exists()
+    assert stat.S_IMODE(blob.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX modes only; Windows reads back 0o666 whatever we ask for",
+)
+def test_handle_store_is_created_owner_only(tmp_path, _no_chmod):
+    mcp._save_store({"b" * 8: "some captured tool output"})
+    assert stat.S_IMODE(mcp._store_path().stat().st_mode) == 0o600
 
 
 def test_a_disk_handle_collision_declines_the_stub(tmp_path, monkeypatch):

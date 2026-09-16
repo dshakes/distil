@@ -16,10 +16,12 @@ import pytest
 
 from distil.authz import (
     ROLE_ORDER,
+    TENANT_RE,
     AuthzError,
     Identity,
     identity_from_claims,
     parse_role,
+    safe_tenant,
     verify_jwt,
 )
 
@@ -216,7 +218,10 @@ def _call(srv, token: str | None):
     conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=5)
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        # x-distil-token, not Authorization: that header is forwarded upstream as
+        # the provider credential, so the gateway only consumes a bearer JWT when
+        # the request carries a separate provider credential.
+        headers["x-distil-token"] = token
     conn.request(
         "POST",
         "/v1/messages",
@@ -342,3 +347,76 @@ def test_oidc_config_reads_the_environment(monkeypatch):
     monkeypatch.setenv("DISTIL_OIDC_ROLE_CLAIM", "groups")
     cfg = oidc_config_from_env()
     assert cfg["issuer"] == "https://idp" and cfg["role_claim"] == "groups"
+
+
+# --- the tenant label is a header value, and header values have no escaping ----
+
+
+def test_a_crlf_tenant_claim_collapses_to_a_safe_label():
+    """The gateway emits the tenant as an x-distil-tenant response header, and
+    BaseHTTPRequestHandler.send_header validates nothing — so an IdP that lets a
+    user set this claim could split the response."""
+    ident = identity_from_claims({"sub": "u1", "tenant": "acme\r\nX-Injected: yes"})
+    assert TENANT_RE.match(ident.tenant)
+    assert ident.tenant.startswith("oidc-")
+
+
+def test_an_unsafe_subject_does_not_become_the_tenant_either():
+    """With no tenant claim the subject IS the tenant — and it comes out of the
+    same token, so falling back to it would sanitise nothing."""
+    ident = identity_from_claims({"sub": "u\r\nX-Injected: yes"})
+    assert TENANT_RE.match(ident.tenant)
+
+
+def test_a_safe_tenant_claim_is_passed_through_unchanged():
+    """Sanitising must not rename the tenants of a working deployment."""
+    assert identity_from_claims({"sub": "u1", "tenant": "acme-eu.1"}).tenant == "acme-eu.1"
+
+
+def test_safe_tenant_is_deterministic():
+    """Quota, accounting and prefix replay are keyed on this label: the same
+    unsafe claim must map to the same tenant every time, and two different ones
+    must not collide into one."""
+    bad = "acme\r\nX-Injected: yes"
+    assert safe_tenant(bad) == safe_tenant(bad)
+    assert safe_tenant(bad) != safe_tenant("globex\r\nX-Injected: yes")
+
+
+def test_the_tenant_pattern_is_anchored_against_a_trailing_newline():
+    """`$` matches before a final newline, so `^…$` accepts "acme\\n" — and a
+    newline is exactly what makes a label emitted as a response header dangerous.
+    The anchors live in the pattern so .match() callers cannot get this wrong."""
+    assert TENANT_RE.match("acme")
+    assert not TENANT_RE.match("acme\n")
+    assert not TENANT_RE.match("acme\r\n")
+    assert not TENANT_RE.match("acme\nX-Injected: yes")
+    # fullmatch must agree — the pattern is correct either way it is applied.
+    assert not TENANT_RE.fullmatch("acme\n")
+
+
+def test_safe_tenant_rejects_a_trailing_newline():
+    """Door one of three: the OIDC claim. Nothing strips it on this path, so the
+    pattern is the only thing standing between the claim and the header."""
+    assert safe_tenant("acme") == "acme"
+    assert safe_tenant("acme\n").startswith("oidc-")
+    assert safe_tenant("acme\n") != safe_tenant("acme")
+
+
+def test_tenant_of_rejects_a_trailing_newline_label():
+    """Door three: the client-supplied x-distil-tenant header, which the gateway
+    echoes back in its response. Unreachable with a real newline over HTTP (one
+    would end the header line) and this door also .strip()s — but tenant_of is
+    called directly by library code, and the pattern is what makes it safe for
+    every caller rather than only the ones arriving over a socket."""
+    from distil import gateway
+
+    trust = {"trust_tenant_header": True}
+    assert gateway.tenant_of({"x-distil-tenant": "acme"}, **trust) == "acme"
+    assert gateway.tenant_of({"x-distil-tenant": "acme\nX-Injected: yes"}, **trust) == "default"
+
+
+def test_safe_tenant_rejects_an_overlong_label():
+    """64 characters, because the label is rendered in the dashboard and stored
+    per-tenant — an unbounded one is a memory and a layout problem."""
+    assert safe_tenant("a" * 64) == "a" * 64
+    assert safe_tenant("a" * 65).startswith("oidc-")

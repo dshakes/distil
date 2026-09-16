@@ -181,7 +181,9 @@ _WHOLE_FILE = frozenset({"cat", "nl", "less", "more"})
 _DECORATED = "decorated:"
 
 # A `sed` script that only prints line ranges: `5p`, `1,40p`, `10,$p`, `3,+5p`.
-_SED_PRINT = re.compile(r"^[0-9$,+~]+p$")
+# \A/\Z: a shlex token can contain a newline, and "^…$" would read "1,5p\n" as
+# a plain quiet-print script.
+_SED_PRINT = re.compile(r"\A[0-9$,+~]+p\Z")
 _SED_VALUE_FLAGS = frozenset({"-e", "-f", "--expression", "--file"})
 _SED_QUIET = frozenset({"-n", "--quiet", "--silent"})
 
