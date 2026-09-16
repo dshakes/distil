@@ -1,0 +1,21 @@
+# gitleaks configuration. The default rule set, plus an allowlist for the three
+# places its generic-api-key heuristic fires on content that is not a credential.
+#
+# Kept path-specific on purpose. Allowlisting all of `tests/` would be one line
+# shorter and would also silence the day a real key lands in a fixture, which is
+# the only day this scanner matters.
+title = "distil"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented examples and test fixtures — high-entropy, not secret."
+paths = [
+  # Rendered CLI help: example command lines and placeholder key names.
+  '''^docs/cli\.html$''',
+  # A NOAA report URL with a long numeric path, read as an API key.
+  '''^tests/test_salience\.py$''',
+  # Literal `x-api-key` values the gateway tests send to a loopback stub.
+  '''^tests/test_gateway\.py$''',
+]

@@ -83,6 +83,65 @@ def test_chart_defaults_are_secure():
     assert "--no-prefix-replay" in dep, "the value is defined but nothing passes it"
 
 
+def _egress_except() -> list[str]:
+    """The CIDRs actually listed under networkPolicy.egressExcept.
+
+    Parsed as a list, not grepped out of the file: the same CIDRs appear in the
+    comment above the key explaining why each one is there, so a substring search
+    passes even after the entry itself is deleted. (It did, on the first cut of
+    this test.) No PyYAML — the packaging tests stay dependency-free.
+    """
+    out: list[str] = []
+    seen = False
+    for line in (CHART / "values.yaml").read_text(encoding="utf-8").splitlines():
+        if re.match(r"^\s*egressExcept:", line):
+            seen = True
+            continue
+        if seen:
+            m = re.match(r"^\s+-\s+(\S+)", line)
+            if not m:
+                break
+            out.append(m.group(1))
+    assert seen, "networkPolicy.egressExcept is not defined in values.yaml"
+    return out
+
+
+def test_the_egress_policy_excludes_every_non_public_ipv4_range():
+    """The default 443 rule is `0.0.0.0/0` minus these, so a range missing from the
+    list is a range a compromised pod can reach. RFC1918 is the obvious part; the
+    ones below it are the ones that get forgotten — CGNAT is where EKS and GKE put
+    pod/service CIDRs, link-local is where instance credentials live, and 0.0.0.0/8
+    is a loopback bypass on Linux.
+    """
+    listed = _egress_except()
+    required = {
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+        "0.0.0.0/8",
+        "198.18.0.0/15",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+    }
+    missing = sorted(required - set(listed))
+    assert not missing, f"networkPolicy.egressExcept is missing: {missing}"
+    # Defined is not rendered: the template has to actually read the value.
+    template = (CHART / "templates" / "networkpolicy.yaml").read_text(encoding="utf-8")
+    assert "egressExcept" in template, "the default list is defined but nothing renders it"
+    assert "cidr: 0.0.0.0/0" in template
+
+
+def test_the_egress_rule_never_degrades_to_a_ports_only_rule():
+    """A NetworkPolicy egress rule with ports and no `to:` means EVERY destination
+    on that port. Both branches here must emit a selector."""
+    template = (CHART / "templates" / "networkpolicy.yaml").read_text(encoding="utf-8")
+    assert "egressTo" in template, "the operator override must still exist"
+    assert template.count("- to:") == 2, "DNS and the 443 rule must each carry a selector"
+
+
 # --- README integrity ---------------------------------------------------------
 # A broken link in the README is a silent adoption tax: the reader assumes the
 # feature does not exist. These are cheap to check and impossible to remember.

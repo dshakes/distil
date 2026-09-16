@@ -30,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import atrest
+
 SCHEMA = 1
 
 # Genesis link for the first receipt in a chain. Fixed so an empty chain and a
@@ -115,7 +117,11 @@ def append(receipt: Receipt) -> Receipt:
         path.parent.mkdir(parents=True, exist_ok=True)
         receipt.prev = head_hash()
         receipt.sealed()
-        with path.open("a", encoding="utf-8") as fh:
+        # 0600 AT CREATION via the opener, not by the chmod below: a chmod after
+        # the write leaves the file at the process umask for the whole write, and
+        # a receipt names a session, a model and its handles. The chmod stays as
+        # the upgrade path for a chain file created before this.
+        with open(path, "a", encoding="utf-8", opener=atrest.owner_only) as fh:
             fh.write(json.dumps(asdict(receipt), sort_keys=True, separators=(",", ":")) + "\n")
         path.chmod(0o600)
     except OSError:
