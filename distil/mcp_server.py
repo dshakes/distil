@@ -21,6 +21,7 @@ server config as a stdio command. The protocol is newline-delimited JSON-RPC 2.0
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -106,8 +107,24 @@ _RESTORE_CAP = max(0, int(os.environ.get("DISTIL_RESTORE_CAP", "5000") or 0))
 # Age cap on top of the count cap: digest originals are real agent content
 # (can include secrets/PII), so a low-traffic store must not hold them forever.
 # 0 disables. Expired handles simply fail to expand — same as capped-out ones.
+# Enforced on the READ (`_live_restore_text`), not only by the sweep: the sweep is
+# amortized, so on its own it would let a quiet store keep serving expired content.
 _RESTORE_TTL_DAYS = float(os.environ.get("DISTIL_RESTORE_TTL_DAYS", "14") or 0)
 _HANDLE_RE = re.compile(r"[0-9a-f]{8}")
+# Sweeping the store is O(files) in ``stat()`` calls, and it used to run on every single
+# recorded handle — twice, once for the count cap and once for the TTL — so at the 5,000
+# cap one handle cost up to 10,000 stats. The re-read delta records several handles a
+# turn, which is the ms/turn ADR 0010 attributes to the restore store. Amortize it.
+# ponytail: a counter, not an mtime index. The ceiling it buys is an overshoot of at most
+# this many files above the cap (and expired blobs living that much longer); swap in an
+# index if the store ever needs to be exact between sweeps.
+_SWEEP_EVERY = 64
+_since_sweep = _SWEEP_EVERY  # sweep on the first record of a process, then every N
+# ...and every TTL/24 regardless of how little traffic there is. A count alone stops
+# being a schedule the moment the sweep is amortized: a store that never receives a
+# 64th handle never reaches the trigger, so expired blobs would sit on disk for as long
+# as the machine stayed quiet. 0 when the TTL is disabled — nothing to expire on time.
+_last_sweep = 0.0  # epoch of the last sweep; 0 = never, so the first record sweeps
 
 
 def _restore_dir() -> Path:
@@ -134,50 +151,114 @@ def _read_restore_text(p: Path) -> str | None:
         return None
 
 
-def record_restore(handle: str, original: str) -> None:
-    """Persist a digest original to disk so handles survive proxy restarts/upgrades
-    and can be expanded from other processes (e.g. this MCP server)."""
-    if not _HANDLE_RE.fullmatch(handle):
+def _owner_only(path: str, flags: int) -> int:
+    """``os.open`` with 0600 applied AT CREATION, not chmod-ed on afterwards."""
+    return os.open(path, flags, 0o600)
+
+
+def _live_restore_text(p: Path) -> str | None:
+    """``_read_restore_text`` with the TTL applied: an expired blob reads as absent.
+
+    The TTL is a retention boundary, not a housekeeping preference — a restore blob is
+    real agent content and can hold secrets or PII — so it is enforced HERE, on the read,
+    where no caller can skip it. The sweep is bulk cleanup and cannot carry the guarantee
+    on its own: since it was amortized to one run per ``_SWEEP_EVERY`` records, a store
+    that goes quiet never reaches the trigger, and every expand against it would keep
+    serving content that is past its retention date indefinitely.
+
+    Expired blobs are unlinked on sight, so a read that finds one also cleans it up.
+    Fail-open on ``OSError``: if the unlink loses a race with the sweep, the answer is
+    still "absent", which is the answer that matters.
+    """
+    if _RESTORE_TTL_DAYS > 0:
+        try:
+            expired = p.stat().st_mtime < time.time() - _RESTORE_TTL_DAYS * 86400
+        except OSError:
+            expired = False  # cannot tell — fall through to the ordinary read
+        if expired:
+            with contextlib.suppress(OSError):
+                p.unlink()
+            return None
+    return _read_restore_text(p)
+
+
+def _maybe_sweep(d: Path) -> None:
+    """Run the sweep when enough records OR enough time has passed, whichever first."""
+    global _since_sweep, _last_sweep
+    _since_sweep += 1
+    now = time.time()
+    interval = _RESTORE_TTL_DAYS * 3600  # a twenty-fourth of the TTL, in seconds
+    if _since_sweep < _SWEEP_EVERY and not (interval > 0 and now - _last_sweep >= interval):
         return
+    _since_sweep = 0
+    _last_sweep = now
+    _sweep(d)
+
+
+def _sweep(d: Path) -> None:
+    """Evict by count, then by age. One listing and one ``stat()`` per file."""
+    ordered = sorted((f.stat().st_mtime, f) for f in d.iterdir())
+    # Guard the 0 case: [:-0] is the WHOLE list, so an unguarded cap of 0 would
+    # evict every blob rather than disabling the cap.
+    stale = [f for _, f in ordered[:-_RESTORE_CAP]] if _RESTORE_CAP > 0 else []
+    if _RESTORE_TTL_DAYS > 0:
+        cutoff = time.time() - _RESTORE_TTL_DAYS * 86400
+        stale += [f for mtime, f in ordered[-_RESTORE_CAP:] if mtime < cutoff]
+    for old in stale:
+        old.unlink()
+
+
+def record_restore(handle: str, original: str) -> bool:
+    """Persist a digest original to disk so handles survive proxy restarts/upgrades
+    and can be expanded from other processes (e.g. this MCP server).
+
+    Returns ``False`` only on a genuine on-disk COLLISION — *handle* already maps to
+    different bytes. The caller must then not emit a stub for it: the running process
+    would expand it correctly from memory, but a post-restart or cross-process
+    ``distil_expand`` reads this file and would hand back the other block's content.
+    Every other outcome returns ``True``, including a write that fails — persistence is
+    best-effort and the in-memory store still answers for this session.
+    """
+    if not _HANDLE_RE.fullmatch(handle):
+        return True
     try:
         d = _restore_dir()
         d.mkdir(parents=True, exist_ok=True)
         p = d / handle
-        # Collision guard, mirroring RestoreStore._record's in-memory check: if this
-        # handle already maps to *different* bytes on disk, a 32-bit handle collided
-        # across sessions. Do NOT clobber the earlier block — its stub would then expand
-        # to the wrong content. Keep the first writer; skip the second.
-        # When existing content matches, fall through and rewrite — this refreshes mtime
-        # for the TTL sweep AND upgrades legacy plaintext files to encrypted format.
-        if p.exists():
-            existing = _read_restore_text(p)
+        payload = atrest.encrypt_bytes(original.encode("utf-8"))
+        # Exclusive create, so the FIRST writer wins atomically and 0600 is the mode the
+        # file is born with. `p.exists()` then write was check-then-act across processes:
+        # two proxies folding the same block could both see "absent", and on a genuine
+        # 32-bit collision the second would clobber the first — precisely the outcome
+        # this guard exists to prevent, in precisely the concurrent case it was added for.
+        try:
+            with open(p, "xb", opener=_owner_only) as fh:
+                fh.write(payload)
+        except FileExistsError:
+            # Collision guard, mirroring RestoreStore._record's in-memory check: if this
+            # handle already maps to *different* bytes on disk, a 32-bit handle collided
+            # across sessions. Do NOT clobber the earlier block — its stub would then
+            # expand to the wrong content. Keep the first writer; refuse the second.
+            existing = _live_restore_text(p)
             if existing is not None and existing != original:
-                return  # genuine collision — keep first writer
-            # existing is None (auth failure/corrupt) or same content → rewrite
-        p.write_bytes(atrest.encrypt_bytes(original.encode("utf-8")))
-        p.chmod(0o600)  # encrypted content at rest — owner-only
-        # Guard the 0 case: [:-0] is the WHOLE list, so an unguarded cap of 0 would
-        # evict every blob rather than disabling the cap.
-        stale = (
-            sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[:-_RESTORE_CAP]
-            if _RESTORE_CAP > 0
-            else []
-        )
-        if _RESTORE_TTL_DAYS > 0:
-            cutoff = time.time() - _RESTORE_TTL_DAYS * 86400
-            fresh = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[-_RESTORE_CAP:]
-            stale += [f for f in fresh if f.stat().st_mtime < cutoff]
-        for old in stale:
-            old.unlink()
+                return False  # genuine collision — keep first writer
+            # Same content, unreadable (auth failure/corrupt), or past its TTL — all
+            # rewrite. The rewrite refreshes mtime for the sweep AND upgrades a legacy
+            # plaintext file to the encrypted format.
+            with open(p, "wb", opener=_owner_only) as fh:
+                fh.write(payload)
+        p.chmod(0o600)  # belt-and-braces: a pre-existing file keeps its old mode
+        _maybe_sweep(d)
     except OSError:
         pass  # best-effort; never crash a compress call
+    return True
 
 
 def load_restore(handle: str) -> str | None:
     """Return the persisted original for *handle*, or None."""
     if not _HANDLE_RE.fullmatch(handle):  # untrusted MCP arg — no path traversal
         return None
-    return _read_restore_text(_restore_dir() / handle)
+    return _live_restore_text(_restore_dir() / handle)
 
 
 # ---------------------------------------------------------------------------
