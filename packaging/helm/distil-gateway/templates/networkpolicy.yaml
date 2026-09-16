@@ -41,12 +41,10 @@ spec:
         # further to your provider's addresses via `networkPolicy.egressTo`.
         - ipBlock:
             cidr: 0.0.0.0/0
+            {{- with .Values.networkPolicy.egressExcept }}
             except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-              - 169.254.0.0/16
-              - 127.0.0.0/8
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
         {{- end }}
       ports:
         - port: 443

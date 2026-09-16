@@ -89,6 +89,21 @@ the header door already `.strip()`ed its value, and a header value cannot carry 
 newline over HTTP anyway. The OIDC claim and the operator key-issue path had nothing in
 front of them but the pattern.
 
+### The chart's egress hole-punch list was half a list
+
+The NetworkPolicy's default 443 rule is `0.0.0.0/0` minus a set of ranges, so anything
+missing from that set is somewhere a compromised pod can still send packets. It covered
+RFC1918, link-local and loopback, and stopped there. Now it also excludes `100.64.0.0/10`
+(carrier-grade NAT — EKS and GKE allocate pod and service CIDRs out of it, and some service
+meshes address sidecars there, so leaving it out left the cluster reachable), `0.0.0.0/8`
+(`0.0.0.0` is a routable alias for localhost on Linux, i.e. a loopback bypass),
+`198.18.0.0/15` (benchmarking, used by Istio and some CNIs), `224.0.0.0/4` (multicast, where
+cluster discovery and gossip live) and `240.0.0.0/4` (reserved, and it contains the
+broadcast address). The list moved into `values.yaml` as `networkPolicy.egressExcept` with a
+line of prose per range, so the next person to read it can tell whether an entry is load-
+bearing; `egressTo` still overrides the whole rule for operators who can name their
+provider.
+
 ### OIDC tokens have their own header now
 
 Closing the OIDC gate above made a path reachable that had never carried real traffic, and
