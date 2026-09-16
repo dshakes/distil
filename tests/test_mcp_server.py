@@ -150,6 +150,9 @@ def test_record_restore_expires_by_age(tmp_path, monkeypatch):
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     monkeypatch.setattr(m, "_RESTORE_TTL_DAYS", 14.0)
+    # The sweep is amortized over _SWEEP_EVERY records; this asserts what it does when it
+    # runs, so it runs on every record here.
+    monkeypatch.setattr(m, "_SWEEP_EVERY", 1)
     m.record_restore("aaaaaaaa", "old content")
     old_file = m._restore_dir() / "aaaaaaaa"
     ancient = _time.time() - 15 * 86400
@@ -157,3 +160,49 @@ def test_record_restore_expires_by_age(tmp_path, monkeypatch):
     m.record_restore("bbbbbbbb", "new content")
     assert not old_file.exists()
     assert (m._restore_dir() / "bbbbbbbb").exists()
+
+
+def test_a_disk_handle_collision_declines_the_stub(tmp_path, monkeypatch):
+    """An 8-hex handle that already maps to DIFFERENT bytes on disk is a collision one
+    restart away from resolving to the other block's content. The in-memory map would
+    hide it — the running proxy answers correctly and only a later process is wrong — so
+    the disk's refusal has to reach the caller and the stub has to be declined. Keeping
+    the block verbatim is always safe.
+    """
+    from distil.adapters.anthropic import RestoreStore
+
+    import distil.mcp_server as m
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    assert m.record_restore("abcd1234", "the first block") is True
+    # A fresh store, as a restarted or second proxy would have: nothing in memory to
+    # catch the collision, so only the disk can.
+    assert RestoreStore()._record("abcd1234", "a different block") is False
+    assert m.load_restore("abcd1234") == "the first block", "the first writer was clobbered"
+
+
+def test_the_store_sweep_is_amortized_rather_than_run_per_handle(tmp_path, monkeypatch):
+    """The sweep is O(files) in `stat()` calls and used to run twice per recorded handle,
+    so at the 5,000-file cap one handle cost up to 10,000 stats — and the re-read delta
+    records several handles a turn. Bounded overshoot is the trade; the cap still holds
+    the moment a sweep runs."""
+    import distil.mcp_server as m
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr(m, "_RESTORE_CAP", 2)
+    monkeypatch.setattr(m, "_SWEEP_EVERY", 8)
+    monkeypatch.setattr(m, "_since_sweep", 0)
+
+    d = m._restore_dir()
+    for i in range(7):
+        m.record_restore(f"0000{i:04x}", f"original {i}")
+    assert len(list(d.iterdir())) == 7, "the store was swept on a record that was not due"
+
+    m.record_restore("00000007", "original 7")
+    assert len(list(d.iterdir())) == m._RESTORE_CAP, "the due sweep did not enforce the cap"
+    assert m.load_restore("00000007") == "original 7", "the newest handle was evicted"
+
+    # ...and the overshoot in between is bounded by the interval, not unbounded.
+    for i in range(8, 40):
+        m.record_restore(f"0000{i:04x}", f"original {i}")
+    assert len(list(d.iterdir())) <= m._RESTORE_CAP + m._SWEEP_EVERY - 1

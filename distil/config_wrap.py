@@ -70,6 +70,7 @@ config per invocation and leaves the user's own files alone.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -259,10 +260,30 @@ def _session_lock(path: Path) -> contextlib.AbstractContextManager[None]:
 
     ``distil._filelock`` is the platform half (``fcntl.flock`` on POSIX,
     ``msvcrt.locking`` on Windows, fail-open if the platform call itself
-    errors); the sidecar it locks is named after the session registry, so
-    the wrapped config file is never touched by the locking itself.
+    errors); the sidecar it locks is a file distil owns, so the wrapped
+    config file is never touched by the locking itself.
+
+    That sidecar lives under ``DISTIL_HOME``, not beside the config. A
+    ``_filelock`` sidecar is never unlinked — it cannot be, because deleting
+    the file a waiter has already opened lets a third process create a fresh
+    one and hold the "same" lock concurrently — so putting it next to the
+    config left a ``<config>.distil-sessions.lock`` in the user's agent
+    config directory after every wrap, long after the registry dir itself
+    was removed. distil's own directory is where distil's litter belongs,
+    and there is at most one such file per wrapped config path.
     """
-    return _filelock.locked(_registry_dir(path))
+    return _filelock.locked(_lock_anchor(path))
+
+
+def _lock_anchor(path: Path) -> Path:
+    """Where the session lock's sidecar lives: one stable file per wrapped
+    config path, under ``DISTIL_HOME``. Keyed by a digest of the resolved
+    registry path so every process wrapping the same config agrees on it
+    without the name having to be a filesystem-legal echo of an arbitrary
+    path (and without leaking that path into a shared directory)."""
+    key = hashlib.sha256(str(_registry_dir(path).resolve()).encode()).hexdigest()[:16]
+    base = Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil")))
+    return base / "locks" / key
 
 
 def _claim_session(path: Path) -> tuple[Path, str]:

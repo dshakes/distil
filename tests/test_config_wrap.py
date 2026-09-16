@@ -678,6 +678,31 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
     assert not config_wrap._registry_dir(path).exists()
 
 
+def test_wrapping_leaves_no_litter_in_the_users_config_directory(tmp_path, monkeypatch):
+    """`_filelock` sidecars are never unlinked — they cannot be, because deleting the
+    file a waiter has already opened lets a third process create a fresh one and hold the
+    "same" lock at the same time. So the session lock's sidecar lives under DISTIL_HOME
+    rather than beside the config, where it used to leave a permanent
+    `<config>.distil-sessions.lock` in the user's agent config directory after every
+    single wrap. Undo is byte-exact; the directory should be too."""
+    home = tmp_path / "distil-home"
+    cfg_dir = tmp_path / "agent-config"
+    cfg_dir.mkdir()
+    monkeypatch.setenv("DISTIL_HOME", str(home))
+    path = cfg_dir / "crush.json"
+    original = '{"providers": {"spark": {"id": "spark"}}}'
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://a"):
+        assert '"id": "distil"' in path.read_text(), "the wrap did not take — fixture is stale"
+
+    assert path.read_text() == original
+    leftovers = sorted(p.name for p in cfg_dir.iterdir())
+    assert leftovers == ["crush.json"], f"distil left files behind: {leftovers}"
+
+
 # ---------------------------------------------------------------------------
 # Crash recovery
 # ---------------------------------------------------------------------------

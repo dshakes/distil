@@ -108,6 +108,15 @@ _RESTORE_CAP = max(0, int(os.environ.get("DISTIL_RESTORE_CAP", "5000") or 0))
 # 0 disables. Expired handles simply fail to expand — same as capped-out ones.
 _RESTORE_TTL_DAYS = float(os.environ.get("DISTIL_RESTORE_TTL_DAYS", "14") or 0)
 _HANDLE_RE = re.compile(r"[0-9a-f]{8}")
+# Sweeping the store is O(files) in ``stat()`` calls, and it used to run on every single
+# recorded handle — twice, once for the count cap and once for the TTL — so at the 5,000
+# cap one handle cost up to 10,000 stats. The re-read delta records several handles a
+# turn, which is the ms/turn ADR 0010 attributes to the restore store. Amortize it.
+# ponytail: a counter, not an mtime index. The ceiling it buys is an overshoot of at most
+# this many files above the cap (and expired blobs living that much longer); swap in an
+# index if the store ever needs to be exact between sweeps.
+_SWEEP_EVERY = 64
+_since_sweep = _SWEEP_EVERY  # sweep on the first record of a process, then every N
 
 
 def _restore_dir() -> Path:
@@ -134,11 +143,32 @@ def _read_restore_text(p: Path) -> str | None:
         return None
 
 
-def record_restore(handle: str, original: str) -> None:
+def _sweep(d: Path) -> None:
+    """Evict by count, then by age. One listing and one ``stat()`` per file."""
+    ordered = sorted((f.stat().st_mtime, f) for f in d.iterdir())
+    # Guard the 0 case: [:-0] is the WHOLE list, so an unguarded cap of 0 would
+    # evict every blob rather than disabling the cap.
+    stale = [f for _, f in ordered[:-_RESTORE_CAP]] if _RESTORE_CAP > 0 else []
+    if _RESTORE_TTL_DAYS > 0:
+        cutoff = time.time() - _RESTORE_TTL_DAYS * 86400
+        stale += [f for mtime, f in ordered[-_RESTORE_CAP:] if mtime < cutoff]
+    for old in stale:
+        old.unlink()
+
+
+def record_restore(handle: str, original: str) -> bool:
     """Persist a digest original to disk so handles survive proxy restarts/upgrades
-    and can be expanded from other processes (e.g. this MCP server)."""
+    and can be expanded from other processes (e.g. this MCP server).
+
+    Returns ``False`` only on a genuine on-disk COLLISION — *handle* already maps to
+    different bytes. The caller must then not emit a stub for it: the running process
+    would expand it correctly from memory, but a post-restart or cross-process
+    ``distil_expand`` reads this file and would hand back the other block's content.
+    Every other outcome returns ``True``, including a write that fails — persistence is
+    best-effort and the in-memory store still answers for this session.
+    """
     if not _HANDLE_RE.fullmatch(handle):
-        return
+        return True
     try:
         d = _restore_dir()
         d.mkdir(parents=True, exist_ok=True)
@@ -146,31 +176,24 @@ def record_restore(handle: str, original: str) -> None:
         # Collision guard, mirroring RestoreStore._record's in-memory check: if this
         # handle already maps to *different* bytes on disk, a 32-bit handle collided
         # across sessions. Do NOT clobber the earlier block — its stub would then expand
-        # to the wrong content. Keep the first writer; skip the second.
+        # to the wrong content. Keep the first writer; refuse the second.
         # When existing content matches, fall through and rewrite — this refreshes mtime
         # for the TTL sweep AND upgrades legacy plaintext files to encrypted format.
         if p.exists():
             existing = _read_restore_text(p)
             if existing is not None and existing != original:
-                return  # genuine collision — keep first writer
+                return False  # genuine collision — keep first writer
             # existing is None (auth failure/corrupt) or same content → rewrite
         p.write_bytes(atrest.encrypt_bytes(original.encode("utf-8")))
         p.chmod(0o600)  # encrypted content at rest — owner-only
-        # Guard the 0 case: [:-0] is the WHOLE list, so an unguarded cap of 0 would
-        # evict every blob rather than disabling the cap.
-        stale = (
-            sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[:-_RESTORE_CAP]
-            if _RESTORE_CAP > 0
-            else []
-        )
-        if _RESTORE_TTL_DAYS > 0:
-            cutoff = time.time() - _RESTORE_TTL_DAYS * 86400
-            fresh = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime)[-_RESTORE_CAP:]
-            stale += [f for f in fresh if f.stat().st_mtime < cutoff]
-        for old in stale:
-            old.unlink()
+        global _since_sweep
+        _since_sweep += 1
+        if _since_sweep >= _SWEEP_EVERY:
+            _since_sweep = 0
+            _sweep(d)
     except OSError:
         pass  # best-effort; never crash a compress call
+    return True
 
 
 def load_restore(handle: str) -> str | None:

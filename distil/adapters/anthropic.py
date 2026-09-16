@@ -349,8 +349,13 @@ class RestoreStore:
         existing = self._store.get(handle)
         if existing is not None and existing != original:
             return False
+        # Survive restarts; expandable cross-process — and the disk copy is a second
+        # place the same collision can happen. A handle that already maps to different
+        # bytes on disk would expand correctly here and WRONGLY after a restart, so the
+        # stub is declined rather than emitted with a shorter life than the handle.
+        if not _record_restore(handle, original):
+            return False
         self._store[handle] = original
-        _record_restore(handle, original)  # survive restarts; expandable cross-process
         return True
 
     # ------------------------------------------------------------------
@@ -703,7 +708,13 @@ def _compress_content_item(
             # File content the agent must quote back verbatim to edit it. The bucket
             # names WHICH rule froze it — the 1.49.0 tool-name table, or the shell-command
             # classifier this replaced it with — so the cost of each is visible separately.
-            elision = reread.get(tid)
+            # ADR 0010 rule 0: the freshest tool output is never elided. A re-read the
+            # agent has just issued is exactly the output it reasons over to choose its
+            # next action, and a pointer plus a `distil_expand` round trip is not that.
+            # The PLAN is still computed from the prefix (see `_reread_plan`), so which
+            # blocks may serve as bases never depends on the sliding window — only the
+            # application is gated, and nothing the provider has cached moves.
+            elision = None if is_recent else reread.get(tid)
             text = _result_text(content) if elision is not None else None
             if elision is not None and text is not None:
                 new_text = _apply_reread(text, elision, store)

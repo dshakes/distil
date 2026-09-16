@@ -1278,3 +1278,166 @@ def test_the_async_proxy_holds_the_prefix() -> None:
     finally:
         prefixreplay.reset()
     assert aiohttp is not None
+
+
+# ------------------------------------------------- the expand-intercept serializer
+# The plain path forwards the client's own bytes when nothing changed and re-spells the
+# body compactly when something did (`_serialize_if_changed`). The streaming
+# expand-intercept path used to build its upstream body with a bare `json.dumps`, whose
+# `", "` separators and `\uXXXX` escapes re-spell the WHOLE prefix — so the turn a stub
+# first enters the conversation, and flips the request to intercepted, paid a full cache
+# write for a rewrite the model cannot even see. It is also the encoding
+# `prefixreplay._wire` models, so `replay_restored` was measured against bytes that path
+# never sent.
+
+
+def _sse_upstream():
+    """A stub upstream that answers a streamed Anthropic request with a real SSE message
+    and anything else with JSON, recording the last body it was posted."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen: dict[str, bytes] = {}
+    sse = b"".join(
+        b"event: " + t + b"\ndata: " + d + b"\n\n"
+        for t, d in [
+            (
+                b"message_start",
+                b'{"type":"message_start","message":{"id":"m1","role":"assistant",'
+                b'"content":[],"usage":{"input_tokens":10,"output_tokens":1}}}',
+            ),
+            (
+                b"content_block_start",
+                b'{"type":"content_block_start","index":0,'
+                b'"content_block":{"type":"text","text":""}}',
+            ),
+            (
+                b"content_block_delta",
+                b'{"type":"content_block_delta","index":0,'
+                b'"delta":{"type":"text_delta","text":"ok"}}',
+            ),
+            (b"content_block_stop", b'{"type":"content_block_stop","index":0}'),
+            (
+                b"message_delta",
+                b'{"type":"message_delta","delta":{"stop_reason":"end_turn"},'
+                b'"usage":{"output_tokens":2}}',
+            ),
+            (b"message_stop", b'{"type":"message_stop"}'),
+        ]
+    )
+    plain = json.dumps(
+        {
+            "id": "c1",
+            "object": "chat.completion",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 1},
+        }
+    ).encode()
+
+    class _H(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            seen["raw"] = self.rfile.read(int(self.headers.get("content-length", 0)))
+            streaming = self.path.endswith("/v1/messages")
+            payload, ctype = (
+                (sse, "text/event-stream") if streaming else (plain, "application/json")
+            )
+            self.send_response(200)
+            self.send_header("content-type", ctype)
+            self.send_header("content-length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, seen
+
+
+def _stubbed_conversation() -> list[dict[str, Any]]:
+    """A history that still carries a distil handle, which is what flips a streamed
+    request onto the expand-intercept path. The non-ASCII is deliberate: `ensure_ascii`
+    is half of what a bare `json.dumps` gets wrong."""
+    return [
+        {"role": "user", "content": "résumé the naïve café refactor — ☕"},
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "<< +900 lines, handle=deadbeef >>"}],
+        },
+        {"role": "user", "content": "carry on"},
+    ]
+
+
+def _post_raw(port: int, path: str, body: dict[str, Any]) -> None:
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(body).encode(),
+        headers={"content-type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        r.read()
+
+
+def _forwarded_compactly(raw: bytes) -> bool:
+    """True when *raw* is what `_serialize_if_changed` would have produced for its own
+    contents — i.e. the encoding the plain forwarding path uses."""
+    from distil.proxy import _serialize_if_changed
+
+    return raw == _serialize_if_changed(b"", json.loads(raw))
+
+
+def test_the_intercepted_anthropic_stream_is_serialized_like_every_other_request() -> None:
+    from distil.proxy import build_handler
+
+    prefixreplay.reset()
+    up, seen = _sse_upstream()
+    px = _serve_threaded(build_handler(f"http://127.0.0.1:{up.server_address[1]}", expand=True))
+    try:
+        _post_raw(
+            px.server_address[1],
+            "/v1/messages",
+            {
+                "model": "claude-test",
+                "max_tokens": 64,
+                "stream": True,
+                "messages": _stubbed_conversation(),
+            },
+        )
+        raw = seen["raw"]
+        assert b"distil_expand" in raw, "the intercept path was not taken — fixture is stale"
+        assert _forwarded_compactly(raw), (
+            "the expand-intercept path re-spelled the body with a bare json.dumps, so the "
+            "first stub turn re-billed the whole prefix"
+        )
+    finally:
+        px.shutdown()
+        up.shutdown()
+        prefixreplay.reset()
+
+
+def test_an_intercepted_openai_stream_is_serialized_like_every_other_request() -> None:
+    """The same defect on the other arm: an OpenAI-shaped stream is buffered instead of
+    spliced, and the body it forwards is built at a second bare `json.dumps`."""
+    from distil.proxy import build_handler
+
+    prefixreplay.reset()
+    up, seen = _sse_upstream()
+    px = _serve_threaded(build_handler(f"http://127.0.0.1:{up.server_address[1]}", expand=True))
+    try:
+        _post_raw(
+            px.server_address[1],
+            "/v1/chat/completions",
+            {"model": "gpt-test", "stream": True, "messages": _stubbed_conversation()},
+        )
+        raw = seen["raw"]
+        assert b'"stream"' not in raw, "the intercept path was not taken — fixture is stale"
+        assert _forwarded_compactly(raw), (
+            "the unstreamed intercept body was re-spelled with a bare json.dumps"
+        )
+    finally:
+        px.shutdown()
+        up.shutdown()
+        prefixreplay.reset()

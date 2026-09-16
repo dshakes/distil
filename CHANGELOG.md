@@ -3,6 +3,150 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — the rules the re-read delta was documented to follow, now enforced
+
+1.53.0rc1 shipped the re-read delta with its contract written out in six rules, an ADR and
+a changelog entry. A read of the request path against that contract found two of the rules
+stated and not implemented, and six older defects on the paths the new transform now
+runs more of. Nothing here is a new capability. Each one is the difference between what
+the documentation promises and what the code does, which is the only kind of bug a soak
+cannot be relied on to surface — the shapes below are invisible under `distil wrap` on
+Claude Code, and that is the only traffic the soak has.
+
+### The freshest read the agent asked for came back as a pointer
+
+ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency
+carve-out exists at all: a re-read the agent has just issued is precisely the output it
+reasons over to choose its next action. The planner honoured it — which blocks may serve
+as bases never depended on the sliding window — and the application did not. So an agent
+that re-read a file to find out whether its edit had landed was handed
+`«distil-reread handle=…» lines 1-80 of this result are byte-identical to…` and a round
+trip through `distil_expand` to get the answer back.
+
+The gate is now where the rule always said it was: the plan is still computed from the
+prefix, and only its application consults recency. That is one line of behaviour and a
+much larger change to what the tests assert — `tests/test_reread_delta.py` had no test for
+this rule at all, and every fixture in it ended on the re-read, which is exactly the
+position the rule protects. The `distil validate` re-read cases had the same shape and
+would have gone quietly green over a transform that no longer ran; they now act on what
+they read before the payload is measured, as a real session does.
+
+**Why a week of soak could not find it.** The recency window is anchored to the client's
+last `cache_control` breakpoint, so when the client pins its newest block — Claude Code's
+shape — the window is empty and this gate is a no-op. The defect only reached clients that
+send no marker: plain SDK callers, third-party agents on `/v1/messages`, and the opening
+turns of every session before a marker lands. On the codebench corpus the unmarked row
+moves from 10.3% to 7.1% tokens, which is the number the 1.53.0 entry below already
+quotes; the marked row that bills is unchanged at 41.7% and 49.1%.
+
+### A CRLF read and an LF read of one file compared equal
+
+Rule 5 says lines carry their terminators into the comparison, and gives the reason:
+stripping them calls a CRLF read and an LF read of one file identical, so eliding the only
+LF copy while the base holds CRLF bytes makes the stub's claim of byte-identity false. The
+planner stripped them. `str.splitlines()` also folds a form feed, a next line and a line
+separator, so a form-feed-separated read matched a newline-separated one too.
+
+The application side had always sliced with `keepends=True`, so the two halves of the
+transform agreed about *which* lines by coincidence and disagreed about *what a line is*.
+They now use the same split, and the stub's claim is true of bytes rather than of
+characters. Matches get strictly rarer — a run reaching end-of-file in the target but not
+in the base gives up its last line — which is the safe direction. The exact-quote guard
+caught the consequence, but only from the turn an `Edit` with a literal `old_string`
+appeared; before that the model composed its quote from the wrong-terminator base.
+
+### A recovered block was folded back into the stub it had just escaped
+
+`distil_expand` is the recoverable half of the product: a digested block keeps a handle,
+the agent asks for the handle, and the original comes back. Over the MCP server that
+recovery arrives on the *next request* as an ordinary `tool_result` — the client ran a
+tool and reported what it returned — and the exact-quote exemption had no case for it. So
+the adapter digested it like any other tool output, and because a digest handle is
+`sha256[:8]` of the content, identical bytes produced the identical handle. The agent
+expanded `4b7055a5`, received `<< +116 lines, handle=4b7055a5 >>`, and had no move left
+that could reach the detail. Observed live.
+
+The exemption now runs before the name test, on every adapter at once, because all three
+read the same classifier: a `tool_result` whose paired `tool_use` is the expand tool is
+kept byte-exact whatever its age, under its own census bucket
+(`tool_result_expand_recovered`) so `distil dissect` prices it apart from the other two.
+Both namings are matched — the proxy injects its own tool as `distil_expand`, and Claude
+Code namespaces the MCP server's copy as `mcp__<serverkey>__distil_expand` with a key the
+user chooses, so the suffix form counts too. The proxy keeps injecting its tool when the
+MCP one is present; two routes to the same content is not a problem, and this exemption is
+what makes the second one safe. Matching on the name is the narrow version deliberately:
+the general fix compares the paired call's `input.handle` against the handle about to be
+emitted and needs no name at all, and the comment at the call site says so for the first
+client that renames the tool instead of namespacing it.
+
+### The streaming path resolved expansions and reported none
+
+`x-distil-expanded` and the receipt's `expanded_handles` were wired into the buffered
+expand loop only. The streaming splice resolves handles too — that is the whole point of
+`streamexpand`, which intercepts the call mid-stream so recoverable digest costs no
+time-to-first-token — but it reported nothing, so `quality.expand_resolved_requests` in
+`distil dissect` read **0 on every streaming session** no matter how much the agent pulled
+back, and `expansion_regret` had no handles to attribute. The feature whose entire claim
+is that it can prove recovery happened was, on the default path, unable to.
+
+Both branches now share one collection and one reporting step. The wire header cannot
+follow on the streaming path, and the reason is worth stating rather than working around:
+response headers are flushed with the first upstream frame, which is before any expand
+call exists. The receipt is written after the stream closes, and the receipt is what
+dissect reads.
+
+The same fix deletes an anomaly. "Every request took the streaming pass-through —
+`distil_expand` calls could never be intercepted" was written when the streaming path
+genuinely could not intercept; since the splice landed, its premise is false, and all it
+detected was a session where the agent never asked to expand — the ordinary healthy case,
+on which it fired every time. Narrowing it to what it means to warn about, an *escaped*
+tool call, is not possible: nothing in a receipt observes one. An unfalsifiable check is
+worse than no check, because it teaches the reader to skip the anomaly list. Restore it if
+a receipt ever records whether the expand tool was injected.
+
+### The turn a stub first appeared paid to re-bill the whole prefix
+
+`_serialize_if_changed` exists because the provider's prompt cache matches on exact bytes
+and `json.dumps` is not a byte-faithful round trip of what arrived. The streaming
+expand-intercept path built its upstream body with a bare `json.dumps` at two places, so
+the turn a digest handle first entered the conversation — flipping the request onto that
+path — re-spelled every message with `", "` separators and `\uXXXX` escapes and bought a
+full cache write for a rewrite the model cannot see. It was also the encoding
+`prefixreplay._wire` models, so `replay_restored` was being measured against bytes that
+path never sent. Both now go through the same serializer as every other request.
+
+### An 8-hex handle could resolve to another block's bytes after a restart
+
+`RestoreStore._record` refuses a handle that already maps to different text and declines
+the stub, because expanding it would return the wrong content. The on-disk store made the
+same check and then returned nothing: it kept the first writer, correctly, but the caller
+never learned, so the stub went out anyway. In the running process it expanded correctly
+from memory. After a restart, or from the MCP server in another process, it resolved to
+the other block. `mcp_server.record_restore` now reports the collision and `_record`
+declines the stub on it, which is what it already did for the in-memory half. A write that
+merely *fails* still returns true: persistence is best-effort and the session's own store
+still answers.
+
+### The restore store was re-stat'd on every handle it recorded
+
+Recording one handle sorted the whole store by mtime twice — once for the count cap, once
+for the age sweep — so at the 5,000-file cap a single handle cost up to 10,000 `stat()`
+calls. That is the `ms/turn ≈1 → ≈21` ADR 0010 attributed to the restore store, and the
+re-read delta records several handles per turn. The sweep now runs on one listing and at
+most once per 64 records. Against a 2,000-file store it falls from 16.9 ms to 0.3 ms per
+recorded handle. The trade is named where it lives: the store may sit up to 63 files above
+its cap, and hold an expired blob that much longer, between sweeps.
+
+### `distil wrap` left a lock file in the user's config directory
+
+The session registry's advisory lock is a `_filelock` sidecar, and a `_filelock` sidecar
+is never unlinked — it cannot be, because deleting the file a waiter has already opened
+lets a third process create a fresh one and hold the "same" lock concurrently. Named after
+the registry, that left a `<config>.distil-sessions.lock` beside the user's agent config
+after every wrap, outliving both the registry directory and the byte-exact restore of the
+config itself. The sidecar now lives under `DISTIL_HOME`, one file per wrapped config
+path, where distil's own litter belongs.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the
