@@ -824,7 +824,7 @@ def build_handler(
             send the error response itself and return None (caller just returns)."""
             framing = framing_rejection(
                 self.headers.get_all("Content-Length") or [],
-                self.headers.get("Transfer-Encoding"),
+                self.headers.get_all("Transfer-Encoding") or [],
             )
             if framing.reject is not None:
                 # A TE-framed body would otherwise be read as empty and silently

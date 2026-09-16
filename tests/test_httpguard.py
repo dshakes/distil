@@ -18,13 +18,13 @@ def test_a_plain_content_length_request_is_accepted() -> None:
     assert framing_rejection(["42"], None) == (None, "42")
     assert framing_rejection([], None) == (None, None)
     assert framing_rejection(None, None) == (None, None)
-    assert framing_rejection(None, "") == (None, None)
+    assert framing_rejection(None, [""]) == (None, None)
 
 
 def test_transfer_encoding_alone_is_411() -> None:
     """Nothing here reads a TE body, so it would be read as empty and its bytes
     left queued on the socket — the next parse then sees a second request."""
-    status, msg = framing_rejection([], "chunked").reject
+    status, msg = framing_rejection([], ["chunked"]).reject
     assert status == 411
     assert "Content-Length" in msg
 
@@ -34,14 +34,39 @@ def test_any_transfer_encoding_is_refused_not_just_the_word_chunked(te: str) -> 
     """The old guard matched the literal ``chunked``. The property that matters
     is not the codec name — it is that the body length does not come from
     Content-Length, which is the only framing these servers can read."""
-    assert framing_rejection([], te).reject is not None
+    assert framing_rejection([], [te]).reject is not None
 
 
 def test_both_headers_together_is_400() -> None:
     """Two framings on one request: the TE.CL desync pair stated outright."""
-    status, msg = framing_rejection(["42"], "chunked").reject
+    status, msg = framing_rejection(["42"], ["chunked"]).reject
     assert status == 400
     assert "conflicting" in msg
+
+
+def test_an_empty_transfer_encoding_alone_is_not_a_te_framed_request() -> None:
+    """A present-but-empty header names no coding. Refusing it would 411 requests
+    that are framed by Content-Length exactly as these servers require."""
+    assert framing_rejection(["42"], [""]) == (None, "42")
+    assert framing_rejection(["42"], ["", "  "]) == (None, "42")
+
+
+def test_a_later_transfer_encoding_value_is_not_hidden_by_an_empty_first_one() -> None:
+    """The mirror of the Content-Length case: headers.get() returns the FIRST
+    value, so `Transfer-Encoding:` then `Transfer-Encoding: chunked` reads as no
+    TE at all while the body on the wire is chunked."""
+    status, _msg = framing_rejection([], ["", "chunked"]).reject
+    assert status == 411
+    # And with a length present it is the two-framings case, not the bare one.
+    assert framing_rejection(["5"], ["", "chunked"]).reject[0] == 400
+
+
+def test_a_coding_listed_after_a_comma_still_counts() -> None:
+    """`gzip, chunked` is one header value naming two codings. The request is
+    TE-framed if any coding is named anywhere, not only as the whole value."""
+    assert framing_rejection([], ["gzip, chunked"]).reject is not None
+    assert framing_rejection([], [", chunked"]).reject is not None
+    assert framing_rejection([], [", "]) == (None, None)
 
 
 def test_duplicate_content_length_with_different_values_is_400() -> None:

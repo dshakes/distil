@@ -604,6 +604,41 @@ def test_oversized_content_length_cannot_smuggle_a_second_request(gw: Any) -> No
     assert b"status" not in raw, raw
 
 
+def test_an_empty_first_transfer_encoding_cannot_hide_a_chunked_second(gw: Any) -> None:
+    """TE.TE, the mirror of the duplicate Content-Length case. headers.get()
+    returns the first value, so an empty TE header ahead of `chunked` read as
+    "not TE-framed" — and the chunked body then stayed queued on the socket."""
+    gw_port, _state = gw
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Transfer-Encoding: \r\n"
+        b"Transfer-Encoding: chunked\r\n\r\n"
+        b"5\r\nhello\r\n0\r\n\r\n"
+        b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n",
+    )
+    assert raw.startswith(b"HTTP/1.1 411 "), raw[:80]
+    _head, _, payload = raw.partition(b"\r\n\r\n")
+    assert payload == _CHUNKED_REJECTION, payload
+    assert b'"status"' not in raw, raw
+
+
+def test_a_lone_empty_transfer_encoding_header_is_ignored(gw: Any) -> None:
+    """Present but empty names no coding; the request is Content-Length framed
+    and must be served, not 411d."""
+    gw_port, _state = gw
+    body = b'{"model":"claude-opus-4-8","messages":[]}'
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Transfer-Encoding: \r\n"
+        b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body,
+    )
+    assert raw.startswith(b"HTTP/1.1 200 "), raw[:200]
+
+
 def test_duplicate_content_length_cannot_smuggle_a_second_request(gw: Any) -> None:
     """CL.CL. headers.get() hands back the first value and hides the rest, so a
     request declaring both 5 and 0 is read as 5 here and as 0 by any front-end

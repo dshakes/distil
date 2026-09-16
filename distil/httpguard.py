@@ -107,7 +107,7 @@ class Framing(NamedTuple):
 
 
 def framing_rejection(
-    content_lengths: Sequence[str] | None, transfer_encoding: str | None
+    content_lengths: Sequence[str] | None, transfer_encodings: Sequence[str] | None
 ) -> Framing:
     """Judge a request's body framing; refuse what these servers cannot read.
 
@@ -124,6 +124,9 @@ def framing_rejection(
     RFC 9112 §6.3 permits identical duplicates (one value, sent twice), so those
     are allowed and anything differing is refused.
 
+    ``Transfer-Encoding`` is read the same way and for the same reason: an empty
+    first value hides a ``chunked`` second one.
+
     Both stdlib-server entry points size the body from ``Content-Length`` alone.
     A request framed with ``Transfer-Encoding`` instead would read as *empty* and
     its bytes would stay queued on the socket — on a keep-alive HTTP/1.1
@@ -135,7 +138,13 @@ def framing_rejection(
     behind a rejected request is ever parsed.
     """
     lengths = [v.strip() for v in (content_lengths or [])]
-    te = (transfer_encoding or "").strip()
+    # EVERY Transfer-Encoding value, for the same reason as Content-Length above:
+    # ``get`` returns the first and ``get_all`` keeps the rest, so an empty
+    # ``Transfer-Encoding:`` followed by ``Transfer-Encoding: chunked`` reads as
+    # "no TE" from the first value alone while the body is chunked on the wire.
+    # Commas are flattened because ``gzip, chunked`` is one value listing two
+    # codings — the request is TE-framed if ANY coding is named anywhere.
+    te = any(part.strip() for v in (transfer_encodings or []) for part in v.split(","))
     if te:
         if any(lengths):
             return Framing((400, "conflicting Content-Length and Transfer-Encoding headers"), None)

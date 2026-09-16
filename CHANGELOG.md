@@ -76,6 +76,17 @@ asked a different question. Both servers still sized the body from
 judge them, so it now returns the canonical one alongside its verdict and both servers
 parse that. One question, one answer, one place.
 
+`Transfer-Encoding` was read the same wrong way, and the fix for `Content-Length` did not
+reach it: the guard still received `headers.get("Transfer-Encoding")`, the first value. So
+an empty `Transfer-Encoding:` ahead of a `Transfer-Encoding: chunked` read as "not
+TE-framed" while the body on the wire was chunked — the original desync, reached by adding
+one empty header. Both servers now pass every value, and a request is TE-framed if any
+coding is named anywhere, commas flattened so `gzip, chunked` counts. A present-but-empty
+header on its own still names no coding and is ignored, because 411-ing those would refuse
+requests framed exactly the way these servers require. aiohttp answers 400 to the duplicate
+form on its own and proxies the lone-empty one, so the async proxy again needed no change;
+both were confirmed with a raw-socket probe.
+
 And the tenant validator, the one definition three doors were consolidated onto above, was
 anchored with `^…$` — where `$` also matches immediately before a trailing newline. So
 `acme\n` was a valid tenant label, carrying into `x-distil-tenant` the exact character that

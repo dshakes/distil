@@ -259,6 +259,37 @@ def test_proxy_content_length_with_transfer_encoding_rejected_400(echo_proxy: in
     assert b"conflicting" in data.lower()
 
 
+def test_proxy_empty_first_transfer_encoding_cannot_hide_a_chunked_second(
+    echo_proxy: int,
+) -> None:
+    """TE.TE on the proxy: same shared guard, same 411, same closed connection."""
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Transfer-Encoding: \r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+            b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 411 "), out[:80]
+    _head, _, payload = out.partition(b"\r\n\r\n")
+    assert payload == _CHUNKED_REJECTION, payload
+    assert b'"status"' not in out, out
+
+
 def test_proxy_comma_list_content_length_is_served_not_413d(echo_proxy: int) -> None:
     """Identical values folded into one header line are legal; the proxy must read
     the body rather than 413 on a string int() happens to refuse."""
