@@ -3,6 +3,110 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — the ledger reads the artifact now, and the page reads the ledger
+
+### Fixed — numbers the artifacts did not support
+
+The site said `✓eq 99.5%` in the hero terminal, under a caption reading *"Real,
+reproducible output."* It was not output. `distil/cli.py` prints that check glyph only at
+`eq >= 0.99`, and only past the 50 A/B + 30 A/A reporting floor, and the maintainer's own
+traffic had never cleared it. The same invented verdict appeared a second time in the trust
+card on the same page, and twice more in `plugins/distil/README.md` with a sample size
+(`1.2k`) about three times the real one. All four now show the reading the estimator
+actually produced on 2026-09-15: **97.5%** with a 95% CI of [95.5, 99.5] over n=398 A/B and
+399 A/A, paired difference −0.025 [−0.045, −0.005], digest and lossless-only mixed. That is
+under 99%, so every surface shows the warning glyph, not a check. Replays run hot — 399 of
+399, temperature not pinned — so the paired difference is the statistic and raw agreement
+reads 53.0%; the artifact says so in its own header. The sample now clears the floor, so
+the four places that said *"the current live sample is below that floor"* say what it is
+instead. Artifact: `benchmarks/results/shadow-live-2026-09-15.json`. The 2026-09-04 reading
+(44 A/B, below the floor, unpaired estimator) stays committed as the evidence for the
+1.13.0 withdrawal.
+
+`docs/benchmark.html`'s certified-frontier block read **52.3%** for the lossless rung. The
+log it is presented from, `docs/paper/results/derc_live_compare.2026-07-05.log`, says
+**47.9%**. Every other row in that block matched the log exactly, which is why nothing
+noticed a single drifted digit pair inside an otherwise faithful transcript. Fixed to 47.9%.
+
+The July head-to-head — 83.2% savings at 0% decision-change, LLMLingua-2 53.1% flipping
+1-in-8, Headroom 39.7% — is real and reproduces from its log, but it was the *undated*
+headline on nine surfaces while the competitor it names had shipped ten minor versions. It
+is now dated inline everywhere it appears: **2026-07-05, distil 1.10.1 vs llmlingua 0.2.2
+and headroom-ai 0.27.0**. Beside it, the 2026-09-04 re-run against **headroom-ai 0.37.0**:
+distil-causal 52.9% tokens / 58.7% dollars at 100% decision-equivalence (PASS) against
+Headroom's 1.7% / 2.0% / 81% (FAIL) on the warm corpus gate, and 35.6% tokens for +4.9%
+dollars on the read→edit→re-read codebench workload. The **"2.1× less aggressive"** ratio was
+removed from every page rather than re-dated: it is 83.2/39.7 from the old run, and it does
+not survive the re-run in either direction. The ledger no longer marks the identical claim
+`verified` on one page and `stale` on two others.
+
+The adoption page's trust ring printed a capped value as a measurement. `distil/census.py`
+sends `round(min(100, pct))` because the collector rejects anything above 100, and the
+paired estimate genuinely can exceed 100% when compression agrees more often than the model
+agrees with itself. The cap cannot hide harm — the difference is bounded below, so only the
+upper bound can bind — but an unlabelled `100%` is the one number shape this project exists
+to criticise. The ring now prints **100% (capped)** and says why in the caption beneath it.
+The label is a word rather than a `≥`, because a rate printed above 100% reads as broken to
+anyone not holding the paired estimator in their head. The wire format is unchanged.
+
+### Fixed — a claim whose artifact directory was empty
+
+`docs/claims.json` cited `benchmarks/results/2026-09-06/` for the re-read delta's
+31.4%→41.7% headline. That directory held one README and no artifact: `benchmarks/.gitignore`
+ignores `*.out`, the 2026-09-04 batch was force-added, and this one was not. The run was
+repeated on 2026-09-15 with the README's exact commands and the outputs are force-added now.
+
+The headline pair reproduced exactly: **31.4% → 41.7%** tokens and **35.8% → 49.1%** dollars
+under the client shape that bills. Two secondary figures did not, because "after" is now
+`main` at 1.53.0rc1 rather than the `feat/reread-delta` branch, and the site takes the
+re-run: the **unmarked** client shape reads **+12.2%** dollars, not −15.4%, because
+forwarded-bytes prefix replay stops charging it for a prefix it never cached; and
+`distil validate` reads **175/175 over 25 cases**, not 150/150. `distil bench` is
+byte-identical before and after, as the README claimed. The results README names both
+superseded values rather than overwriting them.
+
+### Changed — the claims gate reads artifacts and scans pages
+
+`docs/CLAIMS.md` has always stated the rule in bold — *no number on the site without an
+entry in `docs/claims.json`* — and nothing enforced it. The gate checked that ledger entries
+still matched pages; it never checked that pages were covered by the ledger, and it never
+opened an artifact. Three failure states were live at once and all three passed CI: an
+artifact path that did not exist, an artifact that contradicted the page, and the site's
+most-repeated claim carrying no `artifact` key at all.
+
+`tests/test_claims_coverage.py` closes both directions. It scans `README.md`,
+`docs/*.html`, `docs/llms.txt` and `plugins/**/*.md` for percentages and multipliers and
+fails on any that no entry naming that page mentions; sample terminal blocks, fenced code
+and statistical notation are stripped, and the handful of genuine non-claims (a provider's
+published cache-price ratio, a status-line threshold, someone else's marketing quoted in
+order to refuse it) each carry a one-line reason. It also opens every `artifact`: the path
+must exist, and where the entry lists `values` those values must appear in it, with JSON
+fields compared as both fractions and percentages so a page's `36.8%` matches a stored
+`0.368`. Entries that genuinely cannot be machine-checked — a ratio of two columns, a bound
+computed at report time, a command whose output was never committed — are marked
+`"check": "manual"` and must say why.
+
+Running it turned up the rest of this entry's work: the ledger grew from 37 entries to 50,
+`llms.txt` and `plugins/` went from having no coverage at all to being fully scanned, and
+the pages that carry the product's load-bearing claims — `index.html`, `benchmark.html`,
+`benchmarks.html`, `output.html`, `architecture.html`, `concepts.html`, `faq.html`,
+`getting-started.html`, `llms.txt`, `README.md`, `plugins/**` — are clear. Pages not cleared
+in this pass carry a frozen debt list that may only shrink: a *new* number on them still
+fails CI. The ledger's own reproduction note for the adversarial battery had drifted too
+(28 cases / 175 checks against a real 32 / 231) and is corrected; `note` fields are still
+not machine-checked, which is the next thing to fix.
+
+The next stale number trips CI instead of a reader.
+
+### Fixed — a dashboard card quoting a floor the code had retired
+
+The HTML ledger's decision-equivalence card told a reader below the floor that it "needs
+25+" shadow samples. There is no 25 in the code: the shared reporting floor is 50 A/B plus
+30 A/A, and the card is only ever reached with a rate that already cleared it. The card now
+reads those two constants from `distil.shadow`, so it names the floor it actually enforces,
+and the three tests that pinned the retired wording assert against the constants rather than
+a copied string.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the
@@ -191,7 +295,13 @@ the longest stable prefix is billed at the cache-read rate. No Anthropic client 
 that: Anthropic caches only what the client marks, so an unmarked request has no cached
 prefix at all, and every recency-anchored carve-out distil has is charged there for busting
 a cache that was never created. Under that shape the digest row reads 7.1% tokens for
-**−15.4% dollars**. The artefact predates this release — `distil-verbatim` shows 18.5%
+**−15.4% dollars**.
+*[Corrected 2026-09-15: those two figures were measured on `feat/reread-delta`, before the
+forwarded-bytes prefix replay that shipped in this same release. Re-run against 1.53.0rc1 the
+unmarked shape reads **10.3% tokens for +12.2% dollars** — the replay stops charging it for a
+prefix it never cached, so the sign flips. The artefact this paragraph describes is still real in
+principle; it is no longer negative for the digest row on this corpus. See
+`benchmarks/results/2026-09-06/`.]* The artefact predates this release — `distil-verbatim` shows 18.5%
 tokens for 3.7% dollars on the same corpus — and was invisible only while the digest row
 was 0.0% and nothing moved. New runner `benchmarks/codebench_marked.py` replays both shapes
 so it is reproducible rather than asserted. The corpus itself is left alone: changing it

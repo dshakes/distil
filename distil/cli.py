@@ -1834,7 +1834,9 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                 # reads as one metric maturing: de 12/25 → ✓de 99.5% (30).
                 parts.append(c(hue, f"{glyph}de {eq * 100:.1f}%") + c("38;5;73", f" ({n_str})"))
             elif led.samples > 0 or led.aa_samples > 0:
-                # Below 25 samples we don't claim a rate (a % over a handful is noise).
+                # Below the shared reporting floor (VERDICT_MIN_AB/VERDICT_MIN_AA)
+                # we don't claim a rate — a % over a handful is noise. The 25/10
+                # floor this comment used to name was retired in 1.52.0.
                 # Distinguish "warming up" (a sampler fed the ledger recently) from
                 # "idle" (nothing sampling in >24h) — a frozen "de 1/25" reads as
                 # live measurement, which is honesty gap #3.

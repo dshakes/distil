@@ -1,0 +1,65 @@
+{
+  "_note": "Content-free summary of the maintainer's ~/.distil/shadow.jsonl, cited by docs/claims.json (v-shadow-live-paired). Produced by `distil shadow-stats --json`. No prompt or response text is stored here - counts, rates and intervals only.",
+  "date": "2026-09-15",
+  "distil_build": "1.53.0rc1",
+  "sig_version": 5,
+  "mode": "mixed (digest and lossless-only in one sample; see by_mode)",
+  "reporting_floor": {
+    "ab_min": 50,
+    "aa_min": 30
+  },
+  "verdict": "above the reporting floor - paired equivalence 97.5% [95.5, 99.5] over n=398 A/B and 399 A/A",
+  "caveat": "Replays run hot: hot_samples=399 of 399, temperature is not pinned, so the A/A arm carries the model's own run-to-run noise and the paired difference is the statistic to read, not raw_agreement.",
+  "samples": 398,
+  "changes": 187,
+  "decision_change_rate": 0.46984924623115576,
+  "decision_equivalence": 0.5301507537688442,
+  "aa_samples": 399,
+  "aa_self_agreement": 0.5563909774436091,
+  "adjusted_change_rate": 0.04716148309113144,
+  "adjusted_equivalence": 0.9528385169088686,
+  "estimator": "paired",
+  "paired_difference": -0.02512562814070352,
+  "paired_difference_ci": [
+    -0.04522613065326633,
+    -0.005025125628140704
+  ],
+  "raw_agreement": 0.5301507537688442,
+  "raw_agreement_ci": [
+    0.4810630369446621,
+    0.5786619890357242
+  ],
+  "aa_agreement_ci": [
+    0.5073348917094516,
+    0.6043715457587742
+  ],
+  "equivalence_pct": 97.48743718592965,
+  "equivalence_pct_ci": [
+    95.47738693467338,
+    99.49748743718592
+  ],
+  "below_reporting_floor": false,
+  "byte_identical_samples": 1,
+  "pinned_temperature_samples": 0,
+  "hot_samples": 399,
+  "by_mode": {
+    "digest": {
+      "ab_n": 206,
+      "ab_eq": 102,
+      "aa_n": 206,
+      "aa_eq": 113
+    },
+    "lossless-only": {
+      "ab_n": 192,
+      "ab_eq": 109,
+      "aa_n": 193,
+      "aa_eq": 109
+    }
+  },
+  "output_token_delta": -68.28643216080403,
+  "output_token_delta_ci": [
+    -147.19346733668343,
+    -2.9472361809045227
+  ],
+  "net_usd_after_output": 0.45364499999999996
+}

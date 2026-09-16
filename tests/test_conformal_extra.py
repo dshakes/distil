@@ -447,28 +447,31 @@ def test_render_html_with_runs() -> None:
 
 
 def test_render_html_eq_card_below_threshold() -> None:
-    """<25 shadow samples → 'needs 25+' card."""
+    """Below the shared reporting floor → a card naming that floor, not a rate."""
     from distil.ledger import render_html
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
 
-    html = render_html(_nonzero_summary(), change_rate=0.02, samples=10)
-    assert "needs 25+" in html
+    html = render_html(_nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB - 1)
+    assert f"needs {VERDICT_MIN_AB} A/B + {VERDICT_MIN_AA} A/A shadow samples" in html
 
 
 def test_render_html_eq_card_above_threshold() -> None:
-    """≥25 samples → real equivalence percentage in card."""
+    """At the floor → real equivalence percentage in card."""
     from distil.ledger import render_html
+    from distil.shadow import VERDICT_MIN_AB
 
-    html = render_html(_nonzero_summary(), change_rate=0.02, samples=50)
+    html = render_html(_nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB)
     assert "98.0%" in html
     assert "50" in html  # sample count
 
 
 def test_render_html_eq_card_none_change_rate() -> None:
-    """change_rate=None (no shadow running) → shows 'needs 25+' card."""
+    """change_rate=None (no shadow running) → the same below-floor card."""
     from distil.ledger import render_html
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
 
     html = render_html(_nonzero_summary(), change_rate=None, samples=0)
-    assert "needs 25+" in html
+    assert f"needs {VERDICT_MIN_AB} A/B + {VERDICT_MIN_AA} A/A shadow samples" in html
 
 
 def test_render_html_session_card_present() -> None:

@@ -576,7 +576,9 @@ def _equivalence() -> dict:
         # estimate CAN exceed 100 — compression agreeing more often than the model
         # agrees with itself — so it is capped for the wire. Only the upper cap can
         # ever bind (diff >= -1 puts the floor at 0), so this cannot hide harm; the
-        # unclamped number, its interval and its n are in `distil shadow-stats`.
+        # unclamped number, its interval and its n are in `distil shadow-stats`, and
+        # docs/adoption.html prints a capped value as "100% (capped)" — never as a
+        # bare 100% — and says why in the caption beneath it.
         return {
             "pct": None if eq.pct is None else round(min(100.0, eq.pct), 2),
             "shadowed": eq.n_ab,

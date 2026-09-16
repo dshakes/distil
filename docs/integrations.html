@@ -486,14 +486,15 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
     <table>
       <thead><tr><th>State</th><th>You see</th><th>Means</th></tr></thead>
       <tbody>
-        <tr><td><strong>saving</strong></td><td><code>distil · ▼12.0K · 40% smaller · $0.31 · total ▼27.0M · ✓eq 99%</code></td><td>compressing your recent traffic</td></tr>
+        <tr><td><strong>saving</strong></td><td><code>distil · ▼12.0K · 40% smaller · $0.31 · total ▼27.0M · ⚠de 97.5% (398)</code></td><td>compressing your recent traffic</td></tr>
         <tr><td><strong>watching</strong></td><td><code>distil · ✓ on · waiting for a large read · total ▼27.0M</code></td><td>on, but no large content yet — savings come from big file/command output</td></tr>
         <tr><td><strong>idle</strong></td><td><code>distil · ✓ on · total ▼27.0M</code></td><td>set up and on, no recent traffic</td></tr>
         <tr><td><strong>not routed</strong></td><td><code>distil · off — session not routed · total ▼27.0M</code></td><td>this session goes straight to the provider — start it with <code>distil wrap</code> (or the always-on env) to compress. "on" always means <em>routed</em>, never merely installed.</td></tr>
       </tbody>
     </table>
-    <p><code>▼</code> = tokens saved · <code>total</code> = lifetime · <code>✓eq</code> = decision-equivalence
-    (shown only past 25 shadow samples — a rate over a handful is noise). Sharing the line with
+    <p><code>▼</code> = tokens saved · <code>total</code> = lifetime · <code>de</code> = decision-equivalence
+    (shown only past the reporting floor, 50 A/B + 30 A/A shadow samples — a rate over a handful is
+    noise; <code>✓</code> at 99% and above, <code>⚠</code> under 99%, <code>✗</code> under 95%). Sharing the line with
     git/cwd/model? Set <code>DISTIL_STATUSLINE=minimal</code> for a two-fact segment:
     <code>distil ▼75.0K · 27.0M total</code>.</p>
 

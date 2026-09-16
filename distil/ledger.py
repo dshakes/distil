@@ -485,11 +485,21 @@ caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;ov
 
 
 def _eq_card(change_rate: float | None, samples: int) -> str:
-    """Decision-equivalence card — only once there is evidence behind the rate."""
-    if change_rate is None or samples < 25:
+    """Decision-equivalence card — only once there is evidence behind the rate.
+
+    ``change_rate`` is only ever set from ``equivalence().pct``, which already
+    requires the shared reporting floor (``VERDICT_MIN_AB``/``VERDICT_MIN_AA``),
+    so the sample guard here is belt-and-braces. It names the real floor rather
+    than the retired 25/10 one: a surface that quotes a floor no longer in the
+    code teaches the reader a number that is not true.
+    """
+    from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
+
+    if change_rate is None or samples < VERDICT_MIN_AB:
         return (
             '<div class="card"><div class="l">Decision-equivalence</div>'
-            '<div class="v muted" style="font-size:16px">needs 25+ shadow samples<br/>'
+            f'<div class="v muted" style="font-size:16px">needs {VERDICT_MIN_AB} A/B + '
+            f"{VERDICT_MIN_AA} A/A shadow samples<br/>"
             "<code>distil wrap --shadow 0.1 -- &lt;agent&gt;</code></div></div>"
         )
     eq = (1 - change_rate) * 100
@@ -612,8 +622,12 @@ def render_dashboard(
             )
         )
 
-    if samples >= 25 and change_rate is not None:
-        # 25-sample floor, same as the status line — a rate over a handful is noise.
+    from .shadow import VERDICT_MIN_AB
+
+    if samples >= VERDICT_MIN_AB and change_rate is not None:
+        # The shared reporting floor, same as the status line — a rate over a
+        # handful is noise. `change_rate` already requires it upstream; this is
+        # the second lock, and it names the floor the code actually uses.
         eq = 1 - change_rate
         out.append(row(f"{'decision-equiv':<15}{c('35', _bar(eq, 18))}  {eq * 100:4.1f}%"))
         out.append(row(c("90", f"{'':<15}{samples:,} samples")))

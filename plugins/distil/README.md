@@ -39,7 +39,7 @@ It renders, e.g.:
 During a live session (an agent currently routed through `distil wrap`/`proxy`):
 
 ```
-distil · sess 120.0K→45.0K −62% · $0.31 · Σ 12.4M saved ($38.02) · eq 99.5% (1.2k)
+distil · sess 120.0K→45.0K −62% · $0.31 · Σ 12.4M saved ($38.02) · ⚠de 97.5% (398)
 ```
 
 **This session leads** (original → compressed tokens, percent trimmed, session
@@ -48,11 +48,15 @@ dollars); lifetime collapses to one `Σ` figure — the full breakdown lives in
 falls back to the lifetime view:
 
 ```
-distil · 1.2M→0.5M tok −58% · $2.01 saved · 128 runs · eq 99.5% (1.2k)
+distil · 1.2M→0.5M tok −58% · $2.01 saved · 128 runs · ⚠de 97.5% (398)
 ```
 
-Decision-equivalence shows whenever shadow mode has samples — calm magenta when
-healthy, yellow under 99%, red under 95% (color is an alarm, not decoration).
+Decision-equivalence shows once shadow mode clears the reporting floor (50 A/B +
+30 A/A); below it the segment counts up instead of printing a rate. `✓` at 99% and
+above, `⚠` under 99%, `✗` under 95% (the glyph is an alarm, not decoration, and it
+reads without color). The session/lifetime figures above are illustrative; the
+equivalence reading is the maintainer's live sample, 97.5% [95.5, 99.5] over n=398
+A/B on 2026-09-15 (`benchmarks/results/shadow-live-2026-09-15.json`).
 With no savings yet it shows a hint instead.
 Requires `distil` on `PATH` or `uvx` available.
 

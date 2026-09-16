@@ -647,9 +647,22 @@
       // The paired estimate can exceed 100% (compression agreed MORE often than the
       // model did with itself). Clamp the ring geometry, never the printed number.
       ring.style.setProperty("--pct", Math.max(0, Math.min(100, eq.pct)));
-      set("eq-pct", (eq.pct % 1 ? eq.pct.toFixed(1) : eq.pct) + "%");
+      // ...but the number arrives already capped: distil/census.py sends
+      // round(min(100, pct)) because the worker rejects pct > 100
+      // (packaging/census-worker/lib/validate.js). At exactly 100 the feed cannot
+      // distinguish "100.0" from "capped from above", so the number is labelled as
+      // capped rather than presented as a measurement. Only the upper cap can ever
+      // bind (the paired difference is >= -1, so pct floors at 0); a cap can never
+      // hide harm, but it can flatter, and an unlabelled "100%" is the one number
+      // shape this project exists to criticise. The label is a word, not a "≥":
+      // a rate printed above 100% reads as broken to anyone not holding the paired
+      // estimator in their head, and the eq-ci line below carries the meaning.
+      var capped = eq.pct >= 100;
+      set("eq-pct", capped ? "100% (capped)" : (eq.pct % 1 ? eq.pct.toFixed(1) : eq.pct) + "%");
       set("eq-shadowed", commas(eq.shadowed || 0));
-      set("eq-ci", "Interval and per-mode breakdown: distil shadow-stats.");
+      set("eq-ci", capped
+        ? "Lower bound: the feed caps the paired estimate at 100 because the collector rejects anything higher. Unclamped value, interval and per-mode breakdown: distil shadow-stats."
+        : "Interval and per-mode breakdown: distil shadow-stats.");
     } else {
       set("eq-pct", "—"); set("eq-shadowed", commas(eq.shadowed || 0));
       // Below the reporting floor the feed sends pct: null. Say so, rather than let
