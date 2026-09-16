@@ -726,11 +726,15 @@ class TestJsonSchema:
         assert set(d) == {"window", "typical", "tokens_per_week", "actions"}
         assert set(d["window"]) == {
             "sessions",
+            "sessions_without_traffic",
             "requests",
             "days",
             "notional_dollars",
             "calibrated",
+            "assessed",
         }
+        assert d["window"]["assessed"] is True
+        assert d["window"]["sessions_without_traffic"] == 0
         assert set(d["typical"]) == {
             "median_pct_saved",
             "p10_pct_saved",
@@ -768,6 +772,42 @@ class TestJsonSchema:
         assert all(a.dollars_per_week is None for a in dv.scan().actions)
 
 
+class TestSessionsWithoutTraffic:
+    """A `wrap` that started and exited without proxying a single request (killed
+    early, or the agent never called out) writes a manifest but no request detail
+    and no ledger row. It must be excluded from the window and counted separately,
+    never silently read as a session with nothing wrong."""
+
+    def test_excluded_from_the_window_and_counted_separately(self, home: Path) -> None:
+        _manifest("sQuiet")  # manifest only: no record(), no append_session_request()
+        r = dv.scan()
+        assert r.sessions == 0
+        assert r.sessions_without_traffic == 1
+        assert r.actions == []
+
+    def test_does_not_pollute_a_window_that_also_has_real_traffic(self, home: Path) -> None:
+        _seed_a(home)
+        _manifest("sQuiet")
+        r = dv.scan()
+        assert r.sessions == 1  # sA only; sQuiet is not folded in
+        assert r.sessions_without_traffic == 1
+        assert "tool_overhead" in _ids(r)  # sA's own detectors still fire normally
+
+    def test_json_reports_assessed_false_and_the_excluded_count(self, home: Path) -> None:
+        _manifest("sQuiet")
+        d = dv.scan().to_dict()
+        assert d["window"]["assessed"] is False
+        assert d["window"]["sessions_without_traffic"] == 1
+        assert d["window"]["sessions"] == 0
+
+    def test_text_says_nothing_to_assess_not_the_all_clear(self, home: Path) -> None:
+        _manifest("sQuiet")
+        out = dv.render_text(dv.scan(), color=False)
+        assert "no proxied traffic in the last 1 session(s)" in out
+        assert "distil wrap" in out
+        assert "nothing to recommend" not in out  # must not read as an all-clear
+
+
 class TestCli:
     def test_no_sessions_exits_zero_with_a_clear_message(
         self, home: Path, capsys: pytest.CaptureFixture[str]
@@ -776,6 +816,14 @@ class TestCli:
         out = capsys.readouterr().out
         assert "no wrap sessions recorded yet" in out
         assert "distil wrap" in out
+
+    def test_no_traffic_session_exits_zero_with_the_no_traffic_message(
+        self, home: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _manifest("sQuiet")
+        assert main(["discover"]) == 0
+        out = capsys.readouterr().out
+        assert "no proxied traffic in the last 1 session(s)" in out
 
     def test_json_output(self, seeded: Path, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["discover", "--json"]) == 0

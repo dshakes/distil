@@ -118,6 +118,9 @@ class Report:
     """The window, what it is typical of, and the ranked actions over it."""
 
     sessions: int = 0
+    #: Sessions dropped from the window because they proxied nothing at all (a
+    #: manifest with zero booked requests) — counted, never silently folded in.
+    sessions_without_traffic: int = 0
     requests: int = 0
     days: float = 0.0
     notional: bool = False  # any flat-rate session in the window -> dollars are notional
@@ -143,14 +146,22 @@ class Report:
     def tokens_per_week(self) -> int:
         return sum(a.tokens_per_week for a in self.actions if a.kind == "savings")
 
+    @property
+    def assessed(self) -> bool:
+        """False when the window has no booked traffic to assess — distinct from
+        "assessed and found nothing wrong"."""
+        return self.sessions > 0
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "window": {
                 "sessions": self.sessions,
+                "sessions_without_traffic": self.sessions_without_traffic,
                 "requests": self.requests,
                 "days": round(self.days, 2),
                 "notional_dollars": self.notional,
                 "calibrated": self.calibrated,
+                "assessed": self.assessed,
             },
             "typical": {
                 "median_pct_saved": _round(self.median_pct),
@@ -188,6 +199,7 @@ class _Window:
     days: float
     usd_per_token: float | None
     since: float
+    sessions_without_traffic: int = 0
 
     @property
     def requests(self) -> int:
@@ -223,7 +235,14 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
         if isinstance(sid, str) and sid:
             by_sid.setdefault(sid, []).append(rec)
 
-    ds = [dissect(o.sid, ledger_rows=by_sid.get(o.sid, []), shadow=False) for o in overviews]
+    all_ds = [dissect(o.sid, ledger_rows=by_sid.get(o.sid, []), shadow=False) for o in overviews]
+    # A `wrap` that started and exited without proxying a single request (killed
+    # before the agent made a call, or the agent never called out) has a manifest
+    # but zero booked traffic — nothing here to assess, and folding it into the
+    # window silently would let an all-quiet window read as "all within range"
+    # rather than "nothing was observed".
+    ds = [d for d in all_ds if d.booked_detail]
+    no_traffic = len(all_ds) - len(ds)
     starts = [d.started for d in ds if d.started]
     # Elapsed wall-clock since the oldest session in the window, floored at a day: a
     # rate extrapolated from a few hours would read as a week's worth of savings.
@@ -236,7 +255,9 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
     # heuristic tokens the detectors count. Mixing a catalog lookup in here would
     # price some actions per the model and some per the ledger.
     usd = (base_usd / base_tok) if base_tok and base_usd else None
-    return _Window(ds=ds, days=days, usd_per_token=usd, since=since)
+    return _Window(
+        ds=ds, days=days, usd_per_token=usd, since=since, sessions_without_traffic=no_traffic
+    )
 
 
 # --------------------------------------------------------------------------- detectors
@@ -577,7 +598,7 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
     """Aggregate recent sessions and rank what could still be recovered."""
     w = _collect(sessions, since_days)
     if not w.ds:
-        return Report()
+        return Report(sessions_without_traffic=w.sessions_without_traffic)
     scored = [(d.sid, d.pct_saved) for d in w.ds if d.baseline_tokens >= MIN_BASELINE_TOKENS]
     actions = [a for a in (fn(w) for fn in DETECTORS) if a is not None]
     # Savings first, biggest first; risks last (they recover nothing, but a report
@@ -588,6 +609,7 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
     _f, n = factor()
     return Report(
         sessions=len(w.ds),
+        sessions_without_traffic=w.sessions_without_traffic,
         requests=w.requests,
         days=w.days,
         notional=any(d.billing == "subscription" for d in w.ds),
@@ -613,6 +635,15 @@ def render_text(r: Report, *, color: bool = True) -> str:
         return f"\x1b[{code}m{s}\x1b[0m" if color else s
 
     if not r.sessions:
+        if r.sessions_without_traffic:
+            # Sessions exist (manifests were written) but not one proxied a
+            # request — an empty window, not a clean one. Must never fall through
+            # to "nothing to recommend", which reads as a successful all-clear.
+            return (
+                f"no proxied traffic in the last {r.sessions_without_traffic} "
+                "session(s) — nothing to assess yet (run your agent through "
+                "`distil wrap` first)."
+            )
         return EMPTY
     out = [c("1", "distil discover — where your remaining savings are")]
     out.append(
