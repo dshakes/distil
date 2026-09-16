@@ -211,6 +211,19 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 </script></body></html>"""
 
 
+# Env vars set by the major CI providers — checked by name, never inferred
+# from "no TTY", because plenty of legitimate non-interactive launches (nohup,
+# a systemd/supervisor unit, an IDE task) have no TTY but still want the
+# server to actually serve.
+_CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "TF_BUILD")
+
+
+def _running_under_ci() -> bool:
+    import os
+
+    return any(os.environ.get(v) for v in _CI_ENV_VARS)
+
+
 def serve_webdash(
     port: int = 8766,
     *,
@@ -220,21 +233,19 @@ def serve_webdash(
 ) -> None:
     """Serve the live dashboard until Ctrl-C.
 
-    A non-interactive caller (a script, a CI job) has nobody to open a browser
-    and would otherwise hang forever on ``serve_forever()`` — when stdout isn't
-    a TTY, or ``CI`` is set, this prints the URL and returns immediately
+    A CI job has nobody to open a browser and would otherwise hang forever on
+    ``serve_forever()`` — under CI this prints the URL and returns immediately
     instead. ``foreground=True`` forces the old blocking behaviour anyway.
+    Deliberately NOT keyed on ``sys.stdout.isatty()``: nohup, a systemd/
+    supervisor unit, and IDE run tasks all have no TTY but do want the server.
     """
-    import os
-    import sys
-
     server = build_server(host, port)
     url = f"http://{host}:{port}"
     print(f"distil live dashboard → {url}")
     print("  local only · reads your ledger · nothing leaves this machine · Ctrl-C to stop")
 
-    if not foreground and (not sys.stdout.isatty() or os.environ.get("CI")):
-        print("  (non-interactive: not blocking — pass --foreground to serve anyway)")
+    if not foreground and _running_under_ci():
+        print("  (CI detected: not blocking — pass --foreground to serve anyway)")
         server.server_close()
         return
 

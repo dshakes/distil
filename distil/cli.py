@@ -1229,17 +1229,19 @@ def cmd_dissect(args: argparse.Namespace) -> int:
 
     use_color = (not args.no_color) and sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
     if args.serve:
+        from .webdash import _running_under_ci
+
         server = dz.make_server(args.host, args.port, transcript=args.transcript)
         host, port = server.server_address[:2]
         print(f"dissect portal: http://{host}:{port}/  (Ctrl-C to stop)")
         print("sessions index at /, reports at /session/<sid>, JSON at /json/<sid>")
-        # A non-interactive caller (a script, a CI job) has nobody to open a
-        # browser and would otherwise hang forever on serve_forever() — print
-        # the URL and return instead, unless --foreground asks to block anyway.
-        if not getattr(args, "foreground", False) and (
-            not sys.stdout.isatty() or os.environ.get("CI")
-        ):
-            print("  (non-interactive: not blocking — pass --foreground to serve anyway)")
+        # A CI job has nobody to open a browser and would otherwise hang
+        # forever on serve_forever() — print the URL and return instead,
+        # unless --foreground asks to block anyway. Deliberately NOT keyed on
+        # "no TTY": nohup, a systemd/supervisor unit, and IDE run tasks all
+        # have no TTY but do want the server (see webdash._running_under_ci).
+        if not getattr(args, "foreground", False) and _running_under_ci():
+            print("  (CI detected: not blocking — pass --foreground to serve anyway)")
             server.server_close()
             return 0
         try:

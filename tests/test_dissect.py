@@ -1217,11 +1217,11 @@ class TestTranscriptCorrelation:
         out = capsys.readouterr().out
         assert "no matching agent transcript found" in out
 
-    def test_serve_does_not_block_when_not_a_tty(
+    def test_serve_does_not_block_under_ci(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """pytest's captured stdout isn't a TTY — `--serve` must print the URL
-        and return immediately rather than hang on serve_forever().
+        """Under CI `--serve` must print the URL and return immediately
+        rather than hang on serve_forever().
 
         In-process rather than a subprocess (that variant flaked on a slow CI
         runner importing a fresh interpreter and timing out): asserting
@@ -1233,21 +1233,51 @@ class TestTranscriptCorrelation:
             server_address = ("127.0.0.1", 12345)
 
             def serve_forever(self):
-                raise AssertionError("serve_forever() must not be called off a TTY")
+                raise AssertionError("serve_forever() must not be called under CI")
 
             def server_close(self):
                 pass
 
+        monkeypatch.setenv("CI", "1")
         monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
         assert main(["dissect", "--serve", "--port", "0"]) == 0
         out = capsys.readouterr().out
         assert "dissect portal:" in out
         assert "not blocking" in out
 
+    def test_serve_serves_when_not_a_tty_and_not_ci(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """pytest's captured stdout isn't a TTY, but that alone must not stop
+        `--serve` from serving — nohup, a systemd/supervisor unit, and IDE run
+        tasks are all non-TTY launches that DO want the server."""
+
+        from distil.webdash import _CI_ENV_VARS
+
+        for var in _CI_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+        called = []
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                called.append(True)
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        assert called == [True]
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
     def test_serve_foreground_blocks_until_ctrl_c(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """--foreground forces the old blocking behaviour even off a TTY."""
+        """--foreground forces the old blocking behaviour even under CI."""
 
         class _Server:
             server_address = ("127.0.0.1", 12345)
@@ -1258,6 +1288,7 @@ class TestTranscriptCorrelation:
             def server_close(self):
                 pass
 
+        monkeypatch.setenv("CI", "1")
         monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
         assert main(["dissect", "--serve", "--foreground"]) == 0
         out = capsys.readouterr().out

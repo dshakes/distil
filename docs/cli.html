@@ -571,7 +571,7 @@ by trajectory:
     <pre class="term"><span class="d">$ distil dissect</span>            <span class="d"># pick a recent session</span>
 <span class="d">$ distil dissect s4821-3 --html report.html</span>
 <span class="d">$ distil dissect --serve</span>       <span class="d"># localhost portal, all sessions</span></pre>
-    <p><code>--serve</code> blocks until Ctrl-C on a real terminal. Off a TTY (a script, CI) it prints the URL and exits 0 instead — nobody is there to open a browser; pass <code>--foreground</code> to block anyway. Same rule for <code>distil dashboard --web</code>.</p>
+    <p><code>--serve</code> blocks until Ctrl-C. Under CI (<code>CI</code>, <code>GITHUB_ACTIONS</code>, <code>GITLAB_CI</code>, <code>BUILDKITE</code>, <code>TF_BUILD</code>) it prints the URL and exits 0 instead — nobody is there to open a browser; pass <code>--foreground</code> to block anyway. A non-TTY launch that isn't CI (nohup, a systemd/supervisor unit, an IDE task) still serves. Same rule for <code>distil dashboard --web</code>.</p>
 
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while

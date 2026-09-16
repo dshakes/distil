@@ -28,9 +28,12 @@ same rule.
   checks every other doc's — it caught two that never actually ran (`certify-provider`
   was missing its required `episodes` argument and had a `--runs` flag that doesn't
   exist; `receipts --export` took a value it doesn't accept). Both fixed.
-- `distil dissect --serve` and `distil dashboard --web` now document their TTY guard:
-  off a real terminal they print the URL and exit rather than block, and
-  `--foreground` overrides it.
+- `distil dissect --serve` and `distil dashboard --web` now document their CI guard:
+  under CI they print the URL and exit rather than block, and `--foreground` overrides
+  it. This used to key off "no TTY", which also caught nohup, a systemd/supervisor
+  unit, and IDE run tasks — legitimate non-interactive launches that do want the
+  server; it now checks for CI by name (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`,
+  `BUILDKITE`, `TF_BUILD`) instead.
 - README gained a Proof and provenance section (PEP 740 attestations, the CycloneDX
   SBOM, the weekly OpenSSF Scorecard run, the threat model and security whitepaper,
   `distil validate`) and a link to `docs/llms.txt` for agents reading the repo instead
