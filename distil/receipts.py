@@ -109,14 +109,25 @@ def append(receipt: Receipt) -> Receipt:
     Best-effort and fail-open: a receipt must never break a request. A dropped receipt
     is a gap you can see (the chain still verifies, the request ids skip), which is
     strictly better than a request that failed because bookkeeping did.
+
+    **Reading the head and appending are one critical section.** A chain is a
+    read-modify-write: two concurrent requests that both read head ``H`` both write a
+    receipt claiming ``prev == H``, which forks the chain — and since the ledger now
+    verifies it on every render, that surfaces as "chain BROKEN" on traffic that is
+    perfectly healthy. The lock is the same cross-platform advisory lock every other
+    store here uses, and is fail-open in the same way: unobtainable degrades to no lock
+    rather than raising, because bookkeeping must not be the thing that fails a request.
     """
+    from . import _filelock
+
     try:
         path = receipts_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        receipt.prev = head_hash()
-        receipt.sealed()
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(asdict(receipt), sort_keys=True, separators=(",", ":")) + "\n")
+        with _filelock.locked(path):
+            receipt.prev = head_hash()
+            receipt.sealed()
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(asdict(receipt), sort_keys=True, separators=(",", ":")) + "\n")
         path.chmod(0o600)
     except OSError:
         pass
