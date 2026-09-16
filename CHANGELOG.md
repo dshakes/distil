@@ -55,6 +55,18 @@ headers a 429 needs (`Retry-After`), and all four 429s go through it. That is th
 lesson of this release stated once more: the rule is only as good as the number of call
 sites that can skip it.
 
+A fourth pass found the last variant, and it needed no bypass at all — just the ordinary
+reading of a header. Both servers asked `headers.get("Content-Length")`, which returns the
+FIRST value and leaves the rest in `get_all`. So `Content-Length: 5` followed by
+`Content-Length: 0` was read as 5 here and may be read as 0 by a front-end that takes the
+last, and the five bytes stay queued as the head of the next request: CL.CL, the same
+desync reached without any exotic framing. `framing_rejection` now receives every
+`Content-Length` value and refuses the request when they disagree, including the `5, 0`
+comma list folded into one header line. Identical duplicates are still served — RFC 9112
+§6.3 calls those one value sent twice, and refusing them would be a new outage wearing a
+fix's clothes. The async proxy again needed nothing: aiohttp's parser answers 400 to any
+repeated `Content-Length`, which a raw-socket probe confirmed rather than assumed.
+
 ### Configuring an identity provider did not turn on authentication
 
 The gateway decided whether to require a credential before it decided what could serve as

@@ -1415,7 +1415,8 @@ def build_gateway_handler(
             """Read the request body; on a malformed/oversized/TE-framed request,
             send the error response itself and return None (caller just returns)."""
             bad = framing_rejection(
-                self.headers.get("Content-Length"), self.headers.get("Transfer-Encoding")
+                self.headers.get_all("Content-Length") or [],
+                self.headers.get("Transfer-Encoding"),
             )
             if bad is not None:
                 # _reject closes the connection: the undrained body is still queued

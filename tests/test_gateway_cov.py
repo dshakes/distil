@@ -586,6 +586,42 @@ def test_oversized_content_length_cannot_smuggle_a_second_request(gw: Any) -> No
     assert b"status" not in raw, raw
 
 
+def test_duplicate_content_length_cannot_smuggle_a_second_request(gw: Any) -> None:
+    """CL.CL. headers.get() hands back the first value and hides the rest, so a
+    request declaring both 5 and 0 is read as 5 here and as 0 by any front-end
+    that takes the last — those five bytes then head the next request."""
+    gw_port, _state = gw
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: 5\r\n"
+        b"Content-Length: 0\r\n\r\n"
+        b"hello"
+        b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n",
+    )
+    assert raw.startswith(b"HTTP/1.1 400 "), raw[:80]
+    _head, _, payload = raw.partition(b"\r\n\r\n")
+    assert payload == b'{"error": "conflicting Content-Length headers"}', payload
+    assert b'"status"' not in raw, raw
+
+
+def test_identical_duplicate_content_length_is_still_served(gw: Any) -> None:
+    """RFC 9112 §6.3 allows one value sent twice. Refusing it would be a new
+    outage dressed up as a fix, so the guard has to tell the two cases apart."""
+    gw_port, _state = gw
+    body = b'{"model":"claude-opus-4-8","messages":[]}'
+    n = str(len(body)).encode()
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: " + n + b"\r\n"
+        b"Content-Length: " + n + b"\r\n\r\n" + body,
+    )
+    assert not raw.startswith(b"HTTP/1.1 400 "), raw[:200]
+
+
 def test_rate_limited_429_cannot_smuggle_a_second_request(tmp_path: Any, monkeypatch: Any) -> None:
     """The third door into the same desync: the RPM 429 in _check_inbound_auth.
 

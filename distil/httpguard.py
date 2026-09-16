@@ -10,6 +10,7 @@ every server can apply them identically.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 # Default maximum request body. Agent contexts are large but bounded; anything
 # past this is almost certainly abuse, and reading it would be a memory-DoS.
@@ -89,11 +90,20 @@ def strip_query(target: str) -> str:
 
 
 def framing_rejection(
-    content_length: str | None, transfer_encoding: str | None
+    content_lengths: Sequence[str] | None, transfer_encoding: str | None
 ) -> tuple[int, str] | None:
     """Reject a request whose body framing these servers cannot read.
 
     Returns ``(status, message)`` when the request must be refused, else ``None``.
+
+    Takes *every* ``Content-Length`` value, not the header dict's first one: a
+    repeated ``Content-Length`` is its own desync (CL.CL) and the first value is
+    exactly what hides it. ``email.message.Message.get`` returns value one and
+    keeps the rest in ``get_all``, so ``Content-Length: 5`` followed by
+    ``Content-Length: 0`` reads as 5 here and may read as 0 to a front-end that
+    picks the last — five bytes then stay queued as the head of the next request.
+    RFC 9112 §6.3 permits identical duplicates (one value, sent twice), so those
+    are allowed and anything differing is refused.
 
     Both stdlib-server entry points size the body from ``Content-Length`` alone.
     A request framed with ``Transfer-Encoding`` instead would read as *empty* and
@@ -105,12 +115,18 @@ def framing_rejection(
     refusing is free; the caller must also close the connection so nothing queued
     behind a rejected request is ever parsed.
     """
+    lengths = [v.strip() for v in (content_lengths or [])]
     te = (transfer_encoding or "").strip()
-    if not te:
-        return None
-    if content_length:
-        return (400, "conflicting Content-Length and Transfer-Encoding headers")
-    return (411, "chunked request bodies are not supported; send Content-Length")
+    if te:
+        if any(lengths):
+            return (400, "conflicting Content-Length and Transfer-Encoding headers")
+        return (411, "chunked request bodies are not supported; send Content-Length")
+    # A single header may itself carry a comma list ("5, 0") — same disagreement,
+    # one header line. Flatten before comparing so that shape cannot slip past.
+    values = [part.strip() for v in lengths for part in v.split(",")]
+    if len(values) > 1 and len(set(values)) > 1:
+        return (400, "conflicting Content-Length headers")
+    return None
 
 
 def parse_content_length(raw: object, *, max_bytes: int = MAX_BODY_BYTES) -> int | None:

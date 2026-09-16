@@ -823,7 +823,8 @@ def build_handler(
             """Read the request body; on a malformed/oversized/chunked request,
             send the error response itself and return None (caller just returns)."""
             bad = framing_rejection(
-                self.headers.get("Content-Length"), self.headers.get("Transfer-Encoding")
+                self.headers.get_all("Content-Length") or [],
+                self.headers.get("Transfer-Encoding"),
             )
             if bad is not None:
                 # A TE-framed body would otherwise be read as empty and silently
