@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -112,6 +113,7 @@
     <h2>Capability matrix</h2>
     <p>Marked from what each project documents or ships, not from marketing. Distil's own claims are the ones audited throughout this site — see <a href="concepts.html">Concepts</a> and <a href="deploy-security.html">Deploy &amp; Security</a> for the code behind each ✔.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Capability matrix">
     <table>
       <thead>
         <tr><th scope="col">Capability</th><th scope="col">Distil</th><th scope="col">Headroom</th><th scope="col">rtk</th><th scope="col">LLMLingua-2</th><th scope="col">Provider caching</th></tr>
@@ -215,6 +217,7 @@
         </tr>
 </tbody>
     </table>
+    </div>
 
     <div class="callout">
       <strong>What each does well.</strong> <strong>Headroom</strong> is a real, adopted compressor with a useful whole-conversation optimizer and a ModernBERT relevance scorer — and on the live head-to-head, the <em>cheaper</em> compute path (Distil's path has no model either, but Headroom's scorer is lighter than a full digest cycle in some configs). <strong>rtk</strong> solves a different problem well: stripping known boilerplate from wrapped CLI commands (<code>git</code>, <code>ls</code>, <code>psql</code>, <code>aws</code>…) fits shell-heavy agents, which is why it's adopted there. It doesn't compress arbitrary agent context, so it isn't a head-to-head contender (see the note on <a href="benchmark.html#live-head-to-head">Benchmark</a>). <strong>LLMLingua-2</strong> posts genuinely high raw compression ratios and is the most-cited method in this space for a reason. <strong>Provider prompt caching</strong> is zero-risk by construction — it doesn't touch what the model reads, only what you pay to re-send it — and composes cleanly with everything above, including Distil, whose cache-aware compression exists to keep that discount intact rather than compete with it.
@@ -240,6 +243,7 @@
     <h2 id="headroom-fresh">Fresh head-to-head, 2026-09-04</h2>
     <p>Re-run against <code>headroom-ai</code> 0.37.0 (<code>[ml,code]</code> extras), <code>llmlingua</code> 0.2.2, distil 1.51.1 (<code>main</code>), Python 3.12. Raw output and a versions note are committed at <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/2026-09-04"><code>benchmarks/results/2026-09-04/</code></a>.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Fresh head-to-head, 2026-09-04">
     <table>
       <thead><tr><th scope="col"><code>distil benchmark</code> corpus (9 domains, warm)</th><th scope="col">tokens</th><th scope="col">$</th><th scope="col">decision-equiv</th><th scope="col">gate</th></tr></thead>
       <tbody>
@@ -247,8 +251,10 @@
         <tr><th scope="row">Headroom</th><td>1.7%</td><td>2.0%</td><td>81%</td><td><span class="badge-fail">✘ FAIL</span></td></tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">Warm run (Headroom's Kompress model preloaded before timing). A cold run instead shows a misleading Headroom 0.0% tokens / 100% PASS: its 274MB Kompress model loads in a background thread and fails open while loading, so the first requests pass through completely uncompressed and trivially "pass" the decision-equivalence check. Preload before comparing, or the cold number understates what it does and overstates its equivalence rate.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Fresh head-to-head, 2026-09-04">
     <table>
       <thead><tr><th scope="col">codebench (read&rarr;edit&rarr;reread, 20 sessions)</th><th scope="col">tokens</th><th scope="col">$ (cache-aware)</th></tr></thead>
       <tbody>
@@ -258,6 +264,7 @@
         <tr><th scope="row">distil verbatim</th><td>18.5%</td><td>3.7%</td></tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">*By design, not a regression: this workload is read &rarr; edit &rarr; re-read, and once the agent has quoted a Read/Grep/Glob result byte-exact, that provenance is exempted from digest for the rest of the session — the exact-quote guarantee an <code>Edit</code> depends on. Headroom's own number here is a real improvement over the <a href="benchmark.html#coding-agent-2026-06-23">June measurement</a>, kept on benchmark.html as a dated historical block: it moved from a net cost increase to a net decrease on a newer, non-ML code path, 2.4&times; faster per turn. benchmark.html's own headline table was refreshed to these same 2026-09-04 numbers; see <a href="https://github.com/dshakes/distil/blob/main/docs/claims.json"><code>docs/claims.json</code></a> (<code>s-benchmark-headline</code>).</p>
 
     <hr/>
@@ -265,6 +272,7 @@
     <h2 id="e8-outcomes">Real task success — SWE-bench Verified, official harness</h2>
     <p>Capability tables can't settle whether any of this holds up on a real, long-horizon coding agent. <a href="research.html#e8">E8</a> runs six conditions of the identical ReAct agent (only the compressor differs) end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker) — not a proxy metric.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Real task success — SWE-bench Verified, official harness">
     <table>
       <thead><tr><th scope="col">Condition</th><th scope="col" style="text-align:center">Task success</th><th scope="col" style="text-align:center">Tied with full context?</th><th scope="col" style="text-align:center">Reversible + certified?</th></tr></thead>
       <tbody>
@@ -300,6 +308,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">500-instance long-horizon ReAct agent, full SWE-bench Verified, official <code>swebench</code> harness (hidden tests, per-instance Docker), paired McNemar across all six conditions. Distil's gate is the only condition statistically non-inferior to full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19) and beats Headroom with significance (+4.2&nbsp;pp, p=0.035). rtk was not run in this harness — it does not compress arbitrary agent context (see above), so it has no comparable condition. Full methodology, CIs, and the recovery-round-trip ablation: <a href="research.html#e8">Research &rarr; E8</a>.</p>
 
     <div class="callout warn">

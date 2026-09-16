@@ -88,6 +88,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -217,6 +218,7 @@ distil wrap --expand -- aider     <span class="d"># → OPENAI_BASE_URL auto-set
       <li><strong>verbatim</strong> (<code>--verbatim</code>) — Just tidies formatting, changes nothing else. Almost no savings. Use it to audit exactly what's being sent.</li>
     </ul>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Use it on your agent — the 30-second path">
     <table>
       <thead><tr><th>Mode flag</th><th>What it does</th><th>Savings</th><th>Safety</th><th>Auto-selected when</th></tr></thead>
       <tbody>
@@ -226,6 +228,7 @@ distil wrap --expand -- aider     <span class="d"># → OPENAI_BASE_URL auto-set
         <tr><td><code>--verbatim</code></td><td>Whitespace + JSON normalization only</td><td>Minimal</td><td>Most conservative</td><td>Debugging / auditing</td></tr>
       </tbody>
     </table>
+    </div>
     <p>At the end of each <code>distil wrap</code> session, a <strong>Proof Ledger</strong> is printed automatically to stderr — calibrated tokens saved, dollar cost before and after, the shadow decision-equivalence verdict (with an honest "below threshold, gathering" label while evidence accumulates), and how many digest handles are still live and recoverable. Opt out with <code>DISTIL_NO_LEDGER=1</code>. It looks like:</p>
     <pre class="term">  distil proof ledger — session 47m
     tokens   84,213 → 62,440   (25.9% smaller)
@@ -392,6 +395,7 @@ distil proxy --upstream https://generativelanguage.googleapis.com   <span class=
 distil_litellm.completion(model=<span class="g">"claude-opus-4-8"</span>, messages=[...])</pre>
 
     <h3>See it, prove it, get more out of it</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="See it, prove it, get more out of it">
     <table>
       <thead><tr><th>Goal</th><th>Command</th></tr></thead>
       <tbody>
@@ -408,6 +412,7 @@ distil_litellm.completion(model=<span class="g">"claude-opus-4-8"</span>, messag
         <tr><td>Self-improving keep policy</td><td><code>distil learn</code> / <code>distil online</code> (flywheel; only ever gets more conservative)</td></tr>
       </tbody>
     </table>
+    </div>
     <div class="callout good">
       <b>Rule of thumb.</b> A detected <b>subscription</b> auto-selects <code>--lossless-only</code> — bare <code>distil wrap -- claude</code> is safe by default (add <code>--expand</code> for max recoverable compression, <code>--verbatim</code> for byte-exact). PAYG / autonomous → default digest (add <code>--expand</code> for recoverable stubs). Coding sessions with re-reads → add <code>--session-delta</code>.
     </div>

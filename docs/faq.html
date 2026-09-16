@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -183,6 +184,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <p>Depends on the tier — the answer is precise:</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="&quot;Is the compression lossless?&quot;">
     <table>
       <thead><tr><th>Tier</th><th>Lossless?</th><th>How</th></tr></thead>
       <tbody>
@@ -203,6 +205,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
         </tr>
       </tbody>
     </table>
+    </div>
 
     <p>The byte-fidelity gate (<code>distil verify</code>) confirms that every Tier-0 and Tier-1 operation across the corpus is byte-reversible and that frozen history never mutates between turns. The <strong>adversarial gate</strong> (<code>distil validate</code>) goes further — it drives the compressor against hostile inputs (huge/unicode/nested/malformed tool output, content that mimics distil's own <code>&lt;&lt; handle &gt;&gt;</code> stubs, secret-looking strings) and asserts reversibility, reject-if-bigger, recency-exactness, fail-open, and content-free telemetry on every one. Both run in CI on every push.</p>
 
@@ -230,6 +233,7 @@ distil bench   --tokenizer anthropic</pre>
 
     <h2>"What is and isn't done?"</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="&quot;What is and isn&#x27;t done?&quot;">
     <table>
       <thead><tr><th>Item</th><th>Status</th></tr></thead>
       <tbody>
@@ -257,6 +261,7 @@ distil bench   --tokenizer anthropic</pre>
         <tr><td>Proven at scale / adoption</td><td><span class="badge-new">Needs real traffic</span> — every tool to prove it ships (<code>distil ingest</code> + <code>distil eval --runner anthropic</code>); run it on your traces and publish</td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
@@ -299,6 +304,7 @@ distil bench   --tokenizer anthropic</pre>
     </ul>
 
     <p>For the technical breakdown:</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="&quot;Which compression mode should I use?&quot;">
     <table>
       <thead><tr><th>Mode flag</th><th>What it does</th><th>Savings</th><th>Safety</th><th>Auto-selected when</th></tr></thead>
       <tbody>
@@ -308,6 +314,7 @@ distil bench   --tokenizer anthropic</pre>
         <tr><td><code>--verbatim</code></td><td>Whitespace + JSON normalization only</td><td>Minimal</td><td>Most conservative</td><td>Debugging / auditing</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>Subscription users should not force <code>--expand</code> — it crosses the lossless safety boundary. Coding re-reads? Add <code>--session-delta</code> regardless of mode.</p>
 

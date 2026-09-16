@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -232,6 +233,7 @@ genai.configure(
     </div>
 
     <h3>Proxy flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Proxy flags">
     <table>
       <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
@@ -241,6 +243,7 @@ genai.configure(
         <tr><td><code>--verbatim</code></td><td>off</td><td>Skip the Tier-1 digest entirely; Tier-0 only (JSON minify + collapse exact-duplicate runs). The model sees message content essentially verbatim. Use for interactive sessions or where <code>distil_expand</code> is unavailable. Lower savings.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <h3>Response headers</h3>
     <p>The proxy adds up to 9 response headers to compressed responses (not all appear on every request):</p>
@@ -299,6 +302,7 @@ distil proxy listening on http://127.0.0.1:8788
 }</pre>
 
     <h3>What is compressed</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="What is compressed">
     <table>
       <thead><tr><th>Part type</th><th>What happens</th><th>Reversible?</th></tr></thead>
       <tbody>
@@ -334,6 +338,7 @@ distil proxy listening on http://127.0.0.1:8788
         </tr>
       </tbody>
     </table>
+    </div>
 
     <h3>Path detection</h3>
     <p>The adapter activates on:</p>
@@ -365,6 +370,7 @@ distil proxy listening on http://127.0.0.1:8788
 
     <h2>Choosing your path</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Choosing your path">
     <table>
       <thead><tr><th></th><th><code>wrap(client)</code></th><th><code>distil proxy</code></th></tr></thead>
       <tbody>
@@ -378,6 +384,7 @@ distil proxy listening on http://127.0.0.1:8788
         <tr><td>Multi-language teams</td><td>No</td><td>Yes</td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 

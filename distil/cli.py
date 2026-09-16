@@ -96,7 +96,8 @@ def cmd_compress(args: argparse.Namespace) -> int:
         print(f"{turn.index:>4}  {b:>8}  {a:>8}  {_pct(a, b):>7}")
     print(f"\n{'ALL':>4}  {before:>8}  {after:>8}  {_pct(after, before):>7}")
     print(
-        f"\nreversible: yes (Tier-0/1) — {restored} blocks digested, originals recoverable locally"
+        f"\nreversible: yes (Tier-0/1 — verbatim / recoverable-digest tiers) — "
+        f"{restored} blocks digested, originals recoverable locally"
     )
     return 0
 
@@ -515,6 +516,10 @@ def cmd_prune(args: argparse.Namespace) -> int:
 
 
 def cmd_certify(args: argparse.Namespace) -> int:
+    import time
+
+    started = time.time()
+    as_json = getattr(args, "json", False)
     # A directory pools every trajectory inside it into ONE TOST — the honest
     # unit for a live (stochastic) grader, where per-trajectory n is far too
     # small to separate compression divergence from the model's own variance.
@@ -555,7 +560,10 @@ def cmd_certify(args: argparse.Namespace) -> int:
             aa_control=aa_control,
         )
         pooled_label = f"{len(pooled_trajs)} trajectories, {len(report.divergences)} turns pooled"
-        print(f"certifying strategy {args.strategy!r} on {pooled_label} (runner={args.runner})\n")
+        if not as_json:
+            print(
+                f"certifying strategy {args.strategy!r} on {pooled_label} (runner={args.runner})\n"
+            )
     else:
         report = certify(
             traj,
@@ -565,7 +573,72 @@ def cmd_certify(args: argparse.Namespace) -> int:
             alpha=args.alpha,
             aa_control=aa_control,
         )
-        print(f"certifying strategy {args.strategy!r} on {traj.id!r} (runner={args.runner})\n")
+        if not as_json:
+            print(f"certifying strategy {args.strategy!r} on {traj.id!r} (runner={args.runner})\n")
+
+    if as_json:
+        from .corpus import CorpusEntry
+        from .evalrecord import Gate, build
+
+        t = report.tost
+        entries = [
+            CorpusEntry(getattr(tj, "id", ""), "", getattr(tj, "id", ""), tj)
+            for tj in (pooled_trajs if pooled_trajs is not None else [traj])
+        ]
+        # TOST does not decide by comparing mean_diff to margin directly — it
+        # decides by comparing the one-sided p-value to alpha (see
+        # `certify/stats.py::tost`: `non_inferior = p_lower < alpha`). Pairing
+        # `threshold=margin` with `observed=mean_diff` put two numbers on
+        # different scales (a bound vs a signed difference) next to a verdict
+        # neither of them reproduces — `passed` looked disconnected from both.
+        # Report the actual decision pair instead, so `passed == (observed <
+        # threshold)` holds literally; mean_diff/margin stay in the rationale
+        # (and in `metrics.tost` below) so the record is still fully readable.
+        gate = Gate(
+            name="non_inferior",
+            threshold=t.alpha,
+            observed=t.p_non_inferior,
+            passed=t.non_inferior,
+            rationale=(
+                f"TOST non-inferiority: p_lower={t.p_non_inferior:.4g} must clear "
+                f"alpha={t.alpha} (mean_diff={t.mean_diff:.4g}, margin={t.margin}, "
+                f"n={t.n}) — passed iff the one-sided p-value beats alpha, not a "
+                "bare mean-diff-vs-margin comparison"
+            ),
+        )
+        # `build()` reports the subject via type(compressor).__name__/__module__ —
+        # fine for a Strategy class, but REGISTRY entries are plain functions, whose
+        # *type* is just "function" in "builtins". Same fix as fidelity's
+        # `_ServingSurface`: a throwaway type named after the actual strategy.
+        fn = REGISTRY[args.strategy] if isinstance(args.strategy, str) else args.strategy
+        subject = type(
+            getattr(fn, "__name__", str(args.strategy)),
+            (),
+            {"__module__": getattr(fn, "__module__", "")},
+        )()
+        record = build(
+            metrics={
+                "match_rate": report.match_rate,
+                "aa_match_rate": report.aa_match_rate,
+                "tost": {
+                    "n": t.n,
+                    "mean_diff": t.mean_diff,
+                    "margin": t.margin,
+                    "alpha": t.alpha,
+                    "p_non_inferior": t.p_non_inferior,
+                    "non_inferior": t.non_inferior,
+                },
+                "verdict": report.verdict,
+            },
+            entries=entries,
+            compressor=subject,
+            grader=args.runner,
+            gates=[gate],
+            started=started,
+        )
+        print(json.dumps(record.to_dict(), indent=2))
+        return 0 if t.non_inferior else 1
+
     if report.aa_match_rate is not None:
         print(
             f"A/A self-agreement floor: {report.aa_match_rate * 100:.1f}% "
@@ -581,9 +654,13 @@ def cmd_certify(args: argparse.Namespace) -> int:
             print(f"      baseline:   {d.baseline_decision}")
             print(f"      compressed: {d.compressed_decision}")
     t = report.tost
-    print(f"\ndecision-equivalence match rate: {report.match_rate * 100:.1f}%")
     print(
-        f"TOST non-inferiority (margin={t.margin}, alpha={t.alpha}): "
+        f"\ndecision-equivalence match rate (same next action with vs without "
+        f"compression): {report.match_rate * 100:.1f}%"
+    )
+    print(
+        f"TOST non-inferiority (two one-sided tests; margin={t.margin}, "
+        f"alpha={t.alpha} — the strictness of the test): "
         f"mean diff={t.mean_diff:+.3f}, "
         f"p={'<0.0001' if t.p_non_inferior < 1e-4 else format(t.p_non_inferior, '.4g')}"
     )
@@ -1152,10 +1229,21 @@ def cmd_dissect(args: argparse.Namespace) -> int:
 
     use_color = (not args.no_color) and sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
     if args.serve:
+        from .webdash import _running_under_ci
+
         server = dz.make_server(args.host, args.port, transcript=args.transcript)
         host, port = server.server_address[:2]
         print(f"dissect portal: http://{host}:{port}/  (Ctrl-C to stop)")
         print("sessions index at /, reports at /session/<sid>, JSON at /json/<sid>")
+        # A CI job has nobody to open a browser and would otherwise hang
+        # forever on serve_forever() — print the URL and return instead,
+        # unless --foreground asks to block anyway. Deliberately NOT keyed on
+        # "no TTY": nohup, a systemd/supervisor unit, and IDE run tasks all
+        # have no TTY but do want the server (see webdash._running_under_ci).
+        if not getattr(args, "foreground", False) and _running_under_ci():
+            print("  (CI detected: not blocking — pass --foreground to serve anyway)")
+            server.server_close()
+            return 0
         try:
             server.serve_forever()
         except KeyboardInterrupt:
@@ -2238,6 +2326,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         + c("90", "   ·   for agents: ")
         + c("36", "distil onboard --json")
     )
+    print(c("90", "See your savings whenever you're ready: ") + c("1;36", "distil stats"))
     return 0
 
 
@@ -2578,7 +2667,11 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     if getattr(args, "web", False):
         from .webdash import serve_webdash
 
-        serve_webdash(port=args.port, open_browser=not getattr(args, "no_open", False))
+        serve_webdash(
+            port=args.port,
+            open_browser=not getattr(args, "no_open", False),
+            foreground=getattr(args, "foreground", False),
+        )
         return 0
 
     from .doctor import subscription_mode
@@ -3946,6 +4039,13 @@ def cmd_federated(args: argparse.Namespace) -> int:
     return 0
 
 
+_YES_VS_NO_INTERACTIVE = (
+    "--yes acts: it auto-confirms every prompt this command would otherwise ask, so "
+    "it actually performs those steps. --no-interactive only reports: it never "
+    "prompts and never performs a step it would have asked about, printing what it "
+    "would have done instead."
+)
+
 _HELP_EPILOG = """\
 everyday commands:
   onboard, doctor, setup, offboard    guided install / health-check / wiring
@@ -4042,6 +4142,9 @@ def build_parser() -> argparse.ArgumentParser:
         "leaderboard",
         aliases=["stats"],
         help="your genuine cumulative savings (local ledger)",
+        epilog="See also: `distil dashboard` for a live view, `distil dissect latest` "
+        "for one session's detail, `distil receipts` to verify these numbers are "
+        "tamper-evident.",
     )
     lb.add_argument("--html", help="render your savings as a self-contained HTML page")
     lb.add_argument("--json", action="store_true", help="machine-readable output")
@@ -4055,6 +4158,8 @@ def build_parser() -> argparse.ArgumentParser:
     rc = sub.add_parser(
         "receipts",
         help="verify (or export) the tamper-evident per-request receipt chain",
+        epilog="See also: `distil stats` for the savings these receipts back, "
+        "`distil dissect latest` for one session's own proof chain.",
     )
     rc.add_argument(
         "--export", action="store_true", help="print every receipt as JSONL instead of verifying"
@@ -4083,8 +4188,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("deterministic", "anthropic"),
         help="deterministic (offline, default) or anthropic (live model)",
     )
-    ce.add_argument("--margin", type=float, default=0.02)
-    ce.add_argument("--alpha", type=float, default=0.05)
+    ce.add_argument(
+        "--margin",
+        type=float,
+        default=0.02,
+        help="TOST non-inferiority margin (max tolerated decision-change rate)",
+    )
+    ce.add_argument(
+        "--alpha",
+        type=float,
+        default=0.05,
+        help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
+    )
     ce.add_argument(
         "--model",
         default=None,
@@ -4115,13 +4230,24 @@ def build_parser() -> argparse.ArgumentParser:
         "strictly against 1.0 (raw mode — expect false positives on ambiguous "
         "turns; the control is a no-op for the deterministic runner)",
     )
+    ce.add_argument("--json", action="store_true", help="machine-readable report")
     ce.set_defaults(func=cmd_certify)
 
     be = sub.add_parser("bench", help="corpus-wide CI gate across every domain")
     add_tokenizer(be)
     be.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
-    be.add_argument("--margin", type=float, default=0.02)
-    be.add_argument("--alpha", type=float, default=0.05)
+    be.add_argument(
+        "--margin",
+        type=float,
+        default=0.02,
+        help="TOST non-inferiority margin (max tolerated decision-change rate)",
+    )
+    be.add_argument(
+        "--alpha",
+        type=float,
+        default=0.05,
+        help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
+    )
     be.add_argument(
         "--record",
         action="store_true",
@@ -4486,7 +4612,10 @@ def build_parser() -> argparse.ArgumentParser:
     pw.set_defaults(func=cmd_proxy_worker)
 
     ss = sub.add_parser(
-        "shadow-stats", help="show live decision-equivalence measured by shadow mode"
+        "shadow-stats",
+        help="show live decision-equivalence measured by shadow mode",
+        epilog="See also: `distil stats` for cumulative token/dollar savings, "
+        "`distil dissect latest` for one session's own decision-equivalence detail.",
     )
     ss.add_argument("--json", action="store_true", help="machine-readable output (flat)")
     ss.add_argument(
@@ -4515,6 +4644,8 @@ def build_parser() -> argparse.ArgumentParser:
     di = sub.add_parser(
         "dissect",
         help="everything distil knows about one wrap session (savings, folds, quality loops)",
+        epilog="See also: `distil stats` for cumulative savings across sessions, "
+        "`distil dashboard` for a live view, `distil doctor` if something here looks wrong.",
     )
     di.add_argument(
         "session",
@@ -4536,12 +4667,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     di.add_argument("--host", default="127.0.0.1", help="bind address (default: localhost only)")
     di.add_argument("--port", type=int, default=8790, help="portal port (default 8790)")
+    di.add_argument(
+        "--foreground",
+        action="store_true",
+        help="with --serve: block on serve_forever() even when stdout isn't a TTY "
+        "or CI is set (default there: print the URL and exit 0)",
+    )
     di.add_argument("--json", action="store_true", help="machine-readable output")
     di.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     di.set_defaults(func=cmd_dissect)
 
     dash = sub.add_parser(
-        "dashboard", help="live dashboard of your savings (terminal, or --web for a browser)"
+        "dashboard",
+        help="live dashboard of your savings (terminal, or --web for a browser)",
+        epilog="See also: `distil stats` for a plain-text snapshot, "
+        "`distil dissect latest` for one session's own detail.",
     )
     dash.add_argument("--once", action="store_true", help="render once and exit (no live refresh)")
     dash.add_argument(
@@ -4554,10 +4694,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dash.add_argument("--port", type=int, default=8766, help="port for --web (default 8766)")
     dash.add_argument("--no-open", action="store_true", help="with --web, don't open the browser")
+    dash.add_argument(
+        "--foreground",
+        action="store_true",
+        help="with --web: block on serve_forever() even when stdout isn't a TTY "
+        "or CI is set (default there: print the URL and exit 0)",
+    )
     dash.set_defaults(func=cmd_dashboard)
 
     dr = sub.add_parser(
-        "doctor", help="diagnose your distil setup (ledger, shadow, proxy round-trip, wiring)"
+        "doctor",
+        help="diagnose your distil setup (ledger, shadow, proxy round-trip, wiring)",
+        epilog="See also: `distil stats` for your savings, `distil shadow-stats` "
+        "for live decision-equivalence.",
     )
     dr.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     dr.add_argument("--json", action="store_true", help="machine-readable output (CI-gateable)")
@@ -4570,7 +4719,11 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("--settings", help="settings.json path (default ~/.claude/settings.json)")
     su.set_defaults(func=cmd_setup)
 
-    ob = sub.add_parser("onboard", help="one command: set up distil + a guided next-steps tour")
+    ob = sub.add_parser(
+        "onboard",
+        help="one command: set up distil + a guided next-steps tour",
+        epilog=_YES_VS_NO_INTERACTIVE,
+    )
     ob.add_argument("--dry-run", action="store_true", help="scan + guide only; change nothing")
     ob.add_argument(
         "--force", action="store_true", help="replace an existing status line (backed up first)"
@@ -4624,7 +4777,9 @@ def build_parser() -> argparse.ArgumentParser:
     de.set_defaults(func=cmd_default)
 
     of = sub.add_parser(
-        "offboard", help="remove distil's footprint (alias, proxy service, status line)"
+        "offboard",
+        help="remove distil's footprint (alias, proxy service, status line)",
+        epilog=_YES_VS_NO_INTERACTIVE,
     )
     of.add_argument(
         "--purge", action="store_true", help="also delete your local savings ledger + shadow data"

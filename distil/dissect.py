@@ -1320,7 +1320,16 @@ def render_text(
     out.append(
         c("2", "resent content replaced by a reference · verbatim = passed through untouched ·")
     )
-    out.append(c("2", "unbooked = upstream failed/retried, not counted as savings"))
+    out.append(c("2", "unbooked = upstream failed/retried, not counted as savings ·"))
+    out.append(
+        c(
+            "2",
+            "decision-equivalence = agent's next action unchanged with vs without compression ·",
+        )
+    )
+    out.append(
+        c("2", "prefix replay = a client-resent prefix forwarded as-is instead of recompressed")
+    )
     out.append("")
     out.append(
         c(
