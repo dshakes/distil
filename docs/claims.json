@@ -270,9 +270,9 @@
       "status": "verified",
       "page": "assets/integration-surface.svg",
       "anchor": null,
-      "snippet": "zero config · 11 agents",
-      "claim": "Architecture diagram's \"Agent wrap\" card: distil wrap has zero-config presets for 11 agents.",
-      "note": "len(distil.onboard.AGENT_PRESETS) == 11 (claude, codex, gemini, aider, opencode, qwen, goose, grok, openhands, copilot, kimi); bumped from 9 with the copilot/kimi presets, tested by tests/test_wrap_presets.py."
+      "snippet": "zero config · 18 agents",
+      "claim": "Architecture diagram's \"Agent wrap\" card: distil wrap has zero-config presets for 18 agents.",
+      "note": "Counts BOTH registries, which is what `distil wrap` actually reaches: 12 env-var presets in distil.onboard.AGENT_PRESETS (claude, codex, gemini, aider, opencode, qwen, goose, grok, openhands, copilot, kimi, vibe) plus 6 config-file presets in distil.config_wrap.CONFIG_PRESETS (cn, droid, omp, crush, cline, kilo). Counting only the first undersold it by a quarter from 1.53.0, when the config-file mechanism landed. Enforced against distil.targets.catalog() by tests/test_svg_assets.py, and each contract's source is in tests/test_wrap_targets.py."
     },
     {
       "id": "v-benchmark-corpus-warm",

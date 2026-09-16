@@ -2191,6 +2191,7 @@ def wrap_run(
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
+    env_value_template: str | None = None,
     config_ctx: Callable[[str, str], contextlib.AbstractContextManager[list[str]]] | None = None,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
@@ -2200,6 +2201,11 @@ def wrap_run(
     any base-url-honoring SDK routes through compression with no code change,
     runs the command to completion, then tears the proxy down — flushing genuine
     savings to the local ledger. Returns the child process's exit code.
+
+    ``env_value_template``, when given, is the literal value to export for
+    ``env_var`` with ``$BASE`` replaced by the proxy URL — for an agent whose
+    variable takes a document containing the endpoint rather than the endpoint
+    itself (see ``onboard.AGENT_ENV_TEMPLATES``).
 
     ``config_ctx``, when given, is a ``(upstream, base) -> contextmanager``
     factory for a tool whose only routing knob is a config file rather than
@@ -2357,14 +2363,21 @@ def wrap_run(
         threading.Thread(target=_serve_resilient, daemon=True).start()
 
     child_env = dict(os.environ)
-    child_env[env_var] = base
+    # Most presets' variable takes the proxy URL verbatim. A few take a document
+    # that CONTAINS it — Mistral Vibe's VIBE_PROVIDERS is a JSON provider array —
+    # so a template (``$BASE`` anywhere inside it) renders the value instead.
+    # Exporting a bare URL where the agent expects JSON routes nothing while
+    # reporting success, which is the one failure `wrap` must never ship.
+    env_value = env_value_template.replace("$BASE", base) if env_value_template else base
+    child_env[env_var] = env_value
     print(f"distil wrap → proxy {base} (upstream {upstream})")
-    print(f"  → {env_var}={base}")
+    print(f"  → {env_var}={env_value if len(env_value) <= 120 else env_value[:117] + '…'}")
     # Some presets need more than one env var wired (e.g. goose reads a
     # separate Anthropic-flavoured host var; Copilot CLI needs a provider
     # type alongside its base URL). "$BASE" mirrors this wrap's proxy URL,
     # "$VARNAME" passes an existing environment value through (skipped if
-    # unset/empty — never invent a credential), anything else is literal.
+    # unset/empty — never invent a credential), a value CONTAINING "$BASE"
+    # interpolates the proxy URL into it, anything else is literal.
     # setdefault so a user's own exported override always wins.
     for name, template in (extra_env or {}).items():
         if template == "$BASE":
@@ -2373,6 +2386,8 @@ def wrap_run(
             value = os.environ.get(template[1:], "")
             if not value:
                 continue
+        elif "$BASE" in template:
+            value = template.replace("$BASE", base)
         else:
             value = template
         child_env.setdefault(name, value)

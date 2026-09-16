@@ -2832,41 +2832,94 @@ _ENV_REQUIRES_FLAG = {
     "openhands": ("--override-with-envs", "read LLM_* from the environment"),
 }
 
-#: IDE extensions people reasonably TRY to wrap. There is no argv to wrap and no
-#: published env-var contract, so a preset here would set a variable the editor never
-#: reads — routing nothing while reporting success. They are reachable, just by a
-#: different mechanism: run the proxy and point the editor's own base-URL setting at
-#: it. Saying that is worth more than a preset that lies.
-_IDE_NOT_WRAPPABLE = {
-    "cursor": "Cursor",
-    "cursor-agent": "Cursor",
-    "code": "VS Code (Copilot/Cline/Continue)",
-    "cline": "Cline",
-    "continue": "Continue",
-    "windsurf": "Windsurf",
-    "zed": "Zed",
-    "kilo": "Kilo Code",
-    "roo": "Roo Code",
-    "warp": "Warp",
-    "cortex": "Snowflake Cortex Code",
-    "coco": "Snowflake Cortex Code",
-}
+
+def _unwrappable_target(cmd_name: str):
+    """The ``targets.UNREACHABLE`` entry for a command someone tried to wrap.
+
+    Matches the entry's own key or any alias people reasonably type, so the
+    reason and its source live in one place (distil/targets.py) instead of
+    being restated here.
+    """
+    from .targets import UNREACHABLE
+
+    for target in UNREACHABLE:
+        if cmd_name == target.key or cmd_name in target.aliases:
+            return target
+    return None
 
 
 def _warn_if_ide_not_wrappable(cmd_name: str) -> None:
-    """Redirect an IDE user to the path that actually works, before the session starts."""
-    label = _IDE_NOT_WRAPPABLE.get(cmd_name)
-    if label is None:
+    """Redirect the user to the path that actually works, before the session starts.
+
+    Some of these have no process to wrap at all; others (Cline, Kilo) do ship
+    a CLI but publish no base-URL knob it honours — either way a preset would
+    set something the tool never reads, routing nothing while reporting
+    success. The per-target reason and the doc it was verified against come
+    from the catalogue, so this message can't go stale on its own.
+    """
+    target = _unwrappable_target(cmd_name)
+    if target is None:
         return
     print(
-        f"\n  ⚠ {label} is an IDE extension, not a CLI — there is no process to wrap,\n"
-        f"    and no environment variable it reads. This wrap would route NOTHING.\n\n"
+        f"\n  ⚠ {target.label} publishes no base-URL contract `distil wrap` can set —\n"
+        f"    {target.note}.\n"
+        f"    This wrap would route NOTHING.\n\n"
         f"    Use the always-on proxy instead:\n"
         f"        distil proxy --port 8080          # leave it running\n"
-        f"    then set the editor's OpenAI-compatible base URL to http://127.0.0.1:8080\n"
+        f"    then point its own setting at http://127.0.0.1:8080 — {target.knob}\n"
+        f"    Verified {target.verified}: {target.doc_url}\n"
         f"    Full per-editor steps: docs/IDE-AGENTS.md\n",
         file=sys.stderr,
     )
+
+
+def _print_targets(as_json: bool) -> int:
+    """`distil wrap --list` — every target, its mechanism and its wire shape."""
+    from .targets import catalog
+
+    targets = catalog()
+    if as_json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "command": t.key,
+                        "label": t.label,
+                        "mechanism": t.mechanism,
+                        "provider_shape": t.shape,
+                        "knob": t.knob,
+                        "wrappable": t.wrappable,
+                        "doc_url": t.doc_url,
+                        "verified": t.verified,
+                        "note": t.note,
+                    }
+                    for t in targets
+                ],
+                indent=2,
+            )
+        )
+        return 0
+    mechanisms = {
+        "env": "wrap sets an environment variable",
+        "config": "wrap manages a config file for the session",
+        "proxy": "not wrappable — point the tool at `distil proxy` / `distil default`",
+    }
+    for mechanism, heading in mechanisms.items():
+        rows = [t for t in targets if t.mechanism == mechanism]
+        if not rows:
+            continue
+        print(f"\n{heading}")
+        width = max(len(t.key) for t in rows)
+        for t in rows:
+            cmd = t.key if mechanism != "proxy" else "-"
+            print(f"  {cmd:<{width}}  {t.label}")
+            print(f"  {'':<{width}}  {t.shape} · {t.knob}")
+    print(
+        "\nEvery contract above was read from that tool's own docs on the date in "
+        "`distil wrap --list --json`.\nAnything missing had no verifiable knob — a "
+        "guessed one would route nothing and still report success."
+    )
+    return 0
 
 
 def _warn_if_env_ignored(cmd_name: str, command: list[str]) -> None:
@@ -2898,6 +2951,8 @@ def cmd_wrap(args: argparse.Namespace) -> int:
 
     from .updatecheck import maybe_notify as _update_notify
 
+    if getattr(args, "list", False):
+        return _print_targets(getattr(args, "json", False))
     _update_notify()  # ≤1/day, background thread, DISTIL_NO_UPDATE_CHECK opts out
     # Surface label for the census's integration counters; the spawned proxy
     # (and hot-swap worker) inherit it, so wrapped-agent traffic counts as
@@ -2922,6 +2977,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     env_var: str = args.env_var or ""
     upstream: str = args.upstream or ""
     extra_env: dict[str, str] = {}
+    env_value_template: str | None = None
 
     if preset is not None:
         preset_env_var, preset_upstream, preset_label, preset_extra = preset
@@ -2929,6 +2985,11 @@ def cmd_wrap(args: argparse.Namespace) -> int:
             env_var = preset_env_var
             print(f"  preset: {preset_label} detected → {env_var}")
             extra_env = preset_extra
+            # Only when the preset's OWN variable is in play: an explicit
+            # --env-var means the user picked a variable that takes a URL.
+            from .onboard import AGENT_ENV_TEMPLATES
+
+            env_value_template = AGENT_ENV_TEMPLATES.get(cmd_name)
         _warn_if_env_ignored(cmd_name, command)
         if not upstream:
             upstream = preset_upstream
@@ -2996,6 +3057,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         shadow_rate=args.shadow,
         retention_rate=getattr(args, "retention", 0.0),
         extra_env=extra_env,
+        env_value_template=env_value_template,
         config_ctx=config_preset.apply if config_preset is not None else None,
     )
     # Upstream-contract tripwire: distil's interception of a known agent rests on
@@ -4686,6 +4748,12 @@ def build_parser() -> argparse.ArgumentParser:
         "wrap",
         help="run a command with its API base URL transparently routed through Distil",
     )
+    wr.add_argument(
+        "--list",
+        action="store_true",
+        help="list every agent distil can route, its mechanism (env var / config file) "
+        "and the provider wire shape — plus the ones it cannot reach and why",
+    )
     wr.add_argument("--host", default="127.0.0.1", help="bind address (default: localhost only)")
     wr.add_argument(
         "--upstream",
@@ -4763,6 +4831,7 @@ def build_parser() -> argparse.ArgumentParser:
         "On by default at 0.02 (2%% extra tokens on sampled requests) so the ✓de "
         "evidence accrues without opt-in; --shadow 0 disables",
     )
+    wr.add_argument("--json", action="store_true", help="machine-readable output (with --list)")
     wr.add_argument(
         "command",
         nargs=argparse.REMAINDER,

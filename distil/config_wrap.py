@@ -76,6 +76,7 @@ import re
 import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -370,6 +371,12 @@ class ConfigPreset:
     #: Stable paths this preset ever writes to directly (not temp files) —
     #: swept by restore_stale_backups() for crash recovery. Empty for "flag".
     paths: Callable[[], list[Path]]
+    #: Doc metadata, joined with AGENT_PRESETS' in ``targets.catalog()``: the
+    #: wire shape the proxy must speak for this target, and the config key the
+    #: preset writes. Both are printed by ``distil wrap --list`` and rendered
+    #: into the README/docs tables, so a table can't drift from the code.
+    shape: str
+    knob: str
     #: Upstream to use when the CLI got no explicit --upstream and no
     #: AGENT_PRESETS entry supplied one either (config-file presets are a
     #: separate registry from AGENT_PRESETS, so they'd otherwise silently
@@ -680,6 +687,202 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
 
 
+# ---------------------------------------------------------------------------
+# Cline CLI (`cline`) — providers.<id>.settings.baseUrl in
+# ~/.cline/data/settings/providers.json.
+#
+# Cline was previously declined here for having "no published schema". It has
+# one; it just isn't on the docs site. Verified 2026-09-16 against cline/cline
+# on `main`:
+#   * the file's location and the CLINE_DATA_DIR override are documented
+#     (docs.cline.bot/cli/cli-reference, "Configuration Files" and
+#     "Environment Variables": ~/.cline/data/settings/providers.json, and
+#     CLINE_DATA_DIR "replaces ~/.cline/data/");
+#   * its shape is the zod schema StoredProviderSettings in
+#     sdk/packages/core/src/types/provider-settings.ts — version: 1,
+#     lastUsedProvider, modes, and providers: Record<id, {settings, updatedAt,
+#     tokenSource}> — and a committed fixture of exactly that file lives at
+#     apps/cli/src/tests/configs/default/data/settings/providers.json;
+#   * each entry's `settings` is ProviderSettingsSchema
+#     (sdk/packages/core/src/services/llms/provider-settings.ts), whose
+#     `baseUrl` is documented in `toProviderConfig` as taking precedence over
+#     the regional API line AND the provider default, and whose `protocol` /
+#     `client` enums carry "anthropic" and "openai-chat"/"openai-compatible";
+#   * `lastUsedProvider` is what the CLI resolves the active provider from
+#     (ProviderSettingsManager.getLastUsedProviderSettings in
+#     sdk/packages/core/src/services/storage/provider-settings-manager.ts), so
+#     the injected entry is actually selected rather than merely present.
+#
+# `updatedAt` is required by the schema (z.string().datetime()), so it is
+# written as a real UTC timestamp rather than omitted — a missing field would
+# make Cline reject the whole file, including the user's own providers.
+# ---------------------------------------------------------------------------
+
+
+def _cline_providers_path() -> Path:
+    """``CLINE_DATA_DIR`` replaces ``~/.cline/data`` wholesale (per the CLI
+    reference's environment-variable table), so it is read here rather than
+    assumed — a user who moved their data dir would otherwise get a patch
+    written to a file their CLI never reads, and `wrap` would report success
+    while routing nothing."""
+    data_dir = os.environ.get("CLINE_DATA_DIR") or str(Path.home() / ".cline" / "data")
+    return Path(data_dir) / "settings" / "providers.json"
+
+
+@contextlib.contextmanager
+def _cline_apply(upstream: str, base: str) -> Iterator[list[str]]:
+    family = _family(upstream)
+    key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
+    api_key = os.environ.get(key_var, "")
+    if not api_key:
+        print(
+            f"  ⚠ Cline: {key_var} is not set — skipping the providers.json "
+            "entry (never inventing a credential)."
+        )
+        yield []
+        return
+
+    path = _cline_providers_path()
+    provider, protocol, client = (
+        ("anthropic", "anthropic", "anthropic")
+        if family == "anthropic"
+        else ("openai", "openai-chat", "openai-compatible")
+    )
+
+    def _render(current: bytes | None) -> bytes:
+        try:
+            doc = json.loads(current) if current else {}
+            if not isinstance(doc, dict):
+                raise ValueError("providers.json root is not an object")
+        except (json.JSONDecodeError, ValueError):
+            # ponytail: an unparseable providers.json is treated as empty, the
+            # same call crush.json makes — the ORIGINAL bytes are backed up and
+            # restored untouched either way, and Cline would have rejected the
+            # file it could not parse too.
+            doc = {}
+        providers = doc.get("providers")
+        if not isinstance(providers, dict):
+            providers = {}
+        # Idempotent: keyed assignment, so re-patching replaces our entry
+        # rather than stacking a second one.
+        providers["distil"] = {
+            "settings": {
+                "provider": provider,
+                "apiKey": api_key,
+                "baseUrl": base,
+                "protocol": protocol,
+                "client": client,
+            },
+            "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "tokenSource": "manual",
+        }
+        doc["providers"] = providers
+        doc["version"] = 1
+        doc["lastUsedProvider"] = "distil"
+        return (json.dumps(doc, indent="\t") + "\n").encode("utf-8")
+
+    with _own_config(path, _render):
+        print(
+            f'  → wrote provider "distil" into {path} and made it the '
+            "last-used provider — `cline` picks it up on its next session"
+        )
+        yield []
+
+
+# ---------------------------------------------------------------------------
+# Kilo Code CLI (`kilo`) — provider.<id>.options.baseURL in
+# ~/.config/kilo/kilo.json.
+#
+# Verified 2026-09-16 against Kilo-Org/kilocode on `main`, the CLI tab of
+# packages/kilo-docs/pages/ai-providers/openai-compatible.md: "Define a custom
+# provider in your `kilo.json` config file (`~/.config/kilo/kilo.json` or
+# `./kilo.json`). The provider key … can be any name you like." The same page
+# documents every field written below — `npm` selects the protocol package
+# (`@ai-sdk/openai-compatible` for OpenAI Chat Completions,
+# `@ai-sdk/anthropic` for Anthropic Messages), `options.baseURL` is "the base
+# URL of your provider's API endpoint", `options.apiKey` is the key, and at
+# least one entry in `models` is REQUIRED ("You must define at least one
+# model").
+#
+# Model SELECTION is deliberately left alone. Kilo's default model is the
+# separate top-level `model: "provider-id/model-id"` key, and overwriting it
+# would silently move the user off the model they chose; the injected provider
+# is offered the way Crush's is instead. The named model ids are real ones so
+# that selecting them works.
+#
+# Kilo also accepts `kilo.jsonc`. That variant is NOT patched: it permits
+# comments, and a JSON round-trip would delete them from a file the user
+# hand-wrote. A `kilo.json` this preset cannot parse is likewise left exactly
+# as it is (rather than treated as empty, the call crush.json makes) — Kilo's
+# own docs write JSONC into files with the .json name, and silently dropping a
+# user's other providers for the session is worse than not routing.
+# ---------------------------------------------------------------------------
+
+
+def _kilo_config_path() -> Path:
+    return Path.home() / ".config" / "kilo" / "kilo.json"
+
+
+@contextlib.contextmanager
+def _kilo_apply(upstream: str, base: str) -> Iterator[list[str]]:
+    family = _family(upstream)
+    key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
+    api_key = os.environ.get(key_var, "")
+    if not api_key:
+        print(
+            f"  ⚠ Kilo Code: {key_var} is not set — skipping the kilo.json "
+            "provider entry (never inventing a credential)."
+        )
+        yield []
+        return
+
+    path = _kilo_config_path()
+    npm, model_id, model_name = (
+        ("@ai-sdk/anthropic", "claude-opus-4-8", "Claude Opus 4.8 (via distil)")
+        if family == "anthropic"
+        else ("@ai-sdk/openai-compatible", "gpt-5.2", "GPT-5.2 (via distil)")
+    )
+    if path.exists():
+        try:
+            json.loads(path.read_bytes())
+        except (OSError, json.JSONDecodeError):
+            print(
+                f"  ⚠ Kilo Code: {path} is not plain JSON (comments are legal in "
+                "Kilo config) — leaving it exactly as it is rather than "
+                "rewriting it without them. Point provider.<id>.options.baseURL "
+                f"at {base} by hand to route this session."
+            )
+            yield []
+            return
+
+    def _render(current: bytes | None) -> bytes:
+        # No parse guard here on purpose: the check above already returned for
+        # anything that is not plain JSON, and it ran inside the same critical
+        # section, so this cannot raise on bytes that just passed it.
+        doc = json.loads(current) if current else {}
+        if not isinstance(doc, dict):
+            doc = {}
+        provider = doc.get("provider")
+        if not isinstance(provider, dict):
+            provider = {}
+        provider["distil"] = {
+            "npm": npm,
+            "name": "Distil (compressed)",
+            "models": {model_id: {"name": model_name}},
+            "options": {"apiKey": api_key, "baseURL": base},
+        }
+        doc["provider"] = provider
+        return (json.dumps(doc, indent=2) + "\n").encode("utf-8")
+
+    with _own_config(path, _render):
+        print(
+            f'  → wrote provider "distil" into {path} — select it with '
+            f"`/model distil/{model_id}` in the Kilo TUI (your own default "
+            "model is left untouched)"
+        )
+        yield []
+
+
 CONFIG_PRESETS: dict[str, ConfigPreset] = {
     "cn": ConfigPreset(
         label="Continue",
@@ -688,6 +891,8 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         verified="2026-09-06",
         apply=_continue_apply,
         paths=lambda: [],  # temp file only — nothing stable to sweep
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="config.yaml → models[].apiBase (via --config)",
     ),
     "droid": ConfigPreset(
         label="Factory Droid",
@@ -696,6 +901,8 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         verified="2026-09-06",
         apply=_droid_apply,
         paths=lambda: [_factory_settings_path()],
+        shape="OpenAI Chat Completions",
+        knob="settings.local.json → customModels[].baseUrl",
         # _droid_apply hard-requires an OpenAI-shaped upstream (only
         # "generic-chat-completion-api" is verified) — without this, a bare
         # `distil wrap -- droid` inherited cmd_wrap's hardcoded Anthropic
@@ -709,6 +916,8 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         verified="2026-09-06",
         apply=_omp_apply,
         paths=lambda: [_omp_models_path()],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="models.yml → baseUrl",
     ),
     "crush": ConfigPreset(
         label="Crush",
@@ -717,6 +926,28 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         verified="2026-09-07",
         apply=_crush_apply,
         paths=lambda: [_crush_config_path()],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="crush.json → providers.<id>.base_url",
+    ),
+    "cline": ConfigPreset(
+        label="Cline",
+        strategy="patch",
+        doc_url="https://docs.cline.bot/cli/cli-reference",
+        verified="2026-09-16",
+        apply=_cline_apply,
+        paths=lambda: [_cline_providers_path()],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="providers.json → providers.<id>.settings.baseUrl",
+    ),
+    "kilo": ConfigPreset(
+        label="Kilo Code",
+        strategy="patch",
+        doc_url="https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/ai-providers/openai-compatible.md",
+        verified="2026-09-16",
+        apply=_kilo_apply,
+        paths=lambda: [_kilo_config_path()],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="kilo.json → provider.<id>.options.baseURL",
     ),
 }
 

@@ -1034,3 +1034,218 @@ def test_cmd_wrap_leaves_config_ctx_none_for_a_normal_preset(monkeypatch):
     rc = cmd_wrap(_ns(command=["claude"]))
     assert rc == 0
     assert captured["config_ctx"] is None
+
+
+# ---------------------------------------------------------------------------
+# Cline CLI (`cline`) — patch strategy: ~/.cline/data/settings/providers.json.
+#
+# Cline was declined as a target on the grounds that its schema was not
+# published. It is — in cline/cline's own zod types and a committed fixture of
+# this exact file — so these hold the preset to the same bar every other one
+# meets: the entry Cline would actually load, and byte-exact restore.
+# ---------------------------------------------------------------------------
+
+
+def test_cline_apply_creates_and_deletes_when_absent(tmp_path, monkeypatch):
+    path = tmp_path / "settings" / "providers.json"
+    path.parent.mkdir()
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+        doc = json.loads(path.read_text())
+        assert doc["version"] == 1, "the schema pins version to the literal 1"
+        entry = doc["providers"]["distil"]
+        assert entry["settings"]["baseUrl"] == "http://127.0.0.1:1234"
+        assert entry["settings"]["apiKey"] == "sk-ant-test"
+        assert entry["settings"]["protocol"] == "anthropic"
+        assert entry["tokenSource"] == "manual"
+        # Required by StoredProviderSettingsEntrySchema (z.string().datetime()).
+        # Omitting it would make Cline reject the whole file, the user's own
+        # providers included.
+        assert entry["updatedAt"].endswith("Z") and "T" in entry["updatedAt"]
+        assert doc["lastUsedProvider"] == "distil", "present but unselected routes nothing"
+
+    assert not path.exists(), "a providers.json we created must not survive the wrap"
+    assert not config_wrap._created_marker(path).exists()
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_cline_apply_merges_and_restores_when_present(tmp_path, monkeypatch):
+    path = tmp_path / "providers.json"
+    original = json.dumps(
+        {
+            "version": 1,
+            "lastUsedProvider": "cline",
+            "providers": {"cline": {"settings": {"provider": "cline"}}},
+        }
+    )
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda: path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-test")
+
+    with config_wrap._cline_apply("https://api.openai.com", "http://127.0.0.1:1234"):
+        doc = json.loads(path.read_text())
+        assert set(doc["providers"]) == {"cline", "distil"}, "must ADD, not replace"
+        assert doc["providers"]["distil"]["settings"]["client"] == "openai-compatible"
+
+    assert path.read_text() == original, "restore must be byte-for-byte, not a re-serialization"
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_cline_apply_is_idempotent(tmp_path, monkeypatch):
+    """Re-patching replaces the distil entry instead of stacking a second one."""
+    path = tmp_path / "providers.json"
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:2"):
+            doc = json.loads(path.read_text())
+            assert list(doc["providers"]) == ["distil"]
+            assert doc["providers"]["distil"]["settings"]["baseUrl"] == "http://127.0.0.1:2"
+    assert not path.exists()
+
+
+def test_cline_apply_skips_without_a_credential(tmp_path, monkeypatch):
+    path = tmp_path / "providers.json"
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda: path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+    assert not path.exists()
+
+
+def test_cline_path_follows_its_documented_data_dir_override(tmp_path, monkeypatch):
+    """CLINE_DATA_DIR replaces ~/.cline/data wholesale. Ignoring it would write
+    a patch to a file that user's CLI never reads — a wrap reporting success
+    while routing nothing, which is the failure this module exists to avoid."""
+    monkeypatch.setenv("CLINE_DATA_DIR", str(tmp_path / "elsewhere"))
+    assert (
+        config_wrap._cline_providers_path()
+        == tmp_path / "elsewhere" / "settings" / "providers.json"
+    )
+    monkeypatch.delenv("CLINE_DATA_DIR")
+    assert config_wrap._cline_providers_path().parts[-4:] == (
+        ".cline",
+        "data",
+        "settings",
+        "providers.json",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Kilo Code CLI (`kilo`) — patch strategy: ~/.config/kilo/kilo.json.
+# ---------------------------------------------------------------------------
+
+
+def test_kilo_apply_creates_and_deletes_when_absent(tmp_path, monkeypatch):
+    path = tmp_path / "kilo.json"
+    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+        entry = json.loads(path.read_text())["provider"]["distil"]
+        assert entry["options"]["baseURL"] == "http://127.0.0.1:1234"
+        assert entry["options"]["apiKey"] == "sk-ant-test"
+        assert entry["npm"] == "@ai-sdk/anthropic"
+        # "You must define at least one model" — an empty map makes the
+        # provider unusable, so the preset would inject nothing useful.
+        assert entry["models"], "at least one model is required by Kilo's own docs"
+
+    assert not path.exists()
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_kilo_apply_merges_and_restores_when_present(tmp_path, monkeypatch):
+    path = tmp_path / "kilo.json"
+    original = json.dumps({"model": "vllm/qwen35", "provider": {"vllm": {"npm": "x"}}})
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-test")
+
+    with config_wrap._kilo_apply("https://api.openai.com", "http://127.0.0.1:1234"):
+        doc = json.loads(path.read_text())
+        assert set(doc["provider"]) == {"vllm", "distil"}, "must ADD, not replace"
+        assert doc["provider"]["distil"]["npm"] == "@ai-sdk/openai-compatible"
+        assert doc["model"] == "vllm/qwen35", "the user's own default model is not hijacked"
+
+    assert path.read_text() == original, "restore must be byte-for-byte, not a re-serialization"
+
+
+def test_kilo_apply_leaves_a_commented_config_completely_alone(tmp_path, monkeypatch):
+    """Kilo documents JSONC in these files and its own examples use trailing
+    commas. A JSON round-trip would delete a user's comments, and treating the
+    file as empty (the call crush.json makes) would drop their other providers
+    for the whole session. Neither is acceptable here: do nothing, say so."""
+    path = tmp_path / "kilo.json"
+    original = '{\n  // my gateway\n  "provider": {"vllm": {"npm": "x"}},\n}\n'
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+        assert path.read_text() == original, "must not rewrite a file it cannot round-trip"
+    assert path.read_text() == original
+    assert not config_wrap._backup_path(path).exists(), "nothing was claimed, so nothing to restore"
+
+
+def test_kilo_apply_skips_without_a_credential(tmp_path, monkeypatch):
+    path = tmp_path / "kilo.json"
+    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+    assert not path.exists()
+
+
+def test_cmd_wrap_resolves_the_new_config_presets(monkeypatch):
+    """Both reach cmd_wrap by argv[0], the same path droid/crush take."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    for cmd in ("cline", "kilo"):
+        captured: dict = {}
+
+        def fake(command, *, config_ctx=None, **kw):
+            captured["config_ctx"] = config_ctx
+            return 0
+
+        monkeypatch.setattr("distil.proxy.wrap_run", fake)
+        assert cmd_wrap(_ns(command=[cmd])) == 0
+        assert captured["config_ctx"] is config_wrap.CONFIG_PRESETS[cmd].apply
+
+
+def test_cline_apply_treats_unparseable_json_as_empty(tmp_path, monkeypatch):
+    """Cline would reject a providers.json it cannot parse too, so the patch
+    starts from empty rather than aborting the wrap — and the original bytes
+    still come back untouched."""
+    path = tmp_path / "providers.json"
+    path.write_text("not json")
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
+        assert list(json.loads(path.read_text())["providers"]) == ["distil"]
+
+    assert path.read_text() == "not json", "original garbage bytes are still restored exactly"
+
+
+def test_kilo_apply_ignores_a_non_object_root(tmp_path, monkeypatch):
+    """A kilo.json holding a bare array parses, so the JSONC guard lets it
+    through — it still must not be indexed into as a dict."""
+    path = tmp_path / "kilo.json"
+    path.write_text("[1, 2]")
+    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
+        assert list(json.loads(path.read_text())["provider"]) == ["distil"]
+
+    assert path.read_text() == "[1, 2]"
