@@ -79,13 +79,23 @@ class SessionOverview:
     status: str = ""  # "live" | "exited" | ""
 
 
-def list_sessions() -> list[SessionOverview]:
+def list_sessions(
+    *, rows: list[dict[str, Any]] | None = None, with_status: bool = True
+) -> list[SessionOverview]:
     """Every session distil has heard of: ledger rows ∪ session manifests.
 
     Newest-last-activity first, so the session you just ran is on top.
+
+    ``rows`` lets a caller that already parsed the ledger (e.g. ``discover``,
+    which also needs it per-session) pass it in rather than paying for a second
+    full parse of a file that can be tens of thousands of lines.
+
+    ``with_status=False`` skips the liveness stat() per session (two syscalls
+    each) for a caller that never reads ``.status`` — on a ledger with years of
+    distinct session ids, that loop dwarfs everything else here.
     """
     by_sid: dict[str, SessionOverview] = {}
-    for rec in _read_jsonl(default_path()):
+    for rec in rows if rows is not None else _read_jsonl(default_path()):
         sid = rec.get("session")
         if not sid or not isinstance(sid, str):
             continue
@@ -113,13 +123,14 @@ def list_sessions() -> list[SessionOverview]:
         if started:
             ov.started = min(ov.started or started, started)
             ov.last_ts = max(ov.last_ts, started)
-    for ov in by_sid.values():
-        marker = session_marker_path(ov.sid)
-        if marker is not None:
-            if marker.with_suffix(".exit").exists():
-                ov.status = "exited"
-            elif marker.exists():
-                ov.status = "live"
+    if with_status:
+        for ov in by_sid.values():
+            marker = session_marker_path(ov.sid)
+            if marker is not None:
+                if marker.with_suffix(".exit").exists():
+                    ov.status = "exited"
+                elif marker.exists():
+                    ov.status = "live"
     return sorted(by_sid.values(), key=lambda o: o.last_ts, reverse=True)
 
 
@@ -845,9 +856,21 @@ class Dissection:
         return sorted(rows, key=lambda t: -t[2])[:n]
 
 
-def dissect(sid: str) -> Dissection:
-    """Assemble a full Dissection for *sid* from every local source."""
-    ledger_rows = [r for r in _read_jsonl(default_path()) if r.get("session") == sid]
+def dissect(
+    sid: str, *, ledger_rows: list[dict[str, Any]] | None = None, shadow: bool = True
+) -> Dissection:
+    """Assemble a full Dissection for *sid* from every local source.
+
+    Both keyword arguments exist for ``distil discover``, which dissects twenty
+    sessions in one pass. The two whole-file scans below — the savings ledger and
+    shadow.jsonl — are per-call, so twenty sessions re-parse a 37k-run ledger
+    twenty times for rows the caller has already grouped. Passing ``ledger_rows``
+    (pre-filtered to *sid*) and ``shadow=False`` skips only work the caller does
+    not need; nothing else about the report changes, and there is still one
+    implementation of it.
+    """
+    if ledger_rows is None:
+        ledger_rows = [r for r in _read_jsonl(default_path()) if r.get("session") == sid]
     manifest: dict[str, Any] | None = None
     mp = session_manifest_path(sid)
     if mp is not None:
@@ -901,7 +924,7 @@ def dissect(sid: str) -> Dissection:
     for h, info in d.blocks.items():
         info["recoverable"] = (restore_dir / h).exists()
 
-    if d.started and d.ended:
+    if shadow and d.started and d.ended:
         from .shadow import ReplayCost, cost_delta
 
         costs: list[ReplayCost] = []

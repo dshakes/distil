@@ -36,6 +36,17 @@ Graded on SWE-bench Verified: 42.0% task success
 vs 39.2% full context (paired non-inferiority certified; superiority not
 significant). 83.2% savings at 0% decision-change rate on a live head-to-head.
 
+Two reporting commands read the same content-free local records and answer
+different questions. `distil dissect <session>` is backward-looking and
+per-session: what happened to this one. `distil discover` is forward-looking and
+cross-session: where savings are still being left on the table across the last N
+sessions, as a ranked list of actions, each carrying the tokens and dollars per
+week it would recover, the derivation of that number, and the one command to act
+on it. `discover` prints the median and p10/p90 of per-session savings beside the
+best session so a best case is never read as typical, prefers the rate the
+machine itself measured over any published ratio, and stays silent where it
+cannot measure.
+
 Five properties are checked rather than asserted, and each is separately
 runnable:
 

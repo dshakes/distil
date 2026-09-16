@@ -3,6 +3,40 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+**`distil discover` — the report that says what to do next.** Every ingredient for
+"here is where you are still leaving savings on the table" was already being computed,
+per session, by `distil dissect`: the fixed-overhead share and the per-tool cost of it,
+which sessions never reached the digest tier, how often the cached prefix drifted and
+what the provider re-billed for it, how many tokens were re-folded after first sight,
+how far the system prompt grew. What was missing is the only part a user actually needs
+— the cross-session aggregation, ranked, with a number and a command against each line.
+`discover` adds no instrumentation and no estimator; it reads the same content-free
+records through the same accessors and does arithmetic on them.
+
+Two constraints shaped it more than the detectors did. The first is that **a best case
+must never be readable as a typical one** — the audit of this field found the gap
+between a competitor's headline and its fleet median to be the recurring trust problem,
+and a savings tool that can be read that way has no standing to point it out. So the
+median and the p10/p90 of per-session savings print *beside* the best session, labelled.
+The second is that **an estimate may not invent its own ratio.** Where a line needs "what
+would the other mode have been worth", it uses the rate this machine measured
+(`ledger.mode_rates`, windowed — a lifetime rate answers a different question); only a
+machine that has never run that mode reaches the published benchmark figure, and then
+the line names the corpus and says it is not your traffic. Detectors that cannot measure
+return nothing rather than something: churn is counted only over sessions whose cache-read
+share was *measured* and low, because a resend the provider already discounts is not a
+saving, and an unmeasured one is neither cheap nor expensive; a drift ratio needs four
+comparable turns before it is a ratio at all. "Nothing to recommend" is therefore a
+result, not a failure to look.
+
+The wrap-exit proof ledger gains at most one line, and only when a detector actually
+fired — an advisory that prints "0 actions" on every exit is an ad, not a finding.
+`dissect()` grew two keyword arguments (`ledger_rows`, `shadow`) so that dissecting
+twenty sessions stops re-parsing a 37,000-run ledger twenty times over; nothing else
+about a dissection changes, and there is still one implementation of it.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

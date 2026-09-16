@@ -1234,6 +1234,25 @@ def cmd_dissect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Rank what is still costing you across recent sessions, with the derivation.
+
+    Exits 0 with no sessions: an advisor that has nothing to advise on is not an
+    error, and a non-zero exit here would fail any script that runs it routinely.
+    """
+    import os
+
+    from . import discover as dv
+
+    use_color = (not args.no_color) and sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+    report = dv.scan(sessions=args.sessions, since_days=args.since)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+        return 0
+    print(dv.render_text(report, color=use_color))
+    return 0
+
+
 def _print_shadow_sampling(_ctrs: dict) -> None:
     """Sampling diagnostics for ``distil shadow-stats`` — seen/sampled/failed.
 
@@ -4535,6 +4554,20 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--json", action="store_true", help="machine-readable output")
     di.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     di.set_defaults(func=cmd_dissect)
+
+    dv = sub.add_parser(
+        "discover",
+        help="where you are still leaving savings on the table, ranked, across recent sessions",
+    )
+    dv.add_argument(
+        "--sessions", type=int, default=20, help="how many recent sessions to fold in (default: 20)"
+    )
+    dv.add_argument(
+        "--since", type=float, metavar="DAYS", help="only sessions active in the last N days"
+    )
+    dv.add_argument("--json", action="store_true", help="machine-readable output")
+    dv.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    dv.set_defaults(func=cmd_discover)
 
     dash = sub.add_parser(
         "dashboard", help="live dashboard of your savings (terminal, or --web for a browser)"
