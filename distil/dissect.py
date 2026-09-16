@@ -467,39 +467,32 @@ class Dissection:
         Decides whether re-fold churn is actually expensive. A high share means the
         resent content is already billed at the cache-read rate, so the headline churn
         number overstates what any dedup mechanism could recover. None when no usage
-        was recorded at all.
+        was recorded.
 
-        A row that DID carry usage but neither split field is a real, measured 0% —
-        the proxy omits a cache field entirely when its value is zero (write is
-        ``... or None``), so a None split on a row with usage means "the cache never
-        hit", not "never measured". Reading it the other way drops every genuinely
-        zero-cache session — the exact session churn costs the most on — out of every
-        consumer that gates on this being non-None.
-
-        The one row shape that IS genuinely unmeasured: an older record with only the
-        aggregate ``usage_cache_tokens`` and neither split field. Folding a nonzero
-        aggregate in at 0% read would misreport a cached session as uncached, so that
-        row is excluded rather than assumed clean; a zero (or absent) aggregate next to
-        an absent split is the real zero case above and stays in.
+        The rule is provider-agnostic, not usage-presence based: OpenAI and Gemini
+        rows (and every row written before the proxy started distinguishing the two)
+        report ``usage_input_tokens`` but NEVER carry either Anthropic-style split
+        field — reading "usage present, split absent" as a measured 0% would inflate
+        churn/prefix-drift for exactly those rows. The proxy now writes a literal
+        ``0`` whenever the provider's own usage object carried the field (a real
+        measurement) and ``None`` only when the field was never in that object at
+        all (never measured) — so ``None`` on a split field means unmeasured, full
+        stop, regardless of whether ``usage_input_tokens`` is present. Requiring at
+        least one row to carry a split field before reporting anything is the
+        conservative reading of an ambiguous, pre-existing row.
         """
-        measured = [
-            r
-            for r in self.booked_detail
-            if r.get("usage_input_tokens") is not None
-            and not (
-                r.get("usage_cache_read") is None
-                and r.get("usage_cache_create") is None
-                and r.get("usage_cache_tokens")
-            )
-        ]
-        if not measured:
+        detail = self.booked_detail
+        if not any(
+            r.get("usage_cache_read") is not None or r.get("usage_cache_create") is not None
+            for r in detail
+        ):
             return None
-        cached = sum(int(r.get("usage_cache_read") or 0) for r in measured)
+        cached = sum(int(r.get("usage_cache_read") or 0) for r in detail)
         total = sum(
             int(r.get("usage_input_tokens") or 0)
             + int(r.get("usage_cache_read") or 0)
             + int(r.get("usage_cache_create") or 0)
-            for r in measured
+            for r in detail
         )
         return 100.0 * cached / total if total else None
 

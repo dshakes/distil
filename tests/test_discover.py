@@ -513,10 +513,11 @@ class TestDetectors:
         assert "churn" not in _ids(dv.scan())
 
     def test_churn_includes_a_session_with_a_real_zero_cache_share(self, home: Path) -> None:
-        """The proxy omits a cache split field entirely when its value is zero, so a
-        session with real billed usage and neither split field is a genuine 0%
-        cache share — precisely the session churn costs the most on — and must not
-        be excluded the same way an unmeasured session is."""
+        """The proxy writes a literal 0 whenever the provider's usage object carried
+        the split field at all, so a session with real billed usage and a literal
+        zero on both split fields is a genuine 0% cache share — precisely the
+        session churn costs the most on — and must not be excluded the same way an
+        unmeasured session (None on both fields) is."""
         _manifest("sZ")
         record(
             trajectory_id="live-proxy",
@@ -543,7 +544,9 @@ class TestDetectors:
                     "system_tokens": 500,
                     "tools_tokens": 0,
                     "tools": [],
-                    "usage_input_tokens": 1000,  # real billed usage, no cache fields at all
+                    "usage_input_tokens": 1000,  # real billed usage
+                    "usage_cache_read": 0,  # literal 0 — a measured miss, not absence
+                    "usage_cache_create": 0,
                     "blocks": [{"h": "h-z", "sig": "log:l", "tokens": 3000}],
                 },
                 "sZ",

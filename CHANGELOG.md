@@ -28,8 +28,13 @@ the line names the corpus and says it is not your traffic. Detectors that cannot
 return nothing rather than something: churn is counted only over sessions whose cache-read
 share was *measured* and low, because a resend the provider already discounts is not a
 saving, and an unmeasured one is neither cheap nor expensive; a drift ratio needs four
-comparable turns before it is a ratio at all. "Nothing to recommend" is therefore a
-result, not a failure to look.
+comparable turns before it is a ratio at all. "Measured" means the provider's own usage
+object carried the cache-split field — a literal `0` it reported is a real zero, but the
+field's outright absence (true of every OpenAI/Gemini row, and of every row written
+before this release) stays unmeasured rather than being read as one; the two are opposite
+diagnoses and conflating them would have inflated churn for exactly the providers that
+never send the split at all. "Nothing to recommend" is therefore a result, not a failure
+to look.
 
 The wrap-exit proof ledger gains at most one line, and only when a detector actually
 fired — an advisory that prints "0 actions" on every exit is an ad, not a finding.

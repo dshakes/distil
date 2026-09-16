@@ -215,21 +215,11 @@ def summarise(records: list[dict[str, Any]]) -> CacheSummary:
         out.read_tokens += read
         out.create_tokens += create
         out.uncached_tokens += int(rec.get("usage_input_tokens") or 0)
-        # The proxy omits a split field entirely when its value is zero, so `None`
-        # on a row that DID carry billed usage means "the cache never hit", not
-        # "never measured" — the same conflation `Dissection.cached_input_share`
-        # fixes, applied here so `distil cache` does not tell a genuinely
-        # zero-cache session its cache usage was never reported at all. The one
-        # shape that IS genuinely unmeasured is the pre-1.41 legacy row: only the
-        # aggregate `usage_cache_tokens`, neither split field.
-        has_split = (
-            rec.get("usage_cache_read") is not None or rec.get("usage_cache_create") is not None
-        )
-        if not has_split and rec.get("usage_cache_tokens"):
+        if read or create:
+            out.reported = True
+        elif rec.get("usage_cache_tokens"):
             out.legacy_cache_tokens += int(rec.get("usage_cache_tokens") or 0)
             out.legacy_rows += 1
-        elif has_split or rec.get("usage_input_tokens") is not None:
-            out.reported = True
         cur = str(rec.get("prefix_hash") or "")
         if cur and last_hash:
             out.pairs += 1

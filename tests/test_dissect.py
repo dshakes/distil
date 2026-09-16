@@ -719,15 +719,28 @@ class TestInsights:
         assert "prompt cache" in advice and "already discounted" in advice
         assert "session-delta cache absorbs" not in advice
 
-    def test_a_real_zero_cache_split_reads_as_measured_not_unmeasured(self) -> None:
-        """The proxy omits a split field entirely when its value is zero, so a row
-        that DID carry billed usage but has neither split field is a genuine 0%
-        cache share, not an unmeasured one — the exact session churn costs the
-        most on must not be dropped out of every consumer that gates on this."""
+    def test_absent_split_fields_stay_unmeasured_even_with_usage(self) -> None:
+        """None on both split fields means the provider never reported them —
+        true of every OpenAI/Gemini row and every row written before this
+        proxy version — and must stay unmeasured regardless of whether
+        `usage_input_tokens` is present. Reading it as a measured 0% would
+        inflate churn/prefix-drift for exactly those non-Anthropic rows."""
         d = dz.dissect("s200-1")
         for r in d.requests:
             r.pop("usage_cache_read", None)
             r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share is None
+
+    def test_literal_zero_cache_split_reads_as_measured(self) -> None:
+        """A literal 0 — what the proxy now writes whenever the provider's usage
+        object carried the split field at all — is a real measurement, not an
+        absence, and must read as a genuine 0% share."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r["usage_cache_read"] = 0
+            r["usage_cache_create"] = 0
             r.pop("usage_cache_tokens", None)
             r["usage_input_tokens"] = 1_000
         assert d.cached_input_share == pytest.approx(0.0)
