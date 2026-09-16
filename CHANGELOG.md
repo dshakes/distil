@@ -130,6 +130,14 @@ declines the stub on it, which is what it already did for the in-memory half. A 
 merely *fails* still returns true: persistence is best-effort and the session's own store
 still answers.
 
+The check itself is an exclusive create rather than `p.exists()` then write. The old form
+was check-then-act across processes, which is the only situation this guard is for: two
+proxies folding the same block could both see "absent", and on a real collision the second
+would clobber the first — the exact outcome, in the exact concurrent case, that the guard
+was added to prevent. `O_CREAT|O_EXCL` lets the filesystem pick the winner, and the loser
+finds the file already there and compares bytes instead of overwriting. It also means the
+blob is born 0600 rather than chmod-ed to it afterwards.
+
 ### The restore store was re-stat'd on every handle it recorded
 
 Recording one handle sorted the whole store by mtime twice — once for the count cap, once
@@ -138,7 +146,21 @@ calls. That is the `ms/turn ≈1 → ≈21` ADR 0010 attributed to the restore s
 re-read delta records several handles per turn. The sweep now runs on one listing and at
 most once per 64 records. Against a 2,000-file store it falls from 16.9 ms to 0.3 ms per
 recorded handle. The trade is named where it lives: the store may sit up to 63 files above
-its cap, and hold an expired blob that much longer, between sweeps.
+its cap between sweeps.
+
+**The TTL is not part of that trade, and the first version of this change made it one.**
+`DISTIL_RESTORE_TTL_DAYS` is a retention boundary for originals that can hold secrets or
+PII, not a housekeeping preference, and with the sweep amortized a store that never
+receives a 64th handle never reaches the trigger — so a quiet machine would keep every
+expired blob on disk, and keep serving them, for as long as it stayed quiet. Retention
+enforced only by a schedule that traffic can starve is not retention.
+
+So it is enforced on the read, where nothing can skip it: `load_restore` compares the
+blob's mtime against the TTL and treats an expired one as absent, unlinking it on sight
+and failing open if the unlink loses a race. The sweep keeps its counter and gains a
+second trigger — once per TTL/24 of elapsed time — so bulk expiry still happens on a
+low-traffic store without waiting for records that may never come. An expired blob also
+stops reading as a collision, so it cannot refuse a new stub for the same handle forever.
 
 ### `os.replace` onto a contended path is not a permission error on Windows
 
