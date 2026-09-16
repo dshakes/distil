@@ -375,18 +375,25 @@ def test_render_dashboard_with_session_with_savings() -> None:
 
 
 def test_render_dashboard_samples_collecting() -> None:
-    """<25 shadow samples → 'collecting' message."""
+    """Below the shared A/B floor → 'collecting' message naming that floor."""
     from distil.ledger import render_dashboard
+    from distil.shadow import VERDICT_MIN_AB
 
-    out = render_dashboard(_nonzero_summary(), change_rate=0.02, samples=10, color=False)
+    out = render_dashboard(
+        _nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB - 1, color=False
+    )
     assert "collecting" in out
+    assert f"need {VERDICT_MIN_AB}" in out
 
 
 def test_render_dashboard_samples_ready() -> None:
-    """≥25 shadow samples → decision-equivalence percentage shown."""
+    """At the shared A/B floor → decision-equivalence percentage shown."""
     from distil.ledger import render_dashboard
+    from distil.shadow import VERDICT_MIN_AB
 
-    out = render_dashboard(_nonzero_summary(), change_rate=0.02, samples=50, color=False)
+    out = render_dashboard(
+        _nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB, color=False
+    )
     assert "decision-equiv" in out
     assert "98.0%" in out  # 1 - 0.02
 

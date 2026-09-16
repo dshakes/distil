@@ -107,6 +107,23 @@ reads those two constants from `distil.shadow`, so it names the floor it actuall
 and the three tests that pinned the retired wording assert against the constants rather than
 a copied string.
 
+The same retired floor was still quoted in five more places, all of them found by grepping
+for it rather than by any gate: the terminal dashboard's *collecting* line told the reader
+to "need 25" while the card one screen over had been corrected, `render_html`'s docstring
+and the status-line comment in `distil/cli.py` both named 25 as the threshold, two
+status-line examples rendered a `de 12/25` that the code can no longer produce, and
+`docs/BETA.md` asked beta users for `≥25 samples` before reporting. All now read the floor
+from `VERDICT_MIN_AB`/`VERDICT_MIN_AA` or spell it out as 50 A/B + 30 A/A.
+
+### Fixed — the claims gate skipped the whole plugins tree on Windows
+
+Page keys were built with `Path.relative_to`, which renders with the host separator. On the
+Windows runner the plugin pages arrived as `plugins\distil\README.md`, matched no ledger
+entry spelled with forward slashes, and the new coverage gate reported every number on them
+as uncovered. Keys are now normalised to posix on both sides — the scan list and the `page`
+fields read out of `docs/claims.json` — so the gate compares the same spelling everywhere,
+with a unit test that feeds it a backslash path.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

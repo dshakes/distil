@@ -401,8 +401,9 @@ def render_html(
     """Render the ledger as a self-contained dark HTML page — GENUINE savings
     from your own usage (the `live-proxy` source is real proxy traffic).
     ``change_rate``/``samples`` add the decision-equivalence card (shown only
-    at >=25 samples — a rate over a handful of samples is noise); ``session``
-    adds a this-session card when a live session exists."""
+    at or above ``shadow.VERDICT_MIN_AB`` samples — a rate over a handful of
+    samples is noise); ``session`` adds a this-session card when a live session
+    exists."""
     rows = (
         "".join(
             f'<tr><td>{_html.escape(str(tid))}</td><td class="r">${saved:,.4f}</td></tr>'
@@ -635,7 +636,11 @@ def render_dashboard(
         out.append(
             row(
                 f"{'decision-equiv':<15}"
-                + c("90", f"collecting — {samples} sample{'s' if samples != 1 else ''} (need 25)")
+                + c(
+                    "90",
+                    f"collecting — {samples} sample{'s' if samples != 1 else ''} "
+                    f"(need {VERDICT_MIN_AB})",
+                )
             )
         )
         if recent:

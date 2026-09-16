@@ -29,6 +29,19 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 CLAIMS_PATH = DOCS / "claims.json"
 
+
+def _posix(path: str | Path) -> str:
+    """Forward slashes, always.
+
+    Page keys are compared as strings against `docs/claims.json`, which spells
+    every path with forward slashes. `Path.relative_to` renders with the host
+    separator, so on Windows a plugin page arrived as `plugins\\distil\\README.md`
+    and matched no entry -- the whole `plugins/` tree silently fell out of the
+    scan and the gate went green on the one runner that most needed it.
+    """
+    return Path(path).as_posix() if isinstance(path, Path) else path.replace("\\", "/")
+
+
 # Pages the scan reads. Entries in claims.json spell their `page` relative to
 # docs/, so anything outside docs/ is reached with `../` -- the spelling the
 # ledger already used for README.md.
@@ -36,7 +49,7 @@ SCAN_FILES: tuple[str, ...] = (
     *sorted(f"docs/{p.name}" for p in DOCS.glob("*.html")),
     "docs/llms.txt",
     "README.md",
-    *sorted(str(p.relative_to(ROOT)) for p in (ROOT / "plugins").rglob("*.md")),
+    *sorted(_posix(p.relative_to(ROOT)) for p in (ROOT / "plugins").rglob("*.md")),
 )
 
 # docs/changelog.html is generated from CHANGELOG.md by
@@ -258,11 +271,13 @@ def _load_claims() -> list[dict]:
 
 def _pages(entry: dict) -> list[str]:
     page = entry["page"]
-    return [page] if isinstance(page, str) else list(page)
+    pages = [page] if isinstance(page, str) else list(page)
+    return [_posix(p) for p in pages]
 
 
 def _page_keys(scan_file: str) -> set[str]:
     """Every spelling a claims.json `page` field may use for this file."""
+    scan_file = _posix(scan_file)
     if scan_file.startswith("docs/"):
         return {scan_file[len("docs/") :], scan_file}
     return {f"../{scan_file}", scan_file}
@@ -369,6 +384,24 @@ def test_every_non_claim_carries_a_reason():
         if not reason.strip()
     ]
     assert not empty, f"NON_CLAIMS rows without a reason: {empty}"
+
+
+def test_page_keys_are_posix_on_every_host():
+    """A Windows-separated path must reach the same ledger entry as a posix one.
+
+    Regression: CI's Windows job derived `plugins\\distil\\README.md` from
+    `Path.relative_to`, matched no entry spelled `../plugins/distil/README.md`,
+    and reported every number on those pages as uncovered.
+    """
+    assert _page_keys(r"plugins\distil\README.md") == _page_keys("plugins/distil/README.md")
+    assert "../plugins/distil/README.md" in _page_keys(r"plugins\distil\README.md")
+    assert _page_keys(r"docs\index.html") == {"index.html", "docs/index.html"}
+    assert _pages({"page": [r"..\plugins\distil\README.md", r"docs\index.html"]}) == [
+        "../plugins/distil/README.md",
+        "docs/index.html",
+    ]
+    # And the real scan list never carries a backslash, whatever the host.
+    assert not [f for f in SCAN_FILES if "\\" in f]
 
 
 # ---------------------------------------------------------------- artifacts

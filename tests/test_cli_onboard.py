@@ -840,7 +840,7 @@ def test_cmd_leaderboard_text_live_proxy(tmp_path, monkeypatch, capsys) -> None:
 
 
 def test_cmd_leaderboard_text_collecting_shadow(tmp_path, monkeypatch, capsys) -> None:
-    """Text with <25 shadow samples → 'collecting' line (line 211-215)."""
+    """Text below the shared A/B floor → 'collecting' line."""
     from distil import ledger as ledger_mod, shadow as shadow_mod
 
     p = tmp_path / "savings.jsonl"

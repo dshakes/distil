@@ -1746,7 +1746,8 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     #   idle:          distil · total ▼27.0M saved · 50% smaller [$96.10]
     # ▼ = tokens saved; "session" = this run, "total" = lifetime.
     # Dropped by design: orig→compressed pair (derivable), run counts, and any
-    # eq% under 25 shadow samples — "eq 100.0% (1)" is noise wearing a number.
+    # eq% below the shared reporting floor (shadow.VERDICT_MIN_AB A/B +
+    # VERDICT_MIN_AA A/A) — "eq 100.0% (1)" is noise wearing a number.
     # Full breakdown: distil stats / dashboard.
     parts = [c("1;38;5;79", "distil")]
     # Mode chip: which compression mode this session is actually running, read from
@@ -1831,14 +1832,14 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                     else ("✗", "38;5;196")
                 )
                 # Same "de" label as the collecting state below, so the segment
-                # reads as one metric maturing: de 12/25 → ✓de 99.5% (30).
+                # reads as one metric maturing: de 12/50 → ⚠de 97.5% (398).
                 parts.append(c(hue, f"{glyph}de {eq * 100:.1f}%") + c("38;5;73", f" ({n_str})"))
             elif led.samples > 0 or led.aa_samples > 0:
                 # Below the shared reporting floor (VERDICT_MIN_AB/VERDICT_MIN_AA)
                 # we don't claim a rate — a % over a handful is noise. The 25/10
                 # floor this comment used to name was retired in 1.52.0.
                 # Distinguish "warming up" (a sampler fed the ledger recently) from
-                # "idle" (nothing sampling in >24h) — a frozen "de 1/25" reads as
+                # "idle" (nothing sampling in >24h) — a frozen "de 1/50" reads as
                 # live measurement, which is honesty gap #3.
                 import time as _t
 
