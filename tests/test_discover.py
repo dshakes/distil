@@ -117,6 +117,50 @@ def _seed_a(home: Path, *, cache_read: int = 2000, cache_create: int = 1000) -> 
         )
 
 
+def _seed_single_request_session(home: Path, sid: str, prefix_hash: str, *, ts: float) -> None:
+    """One session, one request, its own stable-prefix hash — the shape that
+    exposes the cross-session flattening bug: no request in this session has a
+    predecessor to compare a prefix against, so it must contribute zero pairs
+    to `discover`'s aggregate no matter how many other sessions share the window."""
+    _manifest(sid)
+    record(
+        trajectory_id="live-proxy",
+        model="claude-opus-4-8",
+        turns=1,
+        baseline_dollars=0.05,
+        distil_dollars=0.02,
+        baseline_input_tokens=15_000,
+        distil_input_tokens=6_000,
+        session=sid,
+        mode="digest",
+    )
+    append_session_request(
+        {
+            "ts": ts,
+            "model": "claude-opus-4-8",
+            "status": 200,
+            "booked": True,
+            "mode": "digest",
+            "compressible_tokens": 6000,
+            "tokens_saved": 4000,
+            "overhead_tokens": 10_000,
+            "system_tokens": 1000,
+            "tools_tokens": 10_000,
+            "tools": [],
+            "usage_input_tokens": 1000,
+            "usage_output_tokens": 200,
+            "usage_cache_tokens": 3000,
+            "usage_cache_read": 2000,
+            "usage_cache_create": 1000,
+            "prefix_hash": prefix_hash,
+            "prefix_bytes": 4096,
+            "delta_tokens_saved": 0,
+            "blocks": [],
+        },
+        sid,
+    )
+
+
 def _seed_b(home: Path) -> None:
     """Large and lossless-only: 1% saved where the digest tier was never reached."""
     _manifest("sB", lossless_only=True, expand=False)
@@ -300,6 +344,32 @@ class TestDetectors:
         reqs = (home / "sessions" / "sA.requests.jsonl").read_text(encoding="utf-8").splitlines()
         (home / "sessions" / "sA.requests.jsonl").write_text("\n".join(reqs[:3]) + "\n")
         assert "prefix_drift" not in _ids(dv.scan())
+
+    def test_prefix_drift_never_compares_across_a_session_boundary(self, home: Path) -> None:
+        """Regression: five independent one-request sessions, each with its own
+        distinct stable prefix, used to register as four "drift" pairs when the
+        detector flattened every session's requests into one list and sorted it
+        by timestamp — the session boundary itself looked like a broken cache. A
+        single-request session has zero comparable pairs (a prefix is only
+        "drifted" against the previous request in the SAME session), so five of
+        them must contribute zero pairs, not four drifts."""
+        for i, phash in enumerate(["p1", "p2", "p3", "p4", "p5"]):
+            _seed_single_request_session(home, f"solo{i}", phash, ts=NOW - 500 + i * 10)
+        assert "prefix_drift" not in _ids(dv.scan())
+
+    def test_prefix_drift_fires_on_real_drift_unpolluted_by_other_sessions(
+        self, home: Path
+    ) -> None:
+        """A real intra-session drift (sA) must report the exact same numbers
+        whether or not other, unrelated single-request sessions share the window —
+        proof the fix aggregates per-session rather than smearing one session's
+        drift ratio across the whole window's request count."""
+        _seed_a(home)
+        for i, phash in enumerate(["q1", "q2", "q3", "q4", "q5"]):
+            _seed_single_request_session(home, f"solo{i}", phash, ts=NOW - 500 + i * 10)
+        a = _by_id(dv.scan(), "prefix_drift")
+        assert a.tokens_per_week == 5 * 1000 * 7  # sA's 5 cache-write records x 100% drift
+        assert "4 of 4 turns" in a.title  # sA's pairs only — the 5 solo sessions add none
 
     def test_churn_excluded_when_the_provider_already_discounts_it(self, home: Path) -> None:
         """A 95%-cached session's resends are billed at the cache-read rate; counting

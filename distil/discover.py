@@ -27,10 +27,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import ledger as _ledger
 from .dissect import Dissection, SessionOverview, _human, _read_jsonl, dissect, list_sessions
+
+if TYPE_CHECKING:  # pragma: no cover — annotation only, avoids a module-level import
+    from .prefix import CacheSummary
 
 #: Fixed-overhead share at which trimming tool definitions beats compressing. Same
 #: threshold ``dissect`` uses for its own "your fixed setup is N% of everything
@@ -364,6 +367,38 @@ def _digest_rate(w: _Window) -> tuple[float, str]:
     return BENCH_DIGEST_RATE, BENCH_DIGEST_SOURCE
 
 
+def _prefix_summary(w: _Window) -> tuple[CacheSummary, float]:
+    """One :class:`~distil.prefix.CacheSummary` (for the reported ratio/title) plus
+    the create-token total actually attributable to drift, weighted PER SESSION —
+    folded from a per-session summary each, never one list of every session's
+    requests flattened and re-sorted by timestamp, which would compare the last
+    request of one session against the first of the next and count the session
+    boundary itself as "drift". Pooling create tokens across sessions and pricing
+    them at one blended ratio has the same failure in miniature: a session that
+    never drifted (zero comparable pairs, so its own ratio is 0) would still get
+    priced at another session's drift rate, so the token figure is summed session
+    by session instead.
+    """
+    from . import prefix as _prefix
+
+    total = _prefix.CacheSummary()
+    tokens = 0.0
+    for d in w.ds:
+        records = sorted(d.requests, key=lambda r: float(r.get("ts") or 0))
+        s = _prefix.summarise(records)
+        total.requests += s.requests
+        total.read_tokens += s.read_tokens
+        total.create_tokens += s.create_tokens
+        total.uncached_tokens += s.uncached_tokens
+        total.drifts += s.drifts
+        total.pairs += s.pairs
+        total.reported = total.reported or s.reported
+        total.legacy_cache_tokens += s.legacy_cache_tokens
+        total.legacy_rows += s.legacy_rows
+        tokens += s.create_tokens * s.drift_ratio
+    return total, tokens
+
+
 def _d_prefix_drift(w: _Window) -> Action | None:
     """A prefix that changes between turns re-bills the whole cached span.
 
@@ -371,17 +406,12 @@ def _d_prefix_drift(w: _Window) -> Action | None:
     *creation* tokens are the ones that were re-billed, and the drift ratio is the
     share of turns that caused it.
     """
-    from . import prefix as _prefix
-
-    records = [r for d in w.ds for r in d.requests]
-    records.sort(key=lambda r: float(r.get("ts") or 0))
-    s = _prefix.summarise(records)
+    s, tokens = _prefix_summary(w)
     replay_off = any(
         ((d.manifest or {}).get("flags") or {}).get("prefix_replay") is False for d in w.ds
     )
     if s.pairs < MIN_DRIFT_PAIRS or (s.drift_ratio < DRIFT_RATIO and not replay_off):
         return None
-    tokens = s.create_tokens * s.drift_ratio
     if tokens <= 0:
         return None
     why = (
