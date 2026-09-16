@@ -88,6 +88,31 @@ def strip_query(target: str) -> str:
     return target.split("?", 1)[0].split("#", 1)[0]
 
 
+def framing_rejection(
+    content_length: str | None, transfer_encoding: str | None
+) -> tuple[int, str] | None:
+    """Reject a request whose body framing these servers cannot read.
+
+    Returns ``(status, message)`` when the request must be refused, else ``None``.
+
+    Both stdlib-server entry points size the body from ``Content-Length`` alone.
+    A request framed with ``Transfer-Encoding`` instead would read as *empty* and
+    its bytes would stay queued on the socket — on a keep-alive HTTP/1.1
+    connection the next parse then treats the undrained body as a second request,
+    which is request smuggling as soon as any front-end that DOES honour
+    ``Transfer-Encoding`` sits in front (TE.CL desync). Both headers together is
+    the same disagreement stated outright. LLM SDKs always send a length, so
+    refusing is free; the caller must also close the connection so nothing queued
+    behind a rejected request is ever parsed.
+    """
+    te = (transfer_encoding or "").strip()
+    if not te:
+        return None
+    if content_length:
+        return (400, "conflicting Content-Length and Transfer-Encoding headers")
+    return (411, "chunked request bodies are not supported; send Content-Length")
+
+
 def parse_content_length(raw: object, *, max_bytes: int = MAX_BODY_BYTES) -> int | None:
     """Defensively parse a ``Content-Length`` header value.
 

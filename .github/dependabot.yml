@@ -1,0 +1,17 @@
+# SHA pins are only as good as the thing that bumps them: a workflow pinned to a
+# commit and never updated is a pin to a known-old action. Dependabot rewrites the
+# SHA and the trailing version comment together, which is what keeps `uses:` lines
+# both pinned and current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The core has no runtime dependencies; this watches the optional extras and the
+  # pinned build backend declared in pyproject.toml.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly

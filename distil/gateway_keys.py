@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from distil import _filelock
+from distil.authz import TENANT_RE
 
 _KEY_PREFIX = "dsk-"
 _KEYS_FILE = "gateway_keys.json"
@@ -202,7 +203,17 @@ class GatewayKeyStore:
 
         Returns ``(raw_key, record)``.  ``raw_key`` is the plaintext token —
         it is shown once to the operator and never stored.
+
+        Raises ``ValueError`` for a tenant label the rest of the system cannot
+        carry. The empty string is the sharp one: the gateway's auth path uses
+        ``("", …)`` as its "401 already sent, stop" sentinel, so a key issued to
+        tenant ``""`` authenticates fine and then every request it makes returns
+        no response at all.
         """
+        if not TENANT_RE.match(tenant or ""):
+            raise ValueError(
+                f"invalid tenant {tenant!r}: 1-64 characters of A-Z a-z 0-9 . _ - (no spaces)"
+            )
         raw = _KEY_PREFIX + secrets.token_urlsafe(32)
         h = _hash_key(raw)
         rec = KeyRecord(

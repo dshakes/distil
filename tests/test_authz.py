@@ -16,10 +16,12 @@ import pytest
 
 from distil.authz import (
     ROLE_ORDER,
+    TENANT_RE,
     AuthzError,
     Identity,
     identity_from_claims,
     parse_role,
+    safe_tenant,
     verify_jwt,
 )
 
@@ -342,3 +344,43 @@ def test_oidc_config_reads_the_environment(monkeypatch):
     monkeypatch.setenv("DISTIL_OIDC_ROLE_CLAIM", "groups")
     cfg = oidc_config_from_env()
     assert cfg["issuer"] == "https://idp" and cfg["role_claim"] == "groups"
+
+
+# --- the tenant label is a header value, and header values have no escaping ----
+
+
+def test_a_crlf_tenant_claim_collapses_to_a_safe_label():
+    """The gateway emits the tenant as an x-distil-tenant response header, and
+    BaseHTTPRequestHandler.send_header validates nothing — so an IdP that lets a
+    user set this claim could split the response."""
+    ident = identity_from_claims({"sub": "u1", "tenant": "acme\r\nX-Injected: yes"})
+    assert TENANT_RE.match(ident.tenant)
+    assert ident.tenant.startswith("oidc-")
+
+
+def test_an_unsafe_subject_does_not_become_the_tenant_either():
+    """With no tenant claim the subject IS the tenant — and it comes out of the
+    same token, so falling back to it would sanitise nothing."""
+    ident = identity_from_claims({"sub": "u\r\nX-Injected: yes"})
+    assert TENANT_RE.match(ident.tenant)
+
+
+def test_a_safe_tenant_claim_is_passed_through_unchanged():
+    """Sanitising must not rename the tenants of a working deployment."""
+    assert identity_from_claims({"sub": "u1", "tenant": "acme-eu.1"}).tenant == "acme-eu.1"
+
+
+def test_safe_tenant_is_deterministic():
+    """Quota, accounting and prefix replay are keyed on this label: the same
+    unsafe claim must map to the same tenant every time, and two different ones
+    must not collide into one."""
+    bad = "acme\r\nX-Injected: yes"
+    assert safe_tenant(bad) == safe_tenant(bad)
+    assert safe_tenant(bad) != safe_tenant("globex\r\nX-Injected: yes")
+
+
+def test_safe_tenant_rejects_an_overlong_label():
+    """64 characters, because the label is rendered in the dashboard and stored
+    per-tenant — an unbounded one is a memory and a layout problem."""
+    assert safe_tenant("a" * 64) == "a" * 64
+    assert safe_tenant("a" * 65).startswith("oidc-")

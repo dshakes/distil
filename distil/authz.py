@@ -35,6 +35,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -44,7 +45,9 @@ __all__ = [
     "Role",
     "AuthzError",
     "ROLE_ORDER",
+    "TENANT_RE",
     "parse_role",
+    "safe_tenant",
     "verify_jwt",
     "identity_from_claims",
 ]
@@ -52,6 +55,31 @@ __all__ = [
 
 class AuthzError(Exception):
     """Authentication or authorization failed. The message is safe to log."""
+
+
+# Safe tenant label: bounded length, no markup / control characters. One
+# definition for the three doors a tenant label comes through — the
+# client-supplied header (``gateway.tenant_of``), an OIDC claim (``safe_tenant``
+# below) and an operator-issued key (``gateway_keys.issue``) — because a label
+# that reaches response headers, the dashboard and the accounting map has to mean
+# the same thing whichever door it used.
+TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def safe_tenant(value: str) -> str:
+    """Return *value* when it is a safe tenant label, else a stable stand-in.
+
+    A tenant taken from a token claim is attacker-influenced wherever the IdP lets
+    a user set it, and the gateway emits it as an ``x-distil-tenant`` response
+    header — where ``send_header`` performs no CRLF validation, so a claim of
+    ``acme\\r\\nX-Injected: yes`` splits the response. Falling back to ``sub``
+    would be no safer (same token, same author), so an unsafe label collapses to a
+    deterministic digest instead: quota, accounting and replay stay scoped per
+    tenant, the label is merely no longer readable.
+    """
+    if TENANT_RE.match(value):
+        return value
+    return "oidc-" + hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:16]
 
 
 # Ascending privilege. Index comparison is the whole authorization model.
@@ -221,7 +249,7 @@ def identity_from_claims(
             role = max(found, key=ROLE_ORDER.index)
 
     subject = str(claims.get("sub") or "unknown")
-    tenant = str(claims.get(tenant_claim) or subject)
+    tenant = safe_tenant(str(claims.get(tenant_claim) or subject))
     exp = claims.get("exp")
     try:
         expires = float(exp) if exp is not None else None

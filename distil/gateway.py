@@ -23,7 +23,6 @@ import hmac
 import html
 import json
 import os
-import re
 import threading
 import time
 import urllib.error
@@ -39,6 +38,7 @@ from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens as _gemini_count
 from .adapters.gemini import is_gemini_path
+from .authz import TENANT_RE as _TENANT_RE
 from .authz import AuthzError as _AuthzError
 from .authz import identity_from_claims as _identity_from_claims
 from .authz import oidc_config_from_env as _oidc_config_from_env
@@ -46,6 +46,7 @@ from .authz import verify_jwt as _verify_jwt
 from . import audit as _audit
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
 from .httpguard import (
+    framing_rejection,
     is_chat_completions_path,
     is_compressible_path,
     is_responses_path,
@@ -55,6 +56,7 @@ from .httpguard import (
 )
 from .pricing import Pricing, get as pricing_get
 from .proxy import (
+    _CLIENT_TIMEOUT,
     _OPENER,
     _UPSTREAM_TIMEOUT,
     QuietHTTPServer,
@@ -72,8 +74,6 @@ class _OidcRejected(Exception):
     """
 
 
-# Safe tenant label: bounded length, no markup / control characters.
-_TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # Which endpoints carry a compressible body lives in httpguard.is_compressible_path —
 # one definition shared with proxy.py and aproxy.py, Azure OpenAI paths included.
 
@@ -813,6 +813,14 @@ def build_gateway_handler(
         # HTTP/1.1 so streamed responses can use chunked transfer framing.
         protocol_version = "HTTP/1.1"
 
+        # StreamRequestHandler.setup() applies this to the accepted socket, so no
+        # read or write to a client can block forever. The gateway is the entry
+        # point MEANT to be exposed, and it was the one without the guard: with no
+        # timeout a peer that connects and then dribbles (or declares a large
+        # Content-Length and sends nothing) pins a ThreadingHTTPServer thread for
+        # the life of the process. Same value the proxy uses.
+        timeout = _CLIENT_TIMEOUT
+
         # ----------------------------------------------------------------
         # Silence request logs
         # ----------------------------------------------------------------
@@ -831,8 +839,19 @@ def build_gateway_handler(
             all keys keeps the gate locked instead of silently reopening it.
             Revoking leaves no valid credential → every request 401s, which is
             the right outcome for a depleted key set.
+
+            A configured OIDC issuer counts on its own. ``_identity_from_oidc``
+            runs *inside* this gate, so keying the gate on keys alone meant an
+            operator who wired up an IdP and issued no ``dsk-`` key ran a fully
+            open gateway while every OIDC knob read as configured. Read from the
+            environment per request, the same call the verifier makes, so the two
+            can never disagree about whether OIDC is on.
             """
-            return require_keys or (_key_store is not None and _key_store.has_any_keys())
+            return (
+                require_keys
+                or (_key_store is not None and _key_store.has_any_keys())
+                or bool(_oidc_config_from_env().get("issuer"))
+            )
 
         def _extract_distil_key(self) -> tuple[str | None, str | None]:
             """Pull the dsk- key and the header name it came from.
@@ -899,9 +918,12 @@ def build_gateway_handler(
             if not self._auth_required():
                 return None  # auth off — no key needed
 
-            if _key_store is None:
+            if _key_store is None and not _oidc_config_from_env().get("issuer"):
                 # require_keys=True but no key store was supplied (e.g. in tests
-                # that set require_keys without issuing keys yet).
+                # that set require_keys without issuing keys yet). With OIDC
+                # configured a verified bearer is a complete credential on its
+                # own, so fall through to it rather than 401-ing on a store the
+                # deployment does not need.
                 _audit.record(
                     _audit.AUTH_FAIL,
                     reason="no key store configured",
@@ -973,7 +995,7 @@ def build_gateway_handler(
                 )
                 return ("", "")
 
-            rec = _key_store.lookup(raw_key)
+            rec = _key_store.lookup(raw_key) if _key_store is not None else None
             if rec is None:
                 # Content-free: the presented key is never logged, only the fact of
                 # a rejection and where it came from.
@@ -1198,8 +1220,7 @@ def build_gateway_handler(
                 return
             raw = self._read_body()
             if raw is None:
-                self._reject(413, "request body too large or malformed Content-Length")
-                return
+                return  # _read_body already sent the rejection
             headers = self._client_headers(strip_header)
             # Use key-derived tenant when auth is active; fall back to the
             # credential-hash path for the no-auth (single-user localhost) case.
@@ -1369,8 +1390,7 @@ def build_gateway_handler(
                 return
             raw = self._read_body()
             if raw is None:
-                self._reject(413, "request body too large or malformed Content-Length")
-                return
+                return  # _read_body already sent the rejection
             headers = self._client_headers(strip_header)
             url = _upstream + self.path
             req = urllib.request.Request(
@@ -1403,8 +1423,21 @@ def build_gateway_handler(
         # ----------------------------------------------------------------
 
         def _read_body(self) -> bytes | None:
+            """Read the request body; on a malformed/oversized/TE-framed request,
+            send the error response itself and return None (caller just returns)."""
+            bad = framing_rejection(
+                self.headers.get("Content-Length"), self.headers.get("Transfer-Encoding")
+            )
+            if bad is not None:
+                # Close rather than keep alive: the undrained body is still queued on
+                # the socket, and parsing it as the next request is the desync this
+                # rejection exists to prevent (see httpguard.framing_rejection).
+                self.close_connection = True
+                self._reject(*bad)
+                return None
             length = parse_content_length(self.headers.get("Content-Length"))
             if length is None:
+                self._reject(413, "request body too large or malformed Content-Length")
                 return None
             return self.rfile.read(length) if length else b""
 

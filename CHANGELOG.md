@@ -3,6 +3,135 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — the guard the other server already had
+
+Every fix below is the same shape: a rule distil already enforces somewhere, not enforced
+on the surface that is actually exposed. The proxy refuses a body it cannot read; the
+gateway read it as empty. The client-supplied tenant header goes through a validator; the
+tenant claim from an identity provider did not. The proxy sets a socket timeout and says
+why in a comment; the gateway, the component documented as the one you bind to a network,
+set none. The key file and the temp file it is written through are created 0600; the blobs
+holding agent output were chmod'd 0600 a moment after. None of these were oversights of
+design — the design is written down and correct in each case. They were the second call
+site, and the second call site is where security bugs live.
+
+### A body the gateway could not read became the next request
+
+The gateway sized every request body from `Content-Length` alone. `parse_content_length`
+returns `0` for a missing header, so a request framed with `Transfer-Encoding: chunked`
+was read as having no body at all — and its actual bytes stayed sitting in the socket
+buffer. On a keep-alive HTTP/1.1 connection the next parse picked those bytes up and
+treated them as a separate request, with its own separately-evaluated authorization, on a
+connection any front-end believed had carried exactly one. That is request smuggling, and
+it needs no exotic deployment: nginx, HAProxy, an ingress controller or a corporate egress
+proxy all honour `Transfer-Encoding` and will forward the chunked body faithfully. A
+reproduction sent one `sendall` and got two responses back, the second one a served
+dashboard.
+
+The proxy has refused this since it learned to, in four lines. Those four lines are now
+`httpguard.framing_rejection`, called from both servers, and they refuse slightly more
+than before: any `Transfer-Encoding` rather than the literal string `chunked`, because the
+property that matters is that the body length does not come from `Content-Length`, and
+`Content-Length` and `Transfer-Encoding` together — the framing disagreement stated
+outright — as a 400. Both servers also now close the connection on a framing rejection
+rather than keeping it alive, which is the half of the fix a status code cannot do: the
+undrained body is still on the socket, and the only way it is never parsed is if nothing
+parses anything more.
+
+### Configuring an identity provider did not turn on authentication
+
+The gateway decided whether to require a credential before it decided what could serve as
+one. `_auth_required()` returned true when `--require-keys` was set or when a `dsk-` key
+had been issued, and the OIDC verifier ran *inside* that gate. An operator who pointed
+`DISTIL_OIDC_ISSUER` at their identity provider, set a signing secret, issued no gateway
+key and did not pass `--require-keys` was running a completely open gateway while every
+OIDC setting read back as configured — the one failure mode where the configuration
+surface actively tells you the opposite of the truth. A configured issuer now makes
+authentication required on its own, read from the environment on the same call the
+verifier uses so the two can never disagree about whether OIDC is on. Closing the gate
+must not close the door: with an issuer configured and no key store at all, a verified
+bearer token is now accepted as a complete credential rather than rejected for the absence
+of a store that deployment does not need.
+
+### A tenant label is a header value, and header values have no escaping
+
+The tenant a request is booked under reaches three places that assume it is inert: an
+`x-distil-tenant` response header, the dashboard, and the per-tenant accounting map.
+`BaseHTTPRequestHandler.send_header` performs no CRLF validation. The client-supplied
+header path has always been checked against a bounded, punctuation-free pattern; the OIDC
+claim path was not checked at all, so a `tenant` claim of `acme\r\nX-Injected: yes` was
+emitted verbatim into the response. It takes a validly-signed token to reach, so the
+attacker already holds a credential — but where the identity provider lets a user
+influence that claim and a shared cache sits in front, splitting a response is worth more
+than the token. The pattern now lives in `authz.TENANT_RE`, with one definition for all
+three doors a tenant label comes through. An unsafe claim collapses to a stable digest
+rather than falling back to `sub`, which comes out of the same token and would sanitise
+nothing.
+
+The third door was `distil gateway keys issue --tenant ""`. The empty string is the exact
+sentinel the auth path uses to mean "401 already sent, stop", so a key issued to that
+tenant authenticated correctly and then every request it made returned no response at all
+— not an error, nothing. Issue-time validation refuses it, along with every other label
+the response header could not carry.
+
+### The exposed server was the one without a socket timeout
+
+`proxy.py` sets a 600-second client timeout on the handler class, with a comment
+explaining that `StreamRequestHandler.setup()` applies it to the accepted socket so no read
+or write to a client can block forever. The gateway handler set `protocol_version` and
+nothing else, which leaves the timeout at `None`: a peer that opens a connection and stops
+sending, or declares a large `Content-Length` and dribbles, holds a threading-server thread
+for the life of the process. The gateway is the component meant to be bound to an
+interface. It now carries the same value from the same constant.
+
+### Owner-only means at creation, not a moment later
+
+`atrest.py` creates the master key by passing the mode to `os.open` through an `opener`,
+and `gateway_keys.py` does the same for the temp file it writes key hashes through; both
+carry comments recording the measured 0644 window that motivated it. The MCP handle store
+and the restore blobs — the files that hold the actual original tool output — were still
+`write_bytes` followed by `chmod`, which leaves them at the process umask for the duration
+of the write. A poller caught 0644 on a restore blob during a 400-write loop. The contents
+are ciphertext, so ordinarily that window leaks nothing readable; the sharp edge is
+`DISTIL_NO_ENCRYPT_AT_REST=1`, which the threat model recommends for ephemeral homes and
+which makes those same bytes plaintext. The opener is now `atrest.write_owner_only`, shared
+rather than copied, and both MCP write sites use it. The receipt chain was the last file
+of this shape, and it appends rather than rewrites, so it takes the same mode through
+`atrest.owner_only` directly. That closes the class: every store distil creates now gets
+its mode from the `os.open` that creates it, and none of them depends on a chmod arriving
+in time.
+
+### Controls the CI did not have
+
+`live-cert.yml` holds `ANTHROPIC_API_KEY` and used three third-party actions by mutable
+tag while `release.yml` — the workflow that publishes — has been fully SHA-pinned all
+along. The same three actions at the same versions are already pinned there, so the SHAs
+were copied rather than looked up. A pin without a bump is a pin to something old, so
+`dependabot.yml` now watches GitHub Actions and pip weekly, which is what rewrites a SHA
+and its version comment together.
+
+A new `supply-chain.yml` adds four checks that answer questions no existing gate asks: a
+`pip-audit` of the resolved optional extras (the core declares no runtime dependencies, so
+auditing the project itself would pass forever by auditing nothing), gitleaks with an
+in-repo `.gitleaks.toml` so a local run and CI agree on the three known false positives,
+CodeQL for Python and JavaScript, and `npm audit` for the two packaged Node surfaces. Both
+npm packages are dependency-free today and neither has a committed lockfile, so that job
+resolves one first — it is a tripwire for the day a dependency is added, not a claim that
+anything is being audited now. It runs weekly as well as on pull requests, because a CVE
+is published against code that has not changed and a gate that only runs on a diff can
+never see one.
+
+### A NetworkPolicy that permitted every destination
+
+The Helm chart's egress rule for HTTPS listed a port and no `to:` selector, which in
+NetworkPolicy semantics means every destination on that port — while the comment directly
+above it said that a compression proxy able to reach arbitrary hosts is an exfiltration
+path. The default is now the narrowest selector that works without knowing the operator's
+provider: the public internet minus RFC1918, link-local and loopback, so a compromised pod
+cannot reach the cluster, the node, or a cloud metadata service on 443. `values.yaml`
+carries an `egressTo` override and says plainly that narrowing it to your provider is the
+point.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

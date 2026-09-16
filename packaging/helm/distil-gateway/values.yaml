@@ -120,9 +120,20 @@ securityContext:
 
 # NetworkPolicy: egress to the upstream provider + DNS only, ingress from the
 # namespace. Off by default because it depends on your CNI; on is correct.
+#
+# egressTo is the 443 destination selector. The default is the public internet
+# minus RFC1918 and link-local, which blocks the cluster, the node and the cloud
+# metadata service but still permits any public host — narrow it to your
+# provider, or to an egress gateway you control, and the policy starts doing what
+# its name says:
+#
+#   egressTo:
+#     - ipBlock: {cidr: 203.0.113.0/24}       # your provider / egress NAT
+#     - namespaceSelector: {matchLabels: {name: egress-gateway}}
 networkPolicy:
   enabled: false
   ingressFrom: []
+  egressTo: []
 
 serviceMonitor:
   enabled: false

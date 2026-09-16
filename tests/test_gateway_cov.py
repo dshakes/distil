@@ -15,8 +15,12 @@ Covers:
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import http.client
 import json
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -485,3 +489,185 @@ def test_state_record_checkpoints_periodically(tmp_path: Any, monkeypatch: Any) 
     fresh = GatewayState(price)
     fresh.load()  # reads what record() checkpointed, no explicit save()
     assert fresh.snapshot()["tenants"][0]["requests"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Request framing: a body the gateway cannot read must not become the next request
+# ---------------------------------------------------------------------------
+
+
+_CHUNKED_REJECTION = b'{"error": "chunked request bodies are not supported; send Content-Length"}'
+
+
+def _raw_exchange(port: int, payload: bytes, *, timeout: float = 3.0) -> bytes:
+    """Send *payload* as one write and read until the server closes (or stalls).
+
+    Deliberately raw: http.client would frame the request for us, and the bug
+    under test is entirely about framing.
+    """
+    sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+    try:
+        sock.sendall(payload)
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break  # keep-alive with nothing more to send — that is the bug
+            if not chunk:
+                break
+            out += chunk
+        return out
+    finally:
+        sock.close()
+
+
+def test_chunked_body_is_refused_and_cannot_smuggle_a_second_request(gw: Any) -> None:
+    """A Transfer-Encoding body reads as empty, so whatever follows it on the
+    socket used to be parsed as a separate, separately-authorized request."""
+    gw_port, _state = gw
+    smuggled = (
+        b"POST /v1/messages HTTP/1.1\r\n"
+        b"Host: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Transfer-Encoding: chunked\r\n"
+        b"\r\n"
+        b"5\r\nhello\r\n0\r\n\r\n"
+        b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+    )
+    raw = _raw_exchange(gw_port, smuggled)
+    assert raw.startswith(b"HTTP/1.1 411 "), raw[:80]
+    # The rejection body is the last byte on the wire: the smuggled GET was never
+    # served, and the connection closed rather than keeping the body queued.
+    # (A malformed leftover comes back as an HTTP/0.9 body with no status line,
+    # so counting status lines would miss it — compare the whole body.)
+    _head, _, body = raw.partition(b"\r\n\r\n")
+    assert body == _CHUNKED_REJECTION, body
+
+
+def test_content_length_and_transfer_encoding_together_are_refused(gw: Any) -> None:
+    """Two framings on one request is the TE.CL desync pair stated outright."""
+    gw_port, _state = gw
+    body = b'{"model":"claude-opus-4-8","messages":[]}'
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+        b"Transfer-Encoding: chunked\r\n\r\n" + body,
+    )
+    assert raw.startswith(b"HTTP/1.1 400 "), raw[:80]
+    _head, _, body = raw.partition(b"\r\n\r\n")
+    assert b"conflicting" in body and body.endswith(b"}"), body
+
+
+def test_passthrough_verbs_refuse_a_chunked_body_too(gw: Any) -> None:
+    """The guard lives in _read_body, so every verb gets it, not just POST."""
+    gw_port, _state = gw
+    raw = _raw_exchange(
+        gw_port,
+        b"PUT /v1/models HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+    )
+    assert raw.startswith(b"HTTP/1.1 411 "), raw[:80]
+
+
+def test_gateway_handler_sets_the_proxy_client_timeout() -> None:
+    """Slowloris: with timeout=None a peer that connects and dribbles pins a
+    server thread forever. The gateway is the exposed component; it gets the
+    same socket timeout the proxy has always had."""
+    from distil.proxy import _CLIENT_TIMEOUT
+
+    price = pricing_get("claude-opus-4-8")
+    handler = build_gateway_handler("http://127.0.0.1:1", GatewayState(price), price)
+    assert handler.timeout == _CLIENT_TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# OIDC: configuring an issuer is configuring authentication
+# ---------------------------------------------------------------------------
+
+
+_OIDC_SECRET = "correct horse battery staple"
+_OIDC_ISSUER = "https://idp.example"
+
+
+def _jwt(claims: dict[str, Any]) -> str:
+    def b64(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    body = b64(json.dumps(claims).encode())
+    sig = hmac.new(_OIDC_SECRET.encode(), f"{head}.{body}".encode(), hashlib.sha256).digest()
+    return f"{head}.{body}.{b64(sig)}"
+
+
+@pytest.fixture()
+def oidc_gw(tmp_path: Any, monkeypatch: Any) -> Any:
+    """Gateway with OIDC configured, no keys issued, bound non-loopback."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_OIDC_ISSUER", _OIDC_ISSUER)
+    monkeypatch.setenv("DISTIL_OIDC_HS256_SECRET", _OIDC_SECRET)
+    upstream = _start(_EchoHandler)
+    srv, _state = _make_gateway(upstream.server_address[1], loopback=False)
+    yield srv.server_address[1]
+    srv.shutdown()
+    upstream.shutdown()
+
+
+def test_oidc_configured_with_no_keys_still_requires_a_credential(oidc_gw: Any) -> None:
+    """The auth gate used to key on issued keys alone, so an operator who wired
+    up an IdP and issued no dsk- key ran a fully open gateway."""
+    status, _resp, data = _req(
+        "POST",
+        oidc_gw,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+    )
+    assert status == 401, data
+
+
+def test_a_valid_oidc_bearer_is_a_complete_credential(oidc_gw: Any) -> None:
+    """Closing the gate must not close the door: with no key store at all, a
+    verified token is still enough to proxy."""
+    tok = _jwt(
+        {
+            "sub": "u1",
+            "iss": _OIDC_ISSUER,
+            "tenant": "acme",
+            "role": "operator",
+            "exp": time.time() + 3600,
+        }
+    )
+    status, resp, data = _req(
+        "POST",
+        oidc_gw,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+        extra_headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert status == 200, data
+    assert resp.headers.get("x-distil-tenant") == "acme"
+
+
+def test_a_crlf_tenant_claim_never_reaches_a_response_header(oidc_gw: Any) -> None:
+    """send_header performs no CRLF validation, and the OIDC path skipped the
+    tenant validator the client-header path has always had."""
+    tok = _jwt(
+        {
+            "sub": "u1",
+            "iss": _OIDC_ISSUER,
+            "tenant": "acme\r\nX-Injected: yes",
+            "role": "operator",
+            "exp": time.time() + 3600,
+        }
+    )
+    status, resp, data = _req(
+        "POST",
+        oidc_gw,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+        extra_headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert status == 200, data
+    assert resp.headers.get("X-Injected") is None
+    assert resp.headers.get("x-distil-tenant", "").startswith("oidc-")

@@ -28,7 +28,27 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    - ports:
+    - to:
+        {{- if .Values.networkPolicy.egressTo }}
+        {{- toYaml .Values.networkPolicy.egressTo | nindent 8 }}
+        {{- else }}
+        # A ports-only rule has no `to:` selector, which in NetworkPolicy
+        # semantics means EVERY destination on that port — the opposite of what
+        # the comment above claims. The default below is the narrowest selector
+        # that still works without knowing the operator's provider: the public
+        # internet minus every private range, so a compromised pod cannot reach
+        # the cluster, the node, or a cloud metadata service on 443. Narrow it
+        # further to your provider's addresses via `networkPolicy.egressTo`.
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        {{- end }}
+      ports:
         - port: 443
           protocol: TCP
 {{- end }}

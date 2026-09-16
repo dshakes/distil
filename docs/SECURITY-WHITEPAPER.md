@@ -186,6 +186,10 @@ role ladder — `viewer` (read stats/metrics) < `operator` (also proxy requests)
 `admin` (also issue/revoke keys and reach the admin dashboard). Configured via
 `DISTIL_OIDC_ISSUER` / `DISTIL_OIDC_AUDIENCE` / `DISTIL_OIDC_TENANT_CLAIM`; see
 [ENTERPRISE.md](ENTERPRISE.md) for the full matrix. Implementation: `distil/authz.py`.
+Setting an issuer is by itself enough to require a credential on every request — no key
+needs to be issued and `--require-keys` need not be passed. Through 1.53.0 that was not
+true: the auth gate consulted issued keys only, so an OIDC-only deployment answered
+unauthenticated requests while reading as configured.
 
 **Not present, and honestly so:** SAML and SCIM provisioning are **not implemented**.
 If your review requires SAML SSO or automated user provisioning today, distil does

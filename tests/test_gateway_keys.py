@@ -886,3 +886,34 @@ def test_fresh_store_sees_existing_keys_immediately(tmp_path: Path) -> None:
     assert fresh.lookup(raw) is not None, "a cold-start store must not 401 a valid key"
     assert [r.id for r in fresh.list_keys()] == [rec.id]
     assert fresh.has_active_keys()
+
+
+# ---------------------------------------------------------------------------
+# Tenant labels at issue time
+# ---------------------------------------------------------------------------
+
+
+def test_issue_refuses_an_empty_tenant(tmp_path: Path) -> None:
+    """The auth path returns ("", …) to mean "401 already sent, stop" — so a key
+    issued to tenant "" authenticated fine and then every request it made
+    returned no response at all. Refuse the label instead of the sentinel."""
+    store = GatewayKeyStore(tmp_path / "gateway_keys.json")
+    with pytest.raises(ValueError, match="invalid tenant"):
+        store.issue("")
+    assert store.list_keys() == []
+
+
+def test_issue_refuses_a_tenant_the_response_header_cannot_carry(tmp_path: Path) -> None:
+    """Same validator as the x-distil-tenant header and the OIDC claim: one
+    definition of what a tenant label is, whichever door it comes through."""
+    store = GatewayKeyStore(tmp_path / "gateway_keys.json")
+    for bad in ("acme corp", "acme\r\nX-Injected: yes", "a" * 65, "acme/../etc"):
+        with pytest.raises(ValueError, match="invalid tenant"):
+            store.issue(bad)
+
+
+def test_issue_accepts_the_ordinary_labels(tmp_path: Path) -> None:
+    store = GatewayKeyStore(tmp_path / "gateway_keys.json")
+    for good in ("acme", "acme-eu", "acme_eu.1", "a" * 64):
+        _raw, rec = store.issue(good)
+        assert rec.tenant == good

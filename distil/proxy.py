@@ -39,6 +39,7 @@ from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens
 from .adapters.gemini import is_gemini_path
 from .httpguard import (
+    framing_rejection,
     is_chat_completions_path,
     is_compressible_path,
     is_messages_path,
@@ -821,12 +822,17 @@ def build_handler(
         def _read_body(self) -> bytes | None:
             """Read the request body; on a malformed/oversized/chunked request,
             send the error response itself and return None (caller just returns)."""
-            if not self.headers.get("Content-Length") and "chunked" in (
-                self.headers.get("Transfer-Encoding") or ""
-            ):
-                # A chunked body would otherwise be read as empty and silently
+            bad = framing_rejection(
+                self.headers.get("Content-Length"), self.headers.get("Transfer-Encoding")
+            )
+            if bad is not None:
+                # A TE-framed body would otherwise be read as empty and silently
                 # dropped — fail loudly instead (LLM SDKs always send a length).
-                self._reject(411, "chunked request bodies are not supported; send Content-Length")
+                # Close rather than keep alive: the undrained body is still queued on
+                # the socket, and parsing it as the next request is the desync this
+                # rejection exists to prevent.
+                self.close_connection = True
+                self._reject(*bad)
                 return None
             length = parse_content_length(self.headers.get("Content-Length"))
             if length is None:

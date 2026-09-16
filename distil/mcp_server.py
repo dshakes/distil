@@ -93,8 +93,11 @@ def _save_store(store: dict[str, str]) -> None:
             store.pop(next(iter(store)))
         p.parent.mkdir(parents=True, exist_ok=True)
         raw = json.dumps(store).encode()
-        p.write_bytes(atrest.encrypt_bytes(raw))
-        p.chmod(0o600)  # encrypted content at rest — owner-only
+        # Owner-only AT CREATION, not by a chmod after the write: chmod-ing
+        # afterwards leaves the file at the process umask (0644 on a default box)
+        # for the whole write, and under DISTIL_NO_ENCRYPT_AT_REST what sits in
+        # that window is plaintext agent tool output.
+        atrest.write_owner_only(p, atrest.encrypt_bytes(raw))
     except OSError:
         pass  # best-effort; never crash a tool call
 
@@ -154,8 +157,10 @@ def record_restore(handle: str, original: str) -> None:
             if existing is not None and existing != original:
                 return  # genuine collision — keep first writer
             # existing is None (auth failure/corrupt) or same content → rewrite
-        p.write_bytes(atrest.encrypt_bytes(original.encode("utf-8")))
-        p.chmod(0o600)  # encrypted content at rest — owner-only
+        # Owner-only at creation — see _save_store; a blob written here is one
+        # agent's tool output, and the umask window is observable (0644 was caught
+        # by a poller during a 400-write loop).
+        atrest.write_owner_only(p, atrest.encrypt_bytes(original.encode("utf-8")))
         # Guard the 0 case: [:-0] is the WHOLE list, so an unguarded cap of 0 would
         # evict every blob rather than disabling the cap.
         stale = (
