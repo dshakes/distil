@@ -191,6 +191,17 @@ needs to be issued and `--require-keys` need not be passed. Through 1.53.0 that 
 true: the auth gate consulted issued keys only, so an OIDC-only deployment answered
 unauthenticated requests while reading as configured.
 
+**Send the OIDC token in `x-distil-token`.** The gateway forwards the client's own
+provider credential and injects none of its own, and for OpenAI, Azure and the Gemini
+bearer flavour that credential is `Authorization: Bearer …` — the same header an OIDC
+token would arrive on. A dedicated header keeps the two apart, and the gateway strips
+`x-distil-token` (like `x-distil-key`) before forwarding, so the IdP token never reaches
+the provider. `Authorization: Bearer <jwt>` is still accepted for the Anthropic shape,
+where `x-api-key` carries the provider credential separately; a bearer JWT on a request
+with no other provider credential is refused with a 401 naming `x-distil-token`, because
+consuming it would leave the upstream with nothing to authenticate with. A bearer that is
+not a verified OIDC token is never consumed or stripped — it is the provider's.
+
 **Not present, and honestly so:** SAML and SCIM provisioning are **not implemented**.
 If your review requires SAML SSO or automated user provisioning today, distil does
 not meet that bar. The recommendation there is to place the gateway behind your

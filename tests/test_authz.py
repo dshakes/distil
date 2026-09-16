@@ -218,7 +218,10 @@ def _call(srv, token: str | None):
     conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=5)
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        # x-distil-token, not Authorization: that header is forwarded upstream as
+        # the provider credential, so the gateway only consumes a bearer JWT when
+        # the request carries a separate provider credential.
+        headers["x-distil-token"] = token
     conn.request(
         "POST",
         "/v1/messages",

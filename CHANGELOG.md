@@ -80,6 +80,27 @@ the header door already `.strip()`ed its value, and a header value cannot carry 
 newline over HTTP anyway. The OIDC claim and the operator key-issue path had nothing in
 front of them but the pattern.
 
+### OIDC tokens have their own header now
+
+Closing the OIDC gate above made a path reachable that had never carried real traffic, and
+it had a collision in it. The gateway read the OIDC token from `Authorization: Bearer …`
+and stripped that header before forwarding — correct for Anthropic, where `x-api-key`
+carries the provider credential separately, and broken for everyone else. For OpenAI,
+Azure and the Gemini bearer flavour that header IS the provider credential, and this
+gateway injects none of its own; it forwards the client's. So an OIDC-only deployment in
+front of OpenAI could not work at all: send the provider key and it fails JWT
+verification, send the JWT and the upstream receives no credential. The tests missed it
+because an echo upstream authenticates nothing.
+
+The OIDC token now goes in `x-distil-token`, which collides with nothing and is stripped
+before forwarding like `x-distil-key`. `Authorization: Bearer <jwt>` still works where it
+always did — when the request also carries a provider credential, which is exactly the
+Anthropic shape — and is otherwise refused with a 401 naming the new header, rather than
+forwarded as a request certain to fail upstream. A bearer that is not a verified OIDC
+token is never consumed or stripped; it is the provider's. No upstream-credential
+injection was added: the gateway still forwards the caller's credential and holds none,
+which is the property that keeps it out of the blast radius of a compromise.
+
 ### Configuring an identity provider did not turn on authentication
 
 The gateway decided whether to require a credential before it decided what could serve as

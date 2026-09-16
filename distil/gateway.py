@@ -45,6 +45,7 @@ from .authz import oidc_config_from_env as _oidc_config_from_env
 from .authz import verify_jwt as _verify_jwt
 from . import audit as _audit
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
+from .prefixreplay import _CREDENTIAL_HEADERS
 from .httpguard import (
     framing_rejection,
     is_chat_completions_path,
@@ -868,20 +869,50 @@ def build_gateway_handler(
                 return xdk, "x-distil-key"
             return None, None
 
-        def _identity_from_oidc(self):
-            """Verify an ``Authorization: Bearer <jwt>`` against configured OIDC.
+        def _has_provider_credential(self) -> bool:
+            """True when the request carries an upstream credential other than
+            ``Authorization`` — so consuming the bearer still leaves the upstream
+            something to authenticate with.
 
-            Returns an Identity, or None when OIDC is not configured or no bearer
-            was presented. A bearer that IS presented but fails verification is a
-            hard 401 — never a fall-through to "unauthenticated but allowed".
+            Reuses prefixreplay's list rather than hard-coding ``x-api-key``: that
+            tuple is already this codebase's definition of "a header that carries
+            the upstream credential" (Anthropic, Azure, and the Gemini key flavour),
+            and two definitions would drift.
+            """
+            return any(self.headers.get(h) for h in _CREDENTIAL_HEADERS if h != "authorization")
+
+        def _identity_from_oidc(self):
+            """Verify an OIDC token against configured OIDC. Returns an Identity.
+
+            Returns None when OIDC is not configured or no token was presented. A
+            token that IS presented but fails verification is a hard 401 — never a
+            fall-through to "unauthenticated but allowed".
+
+            Two carriers, and the order matters. ``x-distil-token`` is preferred
+            because it cannot collide with anything: for OpenAI, Azure and the
+            Gemini bearer flavour, ``Authorization: Bearer …`` IS the provider
+            credential, and this gateway injects no credentials of its own — it
+            forwards the client's. Consuming and stripping that header, which is
+            what the bearer carrier does, leaves the upstream with no credential
+            at all. So an OIDC-only deployment in front of OpenAI could not work.
+
+            ``Authorization: Bearer <jwt>`` is still accepted for the Anthropic
+            shape that has always used it, where ``x-api-key`` carries the provider
+            credential separately and losing the bearer costs nothing. That case is
+            recognised by the provider credential BEING there — see
+            ``_oidc_bearer_is_safe_to_consume``. Returns ``(identity, carrier)``.
             """
             cfg = _oidc_config_from_env()
             if not cfg.get("issuer"):
                 return None  # OIDC disabled
-            auth = self.headers.get("Authorization", "")
-            if not auth.startswith("Bearer ") or auth.startswith("Bearer dsk-"):
-                return None
-            token = auth[len("Bearer ") :].strip()
+            token = self.headers.get("x-distil-token", "").strip()
+            carrier = "x-distil-token"
+            if not token:
+                auth = self.headers.get("Authorization", "")
+                if not auth.startswith("Bearer ") or auth.startswith("Bearer dsk-"):
+                    return None
+                token = auth[len("Bearer ") :].strip()
+                carrier = "authorization"
             try:
                 claims = _verify_jwt(
                     token,
@@ -898,11 +929,12 @@ def build_gateway_handler(
                 )
                 self._reject(401, f"OIDC token rejected: {exc}")
                 raise _OidcRejected from exc
-            return _identity_from_claims(
+            ident = _identity_from_claims(
                 claims,
                 role_claim=cfg["role_claim"],
                 tenant_claim=cfg["tenant_claim"],
             )
+            return ident, carrier
 
         def _check_inbound_auth(self) -> tuple[str | None, str | None] | None:
             """Validate the gateway key when auth is required.
@@ -942,12 +974,33 @@ def build_gateway_handler(
                 # equally valid credential — additive, so enabling OIDC can never
                 # lock out a deployment that already runs on issued keys.
                 try:
-                    ident = self._identity_from_oidc()
+                    verified = self._identity_from_oidc()
                 except _OidcRejected:
                     # 401 already written by the extractor; unwind cleanly rather
                     # than letting the handler emit a second response.
                     return ("", "")
-                if ident is not None:
+                if verified is not None:
+                    ident, carrier = verified
+                    if carrier == "authorization" and not self._has_provider_credential():
+                        # The JWT arrived on the header that, for OpenAI/Azure/Gemini,
+                        # IS the provider credential — and nothing else on this request
+                        # carries one. Consuming it would strip the only credential the
+                        # upstream was ever going to see, and this gateway injects none
+                        # of its own. Refuse with the fix in the message instead of
+                        # forwarding a request that is certain to 401 at the provider.
+                        _audit.record(
+                            _audit.AUTH_FAIL,
+                            reason="OIDC token on Authorization with no provider credential",
+                            tenant=ident.tenant,
+                            remote=self.client_address[0] if self.client_address else None,
+                        )
+                        self._reject(
+                            401,
+                            "send the OIDC token in x-distil-token: Authorization is "
+                            "forwarded to the upstream as the provider credential, and "
+                            "this request carries no other one",
+                        )
+                        return ("", "")
                     try:
                         ident.require("operator")  # proxying is an operator action
                     except _AuthzError as exc:
@@ -976,8 +1029,11 @@ def build_gateway_handler(
                         )
                         self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                         return ("", "")
-                    # Strip the bearer so the upstream never sees our IdP token.
-                    return (ident.tenant, "authorization")
+                    # Strip whichever header carried it, so the upstream never sees
+                    # our IdP token — and only that one: an Authorization header we
+                    # did not verify is the provider's credential and must ride on
+                    # untouched.
+                    return (ident.tenant, carrier)
                 _audit.record(
                     _audit.AUTH_FAIL,
                     reason="no gateway key presented",
@@ -1459,13 +1515,15 @@ def build_gateway_handler(
             skip = _HOP_BY_HOP
             if also_strip:
                 skip = skip | {also_strip.lower()}
-            # Defense in depth: a distil gateway key must NEVER reach the provider,
-            # whichever carrier it rode in on — a client sending BOTH an
+            # Defense in depth: a distil gateway credential must NEVER reach the
+            # provider, whichever carrier it rode in on — a client sending BOTH an
             # `Authorization: Bearer dsk-…` AND an `x-distil-key` would otherwise
             # leak the second carrier upstream (only one name arrives via
-            # *also_strip*). dsk- keys are only meaningful to this gateway, so
-            # stripping unconditionally can't break provider auth.
-            skip = skip | {"x-distil-key"}
+            # *also_strip*). Both names are meaningful only to this gateway, so
+            # stripping unconditionally can't break provider auth. `x-distil-token`
+            # is here for the same reason and matters more: it is an IdP-issued JWT,
+            # and it is the header an OIDC deployment sends on EVERY request.
+            skip = skip | {"x-distil-key", "x-distil-token"}
             out = {k: v for k, v in self.headers.items() if k.lower() not in skip}
             for k in list(out):
                 if k.lower() == "authorization" and out[k].startswith("Bearer dsk-"):

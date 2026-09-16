@@ -67,6 +67,24 @@ class _EchoHandler(BaseHTTPRequestHandler):
     do_OPTIONS = _echo_path  # type: ignore[assignment]
 
 
+class _HeaderEchoHandler(BaseHTTPRequestHandler):
+    """Echo the request headers back as JSON — what the UPSTREAM actually saw."""
+
+    def log_message(self, fmt: str, *args: object) -> None:  # noqa: ARG002
+        pass
+
+    def do_POST(self) -> None:  # noqa: N802
+        n = int(self.headers.get("Content-Length", 0))
+        if n:
+            self.rfile.read(n)
+        seen = json.dumps({k.lower(): v for k, v in self.headers.items()}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(seen)))
+        self.end_headers()
+        self.wfile.write(seen)
+
+
 class _ErrorHandler(BaseHTTPRequestHandler):
     """Always returns 500."""
 
@@ -720,6 +738,31 @@ def oidc_gw(tmp_path: Any, monkeypatch: Any) -> Any:
     upstream.shutdown()
 
 
+@pytest.fixture()
+def oidc_gw_seen(tmp_path: Any, monkeypatch: Any) -> Any:
+    """OIDC gateway whose upstream reports the headers it received."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_OIDC_ISSUER", _OIDC_ISSUER)
+    monkeypatch.setenv("DISTIL_OIDC_HS256_SECRET", _OIDC_SECRET)
+    upstream = _start(_HeaderEchoHandler)
+    srv, _state = _make_gateway(upstream.server_address[1], loopback=False)
+    yield srv.server_address[1]
+    srv.shutdown()
+    upstream.shutdown()
+
+
+def _operator_token() -> str:
+    return _jwt(
+        {
+            "sub": "u1",
+            "iss": _OIDC_ISSUER,
+            "tenant": "acme",
+            "role": "operator",
+            "exp": time.time() + 3600,
+        }
+    )
+
+
 def test_oidc_configured_with_no_keys_still_requires_a_credential(oidc_gw: Any) -> None:
     """The auth gate used to key on issued keys alone, so an operator who wired
     up an IdP and issued no dsk- key ran a fully open gateway."""
@@ -732,27 +775,127 @@ def test_oidc_configured_with_no_keys_still_requires_a_credential(oidc_gw: Any) 
     assert status == 401, data
 
 
-def test_a_valid_oidc_bearer_is_a_complete_credential(oidc_gw: Any) -> None:
+def test_a_valid_oidc_token_is_a_complete_credential(oidc_gw: Any) -> None:
     """Closing the gate must not close the door: with no key store at all, a
-    verified token is still enough to proxy."""
-    tok = _jwt(
-        {
-            "sub": "u1",
-            "iss": _OIDC_ISSUER,
-            "tenant": "acme",
-            "role": "operator",
-            "exp": time.time() + 3600,
-        }
-    )
+    verified token is still enough to proxy. Sent on x-distil-token, the carrier
+    that cannot be confused with the provider credential."""
     status, resp, data = _req(
         "POST",
         oidc_gw,
         "/v1/messages",
         body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
-        extra_headers={"Authorization": f"Bearer {tok}"},
+        extra_headers={"x-distil-token": _operator_token()},
     )
     assert status == 200, data
     assert resp.headers.get("x-distil-tenant") == "acme"
+
+
+def test_a_bearer_jwt_alongside_x_api_key_is_still_accepted(oidc_gw: Any) -> None:
+    """The Anthropic shape, which has always sent the JWT on Authorization: the
+    provider credential rides on x-api-key, so consuming the bearer costs the
+    upstream nothing and this keeps working unchanged."""
+    status, resp, data = _req(
+        "POST",
+        oidc_gw,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+        extra_headers={
+            "Authorization": f"Bearer {_operator_token()}",
+            "x-api-key": "sk-ant-provider",
+        },
+    )
+    assert status == 200, data
+    assert resp.headers.get("x-distil-tenant") == "acme"
+
+
+def test_oidc_only_deployment_can_reach_a_bearer_auth_upstream(oidc_gw_seen: Any) -> None:
+    """The regression this header exists for. For OpenAI, Azure and Gemini-bearer,
+    `Authorization` IS the provider credential, and this gateway injects none of
+    its own — it forwards the client's. With the JWT on x-distil-token the bearer
+    rides through untouched, byte-identical, and the IdP token never leaks."""
+    provider = "Bearer sk-proj-abc123.DEF-456_xyz"
+    status, _resp, data = _req(
+        "POST",
+        oidc_gw_seen,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+        extra_headers={"x-distil-token": _operator_token(), "Authorization": provider},
+    )
+    assert status == 200, data
+    seen = json.loads(data)
+    assert seen.get("authorization") == provider, seen
+    assert "x-distil-token" not in seen, seen
+    assert _operator_token()[:20] not in json.dumps(seen), seen
+
+
+def test_the_idp_token_never_reaches_the_upstream_on_the_bearer_carrier(
+    oidc_gw_seen: Any,
+) -> None:
+    """The Anthropic shape: the JWT is consumed here and x-api-key goes on."""
+    status, _resp, data = _req(
+        "POST",
+        oidc_gw_seen,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+        extra_headers={
+            "Authorization": f"Bearer {_operator_token()}",
+            "x-api-key": "sk-ant-provider",
+        },
+    )
+    assert status == 200, data
+    seen = json.loads(data)
+    assert seen.get("x-api-key") == "sk-ant-provider", seen
+    assert "authorization" not in seen, seen
+
+
+def test_a_bearer_jwt_with_no_provider_credential_is_refused_with_guidance(
+    oidc_gw: Any,
+) -> None:
+    """Consuming this bearer would strip the only credential the upstream was
+    going to see, and the gateway has none of its own to inject. Refuse with the
+    fix in the message rather than forward a request certain to 401 upstream."""
+    status, _resp, data = _req(
+        "POST",
+        oidc_gw,
+        "/v1/messages",
+        body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+        extra_headers={"Authorization": f"Bearer {_operator_token()}"},
+    )
+    assert status == 401, data
+    assert b"x-distil-token" in data, data
+
+
+def test_an_unverified_authorization_header_is_never_stripped(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """A bearer that is not our JWT is the provider's credential. Authenticate
+    with a dsk- key so the OIDC carrier is never consulted, and the Authorization
+    header must reach the upstream exactly as sent."""
+    from distil.gateway_keys import GatewayKeyStore
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_OIDC_ISSUER", _OIDC_ISSUER)
+    monkeypatch.setenv("DISTIL_OIDC_HS256_SECRET", _OIDC_SECRET)
+    store = GatewayKeyStore(tmp_path / "gateway_keys.json")
+    raw_key, _rec = store.issue(tenant="acme")
+    upstream = _start(_HeaderEchoHandler)
+    srv, _state = _make_gateway(upstream.server_address[1], key_store=store, loopback=False)
+    provider = "Bearer sk-proj-not-a-jwt"
+    try:
+        status, _resp, data = _req(
+            "POST",
+            srv.server_address[1],
+            "/v1/messages",
+            body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+            extra_headers={"x-distil-key": raw_key, "Authorization": provider},
+        )
+    finally:
+        srv.shutdown()
+        upstream.shutdown()
+    assert status == 200, data
+    seen = json.loads(data)
+    assert seen.get("authorization") == provider, seen
+    assert "x-distil-key" not in seen, seen
 
 
 def test_a_crlf_tenant_claim_never_reaches_a_response_header(oidc_gw: Any) -> None:
@@ -772,7 +915,7 @@ def test_a_crlf_tenant_claim_never_reaches_a_response_header(oidc_gw: Any) -> No
         oidc_gw,
         "/v1/messages",
         body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
-        extra_headers={"Authorization": f"Bearer {tok}"},
+        extra_headers={"x-distil-token": tok},
     )
     assert status == 200, data
     assert resp.headers.get("X-Injected") is None
