@@ -549,6 +549,28 @@ class TestDissection:
         assert d.blocks["aaaa1111"]["recoverable"] is True
         assert d.blocks["bbbb2222"]["recoverable"] is False
         assert d.blocks_by_kind()[0] == ("log:l", 1, 2000)
+
+    def test_since_ts_bounds_both_ledger_rows_and_request_detail(self) -> None:
+        """`distil discover`'s `--since N` must not fold an always-on session's
+        whole history into a bounded window: `since_ts` drops both the ledger
+        rows and the request-detail rows before that timestamp, the same as if
+        the session had never had them."""
+        # s200-1's two ledger rows are at ts 1000.0 and 1600.0; its three request
+        # rows are at ts 1000.0, 1600.0, 1700.0.
+        unbounded = dz.dissect("s200-1")
+        assert len(unbounded.ledger_rows) == 2 and len(unbounded.requests) == 3
+
+        bounded = dz.dissect("s200-1", since_ts=1600.0)
+        assert len(bounded.ledger_rows) == 1 and bounded.ledger_rows[0]["ts"] == 1600.0
+        assert len(bounded.requests) == 2
+        assert {r["ts"] for r in bounded.requests} == {1600.0, 1700.0}
+        # The old, larger ledger row (9000 baseline) is excluded, not summed in.
+        assert bounded.baseline_tokens == 1000 and bounded.distil_tokens == 900
+
+    def test_since_ts_none_is_unaffected(self) -> None:
+        """The default (no bound) must dissect exactly as before."""
+        d = dz.dissect("s200-1", since_ts=None)
+        assert len(d.ledger_rows) == 2 and len(d.requests) == 3
         # Shadow join is by time window: only the ts=1500 row is inside.
         assert d.shadow_window_rows == 1 and d.shadow_window_agree == 1
         # That row carries no usage, so there is nothing to price.

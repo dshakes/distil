@@ -901,20 +901,32 @@ class Dissection:
 
 
 def dissect(
-    sid: str, *, ledger_rows: list[dict[str, Any]] | None = None, shadow: bool = True
+    sid: str,
+    *,
+    ledger_rows: list[dict[str, Any]] | None = None,
+    shadow: bool = True,
+    since_ts: float | None = None,
 ) -> Dissection:
     """Assemble a full Dissection for *sid* from every local source.
 
-    Both keyword arguments exist for ``distil discover``, which dissects twenty
-    sessions in one pass. The two whole-file scans below — the savings ledger and
-    shadow.jsonl — are per-call, so twenty sessions re-parse a 37k-run ledger
-    twenty times for rows the caller has already grouped. Passing ``ledger_rows``
-    (pre-filtered to *sid*) and ``shadow=False`` skips only work the caller does
-    not need; nothing else about the report changes, and there is still one
-    implementation of it.
+    ``ledger_rows`` and ``shadow`` exist for ``distil discover``, which dissects
+    twenty sessions in one pass. The two whole-file scans below — the savings
+    ledger and shadow.jsonl — are per-call, so twenty sessions re-parse a 37k-run
+    ledger twenty times for rows the caller has already grouped. Passing
+    ``ledger_rows`` (pre-filtered to *sid*) and ``shadow=False`` skips only work
+    the caller does not need; nothing else about the report changes, and there is
+    still one implementation of it.
+
+    ``since_ts`` bounds a long-lived (always-on) session to its rows at or after
+    that timestamp, on both the ledger rows and the request-detail file — a caller
+    asking for "the last 7 days" must not have weeks of an always-on session's
+    history folded into that window just because the session itself is older.
+    None (the default) applies no bound, so every existing caller is unaffected.
     """
     if ledger_rows is None:
         ledger_rows = [r for r in _read_jsonl(default_path()) if r.get("session") == sid]
+    if since_ts is not None:
+        ledger_rows = [r for r in ledger_rows if float(r.get("ts") or 0.0) >= since_ts]
     manifest: dict[str, Any] | None = None
     mp = session_manifest_path(sid)
     if mp is not None:
@@ -925,6 +937,8 @@ def dissect(
             manifest = None
     rp = session_requests_path(sid)
     requests = _read_jsonl(rp) if rp is not None else []
+    if since_ts is not None:
+        requests = [r for r in requests if float(r.get("ts") or 0.0) >= since_ts]
 
     marker = heartbeat = exit_note = None
     marker_p = session_marker_path(sid)

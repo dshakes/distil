@@ -882,6 +882,102 @@ class TestWindowing:
         assert r2.sessions == 2
         assert "digest_off" not in _ids(r2)
 
+    def test_since_days_bounds_rows_within_a_long_lived_session(self, home: Path) -> None:
+        """An always-on session (manifest started a month ago) must not have its
+        whole lifetime folded into a `--since N` window: only rows at or after the
+        boundary count towards the totals, and the per-week rate is sized to the
+        requested N days — never to the session's actual, much longer lifespan."""
+        _manifest("sPersist")
+        mp = home / "sessions" / "sPersist.json"
+        man = json.loads(mp.read_text(encoding="utf-8"))
+        man["started_ts"] = NOW - 30 * 86400
+        mp.write_text(json.dumps(man), encoding="utf-8")
+
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=1,
+            baseline_dollars=10.0,
+            distil_dollars=9.9,
+            baseline_input_tokens=1_000_000,
+            distil_input_tokens=990_000,
+            session="sPersist",
+            mode="digest",
+        )
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=1,
+            baseline_dollars=0.10,
+            distil_dollars=0.09,
+            baseline_input_tokens=10_000,
+            distil_input_tokens=9_000,
+            session="sPersist",
+            mode="digest",
+        )
+        led = home / "savings.jsonl"
+        rows = [json.loads(line) for line in led.read_text(encoding="utf-8").splitlines()]
+        rows[0]["ts"] = NOW - 20 * 86400  # outside a 7-day window
+        rows[1]["ts"] = NOW - 1 * 86400  # inside it
+        led.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+        append_session_request(
+            {
+                "ts": NOW - 20 * 86400,  # outside the window
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 500_000,
+                "tokens_saved": 10_000,
+                "overhead_tokens": 1000,
+                "system_tokens": 500,
+                "tools_tokens": 500,
+                "tools": [],
+                "blocks": [],
+            },
+            "sPersist",
+        )
+        append_session_request(
+            {
+                "ts": NOW - 1 * 86400,  # inside the window
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 5_000,
+                "tokens_saved": 1_000,
+                "overhead_tokens": 100,
+                "system_tokens": 50,
+                "tools_tokens": 50,
+                "tools": [],
+                "blocks": [],
+            },
+            "sPersist",
+        )
+
+        r = dv.scan(since_days=7.0)
+        assert r.sessions == 1
+        assert r.requests == 1  # only the in-window request row is counted
+        assert r.days == pytest.approx(7.0)  # the requested span, not 30 days
+        # Only the in-window ledger row counts: 10% saved (10,000 -> 9,000), not
+        # diluted by the 1,000,000-token row from three weeks earlier.
+        assert r.median_pct == pytest.approx(10.0)
+
+        from distil import dissect as dz
+
+        # Confirm the bound applies at the dissect layer too, not just via scan()'s
+        # own aggregation.
+        d = dz.dissect("sPersist", since_ts=NOW - 7 * 86400)
+        assert d.baseline_tokens == 10_000  # the old 1,000,000-token row is excluded
+
+    def test_no_since_days_is_unaffected_by_the_bounding_fix(self, seeded: Path) -> None:
+        """The default (no `--since`) path must dissect every row exactly as
+        before — `since_ts=None` is a no-op filter."""
+        r = dv.scan()
+        assert r.sessions == 3
+        assert r.requests == 8  # sA(5) + sB(2) + sC(1)
+
     def test_rates_are_per_week_over_the_measured_window(self, seeded: Path) -> None:
         r = dv.scan()
         assert r.days == pytest.approx(1.0)  # floored: a few hours is not a week

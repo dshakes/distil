@@ -256,7 +256,10 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
         if isinstance(sid, str) and sid:
             by_sid.setdefault(sid, []).append(rec)
 
-    all_ds = [dissect(o.sid, ledger_rows=by_sid.get(o.sid, []), shadow=False) for o in overviews]
+    all_ds = [
+        dissect(o.sid, ledger_rows=by_sid.get(o.sid, []), shadow=False, since_ts=since or None)
+        for o in overviews
+    ]
     # Three states, not two. (a) A `wrap` that started and exited without proxying
     # a single request (killed before the agent made a call, or the agent never
     # called out) has neither a ledger row nor detail — nothing here to assess,
@@ -269,9 +272,17 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
     ledger_only = [d for d in all_ds if not d.booked_detail and d.ledger_rows]
     no_traffic = len(all_ds) - len(ds) - len(ledger_only)
     starts = [d.started for d in ds + ledger_only if d.started]
-    # Elapsed wall-clock since the oldest session in the window, floored at a day: a
-    # rate extrapolated from a few hours would read as a week's worth of savings.
-    days = max(1.0, (now - min(starts)) / 86400) if starts else 0.0
+    if since_days:
+        # An explicit `--since N` is the bounded span the caller asked for, not
+        # whatever the oldest surviving row happens to be — `d.started` can still
+        # be an always-on session's actual (much older) manifest start time, and
+        # sizing the window off that would silently shrink every per-week rate.
+        days = max(1.0, since_days)
+    else:
+        # No explicit bound: elapsed wall-clock since the oldest session in the
+        # window, floored at a day so a rate extrapolated from a few hours does
+        # not read as a week's worth of savings.
+        days = max(1.0, (now - min(starts)) / 86400) if starts else 0.0
 
     base_tok = sum(int(r.get("baseline_input_tokens") or 0) for d in ds for r in d.ledger_rows)
     base_usd = sum(float(r.get("baseline_dollars") or 0.0) for d in ds for r in d.ledger_rows)
