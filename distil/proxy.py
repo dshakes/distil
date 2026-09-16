@@ -33,6 +33,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
+from . import config_wrap
 from ._log import log
 from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
@@ -2424,19 +2425,8 @@ def wrap_run(
     except Exception:  # noqa: BLE001 — never fail wrap over terminal bookkeeping
         _saved_tty = None
 
-    # Config-file wrap targets (tools with no env-var contract, e.g. Continue,
-    # Factory Droid, Oh My Pi — see distil/config_wrap.py): entered here so
-    # its cleanup rides the SAME finally block SIGTERM/SIGHUP already funnel
-    # into below, and exited there too — no separate signal handling needed.
     config_argv: list[str] = []
     _config_cm: contextlib.AbstractContextManager[list[str]] | None = None
-    if config_ctx is not None:
-        _config_cm = config_ctx(upstream, base)
-        try:
-            config_argv = _config_cm.__enter__()
-        except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
-            log.warning("config-file injection failed; running without it", exc_info=True)
-            config_argv, _config_cm = [], None
 
     code = 0
     proc_holder: list = []
@@ -2471,6 +2461,30 @@ def wrap_run(
         except (ValueError, AttributeError):
             pass  # not the main thread, or platform without SIGUSR1
     try:
+        # Config-file wrap targets (tools with no env-var contract, e.g.
+        # Continue, Factory Droid, Oh My Pi — see distil/config_wrap.py).
+        # Entered INSIDE this try so both halves ride the same finally that
+        # SIGTERM/SIGHUP already funnel into: its cleanup on the way out, and —
+        # the reason it moved here — the proxy/supervisor teardown if entering
+        # it raises. A ConfigTargetBusy escaping from further up would
+        # otherwise leave a listening proxy, and in hot-swap mode an orphaned
+        # worker process, behind it.
+        if config_ctx is not None:
+            _config_cm = config_ctx(upstream, base)
+            try:
+                config_argv = _config_cm.__enter__()
+            except config_wrap.ConfigTargetBusy:
+                # NOT swallowed, unlike every other injection failure below.
+                # Running on means running with the config another live session
+                # patched — this agent's traffic would go through THAT session's
+                # proxy and into its ledger. The in-lock recheck in
+                # `_own_config` exists precisely for the race `cmd_wrap`'s
+                # pre-check cannot close, so it has to be able to stop the wrap.
+                _config_cm = None  # never entered; the finally must not exit it
+                raise
+            except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
+                log.warning("config-file injection failed; running without it", exc_info=True)
+                config_argv, _config_cm = [], None
         # Reserve the slot before Popen so a SIGTERM in the spawn window still
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.

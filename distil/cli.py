@@ -3051,25 +3051,34 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     _apply_subscription_safe_default(args)
     from .proxy import wrap_run
 
-    code = wrap_run(
-        command,
-        host=args.host,
-        upstream=upstream,
-        lossless_only=args.lossless_only,
-        verbatim=args.verbatim,
-        shape_output=args.shape_output,
-        record=not args.no_record,
-        pricing_model=args.pricing,
-        env_var=env_var,
-        expand=args.expand,
-        session_delta=args.session_delta,
-        prefix_replay=not getattr(args, "no_prefix_replay", False),
-        shadow_rate=args.shadow,
-        retention_rate=getattr(args, "retention", 0.0),
-        extra_env=extra_env,
-        env_value_template=env_value_template,
-        config_ctx=config_preset.apply if config_preset is not None else None,
-    )
+    try:
+        code = wrap_run(
+            command,
+            host=args.host,
+            upstream=upstream,
+            lossless_only=args.lossless_only,
+            verbatim=args.verbatim,
+            shape_output=args.shape_output,
+            record=not args.no_record,
+            pricing_model=args.pricing,
+            env_var=env_var,
+            expand=args.expand,
+            session_delta=args.session_delta,
+            prefix_replay=not getattr(args, "no_prefix_replay", False),
+            shadow_rate=args.shadow,
+            retention_rate=getattr(args, "retention", 0.0),
+            extra_env=extra_env,
+            env_value_template=env_value_template,
+            config_ctx=config_preset.apply if config_preset is not None else None,
+        )
+    except config_wrap.ConfigTargetBusy as busy:
+        # The pre-check above is advisory: a sibling wrap can claim the config
+        # in the gap between it and the claim inside `_own_config`. That
+        # in-lock recheck is the authoritative one, and this is where its
+        # refusal lands — same message, same exit code, and wrap_run has
+        # already torn its proxy down and launched no child.
+        print(config_wrap.busy_message(busy.path, busy.pid), file=sys.stderr)
+        return 1
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can
     # silently stop). The session traffic marker (written "0" at wrap start,

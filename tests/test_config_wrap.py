@@ -668,7 +668,9 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
     produced them has exited."""
     target = _PATCH_TARGETS[tool]
     path = tmp_path / target.filename
-    path.write_text(target.original)
+    # write_bytes, not write_text: text mode translates "\n" into "\r\n" on
+    # Windows, so the fixture this test reasons about would differ by platform.
+    path.write_bytes(target.original.encode())
     monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
     monkeypatch.setenv(target.key_var, "sk-test")
     preset = config_wrap.CONFIG_PRESETS[tool]
@@ -682,11 +684,71 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
         assert text.count(target.ours) == 1, f"a second distil entry was appended:\n{text}"
         assert target.theirs in text, "the user's own entry must survive the re-patch"
 
-    assert path.read_text() == leftover.decode(), (
+    # Bytes on BOTH sides. `read_text()` decodes with universal newlines, so it
+    # silently folds CRLF to LF; comparing that against raw bytes fails on any
+    # file with Windows line endings, which is how this surfaced as a
+    # whitespace-only diff on the Windows gate and nowhere else. The contract
+    # being asserted is byte-exact restore, so the assertion must be in bytes.
+    assert path.read_bytes() == leftover, (
         "this session's backup was the file as it found it — leftover and all"
     )
     assert not config_wrap._backup_path(path).exists()
     assert not config_wrap._registry_dir(path).exists()
+
+
+@pytest.mark.parametrize("tool", sorted(_PATCH_TARGETS))
+def test_a_crlf_config_is_restored_byte_for_byte(tool, tmp_path, monkeypatch):
+    """Line endings are part of "byte-exact", and only Windows CI ever noticed.
+
+    Restore copies the backup's bytes verbatim, so what this really pins is
+    that the BACKUP captured the file as it was — CRLF and all — rather than a
+    re-serialization of it. Exercised on whatever platform this is, instead of
+    waiting for the Windows runner to report it in whitespace markers.
+
+    What a patched file looks like mid-session is a separate question with a
+    per-renderer answer, and is covered for the text splice below; the two JSON
+    renderers legitimately reformat, since they rebuild the document."""
+    target = _PATCH_TARGETS[tool]
+    path = tmp_path / target.filename
+    crlf = target.original.replace("\n", "\r\n").encode()
+    path.write_bytes(crlf)
+    monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
+    monkeypatch.setenv(target.key_var, "sk-test")
+
+    with config_wrap.CONFIG_PRESETS[tool].apply(target.upstream, "http://a"):
+        assert target.ours.encode() in path.read_bytes(), "the patch did not land"
+        assert config_wrap._backup_path(path).read_bytes() == crlf, (
+            "the backup must hold the file's original bytes, line endings included"
+        )
+
+    assert path.read_bytes() == crlf, "restore converted the user's line endings"
+
+
+def test_the_yaml_splice_keeps_the_users_crlf_lines_while_patched(tmp_path, monkeypatch):
+    """Oh My Pi's renderer is a text splice, not a re-serialization: it decodes
+    the file, inserts a marker-fenced block, and re-encodes. So unlike the JSON
+    renderers it must hand the user's own lines back unchanged — a normalizing
+    pass (or a rebuild from `splitlines()`) would rewrite every line in a CRLF
+    file, and Oh My Pi would be reading a wholly rewritten config for the
+    length of the session even though the restore afterwards looked clean.
+
+    Restore alone cannot catch that, because restore copies the backup verbatim
+    whatever the renderer did in between — which is why this asserts on the
+    patched bytes rather than the restored ones."""
+    target = _PATCH_TARGETS["omp"]
+    path = tmp_path / target.filename
+    crlf = target.original.replace("\n", "\r\n").encode()
+    path.write_bytes(crlf)
+    monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
+    monkeypatch.setenv(target.key_var, "sk-test")
+
+    with config_wrap.CONFIG_PRESETS["omp"].apply(target.upstream, "http://a"):
+        patched = path.read_bytes()
+        for line in crlf.split(b"\r\n"):
+            if line:
+                assert line + b"\r\n" in patched, (
+                    f"the splice rewrote the user's line ending on {line!r}"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1322,3 +1384,72 @@ def test_cmd_wrap_still_runs_when_the_target_is_free(tmp_path, monkeypatch):
     monkeypatch.setattr("distil.proxy.wrap_run", fake)
     assert cmd_wrap(_ns(command=["crush"])) == 0
     assert captured["config_ctx"] is config_wrap.CONFIG_PRESETS["crush"].apply
+
+
+def test_the_in_lock_recheck_can_actually_stop_the_wrap(tmp_path, monkeypatch, capsys):
+    """The race `busy_holder()` cannot close, driven through the real path.
+
+    `cmd_wrap`'s pre-check is advisory: a sibling can claim the config in the
+    gap between it and the claim inside `_own_config`. That recheck runs under
+    the lock and raises — but `wrap_run` wrapped its `__enter__` in a broad
+    `except Exception` that swallowed everything, so the second wrap carried on
+    running against the config the FIRST session had patched. Its agent would
+    have talked to the first session's proxy and its tokens landed in the first
+    session's ledger, which is the very corruption the recheck exists to stop.
+
+    Simulated exactly as it happens: a live session A really holds the config,
+    and `busy_holder` is stubbed to miss it (as it would when A claims a
+    microsecond later). Nothing else is faked — the raise comes from
+    `_own_config` itself."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    path = tmp_path / "crush.json"
+    original = '{"providers": {"spark": {"id": "spark"}}}'
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "home"))
+
+    def never(*a, **kw):
+        raise AssertionError("the refused wrap launched a child anyway")
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        patched_by_a = path.read_bytes()
+        # The pre-check misses it — the exact race.
+        monkeypatch.setattr(config_wrap, "busy_holder", lambda preset: None)
+        monkeypatch.setattr(subprocess, "Popen", never)
+
+        assert cmd_wrap(_ns(command=["crush"])) == 1, "swallowed the refusal and ran on"
+        err = capsys.readouterr().err
+        assert f"pid {os.getpid()}" in err
+        assert "distil default" in err
+        assert path.read_bytes() == patched_by_a, "B disturbed A's config"
+
+    assert path.read_text() == original, "A still restores its own bytes afterwards"
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_an_ordinary_injection_failure_is_still_swallowed(tmp_path, monkeypatch):
+    """The narrowing must not turn every config bug into a dead wrap. Anything
+    that is NOT ConfigTargetBusy still degrades to running without injection —
+    the long-standing contract — because a preset bug should cost savings, not
+    the user's session."""
+    import contextlib as _contextlib
+
+    from distil import proxy
+
+    @_contextlib.contextmanager
+    def exploding(upstream, base):
+        raise RuntimeError("preset bug")
+        yield []  # pragma: no cover - unreachable, satisfies the generator shape
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    code = proxy.wrap_run(
+        [sys.executable, "-c", "import sys; sys.exit(7)"],
+        upstream="http://127.0.0.1:9",
+        record=False,
+        config_ctx=exploding,
+    )
+    assert code == 7, "the child must still have run"
