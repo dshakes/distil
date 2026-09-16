@@ -40,8 +40,7 @@ reasons — the table says which applies to each:
 "The settings file is global" is **not** on that list, and never was a reason on
 its own. A config file shared across every session is exactly what `wrap` already
 manages for Crush, Oh My Pi, Factory Droid and the Cline CLI: it claims the path,
-backs the bytes up, patches, and restores them byte-for-byte when the last session
-using that file exits.
+backs the bytes up, patches, and restores them byte-for-byte on exit.
 
 What *is* disqualifying is a global file that some **other** file outranks in the
 directory you ran the wrap in — patch that and `wrap` reports success while the
@@ -176,6 +175,14 @@ and restores it on exit — including on `SIGTERM`/`SIGKILL` or a crash, checked
 and repaired at the start of the *next* `distil wrap` if the previous session
 never got to clean up. See `distil/config_wrap.py` for the implementation and
 `tests/test_config_wrap.py` for the backup/restore/crash-recovery proof.
+
+> **One at a time, per config file.** A config file can only name one proxy, and
+> two live wraps need two ports — so wrapping the same config-file agent twice at
+> once is refused, before anything is started or written, naming the process that
+> holds it. (`cn` is exempt: it writes only a throwaway temp config, so any number
+> of Continue sessions can run at once.) To run several agents through distil
+> simultaneously, use `distil default --always-on`: one long-lived proxy, every
+> launch routed through it, no config patching at all.
 
 **Cline** stores its providers under `~/.cline/data/settings/providers.json`, or
 under `CLINE_DATA_DIR` if you have moved it — the preset reads that variable

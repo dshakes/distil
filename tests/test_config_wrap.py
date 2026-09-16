@@ -628,24 +628,26 @@ def test_two_sessions_in_one_process_never_share_a_registry_entry(tmp_path, monk
     the inner session exited; on a fast clock it never reproduces at all.
 
     The name now comes from the filesystem, so the clock installed here — one
-    that never moves — cannot collide."""
+    that never moves — cannot collide.
+
+    Exercised against `_claim_session` directly rather than through two nested
+    `preset.apply` blocks, because a second LIVE wrap of one config is refused
+    outright now (see ConfigTargetBusy). The naming property still has to hold:
+    `_release_session` and `restore_stale_backups` both decide who is left by
+    enumerating these entries, and a claim that silently lands on someone
+    else's filename would corrupt that count wherever two claims do coexist."""
     monkeypatch.setattr(time, "monotonic_ns", lambda: 1_000)
     path = tmp_path / "crush.json"
-    original = '{"providers": {"spark": {"id": "spark"}}}'
-    path.write_text(original)
-    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    preset = config_wrap.CONFIG_PRESETS["crush"]
+    path.write_text('{"providers": {"spark": {"id": "spark"}}}')
 
-    with preset.apply("https://api.anthropic.com", "http://a"):
-        with preset.apply("https://api.anthropic.com", "http://b"):
-            entries = list(config_wrap._registry_dir(path).iterdir())
-            assert len(entries) == 2, f"two sessions collided on one entry: {entries}"
-        assert '"id": "distil"' in path.read_text(), (
-            "the first session to exit restored the config out from under its live sibling"
-        )
+    registry_a, id_a = config_wrap._claim_session(path)
+    registry_b, id_b = config_wrap._claim_session(path)
+    assert registry_a == registry_b
+    assert id_a != id_b, "two claims inside one clock tick collided on a single entry"
+    assert len(list(config_wrap._registry_dir(path).iterdir())) == 2
 
-    assert path.read_text() == original
+    assert config_wrap._release_session(registry_a, id_a) is False, "b is still registered"
+    assert config_wrap._release_session(registry_b, id_b) is True, "b is the last one out"
     assert not config_wrap._registry_dir(path).exists()
 
 
@@ -654,11 +656,16 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
     tool, tmp_path, monkeypatch
 ):
     """A config can legitimately arrive already carrying a `distil` entry — a
-    concurrent sibling session put it there, or a crash left one behind — and
-    a second patch must REPLACE it. Appending a second entry survives the
-    restore (only one can be undone) and, for the YAML splice, writes a
-    duplicate key. droid drops-and-re-appends its customModels entry and crush
-    assigns a dict key, so both were already safe; omp appended."""
+    crash killed the session that wrote it before its restore ran — and the
+    next patch must REPLACE it. Appending a second entry survives the restore
+    (only one can be undone) and, for the YAML splice, writes a duplicate key.
+    droid drops-and-re-appends its customModels entry and crush assigns a dict
+    key, so both were already safe; omp appended.
+
+    Sequential rather than nested: two live wraps of one config are refused
+    now, so the surviving way to meet an already-patched file is the crash,
+    reproduced here by writing the patched bytes back after the session that
+    produced them has exited."""
     target = _PATCH_TARGETS[tool]
     path = tmp_path / target.filename
     path.write_text(target.original)
@@ -667,13 +674,17 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
     preset = config_wrap.CONFIG_PRESETS[tool]
 
     with preset.apply(target.upstream, "http://a"):
-        with preset.apply(target.upstream, "http://b"):  # patches over our own patch
-            text = path.read_text()
-            assert text.count(target.ours) == 1, f"a second distil entry was appended:\n{text}"
-            assert target.theirs in text, "the user's own entry must survive the re-patch"
-        assert path.read_text().count(target.ours) == 1
+        leftover = path.read_bytes()
+    path.write_bytes(leftover)  # what a `kill -9` before the restore leaves behind
 
-    assert path.read_text() == target.original, "the true original must come back byte-for-byte"
+    with preset.apply(target.upstream, "http://b"):  # patches over that leftover
+        text = path.read_text()
+        assert text.count(target.ours) == 1, f"a second distil entry was appended:\n{text}"
+        assert target.theirs in text, "the user's own entry must survive the re-patch"
+
+    assert path.read_text() == leftover.decode(), (
+        "this session's backup was the file as it found it — leftover and all"
+    )
     assert not config_wrap._backup_path(path).exists()
     assert not config_wrap._registry_dir(path).exists()
 
@@ -858,37 +869,39 @@ def test_restore_stale_backups_does_not_reclaim_a_live_pid(tmp_path, monkeypatch
 def test_overlapping_sessions_on_the_same_config_restore_to_the_true_original(
     tmp_path, monkeypatch
 ):
-    """Two `distil wrap` sessions patching the SAME config concurrently must
-    both end up restoring the true pre-either-session bytes once BOTH have
-    exited, regardless of which one happens to exit first. Before per-session
-    ownership, the second session's own "existed=True" snapshot already
-    included the first session's injected entry, so it silently overwrote
-    the shared backup — an early exit then restored an intermediate,
-    already-modified state instead of the real original."""
+    """Two `distil wrap` sessions can no longer overlap on one config at all —
+    B is refused — and A must be completely undisturbed by the attempt.
+
+    This used to assert that both sessions restored the true pre-either-session
+    bytes whichever exited first, and the ownership registry does still deliver
+    that. What it could never deliver is a config that names two proxies: B's
+    patch repointed A's agent at B's port, so A's traffic ran through B's
+    session and whichever survived the other was left aimed at a dead one. The
+    property worth keeping is the one below: the refusal costs A nothing, and
+    A's own restore is still byte-exact."""
     path = tmp_path / "crush.json"
     true_original = '{"providers": {"spark": {"id": "spark"}}}'
+    path.write_text(true_original)
     monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
-    for exit_order in ("a_first", "b_first"):
-        path.write_text(true_original)  # reset between the two sub-cases
+    gen_a = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://a")
+    gen_a.__enter__()
+    patched_by_a = path.read_bytes()
+    assert json.loads(patched_by_a)["providers"]["distil"]["base_url"] == "http://a"
 
-        gen_a = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://a")
-        gen_b = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://b")
-        gen_a.__enter__()
+    gen_b = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://b")
+    with pytest.raises(config_wrap.ConfigTargetBusy):
         gen_b.__enter__()
-        assert json.loads(path.read_text())["providers"].get("distil") is not None
+    assert path.read_bytes() == patched_by_a, "the refused session repointed A's config"
+    assert config_wrap._backup_path(path).read_text() == true_original, (
+        "the refused session must not have touched the shared backup either"
+    )
 
-        first, second = (gen_a, gen_b) if exit_order == "a_first" else (gen_b, gen_a)
-        first.__exit__(None, None, None)
-        # The non-last exit must NOT touch the shared file — the surviving
-        # sibling session still depends on it staying injected.
-        assert json.loads(path.read_text())["providers"].get("distil") is not None, exit_order
-
-        second.__exit__(None, None, None)
-        assert path.read_text() == true_original, f"exit order {exit_order} lost the true original"
-        assert not config_wrap._backup_path(path).exists()
-        assert not config_wrap._registry_dir(path).exists()
+    gen_a.__exit__(None, None, None)
+    assert path.read_text() == true_original
+    assert not config_wrap._backup_path(path).exists()
+    assert not config_wrap._registry_dir(path).exists()
 
 
 def test_session_lock_serializes_a_release_against_a_concurrent_claim(tmp_path):
@@ -1095,17 +1108,24 @@ def test_cline_apply_merges_and_restores_when_present(tmp_path, monkeypatch):
 
 
 def test_cline_apply_is_idempotent(tmp_path, monkeypatch):
-    """Re-patching replaces the distil entry instead of stacking a second one."""
+    """A `distil` entry left behind by a killed session is replaced, not stacked.
+
+    Sequential, not nested: two live sessions on one config are refused now (see
+    the ConfigTargetBusy tests below), so the case idempotency actually has to
+    survive is a wrap starting against a config that still carries the previous
+    session's entry."""
     path = tmp_path / "providers.json"
     monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda: path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
     with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
-        with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:2"):
-            doc = json.loads(path.read_text())
-            assert list(doc["providers"]) == ["distil"]
-            assert doc["providers"]["distil"]["settings"]["baseUrl"] == "http://127.0.0.1:2"
-    assert not path.exists()
+        leftover = path.read_bytes()
+    path.write_bytes(leftover)  # as a `kill -9` before the restore would leave it
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:2"):
+        doc = json.loads(path.read_text())
+        assert list(doc["providers"]) == ["distil"], "must replace, not stack"
+        assert doc["providers"]["distil"]["settings"]["baseUrl"] == "http://127.0.0.1:2"
 
 
 def test_cline_apply_skips_without_a_credential(tmp_path, monkeypatch):
@@ -1167,3 +1187,138 @@ def test_cline_apply_treats_unparseable_json_as_empty(tmp_path, monkeypatch):
         assert list(json.loads(path.read_text())["providers"]) == ["distil"]
 
     assert path.read_text() == "not json", "original garbage bytes are still restored exactly"
+
+
+# ---------------------------------------------------------------------------
+# A second LIVE wrap of the same config target is refused.
+#
+# The registry made the shared backup safe; it never made the patch safe. Every
+# preset writes the same active provider entry pointing at its OWN proxy port,
+# and one file cannot name two ports — so the second session used to silently
+# repoint the first session's agent at its proxy, and whichever outlived the
+# other was left aimed at a dead port. These hold the refusal to the three
+# things that matter: sequential wraps still work, a live one blocks, and a
+# dead one does not.
+# ---------------------------------------------------------------------------
+
+
+def test_two_sequential_wraps_of_one_config_both_work(tmp_path, monkeypatch):
+    """The refusal must not turn into 'you may only ever wrap this once'."""
+    path = tmp_path / "crush.json"
+    original = json.dumps({"providers": {"openai": {"id": "openai"}}})
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    for port in ("1", "2"):
+        with config_wrap._crush_apply("https://api.anthropic.com", f"http://127.0.0.1:{port}"):
+            doc = json.loads(path.read_text())
+            assert doc["providers"]["distil"]["base_url"] == f"http://127.0.0.1:{port}"
+        assert path.read_text() == original, "each session restores before the next starts"
+
+
+def test_a_second_live_wrap_is_refused_and_changes_nothing(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "crush.json"
+    original = json.dumps({"providers": {"openai": {"id": "openai"}}})
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        first = path.read_bytes()
+        with pytest.raises(config_wrap.ConfigTargetBusy) as excinfo:
+            with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:2"):
+                pass
+        assert excinfo.value.pid == os.getpid()
+        assert path.read_bytes() == first, (
+            "the refused session must not have touched the live session's config"
+        )
+        err = capsys.readouterr().err
+        assert "distil default" in err, "must name the way to run several agents at once"
+        assert str(os.getpid()) in err, "must name who holds it"
+
+    assert path.read_text() == original, "the holder still restores cleanly afterwards"
+
+
+def test_a_dead_registrant_does_not_block_a_new_wrap(tmp_path, monkeypatch):
+    """A SIGKILLed session leaves its registry entry behind. Treating that as a
+    live holder would make the config unwrappable until someone deleted a
+    directory by hand — a worse failure than the one this guard prevents."""
+    path = tmp_path / "crush.json"
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    registry = config_wrap._registry_dir(path)
+    registry.mkdir(parents=True)
+    (registry / "999999.deadbeef").touch()
+    monkeypatch.setattr(config_wrap, "_pid_is_alive", lambda pid: False)
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1") as argv:
+        assert argv == []
+        assert json.loads(path.read_text())["providers"]["distil"]
+    assert not path.exists()
+
+
+def test_busy_holder_reports_the_live_pid_and_reaps_the_dead(tmp_path, monkeypatch):
+    path = tmp_path / "crush.json"
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    preset = config_wrap.CONFIG_PRESETS["crush"]
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    assert config_wrap.busy_holder(preset) is None
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        held = config_wrap.busy_holder(preset)
+        assert held is not None and held[0] == path and held[1] == os.getpid()
+    assert config_wrap.busy_holder(preset) is None, "released on exit"
+
+
+def test_busy_holder_ignores_a_flag_strategy_preset(monkeypatch):
+    """`cn` writes only a temp file, so it declares no stable paths and can
+    never be busy — several Continue sessions at once are genuinely fine."""
+    assert config_wrap.busy_holder(config_wrap.CONFIG_PRESETS["cn"]) is None
+
+
+def test_cmd_wrap_refuses_a_busy_target_before_starting_a_proxy(tmp_path, monkeypatch, capsys):
+    """The user-facing half: exit non-zero, say who holds it, and never reach
+    wrap_run — no proxy started, nothing written."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    path = tmp_path / "crush.json"
+    original = "{}"
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    def boom(*a, **kw):
+        raise AssertionError("wrap_run must not be reached for a busy target")
+
+    monkeypatch.setattr("distil.proxy.wrap_run", boom)
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        held = path.read_bytes()
+        assert cmd_wrap(_ns(command=["crush"])) == 1
+        err = capsys.readouterr().err
+        assert f"pid {os.getpid()}" in err
+        assert "distil default" in err
+        assert path.read_bytes() == held
+
+    assert path.read_text() == original
+
+
+def test_cmd_wrap_still_runs_when_the_target_is_free(tmp_path, monkeypatch):
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: tmp_path / "crush.json")
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    captured: dict = {}
+
+    def fake(command, *, config_ctx=None, **kw):
+        captured["config_ctx"] = config_ctx
+        return 0
+
+    monkeypatch.setattr("distil.proxy.wrap_run", fake)
+    assert cmd_wrap(_ns(command=["crush"])) == 0
+    assert captured["config_ctx"] is config_wrap.CONFIG_PRESETS["crush"].apply

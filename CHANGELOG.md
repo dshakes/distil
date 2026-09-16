@@ -51,6 +51,23 @@ All notable changes to Distil are documented here. Format loosely follows
 
 ### Changed
 
+- **A second `distil wrap` of the same config-file agent is refused, not silently fought
+  over.** The per-session registry made the shared *backup* safe — whose bytes to restore
+  and which session restores them — and that had been mistaken for making concurrency
+  safe. It never was. Every config-file preset writes the same active provider entry
+  pointing at its **own** proxy port, and one file cannot name two ports. Two live wraps
+  of, say, Crush gave: the second repointed the file at its proxy, so the first agent's
+  traffic ran through the second session and landed in its ledger; the first exited, its
+  proxy died, and the config the second was still using named a dead port; the second
+  exited last and restored the pre-wrap backup under a session already gone. Having the
+  second reuse the first's proxy cannot fix it either — the first owns that proxy's
+  lifetime and takes it down when its agent exits. `distil wrap` now checks for a live
+  holder before starting a proxy or writing a byte, exits non-zero, names the pid holding
+  the file, and points at `distil default --always-on`, which is how several agents share
+  one long-lived proxy with no config patching at all. The check is repeated inside the
+  same lock as the claim, so two wraps starting in the same instant cannot both pass it.
+  Dead registrants are reaped exactly as before: a `kill -9`ed session never blocks the
+  next wrap.
 - **One catalogue, generated docs.** The same three facts about each agent were restated
   in five places — two preset registries, a dict in `cli.py`, and prose tables in
   README.md, `docs/IDE-AGENTS.md` and `docs/integrations.html` — and they drifted.

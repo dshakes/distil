@@ -3034,6 +3034,16 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     # where its default upstream (if any) needed to take effect.
     config_wrap.restore_stale_backups()
     if config_preset is not None:
+        # A config file can only name one proxy, and two live wraps need two
+        # ports — so a second concurrent wrap of the same target is refused
+        # here, before a proxy is started or a byte is written, rather than
+        # silently repointing the first session's agent at this one's proxy.
+        # (restore_stale_backups above has already reaped any dead session's
+        # registry, so only a genuinely running pid can block this.)
+        _busy = config_wrap.busy_holder(config_preset)
+        if _busy is not None:
+            print(config_wrap.busy_message(*_busy), file=sys.stderr)
+            return 1
         print(
             f"  preset: {config_preset.label} detected → config-file injection ({config_preset.strategy})"
         )

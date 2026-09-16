@@ -44,16 +44,35 @@ separate case, covered by the existing ``finally``/signal-handling in
 ``proxy.wrap_run`` for anything short of SIGKILL, and by
 ``restore_stale_backups()`` at the top of the next ``distil wrap`` for that.
 
-Two `distil wrap` sessions can legitimately be patching the same config at
-once (a second wrap of any tool calls ``restore_stale_backups()``
-unconditionally). ``_claim_session``/``_release_session`` track that with a
-per-target-path registry of pid-tagged entries, so a live sibling's
-backup/sentinel is never mistaken for crash leftovers, and whichever session
-turns out to be the LAST one running does the real restore — regardless of
-exit order. Every claim-and-write and release-and-restore transition holds
-``_session_lock(path)`` for its whole extent, so a release's "no live
-siblings remain" check and a fresh sibling's claim can never straddle each
-other — the failure mode a lock-free registry check alone still allows.
+Two `distil wrap` sessions must NEVER be patching the same config at once,
+and the second one is refused. The registry of pid-tagged entries maintained
+by ``_claim_session``/``_release_session`` used to be treated as making
+concurrency safe; it isn't, and it never was. What it makes safe is the
+shared BACKUP — whose bytes to restore, which session does the restoring, and
+telling a live sibling's bookkeeping apart from a crashed one's leftovers.
+What it cannot make safe is the patch itself, because every preset writes the
+same active provider entry (``distil``) pointing at ITS OWN proxy port, and
+one file cannot name two ports. Two live sessions on one config gave: B
+repoints the file at B's proxy, so A's traffic silently flows through B's
+session and lands in B's ledger; A exits first and its proxy dies, leaving
+the config B is still using pointed at a dead port; B exits last and restores
+the pre-wrap backup under a session that has already gone. Nor can B simply
+reuse A's proxy — A owns that proxy's lifetime and takes it down when A's
+agent exits.
+
+So ``_own_config`` refuses, raising ``ConfigTargetBusy`` before it writes
+anything, whenever ``_live_holder`` finds a registrant whose pid is still
+running; ``cmd_wrap`` asks ``busy_holder()`` first so the usual case is a
+clean non-zero exit with no proxy started. Running several agents through
+distil at once is what ``distil default`` is for: one long-lived proxy, no
+config patching. Dead registrants are reaped exactly as before, so a
+SIGKILLed session never blocks the next wrap.
+
+Every claim-and-write and release-and-restore transition still holds
+``_session_lock(path)`` for its whole extent — the busy check included, so
+two wraps starting in the same instant cannot both pass it — and whichever
+session turns out to be the last one running still does the real restore,
+regardless of exit order.
 
 The registry says who is running; it does NOT say whether the shared backup
 exists. ``_own_config`` decides that from the backup file itself, in the
@@ -61,10 +80,12 @@ same critical section as the claim and strictly before the patch, so no
 crash can leave a config patched with nothing to restore it from. Patching
 is idempotent for every strategy that touches a real file — droid and crush
 key their entry (drop-and-re-append / dict assignment), omp strips its own
-marker fence before splicing a new one — so re-patching an already-patched
-config replaces the ``distil`` entry instead of stacking a second one; cn
-never re-patches anything, since it renders a fresh self-contained temp
-config per invocation and leaves the user's own files alone.
+marker fence before splicing a new one, cline assigns into its providers map
+— so a wrap that runs against a config still carrying a ``distil`` entry
+(one a `kill -9` left behind, restored or not) replaces it rather than
+stacking a second one; cn never re-patches anything, since it renders a
+fresh self-contained temp config per invocation and leaves the user's own
+files alone.
 """
 
 from __future__ import annotations
@@ -73,6 +94,7 @@ import contextlib
 import json
 import os
 import re
+import sys
 import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -231,6 +253,35 @@ def _pid_is_alive(pid: int) -> bool:
         return True  # couldn't ask — fail-safe, assume alive
 
 
+class ConfigTargetBusy(RuntimeError):
+    """Another *live* ``distil wrap`` session already owns this config file.
+
+    Concurrent wraps of the same config-file target cannot be made to work by
+    sharing, and the registry alone was never enough to make them safe. The
+    registry protects the shared BACKUP — whose bytes to restore, and which
+    session does the restoring — but every preset writes the same active
+    provider entry (``distil``) pointing at ITS OWN proxy port. So two live
+    sessions on one config produced: B repoints the file at B's proxy, so A's
+    requests silently flow through B's session and land in B's ledger; A exits
+    first, its proxy dies, and the config B is still using now names a dead
+    port; B exits last and restores the pre-wrap backup, under a session that
+    is gone anyway.
+
+    "Have B reuse A's proxy" does not fix it either: A owns that proxy's
+    lifetime and will take it down whenever A's agent exits, leaving B routed
+    at nothing. Two sessions genuinely need two ports, and one file cannot name
+    two ports. So the second wrap is refused instead — before anything is
+    touched — and the user is pointed at ``distil default``, which is the
+    supported way to have many launches share one long-lived proxy without
+    patching any config at all.
+    """
+
+    def __init__(self, path: Path, pid: int) -> None:
+        self.path = path
+        self.pid = pid
+        super().__init__(f"{path} is already owned by a live distil wrap (pid {pid})")
+
+
 def _registry_dir(path: Path) -> Path:
     return path.with_name(path.name + ".distil-sessions")
 
@@ -244,6 +295,60 @@ def _prune_dead_registrants(registry_dir: Path) -> None:
         pid_str = entry.name.split(".", 1)[0]
         if not pid_str.isdigit() or not _pid_is_alive(int(pid_str)):
             entry.unlink(missing_ok=True)
+
+
+def _live_holder(registry_dir: Path) -> int | None:
+    """The pid of a live session registered against this path, or ``None``.
+
+    Dead registrants are reaped first, exactly as ``restore_stale_backups``
+    does, so a session that was SIGKILLed can never block the next wrap — the
+    only thing that blocks is a process that is genuinely still running.
+    Callers hold ``_session_lock(path)`` across this and whatever they do with
+    the answer, so a claim cannot slip in behind it.
+    """
+    _prune_dead_registrants(registry_dir)
+    try:
+        entries = sorted(entry.name for entry in registry_dir.iterdir())
+    except FileNotFoundError:
+        return None
+    for name in entries:
+        pid_str = name.split(".", 1)[0]
+        if pid_str.isdigit():
+            return int(pid_str)
+    return None
+
+
+def busy_holder(preset: ConfigPreset) -> tuple[Path, int] | None:
+    """``(path, pid)`` if a live wrap already owns one of this preset's config
+    files, else ``None``. Used by ``cmd_wrap`` to refuse a second concurrent
+    wrap of the same target cleanly — before a proxy is started or a byte is
+    written. ``_own_config`` re-checks under its own lock, so this being
+    advisory (a sibling could start in the gap) costs correctness nothing; it
+    just makes the common case a tidy exit instead of an aborted injection.
+    """
+    for path in preset.paths():
+        with _session_lock(path):
+            pid = _live_holder(_registry_dir(path))
+        if pid is not None:
+            return path, pid
+    return None
+
+
+def busy_message(path: Path, pid: int) -> str:
+    """What to tell someone whose second wrap was refused. Names the holder,
+    and leads with the thing that actually solves their problem rather than
+    with the refusal."""
+    return (
+        f"\n  ✗ distil wrap: {path} is already being managed by a live\n"
+        f"    distil wrap session (pid {pid}). A config file can only name one\n"
+        f"    proxy, and two sessions need two — so wrapping it twice would\n"
+        f"    route this session's traffic through the other one's proxy, and\n"
+        f"    leave whichever session outlives the other pointed at a dead port.\n\n"
+        f"    To run several agents through distil at once, use the always-on\n"
+        f"    proxy instead — one long-lived port, no config patching at all:\n"
+        f"        distil default --always-on\n"
+        f"    Or wait for pid {pid} to exit and run this again.\n"
+    )
 
 
 def _session_lock(path: Path) -> contextlib.AbstractContextManager[None]:
@@ -340,6 +445,16 @@ def _own_config(path: Path, render: Callable[[bytes | None], bytes]) -> Iterator
     backup = _backup_path(path)
     sentinel = _created_marker(path)
     with _session_lock(path):
+        # Refusing a second live session on one config happens HERE, inside the
+        # same lock as the claim, rather than only in cmd_wrap's pre-check:
+        # otherwise two wraps starting at the same moment both pass the
+        # pre-check and both patch. Nothing has been written at this point, so
+        # raising leaves the file exactly as it was found. See ConfigTargetBusy
+        # for why sharing one config between two sessions cannot be made to work.
+        holder = _live_holder(_registry_dir(path))
+        if holder is not None:
+            print(busy_message(path, holder), file=sys.stderr)
+            raise ConfigTargetBusy(path, holder)
         registry_dir, my_id = _claim_session(path)
         current = path.read_bytes() if path.exists() else None
         if not backup.exists() and not sentinel.exists():
