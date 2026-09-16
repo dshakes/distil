@@ -36,7 +36,8 @@ would embed isn't set, it prints why and leaves the tool's config untouched
 Every write that can put a credential on disk — the real config file, and
 its ``.distil-backup`` copy of what was there before — goes through
 ``_atomic_write_secure``: 0600-at-creation (POSIX) plus a same-directory
-temp file swapped in with ``os.replace``, so a write that fails partway
+temp file swapped in with ``os.replace`` (retried on Windows, where a
+replace onto a contended path fails transiently), so a write that fails partway
 (disk full, permission denied) leaves the original bytes untouched instead
 of a half-written file, and the credential is never briefly world-readable
 at the umask default. Process death (SIGKILL, power loss) mid-session is a
@@ -70,7 +71,6 @@ config per invocation and leaves the user's own files alone.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
 import re
@@ -124,7 +124,9 @@ def _atomic_write_secure(path: Path, data: bytes) -> None:
     two concurrent writers to the same target open/truncate the SAME temp
     file, so one's ``os.replace`` could publish the other's half-written
     bytes; a unique name per call makes that structurally impossible. The
-    temp is fsync'd and swapped into place with one ``os.replace``. If
+    temp is fsync'd and swapped into place with one ``os.replace`` (via
+    ``_filelock.replace_retrying``, which retries the Windows-only transient
+    failure of a replace onto a contended path). If
     anything raises before that replace (disk full, permission denied, an
     unparseable existing file upstream of this call), ``path`` is left
     completely untouched; the temp file never survives this function either
@@ -137,7 +139,7 @@ def _atomic_write_secure(path: Path, data: bytes) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        _filelock.replace_retrying(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)  # no-op once os.replace has moved it; else cleanup
 
@@ -263,27 +265,51 @@ def _session_lock(path: Path) -> contextlib.AbstractContextManager[None]:
     errors); the sidecar it locks is a file distil owns, so the wrapped
     config file is never touched by the locking itself.
 
-    That sidecar lives under ``DISTIL_HOME``, not beside the config. A
-    ``_filelock`` sidecar is never unlinked — it cannot be, because deleting
-    the file a waiter has already opened lets a third process create a fresh
-    one and hold the "same" lock concurrently — so putting it next to the
-    config left a ``<config>.distil-sessions.lock`` in the user's agent
-    config directory after every wrap, long after the registry dir itself
-    was removed. distil's own directory is where distil's litter belongs,
-    and there is at most one such file per wrapped config path.
+    The sidecar sits beside the config, keyed on the config path and nothing
+    else, and it is never unlinked. Both of those are load-bearing; see
+    ``_lock_anchor`` for why neither is negotiable.
     """
     return _filelock.locked(_lock_anchor(path))
 
 
 def _lock_anchor(path: Path) -> Path:
-    """Where the session lock's sidecar lives: one stable file per wrapped
-    config path, under ``DISTIL_HOME``. Keyed by a digest of the resolved
-    registry path so every process wrapping the same config agrees on it
-    without the name having to be a filesystem-legal echo of an arbitrary
-    path (and without leaking that path into a shared directory)."""
-    key = hashlib.sha256(str(_registry_dir(path).resolve()).encode()).hexdigest()[:16]
-    base = Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil")))
-    return base / "locks" / key
+    """Where the session lock's sidecar lives: ``<config>.distil-sessions.lock``,
+    beside the config, as a SIBLING of the registry directory it guards (so
+    removing that directory never removes the lock).
+
+    **It must be a pure function of the config path and of nothing else.** A lock
+    keyed on anything a caller can vary is not a lock: this briefly lived under
+    ``DISTIL_HOME``, which meant two ``distil wrap`` processes with different
+    ``DISTIL_HOME`` values took two different locks over the SAME config, and the
+    release-vs-claim race this exists to close reopened — one session restores the
+    original while the other has already claimed and written its own.
+
+    A shared per-machine directory keyed by a digest would also be a pure function
+    of the path, and it is the wrong trade here:
+
+    * **Lifetime.** ``/tmp`` is swept (systemd-tmpfiles, tmpreaper) and cleared on
+      reboot; the registry and backup this guards sit beside the config and are
+      not. A lock that can vanish while the state it protects survives is the same
+      divergence bug again, only rarer and harder to reproduce.
+    * **Ownership.** ``/tmp`` is world-writable on Linux. A squatted lock path fails
+      ``open()``, and ``_filelock.locked`` fails *open* — degrading silently to no
+      lock at all, on the exact transition that keeps a sibling from clobbering the
+      user's config.
+    * **Canonicalisation.** Beside the config the kernel does it: two processes
+      reaching one config through different symlinked parents open the same inode,
+      and ``flock`` agrees for free. A digest has to get ``.resolve()`` exactly
+      right to match. The registry dir is already keyed by the unresolved
+      ``with_name`` path, so this way lock and registry agree by construction
+      rather than by two derivations being kept in sync.
+
+    The cost is a leftover ``<config>.distil-sessions.lock`` beside the user's agent
+    config, and it is accepted rather than cleaned. It CANNOT be cleaned: unlinking
+    the file a waiter has already opened lets a third process create a fresh one and
+    hold the "same" lock concurrently, so an unlink-when-the-registry-empties would
+    trade this cosmetic problem for the correctness one. One empty file per wrapped
+    config path, created once and reused forever, is the honest price of the lock.
+    """
+    return _registry_dir(path)
 
 
 def _claim_session(path: Path) -> tuple[Path, str]:

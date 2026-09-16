@@ -34,6 +34,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
+from . import _filelock
 from ._log import log
 from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
@@ -267,7 +268,7 @@ class GatewayState:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(path.name + ".tmp")
             tmp.write_text(json.dumps(data), encoding="utf-8")
-            os.replace(tmp, path)
+            _filelock.replace_retrying(tmp, path)
         except OSError:
             pass  # best-effort — never let a failed save crash shutdown
 

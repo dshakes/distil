@@ -18,11 +18,12 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import NamedTuple
 
 import pytest
 
-from distil import config_wrap
+from distil import _filelock, config_wrap
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +539,28 @@ def test_atomic_write_secure_concurrent_writers_never_produce_a_mixed_file(tmp_p
     assert leftovers == [], f"a temp file survived concurrent writes: {leftovers}"
 
 
+def test_atomic_write_secure_swaps_through_the_shared_retrying_replace(tmp_path, monkeypatch):
+    """The Windows retry lives in `_filelock.replace_retrying`, not here.
+
+    Behaviour is covered once, in tests/test_filelock.py. What this call site owes is that
+    it routes through the shared helper rather than calling `os.replace` itself — the
+    whole point of moving it was that a fix in one atomic writer left the other two
+    broken."""
+    seen: list[tuple] = []
+    real = _filelock.replace_retrying
+
+    def spy(src, dst):
+        seen.append((Path(src).name, Path(dst).name))
+        return real(src, dst)
+
+    monkeypatch.setattr(_filelock, "replace_retrying", spy)
+    path = tmp_path / "target"
+    config_wrap._atomic_write_secure(path, b"hello")
+
+    assert path.read_bytes() == b"hello"
+    assert [d for _s, d in seen] == ["target"], "the swap bypassed _filelock.replace_retrying"
+
+
 def test_config_survives_the_wrapped_child_being_killed(tmp_path, monkeypatch):
     """The wrap process itself keeps running when the CHILD dies by signal —
     proxy.wrap_run's finally block (which __exit__s the config context
@@ -678,13 +701,14 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
     assert not config_wrap._registry_dir(path).exists()
 
 
-def test_wrapping_leaves_no_litter_in_the_users_config_directory(tmp_path, monkeypatch):
-    """`_filelock` sidecars are never unlinked — they cannot be, because deleting the
-    file a waiter has already opened lets a third process create a fresh one and hold the
-    "same" lock at the same time. So the session lock's sidecar lives under DISTIL_HOME
-    rather than beside the config, where it used to leave a permanent
-    `<config>.distil-sessions.lock` in the user's agent config directory after every
-    single wrap. Undo is byte-exact; the directory should be too."""
+def test_wrapping_leaves_only_the_lock_sidecar_beside_the_config(tmp_path, monkeypatch):
+    """Undo is byte-exact and the registry directory is gone; the lock sidecar stays.
+
+    It has to. A `_filelock` sidecar cannot be unlinked — deleting the file a waiter has
+    already opened lets a third process create a fresh one and hold the "same" lock at
+    the same time — so "clean it up when the registry empties" would trade a cosmetic
+    problem for a correctness one. One empty file per wrapped config, reused forever.
+    """
     home = tmp_path / "distil-home"
     cfg_dir = tmp_path / "agent-config"
     cfg_dir.mkdir()
@@ -699,8 +723,79 @@ def test_wrapping_leaves_no_litter_in_the_users_config_directory(tmp_path, monke
         assert '"id": "distil"' in path.read_text(), "the wrap did not take — fixture is stale"
 
     assert path.read_text() == original
+    assert not config_wrap._registry_dir(path).exists(), "the registry dir must be removed"
     leftovers = sorted(p.name for p in cfg_dir.iterdir())
-    assert leftovers == ["crush.json"], f"distil left files behind: {leftovers}"
+    assert leftovers == ["crush.json", "crush.json.distil-sessions.lock"], (
+        f"distil left unexpected files behind: {leftovers}"
+    )
+
+
+def test_the_session_lock_does_not_depend_on_distil_home(tmp_path, monkeypatch):
+    """The lock must be a pure function of the config path.
+
+    It was keyed under DISTIL_HOME for one commit, which meant two `distil wrap`
+    processes started with different DISTIL_HOME values — different installs, a test
+    harness, a user who moved it — took two DIFFERENT locks over the SAME config. The
+    lock then serialised nothing, and the release-vs-claim race it exists to close
+    reopened: one session restores the original while the other has already claimed and
+    written its own config over it.
+    """
+    path = tmp_path / "agent" / "crush.json"
+    path.parent.mkdir()
+    path.write_text("{}")
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "home-a"))
+    first = config_wrap._lock_anchor(path)
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "home-b"))
+    second = config_wrap._lock_anchor(path)
+    monkeypatch.delenv("DISTIL_HOME", raising=False)
+    third = config_wrap._lock_anchor(path)
+
+    assert first == second == third, "two DISTIL_HOMEs chose two locks for one config"
+    assert tmp_path / "home-a" not in first.parents
+    # A sibling of the registry directory, never inside it: removing the registry on the
+    # last release must not remove the lock out from under a waiter.
+    assert first.parent == config_wrap._registry_dir(path).parent
+    assert config_wrap._registry_dir(path) not in first.parents
+
+
+def test_the_session_lock_actually_excludes_a_second_holder(tmp_path, monkeypatch):
+    """The property the anchor exists for, exercised rather than asserted about.
+
+    Paired with the anchor test above — that one proves two DISTIL_HOMEs pick the same
+    lock file, this one proves that lock file excludes. `flock` is per open file
+    description, so two separate `open()` calls contend whether they are in one process
+    or two."""
+    path = tmp_path / "agent" / "crush.json"
+    path.parent.mkdir()
+    path.write_text("{}")
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "home-a"))
+
+    inside = 0
+    overlaps = 0
+    counter = threading.Lock()
+    start = threading.Barrier(2)
+
+    def _hold() -> None:
+        nonlocal inside, overlaps
+        start.wait()
+        for _ in range(20):
+            with config_wrap._session_lock(path):
+                with counter:
+                    inside += 1
+                    if inside > 1:
+                        overlaps += 1
+                time.sleep(0.001)
+                with counter:
+                    inside -= 1
+
+    threads = [threading.Thread(target=_hold) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert overlaps == 0, "two holders were inside one config's session lock at once"
 
 
 # ---------------------------------------------------------------------------

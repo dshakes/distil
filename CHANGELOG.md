@@ -8,7 +8,10 @@ All notable changes to Distil are documented here. Format loosely follows
 1.53.0rc1 shipped the re-read delta with its contract written out in six rules, an ADR and
 a changelog entry. A read of the request path against that contract found two of the rules
 stated and not implemented, and six older defects on the paths the new transform now
-runs more of. Nothing here is a new capability. Each one is the difference between what
+runs more of. A cross-audit of the result then found one more, introduced by this branch:
+the fix that moved the session lock's sidecar out of the user's config directory made the
+lock depend on `DISTIL_HOME`, which is to say it stopped being a lock. That is reverted
+below, litter and all, with the reasoning written down this time. Nothing here is a new capability. Each one is the difference between what
 the documentation promises and what the code does, which is the only kind of bug a soak
 cannot be relied on to surface — the shapes below are invisible under `distil wrap` on
 Claude Code, and that is the only traffic the soak has.
@@ -137,15 +140,58 @@ most once per 64 records. Against a 2,000-file store it falls from 16.9 ms to 0.
 recorded handle. The trade is named where it lives: the store may sit up to 63 files above
 its cap, and hold an expired blob that much longer, between sweeps.
 
-### `distil wrap` left a lock file in the user's config directory
+### `os.replace` onto a contended path is not a permission error on Windows
 
-The session registry's advisory lock is a `_filelock` sidecar, and a `_filelock` sidecar
-is never unlinked — it cannot be, because deleting the file a waiter has already opened
-lets a third process create a fresh one and hold the "same" lock concurrently. Named after
-the registry, that left a `<config>.distil-sessions.lock` beside the user's agent config
-after every wrap, outliving both the registry directory and the byte-exact restore of the
-config itself. The sidecar now lives under `DISTIL_HOME`, one file per wrapped config
-path, where distil's own litter belongs.
+Every atomic write in this codebase ends the same way: write a temp file beside the
+target, fsync, swap it in with one `os.replace`. POSIX `rename` is atomic against a
+concurrent rename and against readers, so that is the whole story there. Windows'
+`MoveFileEx` has to open the destination, so two writers racing on one target fail each
+other with `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`. The Windows CI gate failed
+on exactly that, in `config_wrap`'s concurrent-writers test, and the diagnosis the error
+name invites is wrong: the condition is contention, it clears in microseconds, and by the
+time the call is reached the bytes are already written and fsync'd. Aborting throws away
+completed work over a collision that resolves itself.
+
+The retry is `_filelock.replace_retrying`, bounded at ten attempts 5ms apart, and it lives
+in `_filelock` rather than in the writer that happened to go red. That module already owns
+the primitives Windows spells differently — it exists because `fcntl` is POSIX-only and
+every call site used to drop its lock silently there — and `os.replace` is the second such
+primitive, not a `config_wrap` problem. Fixing it only where the gate failed would have
+left the gateway's per-tenant counters and the gateway key store, both of which have
+concurrent writers, broken the same way and unreported. All three atomic writers now route
+through the one helper.
+
+A `winerror` outside the contention pair still raises on the first attempt, because
+retrying a genuine permission failure only makes an accurate answer slower. The POSIX
+branch is the bare call it always was.
+
+### The lock guarding a config depended on where distil was installed
+
+The session lock exists to stop a release ("no live siblings remain, restore the
+original") from interleaving with a fresh claim ("register me, I'm writing my own
+config"). It only does that if every process wrapping one config agrees on one lock file.
+Keyed under `DISTIL_HOME` — which this changelog previously described as a tidiness fix —
+it did not: two `distil wrap` processes with different `DISTIL_HOME` values, from two
+installs or a test harness, took two different locks over the same config and serialised
+nothing. The race reopened silently, with the config the loser.
+
+The anchor is a pure function of the config path again, beside the config as a sibling of
+the registry directory it guards. A shared per-machine directory keyed by a digest would
+also be pure, and is a worse trade on three counts: `/tmp` is swept and cleared on reboot
+while the registry and backup beside the config are not, so the lock could vanish while
+the state it protects survives; `/tmp` is world-writable on Linux, and a squatted lock
+path fails `open()`, which `_filelock` fails *open* on, degrading silently to no lock at
+all; and beside the config the kernel canonicalises for free, so two processes reaching
+one config through different symlinked parents contend on the same inode without a
+`.resolve()` having to be exactly right.
+
+What this gives back is the leftover it was trying to remove: a `<config>.distil-sessions.lock`
+stays beside the user's agent config. It is accepted rather than cleaned, because it
+cannot be cleaned. Unlinking the file a waiter has already opened lets a third process
+create a fresh one and hold the "same" lock concurrently, so an
+unlink-when-the-registry-empties would trade a cosmetic problem for a correctness one. One
+empty file per wrapped config path, created once and reused forever, is the price of the
+lock working.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 

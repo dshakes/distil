@@ -886,3 +886,29 @@ def test_fresh_store_sees_existing_keys_immediately(tmp_path: Path) -> None:
     assert fresh.lookup(raw) is not None, "a cold-start store must not 401 a valid key"
     assert [r.id for r in fresh.list_keys()] == [rec.id]
     assert fresh.has_active_keys()
+
+
+def test_key_store_swaps_through_the_shared_retrying_replace(tmp_path: Path, monkeypatch) -> None:
+    """The key store's atomic write owes the same Windows retry as the other two.
+
+    Behaviour is covered once, in tests/test_filelock.py. What this call site owes is that
+    it routes through the shared helper — it already takes a `_filelock.locked` around the
+    write, which excludes distil's own writers but not a reader holding an open handle,
+    the other way a replace fails transiently on Windows."""
+    from distil import _filelock
+
+    seen: list[str] = []
+    real = _filelock.replace_retrying
+
+    def spy(src, dst):
+        seen.append(Path(dst).name)
+        return real(src, dst)
+
+    monkeypatch.setattr(_filelock, "replace_retrying", spy)
+    path = tmp_path / "gateway_keys.json"
+    store = GatewayKeyStore(path)
+    _, rec = store.issue("acme")
+
+    assert seen == ["gateway_keys.json"], "the swap bypassed _filelock.replace_retrying"
+    assert path.exists()
+    assert store.has_active_keys()
