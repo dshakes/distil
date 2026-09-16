@@ -3,7 +3,455 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and where you are still leaving savings on the table
+
+Two themes, and the same shape underneath both. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
+
+1.53.0rc1 shipped the re-read delta with its contract written out in six rules, an ADR and
+a changelog entry. A read of the request path against that contract found two of the rules
+stated and not implemented, and six older defects on the paths the new transform now
+runs more of. A cross-audit of the result then found one more, introduced by this branch:
+the fix that moved the session lock's sidecar out of the user's config directory made the
+lock depend on `DISTIL_HOME`, which is to say it stopped being a lock. That is reverted
+below, litter and all, with the reasoning written down this time. Nothing here is a new capability. Each one is the difference between what
+the documentation promises and what the code does, which is the only kind of bug a soak
+cannot be relied on to surface — the shapes below are invisible under `distil wrap` on
+Claude Code, and that is the only traffic the soak has.
+
+### The freshest read the agent asked for came back as a pointer
+
+ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency
+carve-out exists at all: a re-read the agent has just issued is precisely the output it
+reasons over to choose its next action. The planner honoured it — which blocks may serve
+as bases never depended on the sliding window — and the application did not. So an agent
+that re-read a file to find out whether its edit had landed was handed
+`«distil-reread handle=…» lines 1-80 of this result are byte-identical to…` and a round
+trip through `distil_expand` to get the answer back.
+
+The gate is now where the rule always said it was: the plan is still computed from the
+prefix, and only its application consults recency. That is one line of behaviour and a
+much larger change to what the tests assert — `tests/test_reread_delta.py` had no test for
+this rule at all, and every fixture in it ended on the re-read, which is exactly the
+position the rule protects. The `distil validate` re-read cases had the same shape and
+would have gone quietly green over a transform that no longer ran; they now act on what
+they read before the payload is measured, as a real session does.
+
+**Why a week of soak could not find it.** The recency window is anchored to the client's
+last `cache_control` breakpoint, so when the client pins its newest block — Claude Code's
+shape — the window is empty and this gate is a no-op. The defect only reached clients that
+send no marker: plain SDK callers, third-party agents on `/v1/messages`, and the opening
+turns of every session before a marker lands. On the codebench corpus the unmarked row
+moves from 10.3% to 7.1% tokens, which is the number the 1.53.0 entry below already
+quotes; the marked row that bills is unchanged at 41.7% and 49.1%.
+
+### A CRLF read and an LF read of one file compared equal
+
+Rule 5 says lines carry their terminators into the comparison, and gives the reason:
+stripping them calls a CRLF read and an LF read of one file identical, so eliding the only
+LF copy while the base holds CRLF bytes makes the stub's claim of byte-identity false. The
+planner stripped them. `str.splitlines()` also folds a form feed, a next line and a line
+separator, so a form-feed-separated read matched a newline-separated one too.
+
+The application side had always sliced with `keepends=True`, so the two halves of the
+transform agreed about *which* lines by coincidence and disagreed about *what a line is*.
+They now use the same split, and the stub's claim is true of bytes rather than of
+characters. Matches get strictly rarer — a run reaching end-of-file in the target but not
+in the base gives up its last line — which is the safe direction. The exact-quote guard
+caught the consequence, but only from the turn an `Edit` with a literal `old_string`
+appeared; before that the model composed its quote from the wrong-terminator base.
+
+### A recovered block was folded back into the stub it had just escaped
+
+`distil_expand` is the recoverable half of the product: a digested block keeps a handle,
+the agent asks for the handle, and the original comes back. Over the MCP server that
+recovery arrives on the *next request* as an ordinary `tool_result` — the client ran a
+tool and reported what it returned — and the exact-quote exemption had no case for it. So
+the adapter digested it like any other tool output, and because a digest handle is
+`sha256[:8]` of the content, identical bytes produced the identical handle. The agent
+expanded `4b7055a5`, received `<< +116 lines, handle=4b7055a5 >>`, and had no move left
+that could reach the detail. Observed live.
+
+The exemption now runs before the name test, on every adapter at once, because all three
+read the same classifier: a `tool_result` whose paired `tool_use` is the expand tool is
+kept byte-exact whatever its age, under its own census bucket
+(`tool_result_expand_recovered`) so `distil dissect` prices it apart from the other two.
+Both namings are matched — the proxy injects its own tool as `distil_expand`, and Claude
+Code namespaces the MCP server's copy as `mcp__<serverkey>__distil_expand` with a key the
+user chooses, so the suffix form counts too. The proxy keeps injecting its tool when the
+MCP one is present; two routes to the same content is not a problem, and this exemption is
+what makes the second one safe. Matching on the name is the narrow version deliberately:
+the general fix compares the paired call's `input.handle` against the handle about to be
+emitted and needs no name at all, and the comment at the call site says so for the first
+client that renames the tool instead of namespacing it.
+
+### The streaming path resolved expansions and reported none
+
+`x-distil-expanded` and the receipt's `expanded_handles` were wired into the buffered
+expand loop only. The streaming splice resolves handles too — that is the whole point of
+`streamexpand`, which intercepts the call mid-stream so recoverable digest costs no
+time-to-first-token — but it reported nothing, so `quality.expand_resolved_requests` in
+`distil dissect` read **0 on every streaming session** no matter how much the agent pulled
+back, and `expansion_regret` had no handles to attribute. The feature whose entire claim
+is that it can prove recovery happened was, on the default path, unable to.
+
+Both branches now share one collection and one reporting step. The wire header cannot
+follow on the streaming path, and the reason is worth stating rather than working around:
+response headers are flushed with the first upstream frame, which is before any expand
+call exists. The receipt is written after the stream closes, and the receipt is what
+dissect reads.
+
+The same fix deletes an anomaly. "Every request took the streaming pass-through —
+`distil_expand` calls could never be intercepted" was written when the streaming path
+genuinely could not intercept; since the splice landed, its premise is false, and all it
+detected was a session where the agent never asked to expand — the ordinary healthy case,
+on which it fired every time. Narrowing it to what it means to warn about, an *escaped*
+tool call, is not possible: nothing in a receipt observes one. An unfalsifiable check is
+worse than no check, because it teaches the reader to skip the anomaly list. Restore it if
+a receipt ever records whether the expand tool was injected.
+
+### The turn a stub first appeared paid to re-bill the whole prefix
+
+`_serialize_if_changed` exists because the provider's prompt cache matches on exact bytes
+and `json.dumps` is not a byte-faithful round trip of what arrived. The streaming
+expand-intercept path built its upstream body with a bare `json.dumps` at two places, so
+the turn a digest handle first entered the conversation — flipping the request onto that
+path — re-spelled every message with `", "` separators and `\uXXXX` escapes and bought a
+full cache write for a rewrite the model cannot see. It was also the encoding
+`prefixreplay._wire` models, so `replay_restored` was being measured against bytes that
+path never sent. Both now go through the same serializer as every other request.
+
+### An 8-hex handle could resolve to another block's bytes after a restart
+
+`RestoreStore._record` refuses a handle that already maps to different text and declines
+the stub, because expanding it would return the wrong content. The on-disk store made the
+same check and then returned nothing: it kept the first writer, correctly, but the caller
+never learned, so the stub went out anyway. In the running process it expanded correctly
+from memory. After a restart, or from the MCP server in another process, it resolved to
+the other block. `mcp_server.record_restore` now reports the collision and `_record`
+declines the stub on it, which is what it already did for the in-memory half. A write that
+merely *fails* still returns true: persistence is best-effort and the session's own store
+still answers.
+
+The check itself is an exclusive create rather than `p.exists()` then write. The old form
+was check-then-act across processes, which is the only situation this guard is for: two
+proxies folding the same block could both see "absent", and on a real collision the second
+would clobber the first — the exact outcome, in the exact concurrent case, that the guard
+was added to prevent. `O_CREAT|O_EXCL` lets the filesystem pick the winner, and the loser
+finds the file already there and compares bytes instead of overwriting. It also means the
+blob is born 0600 rather than chmod-ed to it afterwards.
+
+### The restore store was re-stat'd on every handle it recorded
+
+Recording one handle sorted the whole store by mtime twice — once for the count cap, once
+for the age sweep — so at the 5,000-file cap a single handle cost up to 10,000 `stat()`
+calls. That is the `ms/turn ≈1 → ≈21` ADR 0010 attributed to the restore store, and the
+re-read delta records several handles per turn. The sweep now runs on one listing and at
+most once per 64 records. Against a 2,000-file store it falls from 16.9 ms to 0.3 ms per
+recorded handle. The trade is named where it lives: the store may sit up to 63 files above
+its cap between sweeps.
+
+**The TTL is not part of that trade, and the first version of this change made it one.**
+`DISTIL_RESTORE_TTL_DAYS` is a retention boundary for originals that can hold secrets or
+PII, not a housekeeping preference, and with the sweep amortized a store that never
+receives a 64th handle never reaches the trigger — so a quiet machine would keep every
+expired blob on disk, and keep serving them, for as long as it stayed quiet. Retention
+enforced only by a schedule that traffic can starve is not retention.
+
+So it is enforced on the read, where nothing can skip it: `load_restore` compares the
+blob's mtime against the TTL and treats an expired one as absent, unlinking it on sight
+and failing open if the unlink loses a race. The sweep keeps its counter and gains a
+second trigger — once per TTL/24 of elapsed time — so bulk expiry still happens on a
+low-traffic store without waiting for records that may never come. An expired blob also
+stops reading as a collision, so it cannot refuse a new stub for the same handle forever.
+
+### `os.replace` onto a contended path is not a permission error on Windows
+
+Every atomic write in this codebase ends the same way: write a temp file beside the
+target, fsync, swap it in with one `os.replace`. POSIX `rename` is atomic against a
+concurrent rename and against readers, so that is the whole story there. Windows'
+`MoveFileEx` has to open the destination, so two writers racing on one target fail each
+other with `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`. The Windows CI gate failed
+on exactly that, in `config_wrap`'s concurrent-writers test, and the diagnosis the error
+name invites is wrong: the condition is contention, it clears in microseconds, and by the
+time the call is reached the bytes are already written and fsync'd. Aborting throws away
+completed work over a collision that resolves itself.
+
+The retry is `_filelock.replace_retrying`, bounded at ten attempts 5ms apart, and it lives
+in `_filelock` rather than in the writer that happened to go red. That module already owns
+the primitives Windows spells differently — it exists because `fcntl` is POSIX-only and
+every call site used to drop its lock silently there — and `os.replace` is the second such
+primitive, not a `config_wrap` problem. Fixing it only where the gate failed would have
+left the gateway's per-tenant counters and the gateway key store, both of which have
+concurrent writers, broken the same way and unreported. All three atomic writers now route
+through the one helper.
+
+A `winerror` outside the contention pair still raises on the first attempt, because
+retrying a genuine permission failure only makes an accurate answer slower. The POSIX
+branch is the bare call it always was.
+
+### The lock guarding a config depended on where distil was installed
+
+The session lock exists to stop a release ("no live siblings remain, restore the
+original") from interleaving with a fresh claim ("register me, I'm writing my own
+config"). It only does that if every process wrapping one config agrees on one lock file.
+Keyed under `DISTIL_HOME` — which this changelog previously described as a tidiness fix —
+it did not: two `distil wrap` processes with different `DISTIL_HOME` values, from two
+installs or a test harness, took two different locks over the same config and serialised
+nothing. The race reopened silently, with the config the loser.
+
+The anchor is a pure function of the config path again, beside the config as a sibling of
+the registry directory it guards. A shared per-machine directory keyed by a digest would
+also be pure, and is a worse trade on three counts: `/tmp` is swept and cleared on reboot
+while the registry and backup beside the config are not, so the lock could vanish while
+the state it protects survives; `/tmp` is world-writable on Linux, and a squatted lock
+path fails `open()`, which `_filelock` fails *open* on, degrading silently to no lock at
+all; and beside the config the kernel canonicalises for free, so two processes reaching
+one config through different symlinked parents contend on the same inode without a
+`.resolve()` having to be exactly right.
+
+What this gives back is the leftover it was trying to remove: a `<config>.distil-sessions.lock`
+stays beside the user's agent config. It is accepted rather than cleaned, because it
+cannot be cleaned. Unlinking the file a waiter has already opened lets a third process
+create a fresh one and hold the "same" lock concurrently, so an
+unlink-when-the-registry-empties would trade a cosmetic problem for a correctness one. One
+empty file per wrapped config path, created once and reused forever, is the price of the
+lock working.
+
+Every fix below is the same shape: a rule distil already enforces somewhere, not enforced
+on the surface that is actually exposed. The proxy refuses a body it cannot read; the
+gateway read it as empty. The client-supplied tenant header goes through a validator; the
+tenant claim from an identity provider did not. The proxy sets a socket timeout and says
+why in a comment; the gateway, the component documented as the one you bind to a network,
+set none. The key file and the temp file it is written through are created 0600; the blobs
+holding agent output were chmod'd 0600 a moment after. None of these were oversights of
+design — the design is written down and correct in each case. They were the second call
+site, and the second call site is where security bugs live.
+
+### A body the gateway could not read became the next request
+
+The gateway sized every request body from `Content-Length` alone. `parse_content_length`
+returns `0` for a missing header, so a request framed with `Transfer-Encoding: chunked`
+was read as having no body at all — and its actual bytes stayed sitting in the socket
+buffer. On a keep-alive HTTP/1.1 connection the next parse picked those bytes up and
+treated them as a separate request, with its own separately-evaluated authorization, on a
+connection any front-end believed had carried exactly one. That is request smuggling, and
+it needs no exotic deployment: nginx, HAProxy, an ingress controller or a corporate egress
+proxy all honour `Transfer-Encoding` and will forward the chunked body faithfully. A
+reproduction sent one `sendall` and got two responses back, the second one a served
+dashboard.
+
+The proxy has refused this since it learned to, in four lines. Those four lines are now
+`httpguard.framing_rejection`, called from both servers, and they refuse slightly more
+than before: any `Transfer-Encoding` rather than the literal string `chunked`, because the
+property that matters is that the body length does not come from `Content-Length`, and
+`Content-Length` and `Transfer-Encoding` together — the framing disagreement stated
+outright — as a 400.
+
+Both servers also now close the connection on *every* rejection, which is the half of the
+fix a status code cannot do: the undrained body is still on the socket, and the only way
+it is never parsed is if nothing parses anything more. Framing was merely the loudest case.
+A cross-audit of this change pointed out that the oversized/malformed `Content-Length` 413
+answers from the headers too — and so, it turns out, do the invalid-path 400 and every auth
+401/403/429, all of which run before the body is read. So the close moved from the framing
+branch into `_reject`, the one function all of them already route through: one line, every
+caller, including the ones added later. The async proxy needs no equivalent change and did
+not get a cosmetic one — aiohttp parses framing itself rather than leaving the socket to
+the handler, and a direct attempt to desync it returned no response at all instead of
+parsing the trailing bytes as a request line.
+
+A second pass found the rule was still not universal: the two rate-limit 429s in the
+gateway's auth path wrote themselves through `_relay` directly, so "every rejection closes"
+was true of every rejection that went through `_reject` and false of the ones that did not
+— on the path that by construction is being hit repeatedly. `_reject` now takes the extra
+headers a 429 needs (`Retry-After`), and all four 429s go through it. That is the actual
+lesson of this release stated once more: the rule is only as good as the number of call
+sites that can skip it.
+
+A fourth pass found the last variant, and it needed no bypass at all — just the ordinary
+reading of a header. Both servers asked `headers.get("Content-Length")`, which returns the
+FIRST value and leaves the rest in `get_all`. So `Content-Length: 5` followed by
+`Content-Length: 0` was read as 5 here and may be read as 0 by a front-end that takes the
+last, and the five bytes stay queued as the head of the next request: CL.CL, the same
+desync reached without any exotic framing. `framing_rejection` now receives every
+`Content-Length` value and refuses the request when they disagree, including the `5, 0`
+comma list folded into one header line. Identical duplicates are still served — RFC 9112
+§6.3 calls those one value sent twice, and refusing them would be a new outage wearing a
+fix's clothes. The async proxy again needed nothing: aiohttp's parser answers 400 to any
+repeated `Content-Length`, which a raw-socket probe confirmed rather than assumed.
+
+Allowing those identical duplicates then produced a smaller bug of its own, worth naming
+because it is the same shape as everything else here: the guard said yes and the caller
+asked a different question. Both servers still sized the body from
+`headers.get("Content-Length")`, which for a repeat folded into one line hands back
+`"42, 42"` — a string `int()` refuses — so a perfectly well-framed request was answered
+`413 request body too large`. The guard had already split those values apart in order to
+judge them, so it now returns the canonical one alongside its verdict and both servers
+parse that. One question, one answer, one place.
+
+`Transfer-Encoding` was read the same wrong way, and the fix for `Content-Length` did not
+reach it: the guard still received `headers.get("Transfer-Encoding")`, the first value. So
+an empty `Transfer-Encoding:` ahead of a `Transfer-Encoding: chunked` read as "not
+TE-framed" while the body on the wire was chunked — the original desync, reached by adding
+one empty header. Both servers now pass every value, and a request is TE-framed if any
+coding is named anywhere, commas flattened so `gzip, chunked` counts. A present-but-empty
+header on its own still names no coding and is ignored, because 411-ing those would refuse
+requests framed exactly the way these servers require. aiohttp answers 400 to the duplicate
+form on its own and proxies the lone-empty one, so the async proxy again needed no change;
+both were confirmed with a raw-socket probe.
+
+And the tenant validator, the one definition three doors were consolidated onto above, was
+anchored with `^…$` — where `$` also matches immediately before a trailing newline. So
+`acme\n` was a valid tenant label, carrying into `x-distil-tenant` the exact character that
+splits a response header, which is the entire reason `safe_tenant` exists. The pattern is
+now `\A…\Z`. Putting the anchors in the pattern rather than asking four call sites to use
+`fullmatch` is deliberate: all four call `.match()` today, and a fifth written next year
+would otherwise inherit the bug for free. Two other `^…$` patterns applied to
+attacker-influenced input got the same treatment — Gemini path routing and sed-script
+classification in provenance. Of the three tenant doors only two were actually reachable:
+the header door already `.strip()`ed its value, and a header value cannot carry a raw
+newline over HTTP anyway. The OIDC claim and the operator key-issue path had nothing in
+front of them but the pattern.
+
+Validating at `issue()` also only protects labels issued *after* the check exists. Every
+record already on disk — written by an older distil, restored from a backup, or edited by
+hand — walked straight past it on load and became the `x-distil-tenant` response header
+anyway. The key store now applies the same collapse to every tenant it parses, so the
+guarantee is about what is read rather than about when it was written. It warns once per
+process naming the file, and does not rewrite it: silently editing an operator's key file
+to make a warning go away destroys the evidence of how the label got there. The two other
+places a persisted tenant surfaces were checked and needed nothing — the dashboard escapes
+with `html.escape` and the Prometheus exposition escapes backslash, quote and newline.
+The response header was the one sink with no escaping of its own.
+
+### The chart's egress hole-punch list was half a list
+
+The NetworkPolicy's default 443 rule is `0.0.0.0/0` minus a set of ranges, so anything
+missing from that set is somewhere a compromised pod can still send packets. It covered
+RFC1918, link-local and loopback, and stopped there. Now it also excludes `100.64.0.0/10`
+(carrier-grade NAT — EKS and GKE allocate pod and service CIDRs out of it, and some service
+meshes address sidecars there, so leaving it out left the cluster reachable), `0.0.0.0/8`
+(`0.0.0.0` is a routable alias for localhost on Linux, i.e. a loopback bypass),
+`198.18.0.0/15` (benchmarking, used by Istio and some CNIs), `224.0.0.0/4` (multicast, where
+cluster discovery and gossip live) and `240.0.0.0/4` (reserved, and it contains the
+broadcast address). The list moved into `values.yaml` as `networkPolicy.egressExcept` with a
+line of prose per range, so the next person to read it can tell whether an entry is load-
+bearing; `egressTo` still overrides the whole rule for operators who can name their
+provider.
+
+### OIDC tokens have their own header now
+
+Closing the OIDC gate above made a path reachable that had never carried real traffic, and
+it had a collision in it. The gateway read the OIDC token from `Authorization: Bearer …`
+and stripped that header before forwarding — correct for Anthropic, where `x-api-key`
+carries the provider credential separately, and broken for everyone else. For OpenAI,
+Azure and the Gemini bearer flavour that header IS the provider credential, and this
+gateway injects none of its own; it forwards the client's. So an OIDC-only deployment in
+front of OpenAI could not work at all: send the provider key and it fails JWT
+verification, send the JWT and the upstream receives no credential. The tests missed it
+because an echo upstream authenticates nothing.
+
+The OIDC token now goes in `x-distil-token`, which collides with nothing and is stripped
+before forwarding like `x-distil-key`. `Authorization: Bearer <jwt>` still works where it
+always did — when the request also carries a provider credential, which is exactly the
+Anthropic shape — and is otherwise refused with a 401 naming the new header, rather than
+forwarded as a request certain to fail upstream. A bearer that is not a verified OIDC
+token is never consumed or stripped; it is the provider's. No upstream-credential
+injection was added: the gateway still forwards the caller's credential and holds none,
+which is the property that keeps it out of the blast radius of a compromise.
+
+### Configuring an identity provider did not turn on authentication
+
+The gateway decided whether to require a credential before it decided what could serve as
+one. `_auth_required()` returned true when `--require-keys` was set or when a `dsk-` key
+had been issued, and the OIDC verifier ran *inside* that gate. An operator who pointed
+`DISTIL_OIDC_ISSUER` at their identity provider, set a signing secret, issued no gateway
+key and did not pass `--require-keys` was running a completely open gateway while every
+OIDC setting read back as configured — the one failure mode where the configuration
+surface actively tells you the opposite of the truth. A configured issuer now makes
+authentication required on its own, read from the environment on the same call the
+verifier uses so the two can never disagree about whether OIDC is on. Closing the gate
+must not close the door: with an issuer configured and no key store at all, a verified
+bearer token is now accepted as a complete credential rather than rejected for the absence
+of a store that deployment does not need.
+
+### A tenant label is a header value, and header values have no escaping
+
+The tenant a request is booked under reaches three places that assume it is inert: an
+`x-distil-tenant` response header, the dashboard, and the per-tenant accounting map.
+`BaseHTTPRequestHandler.send_header` performs no CRLF validation. The client-supplied
+header path has always been checked against a bounded, punctuation-free pattern; the OIDC
+claim path was not checked at all, so a `tenant` claim of `acme\r\nX-Injected: yes` was
+emitted verbatim into the response. It takes a validly-signed token to reach, so the
+attacker already holds a credential — but where the identity provider lets a user
+influence that claim and a shared cache sits in front, splitting a response is worth more
+than the token. The pattern now lives in `authz.TENANT_RE`, with one definition for all
+three doors a tenant label comes through. An unsafe claim collapses to a stable digest
+rather than falling back to `sub`, which comes out of the same token and would sanitise
+nothing.
+
+The third door was `distil gateway keys issue --tenant ""`. The empty string is the exact
+sentinel the auth path uses to mean "401 already sent, stop", so a key issued to that
+tenant authenticated correctly and then every request it made returned no response at all
+— not an error, nothing. Issue-time validation refuses it, along with every other label
+the response header could not carry.
+
+### The exposed server was the one without a socket timeout
+
+`proxy.py` sets a 600-second client timeout on the handler class, with a comment
+explaining that `StreamRequestHandler.setup()` applies it to the accepted socket so no read
+or write to a client can block forever. The gateway handler set `protocol_version` and
+nothing else, which leaves the timeout at `None`: a peer that opens a connection and stops
+sending, or declares a large `Content-Length` and dribbles, holds a threading-server thread
+for the life of the process. The gateway is the component meant to be bound to an
+interface. It now carries the same value from the same constant.
+
+### Owner-only means at creation, not a moment later
+
+`atrest.py` creates the master key by passing the mode to `os.open` through an `opener`,
+and `gateway_keys.py` does the same for the temp file it writes key hashes through; both
+carry comments recording the measured 0644 window that motivated it. The MCP handle store
+and the restore blobs — the files that hold the actual original tool output — were still
+`write_bytes` followed by `chmod`, which leaves them at the process umask for the duration
+of the write. A poller caught 0644 on a restore blob during a 400-write loop. The contents
+are ciphertext, so ordinarily that window leaks nothing readable; the sharp edge is
+`DISTIL_NO_ENCRYPT_AT_REST=1`, which the threat model recommends for ephemeral homes and
+which makes those same bytes plaintext. The opener is now `atrest.write_owner_only`, shared
+rather than copied, and both MCP write sites use it. The receipt chain was the last file
+of this shape, and it appends rather than rewrites, so it takes the same mode through
+`atrest.owner_only` directly. That closes the class: every store distil creates now gets
+its mode from the `os.open` that creates it, and none of them depends on a chmod arriving
+in time.
+
+### Controls the CI did not have
+
+`live-cert.yml` holds `ANTHROPIC_API_KEY` and used three third-party actions by mutable
+tag while `release.yml` — the workflow that publishes — has been fully SHA-pinned all
+along. The same three actions at the same versions are already pinned there, so the SHAs
+were copied rather than looked up. A pin without a bump is a pin to something old, so
+`dependabot.yml` now watches GitHub Actions and pip weekly, which is what rewrites a SHA
+and its version comment together.
+
+A new `supply-chain.yml` adds four checks that answer questions no existing gate asks: a
+`pip-audit` of the resolved optional extras (the core declares no runtime dependencies, so
+auditing the project itself would pass forever by auditing nothing), gitleaks with an
+in-repo `.gitleaks.toml` so a local run and CI agree on the three known false positives,
+CodeQL for Python and JavaScript, and `npm audit` for the two packaged Node surfaces. Both
+npm packages are dependency-free today and neither has a committed lockfile, so that job
+resolves one first — it is a tripwire for the day a dependency is added, not a claim that
+anything is being audited now. It runs weekly as well as on pull requests, because a CVE
+is published against code that has not changed and a gate that only runs on a diff can
+never see one.
+
+### A NetworkPolicy that permitted every destination
+
+The Helm chart's egress rule for HTTPS listed a port and no `to:` selector, which in
+NetworkPolicy semantics means every destination on that port — while the comment directly
+above it said that a compression proxy able to reach arbitrary hosts is an exfiltration
+path. The default is now the narrowest selector that works without knowing the operator's
+provider: the public internet minus RFC1918, link-local and loopback, so a compromised pod
+cannot reach the cluster, the node, or a cloud metadata service on 443. `values.yaml`
+carries an `egressTo` override and says plainly that narrowing it to your provider is the
+point.
 
 **`distil discover` — the report that says what to do next.** Every ingredient for
 "here is where you are still leaving savings on the table" was already being computed,

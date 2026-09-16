@@ -75,14 +75,32 @@ def _edit(tid: str, old: str) -> dict[str, Any]:
     }
 
 
+def _acted_on(msgs: list[dict[str, Any]], turns: int = 2) -> list[dict[str, Any]]:
+    """Append unrelated tool turns so the last read is no longer the FRESHEST output.
+
+    ADR 0010 rule 0 forwards the newest tool_result verbatim, so a fixture ending on the
+    re-read exercises the recency carve-out rather than the delta. Two turns is what it
+    takes to leave the window — which is where a real re-read lands the moment the agent
+    acts on what it read.
+    """
+    for i in range(turns):
+        msgs = msgs + [
+            _shell(f"z{i}", "pytest -q"),
+            _result(f"z{i}", "\n".join(f"test_{j} PASSED" for j in range(40))),
+        ]
+    return msgs
+
+
 def _session(first: str, second: str, *, reader=_read) -> list[dict[str, Any]]:
-    return [
-        {"role": "user", "content": "refactor the handlers"},
-        reader("r1"),
-        _result("r1", first),
-        reader("r2"),
-        _result("r2", second),
-    ]
+    return _acted_on(
+        [
+            {"role": "user", "content": "refactor the handlers"},
+            reader("r1"),
+            _result("r1", first),
+            reader("r2"),
+            _result("r2", second),
+        ]
+    )
 
 
 def _text_of(msg: dict[str, Any]) -> str:
@@ -202,13 +220,15 @@ def test_a_shell_reread_of_a_read_tool_base_is_still_elided() -> None:
     """Bases must be name-keyed; TARGETS need not be. `Read` then `cat` is a real shape."""
     lines = _module("MARK").split("\n")
     head, tail = "\n".join(lines[:120]), "\n".join(lines[60:])
-    msgs = [
-        {"role": "user", "content": "refactor"},
-        _read("r1"),
-        _result("r1", head),
-        _shell("r2", "cat /app/handlers.py"),
-        _result("r2", tail),
-    ]
+    msgs = _acted_on(
+        [
+            {"role": "user", "content": "refactor"},
+            _read("r1"),
+            _result("r1", head),
+            _shell("r2", "cat /app/handlers.py"),
+            _result("r2", tail),
+        ]
+    )
     sent, _store = compress_messages(msgs)
     assert "«distil-reread" in _text_of(sent[4])
 
@@ -224,15 +244,153 @@ def test_verbatim_mode_emits_no_reference() -> None:
 
 def test_two_different_files_are_never_cross_referenced() -> None:
     text = _module("MARK")
-    msgs = [
-        {"role": "user", "content": "refactor"},
-        _read("r1", "/app/a.py"),
-        _result("r1", text),
-        _read("r2", "/app/b.py"),
-        _result("r2", text),
-    ]
+    msgs = _acted_on(
+        [
+            {"role": "user", "content": "refactor"},
+            _read("r1", "/app/a.py"),
+            _result("r1", text),
+            _read("r2", "/app/b.py"),
+            _result("r2", text),
+        ]
+    )
     sent, _store = compress_messages(msgs)
     assert "distil-reread" not in json.dumps(sent), "identical bytes, different files"
+
+
+def test_bases_are_keyed_by_path_in_the_planner_too() -> None:
+    """The adapter-level test above can only observe the outcome. State the rule where it
+    lives: bases are a per-path map, so two files whose lines are byte-identical — a
+    vendored copy, a generated twin — never reference each other however long the run."""
+    text = "\n".join(f"line {i:03d} of a file that has a byte-identical twin" for i in range(80))
+    blocks = [
+        rereaddelta.ReadBlock("t1", "/app/a.py", text, base_ok=True),
+        rereaddelta.ReadBlock("t2", "/vendor/a.py", text, base_ok=True),
+        rereaddelta.ReadBlock("t3", "/app/a.py", text, base_ok=True),
+    ]
+    planned = rereaddelta.plan(blocks)
+    assert set(planned) == {"t3"}, "only the same path may serve as a base"
+    assert planned["t3"].path == "/app/a.py"
+
+
+# --------------------------------------------------------------------- ADR 0010, rule 0
+
+
+def _numbered(lo: int, hi: int) -> str:
+    """Claude Code's `Read` shape: a right-aligned line number, a tab, then the line."""
+    return "\n".join(
+        f"{i:6d}\tdef handler_{i}(request, ctx):  # a real-ish source line"
+        for i in range(lo, hi + 1)
+    )
+
+
+def test_the_freshest_tool_output_is_never_elided() -> None:
+    """ADR 0010 rule 0. A re-read the agent has just issued is exactly the output it
+    reasons over to choose its next action; handing it a pointer plus a `distil_expand`
+    round trip answers the wrong question. The plan is still computed from the prefix, so
+    an older re-read in the same payload is elided as before.
+
+    No `cache_control` marker, which is the shape that exposes it: when the client pins
+    its newest block the recency window is empty and this gate is a no-op, so a Claude
+    Code soak cannot reach it. Plain SDK callers and the opening turns of any session can.
+    """
+    body = _numbered(1, 80)
+    msgs: list[dict[str, Any]] = [
+        _read("r1", "/app/h.py"),
+        _result("r1", body),
+        _read("r2", "/app/h.py"),
+        _result("r2", body),
+        _shell("b1", "pytest -q"),
+        _result("b1", "\n".join(f"test_{i} PASSED" for i in range(40))),
+        _shell("b2", "ruff check"),
+        _result("b2", "All checks passed!"),
+        _read("r3", "/app/h.py"),
+        _result("r3", body),
+    ]
+    sent, _store = compress_messages(msgs)
+
+    assert _text_of(sent[9]) == body, "the newest re-read must be forwarded verbatim"
+    assert "«distil-reread" in _text_of(sent[3]), "an older re-read still elides"
+    assert _text_of(sent[1]) == body, "the base read is untouched"
+
+
+# --------------------------------------------------------------- line terminators (rule 5)
+
+
+def _terminated(sep: str, n: int = 60) -> str:
+    return sep.join(
+        f"line {i:03d} of handlers dot py with enough text to be worth a stub" for i in range(n)
+    )
+
+
+def test_a_crlf_base_does_not_swallow_the_only_lf_copy() -> None:
+    """Rule 5. `str.splitlines()` strips terminators, which calls a CRLF read and an LF
+    read of one file identical — and then the stub claims byte-identity to a base holding
+    different bytes while the only copy of the target's bytes leaves the payload."""
+    lines = [
+        f"line {i:03d} of handlers dot py with enough text to be worth a stub" for i in range(60)
+    ]
+    blocks = [
+        rereaddelta.ReadBlock("t1", "/a.py", "\r\n".join(lines), base_ok=True),
+        rereaddelta.ReadBlock("t2", "/a.py", "\n".join(lines), base_ok=True),
+    ]
+    assert rereaddelta.plan(blocks) == {}
+
+
+def test_an_exotic_line_separator_is_not_a_newline() -> None:
+    """`str.splitlines()` also folds \\x0b \\x0c \\x1c \\x1d \\x1e \\x85 \\u2028 \\u2029, so a
+    form-feed-separated read compared equal to a newline-separated read of one path."""
+    for sep in ("\x0c", "\x85", " "):
+        blocks = [
+            rereaddelta.ReadBlock("t1", "/a.py", _terminated("\n"), base_ok=True),
+            rereaddelta.ReadBlock("t2", "/a.py", _terminated(sep), base_ok=True),
+        ]
+        assert rereaddelta.plan(blocks) == {}, f"{sep!r} is not a line feed"
+
+
+def test_matching_terminators_still_elide() -> None:
+    """The fix must only make matches rarer. Two LF reads of one path are unaffected, and
+    so are two CRLF reads."""
+    for sep in ("\n", "\r\n"):
+        blocks = [
+            rereaddelta.ReadBlock("t1", "/a.py", _terminated(sep), base_ok=True),
+            rereaddelta.ReadBlock("t2", "/a.py", _terminated(sep), base_ok=True),
+        ]
+        planned = rereaddelta.plan(blocks)
+        assert set(planned) == {"t2"}, f"{sep!r} pair stopped eliding"
+
+
+def test_the_claimed_base_range_holds_the_elided_bytes() -> None:
+    """The property the two sides have to agree on, over random re-read shapes: what the
+    stub says is in the base at those line numbers IS what left the target, byte for byte.
+    Deterministic seed — this is a contract, not a flake budget."""
+    import random
+
+    rng = random.Random(20260915)
+    seps = ("\n", "\r\n")
+    for _ in range(200):
+        pool = [f"    line {rng.randrange(40)} of the file\n" for _ in range(120)]
+        cut = rng.randrange(0, 60)
+        base_text = "".join(pool[cut : cut + rng.randrange(40, 120)])
+        # Re-spell the target with a different window, a different terminator, and an
+        # occasional edited line — the shapes a real re-read arrives in.
+        window = pool[rng.randrange(0, 40) : rng.randrange(60, 120)]
+        if rng.random() < 0.5 and window:
+            window[rng.randrange(len(window))] = "    edited line\n"
+        sep = seps[rng.randrange(2)]
+        target_text = sep.join(ln.rstrip("\n") for ln in window)
+        blocks = [
+            rereaddelta.ReadBlock("t1", "/a.py", base_text, base_ok=True),
+            rereaddelta.ReadBlock("t2", "/a.py", target_text, base_ok=True),
+        ]
+        planned = rereaddelta.plan(blocks)
+        if "t2" not in planned:
+            continue
+        el = planned["t2"]
+        target_lines = target_text.splitlines(keepends=True)
+        base_lines = base_text.splitlines(keepends=True)
+        assert "".join(target_lines[el.start : el.end]) == "".join(
+            base_lines[el.base_start : el.base_end]
+        ), "the stub's claim of byte-identity is false"
 
 
 # --------------------------------------------------------------------------- cache contract

@@ -656,14 +656,15 @@ class Dissection:
                 f"{self.shadow_sampled} requests were shadow-sampled but no verdicts "
                 "were recorded — replays may be failing upstream"
             )
-        if flags.get("expand") and self.blocks and n >= 10 and self.expand_resolved == 0:
-            if self.forced_buffered == 0 and any(r.get("stream") for r in self.requests):
-                out.append(
-                    "expand is on and blocks were folded, but every request took the "
-                    "streaming pass-through — distil_expand calls could never be "
-                    "intercepted (an escaped call surfaces to the agent as "
-                    "'no such tool')"
-                )
+        # Deleted: "every request took the streaming pass-through, so distil_expand could
+        # never be intercepted". Its premise stopped being true when streamexpand started
+        # splicing the re-query mid-stream — a streaming request resolves expansions like
+        # any other — so all it measured was a session where the agent never asked to
+        # expand, which is the ordinary healthy case. Nothing in a receipt observes an
+        # ESCAPED tool_use (the condition worth warning about), so there is no honest
+        # version of this check to narrow it to, and an unfalsifiable warning is worse
+        # than none: it trains the reader to skip the anomaly list. Restore it if a
+        # receipt ever records whether the expand tool was injected.
         _q = self.quote_survival
         if _q is not None and _q[1]:
             out.append(

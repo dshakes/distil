@@ -105,6 +105,35 @@ def _key_path() -> Path:
     return base / "restore.key"
 
 
+def owner_only(path: str, flags: int) -> int:
+    """``open()`` opener that creates the file 0600. Use for appends.
+
+    For a whole-file write, prefer ``write_owner_only`` below — this is the same
+    mode applied through the same call, exposed for the one store that appends
+    (``receipts.py``) and so cannot truncate.
+    """
+    return os.open(path, flags, 0o600)
+
+
+def write_owner_only(path: Path, data: bytes) -> None:
+    """Write *data* to *path*, created owner-only (0600) at open time.
+
+    The mode belongs on ``os.open``, not on a ``chmod`` after the write:
+    ``write_bytes`` then ``chmod`` leaves the file at the process umask
+    (measured: 0o644) for the whole write, and a polling reader has been observed
+    hitting that window on this exact path. The ``opener`` closes it without
+    hand-rolling the write.
+
+    Not a bare ``os.write``: it is allowed to perform a SHORT write and return
+    the count, which silently truncates the file. The file object loops until the
+    buffer is drained. That distinction is what reddened the Windows leg once
+    while every POSIX leg stayed green.
+    """
+    with open(path, "wb", opener=owner_only) as fh:
+        fh.write(data)
+    path.chmod(0o600)  # belt-and-braces: a pre-existing file keeps its old mode
+
+
 def _load_key() -> bytes:
     """Load the 32-byte master key, creating it on first use.
 
@@ -124,10 +153,9 @@ def _load_key() -> bytes:
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
 
-        # 0600 at open time, not after the write. `write_bytes` then `chmod` leaves
-        # the MASTER KEY — which decrypts every restore blob — at the process umask
-        # (measured: 0o644) until the chmod lands. Passing the mode to os.open
-        # closes that window.
+        # 0600 at open time, not after the write — the MASTER KEY decrypts every
+        # restore blob, so the umask window write_owner_only closes matters most
+        # here of anywhere.
         #
         # Deliberately NOT hardened further than this. An earlier revision added
         # temp-file + hardlink publication, an O_EXCL claim protocol, a retry loop
@@ -137,22 +165,11 @@ def _load_key() -> bytes:
         # main passes cleanly. The race is real but narrow (concurrent FIRST touch
         # of a brand-new store); shipping a fifth attempt at it, unverifiable on
         # the platform where it keeps failing, trades a rare fault for a reliable
-        # one. Fix it behind a Windows CI loop, not blind.
-        # `write_bytes`, not a bare `os.write`: os.write is allowed to perform a
-        # SHORT write and returns the count, which my first version discarded. A
-        # 20-of-32-byte write leaves a truncated key, the next _load_key sees the
-        # wrong length and generates a fresh one, and everything encrypted with the
-        # first key is orphaned. That is what reddened the Windows leg while every
-        # POSIX leg stayed green. `write_bytes` loops until the buffer is drained.
-        #
-        # The `opener` is how the 0600 gets applied AT CREATION rather than after —
-        # which is the whole point of this change — without hand-rolling the write.
-        def _owner_only(path: str, flags: int) -> int:
-            return os.open(path, flags, 0o600)
-
-        with open(p, "wb", opener=_owner_only) as fh:
-            fh.write(key)
-        p.chmod(0o600)  # belt-and-braces: a pre-existing file keeps its old mode
+        # one. Fix it behind a Windows CI loop, not blind. A short write here is
+        # worse than a lost key: a 20-of-32-byte key file reads back at the wrong
+        # length, _load_key generates a fresh one, and everything encrypted with
+        # the first key is orphaned. See write_owner_only.
+        write_owner_only(p, key)
     except OSError:
         pass  # ponytail: best-effort; key still works in-memory for this process
     return key

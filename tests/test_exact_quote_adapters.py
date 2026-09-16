@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from distil.adapters.anthropic import compress_messages, take_quote_hazard
 from distil.adapters.gemini import compress_generate_request
 from distil.adapters.openai import compress_chat_completions, compress_responses_input
@@ -376,3 +378,151 @@ def test_the_quote_hazard_retry_does_not_swallow_the_images(monkeypatch) -> None
     assert take_quote_hazard() == {"survived": 1, "lost": 0}
     images = [b for m in out for b in (m.get("content") or []) if _is_image(b)]
     assert len(images) == 1, "the second pass must not elide every image as already-seen"
+
+
+# ------------------------------------------------- distil_expand recovery (all shapes)
+#
+# A block the agent recovered through the expand tool comes back as an ordinary
+# tool_result. Digesting it folds the recovered content straight back into the stub it
+# just escaped — identical bytes hash to the same handle — so the agent expands, gets the
+# same handle, and can never reach the detail. Observed live.
+
+RECOVERED = SRC
+
+
+def _expand_turn(name: str) -> list[dict]:
+    """A history whose second-to-last tool_result is an expand recovery, buried by filler."""
+    msgs: list[dict] = [
+        {"role": "user", "content": "go"},
+        _bash_call("b1", "pytest -q"),
+        _tool_result("b1", RECOVERED),
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "x1", "name": name, "input": {"handle": "4b7055a5"}}
+            ],
+        },
+        _tool_result("x1", RECOVERED),
+    ]
+    for i in range(6):
+        msgs += [_bash_call(f"n{i}", "pytest -q"), _tool_result(f"n{i}", NOISE)]
+    return msgs
+
+
+@pytest.mark.parametrize(
+    "name", ["distil_expand", "mcp__distil__distil_expand", "mcp__foo__distil_expand"]
+)
+def test_an_expand_recovery_is_never_re_digested(name: str) -> None:
+    """The proxy's own tool name and both MCP namespacings (the server key is user-chosen)."""
+    out, _store = compress_messages(_expand_turn(name))
+    recovered = _result(out, "x1")
+    assert recovered == RECOVERED, f"{name}: the recovered block was digested again"
+    assert "handle=" not in recovered, f"{name}: re-emitted a handle the agent just resolved"
+
+
+def test_the_block_the_recovery_answers_still_digests() -> None:
+    """The control that makes the test above mean something: identical bytes, ordinary
+    Bash provenance, same length — still digested, and to the handle the agent expanded."""
+    out, _store = compress_messages(_expand_turn("distil_expand"))
+    stub = _result(out, "b1")
+    assert "handle=" in stub, "an ordinary result of equal length must still digest"
+    assert stub != _result(out, "x1")
+
+
+def test_the_census_names_the_expand_exemption() -> None:
+    from distil.adapters.anthropic import take_census
+
+    compress_messages(_expand_turn("mcp__distil__distil_expand"))
+    census = take_census() or {}
+    assert census.get("tool_result_expand_recovered", 0) > 0
+
+
+def test_chat_completions_exempts_an_expand_recovery() -> None:
+    messages: list[dict] = [
+        {"role": "user", "content": "go"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "bash", "arguments": json.dumps({"command": "pytest"})},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": RECOVERED},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "c2",
+                    "type": "function",
+                    "function": {
+                        "name": "mcp__distil__distil_expand",
+                        "arguments": json.dumps({"handle": "4b7055a5"}),
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c2", "content": RECOVERED},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "c3",
+                    "type": "function",
+                    "function": {"name": "bash", "arguments": json.dumps({"command": "pytest"})},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c3", "content": NOISE},
+    ]
+    out, _store = compress_chat_completions(messages)
+    assert out[4]["content"] == RECOVERED, "the recovered block was digested again"
+    assert "handle=" in out[2]["content"], "the ordinary result must still digest"
+
+
+def test_gemini_exempts_an_expand_recovery() -> None:
+    body = {
+        "contents": [
+            {"role": "user", "parts": [{"text": "go"}]},
+            {"role": "model", "parts": [{"functionCall": {"name": "bash", "args": {}}}]},
+            {
+                "role": "user",
+                "parts": [
+                    {"functionResponse": {"name": "bash", "response": {"stdout": RECOVERED}}}
+                ],
+            },
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "mcp__foo__distil_expand",
+                            "args": {"handle": "4b7055a5"},
+                        }
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "functionResponse": {
+                            "name": "mcp__foo__distil_expand",
+                            "response": {"stdout": RECOVERED},
+                        }
+                    }
+                ],
+            },
+            {"role": "model", "parts": [{"functionCall": {"name": "bash", "args": {}}}]},
+            {
+                "role": "user",
+                "parts": [{"functionResponse": {"name": "bash", "response": {"stdout": NOISE}}}],
+            },
+        ]
+    }
+    out, _store = compress_generate_request(body)
+    contents = out["contents"]
+    assert contents[4]["parts"][0]["functionResponse"]["response"]["stdout"] == RECOVERED
+    assert "handle=" in contents[2]["parts"][0]["functionResponse"]["response"]["stdout"]
