@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -120,6 +121,7 @@
 
     <h2>The result</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The result">
     <table>
       <thead><tr><th>Arm</th><th>Tasks completed</th><th>Cache writes vs baseline</th></tr></thead>
       <tbody>
@@ -129,6 +131,7 @@
         <tr><td>distil <code>wrap --expand</code></td><td><b>6 / 15</b></td><td>0.87&times;</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p class="note">Cache writes are the number that decides cost on a cached workload,
     and they are taken from <code>cache_creation</code> in the provider&rsquo;s response —
@@ -225,6 +228,10 @@ distil hook --stats       # what it actually saved</code></pre>
     <a href="cache.html">why removing tokens can cost more</a> &middot;
     <a href="subscription.html">what &ldquo;savings&rdquo; means on a flat-rate plan</a></p>
 
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
 </main>
 </div>
 

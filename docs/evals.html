@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -114,6 +115,7 @@
     <p><img src="assets/eval-stack.svg" alt="Distil's evaluation stack: five per-commit gates — bench for decision equivalence, verify for byte fidelity, retention for fact recall, fidelity for state fidelity, validate for adversarial invariants — under a conformal risk certificate, with external-validity checks and a versioned record for every run." width="100%" loading="lazy"/></p>
 
     <h2 id="layers">Five layers, five different questions</h2>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Five layers, five different questions">
     <table>
       <thead><tr><th>Layer</th><th>Question</th><th>Command</th><th>Cost</th></tr></thead>
       <tbody>
@@ -124,6 +126,7 @@
         <tr><td>Adversarial</td><td>Do the invariants hold on hostile input?</td><td><code>distil validate</code></td><td>free</td></tr>
       </tbody>
     </table>
+    </div>
     <p>All five are offline, need no API key, and run in seconds. That is deliberate: <b>a gate you skip because it costs money is not a gate.</b> All five run per-commit in CI.</p>
 
     <h2 id="phantom">The case recall cannot see</h2>
@@ -133,6 +136,7 @@
 turn 4   rm net/scratch_bench.py</pre>
     <p>Compress away turn 4. Every path token is still present — <b>string recall reads 100%</b> — while the agent now believes a file exists that does not, and will plan around it. Nothing in the transcript says otherwise.</p>
     <p><code>distil fidelity</code> folds tool calls into a file-state ledger and grades the <em>final state</em>, splitting two outcomes that presence metrics conflate:</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The case recall cannot see">
     <table>
       <thead><tr><th>Outcome</th><th>Meaning</th><th>Severity</th></tr></thead>
       <tbody>
@@ -141,6 +145,7 @@ turn 4   rm net/scratch_bench.py</pre>
         <tr><td><code>stale</code></td><td>path present, <b>wrong state</b></td><td><b>silent</b> — the agent acts on a false belief</td></tr>
       </tbody>
     </table>
+    </div>
     <p>These are never averaged into one accuracy figure, because <b>a compressor that drops a whole file history is safer than one that preserves half of it.</b> On the case above: string recall 100%, state fidelity 0%.</p>
     <p><a href="https://factory.ai/news/evaluating-compression">Factory.ai</a> measured every method they tested at <b>2.19–2.45 / 5.0</b> on this axis across 36,611 production engineering messages. Presence-based metrics are structurally unable to detect it — the string is present.</p>
 

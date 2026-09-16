@@ -278,6 +278,9 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
             f"    shadow   {_shadow_line(start_ts)}",
             f"    restore  {restore}",
             *(f"    {label:<8} {text}" for label, text in _safe_proof_lines()),
+            # The verdicts are the reading; this is what to do about it. Last on purpose,
+            # so the block ends on the action rather than on a statistic.
+            f"    next     distil dissect {session_id}   (or: distil stats for cumulative savings)",
         ]
     )
 

@@ -44,6 +44,10 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 - **It has been pointed at a hostile input, not just a hard one.** `distil validate --adversarial` runs a COMA-class battery through the same path the proxy uses, and we publish the two cases that do not come back clean. **[Threat model →](https://dshakes.github.io/distil/threat-model.html)**
 - **Every rung of the dial is measured, not just the default.** `distil bench --curve` traces savings against fact recall across the whole ladder, offline and free. **[The curve →](https://dshakes.github.io/distil/benchmark.html#degradation-curve)**
 
+<h4 align="center">Proof and provenance</h4>
+
+<p align="center">Every claim above is checkable, and so is the supply chain that shipped it. Releases carry <a href="https://peps.python.org/pep-0740/">PEP 740 attestations</a> so you can verify a build came from this repo's CI, not a compromised laptop; a <b>CycloneDX SBOM</b> ships with every release so you know what's inside; <a href="https://github.com/ossf/scorecard">OpenSSF Scorecard</a> runs weekly against the repo itself. The adversarial path is documented rather than assumed: see the <a href="THREAT_MODEL.md">threat model</a> and the <a href="docs/SECURITY-WHITEPAPER.md">security whitepaper</a> for what's in scope and what isn't, and run <code>distil validate</code> yourself to gate a deployment against hostile input before you trust it with one.</p>
+
 ## What it does
 
 - **Wrap your agent** — 11 presets: `distil wrap -- claude` · `codex` · `gemini` · `aider` · `opencode` · `qwen` · `goose` · `grok` · `openhands` · `copilot` · `kimi`. Zero config, no code change.
@@ -98,8 +102,11 @@ pipx install distil-llm && distil onboard    # detects your agent + billing, wir
   <a href="#-works-with-every-sdk">Integrations</a> ·
   <a href="#-install-your-way">Install</a> ·
   <a href="#why-trust-it">Why trust it</a> ·
-  <a href="https://dshakes.github.io/distil/getting-started.html"><b>Full Docs →</b></a>
+  <a href="https://dshakes.github.io/distil/getting-started.html"><b>Full Docs →</b></a> ·
+  <a href="docs/llms.txt">llms.txt</a>
 </p>
+
+<p align="center"><sub>AI agents: read <a href="docs/llms.txt"><code>/docs/llms.txt</code></a> for a compact, machine-oriented summary of what distil is and how to call it.</sub></p>
 
 ---
 

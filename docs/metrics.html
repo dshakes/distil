@@ -82,6 +82,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -107,12 +108,12 @@
     <h2>Prometheus</h2>
     <p>The gateway serves the standard text exposition format at <code>/distil/metrics</code>:</p>
 
-<pre class="term"><span class="d">$ distil gateway --port 8788</span>
-distil gateway listening on http://127.0.0.1:8788
-  dashboard: http://127.0.0.1:8788/distil/dashboard
-  metrics:   http://127.0.0.1:8788/distil/metrics  (Prometheus)
+<pre class="term"><span class="d">$ distil gateway</span>
+distil gateway listening on http://127.0.0.1:8789
+  dashboard: http://127.0.0.1:8789/distil/dashboard
+  metrics:   http://127.0.0.1:8789/distil/metrics  (Prometheus)
 
-<span class="d">$ curl -s localhost:8788/distil/metrics | head</span>
+<span class="d">$ curl -s localhost:8789/distil/metrics | head</span>
 # HELP distil_requests_total Requests processed, by tenant.
 # TYPE distil_requests_total counter
 distil_requests_total{tenant="widget-co"} 12
@@ -121,6 +122,7 @@ distil_requests_total{tenant="widget-co"} 12
 distil_tokens_saved_total{tenant="widget-co"} 38000</pre>
 
     <h3>Series</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Series">
     <table>
       <caption class="sr-only">Exported Prometheus series</caption>
       <tr><th scope="col">Metric</th><th scope="col">Type</th><th scope="col">Meaning</th></tr>
@@ -132,6 +134,7 @@ distil_tokens_saved_total{tenant="widget-co"} 38000</pre>
       <tr><td><code>distil_compression_ratio</code></td><td>gauge</td><td>Fraction saved, 0–1.</td></tr>
       <tr><td><code>distil_build_info</code></td><td>gauge</td><td>Always 1; carries the <code>version</code> label.</td></tr>
     </table>
+    </div>
 
     <p>Names follow Prometheus convention — <code>distil_</code> prefix, base units, <code>_total</code> on monotonic counters — so <code>rate()</code> and <code>increase()</code> work without relabeling. Totals are deliberately <strong>not</strong> exported as separate series: Prometheus sums labelled series itself, and shipping both invites double counting.</p>
 
@@ -147,11 +150,12 @@ scrape_configs:
       type: Bearer
       credentials: $DISTIL_ADMIN_TOKEN
     static_configs:
-      - targets: ["distil-gateway:8788"]</pre>
+      - targets: ["distil-gateway:8789"]</pre>
 
     <h2>OpenTelemetry</h2>
     <p>distil emits GenAI-convention <strong>spans</strong> and, independently, <strong>counters</strong>. Both are optional and both fail open — if the SDK is absent, or an exporter throws, the request path is untouched.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="OpenTelemetry">
     <table>
       <caption class="sr-only">Exported OpenTelemetry instruments</caption>
       <tr><th scope="col">Instrument</th><th scope="col">Unit</th><th scope="col">Mirrors</th></tr>
@@ -160,6 +164,7 @@ scrape_configs:
       <tr><td><code>distil.tokens.sent</code></td><td><code>{token}</code></td><td><code>distil_tokens_sent_total</code></td></tr>
       <tr><td><code>distil.tokens.saved</code></td><td><code>{token}</code></td><td><code>distil_tokens_saved_total</code></td></tr>
     </table>
+    </div>
 
     <p>Counters are recorded at the same instrumentation point as the span attributes, so tracing and metrics can never disagree about a request — and they are recorded <em>before</em> the span check, so metrics work with tracing sampled off.</p>
 
@@ -189,6 +194,10 @@ rate(distil_tokens_saved_total[15m]) == 0
     <hr/>
     <p class="muted">Zero runtime dependencies: the Prometheus exporter is stdlib-only, and the OTel path imports lazily behind an extra. Neither can fail in a way that reaches your traffic.</p>
 
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
   </main>
 </div>
 

@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -419,6 +420,7 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
 
     <p>Aggressive compression applied to a subscription or OAuth session can alter conversations in ways that violate provider terms — injected retrieval tools the user never authorized, rewritten history that changes the conversation record. Auth-mode gating is a safety boundary, not an optimization.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Auth-mode gating">
     <table>
       <thead><tr><th>Mode</th><th>Allowed strategies</th><th>Tool injection</th></tr></thead>
       <tbody>
@@ -434,6 +436,7 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         </tr>
       </tbody>
     </table>
+    </div>
 
     <p>The policy is a <strong>tightening boundary</strong> — a project's config can never loosen it. A <code>PolicyError</code> is raised if a non-permitted strategy is requested under the active auth mode. This maps onto the proxy's <code>--lossless-only</code> flag for subscription-context deployments.</p>
 
@@ -455,6 +458,7 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
     <hr/>
 
     <h2 id="module-map">Module map</h2>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Module map">
     <table>
       <thead><tr><th>Module</th><th>Role</th></tr></thead>
       <tbody>
@@ -500,6 +504,7 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         <tr><td><code>cli.py</code></td><td>Entry point — all subcommands</td></tr>
       </tbody>
     </table>
+    </div>
 
     <div class="site-footer">
       Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>

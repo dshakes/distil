@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -105,6 +106,7 @@
   <main class="content" id="content" tabindex="-1">    <h1>Prompt caching</h1>
     <p class="lede">Provider prompt caching is the largest single lever on an agent's bill, and it is all-or-nothing: the stable prefix must be <b>byte-identical</b> between turns, or the whole cached span is re-billed at full price. One changed character at the front costs the entire prefix.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Prompt caching">
     <table>
       <thead><tr><th>Provider</th><th>Cached input</th><th>How it is claimed</th></tr></thead>
       <tbody>
@@ -113,6 +115,7 @@
         <tr><td>Google</td><td>~75% cheaper</td><td>explicit <code>CachedContent</code>, ≥32k tokens</td></tr>
       </tbody>
     </table>
+    </div>
 
     <h2 id="by-construction">Compression cannot break the prefix</h2>
     <p>This is a property of the design, not a promise. <code>strategies.distil</code> compresses the <em>volatile tail</em> — the newest user turn and the freshest tool output — and leaves every stable block byte-for-byte untouched. If it ever rewrote a stable block, <code>distil verify</code> would fail on reversibility and <code>distil bench</code> on decision-equivalence, so the guarantee is enforced by the same gates as everything else.</p>
@@ -164,6 +167,10 @@ distil stats                  # savings, last-7-days rate beside lifetime
 distil proxy --session-delta  # cross-turn dedupe + cross-version deltas</code></pre>
     <p><code>distil cache</code> reads the per-session request ledger, which only a wrap session writes. Run your agent under <code>distil wrap -- &lt;cmd&gt;</code> (or <code>distil default --always-on</code>), then re-run it.</p>
     <p>If <code>distil stats</code> shows near-zero recent compression, the cause is usually mode rather than cache: a subscription session defaults to lossless-only, which is Tier-0 only. <code>distil default --mode expand</code> turns the recoverable digest on permanently.</p>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
 </main>
 </div>
 

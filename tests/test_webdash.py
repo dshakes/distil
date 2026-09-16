@@ -93,8 +93,11 @@ def test_serve_webdash_runs_and_closes(tmp_path, monkeypatch):
         return srv
 
     monkeypatch.setattr(webdash, "build_server", capture)
+    # foreground=True: pytest's captured stdout isn't a TTY, and the whole point
+    # of this test is to exercise the real serve_forever()/shutdown() path.
     t = threading.Thread(
-        target=lambda: webdash.serve_webdash(port=0, open_browser=False), daemon=True
+        target=lambda: webdash.serve_webdash(port=0, open_browser=False, foreground=True),
+        daemon=True,
     )
     t.start()
     for _ in range(50):
@@ -122,7 +125,8 @@ def test_serve_webdash_opens_browser(tmp_path, monkeypatch):
         webdash, "build_server", lambda h, p: holder.setdefault("srv", real_build(h, 0))
     )
     t = threading.Thread(
-        target=lambda: webdash.serve_webdash(port=0, open_browser=True), daemon=True
+        target=lambda: webdash.serve_webdash(port=0, open_browser=True, foreground=True),
+        daemon=True,
     )
     t.start()
     assert opened.wait(3.0), "browser-open thread never ran"
@@ -132,3 +136,71 @@ def test_serve_webdash_opens_browser(tmp_path, monkeypatch):
         _t.sleep(0.02)
     holder["srv"].shutdown()
     t.join(timeout=3)
+
+
+def test_serve_webdash_does_not_block_under_ci(tmp_path, monkeypatch, capsys):
+    """Under CI there's nobody to open a browser — the call must return
+    immediately rather than hang on serve_forever(), the same guard as
+    `dissect --serve`."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("CI", "1")
+    webdash.serve_webdash(port=0, open_browser=False)  # would hang without the guard
+    out = capsys.readouterr().out
+    assert "not blocking" in out
+
+
+def _clear_ci_env(monkeypatch) -> None:
+    """Hermetic on any runner: a CI runner sets more than one of these
+    (GitHub Actions exports both CI and GITHUB_ACTIONS), so a test asserting
+    "not CI" must clear all of them, not just the one it's setting."""
+    for var in webdash._CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_serve_webdash_serves_when_not_a_tty_and_not_ci(tmp_path, monkeypatch):
+    """A non-interactive launch with no TTY (nohup, a systemd/supervisor unit,
+    an IDE task) is not CI and must still serve — the guard is keyed on CI env
+    vars, never on `isatty()` alone."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    _clear_ci_env(monkeypatch)
+    real_build = webdash.build_server
+    called = []
+
+    def capture(host, port):
+        srv = real_build(host, 0)
+        monkeypatch.setattr(srv, "serve_forever", lambda: called.append(True))
+        return srv
+
+    monkeypatch.setattr(webdash, "build_server", capture)
+    webdash.serve_webdash(port=0, open_browser=False)
+    assert called == [True]
+
+
+def test_serve_webdash_ci_false_still_serves(tmp_path, monkeypatch):
+    """`CI=false` is a common pattern for scripts that pass CI through
+    unconditionally — the var is SET but says "not CI", so presence alone
+    must not trip the guard."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    _clear_ci_env(monkeypatch)
+    monkeypatch.setenv("CI", "false")
+    real_build = webdash.build_server
+    called = []
+
+    def capture(host, port):
+        srv = real_build(host, 0)
+        monkeypatch.setattr(srv, "serve_forever", lambda: called.append(True))
+        return srv
+
+    monkeypatch.setattr(webdash, "build_server", capture)
+    webdash.serve_webdash(port=0, open_browser=False)
+    assert called == [True]
+
+
+def test_serve_webdash_ci_true_does_not_serve(tmp_path, monkeypatch, capsys):
+    """`CI=true`/`CI=1` (a truthy, non-falsy value) must still trip the guard."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    for value in ("true", "1"):
+        monkeypatch.setenv("CI", value)
+        webdash.serve_webdash(port=0, open_browser=False)
+        out = capsys.readouterr().out
+        assert "not blocking" in out

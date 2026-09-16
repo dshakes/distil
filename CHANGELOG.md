@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, the guard the other server already had, and the verdict at the end of the session
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and the verdict at the end of the session
 
 Two themes, and the same shape underneath both. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -18,7 +18,7 @@ the documentation promises and what the code does, which is the only kind of bug
 cannot be relied on to surface — the shapes below are invisible under `distil wrap` on
 Claude Code, and that is the only traffic the soak has.
 
-A third theme runs alongside them, and it is the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
+Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
 
 ### The freshest read the agent asked for came back as a pointer
 
@@ -454,6 +454,45 @@ provider: the public internet minus RFC1918, link-local and loopback, so a compr
 cannot reach the cluster, the node, or a cloud metadata service on 443. `values.yaml`
 carries an `egressTo` override and says plainly that narrowing it to your provider is the
 point.
+
+Docs and CLI-surface polish; no runtime behavior change. The through-line: in every
+case here the accurate answer already existed somewhere in the codebase, but only if
+you already knew where to look — `--help` for one savings command never mentioning
+its siblings, a CLI reference example nobody had actually run through argparse, TOST
+printed with `alpha`/`margin` and no word on what either means, `onboard
+--no-interactive` and `offboard --no-interactive` inventing their own wording for the
+same rule.
+
+- `distil stats`, `dashboard`, `dissect`, `doctor`, `shadow-stats`, and `receipts` now
+  cross-reference each other in `--help`, and `onboard`'s closing summary and every
+  session's proof-ledger print end by naming the exact next command (`distil stats` /
+  `distil dissect <session>`) instead of a vague "check your savings."
+- `onboard --no-interactive` and `offboard --no-interactive` now state the identical
+  --yes-vs-no-interactive rule verbatim, so learning it on one command means already
+  knowing it on the other; both gained a Flags table in the CLI reference.
+- `certify`/`bench`'s `--margin`/`--alpha` flags, and the TOST and Tier-0/1 lines they
+  print, now say in plain words what they mean rather than assuming the reader already
+  knows two one-sided tests; `dissect`'s terminal glossary now defines
+  decision-equivalence and prefix replay, both used earlier in the same report.
+- `docs/cli.html`'s own `$ distil …` examples are now parsed by the same test that
+  checks every other doc's — it caught two that never actually ran (`certify-provider`
+  was missing its required `episodes` argument and had a `--runs` flag that doesn't
+  exist; `receipts --export` took a value it doesn't accept). Both fixed.
+- `distil dissect --serve` and `distil dashboard --web` now document their CI guard:
+  under CI they print the URL and exit rather than block, and `--foreground` overrides
+  it. This used to key off "no TTY", which also caught nohup, a systemd/supervisor
+  unit, and IDE run tasks — legitimate non-interactive launches that do want the
+  server; it now checks for CI by name (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`,
+  `BUILDKITE`, `TF_BUILD`) instead.
+- README gained a Proof and provenance section (PEP 740 attestations, the CycloneDX
+  SBOM, the weekly OpenSSF Scorecard run, the threat model and security whitepaper,
+  `distil validate`) and a link to `docs/llms.txt` for agents reading the repo instead
+  of a human.
+- LangGraph has its own integrations page (`docs/langgraph.html`) alongside
+  LangChain's, and the Vercel AI SDK page now documents `distilMiddleware()` next to
+  the proxy route it already covered.
+- The Helm chart's default port matched `distil proxy`, not the `distil gateway` it
+  actually deploys — fixed in `values.yaml`, chart version bumped to 0.1.2.
 
 ### Every wrap now ends with a verdict that can come back negative
 

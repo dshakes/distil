@@ -79,6 +79,61 @@ class TestCmdCertify:
         out = capsys.readouterr().out
         assert "TOST non-inferiority" in out
 
+    def _json_ns(self, strategy: str = "distil") -> argparse.Namespace:
+        ns = self._ns(strategy)
+        ns.json = True
+        return ns
+
+    def test_json_matches_eval_record_schema(self, capsys):
+        rc = cmd_certify(self._json_ns("distil"))
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert payload["schema"] == "distil.eval/1"
+        assert payload["passed"] is True
+        assert payload["gates"][0]["name"] == "non_inferior"
+        assert payload["gates"][0]["passed"] is True
+        assert payload["metrics"]["verdict"] == "PASS"
+        assert payload["subject"]["compressor"] == "distil"
+
+    def test_json_gate_threshold_and_observed_reproduce_passed(self, capsys):
+        # Regression: the gate used to pair `threshold=margin` with
+        # `observed=mean_diff` — two numbers on different scales that could not
+        # reproduce `passed` via any literal inequality, because TOST actually
+        # decides on `p_lower < alpha`, not `mean_diff` vs `margin`. The gate's
+        # own threshold/observed must be that real decision pair, so a reader
+        # can check the verdict from the object alone.
+        rc = cmd_certify(self._json_ns("distil"))
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        gate = payload["gates"][0]
+        assert gate["passed"] == (gate["observed"] < gate["threshold"])
+        assert gate["threshold"] == payload["metrics"]["tost"]["alpha"]
+        assert gate["observed"] == payload["metrics"]["tost"]["p_non_inferior"]
+        assert f"{payload['metrics']['tost']['mean_diff']:.4g}" in gate["rationale"]
+        assert str(payload["metrics"]["tost"]["margin"]) in gate["rationale"]
+
+    def test_json_fail_exits_1_and_reports_failed_gate(self, capsys):
+        rc = cmd_certify(self._json_ns("aggressive"))
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert payload["passed"] is False
+        assert payload["gates"][0]["passed"] is False
+        assert payload["metrics"]["verdict"] == "FAIL"
+
+    def test_json_fail_gate_threshold_and_observed_reproduce_passed(self, capsys):
+        rc = cmd_certify(self._json_ns("aggressive"))
+        payload = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        gate = payload["gates"][0]
+        assert gate["passed"] == (gate["observed"] < gate["threshold"])
+        assert gate["passed"] is False
+
+    def test_json_output_is_the_only_stdout(self, capsys):
+        # human-readable prose must not leak into a machine-readable pipe
+        cmd_certify(self._json_ns("distil"))
+        out = capsys.readouterr().out
+        json.loads(out)  # raises if anything but the JSON document was printed
+
 
 # ---------------------------------------------------------------------------
 # conformal
