@@ -67,6 +67,15 @@ comma list folded into one header line. Identical duplicates are still served �
 fix's clothes. The async proxy again needed nothing: aiohttp's parser answers 400 to any
 repeated `Content-Length`, which a raw-socket probe confirmed rather than assumed.
 
+Allowing those identical duplicates then produced a smaller bug of its own, worth naming
+because it is the same shape as everything else here: the guard said yes and the caller
+asked a different question. Both servers still sized the body from
+`headers.get("Content-Length")`, which for a repeat folded into one line hands back
+`"42, 42"` — a string `int()` refuses — so a perfectly well-framed request was answered
+`413 request body too large`. The guard had already split those values apart in order to
+judge them, so it now returns the canonical one alongside its verdict and both servers
+parse that. One question, one answer, one place.
+
 And the tenant validator, the one definition three doors were consolidated onto above, was
 anchored with `^…$` — where `$` also matches immediately before a trailing newline. So
 `acme\n` was a valid tenant label, carrying into `x-distil-tenant` the exact character that

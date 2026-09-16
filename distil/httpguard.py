@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from typing import NamedTuple
 
 # Default maximum request body. Agent contexts are large but bounded; anything
 # past this is almost certainly abuse, and reading it would be a memory-DoS.
@@ -89,12 +90,30 @@ def strip_query(target: str) -> str:
     return target.split("?", 1)[0].split("#", 1)[0]
 
 
+class Framing(NamedTuple):
+    """What the shared guard decided about one request's body framing.
+
+    ``reject`` is ``(status, message)`` when the request must be refused, else
+    ``None``. ``content_length`` is the single canonical value the caller should
+    parse — which is NOT always what ``headers.get("Content-Length")`` returns.
+    A request may legally repeat the header, or fold the repeat into one comma
+    list, and ``"42, 42"`` is a valid length that ``int()`` refuses. The guard
+    already had to split those apart to judge them, so it hands back the answer
+    rather than leaving each caller to re-derive it and get a 413 wrong.
+    """
+
+    reject: tuple[int, str] | None
+    content_length: str | None
+
+
 def framing_rejection(
     content_lengths: Sequence[str] | None, transfer_encoding: str | None
-) -> tuple[int, str] | None:
-    """Reject a request whose body framing these servers cannot read.
+) -> Framing:
+    """Judge a request's body framing; refuse what these servers cannot read.
 
-    Returns ``(status, message)`` when the request must be refused, else ``None``.
+    Returns a :class:`Framing`. One source of truth: callers reject on
+    ``.reject`` and size the body from ``.content_length``, never from the raw
+    header.
 
     Takes *every* ``Content-Length`` value, not the header dict's first one: a
     repeated ``Content-Length`` is its own desync (CL.CL) and the first value is
@@ -119,14 +138,16 @@ def framing_rejection(
     te = (transfer_encoding or "").strip()
     if te:
         if any(lengths):
-            return (400, "conflicting Content-Length and Transfer-Encoding headers")
-        return (411, "chunked request bodies are not supported; send Content-Length")
+            return Framing((400, "conflicting Content-Length and Transfer-Encoding headers"), None)
+        return Framing((411, "chunked request bodies are not supported; send Content-Length"), None)
     # A single header may itself carry a comma list ("5, 0") — same disagreement,
     # one header line. Flatten before comparing so that shape cannot slip past.
     values = [part.strip() for v in lengths for part in v.split(",")]
     if len(values) > 1 and len(set(values)) > 1:
-        return (400, "conflicting Content-Length headers")
-    return None
+        return Framing((400, "conflicting Content-Length headers"), None)
+    # They agree (or there is only one): hand back the ONE value, so the caller
+    # never parses "42, 42" and calls a perfectly good request too large.
+    return Framing(None, values[0] if values else None)
 
 
 def parse_content_length(raw: object, *, max_bytes: int = MAX_BODY_BYTES) -> int | None:

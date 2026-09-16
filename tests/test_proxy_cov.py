@@ -259,6 +259,33 @@ def test_proxy_content_length_with_transfer_encoding_rejected_400(echo_proxy: in
     assert b"conflicting" in data.lower()
 
 
+def test_proxy_comma_list_content_length_is_served_not_413d(echo_proxy: int) -> None:
+    """Identical values folded into one header line are legal; the proxy must read
+    the body rather than 413 on a string int() happens to refuse."""
+    body = b'{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}]}'
+    n = str(len(body)).encode()
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + n + b", " + n + b"\r\n\r\n" + body
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 200 "), out[:200]
+    assert b"too large" not in out, out[:300]
+
+
 def test_proxy_duplicate_content_length_cannot_smuggle_a_second_request(
     echo_proxy: int,
 ) -> None:

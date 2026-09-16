@@ -1470,17 +1470,20 @@ def build_gateway_handler(
         def _read_body(self) -> bytes | None:
             """Read the request body; on a malformed/oversized/TE-framed request,
             send the error response itself and return None (caller just returns)."""
-            bad = framing_rejection(
+            framing = framing_rejection(
                 self.headers.get_all("Content-Length") or [],
                 self.headers.get("Transfer-Encoding"),
             )
-            if bad is not None:
+            if framing.reject is not None:
                 # _reject closes the connection: the undrained body is still queued
                 # on the socket, and parsing it as the next request is the desync
                 # this rejection exists to prevent (see httpguard.framing_rejection).
-                self._reject(*bad)
+                self._reject(*framing.reject)
                 return None
-            length = parse_content_length(self.headers.get("Content-Length"))
+            # The guard's canonical value, not the raw header: a legal repeated
+            # length reads back as "42, 42", which int() refuses and which would
+            # otherwise become a 413 on a request that is perfectly well framed.
+            length = parse_content_length(framing.content_length)
             if length is None:
                 self._reject(413, "request body too large or malformed Content-Length")
                 return None

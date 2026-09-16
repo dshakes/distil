@@ -637,7 +637,27 @@ def test_identical_duplicate_content_length_is_still_served(gw: Any) -> None:
         b"Content-Length: " + n + b"\r\n"
         b"Content-Length: " + n + b"\r\n\r\n" + body,
     )
-    assert not raw.startswith(b"HTTP/1.1 400 "), raw[:200]
+    assert raw.startswith(b"HTTP/1.1 200 "), raw[:200]
+
+
+def test_a_comma_list_content_length_is_served_not_413d(gw: Any) -> None:
+    """The repeat folded into one header line. The guard allows it, so the body
+    must actually be read — parsing the raw "42, 42" would 413 a good request."""
+    gw_port, _state = gw
+    body = b'{"model":"claude-opus-4-8","messages":[]}'
+    n = str(len(body)).encode()
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: " + n + b", " + n + b"\r\n\r\n" + body,
+    )
+    assert raw.startswith(b"HTTP/1.1 200 "), raw[:200]
+    assert b"too large" not in raw, raw[:300]
+    # The echo upstream returns the body it was sent, re-serialised by the
+    # compressible path: equal as JSON is the proof all of it was read.
+    _head, _, payload = raw.partition(b"\r\n\r\n")
+    assert json.loads(payload) == json.loads(body), payload
 
 
 def test_rate_limited_429_cannot_smuggle_a_second_request(tmp_path: Any, monkeypatch: Any) -> None:
