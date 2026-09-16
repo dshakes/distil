@@ -521,6 +521,151 @@ class TestDetectors:
         assert "calibration" not in _ids(dv.scan())
 
 
+class TestBookedOnlyFiltering:
+    """The proxy records a retried/failed call with ``booked: False`` — it never
+    became a savings event, but the row still sits in ``<sid>.requests.jsonl``.
+    Every figure below must read the exact same population dissect's own ledger
+    headline is built from (`Dissection.booked_detail`), not the raw request-detail
+    list, or a flaky upstream retry inflates the recommendation it never earned."""
+
+    def _seed(self, home: Path) -> None:
+        """3 booked + 2 unbooked (retried) requests on one session. The 2 unbooked
+        rows carry a wildly different prefix hash and cache-create/block-fold
+        count than any booked row — if they leaked into an estimate, it would be
+        off by orders of magnitude, not by a rounding error."""
+        _manifest("sG")
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=3,
+            baseline_dollars=0.1,
+            distil_dollars=0.04,
+            baseline_input_tokens=30_000,
+            distil_input_tokens=12_000,
+            session="sG",
+            mode="digest",
+        )
+        block = [{"h": "shared", "sig": "log:l", "tokens": 1000}]
+        rows = [
+            # (ts_offset, booked, prefix_hash, cache_create)
+            (0, True, "p1", 1000),
+            (1, False, "zzzz1", 90_000),  # retried: huge drift/create if counted
+            (2, True, "p1", 1000),
+            (3, False, "zzzz2", 80_000),  # retried: huge drift/create if counted
+            (4, True, "p2", 50),  # the one real drift, among the booked rows
+        ]
+        for i, booked, phash, create in rows:
+            append_session_request(
+                {
+                    "ts": NOW - 200 + i,
+                    "model": "claude-opus-4-8",
+                    "status": 200 if booked else 529,
+                    "booked": booked,
+                    "mode": "digest",
+                    "compressible_tokens": 1000,
+                    "tokens_saved": 500,
+                    "overhead_tokens": 500,
+                    "system_tokens": 500,
+                    "tools_tokens": 0,
+                    "tools": [],
+                    "usage_input_tokens": 100,
+                    "usage_cache_read": 0,
+                    "usage_cache_create": create,
+                    "prefix_hash": phash,
+                    "blocks": block,
+                },
+                "sG",
+            )
+
+    def test_request_count_is_booked_only(self, home: Path) -> None:
+        self._seed(home)
+        assert dv.scan().requests == 3
+
+    def test_prefix_drift_summary_ignores_the_unbooked_rows(self, home: Path) -> None:
+        self._seed(home)
+        w = dv._collect(sessions=8, since_days=None)
+        s = dv._prefix_summary(w)
+        # Booked-only, sorted by ts: p1, p1, p2 — one stable pair then one real
+        # drift (p1 -> p2, 50 create tokens). The unbooked rows' 90,000/80,000
+        # create tokens and their two extra "drifts" must not appear at all.
+        assert s.requests == 3
+        assert s.pairs == 2
+        assert s.drifts == 1
+        assert s.drift_create_tokens == 50
+
+    def test_churn_folds_only_the_booked_resends(self, home: Path) -> None:
+        self._seed(home)
+        from distil import dissect as dz
+
+        d = dz.dissect("sG")
+        # The shared block was folded on 3 booked requests (2 re-folds), not 5.
+        assert d.churn_tokens == 1000 * (3 - 1)
+        assert d.churned_blocks == 1
+
+    def test_tool_overhead_numerator_ignores_unbooked_tool_definitions(self, home: Path) -> None:
+        """The numerator (top-3 tool cost) must agree with the denominator
+        (`sent_tokens_total`, already booked-only since round 3) — an unbooked
+        retry's tool definitions must not be able to buy their way into the top 3
+        and crowd out the tools the session is actually charged for."""
+        _manifest("sH")
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=3,
+            baseline_dollars=0.3,
+            distil_dollars=0.15,
+            baseline_input_tokens=90_000,
+            distil_input_tokens=30_000,
+            session="sH",
+            mode="digest",
+        )
+        for i in range(3):
+            append_session_request(
+                {
+                    "ts": NOW - 300 + i,
+                    "model": "claude-opus-4-8",
+                    "status": 200,
+                    "booked": True,
+                    "mode": "digest",
+                    "compressible_tokens": 6000,
+                    "tokens_saved": 4000,
+                    "overhead_tokens": 10_500,
+                    "system_tokens": 500,
+                    "tools_tokens": 10_000,
+                    "tools": _TOOLS_A,
+                    "usage_input_tokens": 1000,
+                    "blocks": [],
+                },
+                "sH",
+            )
+        for i in range(2):
+            # Retried/failed, unbooked: a giant tool definition that must never
+            # out-rank the real top-3 the session is actually being charged for.
+            append_session_request(
+                {
+                    "ts": NOW - 290 + i,
+                    "model": "claude-opus-4-8",
+                    "status": 529,
+                    "booked": False,
+                    "mode": "digest",
+                    "compressible_tokens": 6000,
+                    "tokens_saved": 4000,
+                    "overhead_tokens": 10_500,
+                    "system_tokens": 500,
+                    "tools_tokens": 10_000,
+                    "tools": [{"name": "mcp__unbooked__ghost", "tokens": 999_999}],
+                    "usage_input_tokens": 1000,
+                    "blocks": [],
+                },
+                "sH",
+            )
+        a = _by_id(dv.scan(), "tool_overhead")
+        assert a.tokens_per_week == (4000 + 3000 + 2000) * 3 * 7
+        assert "mcp__unbooked__ghost" not in a.title
+        for name in ("mcp__heavy__one", "mcp__heavy__two", "mcp__heavy__three"):
+            assert name in a.title
+
+
 class TestTypicalVsBest:
     def test_median_is_reported_beside_the_best_and_they_differ(self, seeded: Path) -> None:
         r = dv.scan()

@@ -191,7 +191,7 @@ class _Window:
 
     @property
     def requests(self) -> int:
-        return sum(len(d.requests) for d in self.ds)
+        return sum(len(d.booked_detail) for d in self.ds)
 
     def per_week(self, total: float) -> int:
         return int(round(total * 7.0 / self.days)) if self.days > 0 else 0
@@ -258,7 +258,7 @@ def _d_tool_overhead(w: _Window) -> Action | None:
         return None
     per: dict[str, int] = {}
     for d in w.ds:
-        for name, _per_req, total in d.tool_costs():
+        for name, _per_req, total in d.tool_costs(booked_only=True):
             per[name] = per.get(name, 0) + total
     if len(per) < MIN_TOOLS:
         return None
@@ -375,7 +375,7 @@ def _prefix_summary(w: _Window) -> CacheSummary:
 
     total = _prefix.CacheSummary()
     for d in w.ds:
-        records = sorted(d.requests, key=lambda r: float(r.get("ts") or 0))
+        records = sorted(d.booked_detail, key=lambda r: float(r.get("ts") or 0))
         s = _prefix.summarise(records)
         total.requests += s.requests
         total.read_tokens += s.read_tokens
@@ -488,7 +488,7 @@ def _d_system_growth(w: _Window) -> Action | None:
     sessions = 0
     first_t = last_t = 0
     for d in w.ds:
-        g = d.system_growth()
+        g = d.system_growth(booked_only=True)
         if not g:
             continue
         first, last = g
@@ -500,7 +500,7 @@ def _d_system_growth(w: _Window) -> Action | None:
         # The grown tokens are paid on every request after the growth. Charging half
         # the session's requests is the midpoint of "grew immediately" and "grew at
         # the end" — stated, because no record says WHEN it grew.
-        grown += delta * len(d.requests) / 2.0
+        grown += delta * len(d.booked_detail) / 2.0
     if not sessions or grown <= 0:
         return None
     return Action(

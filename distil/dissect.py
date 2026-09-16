@@ -510,16 +510,29 @@ class Dissection:
         return 100.0 * prot / total
 
     @property
+    def _booked_fold_counts(self) -> dict[str, dict[str, int]]:
+        """Fold counts from ``booked_detail`` only — unlike ``self.blocks`` (built from
+        every request for the recoverable-blocks display), a fold on an unbooked
+        retry is the same resend billed once, not a second re-fold."""
+        out: dict[str, dict[str, int]] = {}
+        for rec in self.booked_detail:
+            for blk in rec.get("blocks") or []:
+                h = blk.get("h")
+                if not isinstance(h, str):
+                    continue
+                info = out.setdefault(h, {"tokens": int(blk.get("tokens") or 0), "folds": 0})
+                info["folds"] += 1
+        return out
+
+    @property
     def churn_tokens(self) -> int:
         """Tokens re-folded after first sight — resent content the client keeps sending."""
-        return sum(
-            int(i.get("tokens") or 0) * (int(i.get("folds") or 1) - 1) for i in self.blocks.values()
-        )
+        return sum(i["tokens"] * (i["folds"] - 1) for i in self._booked_fold_counts.values())
 
     @property
     def churned_blocks(self) -> int:
         """Blocks folded more than once — the same count churn_tokens sums over."""
-        return sum(1 for i in self.blocks.values() if int(i.get("folds") or 0) >= 2)
+        return sum(1 for i in self._booked_fold_counts.values() if i["folds"] >= 2)
 
     @property
     def usage_input_total(self) -> int:
@@ -721,19 +734,32 @@ class Dissection:
         vals = [int(r.get("tools_tokens") or 0) for r in self.requests]
         return sum(vals) // len(vals) if vals else 0
 
-    def system_growth(self) -> tuple[int, int] | None:
-        """(first, last) system-prompt size — memory/context injections show up here."""
-        vals = [int(r.get("system_tokens") or 0) for r in self.requests if r.get("system_tokens")]
+    def system_growth(self, *, booked_only: bool = False) -> tuple[int, int] | None:
+        """(first, last) system-prompt size — memory/context injections show up here.
+
+        ``booked_only=False`` (default) keeps dissect's own report contract: an
+        unbooked retry's system prompt was still actually sent, so it is real
+        evidence of growth. A caller pricing a recovery off the result (discover's
+        request-count multiplier) wants ``True``, to match the population that
+        multiplier is already filtered to.
+        """
+        records = self.booked_detail if booked_only else self.requests
+        vals = [int(r.get("system_tokens") or 0) for r in records if r.get("system_tokens")]
         return (vals[0], vals[-1]) if len(vals) >= 2 else None
 
-    def tool_costs(self) -> list[tuple[str, int, int]]:
+    def tool_costs(self, *, booked_only: bool = False) -> list[tuple[str, int, int]]:
         """[(tool_name, tokens_per_request, session_total)] biggest total first.
 
         A tool definition is resent on every request, so its session cost is
         its size × the requests that carried it — the "trim this" worklist.
+
+        ``booked_only=False`` (default) keeps dissect's own report contract (every
+        request that actually carried the tool, retried or not). A caller pricing a
+        recovery estimate against an already booked-only denominator — discover's
+        tool_overhead numerator — wants ``True``, so the two agree.
         """
         per: dict[str, list[int]] = {}
-        for r in self.requests:
+        for r in self.booked_detail if booked_only else self.requests:
             for t in r.get("tools") or []:
                 name = str(t.get("name") or "?")
                 m = per.setdefault(name, [0, 0])
