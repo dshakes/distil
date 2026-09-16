@@ -383,10 +383,16 @@ def _d_digest_off(w: _Window) -> Action | None:
 
 
 def _mode_of(d: Dissection) -> str:
-    """The compression mode a session actually ran in: the manifest flags when they
-    exist, else the mode the ledger rows were booked under (pre-manifest sessions)."""
-    flags = (d.manifest or {}).get("flags") or {}
-    if d.manifest:
+    """The compression mode a session actually ran in: the manifest flags when the
+    manifest actually recorded them, else the mode the ledger rows were booked
+    under (pre-manifest sessions, or an older/minimal manifest that has no `flags`
+    key at all). A manifest present but silent on `flags` is not evidence of
+    "digest" — it is no evidence at all, and defaulting to digest there is exactly
+    what let a lossless/verbatim legacy session dodge `digest_off`. "unknown" when
+    neither source can tell, so a caller skips the session instead of guessing."""
+    manifest = d.manifest or {}
+    if "flags" in manifest:
+        flags = manifest["flags"] or {}
         if flags.get("verbatim"):
             return "verbatim"
         if flags.get("lossless_only"):
@@ -396,7 +402,7 @@ def _mode_of(d: Dissection) -> str:
     for candidate in ("digest", "lossless-only", "verbatim"):
         if candidate in modes:
             return candidate
-    return ""
+    return "unknown"
 
 
 def _digest_rate(w: _Window) -> tuple[float, str]:

@@ -397,6 +397,110 @@ class TestDetectors:
         _seed_c(home)
         assert "digest_off" not in _ids(dv.scan())
 
+    def test_digest_off_falls_back_to_the_ledger_mode_when_the_manifest_has_no_flags(
+        self, home: Path
+    ) -> None:
+        """An older/minimal manifest that never recorded `flags` at all is not
+        evidence of "digest" — a manifest present but silent on the mode used to
+        default straight to digest, which let a lossless-only legacy session dodge
+        `digest_off` entirely. It must fall back to what the ledger rows were
+        actually booked under, the same as when the manifest is missing outright."""
+        write_session_manifest(
+            {
+                "sid": "sOldFlags",
+                "tool": "claude",
+                "argv": ["claude"],
+                "cwd": "/tmp/proj",
+                "started_ts": NOW - 3600,
+                "distil_version": "1.10.0",
+                "billing": "metered",
+                # no "flags" key — an older/minimal manifest shape.
+            },
+            "sOldFlags",
+        )
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=1,
+            baseline_dollars=0.50,
+            distil_dollars=0.495,
+            baseline_input_tokens=100_000,
+            distil_input_tokens=99_000,
+            session="sOldFlags",
+            mode="lossless-only",
+        )
+        append_session_request(
+            {
+                "ts": NOW - 200,
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "lossless-only",
+                "compressible_tokens": 20_000,
+                "tokens_saved": 200,
+                "overhead_tokens": 1000,
+                "system_tokens": 500,
+                "tools_tokens": 500,
+                "tools": [{"name": "bash", "tokens": 500}],
+                "blocks": [],
+            },
+            "sOldFlags",
+        )
+        assert "digest_off" in _ids(dv.scan())
+
+    def test_digest_off_treats_an_undeterminable_mode_as_unknown_not_digest(
+        self, home: Path
+    ) -> None:
+        """A manifest with no `flags` and ledger rows carrying no recognizable mode
+        string leaves nothing to determine the mode from. `_mode_of` must return
+        "unknown" rather than default to "digest" — a guess `digest_off` would
+        otherwise act on as if it were measured."""
+        write_session_manifest(
+            {
+                "sid": "sNoMode",
+                "tool": "claude",
+                "argv": ["claude"],
+                "cwd": "/tmp/proj",
+                "started_ts": NOW - 3600,
+                "distil_version": "1.10.0",
+                "billing": "metered",
+            },
+            "sNoMode",
+        )
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=1,
+            baseline_dollars=0.50,
+            distil_dollars=0.495,
+            baseline_input_tokens=100_000,
+            distil_input_tokens=99_000,
+            session="sNoMode",
+            mode="",  # no recognizable mode recorded on the ledger row either
+        )
+        append_session_request(
+            {
+                "ts": NOW - 200,
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "",
+                "compressible_tokens": 20_000,
+                "tokens_saved": 200,
+                "overhead_tokens": 1000,
+                "system_tokens": 500,
+                "tools_tokens": 500,
+                "tools": [{"name": "bash", "tokens": 500}],
+                "blocks": [],
+            },
+            "sNoMode",
+        )
+        from distil import dissect as dz
+
+        d = dz.dissect("sNoMode")
+        assert dv._mode_of(d) == "unknown"
+        assert "digest_off" not in _ids(dv.scan())
+
     def test_prefix_drift_prices_the_write_read_gap(self, seeded: Path) -> None:
         a = _by_id(dv.scan(), "prefix_drift")
         # 4 of sA's 5 requests actually drifted (each carries 1000 cache-write
