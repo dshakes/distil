@@ -3,6 +3,58 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — the verdict at the end of the session
+
+Every piece of statistical machinery in this repo already worked. None of it was ever
+shown to the person whose traffic it was measuring. The e-process in `drift.py` had no
+caller. The conformal bound was reachable only from a command nobody runs twice. The
+receipt chain was hash-linked and verified on request, which means in practice never.
+The gap was not rigor; it was that rigor stayed in the library and the user got a
+savings number.
+
+Every `distil wrap` session now ends with four verdicts, and the same four print in
+`distil stats` and `distil dissect` from one shared function, so three surfaces reading
+one ledger cannot disagree about it. Each one can come back negative — that is the
+entire reason to print it.
+
+- **`budget` — the certified decision-change budget, checked after every request.** Live
+  shadow rows feed a persisted betting e-process (`~/.distil/drift.json`, folded once per
+  row in file order, locked). Capital crossing `1/δ` means the live decision-change rate
+  has exceeded the certified 5% at 95% confidence, and the line says `BREACHED at sample
+  k` until the evidence is archived by `distil reset --shadow`. Ville's inequality is what
+  makes peeking free. The gate is a build gate, not a claim: 2,000 null runs at exactly
+  the budget alarm 99 times (4.95% against a δ of 5%), and a true rate ten points over
+  budget is caught on 500 of 500 runs within a median of 172 requests.
+- **`risk` — a distribution-free upper bound on the same losses.** Deliberately wider
+  than the bootstrap interval beside it: the bootstrap estimates where the rate is, this
+  one states where it is not, assuming no distribution and holding at finite `n`. A
+  1,000-run coverage simulation gates it.
+- **`output` — what compression did to reply *length*.** Shadow already measured it and
+  only `dissect` showed it. A shorter prompt that buys a longer answer can cost more than
+  it saved. The direction word prints only when the 95% interval excludes zero; it is the
+  measured effect on ordinary traffic, not `--shape-output`, which *asks* for shorter
+  replies.
+- **`receipts` — the chain, verified at exit.** `distil receipts --verify` now exists as
+  the obvious spelling of the default action. Verifying a broken chain used to report
+  `receipt 1 of 2` when three receipts existed, because the scan stopped counting at the
+  break; the second number is the one that tells a reader how much of the artifact is in
+  question, so it now counts the file.
+
+Below the shared reporting floor every line withholds its number and says how far along
+it is instead. A verdict computed over evidence too thin to support it is worse than no
+verdict, because it teaches the reader to ignore a line that was supposed to be able to
+say no.
+
+### Saying which parts are not on the request path
+
+`distil doctor` now states plainly that `guideline.py`'s outcome statistics are a
+zero-sample no-op — `record_trajectory_outcome` has no callers, so the routing it feeds
+is running on defaults. Seven research modules (`gist`, `speculative`, `ensemble`,
+`retrieval`, `output.digest_output_blocks`, `telemetry.sign`/`submit`, and
+`trajectory_risk.drift_monitor`) now open their docstrings with **RESEARCH-ONLY — not on
+the request path**. Nothing was deleted and nothing changed behaviour; an inert module
+that reads as shipped is a claim, and it is now labelled as what it is.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

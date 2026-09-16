@@ -176,13 +176,15 @@ class Verdict:
 def verify(path: Path | None = None) -> Verdict:
     """Recompute every hash and every link. This is the whole point of the artifact:
     anyone can run it, and it needs nothing but the file."""
+    # Read the whole chain first: "receipt 3 of 40" has to count the receipts that
+    # exist, not the ones verified before the break — the second number is what tells
+    # the reader how much of the artifact is in question.
+    chain = list(read(path))
     prev = GENESIS
-    n = 0
-    for i, r in enumerate(read(path)):
-        n = i + 1
+    for i, r in enumerate(chain):
         if r.hash != r.compute_hash():
-            return Verdict(n, False, i, "content does not match its hash")
+            return Verdict(len(chain), False, i, "content does not match its hash")
         if r.prev != prev:
-            return Verdict(n, False, i, "prev-hash does not match the preceding receipt")
+            return Verdict(len(chain), False, i, "prev-hash does not match the preceding receipt")
         prev = r.hash
-    return Verdict(n, True)
+    return Verdict(len(chain), True)

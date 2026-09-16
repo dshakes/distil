@@ -146,6 +146,12 @@ Evals (every probe distil runs on itself, including the three bugs these probes
 found in distil's OWN harness — published, not hidden):
 https://dshakes.github.io/distil/evals.html
 
+What the exit summary proves (the four verdicts every `distil wrap` session ends
+with — an anytime-valid alarm on the certified risk budget, a distribution-free
+upper bound on the live decision-change rate, compression's measured effect on
+reply length, and the hash-chained receipts — and the method behind each):
+https://dshakes.github.io/distil/evals.html#exit-summary
+
 Independent benchmark (75 agent runs by an outside engineer, graded from the
 API's own usage fields: the defect that finished 6 of 15 tasks, why it happened,
 and what 1.49.0 changed):

@@ -1,4 +1,6 @@
-"""Phase 7 — BM25-filtered partial retrieval from a compression handle.
+"""RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+Phase 7 — BM25-filtered partial retrieval from a compression handle.
 
 Provides a hand-rolled Okapi BM25 index (stdlib-only) and two helpers for
 pulling back only the relevant slice of a digested original instead of the

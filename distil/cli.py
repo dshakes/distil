@@ -193,6 +193,16 @@ def cmd_reset(args: argparse.Namespace) -> int:
             sh.rename(sh.with_name(sh.name + f".reset-{stamp}"))
             print("shadow decision-equivalence stats archived and reset")
             reset_any = True
+        # The drift e-process is derived from those rows and its trip is sticky, so a
+        # breach would outlive the evidence it was computed from. This is the
+        # documented reset for the alarm.
+        from .drift import _state_path
+
+        dr = _state_path()
+        if dr.exists():
+            dr.rename(dr.with_name(dr.name + f".reset-{stamp}"))
+            print("drift monitor archived and reset — the budget alarm starts over")
+            reset_any = True
     if not reset_any:
         print("nothing to reset — no ledger recorded yet.")
         return 0
@@ -419,6 +429,12 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             print(f"decision-equivalence: collecting — {eq.line()}")
     except Exception:  # noqa: BLE001 — shadow stats are best-effort
         pass
+    # The same four verdicts the wrap exit summary prints, from the same function —
+    # two surfaces reading one ledger must not be able to disagree about it.
+    from .proof_ledger import _safe_proof_lines
+
+    for _label, _text in _safe_proof_lines():
+        print(f"{_label + ':':<21} {_text}")
     if live and not subscription_mode():
         print(f"  of which genuine live traffic (live-proxy): ${live:,.2f}")
     if not subscription_mode():
@@ -953,7 +969,7 @@ def cmd_receipts(args: argparse.Namespace) -> int:
 
     from . import receipts as _r
 
-    if args.export:
+    if args.export and not getattr(args, "verify", False):
         n = 0
         for rec in _r.read():
             print(json.dumps(asdict(rec), sort_keys=True, separators=(",", ":")))
@@ -4054,6 +4070,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rc.add_argument(
         "--export", action="store_true", help="print every receipt as JSONL instead of verifying"
+    )
+    # Verifying IS the default; the flag exists so the documented, obvious spelling
+    # works rather than erroring at someone who is trying to check the chain.
+    rc.add_argument(
+        "--verify", action="store_true", help="verify the hash chain (the default action)"
     )
     rc.set_defaults(func=cmd_receipts)
 

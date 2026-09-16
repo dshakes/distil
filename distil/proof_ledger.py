@@ -129,6 +129,109 @@ def _shadow_line(since_ts: float) -> str:
     return f"{changes} decision change{plural}    {suffix}"
 
 
+# ---------------------------------------------------------------------------
+# The four verdict lines. Each one can come back negative — that is the point.
+# All of them share shadow's reporting floor: below it they name the shortfall
+# and print no number, because a statistic that can print a wrong verdict is
+# worse than no line at all.
+# ---------------------------------------------------------------------------
+
+
+def _paired_diffs() -> list[int]:
+    """The live paired per-request differences, current signature version only.
+
+    One read feeds the drift alarm and the conformal bound, so the two can never
+    disagree about which evidence they are quoting.
+    """
+    from .shadow import ShadowLedger
+
+    return list(ShadowLedger.load(current_only=True).paired_diffs)
+
+
+def _drift_line(diffs: list[int]) -> str:
+    """Anytime-valid budget alarm — is the certified decision-change budget still intact?
+
+    The certificate (``distil conformal``) is a one-shot statement about a calibration
+    corpus. This is the same claim, checked after every sample, with no multiplicity
+    penalty: a betting e-process whose capital crossing ``1/delta`` means the live risk
+    has exceeded the budget (Ville). See :func:`distil.drift.paired_loss` for the loss.
+    """
+    from .drift import live_monitor
+
+    return live_monitor(diffs).line() or ""
+
+
+def _risk_line(diffs: list[int]) -> str:
+    """Distribution-free (1−delta) upper bound on the live decision-change rate.
+
+    ``tight_risk_bound`` on the same affine-mapped paired losses the drift monitor bets
+    on; the bound is on ``E[x] = (1 + harm)/2``, so it is mapped back the same way. Wider
+    than the bootstrap interval next to it on purpose — this one assumes no distribution
+    and holds at finite n, which the percentile bootstrap does not.
+    """
+    from .conformal import tight_risk_bound
+    from .drift import BUDGET_DELTA, paired_loss
+    from .shadow import VERDICT_MIN_AB
+
+    n = len(diffs)
+    if n < VERDICT_MIN_AB:
+        return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
+    bound = 2.0 * tight_risk_bound([paired_loss(d) for d in diffs], BUDGET_DELTA) - 1.0
+    conf = round((1.0 - BUDGET_DELTA) * 100)
+    return f"decision-change risk ≤ {max(0.0, bound) * 100:.1f}% ({conf}% conformal bound, n={n})"
+
+
+def _receipts_line() -> str:
+    """Hash-chain verdict for the per-request receipts — the one artifact a third party
+    can check without trusting us. Verified at exit instead of only in a command nobody
+    remembers to run."""
+    from . import receipts as _r
+
+    v = _r.verify()
+    if v.total == 0:
+        return "no receipts recorded"
+    if v.ok:
+        return f"{v.total} receipts, chain verified"
+    return f"chain BROKEN at receipt {v.first_bad_index} of {v.total} — {v.reason}"
+
+
+def _output_line() -> str:
+    """Effect of compression on REPLY length, measured by shadow's paired replays.
+
+    Distinct from ``--shape-output``, which asks the model for shorter replies: this is
+    what compression does to reply length on traffic that asked for nothing. The
+    direction word is only printed when the interval excludes zero.
+    """
+    from .shadow import VERDICT_MIN_AB, ShadowLedger
+
+    cost = ShadowLedger.load(current_only=True).cost()
+    if cost is None or cost.n < VERDICT_MIN_AB:
+        n = 0 if cost is None else cost.n
+        return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
+    lo, hi = cost.out_delta_ci
+    scope = f"n={cost.n}, shadow-measured on all traffic; not --shape-output"
+    if lo <= 0.0 <= hi:
+        return f"no measurable effect on reply length ({scope})"
+    word = "shorter" if cost.out_delta_mean < 0 else "longer"
+    return (
+        f"the model's replies were {abs(cost.out_delta_mean):.0f} tokens {word} per request "
+        f"under compression (95% CI [{lo:+.1f}, {hi:+.1f}], {scope})"
+    )
+
+
+def proof_lines() -> list[tuple[str, str]]:
+    """``(label, sentence)`` for every statistical verdict, shared by the wrap exit
+    summary, ``distil stats`` and ``distil dissect`` — one implementation, so the three
+    surfaces cannot report different verdicts off the same ledger."""
+    diffs = _paired_diffs()
+    return [
+        ("budget", f"certified decision-change budget: {_drift_line(diffs)}"),
+        ("risk", _risk_line(diffs)),
+        ("output", _output_line()),
+        ("receipts", _receipts_line()),
+    ]
+
+
 def build_ledger_text(session_id: str, start_ts: float) -> str | None:
     """Return the formatted proof ledger block, or None if no proxied requests.
 
@@ -174,8 +277,19 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
             f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
             f"    shadow   {_shadow_line(start_ts)}",
             f"    restore  {restore}",
+            *(f"    {label:<8} {text}" for label, text in _safe_proof_lines()),
         ]
     )
+
+
+def _safe_proof_lines() -> list[tuple[str, str]]:
+    """:func:`proof_lines`, but a broken statistic drops its own line instead of the
+    whole ledger. ``print_proof_ledger`` is already fail-open; this keeps the token and
+    dollar accounting visible when only the drift state file is unreadable."""
+    try:
+        return proof_lines()
+    except Exception:  # noqa: BLE001 — a verdict that cannot be computed is not printed
+        return []
 
 
 def print_proof_ledger(session_id: str, start_ts: float) -> None:
