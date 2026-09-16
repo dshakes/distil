@@ -505,11 +505,53 @@ class TestDetectors:
         assert "--session-delta" in a.command
 
     def test_churn_ignores_sessions_whose_cache_share_was_never_measured(self, home: Path) -> None:
-        """sB/sC carry no cache fields at all. Unmeasured is not cheap and not
-        expensive — it is unknown, and an unknown must not enter an estimate."""
+        """sB/sC carry no cache fields AND no billed usage at all. Unmeasured is not
+        cheap and not expensive — it is unknown, and an unknown must not enter an
+        estimate."""
         _seed_b(home)
         _seed_c(home)
         assert "churn" not in _ids(dv.scan())
+
+    def test_churn_includes_a_session_with_a_real_zero_cache_share(self, home: Path) -> None:
+        """The proxy omits a cache split field entirely when its value is zero, so a
+        session with real billed usage and neither split field is a genuine 0%
+        cache share — precisely the session churn costs the most on — and must not
+        be excluded the same way an unmeasured session is."""
+        _manifest("sZ")
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=5,
+            baseline_dollars=0.15,
+            distil_dollars=0.05,
+            baseline_input_tokens=30_000,
+            distil_input_tokens=10_000,
+            session="sZ",
+            mode="digest",
+        )
+        for i in range(5):
+            append_session_request(
+                {
+                    "ts": NOW - 300 + i,
+                    "model": "claude-opus-4-8",
+                    "status": 200,
+                    "booked": True,
+                    "mode": "digest",
+                    "compressible_tokens": 6000,
+                    "tokens_saved": 4000,
+                    "overhead_tokens": 500,
+                    "system_tokens": 500,
+                    "tools_tokens": 0,
+                    "tools": [],
+                    "usage_input_tokens": 1000,  # real billed usage, no cache fields at all
+                    "blocks": [{"h": "h-z", "sig": "log:l", "tokens": 3000}],
+                },
+                "sZ",
+            )
+        r = dv.scan()
+        assert "churn" in _ids(r)
+        d = dv.dissect("sZ")
+        assert d.cached_input_share == pytest.approx(0.0)
 
     def test_system_growth_charges_half_the_requests(self, seeded: Path) -> None:
         a = _by_id(dv.scan(), "system_growth")

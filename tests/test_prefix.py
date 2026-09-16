@@ -138,9 +138,18 @@ class TestSessionSummary:
         assert "caching was active" in text, "the rows still prove caching happened"
 
     def test_no_cache_usage_at_all_says_so(self) -> None:
-        s = prefix.summarise([{"usage_input_tokens": 100}])
+        s = prefix.summarise([{"prefix_hash": "abc"}])
         assert not s.reported and not s.legacy_rows
         assert "not reported by the provider" in prefix.format_summary(s)
+
+    def test_a_row_with_usage_but_no_split_reads_as_a_measured_zero(self) -> None:
+        """The proxy omits a cache field entirely when its value is zero, so an
+        absent split next to real billed usage means the cache never hit — not
+        that it was never checked. Conflating the two drops a genuinely
+        zero-cache session out of `distil cache`'s own hit-ratio line."""
+        s = prefix.summarise([{"usage_input_tokens": 100}])
+        assert s.reported and s.hit_ratio == 0.0
+        assert "hit ratio       0.0%" in prefix.format_summary(s)
 
     def test_the_summary_is_content_free(self) -> None:
         s = prefix.summarise([{"prefix_hash": "abc", "usage_cache_read": 5}])

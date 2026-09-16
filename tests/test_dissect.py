@@ -260,6 +260,57 @@ class TestRequestDetailLogging:
             assert resp.status == 200
         assert not list((tmp_path / "sessions").glob("*.requests.jsonl"))
 
+    def test_zero_cache_split_is_written_as_zero_not_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A provider that reports prompt caching at all returns BOTH split fields
+        even on a call with zero hits — that IS a measurement, and must not
+        collapse into the same `None` a provider that never reports caching
+        writes. `Dissection.cached_input_share` relies on this distinction."""
+        payload = json.dumps(
+            {
+                "id": "msg_test",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {
+                    "input_tokens": 500,
+                    "output_tokens": 10,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+            }
+        ).encode()
+
+        class _ZeroCacheHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 — http.server API
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args: Any) -> None:  # quiet
+                pass
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), _ZeroCacheHandler)
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        handler_cls = build_handler(f"http://127.0.0.1:{upstream.server_address[1]}")
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        try:
+            monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+            monkeypatch.setenv("DISTIL_SESSION", "s102-1")
+            with _post(proxy.server_address[1], _compressible_payload()) as resp:
+                assert resp.status == 200
+            path = session_requests_path("s102-1")
+            assert path is not None
+            rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+            assert rec["usage_cache_read"] == 0
+            assert rec["usage_cache_create"] == 0
+        finally:
+            proxy.shutdown()
+            upstream.shutdown()
+
 
 class TestWrapManifest:
     def test_manifest_written_at_wrap_start(
@@ -667,6 +718,30 @@ class TestInsights:
         advice = d._churn_advice()
         assert "prompt cache" in advice and "already discounted" in advice
         assert "session-delta cache absorbs" not in advice
+
+    def test_a_real_zero_cache_split_reads_as_measured_not_unmeasured(self) -> None:
+        """The proxy omits a split field entirely when its value is zero, so a row
+        that DID carry billed usage but has neither split field is a genuine 0%
+        cache share, not an unmeasured one — the exact session churn costs the
+        most on must not be dropped out of every consumer that gates on this."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share == pytest.approx(0.0)
+
+    def test_no_usage_at_all_stays_unmeasured(self) -> None:
+        """A row with no billed usage recorded has nothing to measure a share
+        from — the true "unmeasured" case, distinct from a real zero."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r.pop("usage_input_tokens", None)
+        assert d.cached_input_share is None
 
     def test_legacy_rows_read_as_not_captured_not_zero(self) -> None:
         """Older records carry only the aggregate ``usage_cache_tokens``. Summing the

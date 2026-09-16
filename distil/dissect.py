@@ -467,26 +467,39 @@ class Dissection:
         Decides whether re-fold churn is actually expensive. A high share means the
         resent content is already billed at the cache-read rate, so the headline churn
         number overstates what any dedup mechanism could recover. None when no usage
-        was recorded.
+        was recorded at all.
 
-        Older records carry only the aggregate ``usage_cache_tokens`` and neither split
-        field. Summing the split fields over those rows gives 0 cached against a nonzero
-        input total, so the share reads a confident **0.0%** — "the cache never hit" —
-        for a session where it was never measured. Those are opposite diagnoses, so
-        require at least one row to carry a split field before reporting anything.
+        A row that DID carry usage but neither split field is a real, measured 0% —
+        the proxy omits a cache field entirely when its value is zero (write is
+        ``... or None``), so a None split on a row with usage means "the cache never
+        hit", not "never measured". Reading it the other way drops every genuinely
+        zero-cache session — the exact session churn costs the most on — out of every
+        consumer that gates on this being non-None.
+
+        The one row shape that IS genuinely unmeasured: an older record with only the
+        aggregate ``usage_cache_tokens`` and neither split field. Folding a nonzero
+        aggregate in at 0% read would misreport a cached session as uncached, so that
+        row is excluded rather than assumed clean; a zero (or absent) aggregate next to
+        an absent split is the real zero case above and stays in.
         """
-        detail = self.booked_detail
-        if not any(
-            r.get("usage_cache_read") is not None or r.get("usage_cache_create") is not None
-            for r in detail
-        ):
+        measured = [
+            r
+            for r in self.booked_detail
+            if r.get("usage_input_tokens") is not None
+            and not (
+                r.get("usage_cache_read") is None
+                and r.get("usage_cache_create") is None
+                and r.get("usage_cache_tokens")
+            )
+        ]
+        if not measured:
             return None
-        cached = sum(int(r.get("usage_cache_read") or 0) for r in detail)
+        cached = sum(int(r.get("usage_cache_read") or 0) for r in measured)
         total = sum(
             int(r.get("usage_input_tokens") or 0)
             + int(r.get("usage_cache_read") or 0)
             + int(r.get("usage_cache_create") or 0)
-            for r in detail
+            for r in measured
         )
         return 100.0 * cached / total if total else None
 
