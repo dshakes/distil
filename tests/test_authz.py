@@ -379,6 +379,39 @@ def test_safe_tenant_is_deterministic():
     assert safe_tenant(bad) != safe_tenant("globex\r\nX-Injected: yes")
 
 
+def test_the_tenant_pattern_is_anchored_against_a_trailing_newline():
+    """`$` matches before a final newline, so `^…$` accepts "acme\\n" — and a
+    newline is exactly what makes a label emitted as a response header dangerous.
+    The anchors live in the pattern so .match() callers cannot get this wrong."""
+    assert TENANT_RE.match("acme")
+    assert not TENANT_RE.match("acme\n")
+    assert not TENANT_RE.match("acme\r\n")
+    assert not TENANT_RE.match("acme\nX-Injected: yes")
+    # fullmatch must agree — the pattern is correct either way it is applied.
+    assert not TENANT_RE.fullmatch("acme\n")
+
+
+def test_safe_tenant_rejects_a_trailing_newline():
+    """Door one of three: the OIDC claim. Nothing strips it on this path, so the
+    pattern is the only thing standing between the claim and the header."""
+    assert safe_tenant("acme") == "acme"
+    assert safe_tenant("acme\n").startswith("oidc-")
+    assert safe_tenant("acme\n") != safe_tenant("acme")
+
+
+def test_tenant_of_rejects_a_trailing_newline_label():
+    """Door three: the client-supplied x-distil-tenant header, which the gateway
+    echoes back in its response. Unreachable with a real newline over HTTP (one
+    would end the header line) and this door also .strip()s — but tenant_of is
+    called directly by library code, and the pattern is what makes it safe for
+    every caller rather than only the ones arriving over a socket."""
+    from distil import gateway
+
+    trust = {"trust_tenant_header": True}
+    assert gateway.tenant_of({"x-distil-tenant": "acme"}, **trust) == "acme"
+    assert gateway.tenant_of({"x-distil-tenant": "acme\nX-Injected: yes"}, **trust) == "default"
+
+
 def test_safe_tenant_rejects_an_overlong_label():
     """64 characters, because the label is rendered in the dashboard and stored
     per-tenant — an unbounded one is a memory and a layout problem."""

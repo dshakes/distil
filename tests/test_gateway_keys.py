@@ -907,9 +907,13 @@ def test_issue_refuses_a_tenant_the_response_header_cannot_carry(tmp_path: Path)
     """Same validator as the x-distil-tenant header and the OIDC claim: one
     definition of what a tenant label is, whichever door it comes through."""
     store = GatewayKeyStore(tmp_path / "gateway_keys.json")
-    for bad in ("acme corp", "acme\r\nX-Injected: yes", "a" * 65, "acme/../etc"):
+    # "acme\n" is the one a `^…$` pattern lets through: `$` matches before a
+    # trailing newline, so the label reaching the response header keeps the very
+    # character that splits it.
+    for bad in ("acme corp", "acme\r\nX-Injected: yes", "a" * 65, "acme/../etc", "acme\n"):
         with pytest.raises(ValueError, match="invalid tenant"):
             store.issue(bad)
+    assert store.list_keys() == []
 
 
 def test_issue_accepts_the_ordinary_labels(tmp_path: Path) -> None:

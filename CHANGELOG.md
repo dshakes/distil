@@ -67,6 +67,19 @@ comma list folded into one header line. Identical duplicates are still served �
 fix's clothes. The async proxy again needed nothing: aiohttp's parser answers 400 to any
 repeated `Content-Length`, which a raw-socket probe confirmed rather than assumed.
 
+And the tenant validator, the one definition three doors were consolidated onto above, was
+anchored with `^…$` — where `$` also matches immediately before a trailing newline. So
+`acme\n` was a valid tenant label, carrying into `x-distil-tenant` the exact character that
+splits a response header, which is the entire reason `safe_tenant` exists. The pattern is
+now `\A…\Z`. Putting the anchors in the pattern rather than asking four call sites to use
+`fullmatch` is deliberate: all four call `.match()` today, and a fifth written next year
+would otherwise inherit the bug for free. Two other `^…$` patterns applied to
+attacker-influenced input got the same treatment — Gemini path routing and sed-script
+classification in provenance. Of the three tenant doors only two were actually reachable:
+the header door already `.strip()`ed its value, and a header value cannot carry a raw
+newline over HTTP anyway. The OIDC claim and the operator key-issue path had nothing in
+front of them but the pattern.
+
 ### Configuring an identity provider did not turn on authentication
 
 The gateway decided whether to require a credential before it decided what could serve as

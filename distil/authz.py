@@ -63,7 +63,14 @@ class AuthzError(Exception):
 # below) and an operator-issued key (``gateway_keys.issue``) — because a label
 # that reaches response headers, the dashboard and the accounting map has to mean
 # the same thing whichever door it used.
-TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+#
+# \A and \Z, not ^ and $: "$" also matches just BEFORE a trailing newline, so
+# `^…$` accepts "acme\n" — which is precisely the character that turns a label
+# emitted as an x-distil-tenant response header into a header-splitting one. The
+# anchors are in the PATTERN rather than left to every caller using fullmatch(),
+# because all four doors call .match() today and a fifth one written later would
+# get the bug back for free.
+TENANT_RE = re.compile(r"\A[A-Za-z0-9._-]{1,64}\Z")
 
 
 def safe_tenant(value: str) -> str:
