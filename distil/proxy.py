@@ -40,6 +40,7 @@ from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens
 from .adapters.gemini import is_gemini_path
 from .httpguard import (
+    framing_rejection,
     is_chat_completions_path,
     is_compressible_path,
     is_messages_path,
@@ -822,20 +823,35 @@ def build_handler(
         def _read_body(self) -> bytes | None:
             """Read the request body; on a malformed/oversized/chunked request,
             send the error response itself and return None (caller just returns)."""
-            if not self.headers.get("Content-Length") and "chunked" in (
-                self.headers.get("Transfer-Encoding") or ""
-            ):
-                # A chunked body would otherwise be read as empty and silently
+            framing = framing_rejection(
+                self.headers.get_all("Content-Length") or [],
+                self.headers.get_all("Transfer-Encoding") or [],
+            )
+            if framing.reject is not None:
+                # A TE-framed body would otherwise be read as empty and silently
                 # dropped — fail loudly instead (LLM SDKs always send a length).
-                self._reject(411, "chunked request bodies are not supported; send Content-Length")
+                # _reject closes the connection: the undrained body is still queued
+                # on the socket, and parsing it as the next request is the desync
+                # this rejection exists to prevent.
+                self._reject(*framing.reject)
                 return None
-            length = parse_content_length(self.headers.get("Content-Length"))
+            # The guard's canonical value — see the gateway's _read_body.
+            length = parse_content_length(framing.content_length)
             if length is None:
                 self._reject(413, "request body too large or malformed Content-Length")
                 return None
             return self.rfile.read(length) if length else b""
 
         def _reject(self, code: int, message: str) -> None:
+            # Close the connection on EVERY rejection. All of them answer from the
+            # headers alone, before _read_body runs, so whatever body the client
+            # already sent is still queued on the socket; on a keep-alive HTTP/1.1
+            # connection the next parse would read those bytes as a second request,
+            # which is request smuggling. Framing was only the loudest case of it —
+            # a 413, a 400 on the path, and every auth 401/403/429 leave exactly the
+            # same undrained body behind. One close here covers every caller, and
+            # the cost on an error path is one reconnect.
+            self.close_connection = True
             body = json.dumps({"error": message}).encode()
             self._relay(code, {"Content-Type": "application/json"}, body)
 
@@ -1274,6 +1290,36 @@ def build_handler(
             # shape-correct, and get their answer back as synthesized SSE.
             _sse_shape: str | None = None
             _fwd_path = self.path
+            # Expand bookkeeping, declared ahead of BOTH branches. The buffered loop and
+            # the streaming splice resolve the same handles and must report them the same
+            # way: without this the streaming path resolved expansions and reported none,
+            # so `dissect`'s expand_resolved was structurally 0 on every streaming session.
+            _expanded_handles: list[str] = []
+            _expand_misses: list[str] = []
+
+            def _on_signal(handle: str, original: str) -> None:
+                from .expand import is_miss, record_signal
+
+                record_signal(handle, original)  # content-free expand log
+                if is_miss(original):
+                    # F3: the handle could not be recovered. Counting it as an expansion
+                    # would book a failure as a success and train the keep-model on the
+                    # placeholder's signature.
+                    _expand_misses.append(handle)
+                    return
+                _expanded_handles.append(handle)
+                if _learn_stats is not None:  # learn the expanded signature
+                    from .learn import signature
+
+                    _learn_stats.record_expand(signature(original))
+
+            def _note_expands() -> None:
+                """Fold what the loop resolved into ``extras``, which the receipt reads."""
+                if _expanded_handles:
+                    extras["x-distil-expanded"] = "1"
+                if _expand_misses:
+                    extras["x-distil-expand-miss"] = str(len(_expand_misses))
+
             if want_stream and _intercept and not is_messages_path(_path):
                 if isinstance(body.get("n"), int) and body["n"] > 1:
                     # sse_from_response renders choices[0] only, so buffering an n>1
@@ -1297,14 +1343,19 @@ def build_handler(
                     # Dropping `stream` without it turned an intercepted request into
                     # a provider error.
                     body = {k: v for k, v in body.items() if k not in _STREAM_ONLY_FIELDS}
-                    new_raw = json.dumps(body).encode()
+                    # Same serializer as the plain path above: a bare ``json.dumps``
+                    # spells the body with ``", "`` separators and ``\uXXXX`` escapes,
+                    # so the turn a stub first enters the conversation re-spells the
+                    # whole prefix and pays a cache write for it. It is also the
+                    # encoding ``prefixreplay._wire`` models.
+                    new_raw = _serialize_if_changed(raw, body)
                     _fwd_path = _unstream_path(self.path)
                     want_stream = False  # buffer upstream; re-emit as SSE to the client
             if want_stream and _intercept:
                 from .streamexpand import stream_with_expand
 
                 def _send_stream(_b: dict[str, Any]) -> Any:
-                    _rb = json.dumps(_b).encode()
+                    _rb = _serialize_if_changed(raw, _b)
                     _req = urllib.request.Request(
                         _upstream + self.path,
                         data=_rb,
@@ -1333,7 +1384,15 @@ def build_handler(
                         hop_by_hop=_HOP_BY_HOP,
                         extras=extras,
                         usage_sink=_usage_x,
+                        on_signal=_on_signal,
                     )
+                    # After the splice, not before: the response headers were flushed the
+                    # moment the first upstream frame arrived, which is before any expand
+                    # could be resolved, so `x-distil-expanded` cannot reach the wire on
+                    # this path. It still reaches the receipt below, which is what dissect
+                    # reads. ponytail: a trailer would carry it on the wire; no client
+                    # reads distil's headers, so nobody has needed one.
+                    _note_expands()
                     set_result_attrs(
                         _span,
                         original_tokens=before_tok,
@@ -1368,6 +1427,7 @@ def build_handler(
                     # Streaming path: the body was relayed frame-by-frame and never
                     # buffered, so only the status is knowable here.
                     error_type=_upstream_error_type(status_x, b""),
+                    expanded_handles=_expanded_handles,
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
@@ -1443,8 +1503,6 @@ def build_handler(
             # the local store and re-query, invisibly, before returning to the agent.
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
             # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
-            _expanded_handles: list[str] = []
-            _expand_misses: list[str] = []
             if _expand_should_intercept(expand, store, body):
                 try:
                     resp_json = json.loads(rbody)
@@ -1452,8 +1510,6 @@ def build_handler(
                     resp_json = None
                 if isinstance(resp_json, dict):
                     from .expand import (
-                        is_miss,
-                        record_signal,
                         run_expand_loop,
                         run_expand_loop_chat,
                         run_expand_loop_gemini,
@@ -1463,20 +1519,6 @@ def build_handler(
                     def _post(b: dict[str, Any]) -> dict[str, Any]:
                         _s, _h, rb = self._post_upstream(_fwd_path, json.dumps(b).encode(), headers)
                         return json.loads(rb)
-
-                    def _on_signal(handle: str, original: str) -> None:
-                        record_signal(handle, original)  # content-free expand log
-                        if is_miss(original):
-                            # F3: the handle could not be recovered. Counting it as
-                            # an expansion would book a failure as a success and
-                            # train the keep-model on the placeholder's signature.
-                            _expand_misses.append(handle)
-                            return
-                        _expanded_handles.append(handle)
-                        if _learn_stats is not None:  # learn the expanded signature
-                            from .learn import signature
-
-                            _learn_stats.record_expand(signature(original))
 
                     if "contents" in body and isinstance(body.get("contents"), list):
                         final = run_expand_loop_gemini(
@@ -1499,10 +1541,7 @@ def build_handler(
                         final = run_expand_loop(body, resp_json, store, _post, on_signal=_on_signal)
                     if final is not resp_json:
                         rbody = json.dumps(final).encode()
-                        if _expanded_handles:
-                            extras["x-distil-expanded"] = "1"
-                        if _expand_misses:
-                            extras["x-distil-expand-miss"] = str(len(_expand_misses))
+                        _note_expands()
             if _learn_stats is not None:  # persist the learned policy (atomic)
                 _learn_stats.save()
 

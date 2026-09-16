@@ -35,6 +35,10 @@ def test_load_restore_rejects_traversal(tmp_path):
 
 def test_restore_cap_prunes_oldest(monkeypatch):
     monkeypatch.setattr(mcp_server, "_RESTORE_CAP", 2)
+    # The sweep is amortized over _SWEEP_EVERY records (it is O(files) in stat() calls);
+    # this asserts what it does when it runs, so it runs on every record here. The
+    # bounded overshoot in between is asserted in tests/test_mcp_server.py.
+    monkeypatch.setattr(mcp_server, "_SWEEP_EVERY", 1)
     store = RestoreStore()
     for h in ("aaaaaaa1", "aaaaaaa2", "aaaaaaa3"):
         store._record(h, h)

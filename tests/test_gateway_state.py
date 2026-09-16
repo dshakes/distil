@@ -64,3 +64,30 @@ def test_load_enforces_tenant_cap(monkeypatch, tmp_path):
     s2 = _state()
     s2.load(p)
     assert len(s2.snapshot()["tenants"]) == 3
+
+
+def test_save_swaps_through_the_shared_retrying_replace(tmp_path, monkeypatch):
+    """`save` is an atomic writer too, so its swap owes the same Windows retry.
+
+    Behaviour is covered once, in tests/test_filelock.py. What this call site owes is that
+    it routes through the shared helper: two gateway workers persisting counters race on
+    one state file, which is exactly the contention that fails a replace on Windows."""
+    from pathlib import Path
+
+    from distil import _filelock
+
+    seen: list[str] = []
+    real = _filelock.replace_retrying
+
+    def spy(src, dst):
+        seen.append(Path(dst).name)
+        return real(src, dst)
+
+    monkeypatch.setattr(_filelock, "replace_retrying", spy)
+    p = tmp_path / "gateway_state.json"
+    s = _state()
+    s.record("acme", 200, 80)
+    s.save(p)
+
+    assert seen == ["gateway_state.json"], "the swap bypassed _filelock.replace_retrying"
+    assert p.exists()

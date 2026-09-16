@@ -10,6 +10,8 @@ every server can apply them identically.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from typing import NamedTuple
 
 # Default maximum request body. Agent contexts are large but bounded; anything
 # past this is almost certainly abuse, and reading it would be a memory-DoS.
@@ -89,6 +91,75 @@ def safe_forward_path(target: str) -> str | None:
 def strip_query(target: str) -> str:
     """The path without query/fragment — for matching compressible routes."""
     return target.split("?", 1)[0].split("#", 1)[0]
+
+
+class Framing(NamedTuple):
+    """What the shared guard decided about one request's body framing.
+
+    ``reject`` is ``(status, message)`` when the request must be refused, else
+    ``None``. ``content_length`` is the single canonical value the caller should
+    parse — which is NOT always what ``headers.get("Content-Length")`` returns.
+    A request may legally repeat the header, or fold the repeat into one comma
+    list, and ``"42, 42"`` is a valid length that ``int()`` refuses. The guard
+    already had to split those apart to judge them, so it hands back the answer
+    rather than leaving each caller to re-derive it and get a 413 wrong.
+    """
+
+    reject: tuple[int, str] | None
+    content_length: str | None
+
+
+def framing_rejection(
+    content_lengths: Sequence[str] | None, transfer_encodings: Sequence[str] | None
+) -> Framing:
+    """Judge a request's body framing; refuse what these servers cannot read.
+
+    Returns a :class:`Framing`. One source of truth: callers reject on
+    ``.reject`` and size the body from ``.content_length``, never from the raw
+    header.
+
+    Takes *every* ``Content-Length`` value, not the header dict's first one: a
+    repeated ``Content-Length`` is its own desync (CL.CL) and the first value is
+    exactly what hides it. ``email.message.Message.get`` returns value one and
+    keeps the rest in ``get_all``, so ``Content-Length: 5`` followed by
+    ``Content-Length: 0`` reads as 5 here and may read as 0 to a front-end that
+    picks the last — five bytes then stay queued as the head of the next request.
+    RFC 9112 §6.3 permits identical duplicates (one value, sent twice), so those
+    are allowed and anything differing is refused.
+
+    ``Transfer-Encoding`` is read the same way and for the same reason: an empty
+    first value hides a ``chunked`` second one.
+
+    Both stdlib-server entry points size the body from ``Content-Length`` alone.
+    A request framed with ``Transfer-Encoding`` instead would read as *empty* and
+    its bytes would stay queued on the socket — on a keep-alive HTTP/1.1
+    connection the next parse then treats the undrained body as a second request,
+    which is request smuggling as soon as any front-end that DOES honour
+    ``Transfer-Encoding`` sits in front (TE.CL desync). Both headers together is
+    the same disagreement stated outright. LLM SDKs always send a length, so
+    refusing is free; the caller must also close the connection so nothing queued
+    behind a rejected request is ever parsed.
+    """
+    lengths = [v.strip() for v in (content_lengths or [])]
+    # EVERY Transfer-Encoding value, for the same reason as Content-Length above:
+    # ``get`` returns the first and ``get_all`` keeps the rest, so an empty
+    # ``Transfer-Encoding:`` followed by ``Transfer-Encoding: chunked`` reads as
+    # "no TE" from the first value alone while the body is chunked on the wire.
+    # Commas are flattened because ``gzip, chunked`` is one value listing two
+    # codings — the request is TE-framed if ANY coding is named anywhere.
+    te = any(part.strip() for v in (transfer_encodings or []) for part in v.split(","))
+    if te:
+        if any(lengths):
+            return Framing((400, "conflicting Content-Length and Transfer-Encoding headers"), None)
+        return Framing((411, "chunked request bodies are not supported; send Content-Length"), None)
+    # A single header may itself carry a comma list ("5, 0") — same disagreement,
+    # one header line. Flatten before comparing so that shape cannot slip past.
+    values = [part.strip() for v in lengths for part in v.split(",")]
+    if len(values) > 1 and len(set(values)) > 1:
+        return Framing((400, "conflicting Content-Length headers"), None)
+    # They agree (or there is only one): hand back the ONE value, so the caller
+    # never parses "42, 42" and calls a perfectly good request too large.
+    return Framing(None, values[0] if values else None)
 
 
 def parse_content_length(raw: object, *, max_bytes: int = MAX_BODY_BYTES) -> int | None:

@@ -1,0 +1,93 @@
+name: supply-chain
+
+# Four cheap controls that answer questions the existing gates cannot: is a
+# dependency we pull in CI known-vulnerable, did a credential get committed, does
+# the source contain a pattern static analysis recognises, and do the two npm
+# packages carry anything advisory-flagged. Nightly as well as per-PR because a
+# CVE is published against code that has not changed — a gate that only runs on a
+# diff can never see one.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, Saturday, after the Scorecard run.
+    - cron: '30 2 * * 6'
+
+permissions: read-all
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          python-version: "3.12"
+      # `dependencies = []` — the core is stdlib-only, so auditing the project
+      # itself would audit nothing and pass forever. What CI and production
+      # hardening actually install are the extras, so those are what get resolved
+      # and audited. `train`/`onnx` are excluded: a torch resolution costs minutes
+      # and neither ships in any distil runtime path.
+      - name: Resolve the optional extras
+        run: |
+          uv pip compile pyproject.toml --quiet --python-version 3.12 \
+            --extra dev --extra live --extra async --extra otel --extra oidc --extra image \
+            -o requirements-audit.txt
+          cat requirements-audit.txt
+      - name: pip-audit
+        run: uvx pip-audit@2.10.1 --requirement requirements-audit.txt
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # history scan: a key deleted in a later commit is still leaked
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Rules and the false-positive allowlist live in .gitleaks.toml, in the
+          # repo, so a local `gitleaks detect` and CI agree.
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # SARIF upload to code scanning
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # javascript-typescript covers packaging/npm and the census worker; the
+        # dashboard and site scripts are in the same analysis.
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
+        with:
+          category: /language:${{ matrix.language }}
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [packaging/npm, packaging/census-worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+      # Both packages are dependency-free today and neither has a committed
+      # lockfile, so `npm audit` alone exits with "requires an existing lockfile".
+      # Resolve one first: on a zero-dependency manifest that is instant, and the
+      # day a dependency is added this job starts auditing it without being edited.
+      - name: npm audit (${{ matrix.dir }})
+        working-directory: ${{ matrix.dir }}
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm audit --omit=dev

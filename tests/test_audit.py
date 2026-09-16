@@ -310,8 +310,12 @@ def _post(port: int, token: str | None = None) -> None:
     import urllib.request
 
     headers = {"Content-Type": "application/json"}
-    if token:
+    if token and token.startswith("dsk-"):
         headers["Authorization"] = f"Bearer {token}"
+    elif token:
+        # An OIDC JWT goes in x-distil-token: Authorization is forwarded upstream
+        # as the provider credential. See _call in tests/test_authz.py.
+        headers["x-distil-token"] = token
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/v1/messages",
         data=b'{"model":"m","messages":[]}',

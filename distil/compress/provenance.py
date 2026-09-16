@@ -56,8 +56,11 @@ import re
 import shlex
 from typing import Any, Iterable, NamedTuple, Sequence
 
+from distil.expand import EXPAND_TOOL_NAME
+
 __all__ = [
     "EXACT_QUOTE_TOOLS",
+    "EXPAND_TOOL_NAME",
     "ToolCall",
     "command_text",
     "edit_quotes",
@@ -90,6 +93,30 @@ EXACT_QUOTE_TOOLS = frozenset(
         "notebookread",
     }
 )
+
+
+def _is_expand_call(name: str) -> bool:
+    """Is this tool_use the agent recovering a block distil digested?
+
+    Its result is the original content behind a handle. Digest it and the recovered
+    block is folded straight back into the stub it just escaped — byte-identical
+    content hashes to the same ``sha256[:8]``, so the agent expands, receives the
+    same handle, and can never get the detail back. Observed live.
+
+    Matched by name because that is what the request carries. The proxy's own injected
+    tool arrives as ``distil_expand``; Claude Code namespaces the MCP server's copy as
+    ``mcp__<serverkey>__distil_expand`` with a user-chosen key, so the suffix form is
+    matched too. Both routes may be present at once — that is fine, and this exemption
+    is what makes the MCP one safe.
+
+    ponytail: name-independent upgrade path, deliberately NOT implemented — match the
+    paired tool_use's ``input.handle`` against the handle about to be emitted, which
+    holds whatever the client renamed the tool to. Add it if a client is seen renaming
+    the tool rather than namespacing it.
+    """
+    lname = name.lower()
+    return lname == EXPAND_TOOL_NAME or lname.endswith("__" + EXPAND_TOOL_NAME)
+
 
 # Tools that edit by literal match. Their `old_string` is the quote that has to survive.
 _EDIT_TOOLS = frozenset(
@@ -154,7 +181,9 @@ _WHOLE_FILE = frozenset({"cat", "nl", "less", "more"})
 _DECORATED = "decorated:"
 
 # A `sed` script that only prints line ranges: `5p`, `1,40p`, `10,$p`, `3,+5p`.
-_SED_PRINT = re.compile(r"^[0-9$,+~]+p$")
+# \A/\Z: a shlex token can contain a newline, and "^…$" would read "1,5p\n" as
+# a plain quiet-print script.
+_SED_PRINT = re.compile(r"\A[0-9$,+~]+p\Z")
 _SED_VALUE_FLAGS = frozenset({"-e", "-f", "--expression", "--file"})
 _SED_QUIET = frozenset({"-n", "--quiet", "--silent"})
 
@@ -438,6 +467,9 @@ def exact_quote_ids(
     last_exact: dict[tuple[str, str], int] = {}
     last_all: dict[str, int] = {}
     for call in calls:
+        if _is_expand_call(call.name):
+            keep[call.id] = "tool_result_expand_recovered"
+            continue
         if call.name.lower() in EXACT_QUOTE_TOOLS:
             keep[call.id] = "tool_result_exact_quote"
             continue
