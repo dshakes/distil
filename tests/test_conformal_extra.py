@@ -318,6 +318,28 @@ def _nonzero_summary(tokens_saved=1000, dollars_saved=0.01):
     )
 
 
+def _eq(n_ab: int, n_aa: int, change_rate: float = 0.02):
+    """A real shadow verdict, built the way the ledger builds one.
+
+    Recording through `ShadowLedger` rather than hand-constructing `Equivalence`
+    keeps the renderers under test against the object the CLI actually passes,
+    including the paired-pool rule inside `below_floor`. ``n_aa`` rows are
+    ``kind="paired"`` (one request measured three ways, counting into both arms);
+    any remainder is a plain A/B row, which is how an A/A-starved ledger arises.
+    """
+    from distil.shadow import ShadowLedger
+
+    led = ShadowLedger()
+    n_changed = round(n_ab * change_rate)
+    for i in range(n_ab):
+        equivalent = i >= n_changed
+        if i < n_aa:
+            led.record(equivalent, kind="paired", evidence={"aa_equal": True})
+        else:
+            led.record(equivalent)
+    return led.equivalence()
+
+
 def test_render_dashboard_no_runs() -> None:
     from distil.ledger import render_dashboard
 
@@ -375,25 +397,65 @@ def test_render_dashboard_with_session_with_savings() -> None:
 
 
 def test_render_dashboard_samples_collecting() -> None:
-    """Below the shared A/B floor → 'collecting' message naming that floor."""
+    """Below the shared floor → 'collecting' naming BOTH arms' shortfall."""
     from distil.ledger import render_dashboard
-    from distil.shadow import VERDICT_MIN_AB
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
 
     out = render_dashboard(
-        _nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB - 1, color=False
+        _nonzero_summary(), eq=_eq(VERDICT_MIN_AB - 1, VERDICT_MIN_AB - 1), color=False
     )
     assert "collecting" in out
-    assert f"need {VERDICT_MIN_AB}" in out
+    assert f"{VERDICT_MIN_AB - 1}/{VERDICT_MIN_AB} A/B" in out
+    assert f"{VERDICT_MIN_AB - 1}/{VERDICT_MIN_AA} A/A" in out
+
+
+def test_shortfall_names_the_binding_counter() -> None:
+    """Both arms full but the paired pool short must not read as "done".
+
+    `below_floor` also requires VERDICT_MIN_AB *paired* rows, so 50 A/B + 30 A/A
+    still states no rate. Reporting that as "50/50 A/B, 30/30 A/A" would show two
+    satisfied counters beside a refusal.
+    """
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
+
+    assert _eq(VERDICT_MIN_AB, VERDICT_MIN_AB).shortfall == ""  # above the floor
+    assert _eq(VERDICT_MIN_AB, 0).shortfall == f"{VERDICT_MIN_AB}/{VERDICT_MIN_AB} A/B, 0/30 A/A"
+    short = _eq(VERDICT_MIN_AB, VERDICT_MIN_AA).shortfall
+    assert short == f"{VERDICT_MIN_AA}/{VERDICT_MIN_AB} paired"
+    assert "A/B" not in short  # the full arms are not what is missing
+
+
+def test_render_dashboard_no_rate_without_an_aa_baseline() -> None:
+    """The Codex finding: A/B alone must not publish a rate.
+
+    The dashboard gated on the A/B count only, so a ledger with a full A/B arm
+    and NO A/A noise baseline printed a decision-equivalence percentage that the
+    status line and `shadow-stats` both refused to state.
+    """
+    from distil.ledger import render_dashboard
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
+
+    eq = _eq(VERDICT_MIN_AB, 0)
+    assert eq.n_ab == VERDICT_MIN_AB and eq.n_aa == 0
+    assert eq.pct is None  # the shared verdict refuses
+
+    out = render_dashboard(_nonzero_summary(), eq=eq, color=False)
+    assert "98.0%" not in out
+    assert "collecting" in out
+    assert f"{VERDICT_MIN_AB}/{VERDICT_MIN_AB} A/B" in out  # this arm IS done
+    assert f"0/{VERDICT_MIN_AA} A/A" in out  # and this is what is missing
 
 
 def test_render_dashboard_samples_ready() -> None:
-    """At the shared A/B floor → decision-equivalence percentage shown."""
+    """Both arms at the floor → decision-equivalence percentage shown.
+
+    A paired verdict needs VERDICT_MIN_AB *paired* rows, not merely
+    VERDICT_MIN_AA A/A ones (Equivalence.below_floor), so both arms land at 50.
+    """
     from distil.ledger import render_dashboard
     from distil.shadow import VERDICT_MIN_AB
 
-    out = render_dashboard(
-        _nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB, color=False
-    )
+    out = render_dashboard(_nonzero_summary(), eq=_eq(VERDICT_MIN_AB, VERDICT_MIN_AB), color=False)
     assert "decision-equiv" in out
     assert "98.0%" in out  # 1 - 0.02
 
@@ -458,8 +520,20 @@ def test_render_html_eq_card_below_threshold() -> None:
     from distil.ledger import render_html
     from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
 
-    html = render_html(_nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB - 1)
-    assert f"needs {VERDICT_MIN_AB} A/B + {VERDICT_MIN_AA} A/A shadow samples" in html
+    html = render_html(_nonzero_summary(), eq=_eq(VERDICT_MIN_AB - 1, VERDICT_MIN_AB - 1))
+    assert "collecting" in html
+    assert f"{VERDICT_MIN_AB - 1}/{VERDICT_MIN_AB} A/B" in html
+    assert f"{VERDICT_MIN_AB - 1}/{VERDICT_MIN_AA} A/A" in html
+
+
+def test_render_html_eq_card_needs_an_aa_baseline() -> None:
+    """A full A/B arm with no A/A baseline states no rate on the page either."""
+    from distil.ledger import render_html
+    from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
+
+    html = render_html(_nonzero_summary(), eq=_eq(VERDICT_MIN_AB, 0))
+    assert "98.0%" not in html
+    assert f"0/{VERDICT_MIN_AA} A/A" in html
 
 
 def test_render_html_eq_card_above_threshold() -> None:
@@ -467,17 +541,17 @@ def test_render_html_eq_card_above_threshold() -> None:
     from distil.ledger import render_html
     from distil.shadow import VERDICT_MIN_AB
 
-    html = render_html(_nonzero_summary(), change_rate=0.02, samples=VERDICT_MIN_AB)
+    html = render_html(_nonzero_summary(), eq=_eq(VERDICT_MIN_AB, VERDICT_MIN_AB))
     assert "98.0%" in html
     assert "50" in html  # sample count
 
 
 def test_render_html_eq_card_none_change_rate() -> None:
-    """change_rate=None (no shadow running) → the same below-floor card."""
+    """eq=None (no shadow running at all) → the same below-floor card."""
     from distil.ledger import render_html
     from distil.shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
 
-    html = render_html(_nonzero_summary(), change_rate=None, samples=0)
+    html = render_html(_nonzero_summary(), eq=None)
     assert f"needs {VERDICT_MIN_AB} A/B + {VERDICT_MIN_AA} A/A shadow samples" in html
 
 

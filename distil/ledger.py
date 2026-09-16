@@ -18,9 +18,12 @@ import shutil
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from distil import _filelock
+
+if TYPE_CHECKING:  # import at type-check time only — shadow imports ledger at runtime
+    from .shadow import Equivalence
 
 # Back up the ledger once it has grown this much past the last .bak (cheap, bounded).
 _BACKUP_GROWTH_BYTES = 256 * 1024
@@ -393,17 +396,16 @@ def summary(
 def render_html(
     s: LedgerSummary,
     *,
-    change_rate: float | None = None,
-    samples: int = 0,
+    eq: "Equivalence | None" = None,
     session: "LedgerSummary | None" = None,
     subscription: bool = False,
 ) -> str:
     """Render the ledger as a self-contained dark HTML page — GENUINE savings
     from your own usage (the `live-proxy` source is real proxy traffic).
-    ``change_rate``/``samples`` add the decision-equivalence card (shown only
-    at or above ``shadow.VERDICT_MIN_AB`` samples — a rate over a handful of
-    samples is noise); ``session`` adds a this-session card when a live session
-    exists."""
+    ``eq`` is the shared shadow verdict (:meth:`ShadowLedger.equivalence`) and
+    adds the decision-equivalence card; it decides for itself whether it has
+    the evidence to state a rate. ``session`` adds a this-session card when a
+    live session exists."""
     rows = (
         "".join(
             f'<tr><td>{_html.escape(str(tid))}</td><td class="r">${saved:,.4f}</td></tr>'
@@ -475,7 +477,7 @@ caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;ov
  <div class="card"><div class="l">Tokens saved</div><div class="{tok_v}">{_tok_saved_disp:,}</div></div>
  <div class="card"><div class="l">{dol_label}</div><div class="{dol_v}">${s.total_dollars_saved:,.2f}</div>{dol_note}</div>
  <div class="card"><div class="l">Runs</div><div class="v">{s.runs:,}</div></div>
- {_eq_card(change_rate, samples)}{_session_card(session)}
+ {_eq_card(eq)}{_session_card(session)}
 </div>
 <table><caption class="sr-only">Savings by source</caption>
 <thead><tr><th scope="col">source</th>
@@ -485,29 +487,33 @@ caption.sr-only{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;ov
 </div></body></html>"""
 
 
-def _eq_card(change_rate: float | None, samples: int) -> str:
+def _eq_card(eq: "Equivalence | None") -> str:
     """Decision-equivalence card — only once there is evidence behind the rate.
 
-    ``change_rate`` is only ever set from ``equivalence().pct``, which already
-    requires the shared reporting floor (``VERDICT_MIN_AB``/``VERDICT_MIN_AA``),
-    so the sample guard here is belt-and-braces. It names the real floor rather
-    than the retired 25/10 one: a surface that quotes a floor no longer in the
-    code teaches the reader a number that is not true.
+    The verdict decides, not this function: ``Equivalence.pct`` is None below the
+    shared reporting floor, which requires BOTH arms (``VERDICT_MIN_AB`` A/B and
+    ``VERDICT_MIN_AA`` A/A). Taking the object rather than a bare rate is what
+    keeps that true — the previous signature took an A/B count alone and could
+    not have checked the A/A arm even if it wanted to.
     """
     from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB
 
-    if change_rate is None or samples < VERDICT_MIN_AB:
+    def _collecting(have: str) -> str:
         return (
             '<div class="card"><div class="l">Decision-equivalence</div>'
-            f'<div class="v muted" style="font-size:16px">needs {VERDICT_MIN_AB} A/B + '
-            f"{VERDICT_MIN_AA} A/A shadow samples<br/>"
-            "<code>distil wrap --shadow 0.1 -- &lt;agent&gt;</code></div></div>"
+            f'<div class="v muted" style="font-size:16px">{_html.escape(have)}'
+            "<br/><code>distil wrap --shadow 0.1 -- &lt;agent&gt;</code></div></div>"
         )
-    eq = (1 - change_rate) * 100
+
+    if eq is None:
+        return _collecting(f"needs {VERDICT_MIN_AB} A/B + {VERDICT_MIN_AA} A/A shadow samples")
+    pct = eq.pct
+    if pct is None:
+        return _collecting(f"collecting — {eq.shortfall}")
     return (
         f'<div class="card"><div class="l">Decision-equivalence</div>'
-        f'<div class="v g">{eq:.1f}%</div>'
-        f'<div class="l">{samples:,} shadowed requests</div></div>'
+        f'<div class="v g">{pct:.1f}%</div>'
+        f'<div class="l">{eq.n_ab:,} shadowed requests</div></div>'
     )
 
 
@@ -559,8 +565,7 @@ def _bar(frac: float, width: int = 22) -> str:
 def render_dashboard(
     s: LedgerSummary,
     *,
-    change_rate: float | None = None,
-    samples: int = 0,
+    eq: "Equivalence | None" = None,
     recent: list[int] | None = None,
     subscription: bool = False,
     color: bool = True,
@@ -569,8 +574,10 @@ def render_dashboard(
     """A framed, glanceable terminal dashboard of cumulative savings.
 
     Pure function (no I/O) so it's trivially testable; the live loop in the CLI
-    re-renders it on an interval inside the alternate screen. ``change_rate`` is
-    the decision-change rate from shadow mode (equivalence is ``1 - change_rate``)."""
+    re-renders it on an interval inside the alternate screen. ``eq`` is the shared
+    shadow verdict (:meth:`ShadowLedger.equivalence`) — the same object the status
+    line and ``shadow-stats`` report, so the dashboard cannot publish a rate the
+    other surfaces would refuse."""
     inner = 54  # visible width inside the frame
 
     def c(code: str, t: str) -> str:
@@ -623,26 +630,20 @@ def render_dashboard(
             )
         )
 
-    from .shadow import VERDICT_MIN_AB
-
-    if samples >= VERDICT_MIN_AB and change_rate is not None:
-        # The shared reporting floor, same as the status line — a rate over a
-        # handful is noise. `change_rate` already requires it upstream; this is
-        # the second lock, and it names the floor the code actually uses.
-        eq = 1 - change_rate
-        out.append(row(f"{'decision-equiv':<15}{c('35', _bar(eq, 18))}  {eq * 100:4.1f}%"))
-        out.append(row(c("90", f"{'':<15}{samples:,} samples")))
-    elif samples and change_rate is not None:
-        out.append(
-            row(
-                f"{'decision-equiv':<15}"
-                + c(
-                    "90",
-                    f"collecting — {samples} sample{'s' if samples != 1 else ''} "
-                    f"(need {VERDICT_MIN_AB})",
-                )
-            )
-        )
+    eq_pct = None if eq is None else eq.pct
+    if eq is not None and eq_pct is not None:
+        # `Equivalence.pct` is None below the shared floor, which requires BOTH
+        # arms. The dashboard used to gate on the A/B count alone and so could
+        # publish a rate with no A/A noise baseline behind it at all — the one
+        # surface that disagreed with the status line and `shadow-stats`.
+        frac = eq_pct / 100.0
+        out.append(row(f"{'decision-equiv':<15}{c('35', _bar(frac, 18))}  {eq_pct:4.1f}%"))
+        out.append(row(c("90", f"{'':<15}{eq.n_ab:,} samples")))
+    elif eq is not None and (eq.n_ab or eq.n_aa):
+        # `Equivalence.shortfall` names whichever counter binds — with 50 A/B and
+        # 0 A/A the A/B arm is done and only the baseline is missing, which the
+        # old "collecting 50" hid entirely.
+        out.append(row(f"{'decision-equiv':<15}" + c("90", f"collecting — {eq.shortfall}")))
         if recent:
             # Most-recent decisions, newest on the right: ▰ same action, ▱ changed.
             marks = "".join(c("32", "▰") if v else c("31", "▱") for v in recent[-24:])

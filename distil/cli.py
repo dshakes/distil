@@ -241,16 +241,15 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         print(json.dumps(d, indent=2))
         return 0
     if args.html:
-        change_rate: float | None = None
-        samples = 0
+        html_eq = None
         sess = None
         try:
             from .shadow import ShadowLedger
 
-            eq = ShadowLedger.load(current_only=True).equivalence()
-            samples = eq.n_ab
-            if eq.pct is not None:
-                change_rate = 1.0 - eq.pct / 100.0  # paired, like every other surface
+            # The verdict object itself: it carries both arm counts and refuses to
+            # state a rate below the shared floor, so the page cannot disagree with
+            # the status line.
+            html_eq = ShadowLedger.load(current_only=True).equivalence()
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
         try:
@@ -266,8 +265,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         Path(args.html).write_text(
             ledger.render_html(
                 s,
-                change_rate=change_rate,
-                samples=samples,
+                eq=html_eq,
                 session=sess,
                 subscription=subscription_mode(),
             ),
@@ -2593,15 +2591,16 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
     def frame() -> str:
         s = ledger.summary()
-        change_rate: float | None = None
-        samples = 0
+        dash_eq = None
         recent: list[int] | None = None
         sess = None
         try:
             led = ShadowLedger.load()
-            samples = led.samples
-            if samples:
-                change_rate = led.rate()
+            # The paired verdict, not `led.rate()`. The raw A/B rate has no A/A
+            # noise baseline behind it, so the dashboard was the one surface that
+            # would publish a number the status line and `shadow-stats` refused.
+            dash_eq = led.equivalence()
+            if led.samples:
                 recent = list(led.recent)
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
@@ -2621,8 +2620,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
             pass
         return ledger.render_dashboard(
             s,
-            change_rate=change_rate,
-            samples=samples,
+            eq=dash_eq,
             recent=recent,
             subscription=subscription,
             color=color,

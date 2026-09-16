@@ -115,6 +115,27 @@ status-line examples rendered a `de 12/25` that the code can no longer produce, 
 `docs/BETA.md` asked beta users for `≥25 samples` before reporting. All now read the floor
 from `VERDICT_MIN_AB`/`VERDICT_MIN_AA` or spell it out as 50 A/B + 30 A/A.
 
+### Fixed — the dashboard could publish a rate with no noise baseline behind it
+
+Every surface gates decision-equivalence on the paired verdict: `VERDICT_MIN_AB` A/B samples
+**and** `VERDICT_MIN_AA` A/A ones, because a rate with no self-agreement baseline cannot
+tell compression harm from the model's own nondeterminism. The terminal dashboard did not.
+It took a bare `change_rate` and an A/B count, gated on the count alone, and was fed
+`ShadowLedger.rate()` — the raw A/B rate. A ledger with 50 A/B rows and zero A/A rows
+printed a confident percentage that the status line and `shadow-stats`, reading the same
+ledger, both refused to state.
+
+Both renderers now take the `Equivalence` object itself rather than a rate and a count, so
+the threshold lives in one place and a page cannot hold an opinion the verdict does not.
+Below the floor they print which counter is still short, from a new `Equivalence.shortfall`
+shared with any future surface. It names the constraint that *binds*: once both arms are
+full a paired verdict can still be short on the paired pool itself, and showing "50/50 A/B,
+30/30 A/A" beside a refusal reads as a bug rather than as evidence still accruing.
+
+`shadow-stats --json` keeps its raw `decision_change_rate`, which is correct — it sits
+beside `equivalence_pct`, `below_reporting_floor` and the paired fields, each labelled for
+what it is.
+
 ### Fixed — the claims gate skipped the whole plugins tree on Windows
 
 Page keys were built with `Path.relative_to`, which renders with the host separator. On the
