@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 DEFAULT_COMMAND = "distil statusline"
 
@@ -39,7 +39,7 @@ def default_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
-def _managed_settings_path() -> Path:
+def _managed_settings_path() -> PurePosixPath | PureWindowsPath:
     """The system-wide managed-settings.json Claude Code merges first, per OS.
 
     Source: https://docs.claude.com/en/docs/claude-code/managed-settings
@@ -49,18 +49,23 @@ def _managed_settings_path() -> Path:
     fall through to the Linux path on Windows too — a real path, just the wrong
     OS's, so a Windows ``doctor``/``--undo`` silently checked a file that could
     never exist there.
+
+    Returns a *pure* path (``PureWindowsPath``/``PurePosixPath``), not a
+    concrete ``Path``: a concrete ``Path`` takes its flavour from the
+    interpreter's real OS, not from the branch chosen here, so on a Windows
+    interpreter the macOS/Linux branch's forward slashes silently became
+    backslashes on ``str()`` — right bytes, wrong OS's separator, and
+    untestable cross-platform. A pure path's string form never depends on the
+    OS actually running it. Callers that need to touch the filesystem should
+    wrap the result in ``Path(...)`` themselves, on the OS this only ever
+    returns a matching flavour for in production.
     """
     if _is_windows():
-        # Built as one backslash-joined string, not `/`-joined: `Path.__truediv__`
-        # treats a POSIX-run test's "C:\Program Files" as a single opaque
-        # segment and joins the rest with "/", which is only cosmetically wrong
-        # on real Windows (WindowsPath parses either separator) but makes the
-        # value untestable on the Linux/macOS CI that actually runs this suite.
         program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-        return Path(f"{program_files}\\ClaudeCode\\managed-settings.json")
+        return PureWindowsPath(f"{program_files}\\ClaudeCode\\managed-settings.json")
     if Path("/Library/Application Support").is_dir():
-        return Path("/Library/Application Support/ClaudeCode/managed-settings.json")
-    return Path("/etc/claude-code/managed-settings.json")
+        return PurePosixPath("/Library/Application Support/ClaudeCode/managed-settings.json")
+    return PurePosixPath("/etc/claude-code/managed-settings.json")
 
 
 def claude_settings_files(cwd: Path | None = None) -> list[Path]:
@@ -77,7 +82,11 @@ def claude_settings_files(cwd: Path | None = None) -> list[Path]:
     visits files it already knows about is the bug this exists to close.
     """
     home = Path.home()
-    paths = [_managed_settings_path()]
+    # Convert here, not inside _managed_settings_path(): this function's own
+    # branch always agrees with the real interpreter's OS in production (only
+    # a test mocks them apart), so Path(...) below yields a genuine, usable
+    # OS-native Path to check/read/write against.
+    paths = [Path(_managed_settings_path())]
     start = (cwd or Path.cwd()).resolve()
     for d in (start, *start.parents):
         paths += [d / ".claude" / "settings.local.json", d / ".claude" / "settings.json"]

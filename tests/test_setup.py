@@ -535,7 +535,10 @@ class TestManagedSettingsPath:
         monkeypatch.setattr(setup, "_is_windows", lambda: False)
         monkeypatch.setattr(setup.Path, "is_dir", lambda self: True)
         path = _managed_settings_path()
-        assert str(path) == "/Library/Application Support/ClaudeCode/managed-settings.json"
+        # .as_posix(), not str(): a bare `str()` on a concrete Path would take
+        # its separator from whatever OS actually runs this test, which is
+        # the exact bug this path returns a *pure* posix path to avoid.
+        assert path.as_posix() == "/Library/Application Support/ClaudeCode/managed-settings.json"
 
     def test_linux_uses_etc_claude_code(self, monkeypatch) -> None:
         from distil import setup
@@ -543,4 +546,4 @@ class TestManagedSettingsPath:
         monkeypatch.setattr(setup, "_is_windows", lambda: False)
         monkeypatch.setattr(setup.Path, "is_dir", lambda self: False)
         path = _managed_settings_path()
-        assert str(path) == "/etc/claude-code/managed-settings.json"
+        assert path.as_posix() == "/etc/claude-code/managed-settings.json"

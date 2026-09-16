@@ -119,6 +119,7 @@
 <li><code>distil dissect --serve</code> and <code>distil dashboard --web</code> now document their TTY guard: off a real terminal they print the URL and exit rather than block, and <code>--foreground</code> overrides it.</li>
 <li>README gained a Proof and provenance section (PEP 740 attestations, the CycloneDX SBOM, the weekly OpenSSF Scorecard run, the threat model and security whitepaper, <code>distil validate</code>) and a link to <code>docs/llms.txt</code> for agents reading the repo instead of a human.</li>
 <li>LangGraph has its own integrations page (<code>docs/langgraph.html</code>) alongside LangChain's, and the Vercel AI SDK page now documents <code>distilMiddleware()</code> next to the proxy route it already covered.</li>
+<li>The Helm chart's default port matched <code>distil proxy</code>, not the <code>distil gateway</code> it actually deploys — fixed in <code>values.yaml</code>, chart version bumped to 0.1.2.</li>
 </ul>
 </section>
 

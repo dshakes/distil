@@ -38,6 +38,8 @@ same rule.
 - LangGraph has its own integrations page (`docs/langgraph.html`) alongside
   LangChain's, and the Vercel AI SDK page now documents `distilMiddleware()` next to
   the proxy route it already covered.
+- The Helm chart's default port matched `distil proxy`, not the `distil gateway` it
+  actually deploys — fixed in `values.yaml`, chart version bumped to 0.1.2.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
