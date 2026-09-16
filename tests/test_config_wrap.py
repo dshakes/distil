@@ -1136,81 +1136,13 @@ def test_cline_path_follows_its_documented_data_dir_override(tmp_path, monkeypat
     )
 
 
-# ---------------------------------------------------------------------------
-# Kilo Code CLI (`kilo`) — patch strategy: ~/.config/kilo/kilo.json.
-# ---------------------------------------------------------------------------
-
-
-def test_kilo_apply_creates_and_deletes_when_absent(tmp_path, monkeypatch):
-    path = tmp_path / "kilo.json"
-    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-
-    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
-        assert argv == []
-        entry = json.loads(path.read_text())["provider"]["distil"]
-        assert entry["options"]["baseURL"] == "http://127.0.0.1:1234"
-        assert entry["options"]["apiKey"] == "sk-ant-test"
-        assert entry["npm"] == "@ai-sdk/anthropic"
-        # "You must define at least one model" — an empty map makes the
-        # provider unusable, so the preset would inject nothing useful.
-        assert entry["models"], "at least one model is required by Kilo's own docs"
-
-    assert not path.exists()
-    assert not config_wrap._backup_path(path).exists()
-
-
-def test_kilo_apply_merges_and_restores_when_present(tmp_path, monkeypatch):
-    path = tmp_path / "kilo.json"
-    original = json.dumps({"model": "vllm/qwen35", "provider": {"vllm": {"npm": "x"}}})
-    path.write_text(original)
-    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-test")
-
-    with config_wrap._kilo_apply("https://api.openai.com", "http://127.0.0.1:1234"):
-        doc = json.loads(path.read_text())
-        assert set(doc["provider"]) == {"vllm", "distil"}, "must ADD, not replace"
-        assert doc["provider"]["distil"]["npm"] == "@ai-sdk/openai-compatible"
-        assert doc["model"] == "vllm/qwen35", "the user's own default model is not hijacked"
-
-    assert path.read_text() == original, "restore must be byte-for-byte, not a re-serialization"
-
-
-def test_kilo_apply_leaves_a_commented_config_completely_alone(tmp_path, monkeypatch):
-    """Kilo documents JSONC in these files and its own examples use trailing
-    commas. A JSON round-trip would delete a user's comments, and treating the
-    file as empty (the call crush.json makes) would drop their other providers
-    for the whole session. Neither is acceptable here: do nothing, say so."""
-    path = tmp_path / "kilo.json"
-    original = '{\n  // my gateway\n  "provider": {"vllm": {"npm": "x"}},\n}\n'
-    path.write_text(original)
-    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-
-    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
-        assert argv == []
-        assert path.read_text() == original, "must not rewrite a file it cannot round-trip"
-    assert path.read_text() == original
-    assert not config_wrap._backup_path(path).exists(), "nothing was claimed, so nothing to restore"
-
-
-def test_kilo_apply_skips_without_a_credential(tmp_path, monkeypatch):
-    path = tmp_path / "kilo.json"
-    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-
-    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
-        assert argv == []
-    assert not path.exists()
-
-
-def test_cmd_wrap_resolves_the_new_config_presets(monkeypatch):
-    """Both reach cmd_wrap by argv[0], the same path droid/crush take."""
+def test_cmd_wrap_resolves_the_cline_config_preset(monkeypatch):
+    """Reaches cmd_wrap by argv[0], the same path droid/crush take."""
     from distil.cli import cmd_wrap
     from tests.test_wrap_presets import _ns
 
     monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
-    for cmd in ("cline", "kilo"):
+    for cmd in ("cline",):
         captured: dict = {}
 
         def fake(command, *, config_ctx=None, **kw):
@@ -1235,17 +1167,3 @@ def test_cline_apply_treats_unparseable_json_as_empty(tmp_path, monkeypatch):
         assert list(json.loads(path.read_text())["providers"]) == ["distil"]
 
     assert path.read_text() == "not json", "original garbage bytes are still restored exactly"
-
-
-def test_kilo_apply_ignores_a_non_object_root(tmp_path, monkeypatch):
-    """A kilo.json holding a bare array parses, so the JSONC guard lets it
-    through — it still must not be indexed into as a dict."""
-    path = tmp_path / "kilo.json"
-    path.write_text("[1, 2]")
-    monkeypatch.setattr(config_wrap, "_kilo_config_path", lambda: path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-
-    with config_wrap._kilo_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
-        assert list(json.loads(path.read_text())["provider"]) == ["distil"]
-
-    assert path.read_text() == "[1, 2]"

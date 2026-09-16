@@ -39,9 +39,16 @@ reasons — the table says which applies to each:
 
 "The settings file is global" is **not** on that list, and never was a reason on
 its own. A config file shared across every session is exactly what `wrap` already
-manages for Crush, Oh My Pi, Factory Droid, Cline and Kilo Code: it claims the
-path, backs the bytes up, patches, and restores them byte-for-byte when the last
-session using that file exits.
+manages for Crush, Oh My Pi, Factory Droid and the Cline CLI: it claims the path,
+backs the bytes up, patches, and restores them byte-for-byte when the last session
+using that file exits.
+
+What *is* disqualifying is a global file that some **other** file outranks in the
+directory you ran the wrap in — patch that and `wrap` reports success while the
+agent reads somewhere else. Kilo Code is the worked example: a project-local
+`./kilo.json` sits above the global one in Kilo's own precedence table, so the
+preset uses the higher-precedence `KILO_CONFIG_CONTENT` instead, which no local
+file can shadow and which touches no file at all.
 
 A preset built on a guessed variable would be worse than nothing: `wrap` would
 report success, start a proxy, and route zero traffic. You would see "distil is
@@ -60,6 +67,7 @@ lying.
 | **GitHub Copilot CLI** | `distil wrap -- copilot` | env var | `COPILOT_PROVIDER_BASE_URL` | [source](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models) (2026-09-16) |
 | **goose** | `distil wrap -- goose` | env var | `OPENAI_HOST` | [source](https://block.github.io/goose/docs/getting-started/providers/) (2026-09-16) |
 | **Grok CLI** | `distil wrap -- grok` | env var | `GROK_MODELS_BASE_URL` | [source](https://docs.x.ai/build/settings) (2026-09-16) |
+| **Kilo Code CLI** | `distil wrap -- kilo` | env var | `KILO_CONFIG_CONTENT` | [source](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md) (2026-09-16) |
 | **Kimi CLI** | `distil wrap -- kimi` | env var | `KIMI_BASE_URL` | [source](https://moonshotai.github.io/kimi-cli/configuration/) (2026-09-16) |
 | **Mistral Vibe** | `distil wrap -- vibe` | env var | `VIBE_PROVIDERS` | [source](https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md) (2026-09-16) |
 | **OpenCode** | `distil wrap -- opencode` | env var | `OPENAI_BASE_URL` | [source](https://opencode.ai/docs/providers/) (2026-09-16) |
@@ -69,7 +77,6 @@ lying.
 | **Continue** | `distil wrap -- cn` | config file (flag strategy) | `config.yaml → models[].apiBase (via --config)` | [source](https://docs.continue.dev/cli/configuration) (2026-09-06) |
 | **Crush** | `distil wrap -- crush` | config file (patch strategy) | `crush.json → providers.<id>.base_url` | [source](https://github.com/charmbracelet/crush/blob/main/docs/config/README.md) (2026-09-07) |
 | **Factory Droid** | `distil wrap -- droid` | config file (overlay strategy) | `settings.local.json → customModels[].baseUrl` | [source](https://docs.factory.ai/model-independence/byok) (2026-09-06) |
-| **Kilo Code** | `distil wrap -- kilo` | config file (patch strategy) | `kilo.json → provider.<id>.options.baseURL` | [source](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/ai-providers/openai-compatible.md) (2026-09-16) |
 | **Oh My Pi** | `distil wrap -- omp` | config file (patch strategy) | `models.yml → baseUrl` | [source](https://github.com/omnara-ai/omp) (2026-09-06) |
 <!-- END agent-wrappable-table -->
 
@@ -80,6 +87,7 @@ lying.
 |---|---|---|---|
 | **Amp** | — (HTTP_PROXY/HTTPS_PROXY only) | re-checked: the CLI settings reference still has no base-URL key; amp.url belongs to the VS Code extension, not the CLI | [source](https://ampcode.com/docs/markdown/cli/settings) (2026-09-16) |
 | **Augment (auggie)** | — | AUGMENT_SESSION_AUTH carries the session token; no base-URL variable or config key is documented | [source](https://docs.augmentcode.com/cli/setup-auggie/authentication) (2026-09-16) |
+| **Continue (VS Code extension)** | ~/.continue/config.yaml → models[].apiBase | apiBase 'can be used to override the default API base', but the extension is started by the editor — no argv to wrap, and the file is editor-wide rather than per-session. The Continue CLI is a different tool and `distil wrap -- cn` does reach it | [source](https://docs.continue.dev/reference) (2026-09-16) |
 | **Cursor CLI** | — (HTTP_PROXY/HTTPS_PROXY only) | cli-config.json publishes no base-URL field; the only network knob is a whole-process HTTP proxy, not a per-request base URL | [source](https://cursor.com/docs/cli/reference/configuration) (2026-09-16) |
 | **Google Antigravity** | — | models are plan-selected from a fixed list; no BYOK and no endpoint override is documented | [source](https://antigravity.google/docs/models) (2026-09-16) |
 | **JetBrains Junie** | model profile → baseUrl | docs render client-side and return nothing over a plain fetch; the config shape could not be verified | [source](https://junie.jetbrains.com/docs/) (2026-09-16) |
@@ -143,11 +151,11 @@ settings for "base URL" or "OpenAI compatible".
 
 ## Config-file agents `wrap` now reaches
 
-Continue (the `cn` CLI), Factory Droid, Oh My Pi, Crush, the Cline CLI and the
-Kilo Code CLI are CLIs whose *only* routing mechanism is a config file, not an
-environment variable — but `wrap` can still reach them, by managing that file for
-the duration of the session instead of setting an env var (which of the three
-strategies each uses is the "Mechanism" column of the first table):
+Continue (the `cn` CLI), Factory Droid, Oh My Pi, Crush and the Cline CLI are CLIs
+whose *only* routing mechanism is a config file, not an environment variable — but
+`wrap` can still reach them, by managing that file for the duration of the session
+instead of setting an env var (which of the three strategies each uses is the
+"Mechanism" column of the first table):
 
 ```bash
 distil wrap -- cn       # Continue CLI — generates a session-only temp config,
@@ -161,9 +169,6 @@ distil wrap -- crush    # Crush — adds a `distil` provider entry to the
 distil wrap -- cline    # Cline CLI — adds a `distil` provider to
                         # ~/.cline/data/settings/providers.json AND makes it
                         # lastUsedProvider, so it is selected, not just present
-distil wrap -- kilo     # Kilo Code CLI — adds a `distil` provider to
-                        # ~/.config/kilo/kilo.json; select it with
-                        # `/model distil/<id>`
 ```
 
 Every one of these except `cn` backs up whatever was already there byte-for-byte
@@ -172,17 +177,24 @@ and repaired at the start of the *next* `distil wrap` if the previous session
 never got to clean up. See `distil/config_wrap.py` for the implementation and
 `tests/test_config_wrap.py` for the backup/restore/crash-recovery proof.
 
-Two notes on the newer pair. **Cline** stores its providers under
-`~/.cline/data/settings/providers.json`, or under `CLINE_DATA_DIR` if you have
-moved it — the preset reads that variable rather than assuming the default, since
-patching a file your CLI does not read is a wrap that reports success and routes
-nothing. **Kilo Code** also accepts `kilo.jsonc`, and comments are legal even in
-the `.json` name; a file that is not plain JSON is therefore left *completely*
-untouched with a message telling you the one line to add by hand, rather than
-rewritten without your comments or — worse — treated as empty and stripped of your
-other providers for the session. Kilo's own default model (the top-level `model`
-key) is never overwritten either; the injected provider is offered, and you pick
-it.
+**Cline** stores its providers under `~/.cline/data/settings/providers.json`, or
+under `CLINE_DATA_DIR` if you have moved it — the preset reads that variable
+rather than assuming the default, since patching a file your CLI does not read is
+a wrap that reports success and routes nothing.
+
+**Kilo Code** is the case that proves why that matters, and it is why it is *not*
+in this list. Its CLI does keep its providers in a config file, but Kilo's own
+precedence table puts a project-local `./kilo.json` **above** the global
+`~/.config/kilo/kilo.json` — so patching the global one worked everywhere except
+inside a repo that ships its own config, where `wrap` would have reported success
+and routed nothing. Kilo also publishes `KILO_CONFIG_CONTENT`, an environment
+variable holding config content outright, which sits above *both* files in that
+same table. `distil wrap -- kilo` uses it: no file is read, written, backed up or
+restored, nothing can shadow it, and a `kilo.jsonc` full of comments is never at
+risk of being rewritten without them. It declares both an Anthropic-shaped and an
+OpenAI-shaped provider, since one environment value cannot branch on `--upstream`
+and the proxy speaks both; pick one with `/model distil/<id>`. Your own top-level
+`model` is left alone.
 
 Crush's *current* config format is a Bash script (`crushrc`), not JSON — its
 own docs call `crush.json` the deprecated predecessor, still read (lower

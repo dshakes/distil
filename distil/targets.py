@@ -75,7 +75,11 @@ class Target:
 #:
 #: "The settings file is global" is NOT on that list and never was a reason on
 #: its own — `config_wrap` claims, backs up, patches and restores global files
-#: for Crush, Oh My Pi, Factory Droid, Cline and Kilo Code already.
+#: for Crush, Oh My Pi, Factory Droid and Cline already. What IS disqualifying
+#: is a global file some *other* file outranks for the directory the wrap runs
+#: in: patching it reports success and routes nothing. Kilo Code is the worked
+#: example — a project-local ./kilo.json shadows the global one, so it moved to
+#: the higher-precedence KILO_CONFIG_CONTENT instead of being declined.
 UNREACHABLE: tuple[Target, ...] = (
     Target(
         key="agent",
@@ -88,6 +92,19 @@ UNREACHABLE: tuple[Target, ...] = (
         note="cli-config.json publishes no base-URL field; the only network knob "
         "is a whole-process HTTP proxy, not a per-request base URL",
         aliases=("cursor", "cursor-agent"),
+    ),
+    Target(
+        key="continue",
+        label="Continue (VS Code extension)",
+        mechanism="proxy",
+        shape=EITHER,
+        knob="~/.continue/config.yaml → models[].apiBase",
+        doc_url="https://docs.continue.dev/reference",
+        verified="2026-09-16",
+        note="apiBase 'can be used to override the default API base', but the extension "
+        "is started by the editor — no argv to wrap, and the file is editor-wide rather "
+        "than per-session. The Continue CLI is a different tool and `distil wrap -- cn` "
+        "does reach it",
     ),
     Target(
         key="roo",

@@ -789,100 +789,6 @@ def _cline_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
 
 
-# ---------------------------------------------------------------------------
-# Kilo Code CLI (`kilo`) — provider.<id>.options.baseURL in
-# ~/.config/kilo/kilo.json.
-#
-# Verified 2026-09-16 against Kilo-Org/kilocode on `main`, the CLI tab of
-# packages/kilo-docs/pages/ai-providers/openai-compatible.md: "Define a custom
-# provider in your `kilo.json` config file (`~/.config/kilo/kilo.json` or
-# `./kilo.json`). The provider key … can be any name you like." The same page
-# documents every field written below — `npm` selects the protocol package
-# (`@ai-sdk/openai-compatible` for OpenAI Chat Completions,
-# `@ai-sdk/anthropic` for Anthropic Messages), `options.baseURL` is "the base
-# URL of your provider's API endpoint", `options.apiKey` is the key, and at
-# least one entry in `models` is REQUIRED ("You must define at least one
-# model").
-#
-# Model SELECTION is deliberately left alone. Kilo's default model is the
-# separate top-level `model: "provider-id/model-id"` key, and overwriting it
-# would silently move the user off the model they chose; the injected provider
-# is offered the way Crush's is instead. The named model ids are real ones so
-# that selecting them works.
-#
-# Kilo also accepts `kilo.jsonc`. That variant is NOT patched: it permits
-# comments, and a JSON round-trip would delete them from a file the user
-# hand-wrote. A `kilo.json` this preset cannot parse is likewise left exactly
-# as it is (rather than treated as empty, the call crush.json makes) — Kilo's
-# own docs write JSONC into files with the .json name, and silently dropping a
-# user's other providers for the session is worse than not routing.
-# ---------------------------------------------------------------------------
-
-
-def _kilo_config_path() -> Path:
-    return Path.home() / ".config" / "kilo" / "kilo.json"
-
-
-@contextlib.contextmanager
-def _kilo_apply(upstream: str, base: str) -> Iterator[list[str]]:
-    family = _family(upstream)
-    key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
-    api_key = os.environ.get(key_var, "")
-    if not api_key:
-        print(
-            f"  ⚠ Kilo Code: {key_var} is not set — skipping the kilo.json "
-            "provider entry (never inventing a credential)."
-        )
-        yield []
-        return
-
-    path = _kilo_config_path()
-    npm, model_id, model_name = (
-        ("@ai-sdk/anthropic", "claude-opus-4-8", "Claude Opus 4.8 (via distil)")
-        if family == "anthropic"
-        else ("@ai-sdk/openai-compatible", "gpt-5.2", "GPT-5.2 (via distil)")
-    )
-    if path.exists():
-        try:
-            json.loads(path.read_bytes())
-        except (OSError, json.JSONDecodeError):
-            print(
-                f"  ⚠ Kilo Code: {path} is not plain JSON (comments are legal in "
-                "Kilo config) — leaving it exactly as it is rather than "
-                "rewriting it without them. Point provider.<id>.options.baseURL "
-                f"at {base} by hand to route this session."
-            )
-            yield []
-            return
-
-    def _render(current: bytes | None) -> bytes:
-        # No parse guard here on purpose: the check above already returned for
-        # anything that is not plain JSON, and it ran inside the same critical
-        # section, so this cannot raise on bytes that just passed it.
-        doc = json.loads(current) if current else {}
-        if not isinstance(doc, dict):
-            doc = {}
-        provider = doc.get("provider")
-        if not isinstance(provider, dict):
-            provider = {}
-        provider["distil"] = {
-            "npm": npm,
-            "name": "Distil (compressed)",
-            "models": {model_id: {"name": model_name}},
-            "options": {"apiKey": api_key, "baseURL": base},
-        }
-        doc["provider"] = provider
-        return (json.dumps(doc, indent=2) + "\n").encode("utf-8")
-
-    with _own_config(path, _render):
-        print(
-            f'  → wrote provider "distil" into {path} — select it with '
-            f"`/model distil/{model_id}` in the Kilo TUI (your own default "
-            "model is left untouched)"
-        )
-        yield []
-
-
 CONFIG_PRESETS: dict[str, ConfigPreset] = {
     "cn": ConfigPreset(
         label="Continue",
@@ -939,16 +845,12 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         shape="Anthropic Messages or OpenAI Chat Completions",
         knob="providers.json → providers.<id>.settings.baseUrl",
     ),
-    "kilo": ConfigPreset(
-        label="Kilo Code",
-        strategy="patch",
-        doc_url="https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/ai-providers/openai-compatible.md",
-        verified="2026-09-16",
-        apply=_kilo_apply,
-        paths=lambda: [_kilo_config_path()],
-        shape="Anthropic Messages or OpenAI Chat Completions",
-        knob="kilo.json → provider.<id>.options.baseURL",
-    ),
+    # Kilo Code is NOT here. It briefly was, patching ~/.config/kilo/kilo.json —
+    # which Kilo's own documented precedence has a project-local ./kilo.json
+    # override, so in any repo carrying one the patch went to a file the child
+    # never read while `wrap` reported success. Kilo turns out to publish a
+    # higher-precedence knob that touches no file at all; see
+    # onboard.AGENT_ENV_TEMPLATES["kilo"].
 }
 
 

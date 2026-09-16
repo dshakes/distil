@@ -8,11 +8,12 @@ dependencies. Four ways to use it, and they do not all reach the same tier:
 
   - Agent wrap: `distil wrap -- <agent>` for claude, codex, gemini, aider,
     opencode, qwen, goose, grok, openhands, copilot (GitHub Copilot CLI, BYOK
-    mode), kimi (Kimi CLI), vibe (Mistral Vibe) — all of which route through an
-    environment variable — plus cn (Continue CLI), droid (Factory Droid), omp
-    (Oh My Pi) and crush, which have no env-var contract at all and route
-    through a config file distil manages for that one session and restores on
-    exit. Zero config either way. (openhands additionally needs its own
+    mode), kimi (Kimi CLI), vibe (Mistral Vibe), kilo (Kilo Code CLI) — all of
+    which route through an environment variable — plus cn (Continue CLI),
+    droid (Factory Droid), omp (Oh My Pi), crush and cline (Cline CLI), which
+    have no env-var contract at all and route through a config file distil
+    manages for that one session and restores byte-for-byte on exit. Zero
+    config either way. (openhands additionally needs its own
     --override-with-envs flag before it will read the environment; copilot
     additionally needs COPILOT_MODEL, which only you can choose.) Run
     `distil wrap --list` for every target, its mechanism, its provider wire

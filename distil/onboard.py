@@ -139,6 +139,7 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
     ),
     "kimi": ("KIMI_BASE_URL", "https://api.moonshot.ai/v1", "Kimi CLI", {}),
     "vibe": ("VIBE_PROVIDERS", "https://api.mistral.ai", "Mistral Vibe", {}),
+    "kilo": ("KILO_CONFIG_CONTENT", "https://api.anthropic.com", "Kilo Code CLI", {}),
 }
 
 #: Presets whose variable does NOT take a bare base URL. The template is the
@@ -155,11 +156,42 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
 #: backend). Entries merge across layers on ``name``, so overriding "mistral"
 #: redirects the default provider and leaves the rest of the user's config
 #: alone — nothing on disk is touched.
+#:
+#: kilo — verified 2026-09-16 against Kilo-Org/kilocode. This replaced a
+#: config-file preset that patched ``~/.config/kilo/kilo.json``, and the reason
+#: is the whole point of this table: Kilo's own config-precedence table
+#: (packages/kilo-docs/pages/contributing/architecture/cli-runtime.md, "Later
+#: sources override earlier values") puts **global config files at 4 and
+#: project ``kilo.json[c]`` at 6**, so inside any repo carrying its own
+#: kilo.json the global patch was outranked — `wrap` reported success while
+#: the child read a different file. ``KILO_CONFIG_CONTENT`` sits at **8**,
+#: above both, and packages/opencode/src/config/config.ts passes it straight to
+#: ``loadConfig(text, …)`` → ``ConfigParse.jsonc`` as config *content*, merged
+#: with ``mergeDeep``. So no file is read, written, backed up or restored, and
+#: no project-local file can shadow it. Provider fields are the documented ones
+#: from ai-providers/openai-compatible.md (``npm`` selects the protocol
+#: package, ``options.baseURL`` the endpoint, ``models`` needs ≥1 entry) — and
+#: ``env`` names the variable to read the key FROM, so unlike the config-file
+#: version this never puts a credential in the value at all. Both wire shapes
+#: are declared because one static template cannot branch on ``--upstream``;
+#: the proxy speaks both, and Kilo's own model picker chooses. As with Crush,
+#: the user's top-level ``model`` is left alone.
 AGENT_ENV_TEMPLATES: dict[str, str] = {
     "vibe": (
         '[{"name": "mistral", "api_base": "$BASE/v1", '
         '"api_key_env_var": "MISTRAL_API_KEY", "api_style": "openai", '
         '"backend": "mistral"}]'
+    ),
+    "kilo": (
+        '{"provider": {'
+        '"distil": {"npm": "@ai-sdk/anthropic", "name": "Distil (compressed)", '
+        '"models": {"claude-opus-4-8": {"name": "Claude Opus 4.8 (via distil)"}}, '
+        '"env": ["ANTHROPIC_API_KEY"], "options": {"baseURL": "$BASE"}}, '
+        '"distil-openai": {"npm": "@ai-sdk/openai-compatible", '
+        '"name": "Distil (compressed, OpenAI-shaped)", '
+        '"models": {"gpt-5.2": {"name": "GPT-5.2 (via distil)"}}, '
+        '"env": ["OPENAI_API_KEY"], "options": {"baseURL": "$BASE/v1"}}'
+        "}}"
     ),
 }
 
@@ -239,6 +271,13 @@ AGENT_META: dict[str, AgentMeta] = {
         "https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md",
         "2026-09-16",
         "VIBE_PROVIDERS takes a JSON provider array, not a URL",
+    ),
+    "kilo": AgentMeta(
+        "Anthropic Messages or OpenAI Chat Completions",
+        "https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md",
+        "2026-09-16",
+        "KILO_CONFIG_CONTENT takes a JSON config document, and outranks both the "
+        "global and the project kilo.json; pick the provider in Kilo's model picker",
     ),
 }
 

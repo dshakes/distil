@@ -21,22 +21,29 @@ All notable changes to Distil are documented here. Format loosely follows
   into a literal, because exporting a bare URL where the agent expects JSON is the exact
   failure this project refuses to ship — `wrap` would report success, start a proxy, and
   route zero traffic.
-- **The Cline CLI and the Kilo Code CLI are wrapped — `distil wrap -- cline`,
-  `distil wrap -- kilo`.** Both were declined for having no published config schema. Both
-  have one; it is just not on the docs site. Cline's is the zod `StoredProviderSettings`
-  in `cline/cline`, with a committed fixture of the real file:
+- **The Cline CLI is wrapped — `distil wrap -- cline`.** It was declined for having no
+  published config schema. It has one; it is just not on the docs site — the zod
+  `StoredProviderSettings` in `cline/cline`, with a committed fixture of the real file.
   `~/.cline/data/settings/providers.json`, where `providers.<id>.settings.baseUrl` is
   documented in the code as outranking both the regional API line and the provider
   default. The preset also sets `lastUsedProvider`, because an entry the CLI never selects
   routes nothing — and it honours `CLINE_DATA_DIR`, because patching a file your CLI does
-  not read is the same lie by a different route. Kilo's is
-  [its own provider docs](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/ai-providers/openai-compatible.md):
-  `~/.config/kilo/kilo.json`, `provider.<id>.options.baseURL`, with `npm` selecting the
-  wire protocol. Kilo permits comments in those files, so a config that is not plain JSON
-  is left **completely** untouched with the one line to add by hand — not rewritten
-  without the comments, and not treated as empty, which would strip the user's other
-  providers for the session. Kilo's top-level `model` is never overwritten either: the
-  provider is offered, you pick it.
+  not read is the same lie by a different route.
+- **The Kilo Code CLI is wrapped — `distil wrap -- kilo` — via `KILO_CONFIG_CONTENT`,
+  not a config file.** This began as a config-file preset patching
+  `~/.config/kilo/kilo.json`, and that was wrong for a reason worth recording. Kilo's own
+  [precedence table](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md)
+  puts global config files at 4 and a **project-local `./kilo.json` at 6**, so inside any
+  repo shipping its own config the patch landed on a file the child never read, while
+  `wrap` reported success. That is the exact failure this area exists to prevent,
+  reintroduced by a fix for it. The same table lists `KILO_CONFIG_CONTENT` at **8**, above
+  both, and Kilo's loader hands it straight to `loadConfig(text, …)` as config content. So
+  the preset exports a config document instead: nothing read, written, backed up or
+  restored, no project file able to shadow it, and a `kilo.jsonc` full of comments never
+  at risk of being rewritten without them. It declares an Anthropic-shaped and an
+  OpenAI-shaped provider, since one environment value cannot branch on `--upstream` and
+  the proxy speaks both, and it names the key's variable through `env` rather than putting
+  a credential in the environment. Your top-level `model` is left alone.
 - **`distil wrap --list` (and `--json`).** Every target, its mechanism (environment
   variable / config file), the provider wire shape distil has to speak for it, the routing
   knob, and the primary doc that contract was read from with the date. The agents `wrap`
@@ -86,9 +93,11 @@ client-rendered shell over a plain fetch. Bedrock's SigV4 path is out of scope.
 Note what is *not* a reason: "the settings file is global." That was the stated ground for
 declining Cline and Kilo Code, and it was wrong — a shared config file is precisely what
 `config_wrap` claims, backs up, patches and restores for Crush, Oh My Pi and Factory Droid
-already. Both are presets now. What remains declined is declined on the specific mechanism,
-because a preset built on a guess is indistinguishable from one that works right up until
-you check the savings counter.
+already. Both are presets now. What *is* disqualifying is narrower and sharper: a global
+file that some other file outranks for the directory the wrap runs in, which is what sent
+Kilo to an environment variable rather than to this list. What remains declined is declined
+on the specific mechanism, because a preset built on a guess is indistinguishable from one
+that works right up until you check the savings counter.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 

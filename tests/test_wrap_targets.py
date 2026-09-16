@@ -307,3 +307,115 @@ def test_generator_refuses_a_document_missing_its_markers():
 
     with pytest.raises(SystemExit):
         build_agent_tables.replace_region("no markers here", "agent-presets-bullet", "x")
+
+
+# ---------------------------------------------------------------------------
+# Kilo Code: KILO_CONFIG_CONTENT, and the project-local file that made the
+# config-file version of this preset a lie.
+# ---------------------------------------------------------------------------
+
+
+def test_preset_kilo(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    assert cmd_wrap(_ns(command=["kilo"])) == 0
+    assert captured["env_var"] == "KILO_CONFIG_CONTENT"
+    out = capsys.readouterr().out
+    assert "Kilo Code CLI" in out and "KILO_CONFIG_CONTENT" in out
+
+
+def test_kilo_template_declares_both_wire_shapes_and_no_credential():
+    """One static template cannot branch on --upstream, so both provider shapes
+    are declared and Kilo's picker chooses. `env` names the variable to read the
+    key FROM — the value itself must never carry a credential, because unlike a
+    0600 config file an environment variable is visible to the whole process
+    tree."""
+    doc = json.loads(AGENT_ENV_TEMPLATES["kilo"].replace("$BASE", "http://127.0.0.1:1234"))
+    assert set(doc["provider"]) == {"distil", "distil-openai"}
+    assert doc["provider"]["distil"]["npm"] == "@ai-sdk/anthropic"
+    assert doc["provider"]["distil"]["options"]["baseURL"] == "http://127.0.0.1:1234"
+    assert doc["provider"]["distil-openai"]["npm"] == "@ai-sdk/openai-compatible"
+    assert doc["provider"]["distil-openai"]["options"]["baseURL"] == "http://127.0.0.1:1234/v1"
+    for entry in doc["provider"].values():
+        assert entry["models"], "Kilo requires at least one model per provider"
+        assert entry["env"], "the key is read from a named variable, never inlined"
+        assert "apiKey" not in entry["options"], "no credential in an environment variable"
+    assert "model" not in doc, "the user's own default model must not be hijacked"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="subprocess env injection test")
+def test_kilo_is_not_shadowed_by_a_project_local_config(tmp_path, monkeypatch):
+    """The regression this preset was rewritten for.
+
+    Kilo's documented precedence puts the GLOBAL config at 4 and a project-local
+    ./kilo.json at 6, so the earlier version of this preset — which patched
+    ~/.config/kilo/kilo.json — was outranked inside any repo carrying its own
+    kilo.json: `wrap` reported success while the child read a different file.
+    KILO_CONFIG_CONTENT is precedence 8, above both. Proven the only way that
+    means anything: with a project-local kilo.json actually present, and with
+    both it and the global config asserted untouched afterwards."""
+    project = tmp_path / "project"
+    project.mkdir()
+    local = project / "kilo.json"
+    local_original = '{"provider": {"vllm": {"npm": "x"}}}\n'
+    local.write_text(local_original)
+
+    home = tmp_path / "home"
+    (home / ".config" / "kilo").mkdir(parents=True)
+    global_cfg = home / ".config" / "kilo" / "kilo.json"
+    global_original = '{"provider": {"mine": {"npm": "y"}}}\n'
+    global_cfg.write_text(global_original)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(project)
+
+    code = _run_child(
+        tmp_path,
+        monkeypatch,
+        "import json, os, sys\n"
+        "d = json.loads(os.environ['KILO_CONFIG_CONTENT'])\n"
+        "u = d['provider']['distil']['options']['baseURL']\n"
+        "sys.exit(0 if u.startswith('http://127.0.0.1') else 1)\n",
+        env_var="KILO_CONFIG_CONTENT",
+        env_value_template=AGENT_ENV_TEMPLATES["kilo"],
+    )
+    assert code == 0, "child did not see a usable KILO_CONFIG_CONTENT document"
+    assert local.read_text() == local_original, "a project-local kilo.json must be untouched"
+    assert global_cfg.read_text() == global_original, "the global kilo.json must be untouched"
+
+
+def test_kilo_is_no_longer_a_config_file_preset():
+    """Belt and braces: a future edit that re-adds the file-patching version
+    would silently reintroduce the shadowing bug, since both mechanisms would
+    otherwise look equally 'wrapped' from the catalogue."""
+    assert "kilo" not in config_wrap.CONFIG_PRESETS
+    assert not hasattr(config_wrap, "_kilo_config_path")
+
+
+# ---------------------------------------------------------------------------
+# `distil wrap -- continue` must still say the extension is not wrappable.
+# ---------------------------------------------------------------------------
+
+
+def test_continue_extension_is_still_warned_about(monkeypatch, capsys):
+    """`continue` was a named alias before the catalogue migration and quietly
+    stopped warning. It is the one name where silence is most expensive: the
+    Continue CLI (`cn`) IS a preset, so a user typing the other name gets a wrap
+    that looks identical and routes nothing."""
+    from distil.cli import cmd_wrap
+
+    _mock_wrap_run(monkeypatch)
+    assert cmd_wrap(_ns(command=["continue"])) == 0
+    err = capsys.readouterr().err
+    assert "route NOTHING" in err
+    assert "docs.continue.dev" in err
+    assert "cn" in err, "must name the CLI that does work"
+
+
+def test_the_continue_cli_is_not_warned_about(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    _mock_wrap_run(monkeypatch)
+    assert cmd_wrap(_ns(command=["cn"])) == 0
+    assert "route NOTHING" not in capsys.readouterr().err
