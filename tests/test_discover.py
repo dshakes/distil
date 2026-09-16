@@ -246,6 +246,31 @@ def _seed_legacy(home: Path, sid: str = "sLegacy") -> None:
     )
 
 
+def _seed_all_unbooked(home: Path, sid: str = "sFailed") -> None:
+    """Every proxied request failed or was retried: request-detail rows exist
+    (real traffic, real diagnostics), but `booked` is never True and no ledger
+    row was ever written (nothing to price) — distinct from a session that
+    never proxied a single request."""
+    _manifest(sid)
+    append_session_request(
+        {
+            "ts": NOW - 200,
+            "model": "claude-opus-4-8",
+            "status": 529,
+            "booked": False,
+            "mode": "digest",
+            "compressible_tokens": 1000,
+            "tokens_saved": 0,
+            "overhead_tokens": 500,
+            "system_tokens": 500,
+            "tools_tokens": 0,
+            "tools": [],
+            "blocks": [],
+        },
+        sid,
+    )
+
+
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
@@ -1098,6 +1123,7 @@ class TestJsonSchema:
             "sessions",
             "sessions_without_traffic",
             "sessions_without_detail",
+            "sessions_all_unbooked",
             "detectors_assessed_sessions",
             "requests",
             "days",
@@ -1267,6 +1293,70 @@ class TestSessionsWithoutTraffic:
         assert "no proxied traffic in the last 1 session(s)" in out
         assert "distil wrap" in out
         assert "nothing to recommend" not in out  # must not read as an all-clear
+
+
+class TestSessionsAllUnbooked:
+    """A session where every proxied request failed or was retried: real
+    traffic and diagnostics (request-detail rows exist), just nothing was ever
+    booked or billed — distinct from a session that never proxied a request,
+    and excluded from the window the same way."""
+
+    def test_excluded_from_the_window_and_counted_separately(self, home: Path) -> None:
+        _seed_all_unbooked(home)
+        r = dv.scan()
+        assert r.sessions == 0
+        assert r.sessions_all_unbooked == 1
+        assert r.sessions_without_traffic == 0
+        assert r.actions == []
+
+    def test_does_not_pollute_a_window_that_also_has_real_traffic(self, home: Path) -> None:
+        _seed_a(home)
+        _seed_all_unbooked(home)
+        r = dv.scan()
+        assert r.sessions == 1  # sA only; sFailed is not folded in
+        assert r.sessions_all_unbooked == 1
+        assert "tool_overhead" in _ids(r)  # sA's own detectors still fire normally
+
+    def test_json_reports_assessed_false_and_the_excluded_count(self, home: Path) -> None:
+        _seed_all_unbooked(home)
+        d = dv.scan().to_dict()
+        assert d["window"]["assessed"] is False
+        assert d["window"]["sessions_all_unbooked"] == 1
+        assert d["window"]["sessions"] == 0
+
+    def test_text_names_the_reason_distinct_from_the_no_traffic_message(self, home: Path) -> None:
+        _seed_all_unbooked(home)
+        out = dv.render_text(dv.scan(), color=False)
+        assert "nothing was booked" in out
+        assert "distil dissect" in out
+        assert "no proxied traffic" not in out  # distinct from the never-ran case
+        assert "nothing to recommend" not in out
+
+    def test_text_notes_the_count_in_a_mixed_window(self, home: Path) -> None:
+        _seed_a(home)
+        _seed_all_unbooked(home)
+        out = dv.render_text(dv.scan(), color=False)
+        assert "1 session(s) proxied traffic but nothing" in out
+
+    def test_all_four_states_together(self, home: Path) -> None:
+        """sA has full detail; sLegacy is ledger-only; sQuiet never proxied
+        anything; sFailed proxied but booked nothing. Each lands in its own
+        bucket, and only sA feeds the detectors."""
+        _seed_a(home)
+        _seed_legacy(home)
+        _manifest("sQuiet")
+        _seed_all_unbooked(home)
+        r = dv.scan()
+        assert r.sessions == 2  # sA + sLegacy
+        assert r.sessions_without_detail == 1  # sLegacy
+        assert r.sessions_without_traffic == 1  # sQuiet
+        assert r.sessions_all_unbooked == 1  # sFailed
+        assert r.detectors_assessed_sessions == 1  # sA only
+        d = r.to_dict()
+        assert d["window"]["sessions"] == 2
+        assert d["window"]["sessions_without_detail"] == 1
+        assert d["window"]["sessions_without_traffic"] == 1
+        assert d["window"]["sessions_all_unbooked"] == 1
 
 
 class TestSessionsWithoutDetail:

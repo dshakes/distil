@@ -132,6 +132,11 @@ class Report:
     #: `actions`. Counted separately so "no findings" never hides "half the window
     #: could not be assessed".
     sessions_without_detail: int = 0
+    #: Sessions with request-detail rows but none booked (every proxied request
+    #: failed or was retried) — real traffic and diagnostics, nothing billed.
+    #: Distinct from `sessions_without_traffic`, which never proxied anything at
+    #: all; excluded from the typical/best spread and from `actions` alike.
+    sessions_all_unbooked: int = 0
     #: Sessions the detail-based detectors actually read (``len(w.ds)``). Zero
     #: means no detector ran at all — distinct from "ran and found nothing" —
     #: so `render_text` never lets a ledger-only window read as an all-clear.
@@ -179,6 +184,7 @@ class Report:
                 "sessions": self.sessions,
                 "sessions_without_traffic": self.sessions_without_traffic,
                 "sessions_without_detail": self.sessions_without_detail,
+                "sessions_all_unbooked": self.sessions_all_unbooked,
                 "detectors_assessed_sessions": self.detectors_assessed_sessions,
                 "requests": self.requests,
                 "days": round(self.days, 2),
@@ -232,6 +238,10 @@ class _Window:
     since: float
     ledger_only: list[Dissection] = field(default_factory=list)
     sessions_without_traffic: int = 0
+    #: Sessions with request-detail rows but none booked (every proxied request
+    #: failed or was retried) — real traffic, nothing billed. Excluded from `ds`
+    #: and `ledger_only` alike, so savings/detectors never see them.
+    sessions_all_unbooked: int = 0
     #: Share of ``ds``'s baseline tokens that came from a row with no known price
     #: (``baseline_dollars <= 0`` on tokens that were actually sent — an unknown
     #: model, e.g. an OpenAI/Gemini upstream `pricing.resolve` cannot catalog-match,
@@ -278,17 +288,21 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
         dissect(o.sid, ledger_rows=by_sid.get(o.sid, []), shadow=False, since_ts=since or None)
         for o in overviews
     ]
-    # Three states, not two. (a) A `wrap` that started and exited without proxying
+    # Four states, not two. (a) A `wrap` that started and exited without proxying
     # a single request (killed before the agent made a call, or the agent never
     # called out) has neither a ledger row nor detail — nothing here to assess,
     # and folding it into the window silently would let an all-quiet window read
     # as "all within range" rather than "nothing was observed". (b) An older
     # session, priced before the per-request detail file existed, has real
     # ledger rows but no detail — real savings, just nothing a detail-based
-    # detector can read. (c) both present: the full picture.
+    # detector can read. (c) both present: the full picture. (d) detail rows
+    # exist but none are booked (every proxied request failed or was retried) —
+    # real traffic and real diagnostics, just nothing billed; distinct from (a),
+    # which never proxied anything at all.
     ds = [d for d in all_ds if d.booked_detail]
     ledger_only = [d for d in all_ds if not d.booked_detail and d.ledger_rows]
-    no_traffic = len(all_ds) - len(ds) - len(ledger_only)
+    all_unbooked = [d for d in all_ds if not d.booked_detail and not d.ledger_rows and d.requests]
+    no_traffic = len(all_ds) - len(ds) - len(ledger_only) - len(all_unbooked)
     starts = [d.started for d in ds + ledger_only if d.started]
     if since_days:
         # An explicit `--since N` is the bounded span the caller asked for, not
@@ -332,6 +346,7 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
         since=since,
         ledger_only=ledger_only,
         sessions_without_traffic=no_traffic,
+        sessions_all_unbooked=len(all_unbooked),
         unpriced_share=unpriced_share,
     )
 
@@ -709,7 +724,10 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
     """Aggregate recent sessions and rank what could still be recovered."""
     w = _collect(sessions, since_days)
     if not w.ds and not w.ledger_only:
-        return Report(sessions_without_traffic=w.sessions_without_traffic)
+        return Report(
+            sessions_without_traffic=w.sessions_without_traffic,
+            sessions_all_unbooked=w.sessions_all_unbooked,
+        )
     # The typical/best spread only needs ledger totals (pct_saved, baseline_tokens),
     # so a detail-less session still has something to say there — the detectors
     # below are the part that needs per-request rows, and only ``w.ds`` has those.
@@ -726,6 +744,7 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
         sessions=len(scoreable),
         sessions_without_traffic=w.sessions_without_traffic,
         sessions_without_detail=len(w.ledger_only),
+        sessions_all_unbooked=w.sessions_all_unbooked,
         detectors_assessed_sessions=len(w.ds),
         requests=w.requests,
         days=w.days,
@@ -762,6 +781,15 @@ def render_text(r: Report, *, color: bool = True) -> str:
                 "session(s) — nothing to assess yet (run your agent through "
                 "`distil wrap` first)."
             )
+        if r.sessions_all_unbooked:
+            # Traffic happened — every request failed or was retried — which is a
+            # different problem than "never ran" and points at diagnostics, not a
+            # rerun.
+            return (
+                f"{r.sessions_all_unbooked} session(s) proxied traffic but nothing "
+                "was booked (every request failed or was retried) — see `distil "
+                "dissect <sid>`."
+            )
         return EMPTY
     out = [c("1", "distil discover — where your remaining savings are")]
     out.append(
@@ -791,6 +819,15 @@ def render_text(r: Report, *, color: bool = True) -> str:
                 "2",
                 f"  note     {r.sessions_without_detail} older session(s) lack per-request "
                 "detail — savings counted, actions not assessed for them",
+            )
+        )
+    if r.sessions_all_unbooked:
+        out.append(
+            c(
+                "2",
+                f"  note     {r.sessions_all_unbooked} session(s) proxied traffic but nothing "
+                "was booked (every request\n           failed or was retried) — see `distil "
+                "dissect <sid>`",
             )
         )
 
