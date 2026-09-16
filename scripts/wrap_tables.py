@@ -14,8 +14,11 @@ site.js deliberately skips any table already inside `.table-scroll`, so a bare
 `<div class="table-scroll">` here would *remove* those attributes rather than
 add them. The label is the nearest preceding heading, same rule as site.js.
 
-Idempotent: a table whose immediately-preceding tag already carries
-`table-scroll` is left exactly as it is, so running this twice is a no-op.
+Idempotent: a table whose immediately-preceding tag already carries the
+`table-scroll` class token is left exactly as it is, so running this twice is
+a no-op. A table nested inside another table's cell is not wrapped — the
+naive first-`</table>`-after-the-open scan would match the inner table's
+close and corrupt the outer one, so nesting is detected and raises instead.
 
 Usage: python3 scripts/wrap_tables.py [docs_dir]
 Checked by tests/test_table_scroll.py (regenerate-and-compare, same pattern as
@@ -39,13 +42,22 @@ _TABLE_CLOSE_RE = re.compile(r"</table\s*>")
 _HEADING_RE = re.compile(r"<h[1-4]\b[^>]*>(.*?)</h[1-4]\s*>", re.S | re.I)
 _TAG_RE = re.compile(r"<[^>]*>")
 _WS_RE = re.compile(r"\s+")
+_CLASS_RE = re.compile(r'class="([^"]*)"')
 
 
 def _already_wrapped(before: str) -> bool:
-    """True when the tag immediately preceding the table is the scroll wrapper."""
+    """True when the tag immediately preceding the table is the scroll wrapper.
+
+    Matches the `table-scroll` class token exactly (same as site.js's
+    `closest(".table-scroll")`) rather than a bare substring check, so a class
+    like `not-table-scroll` is not mistaken for the wrapper.
+    """
     stripped = before.rstrip()
     lt = stripped.rfind("<")
-    return lt != -1 and "table-scroll" in stripped[lt:]
+    if lt == -1:
+        return False
+    m = _CLASS_RE.search(stripped[lt:])
+    return m is not None and "table-scroll" in m.group(1).split()
 
 
 def _label(before: str) -> str:
@@ -71,6 +83,16 @@ def apply_to_text(text: str) -> str:
         if close is None:  # unbalanced markup: leave the rest untouched
             out.append(text[pos:])
             return "".join(out)
+        if _TABLE_OPEN_RE.search(text, m.end(), close.start()):
+            # A <table> opens again before this </table> — the close we just
+            # found belongs to the nested table, not this one. Wrapping here
+            # would close the outer <div> at the wrong point and corrupt the
+            # page. Nested tables aren't supported; fail loudly rather than
+            # silently emitting invalid HTML.
+            raise ValueError(
+                f"nested <table> found at offset {m.start()} in the doc being wrapped — "
+                "wrap_tables.py cannot safely wrap it; wrap the nested table by hand."
+            )
         before = text[: m.start()]
         if _already_wrapped(before):
             out.append(text[pos : close.end()])

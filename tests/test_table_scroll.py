@@ -74,6 +74,26 @@ def test_wrapper_label_is_attribute_escaped():
     assert 'aria-label="The &quot;big&quot; table"' in out
 
 
+def test_a_similarly_named_class_is_not_mistaken_for_the_wrapper():
+    """`not-table-scroll` must not be treated as an already-wrapped table — a
+    bare substring check on the preceding tag would false-positive on it."""
+    mod = _load("wrap_tables")
+    src = '<div class="not-table-scroll">\n<table><tr><td>x</td></tr></table>\n</div>'
+    out = mod.apply_to_text(src)
+    assert out != src
+    assert 'class="table-scroll"' in out
+
+
+def test_nested_table_raises_instead_of_corrupting_the_page():
+    """The naive scan for the first `</table>` after an opening `<table>` would
+    match a nested table's close and wrap at the wrong point, producing invalid
+    HTML. It must fail loudly instead."""
+    mod = _load("wrap_tables")
+    src = "<table><tr><td><table><tr><td>inner</td></tr></table></td></tr></table>"
+    with pytest.raises(ValueError, match="nested"):
+        mod.apply_to_text(src)
+
+
 def test_every_page_has_the_shared_footer():
     """16 of 44 pages had no footer element at all — no licence line, no repo
     link, and nothing closing the page."""

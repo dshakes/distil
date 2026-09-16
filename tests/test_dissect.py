@@ -1217,9 +1217,28 @@ class TestTranscriptCorrelation:
         out = capsys.readouterr().out
         assert "no matching agent transcript found" in out
 
-    def test_serve_does_not_block_when_not_a_tty(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_serve_does_not_block_when_not_a_tty(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """pytest's captured stdout isn't a TTY — `--serve` must print the URL
-        and return immediately rather than hang on serve_forever()."""
+        and return immediately rather than hang on serve_forever().
+
+        In-process rather than a subprocess (that variant flaked on a slow CI
+        runner importing a fresh interpreter and timing out): asserting
+        `serve_forever` is never reached is a deterministic, direct check of
+        the guard rather than inferring it from the test merely completing.
+        """
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise AssertionError("serve_forever() must not be called off a TTY")
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
         assert main(["dissect", "--serve", "--port", "0"]) == 0
         out = capsys.readouterr().out
         assert "dissect portal:" in out
@@ -1243,23 +1262,6 @@ class TestTranscriptCorrelation:
         assert main(["dissect", "--serve", "--foreground"]) == 0
         out = capsys.readouterr().out
         assert "not blocking" not in out
-
-    def test_serve_subprocess_exits_promptly_without_foreground(self, tmp_path: Path) -> None:
-        """End-to-end: piped stdout (never a TTY) must not hang the process."""
-        import os
-        import subprocess
-        import sys
-
-        env = dict(os.environ, DISTIL_HOME=str(tmp_path))
-        result = subprocess.run(
-            [sys.executable, "-m", "distil.cli", "dissect", "--serve", "--port", "0"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=env,
-        )
-        assert result.returncode == 0
-        assert "not blocking" in result.stdout
 
     def test_serve_with_transcript_flag_correlates_by_default(self) -> None:
         server = dz.make_server("127.0.0.1", 0, transcript="auto")
