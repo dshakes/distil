@@ -215,7 +215,12 @@ def summarise(records: list[dict[str, Any]]) -> CacheSummary:
         out.read_tokens += read
         out.create_tokens += create
         out.uncached_tokens += int(rec.get("usage_input_tokens") or 0)
-        if read or create:
+        # `is not None`, not truthiness: the proxy writes a literal 0 whenever the
+        # provider's usage object carried the field at all (a real measurement,
+        # matching `Dissection.cached_input_share`'s rule), and only omits it when
+        # the provider never reported it. `if read or create` would read a
+        # measured 0/0 row the same as an absent one and call it "not reported".
+        if rec.get("usage_cache_read") is not None or rec.get("usage_cache_create") is not None:
             out.reported = True
         elif rec.get("usage_cache_tokens"):
             out.legacy_cache_tokens += int(rec.get("usage_cache_tokens") or 0)
