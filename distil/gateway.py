@@ -23,7 +23,6 @@ import hmac
 import html
 import json
 import os
-import re
 import threading
 import time
 import urllib.error
@@ -34,18 +33,22 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
+from . import _filelock
 from ._log import log
 from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
 from .adapters.gemini import count_tokens as _gemini_count
 from .adapters.gemini import is_gemini_path
+from .authz import TENANT_RE as _TENANT_RE
 from .authz import AuthzError as _AuthzError
 from .authz import identity_from_claims as _identity_from_claims
 from .authz import oidc_config_from_env as _oidc_config_from_env
 from .authz import verify_jwt as _verify_jwt
 from . import audit as _audit
 from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
+from .prefixreplay import _CREDENTIAL_HEADERS
 from .httpguard import (
+    framing_rejection,
     is_chat_completions_path,
     is_compressible_path,
     is_responses_path,
@@ -55,6 +58,7 @@ from .httpguard import (
 )
 from .pricing import Pricing, get as pricing_get
 from .proxy import (
+    _CLIENT_TIMEOUT,
     _OPENER,
     _UPSTREAM_TIMEOUT,
     QuietHTTPServer,
@@ -72,8 +76,6 @@ class _OidcRejected(Exception):
     """
 
 
-# Safe tenant label: bounded length, no markup / control characters.
-_TENANT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # Which endpoints carry a compressible body lives in httpguard.is_compressible_path —
 # one definition shared with proxy.py and aproxy.py, Azure OpenAI paths included.
 
@@ -267,7 +269,7 @@ class GatewayState:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(path.name + ".tmp")
             tmp.write_text(json.dumps(data), encoding="utf-8")
-            os.replace(tmp, path)
+            _filelock.replace_retrying(tmp, path)
         except OSError:
             pass  # best-effort — never let a failed save crash shutdown
 
@@ -813,6 +815,14 @@ def build_gateway_handler(
         # HTTP/1.1 so streamed responses can use chunked transfer framing.
         protocol_version = "HTTP/1.1"
 
+        # StreamRequestHandler.setup() applies this to the accepted socket, so no
+        # read or write to a client can block forever. The gateway is the entry
+        # point MEANT to be exposed, and it was the one without the guard: with no
+        # timeout a peer that connects and then dribbles (or declares a large
+        # Content-Length and sends nothing) pins a ThreadingHTTPServer thread for
+        # the life of the process. Same value the proxy uses.
+        timeout = _CLIENT_TIMEOUT
+
         # ----------------------------------------------------------------
         # Silence request logs
         # ----------------------------------------------------------------
@@ -831,8 +841,19 @@ def build_gateway_handler(
             all keys keeps the gate locked instead of silently reopening it.
             Revoking leaves no valid credential → every request 401s, which is
             the right outcome for a depleted key set.
+
+            A configured OIDC issuer counts on its own. ``_identity_from_oidc``
+            runs *inside* this gate, so keying the gate on keys alone meant an
+            operator who wired up an IdP and issued no ``dsk-`` key ran a fully
+            open gateway while every OIDC knob read as configured. Read from the
+            environment per request, the same call the verifier makes, so the two
+            can never disagree about whether OIDC is on.
             """
-            return require_keys or (_key_store is not None and _key_store.has_any_keys())
+            return (
+                require_keys
+                or (_key_store is not None and _key_store.has_any_keys())
+                or bool(_oidc_config_from_env().get("issuer"))
+            )
 
         def _extract_distil_key(self) -> tuple[str | None, str | None]:
             """Pull the dsk- key and the header name it came from.
@@ -849,20 +870,50 @@ def build_gateway_handler(
                 return xdk, "x-distil-key"
             return None, None
 
-        def _identity_from_oidc(self):
-            """Verify an ``Authorization: Bearer <jwt>`` against configured OIDC.
+        def _has_provider_credential(self) -> bool:
+            """True when the request carries an upstream credential other than
+            ``Authorization`` — so consuming the bearer still leaves the upstream
+            something to authenticate with.
 
-            Returns an Identity, or None when OIDC is not configured or no bearer
-            was presented. A bearer that IS presented but fails verification is a
-            hard 401 — never a fall-through to "unauthenticated but allowed".
+            Reuses prefixreplay's list rather than hard-coding ``x-api-key``: that
+            tuple is already this codebase's definition of "a header that carries
+            the upstream credential" (Anthropic, Azure, and the Gemini key flavour),
+            and two definitions would drift.
+            """
+            return any(self.headers.get(h) for h in _CREDENTIAL_HEADERS if h != "authorization")
+
+        def _identity_from_oidc(self):
+            """Verify an OIDC token against configured OIDC. Returns an Identity.
+
+            Returns None when OIDC is not configured or no token was presented. A
+            token that IS presented but fails verification is a hard 401 — never a
+            fall-through to "unauthenticated but allowed".
+
+            Two carriers, and the order matters. ``x-distil-token`` is preferred
+            because it cannot collide with anything: for OpenAI, Azure and the
+            Gemini bearer flavour, ``Authorization: Bearer …`` IS the provider
+            credential, and this gateway injects no credentials of its own — it
+            forwards the client's. Consuming and stripping that header, which is
+            what the bearer carrier does, leaves the upstream with no credential
+            at all. So an OIDC-only deployment in front of OpenAI could not work.
+
+            ``Authorization: Bearer <jwt>`` is still accepted for the Anthropic
+            shape that has always used it, where ``x-api-key`` carries the provider
+            credential separately and losing the bearer costs nothing. That case is
+            recognised by the provider credential BEING there — see
+            ``_oidc_bearer_is_safe_to_consume``. Returns ``(identity, carrier)``.
             """
             cfg = _oidc_config_from_env()
             if not cfg.get("issuer"):
                 return None  # OIDC disabled
-            auth = self.headers.get("Authorization", "")
-            if not auth.startswith("Bearer ") or auth.startswith("Bearer dsk-"):
-                return None
-            token = auth[len("Bearer ") :].strip()
+            token = self.headers.get("x-distil-token", "").strip()
+            carrier = "x-distil-token"
+            if not token:
+                auth = self.headers.get("Authorization", "")
+                if not auth.startswith("Bearer ") or auth.startswith("Bearer dsk-"):
+                    return None
+                token = auth[len("Bearer ") :].strip()
+                carrier = "authorization"
             try:
                 claims = _verify_jwt(
                     token,
@@ -879,11 +930,12 @@ def build_gateway_handler(
                 )
                 self._reject(401, f"OIDC token rejected: {exc}")
                 raise _OidcRejected from exc
-            return _identity_from_claims(
+            ident = _identity_from_claims(
                 claims,
                 role_claim=cfg["role_claim"],
                 tenant_claim=cfg["tenant_claim"],
             )
+            return ident, carrier
 
         def _check_inbound_auth(self) -> tuple[str | None, str | None] | None:
             """Validate the gateway key when auth is required.
@@ -899,9 +951,12 @@ def build_gateway_handler(
             if not self._auth_required():
                 return None  # auth off — no key needed
 
-            if _key_store is None:
+            if _key_store is None and not _oidc_config_from_env().get("issuer"):
                 # require_keys=True but no key store was supplied (e.g. in tests
-                # that set require_keys without issuing keys yet).
+                # that set require_keys without issuing keys yet). With OIDC
+                # configured a verified bearer is a complete credential on its
+                # own, so fall through to it rather than 401-ing on a store the
+                # deployment does not need.
                 _audit.record(
                     _audit.AUTH_FAIL,
                     reason="no key store configured",
@@ -920,12 +975,33 @@ def build_gateway_handler(
                 # equally valid credential — additive, so enabling OIDC can never
                 # lock out a deployment that already runs on issued keys.
                 try:
-                    ident = self._identity_from_oidc()
+                    verified = self._identity_from_oidc()
                 except _OidcRejected:
                     # 401 already written by the extractor; unwind cleanly rather
                     # than letting the handler emit a second response.
                     return ("", "")
-                if ident is not None:
+                if verified is not None:
+                    ident, carrier = verified
+                    if carrier == "authorization" and not self._has_provider_credential():
+                        # The JWT arrived on the header that, for OpenAI/Azure/Gemini,
+                        # IS the provider credential — and nothing else on this request
+                        # carries one. Consuming it would strip the only credential the
+                        # upstream was ever going to see, and this gateway injects none
+                        # of its own. Refuse with the fix in the message instead of
+                        # forwarding a request that is certain to 401 at the provider.
+                        _audit.record(
+                            _audit.AUTH_FAIL,
+                            reason="OIDC token on Authorization with no provider credential",
+                            tenant=ident.tenant,
+                            remote=self.client_address[0] if self.client_address else None,
+                        )
+                        self._reject(
+                            401,
+                            "send the OIDC token in x-distil-token: Authorization is "
+                            "forwarded to the upstream as the provider credential, and "
+                            "this request carries no other one",
+                        )
+                        return ("", "")
                     try:
                         ident.require("operator")  # proxying is an operator action
                     except _AuthzError as exc:
@@ -952,16 +1028,13 @@ def build_gateway_handler(
                             auth="oidc",
                             remote=self.client_address[0] if self.client_address else None,
                         )
-                        body = json.dumps({"error": "rate limit exceeded"}).encode()
-                        self._relay(
-                            429,
-                            {"Content-Type": "application/json"},
-                            body,
-                            {"Retry-After": "60"},
-                        )
+                        self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                         return ("", "")
-                    # Strip the bearer so the upstream never sees our IdP token.
-                    return (ident.tenant, "authorization")
+                    # Strip whichever header carried it, so the upstream never sees
+                    # our IdP token — and only that one: an Authorization header we
+                    # did not verify is the provider's credential and must ride on
+                    # untouched.
+                    return (ident.tenant, carrier)
                 _audit.record(
                     _audit.AUTH_FAIL,
                     reason="no gateway key presented",
@@ -973,7 +1046,7 @@ def build_gateway_handler(
                 )
                 return ("", "")
 
-            rec = _key_store.lookup(raw_key)
+            rec = _key_store.lookup(raw_key) if _key_store is not None else None
             if rec is None:
                 # Content-free: the presented key is never logged, only the fact of
                 # a rejection and where it came from.
@@ -996,8 +1069,7 @@ def build_gateway_handler(
                     limit_rpm=rpm_limit,
                     remote=self.client_address[0] if self.client_address else None,
                 )
-                body = json.dumps({"error": "rate limit exceeded"}).encode()
-                self._relay(429, {"Content-Type": "application/json"}, body, {"Retry-After": "60"})
+                self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                 return ("", "")
 
             # Per-key daily quota override, resolved HERE (the only place with the
@@ -1183,8 +1255,7 @@ def build_gateway_handler(
                 limit_daily_tokens=limit,
                 remote=self.client_address[0] if self.client_address else None,
             )
-            body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
-            self._relay(429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"})
+            self._reject(429, "daily token quota exceeded", {"Retry-After": "60"})
             return False
 
         def _handle_compressible(
@@ -1198,8 +1269,7 @@ def build_gateway_handler(
                 return
             raw = self._read_body()
             if raw is None:
-                self._reject(413, "request body too large or malformed Content-Length")
-                return
+                return  # _read_body already sent the rejection
             headers = self._client_headers(strip_header)
             # Use key-derived tenant when auth is active; fall back to the
             # credential-hash path for the no-auth (single-user localhost) case.
@@ -1219,10 +1289,7 @@ def build_gateway_handler(
                     limit_rpm=default_rpm,
                     remote=self.client_address[0] if self.client_address else None,
                 )
-                body_err = json.dumps({"error": "rate limit exceeded"}).encode()
-                self._relay(
-                    429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"}
-                )
+                self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                 return
 
             try:
@@ -1369,8 +1436,7 @@ def build_gateway_handler(
                 return
             raw = self._read_body()
             if raw is None:
-                self._reject(413, "request body too large or malformed Content-Length")
-                return
+                return  # _read_body already sent the rejection
             headers = self._client_headers(strip_header)
             url = _upstream + self.path
             req = urllib.request.Request(
@@ -1403,14 +1469,45 @@ def build_gateway_handler(
         # ----------------------------------------------------------------
 
         def _read_body(self) -> bytes | None:
-            length = parse_content_length(self.headers.get("Content-Length"))
+            """Read the request body; on a malformed/oversized/TE-framed request,
+            send the error response itself and return None (caller just returns)."""
+            framing = framing_rejection(
+                self.headers.get_all("Content-Length") or [],
+                self.headers.get_all("Transfer-Encoding") or [],
+            )
+            if framing.reject is not None:
+                # _reject closes the connection: the undrained body is still queued
+                # on the socket, and parsing it as the next request is the desync
+                # this rejection exists to prevent (see httpguard.framing_rejection).
+                self._reject(*framing.reject)
+                return None
+            # The guard's canonical value, not the raw header: a legal repeated
+            # length reads back as "42, 42", which int() refuses and which would
+            # otherwise become a 413 on a request that is perfectly well framed.
+            length = parse_content_length(framing.content_length)
             if length is None:
+                self._reject(413, "request body too large or malformed Content-Length")
                 return None
             return self.rfile.read(length) if length else b""
 
-        def _reject(self, code: int, message: str) -> None:
+        def _reject(self, code: int, message: str, extras: dict[str, str] | None = None) -> None:
+            # Close the connection on EVERY rejection. All of them answer from the
+            # headers alone, before _read_body runs, so whatever body the client
+            # already sent is still queued on the socket; on a keep-alive HTTP/1.1
+            # connection the next parse would read those bytes as a second request,
+            # which is request smuggling. Framing was only the loudest case of it —
+            # a 413, a 400 on the path, and every auth 401/403/429 leave exactly the
+            # same undrained body behind. One close here covers every caller, and
+            # the cost on an error path is one reconnect.
+            #
+            # *extras* exists so the rate-limit paths can keep their Retry-After and
+            # still come through here. The 429s used to call _relay directly, which
+            # is exactly how two of them kept the connection alive after this rule
+            # was written: an error path that bypasses the one function holding the
+            # rule does not get the rule.
+            self.close_connection = True
             body = json.dumps({"error": message}).encode()
-            self._relay(code, {"Content-Type": "application/json"}, body)
+            self._relay(code, {"Content-Type": "application/json"}, body, extras)
 
         def _client_headers(self, also_strip: str | None = None) -> dict[str, str]:
             """Client headers with hop-by-hop stripped.
@@ -1422,13 +1519,15 @@ def build_gateway_handler(
             skip = _HOP_BY_HOP
             if also_strip:
                 skip = skip | {also_strip.lower()}
-            # Defense in depth: a distil gateway key must NEVER reach the provider,
-            # whichever carrier it rode in on — a client sending BOTH an
+            # Defense in depth: a distil gateway credential must NEVER reach the
+            # provider, whichever carrier it rode in on — a client sending BOTH an
             # `Authorization: Bearer dsk-…` AND an `x-distil-key` would otherwise
             # leak the second carrier upstream (only one name arrives via
-            # *also_strip*). dsk- keys are only meaningful to this gateway, so
-            # stripping unconditionally can't break provider auth.
-            skip = skip | {"x-distil-key"}
+            # *also_strip*). Both names are meaningful only to this gateway, so
+            # stripping unconditionally can't break provider auth. `x-distil-token`
+            # is here for the same reason and matters more: it is an IdP-issued JWT,
+            # and it is the header an OIDC deployment sends on EVERY request.
+            skip = skip | {"x-distil-key", "x-distil-token"}
             out = {k: v for k, v in self.headers.items() if k.lower() not in skip}
             for k in list(out):
                 if k.lower() == "authorization" and out[k].startswith("Bearer dsk-"):

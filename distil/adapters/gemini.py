@@ -89,7 +89,12 @@ from .anthropic import (
 )
 
 # /v1beta/models/{model}:generateContent  — also :streamGenerateContent and the /v1 host.
-_GENERATE_RE = re.compile(r"^/v1(?:beta)?/models/[^/:]+:(?:stream)?[Gg]enerateContent$")
+# \A/\Z rather than ^/$: "$" matches before a trailing newline too, so "^…$"
+# would route "…:generateContent\n" as a Gemini path. Not reachable through an
+# HTTP request line, which cannot carry a raw newline — but is_gemini_path is
+# also called directly by adapter code, and a routing predicate should not
+# depend on who is asking.
+_GENERATE_RE = re.compile(r"\A/v1(?:beta)?/models/[^/:]+:(?:stream)?[Gg]enerateContent\Z")
 
 
 def is_gemini_path(path: str) -> bool:

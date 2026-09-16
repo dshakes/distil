@@ -407,6 +407,29 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
       <b>Default path unchanged.</b> The anonymous credential-hash tenant IDs still work without any keys configured — <code>distil gateway keys</code> is additive, not a breaking change. See <a href="../THREAT_MODEL.md" target="_blank" rel="noopener"><code>THREAT_MODEL.md</code></a> for what the key mechanism does and does not protect against.
     </div>
 
+    <h3 id="oidc-headers">OIDC tokens: use <code>x-distil-token</code></h3>
+
+    <p>When an OIDC issuer is configured (<code>DISTIL_OIDC_ISSUER</code>), a verified token is a complete credential on its own — no <code>dsk-</code> key needs to be issued. Send it in <code>x-distil-token</code>, not <code>Authorization</code>.</p>
+
+    <p>The reason is that the gateway forwards <em>your</em> provider credential and injects none of its own. For OpenAI, Azure OpenAI and the Gemini bearer flavour, that credential is <code>Authorization: Bearer …</code> — the very header an OIDC token would otherwise occupy. A gateway that consumed it would strip the only credential the upstream was going to see. <code>x-distil-token</code> keeps the two apart and is stripped before forwarding, exactly like <code>x-distil-key</code>, so your IdP token never reaches the provider.</p>
+
+    <pre class="term"><span class="d"># OpenAI-style upstream: distil identity and provider credential, side by side</span>
+$ curl https://gateway.internal/v1/chat/completions \
+    -H "x-distil-token: $OIDC_JWT" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d @body.json
+
+<span class="d"># Anthropic-style: the JWT may ride on Authorization, since x-api-key carries</span>
+<span class="d"># the provider credential separately</span>
+$ curl https://gateway.internal/v1/messages \
+    -H "Authorization: Bearer $OIDC_JWT" \
+    -H "x-api-key: $ANTHROPIC_API_KEY" \
+    -d @body.json</pre>
+
+    <div class="callout">
+      <b>A bearer JWT with no other provider credential is refused.</b> It returns 401 naming <code>x-distil-token</code>, rather than forwarding a request that is certain to fail at the provider. An <code>Authorization</code> header that is <em>not</em> a verified OIDC token is never consumed or stripped — it is treated as the provider's credential and forwarded untouched.
+    </div>
+
     <hr/>
 
     <h2 id="streaming">Streaming and upstream timeouts</h2>

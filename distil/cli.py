@@ -3260,12 +3260,16 @@ def cmd_gateway_keys_issue(args: argparse.Namespace) -> int:
     from .gateway_keys import GatewayKeyStore
 
     store = GatewayKeyStore()
-    raw_key, rec = store.issue(
-        tenant=args.tenant,
-        rpm=args.rpm,
-        daily_tokens=args.daily_tokens,
-        expires_in_days=getattr(args, "expires_in_days", None),
-    )
+    try:
+        raw_key, rec = store.issue(
+            tenant=args.tenant,
+            rpm=args.rpm,
+            daily_tokens=args.daily_tokens,
+            expires_in_days=getattr(args, "expires_in_days", None),
+        )
+    except ValueError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
     print(f"Key issued:\n  id:      {rec.id}\n  tenant:  {rec.tenant}")
     if rec.rpm is not None:
         print(f"  rpm:     {rec.rpm}")

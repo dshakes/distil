@@ -191,6 +191,37 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
 
     _bash = {"name": "Bash", "input": {"command": "cat /app/handlers.py"}}
     _read = {"name": "Read", "input": {"file_path": "/app/handlers.py"}}
+
+    def then_reread(msgs: list[dict[str, Any]], content: str) -> list[dict[str, Any]]:
+        """Append a re-read of the same path, then two turns of unrelated work.
+
+        The trailing turns are load-bearing: ADR 0010 rule 0 forwards the FRESHEST tool
+        output verbatim, so a case whose last message is the re-read would exercise the
+        recency carve-out and never reach the delta at all. Two turns puts the re-read
+        behind the window, which is where it lands in a real session the moment the agent
+        acts on what it just read.
+        """
+        msgs = msgs + [
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
+            _tool_result("r3", content),
+        ]
+        for i in range(2):
+            msgs += [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": f"a{i}",
+                            "name": "Bash",
+                            "input": {"command": "pytest -q"},
+                        }
+                    ],
+                },
+                _tool_result(f"a{i}", "\n".join(f"test_{j} PASSED {_MARKER}" for j in range(40))),
+            ]
+        return msgs
+
     return [
         ("empty_tool_result", convo("")),
         (
@@ -259,41 +290,25 @@ def _cases() -> list[tuple[str, list[dict[str, Any]]]]:
             # cachedelta's whole-block similarity gate cannot see. The Edit quotes a line
             # inside the overlap, so it can only be served by the first read.
             "reread_at_an_offset_then_edit",
-            read_edit(_read, win_head, quote_in_overlap)
-            + [
-                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
-                _tool_result("r3", win_tail),
-            ],
+            then_reread(read_edit(_read, win_head, quote_in_overlap), win_tail),
         ),
         (
             # The quote lies across the boundary between what the delta elides and what it
             # keeps. Only the edge margin makes it survivable.
             "reread_edit_quotes_across_the_cut",
-            read_edit(_read, win_head, quote_across_cut)
-            + [
-                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
-                _tool_result("r3", win_tail),
-            ],
+            then_reread(read_edit(_read, win_head, quote_across_cut), win_tail),
         ),
         (
             # read -> edit -> re-read: the same file with one hunk changed. Every other line
             # is a byte-exact repeat, and the Edit quotes one of them.
             "edited_then_reread_then_edit",
-            read_edit(_read, module, quote)
-            + [
-                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
-                _tool_result("r3", edited),
-            ],
+            then_reread(read_edit(_read, module, quote), edited),
         ),
         (
             # A whole-file read after a partial one: the partial is entirely contained, so
             # the delta has an interior run with a cut on BOTH sides.
             "whole_file_after_partial_then_edit",
-            read_edit(_read, win_mid, quote_in_overlap)
-            + [
-                {"role": "assistant", "content": [{"type": "tool_use", "id": "r3", **_read}]},
-                _tool_result("r3", module),
-            ],
+            then_reread(read_edit(_read, win_mid, quote_in_overlap), module),
         ),
         (
             # The commonest read an agent actually issues, and the one a stricter

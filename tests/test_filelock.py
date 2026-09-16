@@ -9,9 +9,11 @@ file never pollutes the real data file it protects.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import types
+from pathlib import Path
 
 import pytest
 
@@ -136,3 +138,102 @@ def test_sidecar_never_touches_the_real_file(tmp_path):
         path.write_text('{"ok": true}', encoding="utf-8")
     assert path.read_text(encoding="utf-8") == '{"ok": true}'
     assert (tmp_path / "data.json.lock").exists()
+
+
+# ---------------------------------------------------------------------------
+# replace_retrying — the other primitive Windows spells differently
+# ---------------------------------------------------------------------------
+
+
+def _win_replace(monkeypatch, target, *, winerror: int, fails: int) -> list[int]:
+    """Make ``os.replace`` onto *target* raise a Windows contention error *fails* times.
+
+    Scoped to the one destination path and delegating to the real ``os.replace`` for every
+    other call on purpose: ``os`` is a global module, and a stub that misbehaves for
+    unrelated callers is how a Windows-only patch has broken unrelated tests here before.
+    ``sys.platform`` is flipped the way the rest of this file drives the win32 branch.
+    """
+    real = os.replace
+    left = [fails]
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(_filelock, "_WIN_REPLACE_DELAY", 0)  # no wall-clock cost
+
+    def fake(src, dst, **kw):
+        if Path(dst) == Path(target) and left[0] > 0:
+            left[0] -= 1
+            exc = PermissionError(13, "Access is denied", str(dst))
+            # Set explicitly: `winerror` is a Windows-only OSError attribute, so the
+            # 4-argument constructor silently drops it everywhere else and the error this
+            # builds would not look like the one CI actually saw.
+            exc.winerror = winerror
+            raise exc
+        return real(src, dst, **kw)
+
+    monkeypatch.setattr(os, "replace", fake)
+    return left
+
+
+@pytest.mark.parametrize("winerror", [5, 32])
+def test_replace_retrying_rides_out_a_transient_windows_failure(monkeypatch, tmp_path, winerror):
+    """WinError 5 (another writer mid-replace) and 32 (a reader holding a handle) are
+    contention, not permission — they clear on their own. A Windows CI gate failed on
+    exactly this, in config_wrap's concurrent-writers test, with the bytes already
+    fsync'd."""
+    src, dst = tmp_path / "tmp", tmp_path / "target"
+    src.write_bytes(b"new bytes")
+    dst.write_bytes(b"original bytes")
+    left = _win_replace(monkeypatch, dst, winerror=winerror, fails=3)
+
+    _filelock.replace_retrying(src, dst)
+
+    assert dst.read_bytes() == b"new bytes"
+    assert left[0] == 0, "the retry never actually re-attempted"
+
+
+def test_replace_retrying_gives_up_on_an_error_that_never_clears(monkeypatch, tmp_path):
+    """The budget is bounded: a genuinely locked target raises rather than hanging."""
+    src, dst = tmp_path / "tmp", tmp_path / "target"
+    src.write_bytes(b"new bytes")
+    dst.write_bytes(b"original bytes")
+    _win_replace(monkeypatch, dst, winerror=32, fails=10_000)
+
+    with pytest.raises(PermissionError):
+        _filelock.replace_retrying(src, dst)
+
+    assert dst.read_bytes() == b"original bytes"
+
+
+def test_replace_retrying_does_not_retry_a_real_permission_error(monkeypatch, tmp_path):
+    """A winerror outside the contention set is the caller's answer on the first attempt.
+    Retrying it would turn an immediate, accurate failure into a slow one."""
+    src, dst = tmp_path / "tmp", tmp_path / "target"
+    src.write_bytes(b"new bytes")
+    dst.write_bytes(b"original bytes")
+    left = _win_replace(monkeypatch, dst, winerror=1314, fails=10_000)  # PRIVILEGE_NOT_HELD
+
+    with pytest.raises(PermissionError):
+        _filelock.replace_retrying(src, dst)
+
+    assert left[0] == 9_999, "a non-contention error must not be retried"
+    assert dst.read_bytes() == b"original bytes"
+
+
+def test_replace_retrying_is_a_bare_call_on_posix(monkeypatch, tmp_path):
+    """POSIX rename is atomic against a concurrent rename, so there is nothing to retry
+    and the behaviour must be byte-identical to the bare call: one attempt, no loop."""
+    if sys.platform == "win32":
+        pytest.skip("this test asserts the POSIX branch, POSIX-only")
+    src, dst = tmp_path / "tmp", tmp_path / "target"
+    src.write_bytes(b"new bytes")
+    calls: list[int] = []
+    real = os.replace
+
+    def counting(s, d, **kw):
+        calls.append(1)
+        return real(s, d, **kw)
+
+    monkeypatch.setattr(os, "replace", counting)
+    _filelock.replace_retrying(src, dst)
+
+    assert calls == [1], "POSIX must make exactly one replace call, with no retry loop"
+    assert dst.read_bytes() == b"new bytes"

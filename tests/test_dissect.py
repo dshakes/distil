@@ -946,14 +946,32 @@ class TestAnomalies:
         warnings = dz.dissect("s900-1").anomalies()
         assert any("shadow may be silently failing" in w for w in warnings)
 
-    def test_expand_never_intercepted_flagged(
+    def test_a_streaming_session_with_no_expands_is_not_an_anomaly(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """streamexpand splices the re-query mid-stream, so a streamed request resolves
+        expansions like any other. The warning that lived here only said "the agent never
+        asked to expand" — the healthy case — and it fired on every streaming session."""
         monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-        # expand on, folds happening, yet every request streamed straight through.
         self._session(tmp_path, [self._req() for _ in range(12)], flags={"expand": True})
         warnings = dz.dissect("s900-1").anomalies()
-        assert any("could never be intercepted" in w for w in warnings)
+        assert not any("intercepted" in w for w in warnings), warnings
+
+    def test_a_streaming_request_reports_the_expansions_it_resolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The receipt is where dissect reads expansions from, and the streaming path now
+        writes one. Before this, expand_resolved was structurally 0 when streaming."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        self._session(
+            tmp_path,
+            [self._req(expanded=True, expanded_handles=["cccc3333"]) for _ in range(2)]
+            + [self._req() for _ in range(10)],
+            flags={"expand": True},
+        )
+        d = dz.dissect("s900-1")
+        assert d.expand_resolved == 2
+        assert d.expansion_regret() == [("log:m", 1, 1)]
 
     def test_unrecoverable_expand_is_flagged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
