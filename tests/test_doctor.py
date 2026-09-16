@@ -581,7 +581,7 @@ def test_check_shadow_no_samples(monkeypatch):
     class _Empty:
         samples = 0
 
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: _Empty()))
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: _Empty()))
     ch = doctor._check_shadow()
     assert ch.status == doctor.WARN
     assert "not running" in ch.detail
@@ -607,7 +607,7 @@ def test_check_shadow_collecting(monkeypatch, tmp_path):
     from distil import shadow as shadow_mod
 
     led = _paired(tmp_path, 10)
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: led))
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
     ch = doctor._check_shadow()
     assert ch.status == doctor.INFO
     assert "collecting" in ch.detail
@@ -618,18 +618,52 @@ def test_check_shadow_ready(monkeypatch, tmp_path):
     from distil import shadow as shadow_mod
 
     led = _paired(tmp_path, 60, ab_changes=6, aa_changes=3)
-    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls: led))
+    monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: led))
     ch = doctor._check_shadow()
     assert ch.status == doctor.OK
     assert "95.0%" in ch.detail  # 90% A/B vs 95% A/A → paired difference -5pp
     assert "paired" in ch.detail
 
 
+def test_check_shadow_ignores_retired_signature_rows(monkeypatch, tmp_path):
+    """This check prints `eq.line()` -- a verdict -- so it must scope to SIG_VERSION.
+
+    It read the ledger unscoped, so rows from a retired signature algorithm could
+    carry it past the floor and print a percentage. Real rows on disk, read through
+    the real check: the stubs elsewhere in this file are what let it go unnoticed.
+    """
+    import json as _json
+
+    from distil import shadow as shadow_mod
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    rows = [
+        {
+            "equivalent": True,
+            "ts": 1.0,
+            "kind": "paired",
+            "sig": shadow_mod.SIG_VERSION - 1,
+            "aa_equal": True,
+        }
+        for _ in range(shadow_mod.VERDICT_MIN_AB * 2)
+    ]
+    (tmp_path / "shadow.jsonl").write_text(
+        "".join(_json.dumps(r) + "\n" for r in rows), encoding="utf-8"
+    )
+
+    # Unscoped these would publish 100%; scoped there is nothing to report.
+    assert shadow_mod.ShadowLedger.load().equivalence().pct == 100.0
+    ch = doctor._check_shadow()
+    assert ch.status == doctor.WARN
+    assert "not running" in ch.detail
+    assert "100" not in ch.detail
+
+
 def test_check_shadow_exception(monkeypatch):
     """ShadowLedger.load() throwing → FAIL with reason."""
     from distil import shadow as shadow_mod
 
-    def _bad(cls):
+    def _bad(cls, *a, **k):
         raise OSError("no disk")
 
     monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(_bad))

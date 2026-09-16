@@ -136,6 +136,20 @@ full a paired verdict can still be short on the paired pool itself, and showing 
 beside `equivalence_pct`, `below_reporting_floor` and the paired fields, each labelled for
 what it is.
 
+Two surfaces also read the ledger **unscoped**. A verdict belongs to the signature algorithm
+that produced it — `SIG_VERSION` is bumped precisely so old rows are never compared against
+new ones — and the status line, leaderboard, census feed, proof ledger and web dashboard all
+pass `current_only=True`. The terminal dashboard and `distil doctor`'s shadow check did not,
+so a ledger holding only rows from a retired algorithm could carry either past the floor and
+print a confident percentage that every other surface, reading the same file, declined to
+state. Both now scope. `shadow-stats` still defaults to the current signature and widens only
+under `--all`, which is the one place reading retired rows is the point.
+
+The doctor check's own tests had stubbed `ShadowLedger.load` with a lambda taking no
+arguments, which is part of why this went unseen: the stub could not have noticed the missing
+scope. The new tests for both surfaces write real rows to a real ledger and read them back
+through the real command.
+
 ### Fixed — the claims gate skipped the whole plugins tree on Windows
 
 Page keys were built with `Path.relative_to`, which renders with the host separator. On the

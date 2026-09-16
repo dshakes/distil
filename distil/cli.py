@@ -2595,7 +2595,10 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         recent: list[int] | None = None
         sess = None
         try:
-            led = ShadowLedger.load()
+            # `current_only=True` like every other reporting surface: a verdict is
+            # scoped to the signature algorithm that produced it, so rows from an
+            # older SIG_VERSION must not be pooled into today's number.
+            led = ShadowLedger.load(current_only=True)
             # The paired verdict, not `led.rate()`. The raw A/B rate has no A/A
             # noise baseline behind it, so the dashboard was the one surface that
             # would publish a number the status line and `shadow-stats` refused.
