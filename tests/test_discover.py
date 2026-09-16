@@ -378,8 +378,115 @@ class TestDetectors:
                 mode="digest",
             )
         a = _by_id(dv.scan(), "digest_off")
-        assert "your own traffic" in a.basis
+        assert "your recent sessions" in a.basis
         assert dv.BENCH_DIGEST_SOURCE not in a.basis
+
+    def test_digest_off_prefers_the_windows_own_rate_over_a_different_lifetime_rate(
+        self, home: Path
+    ) -> None:
+        """The window's own sessions ran digest at 50%; an older session outside
+        the window (excluded by `since_days`) ran it at 90% and is the only reason
+        lifetime history differs. The window's own 50% must win, not the lifetime
+        figure — a rate from sessions outside this report answers a different
+        question than "what would digest be worth in THIS window"."""
+        _seed_b(home)  # lossless-only in the window: what makes digest_off fire
+        _manifest("sWindow")
+        for _ in range(55):
+            record(
+                trajectory_id="live-proxy",
+                model="claude-opus-4-8",
+                turns=1,
+                baseline_dollars=0.01,
+                distil_dollars=0.005,
+                baseline_input_tokens=1000,
+                distil_input_tokens=500,  # 50% rate
+                session="sWindow",
+                mode="digest",
+            )
+        append_session_request(
+            {
+                "ts": NOW - 100,
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 500,
+                "tokens_saved": 100,
+                "overhead_tokens": 200,
+                "system_tokens": 100,
+                "tools_tokens": 100,
+                "tools": [{"name": "bash", "tokens": 100}],
+                "blocks": [],
+            },
+            "sWindow",
+        )
+        # An old, out-of-window session with a very different (90%) digest rate —
+        # present in lifetime history but excluded from the window by `since_days`.
+        _manifest("sOld")
+        for _ in range(60):
+            record(
+                trajectory_id="live-proxy",
+                model="claude-opus-4-8",
+                turns=1,
+                baseline_dollars=0.01,
+                distil_dollars=0.001,
+                baseline_input_tokens=1000,
+                distil_input_tokens=100,  # 90% rate
+                session="sOld",
+                mode="digest",
+            )
+        led = home / "savings.jsonl"
+        rows = [json.loads(line) for line in led.read_text(encoding="utf-8").splitlines()]
+        for row in rows:
+            if row.get("session") == "sOld":
+                row["ts"] = NOW - 30 * 86400
+        led.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        mp = home / "sessions" / "sOld.json"
+        man = json.loads(mp.read_text(encoding="utf-8"))
+        man["started_ts"] = NOW - 30 * 86400
+        mp.write_text(json.dumps(man), encoding="utf-8")
+
+        r = dv.scan(since_days=7.0)
+        a = _by_id(r, "digest_off")
+        assert "your recent sessions, 55 runs" in a.basis
+        assert "90.0%" not in a.basis
+        assert "50.0%" in a.basis
+
+    def test_digest_off_falls_back_to_lifetime_when_the_window_ran_no_digest_of_its_own(
+        self, home: Path
+    ) -> None:
+        """The window itself booked zero digest runs (only sB, lossless-only) —
+        `_digest_rate` must fall back to lifetime history, not the window's
+        (empty) own rate and not the benchmark, since real history exists."""
+        _seed_b(home)
+        _manifest("sOld")
+        for _ in range(60):
+            record(
+                trajectory_id="live-proxy",
+                model="claude-opus-4-8",
+                turns=1,
+                baseline_dollars=0.01,
+                distil_dollars=0.002,
+                baseline_input_tokens=1000,
+                distil_input_tokens=200,  # 80% rate
+                session="sOld",
+                mode="digest",
+            )
+        led = home / "savings.jsonl"
+        rows = [json.loads(line) for line in led.read_text(encoding="utf-8").splitlines()]
+        for row in rows:
+            if row.get("session") == "sOld":
+                row["ts"] = NOW - 30 * 86400
+        led.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        mp = home / "sessions" / "sOld.json"
+        man = json.loads(mp.read_text(encoding="utf-8"))
+        man["started_ts"] = NOW - 30 * 86400
+        mp.write_text(json.dumps(man), encoding="utf-8")
+
+        r = dv.scan(since_days=7.0)
+        a = _by_id(r, "digest_off")
+        assert "your history, 60 runs lifetime — not your recent sessions" in a.basis
+        assert "80.0%" in a.basis
 
     def test_digest_off_discloses_injection_on_a_flat_rate_plan(self, home: Path) -> None:
         _seed_b(home)

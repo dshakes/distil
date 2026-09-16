@@ -72,6 +72,11 @@ CALIB_LOW, CALIB_HIGH = 0.67, 1.5
 #: anything; excluded from the typical/best spread. Mirrors dissect's peer cut.
 MIN_BASELINE_TOKENS = 10_000
 
+#: Minimum digest-mode runs before a measured rate is trusted over the next tier
+#: down (window -> lifetime -> benchmark). Below this a rate is too noisy to quote
+#: as "what digest is worth" — a single lucky/unlucky run is not a rate.
+MIN_DIGEST_RUNS = 50
+
 #: Fallback digest rate, used ONLY when this machine has never run digest mode and
 #: so cannot supply its own. Source: BENCHMARKS.md, the messages-level codebench
 #: harness (16 sessions / 256 turns of read -> edit -> re-read), "distil (PAYG
@@ -416,21 +421,50 @@ def _mode_of(d: Dissection) -> str:
     return "unknown"
 
 
+def _window_digest_rate(w: _Window) -> tuple[int, float] | None:
+    """``(runs, rate)`` for digest-mode rows across THIS window's own sessions
+    (``w.ds + w.ledger_only``), computed from ledger rows already loaded in
+    memory. Returns ``None`` if the window booked no digest-mode runs at all.
+
+    Deliberately not ``_ledger.mode_rates()``: that call scans the whole ledger
+    file (or everything since a timestamp), which is lifetime/global history, not
+    the specific sessions `_collect()` selected for this report.
+    """
+    base = 0.0
+    got = 0.0
+    runs = 0
+    for d in w.ds + w.ledger_only:
+        for r in d.ledger_rows:
+            if (r.get("mode") or "") != "digest":
+                continue
+            b = float(r.get("baseline_input_tokens") or 0)
+            if b <= 0:
+                continue
+            base += b
+            got += float(r.get("distil_input_tokens") or 0)
+            runs += 1
+    if not runs or not base:
+        return None
+    return runs, 1 - got / base
+
+
 def _digest_rate(w: _Window) -> tuple[float, str]:
     """What digest mode is worth, preferring the rate THIS machine measured.
 
-    A lifetime rate answers a different question than a recent one — what digest
-    yields depends on the content mix, and that drifts — so the window's own rate
-    wins, a lifetime rate is labelled as history, and the published benchmark is
-    only reached by a machine that has never run digest at all.
+    Three tiers, in order, each reached only when the one above it has too few
+    runs to trust: (1) the window's OWN sessions that ran digest — content mix
+    drifts, so a rate from sessions outside this report answers a different
+    question than "what would digest be worth here". (2) this machine's lifetime
+    digest history, when the window itself never ran digest. (3) the published
+    benchmark, only when this machine has never run digest at all.
     """
-    scope = " in this window" if w.since else ""
-    windowed = _ledger.mode_rates(since=w.since or None).get("digest")
-    if windowed and windowed[0] >= 50:
-        return windowed[1], f"your own traffic, {windowed[0]:,} runs{scope}"
+    own = _window_digest_rate(w)
+    if own and own[0] >= MIN_DIGEST_RUNS:
+        return own[1], f"your recent sessions, {own[0]:,} runs"
     lifetime = _ledger.mode_rates().get("digest")
-    if lifetime and lifetime[0] >= 50:
-        return lifetime[1], f"your own traffic, {lifetime[0]:,} runs lifetime — not this window"
+    if lifetime and lifetime[0] >= MIN_DIGEST_RUNS:
+        source = f"your history, {lifetime[0]:,} runs lifetime — not your recent sessions"
+        return lifetime[1], source
     return BENCH_DIGEST_RATE, BENCH_DIGEST_SOURCE
 
 
