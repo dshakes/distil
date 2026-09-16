@@ -585,12 +585,26 @@ def cmd_certify(args: argparse.Namespace) -> int:
             CorpusEntry(getattr(tj, "id", ""), "", getattr(tj, "id", ""), tj)
             for tj in (pooled_trajs if pooled_trajs is not None else [traj])
         ]
+        # TOST does not decide by comparing mean_diff to margin directly — it
+        # decides by comparing the one-sided p-value to alpha (see
+        # `certify/stats.py::tost`: `non_inferior = p_lower < alpha`). Pairing
+        # `threshold=margin` with `observed=mean_diff` put two numbers on
+        # different scales (a bound vs a signed difference) next to a verdict
+        # neither of them reproduces — `passed` looked disconnected from both.
+        # Report the actual decision pair instead, so `passed == (observed <
+        # threshold)` holds literally; mean_diff/margin stay in the rationale
+        # (and in `metrics.tost` below) so the record is still fully readable.
         gate = Gate(
             name="non_inferior",
-            threshold=t.margin,
-            observed=t.mean_diff,
+            threshold=t.alpha,
+            observed=t.p_non_inferior,
             passed=t.non_inferior,
-            rationale=f"TOST at alpha={t.alpha}: mean diff must stay within the margin",
+            rationale=(
+                f"TOST non-inferiority: p_lower={t.p_non_inferior:.4g} must clear "
+                f"alpha={t.alpha} (mean_diff={t.mean_diff:.4g}, margin={t.margin}, "
+                f"n={t.n}) — passed iff the one-sided p-value beats alpha, not a "
+                "bare mean-diff-vs-margin comparison"
+            ),
         )
         # `build()` reports the subject via type(compressor).__name__/__module__ —
         # fine for a Strategy class, but REGISTRY entries are plain functions, whose
