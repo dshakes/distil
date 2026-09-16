@@ -378,13 +378,25 @@ class Dissection:
         return sum(int(r.get("overhead_tokens") or 0) for r in self.booked_detail)
 
     @property
+    def sent_tokens_total(self) -> int:
+        """Denominator ``overhead_share`` divides by: overhead plus what actually
+        went out of the compressible pool (compressible minus what compression
+        removed), floored at zero. A caller with its own accounting bug that lets
+        ``tokens_saved_total`` exceed ``compressible_tokens`` must not turn this
+        into a negative "sent" total — the flooring is what keeps it a valid
+        denominator no matter how that upstream number misbehaves. A second
+        surface (``discover``) needs this exact figure and calls this property
+        rather than re-deriving it, so the two can never disagree."""
+        comp = sum(int(r.get("compressible_tokens") or 0) for r in self.booked_detail)
+        return self.overhead_tokens_total + max(0, comp - self.tokens_saved_total)
+
+    @property
     def overhead_share(self) -> float:
         """Fixed tax: system prompt + tool definitions as a share of what was actually
         sent — i.e. measured *after* compression, over the same booked population the
         savings headline uses. Dividing by the pre-compression total understated the
         share (the denominator counted tokens distil had already removed)."""
-        comp = sum(int(r.get("compressible_tokens") or 0) for r in self.booked_detail)
-        total = self.overhead_tokens_total + max(0, comp - self.tokens_saved_total)
+        total = self.sent_tokens_total
         return 100.0 * self.overhead_tokens_total / total if total else 0.0
 
     @property

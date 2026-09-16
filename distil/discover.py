@@ -249,12 +249,11 @@ def _d_tool_overhead(w: _Window) -> Action | None:
     """Tool/MCP definitions are resent verbatim on every request and no compression
     touches them, so on a tool-heavy agent they are the cheapest saving available."""
     overhead = sum(d.overhead_tokens_total for d in w.ds)
-    sent = sum(
-        d.overhead_tokens_total
-        + max(0, sum(int(r.get("compressible_tokens") or 0) for r in d.booked_detail))
-        - d.tokens_saved_total
-        for d in w.ds
-    )
+    # Same denominator `Dissection.overhead_share` uses, reused rather than
+    # re-derived: if tokens_saved_total ever exceeds compressible_tokens for a
+    # request, re-deriving it here without the same floor would send `sent`
+    # negative and the two surfaces would disagree about what "overhead" means.
+    sent = sum(d.sent_tokens_total for d in w.ds)
     if not sent or 100.0 * overhead / sent < OVERHEAD_SHARE_PCT:
         return None
     per: dict[str, int] = {}
@@ -367,22 +366,14 @@ def _digest_rate(w: _Window) -> tuple[float, str]:
     return BENCH_DIGEST_RATE, BENCH_DIGEST_SOURCE
 
 
-def _prefix_summary(w: _Window) -> tuple[CacheSummary, float]:
-    """One :class:`~distil.prefix.CacheSummary` (for the reported ratio/title) plus
-    the create-token total actually attributable to drift, weighted PER SESSION —
-    folded from a per-session summary each, never one list of every session's
-    requests flattened and re-sorted by timestamp, which would compare the last
-    request of one session against the first of the next and count the session
-    boundary itself as "drift". Pooling create tokens across sessions and pricing
-    them at one blended ratio has the same failure in miniature: a session that
-    never drifted (zero comparable pairs, so its own ratio is 0) would still get
-    priced at another session's drift rate, so the token figure is summed session
-    by session instead.
-    """
+def _prefix_summary(w: _Window) -> CacheSummary:
+    """One :class:`~distil.prefix.CacheSummary`, folded from a per-session summary
+    each — never one list of every session's requests flattened and re-sorted by
+    timestamp, which would compare the last request of one session against the
+    first of the next and count the session boundary itself as "drift"."""
     from . import prefix as _prefix
 
     total = _prefix.CacheSummary()
-    tokens = 0.0
     for d in w.ds:
         records = sorted(d.requests, key=lambda r: float(r.get("ts") or 0))
         s = _prefix.summarise(records)
@@ -392,11 +383,11 @@ def _prefix_summary(w: _Window) -> tuple[CacheSummary, float]:
         total.uncached_tokens += s.uncached_tokens
         total.drifts += s.drifts
         total.pairs += s.pairs
+        total.drift_create_tokens += s.drift_create_tokens
         total.reported = total.reported or s.reported
         total.legacy_cache_tokens += s.legacy_cache_tokens
         total.legacy_rows += s.legacy_rows
-        tokens += s.create_tokens * s.drift_ratio
-    return total, tokens
+    return total
 
 
 def _d_prefix_drift(w: _Window) -> Action | None:
@@ -404,14 +395,18 @@ def _d_prefix_drift(w: _Window) -> Action | None:
 
     Priced off the provider's own usage fields rather than our estimate: cache
     *creation* tokens are the ones that were re-billed, and the drift ratio is the
-    share of turns that caused it.
+    share of turns that caused it. ``drift_create_tokens`` is the sum of cache-write
+    tokens on the rows that actually drifted — not ``create_tokens * drift_ratio``,
+    which would price every write at the average rate even when the drifting turns
+    and the stable turns carry very different prefix sizes.
     """
-    s, tokens = _prefix_summary(w)
+    s = _prefix_summary(w)
     replay_off = any(
         ((d.manifest or {}).get("flags") or {}).get("prefix_replay") is False for d in w.ds
     )
     if s.pairs < MIN_DRIFT_PAIRS or (s.drift_ratio < DRIFT_RATIO and not replay_off):
         return None
+    tokens = s.drift_create_tokens
     if tokens <= 0:
         return None
     why = (
@@ -429,10 +424,12 @@ def _d_prefix_drift(w: _Window) -> Action | None:
         tokens_per_week=w.per_week(tokens),
         dollars_per_week=w.usd_per_week(tokens, rate_mult=CACHE_WRITE_PREMIUM),
         basis=(
-            f"{_human(s.create_tokens)} tokens the provider billed as cache WRITES x the "
-            f"{s.drift_ratio:.0%} of turns whose stable-prefix hash changed; priced at the "
-            f"{CACHE_WRITE_PREMIUM:.2f}x gap between a cache write (1.25x input) and the "
-            f"cache read (0.10x) it could have been"
+            f"{_human(s.drift_create_tokens)} tokens the provider billed as cache WRITES "
+            f"on the {s.drifts:,} turn(s) whose stable-prefix hash actually changed "
+            f"(of {_human(s.create_tokens)} written in total, {s.drift_ratio:.0%} of "
+            f"{s.pairs:,} comparable turns); priced at the {CACHE_WRITE_PREMIUM:.2f}x gap "
+            f"between a cache write (1.25x input) and the cache read (0.10x) it could "
+            f"have been"
         ),
         command=(
             why + "run `distil cache` to see where the prefix broke, then "

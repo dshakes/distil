@@ -272,7 +272,7 @@ class TestDetectors:
             "digest_off",  # 100k baseline x 91.5% - 1k already saved
             "tool_overhead",  # (4000+3000+2000) x 5 requests
             "churn",  # 3000 tokens x (5 folds - 1)
-            "prefix_drift",  # 5k cache-write tokens x 100% drift
+            "prefix_drift",  # 4k cache-write tokens on the 4 rows that actually drifted
             "system_growth",  # 1000 growth x 5/2 requests
             "calibration",  # a risk: recovers nothing, ranked last
         ]
@@ -290,6 +290,54 @@ class TestDetectors:
     def test_tool_overhead_silent_when_there_is_nothing_to_triage(self, home: Path) -> None:
         _seed_c(home)  # one tool defined; "audit your tools" is not advice
         assert "tool_overhead" not in _ids(dv.scan())
+
+    def test_tool_overhead_denominator_matches_dissects_own_and_never_goes_negative(
+        self, home: Path
+    ) -> None:
+        """`sent` must be the exact same floored denominator `Dissection.overhead_share`
+        uses, reused rather than re-derived. If accounting ever lets `tokens_saved`
+        exceed `compressible_tokens` for a session, re-deriving `comp - saved` without
+        the same `max(0, ...)` floor sends `sent` negative, which used to make the
+        gate's ratio (`overhead / sent`) meaningless — sometimes suppressing a real
+        finding, sometimes fabricating one."""
+        _manifest("sF")
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=1,
+            baseline_dollars=0.05,
+            distil_dollars=0.02,
+            baseline_input_tokens=20_000,
+            distil_input_tokens=8_000,
+            session="sF",
+            mode="digest",
+        )
+        append_session_request(
+            {
+                "ts": NOW - 100,
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 6000,
+                "tokens_saved": 20_000,  # > compressible_tokens: the bogus reading
+                "overhead_tokens": 10_100,
+                "system_tokens": 100,
+                "tools_tokens": 10_000,
+                "tools": _TOOLS_A,
+                "usage_input_tokens": 500,
+                "blocks": [],
+            },
+            "sF",
+        )
+        from distil import dissect as dz
+
+        d = dz.dissect("sF")
+        # Floored: 10,100 + max(0, 6,000 - 20,000) == 10,100, never negative.
+        assert d.sent_tokens_total == 10_100
+        assert d.overhead_share == pytest.approx(100.0)
+        a = _by_id(dv.scan(), "tool_overhead")
+        assert "100%" in a.title
 
     def test_digest_off_uses_the_published_benchmark_only_as_a_fallback(self, seeded: Path) -> None:
         a = _by_id(dv.scan(), "digest_off")
@@ -333,7 +381,12 @@ class TestDetectors:
 
     def test_prefix_drift_prices_the_write_read_gap(self, seeded: Path) -> None:
         a = _by_id(dv.scan(), "prefix_drift")
-        assert a.tokens_per_week == 5 * 1000 * 7  # 5 cache-write records x 100% drift
+        # 4 of sA's 5 requests actually drifted (each carries 1000 cache-write
+        # tokens); the first request has no predecessor to drift from, so its
+        # 1000 create tokens are a cold-start write, not a re-bill, and must NOT
+        # be counted — pricing off create_tokens * drift_ratio (5000 * 100%)
+        # would wrongly include it.
+        assert a.tokens_per_week == 4 * 1000 * 7
         assert "4 of 4 turns" in a.title
         assert "1.15x gap" in a.basis
 
@@ -368,8 +421,58 @@ class TestDetectors:
         for i, phash in enumerate(["q1", "q2", "q3", "q4", "q5"]):
             _seed_single_request_session(home, f"solo{i}", phash, ts=NOW - 500 + i * 10)
         a = _by_id(dv.scan(), "prefix_drift")
-        assert a.tokens_per_week == 5 * 1000 * 7  # sA's 5 cache-write records x 100% drift
+        # sA's 4 actually-drifted requests only (see the comment in
+        # test_prefix_drift_prices_the_write_read_gap); the 5 solo sessions each
+        # have zero pairs so contribute nothing.
+        assert a.tokens_per_week == 4 * 1000 * 7
         assert "4 of 4 turns" in a.title  # sA's pairs only — the 5 solo sessions add none
+
+    def test_prefix_drift_prices_the_drifted_rows_not_a_blended_average(self, home: Path) -> None:
+        """A session where the stable turns carry LARGE cache-write tokens and the
+        two drifting turns carry small ones must price off the drifted turns' own
+        writes. `create_tokens_total * drift_ratio` — 20,100 total tokens x 40% —
+        would claim 8,040/week; the two rows that actually re-billed wrote only
+        50 tokens each."""
+        _manifest("sD")
+        record(
+            trajectory_id="live-proxy",
+            model="claude-opus-4-8",
+            turns=6,
+            baseline_dollars=0.5,
+            distil_dollars=0.2,
+            baseline_input_tokens=60_000,
+            distil_input_tokens=24_000,
+            session="sD",
+            mode="digest",
+        )
+        # h1,h1 (stable, big writes) -> h2 (DRIFT, tiny write) -> h2 (stable) ->
+        # h3 (DRIFT, tiny write) -> h3 (stable): 5 comparable pairs, 2 drifts.
+        hashes = ["h1", "h1", "h2", "h2", "h3", "h3"]
+        creates = [5000, 5000, 50, 5000, 50, 5000]
+        for i, (phash, create) in enumerate(zip(hashes, creates)):
+            append_session_request(
+                {
+                    "ts": NOW - 600 + i,
+                    "model": "claude-opus-4-8",
+                    "status": 200,
+                    "booked": True,
+                    "mode": "digest",
+                    "compressible_tokens": 1000,
+                    "tokens_saved": 500,
+                    "overhead_tokens": 500,
+                    "system_tokens": 500,
+                    "tools_tokens": 0,
+                    "tools": [],
+                    "usage_input_tokens": 100,
+                    "usage_cache_read": 0,
+                    "usage_cache_create": create,
+                    "prefix_hash": phash,
+                    "blocks": [],
+                },
+                "sD",
+            )
+        a = _by_id(dv.scan(), "prefix_drift")
+        assert a.tokens_per_week == (50 + 50) * 7
 
     def test_churn_excluded_when_the_provider_already_discounts_it(self, home: Path) -> None:
         """A 95%-cached session's resends are billed at the cache-read rate; counting
