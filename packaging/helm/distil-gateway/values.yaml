@@ -120,9 +120,50 @@ securityContext:
 
 # NetworkPolicy: egress to the upstream provider + DNS only, ingress from the
 # namespace. Off by default because it depends on your CNI; on is correct.
+#
+# egressTo is the 443 destination selector. The default is the public internet
+# minus RFC1918 and link-local, which blocks the cluster, the node and the cloud
+# metadata service but still permits any public host — narrow it to your
+# provider, or to an egress gateway you control, and the policy starts doing what
+# its name says:
+#
+#   egressTo:
+#     - ipBlock: {cidr: 203.0.113.0/24}       # your provider / egress NAT
+#     - namespaceSelector: {matchLabels: {name: egress-gateway}}
+# egressExcept is the hole-punch list applied when egressTo is empty: the ranges
+# subtracted from 0.0.0.0/0. Every entry is a destination that is NOT the public
+# internet, so a pod that is only supposed to reach a provider API has no business
+# sending packets there. The list is longer than RFC1918 on purpose — the ranges
+# below RFC1918 are the ones people forget:
+#
+#   100.64.0.0/10   carrier-grade NAT (RFC 6598). EKS/GKE hand pod and service
+#                   CIDRs out of this range, and several service meshes address
+#                   sidecars in it, so omitting it leaves the cluster reachable.
+#   198.18.0.0/15   benchmarking (RFC 2544). Used by Istio and some CNIs for
+#                   synthetic/"unroutable" destinations.
+#   0.0.0.0/8       "this network" — 0.0.0.0 is a routable alias for localhost on
+#                   Linux, which is a loopback bypass.
+#   224.0.0.0/4     multicast: cluster discovery and gossip protocols.
+#   240.0.0.0/4     reserved, and it contains 255.255.255.255 (broadcast).
+#   169.254.0.0/16  link-local, which is where the cloud metadata service and its
+#                   instance credentials live.
+#
+# Set to [] to opt out and allow the whole internet, or override with your own list.
 networkPolicy:
   enabled: false
   ingressFrom: []
+  egressTo: []
+  egressExcept:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+    - 127.0.0.0/8
+    - 0.0.0.0/8
+    - 198.18.0.0/15
+    - 224.0.0.0/4
+    - 240.0.0.0/4
 
 serviceMonitor:
   enabled: false

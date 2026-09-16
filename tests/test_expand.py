@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from distil.expand import (
     EXPAND_TOOL_NAME,
@@ -505,3 +506,141 @@ def test_responses_loop_tolerates_unparseable_arguments():
     final = {"output": [{"type": "message", "content": "done"}]}
     out = run_expand_loop_responses({"input": []}, first, store, lambda b: final)
     assert out is final
+
+
+def test_streaming_expand_is_reported_in_the_receipt(tmp_path, monkeypatch):
+    """The streaming splice resolves expansions; the session record must say so.
+
+    It did not. ``x-distil-expanded`` and ``expanded_handles`` were wired only into the
+    buffered branch, so ``dissect``'s ``quality.expand_resolved_requests`` read 0 on every
+    streaming session however many handles the agent actually pulled back — and the
+    "distil_expand calls could never be intercepted" anomaly fired on healthy sessions
+    because of it. The wire header cannot follow on this path (response headers are
+    flushed with the first upstream frame, before any expand exists), so the receipt is
+    the observable.
+    """
+    import threading
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from distil import ledger
+    from distil.proxy import build_handler
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_SESSION", "s-stream-expand")
+
+    def _evt(**d):
+        return b"event: " + d["type"].encode() + b"\ndata: " + json.dumps(d).encode() + b"\n\n"
+
+    _START = _evt(
+        type="message_start",
+        message={"id": "m", "role": "assistant", "content": [], "usage": {"input_tokens": 10}},
+    )
+
+    class _Upstream(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n))
+            asked = any(
+                isinstance(b, dict) and b.get("type") == "tool_result"
+                for m in body["messages"]
+                if isinstance(m.get("content"), list)
+                for b in m["content"]
+                if isinstance(b, dict) and b.get("tool_use_id", "").startswith("tu")
+            )
+            if asked:
+                frames = [
+                    _START,
+                    _evt(
+                        type="content_block_start",
+                        index=0,
+                        content_block={"type": "text", "text": ""},
+                    ),
+                    _evt(
+                        type="content_block_delta",
+                        index=0,
+                        delta={"type": "text_delta", "text": "done with detail"},
+                    ),
+                    _evt(type="content_block_stop", index=0),
+                    _evt(type="message_delta", delta={"stop_reason": "end_turn"}, usage={}),
+                    _evt(type="message_stop"),
+                ]
+            else:
+                handle = re.search(r"handle=([0-9a-f]{8})", json.dumps(body)).group(1)
+                frames = [
+                    _START,
+                    _evt(
+                        type="content_block_start",
+                        index=0,
+                        content_block={
+                            "type": "tool_use",
+                            "id": "tu1",
+                            "name": "distil_expand",
+                            "input": {},
+                        },
+                    ),
+                    _evt(
+                        type="content_block_delta",
+                        index=0,
+                        delta={
+                            "type": "input_json_delta",
+                            "partial_json": json.dumps({"handle": handle}),
+                        },
+                    ),
+                    _evt(type="content_block_stop", index=0),
+                    _evt(type="message_delta", delta={"stop_reason": "tool_use"}, usage={}),
+                    _evt(type="message_stop"),
+                ]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for f in frames:
+                self.wfile.write(f)
+            self.wfile.flush()
+
+        def log_message(self, *a):  # noqa: ANN002
+            pass
+
+    up = ThreadingHTTPServer(("127.0.0.1", 0), _Upstream)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    handler = build_handler(f"http://127.0.0.1:{up.server_address[1]}", expand=True)
+    proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    try:
+        big = "\n".join(
+            ("load-bearing line 27" if i == 27 else f"verbose log line {i}") for i in range(40)
+        )
+        payload = json.dumps(
+            {
+                "model": "claude-opus-4-8",
+                "stream": True,
+                "messages": [
+                    {"role": "user", "content": "investigate"},
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "t", "content": big}],
+                    },
+                    {"role": "user", "content": "next"},
+                    {"role": "user", "content": "next"},
+                ],
+            }
+        ).encode()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{proxy.server_address[1]}/v1/messages",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            out = r.read()
+        assert b"done with detail" in out
+        assert b"distil_expand" not in out, "the internal tool must never reach the client"
+    finally:
+        proxy.shutdown()
+        up.shutdown()
+
+    path = ledger.session_requests_path()
+    rec = json.loads(path.read_text().splitlines()[-1])
+    assert rec["stream"] is True
+    assert rec["expanded"] is True, "the streaming path resolved an expansion and reported none"
+    assert rec["expanded_handles"], "dissect's expansion_regret needs the handles, not just a flag"

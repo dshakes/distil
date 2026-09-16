@@ -111,7 +111,8 @@ class ReadBlock(NamedTuple):
 class Elision(NamedTuple):
     """A contiguous line run of one block that is byte-identical to a run of an earlier one.
 
-    Indices are 0-based and half-open over ``text.splitlines()``.
+    Indices are 0-based and half-open over ``text.splitlines(keepends=True)`` — the same
+    split both sides of this transform use, terminators included.
     """
 
     path: str
@@ -163,7 +164,13 @@ def plan(blocks: Iterable[ReadBlock]) -> dict[str, Elision]:
     out: dict[str, Elision] = {}
     bases: dict[str, list[list[str]]] = {}
     for block in blocks:
-        lines = block.text.splitlines()
+        # keepends, because the application side slices with keepends too
+        # (``anthropic._apply_reread``) — matching on stripped lines would call a CRLF
+        # read and an LF read of one file identical, and ``str.splitlines`` also folds
+        # \x0b \x0c \x1c \x1d \x1e \x85    . The stub's claim of byte-identity
+        # has to be true of BYTES, so the two sides agree by construction rather than by
+        # coincidence. Matches get strictly rarer, which is the safe direction.
+        lines = block.text.splitlines(keepends=True)
         best: Elision | None = None
         for base in reversed(bases.get(block.path, ())):
             found = _longest_common_run(base, lines)

@@ -8,6 +8,10 @@ are asserted here rather than documented.
 from __future__ import annotations
 
 import json
+import os
+import stat
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -211,6 +215,33 @@ def test_broken_chain_statement_names_the_failure(home):
     v = R.verify()
     assert not v.ok
     assert "BROKEN" in v.statement and "edited, reordered, or removed" in v.statement
+
+
+# ---------------------------------------------------------------------------
+# Owner-only at creation, not by a chmod afterwards
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX modes only; Windows reads back 0o666 whatever we ask for",
+)
+def test_chain_file_is_created_owner_only(home, monkeypatch):
+    """A receipt names a session, a model and its handles, so the chain file is
+    owner-only — and the mode has to come from the open, not from a chmod a
+    moment later. Neuter chmod: what is left is the creation mode."""
+    monkeypatch.setattr(Path, "chmod", lambda *a, **k: None)
+    old = os.umask(0o022)
+    try:
+        R.append(_mk(0))
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(R.receipts_path().stat().st_mode) == 0o600
+
+
+# ---------------------------------------------------------------------------
+# One writer at a time — the chain is a read-modify-write
+# ---------------------------------------------------------------------------
 
 
 def test_concurrent_appends_do_not_fork_the_chain(home):

@@ -30,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import atrest
+
 SCHEMA = 1
 
 # Genesis link for the first receipt in a chain. Fixed so an empty chain and a
@@ -117,6 +119,8 @@ def append(receipt: Receipt) -> Receipt:
     perfectly healthy. The lock is the same cross-platform advisory lock every other
     store here uses, and is fail-open in the same way: unobtainable degrades to no lock
     rather than raising, because bookkeeping must not be the thing that fails a request.
+    The owner-only opener below sits INSIDE that section: mode-at-creation and chain
+    ordering are two properties of the same single write, not two writes.
     """
     from . import _filelock
 
@@ -126,7 +130,11 @@ def append(receipt: Receipt) -> Receipt:
         with _filelock.locked(path):
             receipt.prev = head_hash()
             receipt.sealed()
-            with path.open("a", encoding="utf-8") as fh:
+            # 0600 AT CREATION via the opener, not by the chmod below: a chmod after
+            # the write leaves the file at the process umask for the whole write, and
+            # a receipt names a session, a model and its handles. The chmod stays as
+            # the upgrade path for a chain file created before this.
+            with open(path, "a", encoding="utf-8", opener=atrest.owner_only) as fh:
                 fh.write(json.dumps(asdict(receipt), sort_keys=True, separators=(",", ":")) + "\n")
         path.chmod(0o600)
     except OSError:
