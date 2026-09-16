@@ -246,6 +246,51 @@ def test_indented_code_block_renders_as_pre_code():
     assert "gh api dump     2083 -&gt; 371 tok   82.2% saved   (was 0.0%)" in rendered
 
 
+def test_rc_gets_a_soak_badge_and_ga_gets_nothing():
+    """RELEASING.md writes an rc's entry under the FINAL version on purpose — the
+    rc soaks *for* that release — so `## [1.53.0]` is correct and must not be
+    renamed. But a reader scanning the heading alone concludes 1.53.0 shipped
+    while pyproject.toml says 1.53.0rc1 and PyPI has no 1.53.0. The badge is the
+    missing signal, and it must disappear the moment the final ships."""
+    mod = _load_builder()
+
+    assert mod.soak_badge("1.53.0rc1", "1.53.0") == (
+        ' <span class="nav-badge">soaking as 1.53.0rc1 — not yet on PyPI</span>'
+    )
+    # GA: nothing at all.
+    assert mod.soak_badge("1.53.0", "1.53.0") == ""
+    # An rc soaking for a DIFFERENT version must not badge this entry.
+    assert mod.soak_badge("1.54.0rc1", "1.53.0") == ""
+    # Older entries on the same page stay clean while an rc is in flight.
+    assert mod.soak_badge("1.53.0rc1", "1.52.0") == ""
+    # Other PEP 440 pre-release spellings, and a version file we cannot read.
+    assert mod.soak_badge("2.0.0b2", "2.0.0").startswith(' <span class="nav-badge">')
+    assert mod.soak_badge("", "1.53.0") == ""
+
+
+def test_soak_badge_reflects_the_real_pyproject_version():
+    """End-to-end: the badge on the committed page must agree with the version
+    the repo is actually on, in whichever direction that points."""
+    mod = _load_builder()
+    version = mod.installed_version()
+    assert version, "could not read the version from pyproject.toml"
+    page = _OUT.read_text(encoding="utf-8")
+    if re.match(r"^\d+(\.\d+)*(a|b|rc)\d+$", version):
+        assert f"soaking as {version}" in page
+    else:
+        assert "not yet on PyPI" not in page
+
+
+def test_changelog_tables_are_in_a_scroll_region():
+    """CHANGELOG.md's GFM tables land on the page like any other docs table and
+    need the same mobile scroll region — via the shared wrap_tables script, so
+    the generated page cannot disagree with the hand-written pages."""
+    page = _OUT.read_text(encoding="utf-8")
+    tables = page.count("<table")
+    wrappers = page.count('class="table-scroll"')
+    assert tables and wrappers == tables, f"{tables} tables, {wrappers} wrappers"
+
+
 def test_gfm_table_renders_as_table():
     """CHANGELOG.md's one real GFM pipe table (the htmlx.py before/after numbers)
     was being flattened to plain text; it must render as a real <table> with a

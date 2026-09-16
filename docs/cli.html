@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -120,6 +121,7 @@
     <p>The <strong>corpus-wide CI gate</strong>. Iterates over all 9 trajectories, prices four strategies, runs the TOST non-inferiority gate on each, and confirms aggressive lossy compression is still rejected. Exits 0 only if every trajectory passes.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -132,6 +134,7 @@
         <tr><th scope="row"><code>--savings-only</code></th><td>off</td><td>Report token savings only; skip the decision-equivalence gate (for real-trace corpora without DECISION labels)</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil bench</span>
 corpus gate — 9 trajectories | model claude-opus-4-8 | tokenizer=heuristic
@@ -159,6 +162,7 @@ GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; a
     <p>Price four compression strategies on a single trajectory and show per-strategy cost, savings percentage, and cache hit tokens. The key result: naive compress + cache costs <em>more</em> than baseline because it busts the prefix cache.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -169,6 +173,7 @@ GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; a
         <tr><th scope="row"><code>--record</code></th><td>off</td><td>Append this run to the local savings ledger</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil savings --pricing claude-opus-4-8</span>
 model claude-opus-4-8   |   4 turns   |   tokenizer=heuristic (≈, not billing-grade)
@@ -191,6 +196,7 @@ note: naive compression costs $0.01696 — <span class="w">66% MORE</span> than 
     <p>Run the TOST non-inferiority gate on a single trajectory and strategy. Exits 0 on PASS, 1 on FAIL. Use this as the unit-level quality check; use <code>bench</code> for the corpus-wide gate.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -199,8 +205,10 @@ note: naive compression costs $0.01696 — <span class="w">66% MORE</span> than 
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, uses ground-truth markers) or <code>anthropic</code> (live model, requires key)</td></tr>
         <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST indifference margin</td></tr>
         <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Significance level</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: the same eval-record envelope as <code>retention --json</code> and <code>fidelity --json</code> (schema, subject, dataset fingerprint, grader provenance, metrics, gates)</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil certify --strategy distil</span>
 certifying strategy 'distil' on 'sre-disk-incident' (runner=deterministic)
@@ -244,7 +252,7 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
 
     <p>Published findings, aggressive configs, n=40 per arm: Anthropic clearing changed the agent's decision in <strong>92.5%</strong> of runs (37/40 turned a tool call into text — the agent stops acting); OpenAI compaction in <strong>12.5%</strong>. Neither certifies at &alpha;=0.1. Summarization is roughly 7&times; safer than deletion. Full write-up: <a href="provider-compaction.html">Provider Compaction</a>.</p>
 
-    <pre class="term"><span class="d">$ distil certify-provider --provider anthropic --runs 40</span></pre>
+    <pre class="term"><span class="d">$ distil certify-provider episodes.json --provider anthropic --n 40</span></pre>
 
     <div class="callout">
       <b>Why this exists.</b> Every compressor asks to be trusted, including the ones built into the providers. This runs the provider's own feature through the gate distil publishes for itself — and reports the answer even when it is unflattering to the platform everyone is already using.
@@ -257,12 +265,14 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
     <p>Causal ablation: for each context block, remove it and replay the trajectory. Blocks that never change a decision are <strong>causally inert</strong> — provably free to drop.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil prune</span>
 causal ablation over 'sre-disk-incident' — what is free to drop?
@@ -283,6 +293,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
     <p>Apply the distil strategy to a trajectory turn by turn and report the per-turn token reduction and overall reversibility status.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -290,6 +301,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
         <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code></td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil compress</span>
 trajectory 'sre-disk-incident'  (4 turns, tokenizer=heuristic)
@@ -313,6 +325,7 @@ reversible: yes (Tier-0/1) — 3 blocks digested, originals recoverable locally<
     <p>The protected set is first-class output. A preview that reports a ratio while hiding its reasoning is the same &ldquo;trust me&rdquo; every other compressor offers, with a number attached; distil already computes why a block is protected, so it prints the rule.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -321,6 +334,7 @@ reversible: yes (Tier-0/1) — 3 blocks digested, originals recoverable locally<
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil simulate -m request.json</span>
 distil simulate — what would happen, no model called
@@ -429,6 +443,7 @@ silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
     <p>The column that matters is <strong>payload class</strong>. A benchmark whose prompt is a 48-byte arithmetic question barely compresses, so its unchanged score proves the compressor left an incompressible prompt alone — a <em>control</em>, not a demonstration. Only <em>rich</em> rows carry evidence, and the gate thresholds apply to those alone. A run that grades nothing but controls exits 1 rather than reporting a clean sheet.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -441,6 +456,7 @@ silent failures, BOTH surfaces: 9  (input 9, output 0)</pre>
         <tr><th scope="row"><code>--allow-unavailable</code></th><td><code>false</code></td><td>Downgrade an upstream fetch failure to a warning. Never covers a defect in our own adapter or scoring — that still fails.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>A benchmark that cannot be fetched is a <strong>FAILED</strong> row, never a silent skip. A suite that quietly drops what it could not load reports a clean sheet for a run that measured less than it claimed.</p>
 
@@ -464,6 +480,7 @@ prefix drift    1 of 2 turns changed the stable prefix (50%)
     <p>A conversation growing is <em>not</em> drift — only the stable blocks (<code>system</code>, <code>tools</code>, <code>tool_choice</code>) are hashed, because a diagnostic that fired on every appended turn would be switched off within a day.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -472,6 +489,7 @@ prefix drift    1 of 2 turns changed the stable prefix (50%)
         <tr><th scope="row"><code>--json</code></th><td><code>false</code></td><td>Machine-readable summary</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>Reads the per-session request ledger, which only a wrap session writes. With no proxied requests it exits non-zero rather than printing a reassuring zero — a cache report over no data reads as a clean bill of health for a session nobody measured. See <a href="cache.html">Prompt Caching</a> for the full picture.</p>
 
@@ -482,6 +500,7 @@ prefix drift    1 of 2 turns changed the stable prefix (50%)
     <p>Holdout A/B savings measurement. Partitions the corpus into a control group (held out, not counted toward the headline) and a treatment group, reports savings with a bootstrap 95% confidence interval.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -490,6 +509,7 @@ prefix drift    1 of 2 turns changed the stable prefix (50%)
         <tr><th scope="row"><code>--control-fraction</code></th><td><code>0.2</code></td><td>Fraction of corpus held out as control group</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil holdout</span>
 holdout A/B savings measurement (deterministic partition + bootstrap CI)
@@ -520,6 +540,7 @@ fresh start: all new records use post-1.10 accounting (booked only after upstrea
     <p>Shows cumulative savings from all runs recorded via <code>--record</code> flags on <code>savings</code> and <code>bench</code>, plus genuine traffic recorded by <code>distil proxy</code>/<code>wrap</code>. Local-first; no data leaves the machine unless you opt in to the community census (<a href="#census"><code>distil census on</code></a>). Aliased as <code>distil stats</code> — both names run the identical command. If the ledger contains pre-1.10 records (booked before upstream success — savings may be overstated), the output says so and points to <a href="#reset"><code>distil reset</code></a>.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -527,6 +548,7 @@ fresh start: all new records use post-1.10 accounting (booked only after upstrea
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: the full savings summary plus decision-equivalence/shadow-sample counts when shadow data exists</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil leaderboard</span>
 distil savings ledger — ~/.local/share/distil/ledger.jsonl
@@ -549,6 +571,7 @@ by trajectory:
     <pre class="term"><span class="d">$ distil dissect</span>            <span class="d"># pick a recent session</span>
 <span class="d">$ distil dissect s4821-3 --html report.html</span>
 <span class="d">$ distil dissect --serve</span>       <span class="d"># localhost portal, all sessions</span></pre>
+    <p><code>--serve</code> blocks until Ctrl-C. Under CI (<code>CI</code>, <code>GITHUB_ACTIONS</code>, <code>GITLAB_CI</code>, <code>BUILDKITE</code>, <code>TF_BUILD</code>) it prints the URL and exits 0 instead — nobody is there to open a browser; pass <code>--foreground</code> to block anyway. A non-TTY launch that isn't CI (nohup, a systemd/supervisor unit, an IDE task) still serves. Same rule for <code>distil dashboard --web</code>.</p>
 
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while
@@ -575,12 +598,13 @@ dependency-free — so read it as a floor on what the context window kept.</p>
 
     <h2 id="calibrate">distil calibrate</h2>
     <p>Auto-tune the gate's operating point to your agent rather than to the bundled corpus. Fail-safe by construction: if calibration cannot establish a safe point it falls back to full context, so a bad tune costs savings and never correctness.</p>
-    <pre class="term"><span class="d">$ distil calibrate --margin 0.02</span></pre>
+    <pre class="term"><span class="d">$ distil calibrate --baseline scores/full.json \</span>
+<span class="d">      --candidate gate@12=scores/gate12.json:12 --margin 0.02</span></pre>
 
     <h2 id="receipts">distil receipts</h2>
     <p>Verify — or export — the tamper-evident per-request receipt chain. Each compressed request appends a hash-linked receipt, so the savings you report can be audited rather than taken on faith, and a broken link is detectable.</p>
     <pre class="term"><span class="d">$ distil receipts</span>           <span class="d"># verify the chain</span>
-<span class="d">$ distil receipts --export receipts.jsonl</span></pre>
+<span class="d">$ distil receipts --export &gt; receipts.jsonl</span></pre>
 
     <h2 id="mcp">distil mcp</h2>
     <p>Run the zero-dependency MCP server over stdio, exposing <code>distil_compress</code>, <code>distil_expand</code> and <code>distil_savings</code> to any MCP client. This is how an agent recovers a digested block on demand — the mechanism that makes Tier-1 reversible in practice and not just in principle.</p>
@@ -596,6 +620,7 @@ dependency-free — so read it as a floor on what the context window kept.</p>
     <p>HTTP proxy that applies Distil compression to every LLM API request passing through it. Drop-in for any client that honours a <code>base_url</code> parameter — Anthropic SDK, OpenAI SDK, LiteLLM, LangChain, etc. As real traffic flows through it, the actual per-request token reduction is accumulated into your local ledger (see <a href="#leaderboard">distil leaderboard</a>) — genuine savings, numbers only, never content.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -613,6 +638,7 @@ dependency-free — so read it as a floor on what the context window kept.</p>
         <tr><th scope="row"><code>--no-record</code></th><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil proxy --port 8788 --upstream https://api.anthropic.com</span>
 distil proxy listening on http://127.0.0.1:8788
@@ -670,6 +696,7 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
     <p>Everything after <code>--</code> is the command and its arguments, run verbatim. The child's exit code is propagated. Use <code>--env-var</code> to point a different variable at the proxy (e.g. an OpenAI-compatible tool), and the same <code>--upstream</code>, <code>--lossless-only</code>, <code>--verbatim</code>, <code>--shape-output</code>, <code>--pricing</code> and <code>--no-record</code> flags as <a href="#proxy">distil proxy</a>. On clean exit (and Ctrl-C), the <a href="#proof-ledger">Proof Ledger</a> is printed to stderr.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -686,6 +713,7 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
         <tr><th scope="row"><code>--session-delta</code></th><td>off</td><td>Enable cross-turn cache-delta encoding</td></tr>
       </tbody>
     </table>
+    </div>
 
     <!-- proof-ledger -->
     <h2 id="proof-ledger">Proof Ledger (automatic on wrap exit)</h2>
@@ -706,12 +734,14 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
     <p>Measure the realized output-token reduction from <code>--shape-output</code>. Reads a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs and reports the A/B result with a bootstrap 95% confidence interval.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--input</code></th><td>bundled fixture</td><td>Path to a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil output-savings --input shaped_pairs.jsonl</span>
 output-token A/B — n=8 turns
@@ -729,6 +759,7 @@ output-token A/B — n=8 turns
     <p>Convert a recorded Anthropic or OpenAI request log (JSONL) into a Distil trajectory. One input file produces one trajectory — there is no session grouping. Real-trace corpora have no <code>DECISION</code> labels, so the offline gate is savings-only; certify quality live with <code>distil certify --runner anthropic</code>.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -738,6 +769,7 @@ output-token A/B — n=8 turns
         <tr><th scope="row"><code>--model</code></th><td><code>claude-opus-4-8</code></td><td>Model name to tag the trajectory with (must be in the pricing catalog)</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil ingest --input prod.jsonl --out ./mycorpus</span>
 ingesting prod.jsonl → ./mycorpus
@@ -757,12 +789,14 @@ corpus gate — savings-only (no DECISION labels)
     <p>Throughput benchmark: measures raw distil-compression rate and in-process adapter latency. Runs a tight loop of <code>compress()</code> calls with the bundled trajectory and reports throughput (ops/sec) and p50/p95/p99 latency.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--iterations</code></th><td><code>200</code></td><td>Number of compression iterations to run</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil perf</span>
 distil performance benchmark
@@ -781,6 +815,7 @@ distil performance benchmark
     <p>Managed multi-tenant HTTP gateway with per-tenant token and dollar accounting, a live auto-refreshing dashboard at <code>/distil/dashboard</code>, and a JSON stats API at <code>/distil/stats</code>. Extends the basic proxy with tenant identification and savings attribution. Default port is <strong>8789</strong> (distinct from <code>distil proxy</code>'s 8788).</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -794,6 +829,7 @@ distil performance benchmark
         <tr><th scope="row"><code>--trust-tenant-header</code></th><td>off</td><td>Honor the client-supplied <code>x-distil-tenant</code> header for accounting. Off by default: tenant identity is derived from the credential hash, never a client-writable header, so no caller can book its traffic under another tenant's line.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil gateway --port 8789 --upstream https://api.anthropic.com</span>
 distil gateway listening on http://127.0.0.1:8789
@@ -847,6 +883,7 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
     --upstream https://api.anthropic.com</pre>
 
     <h4>gateway keys flags</h4>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="gateway keys flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -857,6 +894,7 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
         <tr><th scope="row"><code>keys revoke &lt;prefix&gt;</code></th><td>required</td><td>First hex characters of the key to revoke (as shown by <code>keys list</code>).</td></tr>
       </tbody>
     </table>
+    </div>
 
     <h3 id="gateway-audit">distil gateway audit</h3>
     <p>Print the gateway <strong>security audit trail</strong>: who authenticated, which key was used, and what was refused. Every auth decision, key issue/revoke, and quota rejection is appended to a local JSONL log — the record you need when someone asks why a tenant stopped getting answers. Content-free: it records identities, events and limits, never request bodies.</p>
@@ -875,6 +913,7 @@ $ distil gateway audit --event auth.fail -n 200
 $ distil gateway audit --tenant team-search --json | jq -r .event</pre>
 
     <h4>gateway audit flags</h4>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="gateway audit flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -884,6 +923,7 @@ $ distil gateway audit --tenant team-search --json | jq -r .event</pre>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Emit the raw JSONL records instead of the table, for piping.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
@@ -896,6 +936,7 @@ $ distil gateway audit --tenant team-search --json | jq -r .event</pre>
     </div>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -904,6 +945,7 @@ $ distil gateway audit --tenant team-search --json | jq -r .event</pre>
         <tr><th scope="row"><code>--epochs</code></th><td><code>3</code></td><td>Number of training epochs.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ pip install 'distil-llm[train]'</span>
 
@@ -931,6 +973,7 @@ Load with: TransformerKeepModel.from_pretrained('./my-keep-model/model.onnx', '.
     <p>The <strong>certified compression frontier</strong> — the proof artifact no competitor publishes. Sweeps compression aggressiveness levels, measures (token savings, decision-equivalence) per level over the corpus, and marks which are certified by the non-inferiority gate. Locates the cliff past which lossy compression starts dropping agent decisions, with distil sitting safely inside the certified region.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -939,6 +982,7 @@ Load with: TransformerKeepModel.from_pretrained('./my-keep-model/model.onnx', '.
         <tr><th scope="row"><code>--out</code></th><td>off</td><td>Write the raw curve as a timestamped JSONL file to this directory</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil eval</span>
 certified compression frontier  (runner=deterministic)
@@ -963,6 +1007,7 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
     <p>Head-to-head <strong>against the competing technique families</strong> — sliding-window truncation, extractive importance pruning, abstractive summarization, naive minification — each a faithful reference implementation, all scored through the <em>same</em> decision-equivalence + non-inferiority gate and the <em>same</em> cache-aware cost model. Ranks by certified dollar savings; lossy methods that drop decisions are disqualified however much they saved. Register a real external tool to verify. See the <a href="benchmark.html">Benchmark</a> page for the standings and methodology.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -976,6 +1021,7 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
         <tr><th scope="row"><code>--html</code> / <code>--out</code></th><td>off</td><td>Render the standings as HTML / write raw results JSONL</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil benchmark</span>
 compression benchmark  (model=claude-opus-4-8, runner=deterministic, corpus gate)
@@ -998,6 +1044,7 @@ LEADER (certified $ savings): distil-causal — 37.4% cheaper, 100% decision-equ
     <p>The <strong>savings-vs-equivalence dial</strong>. 100% decision-equivalence is the certified-safe default; relax the target and Distil spends a bounded <em>divergence budget</em> (<code>floor((1−target) × turns)</code> turns) on the highest-value turns, falling back to byte-exact everywhere else. The trade is explicit and reported — never hidden. Trace the full curve with <a href="#frontier"><code>distil frontier</code></a>.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -1007,6 +1054,7 @@ LEADER (certified $ savings): distil-causal — 37.4% cheaper, 100% decision-equ
         <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil frontier --corpus benchmarks/corpus_xl</span>
 savings-vs-equivalence dial  (runner=deterministic)
@@ -1025,6 +1073,7 @@ savings-vs-equivalence dial  (runner=deterministic)
     <p>The <strong>Decision-Equivalence Risk Certificate (DERC)</strong>. You choose a risk budget &mdash; a maximum decision-change rate <code>&alpha;</code> &mdash; and Distil certifies the most aggressive compression level whose risk is provably below it, <em>distribution-free and finite-sample</em>, via conformal risk control (Learn-Then-Test / Conformal Risk Control). Unlike the dial, this is a statistical guarantee with a confidence level, calibrated on your own traffic. See <a href="research.html#conformal">Research &amp; Frontier &rarr; DERC</a>.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -1036,6 +1085,7 @@ savings-vs-equivalence dial  (runner=deterministic)
         <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil conformal --corpus benchmarks/corpus_xl --alpha 0.05</span>
 Decision-Equivalence Risk Certificate (DERC)
@@ -1054,6 +1104,7 @@ Decision-Equivalence Risk Certificate (DERC)
     <p>One <strong>self-distilling round</strong>: collects causal labels from your corpus (certified-safe drops discovered by the ablation engine), retrains the logistic keep-model, and promotes the new weights only if they pass the non-inferiority gate on every trajectory. Never-regressing by construction — a cycle that would degrade quality is silently discarded.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -1061,6 +1112,7 @@ Decision-Equivalence Risk Certificate (DERC)
         <tr><th scope="row"><code>--promote-to</code></th><td>off (dry run)</td><td>If certified, write the new weights as a <code>LogisticKeepModel</code>-compatible JSON file to this path.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil online --corpus ./mycorpus --promote-to ./weights/keep_model.json</span>
 self-distilling round — keep-model learns from causal labels, gated by non-inferiority
@@ -1080,12 +1132,14 @@ self-distilling round — keep-model learns from causal labels, gated by non-inf
     <p><strong>Query-aware salience, phase 2.</strong> Trains and certifies the learned semantic-relevance model from distil&rsquo;s own <em>expand flywheel</em> — the content-free record of which digested block the agent pulled back, paired with the query live at digest time. It pins lines that <em>answer</em> the query without sharing a word with it (&ldquo;what&rsquo;s the retry limit?&rdquo; &rarr; <code>max_attempts&nbsp;=&nbsp;5</code>), on top of the phase-1 lexical keeps.</p>
     <p>The model is <strong>additive-only</strong> (it can only widen the keep set, so reversibility and the decision-equivalence certificate are untouched) and <strong>gated</strong>: weights are promoted only if held-out recall beats the phase-1 lexical baseline at a precision floor. With no promoted weights, behavior is exactly phase&nbsp;1. Collection runs automatically under <code>distil wrap --expand</code>; it stores only numeric feature vectors and expand outcomes — never a prompt, a line, or a query term.</p>
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--min-samples</code></th><td>200</td><td>Minimum accumulated flywheel labels before a candidate is eligible for promotion.</td></tr>
       </tbody>
     </table>
+    </div>
     <pre class="term"><span class="d">$ distil query-relevance</span>
 query-aware salience (phase 2) — learn semantic line&harr;query relevance from the expand
 flywheel; promote only if it beats the phase-1 lexical baseline (additive-only, safe)
@@ -1100,6 +1154,7 @@ flywheel; promote only if it beats the phase-1 lexical baseline (additive-only, 
     <p>Build a <strong>verifiable federated savings leaderboard</strong> from HMAC-signed, content-free savings aggregates. Verifies each submission's signature and counts only certified savings toward headline totals — savings you can verify. No prompt or response text ever leaves the contributing instance.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -1108,6 +1163,7 @@ flywheel; promote only if it beats the phase-1 lexical baseline (additive-only, 
         <tr><th scope="row"><code>--html</code></th><td>off</td><td>Write a self-contained leaderboard HTML page to this path</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil federated-leaderboard \
     --dir ./submissions \
@@ -1127,6 +1183,7 @@ verifiable savings — 3 verified instance(s), 0 rejected
     <p>The <strong>trajectory-level risk certificate</strong> — bounds <em>end-to-end task degradation</em>, not per-step decision-equivalence. Reads a JSONL of matched full/compressed task runs and certifies <code>P(degradation risk &le; alpha) &ge; 1-delta</code> using Conformal Risk Control (Hoeffding&ndash;Bentkus), the invariant that transfers to real task success where per-step certificates (<a href="cli.html#conformal">DERC</a>) can't. See <a href="concepts.html#trajectory-certificate">Concepts &rarr; The trajectory-level certificate</a> for the full framing and honest assumptions.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -1136,6 +1193,7 @@ verifiable savings — 3 verified instance(s), 0 rejected
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: the full certificate fields plus <code>statement</code></td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d">$ distil certify-trajectories outcomes.jsonl --alpha 0.05 --delta 0.05</span>
 distil trajectory-risk certificate
@@ -1158,6 +1216,16 @@ distil trajectory-risk certificate
     <h2 id="onboard">distil onboard</h2>
     <p>One command to set up distil and learn to use it. Detects your environment — OS, package managers, agent CLIs (Claude Code / Codex / Gemini), how distil is installed, the optional <code>anthropic</code> extra, and whether you're on a flat-rate Claude subscription — then wires the savings status line and prints a <strong>next-steps guide tailored to what it found</strong>: how to route the detected agent (subscription-safe vs metered), validate outcomes with <a href="#shadow-stats">shadow mode</a>, watch savings on the <a href="#dashboard">dashboard</a>, run the test gate, and re-verify with <a href="#doctor">distil doctor</a>. <code>--dry-run</code> changes nothing; works on macOS and Windows.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--yes</code> / <code>-y</code></th><td>off</td><td><strong>Acts</strong>: auto-confirms every prompt (upgrade, launch the agent) so it actually runs those steps.</td></tr>
+        <tr><th scope="row"><code>--no-interactive</code></th><td>off</td><td><strong>Only reports</strong>: never prompts and performs no step it would have asked about — same rule as <a href="#offboard">offboard</a>'s.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
     <hr/>
 
     <h2 id="default">distil default</h2>
@@ -1167,6 +1235,17 @@ distil trajectory-risk certificate
 
     <h2 id="offboard">distil offboard</h2>
     <p>Remove distil's footprint — the inverse of <a href="#onboard">distil onboard</a>. Undoes the shell default (the <a href="#default">distil default</a> alias/env block), stops and removes the always-on proxy service, and unwires the status line from Claude Code settings — <strong>asking before each</strong> (non-interactive without <code>--yes</code> removes nothing). Your savings ledger and shadow data are <strong>kept</strong> unless you pass <code>--purge</code>. It can't uninstall the running package itself, so it prints the exact uninstall command for how distil was installed (pipx / uv / pip). A foreign status line (one you set yourself) is left untouched.</p>
+
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--yes</code> / <code>-y</code></th><td>off</td><td><strong>Acts</strong>: removes everything without prompting.</td></tr>
+        <tr><th scope="row"><code>--no-interactive</code></th><td>off</td><td><strong>Only reports</strong>: never prompts and removes nothing — same rule as <a href="#onboard">onboard</a>'s.</td></tr>
+        <tr><th scope="row"><code>--purge</code></th><td>off</td><td>Also delete your local savings ledger and shadow data</td></tr>
+      </tbody>
+    </table>
+    </div>
 
     <hr/>
 
@@ -1191,12 +1270,14 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <p>Report the live decision-equivalence measured by shadow mode on real traffic: the percentage of sampled requests where the agent's chosen next action was identical with vs without compression, and how many samples that's based on. Start sampling with <code>distil wrap --shadow 0.1 -- claude</code>.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: <code>samples</code>, <code>changes</code>, <code>decision_change_rate</code>, <code>decision_equivalence</code></td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
@@ -1204,6 +1285,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <p>Diagnose a distil setup end-to-end: distil/Python version, the savings ledger (subscription-aware), shadow-validation status, an in-process proxy round-trip self-test (proves the proxy machinery works with no network), the optional <code>anthropic</code> extra and API key, and — for Claude Code — status-line wiring and subscription detection. Exits non-zero if any check fails, so it doubles as a setup gate.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
@@ -1211,6 +1293,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output (CI-gateable): <code>{"checks": [...], "ok": bool}</code>, one object per check with <code>name</code>/<code>status</code>/<code>detail</code>/<code>hint</code></td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 

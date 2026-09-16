@@ -88,6 +88,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -133,6 +134,7 @@
 
     <h2>SDK integration matrix</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SDK integration matrix">
     <table>
       <thead>
         <tr>
@@ -244,9 +246,11 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <h2 id="config-file-agents">Config-file agents</h2>
     <p>These are CLIs, but the base URL lives in a config file rather than an environment variable <code>distil wrap</code> can inject. Point the key below at the URL <code>distil proxy</code> prints (<code>http://127.0.0.1:8788/v1</code> if you started it as above), then verify with <code>distil doctor</code>. Full detail: <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md#config-file-agents">IDE-AGENTS.md</a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Config-file agents">
     <table>
       <thead>
         <tr><th>Agent</th><th>Config file</th><th>Key</th></tr>
@@ -262,6 +266,7 @@
         <tr><td><strong>Junie</strong></td><td>model profile</td><td><code>baseUrl</code></td></tr>
       </tbody>
     </table>
+    </div>
     <p class="muted">Not routable today (IDE extensions with no base-URL override at all): Cline, Kilo Code, Roo Code, Warp, Snowflake Cortex Code. See <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md">IDE-AGENTS.md</a> for why.</p>
 
     <hr/>
@@ -467,6 +472,7 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
     (<a href="https://github.com/dshakes/distil/tree/main/plugins/distil"><code>plugins/distil</code></a>).
     Wire it in one step with <code>distil setup</code> (or <code>distil onboard</code>), then
     route the agent through compression with <code>distil wrap -- claude</code>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Claude Code plugin">
     <table>
       <thead><tr><th>Command</th><th>What it does</th></tr></thead>
       <tbody>
@@ -480,9 +486,11 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
         <tr><td><code>/distil-badge</code></td><td>Shareable badge of your measured savings</td></tr>
       </tbody>
     </table>
+    </div>
     <p>One pattern in every state: <code>distil · &lt;live&gt; · total ▼&lt;lifetime&gt;</code>.
     The live segment aggregates recent activity (last 15&nbsp;min, all terminals), so it never
     flickers between sessions:</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Claude Code plugin">
     <table>
       <thead><tr><th>State</th><th>You see</th><th>Means</th></tr></thead>
       <tbody>
@@ -492,6 +500,7 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
         <tr><td><strong>not routed</strong></td><td><code>distil · off — session not routed · total ▼27.0M</code></td><td>this session goes straight to the provider — start it with <code>distil wrap</code> (or the always-on env) to compress. "on" always means <em>routed</em>, never merely installed.</td></tr>
       </tbody>
     </table>
+    </div>
     <p><code>▼</code> = tokens saved · <code>total</code> = lifetime · <code>de</code> = decision-equivalence
     (shown only past the reporting floor, 50 A/B + 30 A/A shadow samples — a rate over a handful is
     noise; <code>✓</code> at 99% and above, <code>⚠</code> under 99%, <code>✗</code> under 95%). Sharing the line with
@@ -518,6 +527,7 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
     server without a client at all:</p>
     <pre class="term">echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | distil mcp</pre>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="MCP server">
     <table>
       <thead><tr><th>Tool</th><th>What it does</th><th>Called when</th></tr></thead>
       <tbody>
@@ -530,6 +540,7 @@ response = model.generate_content(<span class="g">"Hello!"</span>)</pre>
         <td>Someone asks what distil has saved</td></tr>
       </tbody>
     </table>
+    </div>
     <p>Each tool carries MCP annotations (<code>readOnlyHint</code>, <code>idempotentHint</code>,
     <code>openWorldHint: false</code>), so a client knows <code>distil_expand</code> is a safe,
     repeatable, offline read instead of inferring it from prose.</p>
@@ -593,7 +604,7 @@ msgs  = compress_messages(msgs)                                   <span class="d
 graph = create_react_agent(model, tools, pre_model_hook=pre_model_hook())  <span class="d"># LangGraph state</span>
 chain = as_runnable() | llm                                       <span class="d"># or a chain step</span></pre>
     <p><code>as_runnable()</code> imports <code>langchain-core</code> lazily, so importing the package never
-    requires it. See <a href="langchain.html">LangChain &times; Distil</a> for the full page.</p>
+    requires it. See <a href="langchain.html">LangChain &times; Distil</a> or <a href="langgraph.html">LangGraph &times; Distil</a> for the full page.</p>
 
     <hr/>
 
@@ -612,6 +623,7 @@ app = DistilMiddleware(app)  <span class="d"># wraps any ASGI 3 app; compresses 
 
     <h2>Observability headers</h2>
     <p>The proxy adds up to 9 response headers per compressed response. The first two appear on every compressed request; the rest are conditional:</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Observability headers">
     <table>
       <thead>
         <tr><th>Header</th><th>Meaning</th><th>Condition</th></tr>
@@ -664,6 +676,7 @@ app = DistilMiddleware(app)  <span class="d"># wraps any ASGI 3 app; compresses 
         </tr>
       </tbody>
     </table>
+    </div>
     <p>The managed gateway (<code>distil gateway</code>) additionally adds <code>x-distil-tenant: &lt;id&gt;</code> for per-tenant accounting.</p>
 
     <hr/>

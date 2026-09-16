@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -139,6 +140,7 @@ distil verify --corpus benchmarks/corpus_xl</pre>
     <h3>Gate 3 &mdash; <code>distil validate</code> (adversarial real-path)</h3>
     <p>Drives the actual compression + proxy path against 12 hostile inputs (huge log blocks, unicode surrogates, deeply nested JSON, handle-injection strings, secret-looking content, malformed/None tool results, empty blocks) and asserts five load-bearing invariants on each:</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Gate 3 — distil validate (adversarial real-path)">
     <table>
       <thead><tr><th>Invariant</th><th>What it checks</th></tr></thead>
       <tbody>
@@ -149,6 +151,7 @@ distil verify --corpus benchmarks/corpus_xl</pre>
         <tr><td><strong>content-free</strong></td><td>After a run, no prompt/response/tool text appears in any on-disk telemetry file (only hashes, sizes, counts).</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>12 cases &times; 5 invariants = 60 checks. All 60 must pass.</p>
     <pre class="term"><span class="d"># run the adversarial gate</span>
@@ -160,6 +163,7 @@ distil validate</pre>
     <h2 id="prove">Real-model grading &mdash; <code>prove.py</code></h2>
     <p><code>benchmarks/prove.py</code> removes the circularity of the deterministic runner by grading real agent traces with a real model. It runs four experiments (E1&ndash;E4) against actual trajectories:</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Real-model grading — prove.py">
     <table>
       <thead><tr><th>Experiment</th><th>What it measures</th></tr></thead>
       <tbody>
@@ -169,9 +173,11 @@ distil validate</pre>
         <tr><td><strong>E4</strong> Downstream task success</td><td>Converts per-turn equivalence into actual outcome: a trajectory keeps its result iff every decision is unchanged. Requires outcome labels (τ-bench reward / SWE-bench resolved).</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>Four grading backends are supported:</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Real-model grading — prove.py">
     <table>
       <thead><tr><th><code>--runner</code></th><th>What it uses</th><th>When</th></tr></thead>
       <tbody>
@@ -181,6 +187,7 @@ distil validate</pre>
         <tr><td><code>anthropic</code></td><td>The Anthropic API (<code>ANTHROPIC_API_KEY</code>)</td><td>Billing-grade reference for published numbers.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <pre class="term"><span class="d"># offline plumbing check only — no key, no download</span>
 python benchmarks/fixtures/make_fixtures.py
@@ -270,6 +277,7 @@ python benchmarks/swe_bench_e2e/aggregate.py</pre>
 
     <h2 id="honest-framing">Synthetic vs. live: what each number actually is</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Synthetic vs. live: what each number actually is">
     <table>
       <thead><tr><th>Number</th><th>How produced</th><th>What it proves</th><th>What it doesn&rsquo;t</th></tr></thead>
       <tbody>
@@ -305,7 +313,12 @@ python benchmarks/swe_bench_e2e/aggregate.py</pre>
         </tr>
       </tbody>
     </table>
+    </div>
 
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
   </main>
 </div>
 

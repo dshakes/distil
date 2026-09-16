@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -115,6 +116,7 @@
 
     <h2 id="boundary">Where the boundary is</h2>
     <p>The contract is stated relative to the index the provider has cached through, and that differs by provider:</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Where the boundary is">
     <table>
       <thead><tr><th>Provider</th><th>Cache boundary</th><th>Recency carve-out</th></tr></thead>
       <tbody>
@@ -123,6 +125,7 @@
         <tr><td>Gemini</td><td>the last index — implicit prefix caching commits everything sent</td><td>none</td></tr>
       </tbody>
     </table>
+    </div>
     <p>The empty carve-out on OpenAI and Gemini is a decision, not an oversight. Those providers cache what they are sent the moment they are sent, so a window counted back from the end would digest, one turn later, content already committed. <code>_recent_chat_verbatim_indices</code> and its siblings return the empty set for exactly that reason, and say so in their docstrings.</p>
     <p>The binding form of the contract uses a <b>high-water mark</b> rather than the current turn's boundary: once the provider has cached through index <em>i</em>, rewriting <em>i</em> on any later turn invalidates the entry, even if this turn's marker sits earlier.</p>
 

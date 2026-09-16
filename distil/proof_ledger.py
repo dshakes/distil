@@ -174,6 +174,7 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
             f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
             f"    shadow   {_shadow_line(start_ts)}",
             f"    restore  {restore}",
+            f"    next     distil dissect {session_id}   (or: distil stats for cumulative savings)",
         ]
     )
 

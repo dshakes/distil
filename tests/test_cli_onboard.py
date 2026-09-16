@@ -1373,6 +1373,39 @@ def test_cmd_onboard_conflict_status_hint(tmp_path, monkeypatch, capsys) -> None
     assert "force" in capsys.readouterr().out
 
 
+def test_cmd_onboard_ends_with_canonical_next_command(tmp_path, monkeypatch, capsys) -> None:
+    """The canonical savings path: onboard's own summary ends by naming the
+    exact next command (`distil stats`), not just "re-run onboard"."""
+    import distil.setup as setup_mod
+    from distil import onboard
+
+    env = onboard.Env(
+        os_name="Darwin",
+        agents=[("claude", "Claude Code")],
+        installed_version="1.0.0",
+        method="pipx",
+        managers=["pipx"],
+    )
+    monkeypatch.setattr(onboard, "detect", lambda: env)
+    monkeypatch.setattr(onboard, "latest_pypi_version", lambda *a, **k: None)
+    monkeypatch.setattr(setup_mod, "default_settings_path", lambda: tmp_path / "s.json")
+    monkeypatch.setattr(setup_mod, "wire_statusline", lambda *a, **k: ("ok", "wired"))
+    rc = cli.cmd_onboard(
+        argparse.Namespace(
+            json=False,
+            offline=False,
+            dry_run=False,
+            force=False,
+            upgrade=False,
+            no_color=True,
+            yes=False,
+            no_interactive=True,
+        )
+    )
+    assert rc == 0
+    assert "distil stats" in capsys.readouterr().out
+
+
 # --------------------------------------------------------------------------- #
 # cmd_statusline — minimal with summary(since=...) exception (560-561)
 # --------------------------------------------------------------------------- #

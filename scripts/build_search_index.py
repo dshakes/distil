@@ -24,9 +24,13 @@ import sys
 from html.parser import HTMLParser
 from pathlib import Path
 
-# Pages that are not documentation: the landing page has its own navigation and
-# would swamp results with marketing copy.
-SKIP = {"index.html"}
+# Nothing is skipped. The landing page was excluded on the theory that its
+# marketing copy would swamp results — but the effect was that the one page
+# every reader arrives on was the one page on-site search could never return,
+# so a query for "install" or "quality contract" skipped the front door. Body
+# text is capped and collected only inside <main>, the same swamping guard
+# every other page already relies on.
+SKIP: set[str] = set()
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")

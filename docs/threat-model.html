@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -129,6 +130,7 @@
 
     <h2 id="battery">The battery, and what it measures</h2>
     <p><code>distil validate --adversarial</code> drives seven hostile cases through the same public compression path the proxy uses. Each carries the specific line an attacker is trying to get discarded, and is checked against the five existing invariants plus the new <b>load-bearing</b> one.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The battery, and what it measures">
     <table>
       <thead><tr><th>Case</th><th>What it baits</th><th>Measured result</th></tr></thead>
       <tbody>
@@ -141,6 +143,7 @@
         <tr><td><code>cross_block_starvation</code></td><td>a huge untrusted block beside a trusted one</td><td>survives verbatim</td></tr>
       </tbody>
     </table>
+    </div>
 
     <h2 id="residual">The one case that lands in the second branch</h2>
     <p><code>dedup_baiting</code> is the genuine COMA-class hit, and it is named here rather than smoothed over. Outcome-aware noise dedup normalises digits away to compute a line's <em>shape</em>, so 300 attacker lines differing from the real error only in a shard number collapse together with it — and the real line is folded. It stays recoverable and its stub declares the elision, so the invariant holds. But the keep policy did lose it. It has a regression test that fails if the behaviour changes in <em>either</em> direction, so an improvement has to be deliberate rather than accidental.</p>
