@@ -228,6 +228,24 @@ def _seed_c(home: Path) -> None:
     )
 
 
+def _seed_legacy(home: Path, sid: str = "sLegacy") -> None:
+    """A ledger row with no detail file — the pre-detail-format shape: `record()`
+    ran (booked, priced), but `append_session_request()` never did, because the
+    session predates the per-request detail file existing at all."""
+    _manifest(sid)
+    record(
+        trajectory_id="live-proxy",
+        model="claude-opus-4-8",
+        turns=3,
+        baseline_dollars=0.20,
+        distil_dollars=0.10,
+        baseline_input_tokens=40_000,
+        distil_input_tokens=20_000,
+        session=sid,
+        mode="digest",
+    )
+
+
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
@@ -727,6 +745,7 @@ class TestJsonSchema:
         assert set(d["window"]) == {
             "sessions",
             "sessions_without_traffic",
+            "sessions_without_detail",
             "requests",
             "days",
             "notional_dollars",
@@ -735,6 +754,7 @@ class TestJsonSchema:
         }
         assert d["window"]["assessed"] is True
         assert d["window"]["sessions_without_traffic"] == 0
+        assert d["window"]["sessions_without_detail"] == 0
         assert set(d["typical"]) == {
             "median_pct_saved",
             "p10_pct_saved",
@@ -806,6 +826,44 @@ class TestSessionsWithoutTraffic:
         assert "no proxied traffic in the last 1 session(s)" in out
         assert "distil wrap" in out
         assert "nothing to recommend" not in out  # must not read as an all-clear
+
+
+class TestSessionsWithoutDetail:
+    """An older session — real, priced ledger rows, but written before the
+    per-request detail file existed. Unlike a no-traffic session it DID happen and
+    HAS a savings percentage; only the detail-based detectors have nothing to read."""
+
+    def test_counted_separately_and_included_in_the_typical_spread(self, home: Path) -> None:
+        _seed_legacy(home)
+        r = dv.scan()
+        assert r.sessions == 1
+        assert r.sessions_without_detail == 1
+        assert r.sessions_without_traffic == 0
+        assert r.median_pct == pytest.approx(50.0)  # 20_000 saved / 40_000 baseline
+        assert r.actions == []  # no detail -> no detail-based detector can fire
+
+    def test_does_not_pollute_a_window_that_also_has_full_detail(self, home: Path) -> None:
+        _seed_a(home)
+        _seed_legacy(home)
+        r = dv.scan()
+        assert r.sessions == 2
+        assert r.sessions_without_detail == 1
+        assert "tool_overhead" in _ids(r)  # sA's own detectors still fire normally
+        assert r.best is not None and r.best[0] in ("sA", "sLegacy")
+
+    def test_json_reports_assessed_true_and_the_lacking_count(self, home: Path) -> None:
+        _seed_legacy(home)
+        d = dv.scan().to_dict()
+        assert d["window"]["assessed"] is True
+        assert d["window"]["sessions_without_detail"] == 1
+        assert d["window"]["sessions"] == 1
+
+    def test_text_notes_detail_is_missing_without_hiding_the_typical_line(self, home: Path) -> None:
+        _seed_legacy(home)
+        out = dv.render_text(dv.scan(), color=False)
+        assert "1 older session(s) lack per-request detail" in out
+        assert "savings counted, actions not assessed for them" in out
+        assert "typical" in out  # the median/best line still renders
 
 
 class TestCli:

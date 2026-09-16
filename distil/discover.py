@@ -121,6 +121,12 @@ class Report:
     #: Sessions dropped from the window because they proxied nothing at all (a
     #: manifest with zero booked requests) — counted, never silently folded in.
     sessions_without_traffic: int = 0
+    #: Sessions in this window that have real, priced ledger rows but predate the
+    #: per-request detail file — real savings, but nothing for the detail-based
+    #: detectors to read. Included in the typical/best spread, excluded from
+    #: `actions`. Counted separately so "no findings" never hides "half the window
+    #: could not be assessed".
+    sessions_without_detail: int = 0
     requests: int = 0
     days: float = 0.0
     notional: bool = False  # any flat-rate session in the window -> dollars are notional
@@ -149,7 +155,8 @@ class Report:
     @property
     def assessed(self) -> bool:
         """False when the window has no booked traffic to assess — distinct from
-        "assessed and found nothing wrong"."""
+        "assessed and found nothing wrong". True as soon as any session has
+        priced ledger rows, detail or not."""
         return self.sessions > 0
 
     def to_dict(self) -> dict[str, Any]:
@@ -157,6 +164,7 @@ class Report:
             "window": {
                 "sessions": self.sessions,
                 "sessions_without_traffic": self.sessions_without_traffic,
+                "sessions_without_detail": self.sessions_without_detail,
                 "requests": self.requests,
                 "days": round(self.days, 2),
                 "notional_dollars": self.notional,
@@ -193,12 +201,20 @@ def _quantile(values: list[float], q: float) -> float | None:
 @dataclass
 class _Window:
     """Everything the detectors share: the dissections plus the window-wide totals
-    each of them would otherwise recompute."""
+    each of them would otherwise recompute.
+
+    ``ds`` carries only sessions with per-request detail — every detector reads
+    it, and every one of them is detail-based (tool costs, prefix pairs, churn,
+    system-prompt curve). ``ledger_only`` carries sessions with real, priced
+    ledger rows but no detail file (pre-detail-format sessions): real savings,
+    counted in the typical/best spread, but nothing a detector can read.
+    """
 
     ds: list[Dissection]
     days: float
     usd_per_token: float | None
     since: float
+    ledger_only: list[Dissection] = field(default_factory=list)
     sessions_without_traffic: int = 0
 
     @property
@@ -236,14 +252,18 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
             by_sid.setdefault(sid, []).append(rec)
 
     all_ds = [dissect(o.sid, ledger_rows=by_sid.get(o.sid, []), shadow=False) for o in overviews]
-    # A `wrap` that started and exited without proxying a single request (killed
-    # before the agent made a call, or the agent never called out) has a manifest
-    # but zero booked traffic — nothing here to assess, and folding it into the
-    # window silently would let an all-quiet window read as "all within range"
-    # rather than "nothing was observed".
+    # Three states, not two. (a) A `wrap` that started and exited without proxying
+    # a single request (killed before the agent made a call, or the agent never
+    # called out) has neither a ledger row nor detail — nothing here to assess,
+    # and folding it into the window silently would let an all-quiet window read
+    # as "all within range" rather than "nothing was observed". (b) An older
+    # session, priced before the per-request detail file existed, has real
+    # ledger rows but no detail — real savings, just nothing a detail-based
+    # detector can read. (c) both present: the full picture.
     ds = [d for d in all_ds if d.booked_detail]
-    no_traffic = len(all_ds) - len(ds)
-    starts = [d.started for d in ds if d.started]
+    ledger_only = [d for d in all_ds if not d.booked_detail and d.ledger_rows]
+    no_traffic = len(all_ds) - len(ds) - len(ledger_only)
+    starts = [d.started for d in ds + ledger_only if d.started]
     # Elapsed wall-clock since the oldest session in the window, floored at a day: a
     # rate extrapolated from a few hours would read as a week's worth of savings.
     days = max(1.0, (now - min(starts)) / 86400) if starts else 0.0
@@ -256,7 +276,12 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
     # price some actions per the model and some per the ledger.
     usd = (base_usd / base_tok) if base_tok and base_usd else None
     return _Window(
-        ds=ds, days=days, usd_per_token=usd, since=since, sessions_without_traffic=no_traffic
+        ds=ds,
+        days=days,
+        usd_per_token=usd,
+        since=since,
+        ledger_only=ledger_only,
+        sessions_without_traffic=no_traffic,
     )
 
 
@@ -597,9 +622,13 @@ DETECTORS = (
 def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
     """Aggregate recent sessions and rank what could still be recovered."""
     w = _collect(sessions, since_days)
-    if not w.ds:
+    if not w.ds and not w.ledger_only:
         return Report(sessions_without_traffic=w.sessions_without_traffic)
-    scored = [(d.sid, d.pct_saved) for d in w.ds if d.baseline_tokens >= MIN_BASELINE_TOKENS]
+    # The typical/best spread only needs ledger totals (pct_saved, baseline_tokens),
+    # so a detail-less session still has something to say there — the detectors
+    # below are the part that needs per-request rows, and only ``w.ds`` has those.
+    scoreable = w.ds + w.ledger_only
+    scored = [(d.sid, d.pct_saved) for d in scoreable if d.baseline_tokens >= MIN_BASELINE_TOKENS]
     actions = [a for a in (fn(w) for fn in DETECTORS) if a is not None]
     # Savings first, biggest first; risks last (they recover nothing, but a report
     # that buries "your numbers may be wrong" under them is worse than one that does not).
@@ -608,11 +637,12 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
 
     _f, n = factor()
     return Report(
-        sessions=len(w.ds),
+        sessions=len(scoreable),
         sessions_without_traffic=w.sessions_without_traffic,
+        sessions_without_detail=len(w.ledger_only),
         requests=w.requests,
         days=w.days,
-        notional=any(d.billing == "subscription" for d in w.ds),
+        notional=any(d.billing == "subscription" for d in scoreable),
         calibrated=n >= MIN_SAMPLES,
         actions=actions,
         pcts=[p for _s, p in scored],
@@ -667,6 +697,14 @@ def render_text(r: Report, *, color: bool = True) -> str:
         )
     if not r.calibrated:
         out.append(c("2", "  note     token counts are uncalibrated estimates (see distil doctor)"))
+    if r.sessions_without_detail:
+        out.append(
+            c(
+                "2",
+                f"  note     {r.sessions_without_detail} older session(s) lack per-request "
+                "detail — savings counted, actions not assessed for them",
+            )
+        )
 
     out.append("")
     if not r.actions:
