@@ -2175,6 +2175,25 @@ def serve(
         server.server_close()
 
 
+#: ``$BASE`` / ``${BASE}`` in a preset's env template, wherever it appears in
+#: the value. The negative lookahead is what keeps ``$BASE`` from swallowing a
+#: passthrough variable that merely starts with those letters (``$BASEBOARD``
+#: stays a variable name); ``${BASE}`` is accepted for anyone who wants to be
+#: explicit about the boundary.
+_BASE_TOKEN = re.compile(r"\$\{BASE\}|\$BASE(?![A-Za-z0-9_])")
+
+
+def _render_base_template(template: str, base: str) -> str:
+    """Substitute this wrap's proxy URL into ``template``.
+
+    Shared by the primary variable (``env_value_template``) and by
+    ``extra_env`` so the two can't drift: an agent whose knob wants
+    ``$BASE/v1``, or a JSON document with the URL somewhere in the middle,
+    behaves identically whichever slot it is declared in.
+    """
+    return _BASE_TOKEN.sub(lambda _: base, template)
+
+
 def wrap_run(
     command: list[str],
     *,
@@ -2369,26 +2388,30 @@ def wrap_run(
     # so a template (``$BASE`` anywhere inside it) renders the value instead.
     # Exporting a bare URL where the agent expects JSON routes nothing while
     # reporting success, which is the one failure `wrap` must never ship.
-    env_value = env_value_template.replace("$BASE", base) if env_value_template else base
+    env_value = _render_base_template(env_value_template, base) if env_value_template else base
     child_env[env_var] = env_value
     print(f"distil wrap → proxy {base} (upstream {upstream})")
     print(f"  → {env_var}={env_value if len(env_value) <= 120 else env_value[:117] + '…'}")
     # Some presets need more than one env var wired (e.g. goose reads a
     # separate Anthropic-flavoured host var; Copilot CLI needs a provider
     # type alongside its base URL). "$BASE" mirrors this wrap's proxy URL,
-    # "$VARNAME" passes an existing environment value through (skipped if
-    # unset/empty — never invent a credential), a value CONTAINING "$BASE"
-    # interpolates the proxy URL into it, anything else is literal.
-    # setdefault so a user's own exported override always wins.
+    # "$BASE"/"${BASE}" ANYWHERE in the value interpolates this wrap's proxy
+    # URL, "$VARNAME" alone passes an existing environment value through
+    # (skipped if unset/empty — never invent a credential), anything else is
+    # literal. setdefault so a user's own exported override always wins.
+    #
+    # The BASE check has to come FIRST. Ordered after the "$VARNAME" branch, a
+    # template like "$BASE/v1" matched `startswith("$")`, was looked up as an
+    # environment variable literally named "BASE/v1", came back empty, and hit
+    # the `continue` — so the variable was not merely un-interpolated, it was
+    # dropped entirely and the preset exported nothing at all.
     for name, template in (extra_env or {}).items():
-        if template == "$BASE":
-            value = base
+        if _BASE_TOKEN.search(template):
+            value = _render_base_template(template, base)
         elif template.startswith("$"):
             value = os.environ.get(template[1:], "")
             if not value:
                 continue
-        elif "$BASE" in template:
-            value = template.replace("$BASE", base)
         else:
             value = template
         child_env.setdefault(name, value)

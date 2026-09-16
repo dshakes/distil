@@ -419,3 +419,118 @@ def test_the_continue_cli_is_not_warned_about(monkeypatch, capsys):
     _mock_wrap_run(monkeypatch)
     assert cmd_wrap(_ns(command=["cn"])) == 0
     assert "route NOTHING" not in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# A generic binary name must not be claimed by an unreachable target.
+# ---------------------------------------------------------------------------
+
+
+def test_a_binary_called_agent_gets_no_cursor_warning(monkeypatch, capsys):
+    """Cursor's CLI really does install as plain `agent`, but keying the entry
+    on that name made `distil wrap -- agent` tell anyone with their own script
+    called `agent` that their wrap "would route NOTHING" — a confident, wrong
+    claim about a binary distil knows nothing about. The unambiguous names stay
+    matched; the generic one is nobody's to claim."""
+    from distil.cli import cmd_wrap
+
+    captured = _mock_wrap_run(monkeypatch)
+    assert cmd_wrap(_ns(command=["agent", "do-a-thing"])) == 0
+    err = capsys.readouterr().err
+    assert "Cursor" not in err and "route NOTHING" not in err
+    # ...and it is still wrapped on the ordinary default path.
+    assert captured["env_var"] == "ANTHROPIC_BASE_URL"
+
+
+def test_cursor_by_its_unambiguous_names_still_warns(monkeypatch, capsys):
+    from distil.cli import cmd_wrap
+
+    for name in ("cursor", "cursor-agent"):
+        _mock_wrap_run(monkeypatch)
+        assert cmd_wrap(_ns(command=[name])) == 0
+        err = capsys.readouterr().err
+        assert "Cursor CLI" in err and "route NOTHING" in err, name
+
+
+def test_no_target_claims_a_name_short_enough_to_collide():
+    """A guard on the class of bug, not just the one instance: every key and
+    alias `wrap` warns on has to be specific enough to be that tool's own."""
+    too_generic = {"agent", "ai", "run", "cli", "code", "chat", "assistant", "llm"}
+    for target in targets.UNREACHABLE:
+        names = {target.key, *target.aliases}
+        # `code` is VS Code's real binary and is kept deliberately — it is the
+        # editor's own published command, not a generic word distil invented.
+        clash = names & too_generic - {"code"}
+        assert not clash, f"{target.label} claims the generic name(s) {clash}"
+
+
+# ---------------------------------------------------------------------------
+# $BASE interpolation in extra_env: anywhere in the value, not just alone.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="subprocess env injection test")
+def test_extra_env_interpolates_base_with_a_suffix(tmp_path, monkeypatch):
+    """`$BASE/v1` is the shape an OpenAI-compatible knob wants, and it did not
+    merely fail to interpolate: it matched the "$VARNAME" passthrough branch
+    first, was looked up as an environment variable literally named "BASE/v1",
+    came back empty and hit the `continue` — so the preset exported nothing at
+    all, and a wrap built on it would have reported success while routing
+    nothing."""
+    monkeypatch.delenv("SUFFIXED", raising=False)
+    code = _run_child(
+        tmp_path,
+        monkeypatch,
+        "import os, sys\n"
+        "v = os.environ.get('SUFFIXED', '')\n"
+        "sys.exit(0 if v.startswith('http://127.0.0.1') and v.endswith('/v1') else 1)\n",
+        extra_env={"SUFFIXED": "$BASE/v1"},
+    )
+    assert code == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="subprocess env injection test")
+def test_extra_env_interpolates_base_inside_a_json_document(tmp_path, monkeypatch):
+    monkeypatch.delenv("DOC", raising=False)
+    code = _run_child(
+        tmp_path,
+        monkeypatch,
+        "import json, os, sys\n"
+        "d = json.loads(os.environ['DOC'])\n"
+        "sys.exit(0 if d['a']['url'].endswith('/v1') and d['b'] == 'keep' else 1)\n",
+        extra_env={"DOC": '{"a": {"url": "$BASE/v1"}, "b": "keep"}'},
+    )
+    assert code == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="subprocess env injection test")
+def test_extra_env_accepts_the_braced_form_and_leaves_lookalikes_alone(tmp_path, monkeypatch):
+    """`${BASE}` is the explicit boundary form. The lookalike matters more: a
+    passthrough variable whose name merely STARTS with BASE must still be read
+    from the environment, not eaten by the interpolation."""
+    monkeypatch.setenv("BASEBOARD", "passthrough-value")
+    monkeypatch.delenv("BRACED", raising=False)
+    monkeypatch.delenv("LOOKALIKE", raising=False)
+    code = _run_child(
+        tmp_path,
+        monkeypatch,
+        "import os, sys\n"
+        "braced = os.environ['BRACED']\n"
+        "sys.exit(0 if braced.startswith('http://127.0.0.1') and braced.endswith('/v1')\n"
+        "         and os.environ['LOOKALIKE'] == 'passthrough-value' else 1)\n",
+        extra_env={"BRACED": "${BASE}/v1", "LOOKALIKE": "$BASEBOARD"},
+    )
+    assert code == 0
+
+
+def test_the_primary_value_and_extra_env_interpolate_identically():
+    """Two slots, one rule. They were separate string replaces, which is how
+    `extra_env` ended up unable to express the very form `$BASE/v1` that the
+    primary value handled."""
+    from distil.proxy import _render_base_template
+
+    base = "http://127.0.0.1:1234"
+    for template in ("$BASE", "$BASE/v1", "${BASE}/v1", '{"u": "$BASE/v1"}'):
+        assert base in _render_base_template(template, base)
+        assert "$BASE" not in _render_base_template(template, base)
+    assert _render_base_template("$BASEBOARD", base) == "$BASEBOARD"

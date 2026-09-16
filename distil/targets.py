@@ -82,7 +82,14 @@ class Target:
 #: the higher-precedence KILO_CONFIG_CONTENT instead of being declined.
 UNREACHABLE: tuple[Target, ...] = (
     Target(
-        key="agent",
+        # Cursor's CLI installs its binary as plain `agent`
+        # (cursor.com/docs/cli/overview, verified 2026-09-16), but distil
+        # deliberately does NOT key or alias this entry on that name: `agent`
+        # is what half the shell scripts and local wrappers in the world are
+        # called, and a false "Cursor CLI routes nothing" on someone's own
+        # `agent` is worse than staying quiet for the real one. The names
+        # matched here are the unambiguous ones people actually type.
+        key="cursor",
         label="Cursor CLI",
         mechanism="proxy",
         shape=OPENAI_CHAT,
@@ -90,8 +97,9 @@ UNREACHABLE: tuple[Target, ...] = (
         doc_url="https://cursor.com/docs/cli/reference/configuration",
         verified="2026-09-16",
         note="cli-config.json publishes no base-URL field; the only network knob "
-        "is a whole-process HTTP proxy, not a per-request base URL",
-        aliases=("cursor", "cursor-agent"),
+        "is a whole-process HTTP proxy, not a per-request base URL. Its binary is "
+        "`agent`, a name too generic for distil to claim",
+        aliases=("cursor-agent",),
     ),
     Target(
         key="continue",
