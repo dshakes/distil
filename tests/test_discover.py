@@ -1102,6 +1102,7 @@ class TestJsonSchema:
             "requests",
             "days",
             "notional_dollars",
+            "unpriced_share",
             "calibrated",
             "assessed",
         }
@@ -1142,7 +1143,94 @@ class TestJsonSchema:
         for r in rows:
             r["baseline_dollars"] = 0.0
         led.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-        assert all(a.dollars_per_week is None for a in dv.scan().actions)
+        r = dv.scan()
+        assert all(a.dollars_per_week is None for a in r.actions)
+        assert r.unpriced_share == pytest.approx(1.0)
+
+    def test_dollars_in_a_mixed_window_are_priced_from_priced_rows_only(self, home: Path) -> None:
+        """An unpriced (e.g. OpenAI/Gemini) session's tokens must not dilute the
+        denominator of the $ rate — the rate is the priced rows' own rate, not a
+        blend that understates it by however much of the window is unpriced."""
+        _seed_a(home)  # 30,000 priced tokens at $0.15
+        _manifest("sUnpriced")
+        record(
+            trajectory_id="live-proxy",
+            model="gpt-5",
+            turns=1,
+            baseline_dollars=0.0,  # the proxy could not price this model at all
+            distil_dollars=0.0,
+            baseline_input_tokens=20_000,
+            distil_input_tokens=18_000,
+            session="sUnpriced",
+            mode="digest",
+        )
+        append_session_request(
+            {
+                "ts": NOW - 100,
+                "model": "gpt-5",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 2000,
+                "tokens_saved": 500,
+                "overhead_tokens": 500,
+                "system_tokens": 100,
+                "tools_tokens": 400,
+                "tools": [{"name": "bash", "tokens": 400}],
+                "blocks": [],
+            },
+            "sUnpriced",
+        )
+        r = dv.scan()
+        # 20,000 of 50,000 ds tokens are unpriced: a minority, so dollars still show.
+        assert r.unpriced_share == pytest.approx(20_000 / 50_000)
+        a = _by_id(r, "tool_overhead")
+        usd_per_token = 0.15 / 30_000  # sA's own rate, undiluted by sUnpriced's tokens
+        assert a.dollars_per_week == pytest.approx(a.tokens_per_week * usd_per_token)
+
+    def test_dollars_are_unavailable_when_the_window_is_mostly_unpriced(self, home: Path) -> None:
+        """A window where most tokens are from an unpriced model must not quote a
+        dollar figure extrapolated from the small priced minority. The text names
+        the reason, and `--json` exposes `unpriced_share` so a reader can tell."""
+        _seed_a(home)  # 30,000 priced tokens
+        _manifest("sBig")
+        record(
+            trajectory_id="live-proxy",
+            model="gpt-5",
+            turns=1,
+            baseline_dollars=0.0,
+            distil_dollars=0.0,
+            baseline_input_tokens=40_000,  # more unpriced tokens than priced
+            distil_input_tokens=35_000,
+            session="sBig",
+            mode="digest",
+        )
+        append_session_request(
+            {
+                "ts": NOW - 100,
+                "model": "gpt-5",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 2000,
+                "tokens_saved": 500,
+                "overhead_tokens": 500,
+                "system_tokens": 100,
+                "tools_tokens": 400,
+                "tools": [{"name": "bash", "tokens": 400}],
+                "blocks": [],
+            },
+            "sBig",
+        )
+        r = dv.scan()
+        assert r.unpriced_share == pytest.approx(40_000 / 70_000)
+        assert r.unpriced_share > 0.5
+        a = _by_id(r, "tool_overhead")
+        assert a.dollars_per_week is None
+        out = dv.render_text(r, color=False)
+        assert "$ unavailable — model unpriced" in out
+        d = r.to_dict()
+        assert d["window"]["unpriced_share"] == pytest.approx(round(40_000 / 70_000, 4))
 
 
 class TestSessionsWithoutTraffic:

@@ -139,6 +139,11 @@ class Report:
     requests: int = 0
     days: float = 0.0
     notional: bool = False  # any flat-rate session in the window -> dollars are notional
+    #: Share of the window's baseline tokens with no known price (an unpriced
+    #: model, see ``_Window.unpriced_share``). Above 50%, every action's
+    #: ``dollars_per_week`` is ``None`` rather than a rate extrapolated from an
+    #: unrepresentative priced minority.
+    unpriced_share: float = 0.0
     calibrated: bool = False
     actions: list[Action] = field(default_factory=list)
     #: Per-session savings percentages, for the typical-vs-best spread.
@@ -178,6 +183,7 @@ class Report:
                 "requests": self.requests,
                 "days": round(self.days, 2),
                 "notional_dollars": self.notional,
+                "unpriced_share": round(self.unpriced_share, 4),
                 "calibrated": self.calibrated,
                 "assessed": self.assessed,
             },
@@ -226,6 +232,13 @@ class _Window:
     since: float
     ledger_only: list[Dissection] = field(default_factory=list)
     sessions_without_traffic: int = 0
+    #: Share of ``ds``'s baseline tokens that came from a row with no known price
+    #: (``baseline_dollars <= 0`` on tokens that were actually sent — an unknown
+    #: model, e.g. an OpenAI/Gemini upstream `pricing.resolve` cannot catalog-match,
+    #: never a real free run). Above 50%, `usd_per_week` refuses a dollar figure:
+    #: extrapolating the priced minority's rate onto a mostly-unpriced token count
+    #: would misprice it in whichever direction that minority happens to skew.
+    unpriced_share: float = 0.0
 
     @property
     def requests(self) -> int:
@@ -235,7 +248,7 @@ class _Window:
         return int(round(total * 7.0 / self.days)) if self.days > 0 else 0
 
     def usd_per_week(self, tokens: float, *, rate_mult: float = 1.0) -> float | None:
-        if self.usd_per_token is None:
+        if self.usd_per_token is None or self.unpriced_share > 0.5:
             return None
         return self.per_week(tokens) * self.usd_per_token * rate_mult
 
@@ -289,13 +302,29 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
         # not read as a week's worth of savings.
         days = max(1.0, (now - min(starts)) / 86400) if starts else 0.0
 
-    base_tok = sum(int(r.get("baseline_input_tokens") or 0) for d in ds for r in d.ledger_rows)
-    base_usd = sum(float(r.get("baseline_dollars") or 0.0) for d in ds for r in d.ledger_rows)
+    ds_rows = [r for d in ds for r in d.ledger_rows]
+    total_tok = sum(int(r.get("baseline_input_tokens") or 0) for r in ds_rows)
+    # Only rows with a real price contribute to the rate: a row the proxy could
+    # not price at all (`baseline_dollars <= 0`, an unknown model — see
+    # `pricing.resolve`) still carries real tokens, and blending its tokens into
+    # the denominator without its (zero) dollars would understate every priced
+    # session's rate by however much of the window is unpriced traffic.
+    priced_tok = sum(
+        int(r.get("baseline_input_tokens") or 0)
+        for r in ds_rows
+        if float(r.get("baseline_dollars") or 0.0) > 0
+    )
+    base_usd = sum(
+        float(r.get("baseline_dollars") or 0.0)
+        for r in ds_rows
+        if float(r.get("baseline_dollars") or 0.0) > 0
+    )
     # One price for every dollar on this report: the blended rate the ledger itself
     # recorded (priced through distil.pricing at record time), over the same
     # heuristic tokens the detectors count. Mixing a catalog lookup in here would
     # price some actions per the model and some per the ledger.
-    usd = (base_usd / base_tok) if base_tok and base_usd else None
+    usd = (base_usd / priced_tok) if priced_tok and base_usd else None
+    unpriced_share = ((total_tok - priced_tok) / total_tok) if total_tok else 0.0
     return _Window(
         ds=ds,
         days=days,
@@ -303,6 +332,7 @@ def _collect(sessions: int, since_days: float | None) -> _Window:
         since=since,
         ledger_only=ledger_only,
         sessions_without_traffic=no_traffic,
+        unpriced_share=unpriced_share,
     )
 
 
@@ -700,6 +730,7 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
         requests=w.requests,
         days=w.days,
         notional=any(d.billing == "subscription" for d in scoreable),
+        unpriced_share=w.unpriced_share,
         calibrated=n >= MIN_SAMPLES,
         actions=actions,
         pcts=[p for _s, p in scored],
@@ -792,6 +823,8 @@ def render_text(r: Report, *, color: bool = True) -> str:
         rate = f"{_human(a.tokens_per_week)} tokens/week" if a.kind == "savings" else "no $ effect"
         if a.kind == "savings" and a.dollars_per_week is not None:
             rate += f", ${a.dollars_per_week:,.2f}/week{notional}"
+        elif a.kind == "savings" and r.unpriced_share > 0.5:
+            rate += ", $ unavailable — model unpriced"
         out.append("")
         out.append(f"  {i}. {a.title}")
         out.append(c("32" if a.kind == "savings" else "33", f"     recovers  {rate}"))
