@@ -455,6 +455,8 @@ cannot reach the cluster, the node, or a cloud metadata service on 443. `values.
 carries an `egressTo` override and says plainly that narrowing it to your provider is the
 point.
 
+### The ninth command still knows the other eight exist
+
 Docs and CLI-surface polish; no runtime behavior change. The through-line: in every
 case here the accurate answer already existed somewhere in the codebase, but only if
 you already knew where to look — `--help` for one savings command never mentioning
