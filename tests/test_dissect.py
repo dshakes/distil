@@ -554,6 +554,15 @@ class TestDissection:
         assert "not recorded — per-request detail" in text
         assert "rc=0" in text
 
+    def test_render_text_glosses_jargon_terms(self) -> None:
+        """decision-equivalence and prefix replay are used earlier in the report
+        than the terms: glossary explains them — so the glossary must actually
+        define both, not just the original fold/cache-delta/verbatim/unbooked set."""
+        d = dz.dissect("s200-1")
+        text = dz.render_text(d, color=False)
+        assert "decision-equivalence = agent's next action unchanged" in text
+        assert "prefix replay = a client-resent prefix forwarded as-is" in text
+
     def test_to_json_schema(self) -> None:
         payload = dz.to_json(dz.dissect("s200-1"))
         assert payload["session"] == "s200-1"
@@ -1207,6 +1216,50 @@ class TestTranscriptCorrelation:
         assert main(["dissect", "s200", "--no-color", "--transcript"]) == 0
         out = capsys.readouterr().out
         assert "no matching agent transcript found" in out
+
+    def test_serve_does_not_block_when_not_a_tty(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """pytest's captured stdout isn't a TTY — `--serve` must print the URL
+        and return immediately rather than hang on serve_forever()."""
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        out = capsys.readouterr().out
+        assert "dissect portal:" in out
+        assert "not blocking" in out
+
+    def test_serve_foreground_blocks_until_ctrl_c(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--foreground forces the old blocking behaviour even off a TTY."""
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise KeyboardInterrupt
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--foreground"]) == 0
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
+    def test_serve_subprocess_exits_promptly_without_foreground(self, tmp_path: Path) -> None:
+        """End-to-end: piped stdout (never a TTY) must not hang the process."""
+        import os
+        import subprocess
+        import sys
+
+        env = dict(os.environ, DISTIL_HOME=str(tmp_path))
+        result = subprocess.run(
+            [sys.executable, "-m", "distil.cli", "dissect", "--serve", "--port", "0"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+        assert result.returncode == 0
+        assert "not blocking" in result.stdout
 
     def test_serve_with_transcript_flag_correlates_by_default(self) -> None:
         server = dz.make_server("127.0.0.1", 0, transcript="auto")

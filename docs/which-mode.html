@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -124,6 +125,7 @@
 
     <p>This decides <em>what</em> you save, not how much.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Question 1 — how do you pay?">
     <table>
       <thead><tr><th>You pay</th><th>What runs out</th><th>What distil buys you</th></tr></thead>
       <tbody>
@@ -139,6 +141,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <p>We used to say a subscription got &ldquo;context and latency, not the bill.&rdquo; A reader
     pointed out that was wrong &mdash; running out of quota <em>is</em> a cost &mdash; and they were
@@ -188,6 +191,7 @@
     <p>Here is the part most tools won&rsquo;t tell you: <strong>the mode barely matters. What your
     tools print matters enormously.</strong></p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="How much will it actually save?">
     <table>
       <thead><tr><th>What your assistant reads</th><th>Typical saving</th></tr></thead>
       <tbody>
@@ -197,6 +201,7 @@
         <tr><td>Logs where every line differs, <code>git log</code></td><td>~0%</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>Two rules of thumb:</p>
     <ul>
@@ -218,6 +223,7 @@
     <p>Every compressor claims savings. distil is built around a second question: <em>did your
     assistant still do the same thing?</em> It answers that one with measurements, not assurances.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="How do you know it didn’t break anything?">
     <table>
       <thead><tr><th>Command</th><th>Tells you</th></tr></thead>
       <tbody>
@@ -228,9 +234,11 @@
         <tr><td><code>distil doctor</code></td><td>Whether your setup is actually routing (the most common failure is silent)</td></tr>
       </tbody>
     </table>
+    </div>
 
     <h2 id="cheatsheet">One-line cheat sheet</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="One-line cheat sheet">
     <table>
       <thead><tr><th>You are&hellip;</th><th>Run this</th></tr></thead>
       <tbody>
@@ -242,6 +250,7 @@
         <tr><td><strong>Not sure</strong></td><td><code>distil onboard</code></td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>Everyone, afterwards: <code>distil savings</code> on an API key, or <code>distil quota</code> on
     a subscription &mdash; to see whether it helped <em>you</em>, rather than taking our word for it.</p>

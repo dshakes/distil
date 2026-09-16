@@ -3,6 +3,42 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased] — the ninth command still knows the other eight exist
+
+Docs and CLI-surface polish; no runtime behavior change. The through-line: in every
+case here the accurate answer already existed somewhere in the codebase, but only if
+you already knew where to look — `--help` for one savings command never mentioning
+its siblings, a CLI reference example nobody had actually run through argparse, TOST
+printed with `alpha`/`margin` and no word on what either means, `onboard
+--no-interactive` and `offboard --no-interactive` inventing their own wording for the
+same rule.
+
+- `distil stats`, `dashboard`, `dissect`, `doctor`, `shadow-stats`, and `receipts` now
+  cross-reference each other in `--help`, and `onboard`'s closing summary and every
+  session's proof-ledger print end by naming the exact next command (`distil stats` /
+  `distil dissect <session>`) instead of a vague "check your savings."
+- `onboard --no-interactive` and `offboard --no-interactive` now state the identical
+  --yes-vs-no-interactive rule verbatim, so learning it on one command means already
+  knowing it on the other; both gained a Flags table in the CLI reference.
+- `certify`/`bench`'s `--margin`/`--alpha` flags, and the TOST and Tier-0/1 lines they
+  print, now say in plain words what they mean rather than assuming the reader already
+  knows two one-sided tests; `dissect`'s terminal glossary now defines
+  decision-equivalence and prefix replay, both used earlier in the same report.
+- `docs/cli.html`'s own `$ distil …` examples are now parsed by the same test that
+  checks every other doc's — it caught two that never actually ran (`certify-provider`
+  was missing its required `episodes` argument and had a `--runs` flag that doesn't
+  exist; `receipts --export` took a value it doesn't accept). Both fixed.
+- `distil dissect --serve` and `distil dashboard --web` now document their TTY guard:
+  off a real terminal they print the URL and exit rather than block, and
+  `--foreground` overrides it.
+- README gained a Proof and provenance section (PEP 740 attestations, the CycloneDX
+  SBOM, the weekly OpenSSF Scorecard run, the threat model and security whitepaper,
+  `distil validate`) and a link to `docs/llms.txt` for agents reading the repo instead
+  of a human.
+- LangGraph has its own integrations page (`docs/langgraph.html`) alongside
+  LangChain's, and the Vercel AI SDK page now documents `distilMiddleware()` next to
+  the proxy route it already covered.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

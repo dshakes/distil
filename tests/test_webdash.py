@@ -93,8 +93,11 @@ def test_serve_webdash_runs_and_closes(tmp_path, monkeypatch):
         return srv
 
     monkeypatch.setattr(webdash, "build_server", capture)
+    # foreground=True: pytest's captured stdout isn't a TTY, and the whole point
+    # of this test is to exercise the real serve_forever()/shutdown() path.
     t = threading.Thread(
-        target=lambda: webdash.serve_webdash(port=0, open_browser=False), daemon=True
+        target=lambda: webdash.serve_webdash(port=0, open_browser=False, foreground=True),
+        daemon=True,
     )
     t.start()
     for _ in range(50):
@@ -122,7 +125,8 @@ def test_serve_webdash_opens_browser(tmp_path, monkeypatch):
         webdash, "build_server", lambda h, p: holder.setdefault("srv", real_build(h, 0))
     )
     t = threading.Thread(
-        target=lambda: webdash.serve_webdash(port=0, open_browser=True), daemon=True
+        target=lambda: webdash.serve_webdash(port=0, open_browser=True, foreground=True),
+        daemon=True,
     )
     t.start()
     assert opened.wait(3.0), "browser-open thread never ran"
@@ -132,3 +136,12 @@ def test_serve_webdash_opens_browser(tmp_path, monkeypatch):
         _t.sleep(0.02)
     holder["srv"].shutdown()
     t.join(timeout=3)
+
+
+def test_serve_webdash_does_not_block_when_not_a_tty(tmp_path, monkeypatch, capsys):
+    """pytest's captured stdout isn't a TTY — the call must return immediately
+    rather than hang on serve_forever(), the same guard as `dissect --serve`."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    webdash.serve_webdash(port=0, open_browser=False)  # would hang without the guard
+    out = capsys.readouterr().out
+    assert "not blocking" in out

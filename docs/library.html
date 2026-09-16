@@ -88,6 +88,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -159,6 +160,7 @@ const model = wrapLanguageModel({ model: myModel, middleware: distilMiddleware()
 
     <h2 id="tiers">The tier boundary — and why it is where it is</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The tier boundary — and why it is where it is">
     <table>
       <tr><th>Path</th><th>Tier</th><th>Certificate</th></tr>
       <tr><td><code>distil wrap</code></td><td>digest (reversible)</td><td>✅ covered</td></tr>
@@ -166,6 +168,7 @@ const model = wrapLanguageModel({ model: myModel, middleware: distilMiddleware()
       <tr><td>MCP server</td><td>digest (reversible)</td><td>✅ covered</td></tr>
       <tr><td><b>in-process library</b></td><td><b>lossless only</b></td><td>n/a — nothing is elided</td></tr>
     </table>
+    </div>
 
     <p>The in-process libraries are lossless-tier on purpose. The digest mints
     <b>restore handles</b> whose originals must live in one store shared with the proxy and
@@ -188,6 +191,7 @@ const model = wrapLanguageModel({ model: myModel, middleware: distilMiddleware()
     achieved by declining everything.</p>
 
     <h2>Framework hooks</h2>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Framework hooks">
     <table>
       <tr><th>Framework</th><th>Entry point</th></tr>
       <tr><td>LangChain</td><td><code>distil.integrations.langchain.compress_messages</code></td></tr>
@@ -197,6 +201,7 @@ const model = wrapLanguageModel({ model: myModel, middleware: distilMiddleware()
       <tr><td>Strands</td><td><code>distil.integrations.strands.compressing_hook()</code></td></tr>
       <tr><td>Vercel AI SDK</td><td><code>distilMiddleware()</code> (npm)</td></tr>
     </table>
+    </div>
 
     <p>Every one is <b>duck-typed and never imports its framework</b>. That is what keeps
     distil a zero-dependency install, and it means a framework release cannot break the

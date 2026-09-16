@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 
 from distil.setup import (
+    _managed_settings_path,
     alias_body,
     detect_shell,
     env_body,
@@ -505,3 +506,41 @@ def test_cmd_offboard_non_interactive_is_safe(tmp_path, monkeypatch, capsys) -> 
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert cli.cmd_offboard(_offboard_args(yes=False, no_interactive=True)) == 0
     assert "distil" in rc.read_text()  # untouched — safe
+
+
+class TestManagedSettingsPath:
+    """One path per OS (docs.claude.com/en/docs/claude-code/managed-settings).
+    Windows used to fall through to the Linux branch — a real path, just the
+    wrong OS's, so it could never exist there."""
+
+    def test_windows_uses_program_files(self, monkeypatch) -> None:
+        from distil import setup
+
+        monkeypatch.setattr(setup, "_is_windows", lambda: True)
+        monkeypatch.delenv("ProgramFiles", raising=False)
+        path = _managed_settings_path()
+        assert str(path) == r"C:\Program Files\ClaudeCode\managed-settings.json"
+
+    def test_windows_honours_program_files_env(self, monkeypatch) -> None:
+        from distil import setup
+
+        monkeypatch.setattr(setup, "_is_windows", lambda: True)
+        monkeypatch.setenv("ProgramFiles", r"D:\Apps")
+        path = _managed_settings_path()
+        assert str(path) == r"D:\Apps\ClaudeCode\managed-settings.json"
+
+    def test_macos_uses_application_support(self, monkeypatch) -> None:
+        from distil import setup
+
+        monkeypatch.setattr(setup, "_is_windows", lambda: False)
+        monkeypatch.setattr(setup.Path, "is_dir", lambda self: True)
+        path = _managed_settings_path()
+        assert str(path) == "/Library/Application Support/ClaudeCode/managed-settings.json"
+
+    def test_linux_uses_etc_claude_code(self, monkeypatch) -> None:
+        from distil import setup
+
+        monkeypatch.setattr(setup, "_is_windows", lambda: False)
+        monkeypatch.setattr(setup.Path, "is_dir", lambda self: False)
+        path = _managed_settings_path()
+        assert str(path) == "/etc/claude-code/managed-settings.json"

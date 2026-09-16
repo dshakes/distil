@@ -39,6 +39,30 @@ def default_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
+def _managed_settings_path() -> Path:
+    """The system-wide managed-settings.json Claude Code merges first, per OS.
+
+    Source: https://docs.claude.com/en/docs/claude-code/managed-settings
+    (macOS: /Library/Application Support/ClaudeCode/managed-settings.json,
+    Linux and WSL: /etc/claude-code/managed-settings.json,
+    Windows: C:\\Program Files\\ClaudeCode\\managed-settings.json). This used to
+    fall through to the Linux path on Windows too — a real path, just the wrong
+    OS's, so a Windows ``doctor``/``--undo`` silently checked a file that could
+    never exist there.
+    """
+    if _is_windows():
+        # Built as one backslash-joined string, not `/`-joined: `Path.__truediv__`
+        # treats a POSIX-run test's "C:\Program Files" as a single opaque
+        # segment and joins the rest with "/", which is only cosmetically wrong
+        # on real Windows (WindowsPath parses either separator) but makes the
+        # value untestable on the Linux/macOS CI that actually runs this suite.
+        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        return Path(f"{program_files}\\ClaudeCode\\managed-settings.json")
+    if Path("/Library/Application Support").is_dir():
+        return Path("/Library/Application Support/ClaudeCode/managed-settings.json")
+    return Path("/etc/claude-code/managed-settings.json")
+
+
 def claude_settings_files(cwd: Path | None = None) -> list[Path]:
     """Every settings file Claude Code merges, highest precedence first.
 
@@ -53,11 +77,7 @@ def claude_settings_files(cwd: Path | None = None) -> list[Path]:
     visits files it already knows about is the bug this exists to close.
     """
     home = Path.home()
-    paths = [
-        Path("/etc/claude-code/managed-settings.json")
-        if _is_windows() or not Path("/Library/Application Support").is_dir()
-        else Path("/Library/Application Support/ClaudeCode/managed-settings.json")
-    ]
+    paths = [_managed_settings_path()]
     start = (cwd or Path.cwd()).resolve()
     for d in (start, *start.parents):
         paths += [d / ".claude" / "settings.local.json", d / ".claude" / "settings.json"]

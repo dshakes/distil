@@ -16,9 +16,11 @@ nameOverride: ""
 fullnameOverride: ""
 
 gateway:
-  # Bind inside the pod; the Service handles exposure.
+  # Bind inside the pod; the Service handles exposure. Matches `distil gateway`'s
+  # own --port default (distil/cli.py) — 8788 is `distil proxy`'s port, a
+  # different command, and the chart had drifted onto it.
   host: 0.0.0.0
-  port: 8788
+  port: 8789
   upstream: https://api.anthropic.com
   # off | lossless-only | verbatim
   #   ""              full reversible digest (most savings)
@@ -58,7 +60,7 @@ providerSecret:
 
 service:
   type: ClusterIP
-  port: 8788
+  port: 8789
   annotations: {}
 
 ingress:

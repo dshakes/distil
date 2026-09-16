@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -125,6 +126,7 @@
     first API call), majority-of-3 decisions per arm, an A/A arm for the self-agreement floor, SIG v3 signatures,
     live calls hard-capped, Hoeffding&ndash;Bentkus upper bound.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="E14: provider-native context manipulation (the instrument turned outward)">
     <table>
       <thead><tr><th>Provider manipulation</th><th>Config</th><th>A/B change</th><th>A/A floor</th><th>Paired excess</th><th>95% bound</th><th>Certified at &alpha;=0.1</th></tr></thead>
       <tbody>
@@ -135,6 +137,7 @@
         <tr><td>OpenAI server-side compaction</td><td>threshold 1k</td><td>12.5%</td><td>0.0%</td><td>+12.5pp</td><td>27.8%</td><td>No</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p><strong>The finding is the mechanism, not the rate.</strong> Anthropic&rsquo;s <em>default</em> retention
     (<code>keep=3</code>) did not reduce the decision-change rate versus deleting everything &mdash; 92.5% &rarr;
@@ -173,6 +176,7 @@
 
     <p>E1&ndash;E5 measure decision-equivalence on edit-localization &mdash; a proxy. E7 is the first non-proxy test: does the certified operating point survive real execution? A real agent (<strong>aider + <code>claude-sonnet-4-6</code></strong>, temp 0, diff edit format) is run end-to-end on <strong>SWE-bench Verified (n=50, seed 1729)</strong> and scored by the <strong>official <code>swebench</code> harness</strong>, across three conditions sharing the identical agent: <strong>(A)</strong> full context, <strong>(B)</strong> distil at its certified <code>trunc@500</code> operating point, and <strong>(C)</strong> LLMLingua-2.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="E7: SWE-bench Verified end-to-end task-success">
     <table>
       <thead><tr><th>Condition</th><th>Resolved</th><th>pass@1</th></tr></thead>
       <tbody>
@@ -181,6 +185,7 @@
         <tr><td>C &mdash; LLMLingua-2</td><td>13 / 50</td><td>26.0%</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>distil's certified point loses to full context by <strong>36 points (paired McNemar <code>p&lt;0.001</code>)</strong> and does not beat LLMLingua-2. At <code>trunc@500</code> it strips <strong>86%</strong> of agentic context (vs LLMLingua-2's 48%), so its lower score is partly aggression, not purely method.</p>
 
@@ -196,6 +201,7 @@
 
     <p>E7 flagged relevance-gated reversible compression as an untested path on real long-horizon execution. E8 runs that test across six conditions, including a Headroom competitor and LLMLingua-2. A custom multi-turn <strong>ReAct</strong> coding agent (read / search / edit_file / run_tests tools, up to 30 turns, <strong>claude-haiku-4-5</strong>, temp 0) is run end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker). Runs average <strong>~27 turns</strong> — read-file and tool outputs accumulate into large peripheral context behind a small active working set, which is exactly the regime the relevance gate was designed for. Six conditions share the identical agent; only the compressor differs.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="E8: long-horizon agent task-success">
     <table>
       <thead><tr><th>Condition</th><th>Ctx reduction</th><th>Resolved</th><th>pass@1</th><th>95% CI (Wilson)</th></tr></thead>
       <tbody>
@@ -207,6 +213,7 @@
         <tr><td>C &mdash; LLMLingua-2 (lossy competitor)</td><td>&mdash;</td><td>12 / 500</td><td>2.4%</td><td>[1.4%, 4.2%]</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>All six conditions score the same 500 instances (paired McNemar). <strong>Gate vs full context:</strong> difference = &minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19 — <strong>non-inferior to full at a 6&nbsp;pp margin</strong> (borderline at a strict 5&nbsp;pp margin; p=0.19 means no significant difference was detected, not that the two are equivalent). <strong>Gate vs Headroom:</strong> +4.2&nbsp;pp, McNemar p=0.035 — distil's relevance-gated tier beats Headroom with statistical significance. Lossy truncation (B) vs full context: p&lt;0.001. <strong>Gate vs LLMLingua-2:</strong> 174 instances the gate solved that LLMLingua-2 did not, 2 the reverse — McNemar p&lt;0.001. Recovery round-trips tell the mechanism: ungated (D) issues <strong>9.6 <code>distil_expand</code> calls per instance</strong> (skeleton digested the whole history, must keep recovering the working set); gated (E) issues only <strong>0.58 per instance</strong> (digests only aged-out periphery, keeping the working set full). An honest ablation: applying the skeleton digest to the <em>gated</em> tier (E) — which uses head-truncation in its passive path — regressed pass@1 from 36.8% to 5.6%, matching condition B. The navigable digest makes the agent over-trust the summary and stop re-reading; head-truncation is the correct digest for the passive tier.</p>
 
@@ -242,6 +249,7 @@
 
     <h3>Results — relevance-gated (passive) tier, 500 instances, &delta;=0.05</h3>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Results — relevance-gated (passive) tier, 500 instances, δ=0.05">
     <table style="border-collapse:collapse;width:100%;margin:16px 0">
       <thead>
         <tr style="border-bottom:2px solid var(--line)">
@@ -266,6 +274,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <div class="callout good">
       <b>Plain-language guarantee.</b> With 95% confidence, the relevance-gated compressor changes a run&rsquo;s outcome on &le;18.0% of exchangeable tasks and costs a solvable task on &le;11.4% — about 1 in 9, certified.
@@ -292,6 +301,7 @@
 
     <p>E7&ndash;E10 use <code>claude-haiku-4-5</code>. To test whether the gate's non-inferiority generalizes, the long-horizon harness was re-run on four more models spanning three vendors: <strong>DeepSeek-V3</strong> (<code>deepseek-chat</code>, n=200), <strong>Claude Sonnet 4.6</strong> (n=50), <strong>gpt-4o-mini</strong> (OpenAI, n=50), and <strong>gpt-4.1</strong> (OpenAI, n=50). Full-context strength spans a wide range &mdash; gpt-4o-mini 12.0%, gpt-4.1 26.0%, Haiku 39.2%, Sonnet 54.0%, DeepSeek-V3 60.0% &mdash; letting us separate capability from compression aggressiveness.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="E11: cross-model generality (five models, three vendors)">
     <table>
       <thead><tr><th>model (vendor)</th><th>full (pass@1)</th><th>gate@12</th><th>vs full</th><th>realized</th></tr></thead>
       <tbody>
@@ -302,6 +312,7 @@
         <tr style="background:rgba(90,209,154,.10)"><td>DeepSeek-V3 (n=200)</td><td>60.0%</td><td><strong>55.5%</strong></td><td><strong>&minus;4.5&nbsp;pp, p=0.15 (n.s.)</strong></td><td>31%</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p><strong>gate@6 (aggressive setting):</strong> held on Haiku (&minus;2.4&nbsp;pp), Sonnet (&minus;2.0&nbsp;pp), and gpt-4o-mini (+0.0&nbsp;pp, realized 58%); broke on DeepSeek (&minus;31&nbsp;pp, realized 60%); gpt-4.1 gate@6 partial &mdash; OpenAI account credit exhausted mid-run (32/50 instances scored), not reported.</p>
 
@@ -333,6 +344,7 @@
 
     <p>Five techniques are shipped or in-progress; status is reported honestly for each.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="E12: the cost frontier under the motto">
     <table>
       <thead>
         <tr>
@@ -375,6 +387,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <p><strong>Honest caveat on #1 (cache-monotone gate).</strong> On content that is <em>already fully cacheable</em>, caching alone can be cheaper than any compression &mdash; compressing rewrites cached bytes as fresh. The cache-monotone gate&rsquo;s win is over a cache-<em>hostile</em> gate, not over no-compression; the gate&rsquo;s primary payoff remains accuracy (E8/E11).</p>
 
@@ -452,6 +465,7 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
     </div>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
@@ -460,6 +474,7 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
         <tr><td><code>--out</code></td><td>off</td><td>Write the raw curve as timestamped JSONL to this directory</td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
@@ -501,6 +516,7 @@ Decision-Equivalence Risk Certificate (DERC)
     </div>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
@@ -511,6 +527,7 @@ Decision-Equivalence Risk Certificate (DERC)
         <tr><td><code>--runner</code></td><td><code>deterministic</code></td><td><code>deterministic</code> (offline) or <code>anthropic</code> (live model)</td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
@@ -633,6 +650,7 @@ self-distilling round — keep-model learns from causal labels, gated by non-inf
     <p>If the gate fails (a regression anywhere in the corpus), promotion is blocked and the output will show <code>certified: False</code> and <code>promoted: False</code> with a message that the candidate failed the non-inferiority gate.</p>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
@@ -640,6 +658,7 @@ self-distilling round — keep-model learns from causal labels, gated by non-inf
         <tr><td><code>--promote-to</code></td><td>off (dry run)</td><td>If certified, persist the new weights as a <code>LogisticKeepModel</code>-compatible JSON file at this path.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
@@ -688,6 +707,7 @@ verifiable savings — 3 verified instance(s), 0 rejected
     </div>
 
     <h3>Flags</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
     <table>
       <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
@@ -696,6 +716,7 @@ verifiable savings — 3 verified instance(s), 0 rejected
         <tr><td><code>--html</code></td><td>off</td><td>Write a self-contained leaderboard HTML page to this path</td></tr>
       </tbody>
     </table>
+    </div>
 
     <div class="site-footer">
       Distil &middot; compression with a quality contract &middot; Apache-2.0 &middot; <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>

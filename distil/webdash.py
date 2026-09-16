@@ -211,12 +211,32 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 </script></body></html>"""
 
 
-def serve_webdash(port: int = 8766, *, host: str = "127.0.0.1", open_browser: bool = True) -> None:
-    """Blocking: serve the live dashboard until Ctrl-C."""
+def serve_webdash(
+    port: int = 8766,
+    *,
+    host: str = "127.0.0.1",
+    open_browser: bool = True,
+    foreground: bool = False,
+) -> None:
+    """Serve the live dashboard until Ctrl-C.
+
+    A non-interactive caller (a script, a CI job) has nobody to open a browser
+    and would otherwise hang forever on ``serve_forever()`` — when stdout isn't
+    a TTY, or ``CI`` is set, this prints the URL and returns immediately
+    instead. ``foreground=True`` forces the old blocking behaviour anyway.
+    """
+    import os
+    import sys
+
     server = build_server(host, port)
     url = f"http://{host}:{port}"
     print(f"distil live dashboard → {url}")
     print("  local only · reads your ledger · nothing leaves this machine · Ctrl-C to stop")
+
+    if not foreground and (not sys.stdout.isatty() or os.environ.get("CI")):
+        print("  (non-interactive: not blocking — pass --foreground to serve anyway)")
+        server.server_close()
+        return
 
     def _open() -> None:
         time.sleep(0.4)

@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -320,6 +321,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
 
     <h3>The three tiers at a glance</h3>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The three tiers at a glance">
     <table>
       <thead>
         <tr>
@@ -354,6 +356,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
         </tr>
       </tbody>
     </table>
+    </div>
 
     <h3>Heuristic default — SalienceKeepModel</h3>
     <p><code>distil/codec/keep_model.py</code> &middot; A deterministic rule-set that fires on error keywords, command <em>verdict</em> lines (<code>1955 passed</code>, <code>BUILD SUCCESSFUL</code>, exit codes &mdash; pinned at the never-drop floor, because a green run&rsquo;s answer carries no error word), structured data markers (<code>DECISION:</code>, key:value lines, pipe tables), digit density, and debug-noise keywords. Always available; no training step, no external dependencies.</p>
