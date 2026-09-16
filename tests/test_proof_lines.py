@@ -178,6 +178,24 @@ def test_budget_line_flips_to_breached_on_sustained_harm(tmp_path, monkeypatch):
     assert "BREACHED at sample" in dict(proof_lines())["budget"]
 
 
+def test_budget_line_follows_a_truncated_shadow_file(tmp_path, monkeypatch):
+    """End to end through the real reporting path: the drift state indexes into the
+    shadow ledger, so archiving shadow.jsonl outside `distil reset --shadow` must not
+    leave every surface quoting an n the file can no longer support."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil.proof_ledger import proof_lines
+
+    _write_paired(tmp_path, [-1] * 200)
+    assert "BREACHED at sample" in dict(proof_lines())["budget"]
+
+    (tmp_path / "shadow.jsonl").unlink()  # archived by hand, state file left behind
+    _write_paired(tmp_path, [0] * 60)
+    line = dict(proof_lines())["budget"]
+    assert "n=60" in line
+    assert "BREACHED" not in line
+    assert "restarted: the shadow stream was replaced" in line
+
+
 def test_output_line_names_a_direction_only_when_the_ci_excludes_zero(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     # Every replay: 200 output tokens on A, 100 on B — an unambiguous shortening.

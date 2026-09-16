@@ -22,7 +22,13 @@ entire reason to print it.
   row in file order, locked). Capital crossing `1/δ` means the live decision-change rate
   has exceeded the certified 5% at 95% confidence, and the line says `BREACHED at sample
   k` until the evidence is archived by `distil reset --shadow`. Ville's inequality is what
-  makes peeking free. The gate is a build gate, not a claim: 2,000 null runs at exactly
+  makes peeking free. The state is bound to the stream it counted — a fingerprint of the
+  rows already folded, plus the signature version they were read under — so archiving or
+  truncating `shadow.jsonl` outside `distil reset --shadow`, or a `SIG_VERSION` bump that
+  filters old rows out, rebuilds the e-process over the current stream and says
+  `restarted: the shadow stream was replaced`, instead of quoting a stale `n` while
+  ignoring every new sample until the file outgrows the old count. The gate is a build
+  gate, not a claim: 2,000 null runs at exactly
   the budget alarm 99 times (4.95% against a δ of 5%), and a true rate ten points over
   budget is caught on 500 of 500 runs within a median of 172 requests.
 - **`risk` — a distribution-free upper bound on the same losses.** Deliberately wider

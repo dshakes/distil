@@ -149,6 +149,80 @@ def test_breach_is_sticky_and_names_the_sample(tmp_path, monkeypatch):
     assert healed.line().startswith("BREACHED")
 
 
+# ---------------------------------------------------------------------------
+# Provenance — the count is bound to the stream it counted
+# ---------------------------------------------------------------------------
+
+
+def test_a_truncated_stream_rebuilds_instead_of_ignoring_every_new_row(tmp_path, monkeypatch):
+    """The failure a bare index hides: archive shadow.jsonl outside `reset --shadow` and
+    `consumed` outruns the file, so `diffs[consumed:]` is empty and the alarm reports a
+    stale n while ignoring live traffic until the new file outgrows the old count."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    live_monitor([0] * 200)
+    fresh = live_monitor([0] * 60)  # the archived file, regrown to 60 rows
+    assert fresh.rebuilt
+    assert fresh.consumed == 60
+    assert fresh.line() == (
+        f"intact (e-value {fresh.monitor.evalue:.2f}, n=60)"
+        " — restarted: the shadow stream was replaced"
+    )
+
+
+def test_a_rewritten_stream_of_the_same_length_is_still_detected(tmp_path, monkeypatch):
+    """The case a length check cannot see, and the reason the fingerprint exists: the file
+    was replaced by a different one that happens to hold the same number of rows."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    first = live_monitor([0] * 80)
+    second = live_monitor([-1] * 80)  # same count, entirely different evidence
+    assert second.rebuilt
+    assert second.consumed == 80
+    assert second.monitor.capital != first.monitor.capital
+
+
+def test_a_signature_bump_rebuilds_and_does_not_carry_a_breach(tmp_path, monkeypatch):
+    """A SIG_VERSION bump filters the old rows out of the ledger. Capital bet on evidence
+    the ledger no longer returns is not evidence about the stream that replaced it."""
+    import distil.shadow as _shadow
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    breached = live_monitor([-1] * 200)
+    assert breached.monitor.tripped
+
+    monkeypatch.setattr(_shadow, "SIG_VERSION", _shadow.SIG_VERSION + 1)
+    after = live_monitor([0] * 60)
+    assert after.rebuilt
+    assert not after.monitor.tripped and after.consumed == 60
+    assert json.loads((tmp_path / "drift.json").read_text())["sig"] == _shadow.SIG_VERSION
+
+
+def test_a_plain_append_carries_capital_and_does_not_rebuild(tmp_path, monkeypatch):
+    """The common path must stay the common path — provenance is a guard, not a reset."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    diffs = [0] * 60
+    first = live_monitor(diffs)
+    assert not first.rebuilt
+    grown = live_monitor(diffs + [0] * 40)
+    assert not grown.rebuilt
+    assert grown.consumed == 100
+    assert grown.monitor.capital != first.monitor.capital  # it kept betting, from where it was
+    assert grown.monitor.n == 100
+
+
+def test_a_state_file_without_provenance_rebuilds_once(tmp_path, monkeypatch):
+    """Upgrading over a pre-provenance state file: the prefix cannot be checked, so it
+    cannot be claimed. Rebuild rather than carry an unverifiable number."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    live_monitor([0] * 60)
+    p = tmp_path / "drift.json"
+    raw = json.loads(p.read_text())
+    del raw["stream"], raw["sig"]  # what 1.53.0 wrote
+    p.write_text(json.dumps(raw))
+    upgraded = live_monitor([0] * 60)
+    assert upgraded.rebuilt and upgraded.consumed == 60
+    assert not live_monitor([0] * 60).rebuilt  # and only once
+
+
 def test_reset_clears_the_alarm(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     live_monitor([-1] * 200)
