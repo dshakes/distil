@@ -828,10 +828,9 @@ def build_handler(
             if bad is not None:
                 # A TE-framed body would otherwise be read as empty and silently
                 # dropped — fail loudly instead (LLM SDKs always send a length).
-                # Close rather than keep alive: the undrained body is still queued on
-                # the socket, and parsing it as the next request is the desync this
-                # rejection exists to prevent.
-                self.close_connection = True
+                # _reject closes the connection: the undrained body is still queued
+                # on the socket, and parsing it as the next request is the desync
+                # this rejection exists to prevent.
                 self._reject(*bad)
                 return None
             length = parse_content_length(self.headers.get("Content-Length"))
@@ -841,6 +840,15 @@ def build_handler(
             return self.rfile.read(length) if length else b""
 
         def _reject(self, code: int, message: str) -> None:
+            # Close the connection on EVERY rejection. All of them answer from the
+            # headers alone, before _read_body runs, so whatever body the client
+            # already sent is still queued on the socket; on a keep-alive HTTP/1.1
+            # connection the next parse would read those bytes as a second request,
+            # which is request smuggling. Framing was only the loudest case of it —
+            # a 413, a 400 on the path, and every auth 401/403/429 leave exactly the
+            # same undrained body behind. One close here covers every caller, and
+            # the cost on an error path is one reconnect.
+            self.close_connection = True
             body = json.dumps({"error": message}).encode()
             self._relay(code, {"Content-Type": "application/json"}, body)
 

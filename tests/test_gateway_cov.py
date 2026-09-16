@@ -522,6 +522,9 @@ def _raw_exchange(port: int, payload: bytes, *, timeout: float = 3.0) -> bytes:
         sock.close()
 
 
+_OVERSIZED_REJECTION = b'{"error": "request body too large or malformed Content-Length"}'
+
+
 def test_chunked_body_is_refused_and_cannot_smuggle_a_second_request(gw: Any) -> None:
     """A Transfer-Encoding body reads as empty, so whatever follows it on the
     socket used to be parsed as a separate, separately-authorized request."""
@@ -559,6 +562,28 @@ def test_content_length_and_transfer_encoding_together_are_refused(gw: Any) -> N
     assert raw.startswith(b"HTTP/1.1 400 "), raw[:80]
     _head, _, body = raw.partition(b"\r\n\r\n")
     assert b"conflicting" in body and body.endswith(b"}"), body
+
+
+def test_oversized_content_length_cannot_smuggle_a_second_request(gw: Any) -> None:
+    """The 413 answers from the headers alone, so the body the client already
+    sent is still queued — the same desync the chunked case has, reached through
+    a different rejection. Declare far more than the 8 MiB guard allows, send a
+    short body, and trail a GET that must never be served."""
+    gw_port, _state = gw
+    raw = _raw_exchange(
+        gw_port,
+        b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: 99999999999\r\n\r\n"
+        b"hello"
+        b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n",
+    )
+    assert raw.startswith(b"HTTP/1.1 413 "), raw[:80]
+    # One message on the wire. /distil/health is unauthenticated and always 200s,
+    # so if the connection had stayed open its body would be sitting right here.
+    _head, _, body = raw.partition(b"\r\n\r\n")
+    assert body == _OVERSIZED_REJECTION, body
+    assert b"status" not in raw, raw
 
 
 def test_passthrough_verbs_refuse_a_chunked_body_too(gw: Any) -> None:

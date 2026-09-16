@@ -213,6 +213,9 @@ def test_proxy_chunked_body_rejected_411(echo_proxy: int) -> None:
 _CHUNKED_REJECTION = b'{"error": "chunked request bodies are not supported; send Content-Length"}'
 
 
+_OVERSIZED_REJECTION = b'{"error": "request body too large or malformed Content-Length"}'
+
+
 def test_proxy_chunked_rejection_closes_the_connection(echo_proxy: int) -> None:
     """The 411 is only half the fix: an unread TE body is still queued on the
     socket, so a keep-alive connection would parse it as the next request."""
@@ -254,6 +257,36 @@ def test_proxy_content_length_with_transfer_encoding_rejected_400(echo_proxy: in
     conn.close()
     assert resp.status == 400
     assert b"conflicting" in data.lower()
+
+
+def test_proxy_oversized_cl_cannot_smuggle_a_second_request(echo_proxy: int) -> None:
+    """Same desync as the chunked case, reached through the 413: the rejection
+    answers from the headers, leaving the already-sent body on the socket."""
+    sock = socket.create_connection(("127.0.0.1", echo_proxy), timeout=3)
+    try:
+        sock.sendall(
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: 99999999999\r\n\r\n"
+            b"hello"
+            b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        out = b""
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        sock.close()
+    assert out.startswith(b"HTTP/1.1 413 "), out[:80]
+    _head, _, body = out.partition(b"\r\n\r\n")
+    assert body == _OVERSIZED_REJECTION, body
+    # /distil/health answers locally and unauthenticated; its body is the tell.
+    assert b"status" not in out, out
 
 
 def test_proxy_oversized_cl_rejected_413(echo_proxy: int) -> None:

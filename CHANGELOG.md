@@ -33,10 +33,19 @@ The proxy has refused this since it learned to, in four lines. Those four lines 
 than before: any `Transfer-Encoding` rather than the literal string `chunked`, because the
 property that matters is that the body length does not come from `Content-Length`, and
 `Content-Length` and `Transfer-Encoding` together — the framing disagreement stated
-outright — as a 400. Both servers also now close the connection on a framing rejection
-rather than keeping it alive, which is the half of the fix a status code cannot do: the
-undrained body is still on the socket, and the only way it is never parsed is if nothing
-parses anything more.
+outright — as a 400.
+
+Both servers also now close the connection on *every* rejection, which is the half of the
+fix a status code cannot do: the undrained body is still on the socket, and the only way
+it is never parsed is if nothing parses anything more. Framing was merely the loudest case.
+A cross-audit of this change pointed out that the oversized/malformed `Content-Length` 413
+answers from the headers too — and so, it turns out, do the invalid-path 400 and every auth
+401/403/429, all of which run before the body is read. So the close moved from the framing
+branch into `_reject`, the one function all of them already route through: one line, every
+caller, including the ones added later. The async proxy needs no equivalent change and did
+not get a cosmetic one — aiohttp parses framing itself rather than leaving the socket to
+the handler, and a direct attempt to desync it returned no response at all instead of
+parsing the trailing bytes as a request line.
 
 ### Configuring an identity provider did not turn on authentication
 
