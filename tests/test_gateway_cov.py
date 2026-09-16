@@ -920,6 +920,60 @@ def test_a_bearer_jwt_with_no_provider_credential_is_refused_with_guidance(
     assert b"x-distil-token" in data, data
 
 
+def test_a_persisted_unsafe_tenant_never_reaches_the_response_header(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """End of the path the load-time collapse exists for: a key file written before
+    issue() validated labels, authenticating a real request, whose tenant is echoed
+    in x-distil-tenant. send_header does no CRLF validation, so an unsafe label here
+    splits the response."""
+    import hashlib as _h
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    raw_key = "dsk-handwritten-key-value"
+    path = tmp_path / "gateway_keys.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "keys": {
+                    _h.sha256(raw_key.encode()).hexdigest(): {
+                        "id": "gk_deadbeef",
+                        "tenant": "acme\r\nX-Injected: yes",
+                        "created": time.time(),
+                        "expires": None,
+                        "revoked": None,
+                        "rpm": None,
+                        "daily_tokens": None,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    from distil.gateway_keys import GatewayKeyStore
+
+    store = GatewayKeyStore(path)
+    upstream = _start(_EchoHandler)
+    srv, _state = _make_gateway(upstream.server_address[1], key_store=store)
+    try:
+        status, resp, data = _req(
+            "POST",
+            srv.server_address[1],
+            "/v1/messages",
+            body=json.dumps({"model": "claude-opus-4-8", "messages": []}).encode(),
+            extra_headers={"x-distil-key": raw_key},
+        )
+    finally:
+        srv.shutdown()
+        upstream.shutdown()
+    assert status == 200, data
+    assert resp.getheader("X-Injected") is None
+    echoed = resp.getheader("x-distil-tenant") or ""
+    assert echoed.startswith("oidc-"), echoed
+    assert "\r" not in echoed and "\n" not in echoed, repr(echoed)
+
+
 def test_an_unverified_authorization_header_is_never_stripped(
     tmp_path: Any, monkeypatch: Any
 ) -> None:

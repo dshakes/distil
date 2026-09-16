@@ -100,6 +100,17 @@ the header door already `.strip()`ed its value, and a header value cannot carry 
 newline over HTTP anyway. The OIDC claim and the operator key-issue path had nothing in
 front of them but the pattern.
 
+Validating at `issue()` also only protects labels issued *after* the check exists. Every
+record already on disk — written by an older distil, restored from a backup, or edited by
+hand — walked straight past it on load and became the `x-distil-tenant` response header
+anyway. The key store now applies the same collapse to every tenant it parses, so the
+guarantee is about what is read rather than about when it was written. It warns once per
+process naming the file, and does not rewrite it: silently editing an operator's key file
+to make a warning go away destroys the evidence of how the label got there. The two other
+places a persisted tenant surfaces were checked and needed nothing — the dashboard escapes
+with `html.escape` and the Prometheus exposition escapes backslash, quote and newline.
+The response header was the one sink with no escaping of its own.
+
 ### The chart's egress hole-punch list was half a list
 
 The NetworkPolicy's default 443 rule is `0.0.0.0/0` minus a set of ranges, so anything

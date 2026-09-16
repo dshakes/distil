@@ -27,12 +27,13 @@ import hashlib
 import json
 import os
 import secrets
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from distil import _filelock
-from distil.authz import TENANT_RE
+from distil.authz import TENANT_RE, safe_tenant
 
 _KEY_PREFIX = "dsk-"
 _KEYS_FILE = "gateway_keys.json"
@@ -106,6 +107,8 @@ class GatewayKeyStore:
         # gateway 401s valid keys until the window passes. -inf can never be inside
         # the TTL window on any platform.
         self._last_load: float = float("-inf")
+        # One warning per process for unsafe persisted tenant labels (see _load_locked).
+        self._warned_normalized = False
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -129,11 +132,22 @@ class GatewayKeyStore:
         except (OSError, ValueError):
             return
         loaded: dict[str, KeyRecord] = {}
+        normalized = 0
         for h, rec in (data.get("keys") or {}).items():
             try:
+                # Validate on the way IN, not only at issue time. `issue()` refuses an
+                # unsafe label, but every record written before it did — or by a hand
+                # edit, or a restored backup — bypasses that check entirely, and this
+                # tenant becomes the `x-distil-tenant` response header, where
+                # `send_header` performs no CRLF validation. Same collapse the OIDC
+                # claim path uses, so one label means one thing whichever door it came
+                # through and whenever it was written.
+                raw_tenant = str(rec["tenant"])
+                tenant = safe_tenant(raw_tenant)
+                normalized += tenant != raw_tenant
                 loaded[h] = KeyRecord(
                     id=str(rec["id"]),
-                    tenant=str(rec["tenant"]),
+                    tenant=tenant,
                     created=float(rec["created"]),
                     revoked=float(rec["revoked"]) if rec.get("revoked") is not None else None,
                     rpm=int(rec["rpm"]) if rec.get("rpm") is not None else None,
@@ -146,6 +160,19 @@ class GatewayKeyStore:
                 )
             except (KeyError, TypeError, ValueError):
                 continue  # skip corrupt entries
+        if normalized and not self._warned_normalized:
+            # Once per process, not per reload: this runs on a 2s cache TTL, so a
+            # per-load warning would be a log flood for a condition that cannot
+            # change until an operator edits the file. The store is NOT rewritten —
+            # silently editing an operator's key file to make a warning go away is
+            # how you lose the evidence of how the label got there.
+            self._warned_normalized = True
+            print(
+                f"distil gateway: {normalized} key record(s) in {self._path} carry a "
+                "tenant label that cannot be used as-is; they are being read as a "
+                "stable digest instead. Re-issue those keys to pick a valid label.",
+                file=sys.stderr,
+            )
         self._cache = loaded
 
     def _save_locked(self, cache: dict[str, KeyRecord]) -> None:

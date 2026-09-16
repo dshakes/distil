@@ -19,6 +19,7 @@ import sys
 import pytest
 
 from distil.gateway import GatewayState, _RateLimiter, build_gateway_handler
+from distil.authz import safe_tenant
 from distil.gateway_keys import GatewayKeyStore
 from distil.pricing import get as pricing_get
 
@@ -921,3 +922,98 @@ def test_issue_accepts_the_ordinary_labels(tmp_path: Path) -> None:
     for good in ("acme", "acme-eu", "acme_eu.1", "a" * 64):
         _raw, rec = store.issue(good)
         assert rec.tenant == good
+
+
+# ---------------------------------------------------------------------------
+# Tenant labels at LOAD time
+# ---------------------------------------------------------------------------
+
+
+def _write_store(path: Path, tenant: str) -> str:
+    """Hand-write a key file the way a pre-fix distil (or an operator) would."""
+    import hashlib
+
+    raw = "dsk-handwritten-key-value"
+    h = hashlib.sha256(raw.encode()).hexdigest()
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "keys": {
+                    h: {
+                        "id": "gk_deadbeef",
+                        "tenant": tenant,
+                        "created": time.time(),
+                        "expires": None,
+                        "revoked": None,
+                        "rpm": None,
+                        "daily_tokens": None,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return raw
+
+
+def test_a_persisted_crlf_tenant_is_collapsed_at_load(tmp_path: Path) -> None:
+    """issue() refuses this label, but every record written before it did — and any
+    hand edit or restored backup — walks straight past that check. The tenant then
+    becomes the x-distil-tenant response header, where send_header does no CRLF
+    validation. Validate on the way in, not only on the way out."""
+    path = tmp_path / "gateway_keys.json"
+    raw = _write_store(path, "acme\r\nX-Injected: yes")
+    store = GatewayKeyStore(path)
+
+    rec = store.lookup(raw)
+    assert rec is not None, "a key with an unsafe label must still authenticate"
+    assert rec.tenant.startswith("oidc-"), rec.tenant
+    assert "\r" not in rec.tenant and "\n" not in rec.tenant, rec.tenant
+    # Same collapse as every other door, so one label means one thing.
+    assert rec.tenant == safe_tenant("acme\r\nX-Injected: yes")
+    assert [r.tenant for r in store.list_keys()] == [rec.tenant]
+
+
+def test_a_trailing_newline_tenant_is_collapsed_at_load(tmp_path: Path) -> None:
+    """The `$`-anchor variant, persisted. Same treatment."""
+    path = tmp_path / "gateway_keys.json"
+    raw = _write_store(path, "acme\n")
+    rec = GatewayKeyStore(path).lookup(raw)
+    assert rec is not None
+    assert rec.tenant == safe_tenant("acme\n")
+
+
+def test_a_safe_persisted_tenant_is_left_exactly_alone(tmp_path: Path) -> None:
+    """The collapse must not touch the labels everyone actually uses."""
+    path = tmp_path / "gateway_keys.json"
+    raw = _write_store(path, "acme-eu.1")
+    rec = GatewayKeyStore(path).lookup(raw)
+    assert rec is not None
+    assert rec.tenant == "acme-eu.1"
+
+
+def test_the_store_file_is_not_rewritten_by_the_collapse(tmp_path: Path) -> None:
+    """Normalising on read must not edit the operator's file. Silently rewriting it
+    would destroy the evidence of how the label got there."""
+    path = tmp_path / "gateway_keys.json"
+    _write_store(path, "acme\r\nX-Injected: yes")
+    before = path.read_text(encoding="utf-8")
+    GatewayKeyStore(path).list_keys()
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_the_normalization_warning_is_printed_once_not_per_reload(
+    tmp_path: Path, capsys: Any
+) -> None:
+    """The cache reloads on a 2s TTL, so a per-load warning is a log flood for a
+    condition that cannot change until someone edits the file."""
+    path = tmp_path / "gateway_keys.json"
+    _write_store(path, "acme\r\nX-Injected: yes")
+    store = GatewayKeyStore(path)
+    for _ in range(3):
+        store._last_load = float("-inf")  # force a reload without sleeping
+        store._mtime = 0.0
+        store.list_keys()
+    err = capsys.readouterr().err
+    assert err.count("tenant label that cannot be used as-is") == 1, err
