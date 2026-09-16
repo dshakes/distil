@@ -198,10 +198,19 @@ and routed nothing. Kilo also publishes `KILO_CONFIG_CONTENT`, an environment
 variable holding config content outright, which sits above *both* files in that
 same table. `distil wrap -- kilo` uses it: no file is read, written, backed up or
 restored, nothing can shadow it, and a `kilo.jsonc` full of comments is never at
-risk of being rewritten without them. It declares both an Anthropic-shaped and an
-OpenAI-shaped provider, since one environment value cannot branch on `--upstream`
-and the proxy speaks both; pick one with `/model distil/<id>`. Your own top-level
-`model` is left alone.
+risk of being rewritten without them.
+
+What it puts in that variable is a base URL for Kilo's **built-in** `anthropic`
+and `openai` providers, and nothing else. It defines no models of its own, which
+matters more than it sounds: Kilo treats a custom model with no
+`limit.context`/`limit.output` as having limits of zero, so a hand-rolled provider
+entry would be selectable and then quietly mismanage context for the whole
+session. Overriding the built-in ids keeps Kilo's own catalogue — real models,
+real limits — and changes only the endpoint. Nothing to pick, your top-level
+`model` still untouched, and your API key never enters the environment, since the
+key variable comes from the catalogue too. The trade-off is the honest one: a
+session using some *other* provider (OpenRouter, Kilo's own, a local gateway) is
+not redirected, because those are not wire shapes distil speaks.
 
 Crush's *current* config format is a Bash script (`crushrc`), not JSON — its
 own docs call `crush.json` the deprecated predecessor, still read (lower

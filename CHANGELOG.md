@@ -40,10 +40,17 @@ All notable changes to Distil are documented here. Format loosely follows
   both, and Kilo's loader hands it straight to `loadConfig(text, …)` as config content. So
   the preset exports a config document instead: nothing read, written, backed up or
   restored, no project file able to shadow it, and a `kilo.jsonc` full of comments never
-  at risk of being rewritten without them. It declares an Anthropic-shaped and an
-  OpenAI-shaped provider, since one environment value cannot branch on `--upstream` and
-  the proxy speaks both, and it names the key's variable through `env` rather than putting
-  a credential in the environment. Your top-level `model` is left alone.
+  at risk of being rewritten without them. What goes in that variable is a base URL for
+  Kilo's **built-in** `anthropic` and `openai` providers and nothing else — it declares no
+  models of its own, because Kilo treats a custom model with no
+  `limit.context`/`limit.output` as having limits of zero, and a provider that is
+  selectable and then quietly mismanages context for a whole session is the same
+  half-working shape as a guessed variable. Overriding the built-in ids keeps Kilo's own
+  catalogue, real limits included, and changes only the endpoint: nothing to pick by hand,
+  your top-level `model` untouched, and no credential in the environment since the key
+  variable comes from the catalogue too. A session on some other provider (OpenRouter,
+  Kilo's own, a local gateway) is simply not redirected — those are not wire shapes distil
+  speaks.
 - **`distil wrap --list` (and `--json`).** Every target, its mechanism (environment
   variable / config file), the provider wire shape distil has to speak for it, the routing
   knob, and the primary doc that contract was read from with the date. The agents `wrap`

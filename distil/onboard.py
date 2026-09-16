@@ -168,14 +168,35 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
 #: above both, and packages/opencode/src/config/config.ts passes it straight to
 #: ``loadConfig(text, …)`` → ``ConfigParse.jsonc`` as config *content*, merged
 #: with ``mergeDeep``. So no file is read, written, backed up or restored, and
-#: no project-local file can shadow it. Provider fields are the documented ones
-#: from ai-providers/openai-compatible.md (``npm`` selects the protocol
-#: package, ``options.baseURL`` the endpoint, ``models`` needs ≥1 entry) — and
-#: ``env`` names the variable to read the key FROM, so unlike the config-file
-#: version this never puts a credential in the value at all. Both wire shapes
-#: are declared because one static template cannot branch on ``--upstream``;
-#: the proxy speaks both, and Kilo's own model picker chooses. As with Crush,
-#: the user's top-level ``model`` is left alone.
+#: no project-local file can shadow it.
+#:
+#: What the document *says* is the second half, and it declares NO models of its
+#: own. An earlier version defined a custom ``distil`` provider with one model
+#: carrying only a ``name`` — which ai-providers/openai-compatible.md warns
+#: against in as many words: an omitted ``limit.context``/``limit.output``
+#: "defaults to 0, which limits context management". A preset that is selected
+#: and then mismanages context is exactly the half-working shape this file
+#: exists to refuse, and inventing the numbers would have been a guess about
+#: someone else's catalogue.
+#:
+#: Overriding the BUILT-IN provider ids sidesteps the question entirely.
+#: packages/opencode/src/provider/provider.ts builds each config provider as
+#: ``options: mergeDeep(existing?.options ?? {}, provider.options ?? {})`` with
+#: ``models: existing?.models ?? {}`` — so pointing ``anthropic`` and ``openai``
+#: at the proxy keeps every catalogue model and its real limits, and only the
+#: endpoint changes. ``options.baseURL`` is what the SDK resolution reads
+#: (same file, ``provider.options?.baseURL``). ai-providers/anthropic.md
+#: documents exactly this shape, a ``provider.anthropic`` entry with no
+#: ``models`` block at all.
+#:
+#: Two further consequences, both improvements: ``env`` is left unset so it
+#: falls back to the catalogue's (``ANTHROPIC_API_KEY`` / ``OPENAI_API_KEY``),
+#: meaning no credential appears in the environment value; and because the
+#: models the user already has selected are the ones being redirected, there is
+#: no provider to pick by hand and the top-level ``model`` key is still never
+#: touched. The limitation is the flip side: a session whose model belongs to
+#: some OTHER provider (openrouter, kilocode, a local gateway) is not
+#: redirected, because distil only speaks these two wire shapes.
 AGENT_ENV_TEMPLATES: dict[str, str] = {
     "vibe": (
         '[{"name": "mistral", "api_base": "$BASE/v1", '
@@ -184,13 +205,8 @@ AGENT_ENV_TEMPLATES: dict[str, str] = {
     ),
     "kilo": (
         '{"provider": {'
-        '"distil": {"npm": "@ai-sdk/anthropic", "name": "Distil (compressed)", '
-        '"models": {"claude-opus-4-8": {"name": "Claude Opus 4.8 (via distil)"}}, '
-        '"env": ["ANTHROPIC_API_KEY"], "options": {"baseURL": "$BASE"}}, '
-        '"distil-openai": {"npm": "@ai-sdk/openai-compatible", '
-        '"name": "Distil (compressed, OpenAI-shaped)", '
-        '"models": {"gpt-5.2": {"name": "GPT-5.2 (via distil)"}}, '
-        '"env": ["OPENAI_API_KEY"], "options": {"baseURL": "$BASE/v1"}}'
+        '"anthropic": {"options": {"baseURL": "$BASE"}}, '
+        '"openai": {"options": {"baseURL": "$BASE/v1"}}'
         "}}"
     ),
 }
@@ -276,8 +292,9 @@ AGENT_META: dict[str, AgentMeta] = {
         "Anthropic Messages or OpenAI Chat Completions",
         "https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md",
         "2026-09-16",
-        "KILO_CONFIG_CONTENT takes a JSON config document, and outranks both the "
-        "global and the project kilo.json; pick the provider in Kilo's model picker",
+        "KILO_CONFIG_CONTENT takes a JSON config document, outranks both the global "
+        "and the project kilo.json, and redirects the built-in anthropic/openai "
+        "providers so your existing model selection keeps working",
     ),
 }
 

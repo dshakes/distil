@@ -325,23 +325,48 @@ def test_preset_kilo(monkeypatch, capsys):
     assert "Kilo Code CLI" in out and "KILO_CONFIG_CONTENT" in out
 
 
-def test_kilo_template_declares_both_wire_shapes_and_no_credential():
-    """One static template cannot branch on --upstream, so both provider shapes
-    are declared and Kilo's picker chooses. `env` names the variable to read the
-    key FROM — the value itself must never carry a credential, because unlike a
-    0600 config file an environment variable is visible to the whole process
-    tree."""
+def test_kilo_template_redirects_builtin_providers_and_declares_no_models():
+    """The template overrides Kilo's BUILT-IN provider ids instead of adding a
+    custom one, and that is what keeps it honest.
+
+    A custom provider must carry its own `models`, and Kilo's docs are explicit
+    that an omitted `limit.context`/`limit.output` "defaults to 0, which limits
+    context management" — so the earlier custom-provider template would have
+    been selected and then quietly mismanaged context while `wrap` reported
+    success. Kilo builds a config provider as
+    `options: mergeDeep(existing.options, provider.options)` with
+    `models: existing.models`, so redirecting `anthropic`/`openai` keeps the
+    catalogue's models and their real limits and changes only the endpoint.
+
+    Two things fall out of that: no credential is in the value, because `env`
+    falls back to the catalogue's; and nothing has to be picked by hand,
+    because the models the user already selected are the ones redirected."""
     doc = json.loads(AGENT_ENV_TEMPLATES["kilo"].replace("$BASE", "http://127.0.0.1:1234"))
-    assert set(doc["provider"]) == {"distil", "distil-openai"}
-    assert doc["provider"]["distil"]["npm"] == "@ai-sdk/anthropic"
-    assert doc["provider"]["distil"]["options"]["baseURL"] == "http://127.0.0.1:1234"
-    assert doc["provider"]["distil-openai"]["npm"] == "@ai-sdk/openai-compatible"
-    assert doc["provider"]["distil-openai"]["options"]["baseURL"] == "http://127.0.0.1:1234/v1"
-    for entry in doc["provider"].values():
-        assert entry["models"], "Kilo requires at least one model per provider"
-        assert entry["env"], "the key is read from a named variable, never inlined"
-        assert "apiKey" not in entry["options"], "no credential in an environment variable"
+    assert set(doc["provider"]) == {"anthropic", "openai"}, (
+        "must redirect built-in provider ids, not invent a custom one"
+    )
+    assert doc["provider"]["anthropic"]["options"]["baseURL"] == "http://127.0.0.1:1234"
+    assert doc["provider"]["openai"]["options"]["baseURL"] == "http://127.0.0.1:1234/v1"
+    for provider_id, entry in doc["provider"].items():
+        assert set(entry) == {"options"}, (
+            f"{provider_id}: anything beyond `options` starts replacing catalogue "
+            f"data — a `models` block would then need real limits of its own"
+        )
+        assert set(entry["options"]) == {"baseURL"}, "only the endpoint may change"
     assert "model" not in doc, "the user's own default model must not be hijacked"
+
+
+def test_no_env_template_declares_a_model_without_real_limits():
+    """A guard on the class rather than the instance: should a template ever
+    declare models for Kilo again, every one must carry non-zero context and
+    output limits. Kilo defaults both to 0 when omitted, and that does not fail
+    loudly — it silently degrades context management for the whole session."""
+    doc = json.loads(AGENT_ENV_TEMPLATES["kilo"].replace("$BASE", "http://127.0.0.1:1"))
+    for provider_id, entry in doc.get("provider", {}).items():
+        for model_id, model in (entry.get("models") or {}).items():
+            limit = model.get("limit") or {}
+            assert limit.get("context"), f"{provider_id}/{model_id}: no limit.context"
+            assert limit.get("output"), f"{provider_id}/{model_id}: no limit.output"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="subprocess env injection test")
@@ -374,7 +399,7 @@ def test_kilo_is_not_shadowed_by_a_project_local_config(tmp_path, monkeypatch):
         monkeypatch,
         "import json, os, sys\n"
         "d = json.loads(os.environ['KILO_CONFIG_CONTENT'])\n"
-        "u = d['provider']['distil']['options']['baseURL']\n"
+        "u = d['provider']['anthropic']['options']['baseURL']\n"
         "sys.exit(0 if u.startswith('http://127.0.0.1') else 1)\n",
         env_var="KILO_CONFIG_CONTENT",
         env_value_template=AGENT_ENV_TEMPLATES["kilo"],
