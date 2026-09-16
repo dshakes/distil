@@ -3,7 +3,219 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the guard the other server already had
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had
+
+Two themes, and the same shape underneath both. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
+
+1.53.0rc1 shipped the re-read delta with its contract written out in six rules, an ADR and
+a changelog entry. A read of the request path against that contract found two of the rules
+stated and not implemented, and six older defects on the paths the new transform now
+runs more of. A cross-audit of the result then found one more, introduced by this branch:
+the fix that moved the session lock's sidecar out of the user's config directory made the
+lock depend on `DISTIL_HOME`, which is to say it stopped being a lock. That is reverted
+below, litter and all, with the reasoning written down this time. Nothing here is a new capability. Each one is the difference between what
+the documentation promises and what the code does, which is the only kind of bug a soak
+cannot be relied on to surface — the shapes below are invisible under `distil wrap` on
+Claude Code, and that is the only traffic the soak has.
+
+### The freshest read the agent asked for came back as a pointer
+
+ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency
+carve-out exists at all: a re-read the agent has just issued is precisely the output it
+reasons over to choose its next action. The planner honoured it — which blocks may serve
+as bases never depended on the sliding window — and the application did not. So an agent
+that re-read a file to find out whether its edit had landed was handed
+`«distil-reread handle=…» lines 1-80 of this result are byte-identical to…` and a round
+trip through `distil_expand` to get the answer back.
+
+The gate is now where the rule always said it was: the plan is still computed from the
+prefix, and only its application consults recency. That is one line of behaviour and a
+much larger change to what the tests assert — `tests/test_reread_delta.py` had no test for
+this rule at all, and every fixture in it ended on the re-read, which is exactly the
+position the rule protects. The `distil validate` re-read cases had the same shape and
+would have gone quietly green over a transform that no longer ran; they now act on what
+they read before the payload is measured, as a real session does.
+
+**Why a week of soak could not find it.** The recency window is anchored to the client's
+last `cache_control` breakpoint, so when the client pins its newest block — Claude Code's
+shape — the window is empty and this gate is a no-op. The defect only reached clients that
+send no marker: plain SDK callers, third-party agents on `/v1/messages`, and the opening
+turns of every session before a marker lands. On the codebench corpus the unmarked row
+moves from 10.3% to 7.1% tokens, which is the number the 1.53.0 entry below already
+quotes; the marked row that bills is unchanged at 41.7% and 49.1%.
+
+### A CRLF read and an LF read of one file compared equal
+
+Rule 5 says lines carry their terminators into the comparison, and gives the reason:
+stripping them calls a CRLF read and an LF read of one file identical, so eliding the only
+LF copy while the base holds CRLF bytes makes the stub's claim of byte-identity false. The
+planner stripped them. `str.splitlines()` also folds a form feed, a next line and a line
+separator, so a form-feed-separated read matched a newline-separated one too.
+
+The application side had always sliced with `keepends=True`, so the two halves of the
+transform agreed about *which* lines by coincidence and disagreed about *what a line is*.
+They now use the same split, and the stub's claim is true of bytes rather than of
+characters. Matches get strictly rarer — a run reaching end-of-file in the target but not
+in the base gives up its last line — which is the safe direction. The exact-quote guard
+caught the consequence, but only from the turn an `Edit` with a literal `old_string`
+appeared; before that the model composed its quote from the wrong-terminator base.
+
+### A recovered block was folded back into the stub it had just escaped
+
+`distil_expand` is the recoverable half of the product: a digested block keeps a handle,
+the agent asks for the handle, and the original comes back. Over the MCP server that
+recovery arrives on the *next request* as an ordinary `tool_result` — the client ran a
+tool and reported what it returned — and the exact-quote exemption had no case for it. So
+the adapter digested it like any other tool output, and because a digest handle is
+`sha256[:8]` of the content, identical bytes produced the identical handle. The agent
+expanded `4b7055a5`, received `<< +116 lines, handle=4b7055a5 >>`, and had no move left
+that could reach the detail. Observed live.
+
+The exemption now runs before the name test, on every adapter at once, because all three
+read the same classifier: a `tool_result` whose paired `tool_use` is the expand tool is
+kept byte-exact whatever its age, under its own census bucket
+(`tool_result_expand_recovered`) so `distil dissect` prices it apart from the other two.
+Both namings are matched — the proxy injects its own tool as `distil_expand`, and Claude
+Code namespaces the MCP server's copy as `mcp__<serverkey>__distil_expand` with a key the
+user chooses, so the suffix form counts too. The proxy keeps injecting its tool when the
+MCP one is present; two routes to the same content is not a problem, and this exemption is
+what makes the second one safe. Matching on the name is the narrow version deliberately:
+the general fix compares the paired call's `input.handle` against the handle about to be
+emitted and needs no name at all, and the comment at the call site says so for the first
+client that renames the tool instead of namespacing it.
+
+### The streaming path resolved expansions and reported none
+
+`x-distil-expanded` and the receipt's `expanded_handles` were wired into the buffered
+expand loop only. The streaming splice resolves handles too — that is the whole point of
+`streamexpand`, which intercepts the call mid-stream so recoverable digest costs no
+time-to-first-token — but it reported nothing, so `quality.expand_resolved_requests` in
+`distil dissect` read **0 on every streaming session** no matter how much the agent pulled
+back, and `expansion_regret` had no handles to attribute. The feature whose entire claim
+is that it can prove recovery happened was, on the default path, unable to.
+
+Both branches now share one collection and one reporting step. The wire header cannot
+follow on the streaming path, and the reason is worth stating rather than working around:
+response headers are flushed with the first upstream frame, which is before any expand
+call exists. The receipt is written after the stream closes, and the receipt is what
+dissect reads.
+
+The same fix deletes an anomaly. "Every request took the streaming pass-through —
+`distil_expand` calls could never be intercepted" was written when the streaming path
+genuinely could not intercept; since the splice landed, its premise is false, and all it
+detected was a session where the agent never asked to expand — the ordinary healthy case,
+on which it fired every time. Narrowing it to what it means to warn about, an *escaped*
+tool call, is not possible: nothing in a receipt observes one. An unfalsifiable check is
+worse than no check, because it teaches the reader to skip the anomaly list. Restore it if
+a receipt ever records whether the expand tool was injected.
+
+### The turn a stub first appeared paid to re-bill the whole prefix
+
+`_serialize_if_changed` exists because the provider's prompt cache matches on exact bytes
+and `json.dumps` is not a byte-faithful round trip of what arrived. The streaming
+expand-intercept path built its upstream body with a bare `json.dumps` at two places, so
+the turn a digest handle first entered the conversation — flipping the request onto that
+path — re-spelled every message with `", "` separators and `\uXXXX` escapes and bought a
+full cache write for a rewrite the model cannot see. It was also the encoding
+`prefixreplay._wire` models, so `replay_restored` was being measured against bytes that
+path never sent. Both now go through the same serializer as every other request.
+
+### An 8-hex handle could resolve to another block's bytes after a restart
+
+`RestoreStore._record` refuses a handle that already maps to different text and declines
+the stub, because expanding it would return the wrong content. The on-disk store made the
+same check and then returned nothing: it kept the first writer, correctly, but the caller
+never learned, so the stub went out anyway. In the running process it expanded correctly
+from memory. After a restart, or from the MCP server in another process, it resolved to
+the other block. `mcp_server.record_restore` now reports the collision and `_record`
+declines the stub on it, which is what it already did for the in-memory half. A write that
+merely *fails* still returns true: persistence is best-effort and the session's own store
+still answers.
+
+The check itself is an exclusive create rather than `p.exists()` then write. The old form
+was check-then-act across processes, which is the only situation this guard is for: two
+proxies folding the same block could both see "absent", and on a real collision the second
+would clobber the first — the exact outcome, in the exact concurrent case, that the guard
+was added to prevent. `O_CREAT|O_EXCL` lets the filesystem pick the winner, and the loser
+finds the file already there and compares bytes instead of overwriting. It also means the
+blob is born 0600 rather than chmod-ed to it afterwards.
+
+### The restore store was re-stat'd on every handle it recorded
+
+Recording one handle sorted the whole store by mtime twice — once for the count cap, once
+for the age sweep — so at the 5,000-file cap a single handle cost up to 10,000 `stat()`
+calls. That is the `ms/turn ≈1 → ≈21` ADR 0010 attributed to the restore store, and the
+re-read delta records several handles per turn. The sweep now runs on one listing and at
+most once per 64 records. Against a 2,000-file store it falls from 16.9 ms to 0.3 ms per
+recorded handle. The trade is named where it lives: the store may sit up to 63 files above
+its cap between sweeps.
+
+**The TTL is not part of that trade, and the first version of this change made it one.**
+`DISTIL_RESTORE_TTL_DAYS` is a retention boundary for originals that can hold secrets or
+PII, not a housekeeping preference, and with the sweep amortized a store that never
+receives a 64th handle never reaches the trigger — so a quiet machine would keep every
+expired blob on disk, and keep serving them, for as long as it stayed quiet. Retention
+enforced only by a schedule that traffic can starve is not retention.
+
+So it is enforced on the read, where nothing can skip it: `load_restore` compares the
+blob's mtime against the TTL and treats an expired one as absent, unlinking it on sight
+and failing open if the unlink loses a race. The sweep keeps its counter and gains a
+second trigger — once per TTL/24 of elapsed time — so bulk expiry still happens on a
+low-traffic store without waiting for records that may never come. An expired blob also
+stops reading as a collision, so it cannot refuse a new stub for the same handle forever.
+
+### `os.replace` onto a contended path is not a permission error on Windows
+
+Every atomic write in this codebase ends the same way: write a temp file beside the
+target, fsync, swap it in with one `os.replace`. POSIX `rename` is atomic against a
+concurrent rename and against readers, so that is the whole story there. Windows'
+`MoveFileEx` has to open the destination, so two writers racing on one target fail each
+other with `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`. The Windows CI gate failed
+on exactly that, in `config_wrap`'s concurrent-writers test, and the diagnosis the error
+name invites is wrong: the condition is contention, it clears in microseconds, and by the
+time the call is reached the bytes are already written and fsync'd. Aborting throws away
+completed work over a collision that resolves itself.
+
+The retry is `_filelock.replace_retrying`, bounded at ten attempts 5ms apart, and it lives
+in `_filelock` rather than in the writer that happened to go red. That module already owns
+the primitives Windows spells differently — it exists because `fcntl` is POSIX-only and
+every call site used to drop its lock silently there — and `os.replace` is the second such
+primitive, not a `config_wrap` problem. Fixing it only where the gate failed would have
+left the gateway's per-tenant counters and the gateway key store, both of which have
+concurrent writers, broken the same way and unreported. All three atomic writers now route
+through the one helper.
+
+A `winerror` outside the contention pair still raises on the first attempt, because
+retrying a genuine permission failure only makes an accurate answer slower. The POSIX
+branch is the bare call it always was.
+
+### The lock guarding a config depended on where distil was installed
+
+The session lock exists to stop a release ("no live siblings remain, restore the
+original") from interleaving with a fresh claim ("register me, I'm writing my own
+config"). It only does that if every process wrapping one config agrees on one lock file.
+Keyed under `DISTIL_HOME` — which this changelog previously described as a tidiness fix —
+it did not: two `distil wrap` processes with different `DISTIL_HOME` values, from two
+installs or a test harness, took two different locks over the same config and serialised
+nothing. The race reopened silently, with the config the loser.
+
+The anchor is a pure function of the config path again, beside the config as a sibling of
+the registry directory it guards. A shared per-machine directory keyed by a digest would
+also be pure, and is a worse trade on three counts: `/tmp` is swept and cleared on reboot
+while the registry and backup beside the config are not, so the lock could vanish while
+the state it protects survives; `/tmp` is world-writable on Linux, and a squatted lock
+path fails `open()`, which `_filelock` fails *open* on, degrading silently to no lock at
+all; and beside the config the kernel canonicalises for free, so two processes reaching
+one config through different symlinked parents contend on the same inode without a
+`.resolve()` having to be exactly right.
+
+What this gives back is the leftover it was trying to remove: a `<config>.distil-sessions.lock`
+stays beside the user's agent config. It is accepted rather than cleaned, because it
+cannot be cleaned. Unlinking the file a waiter has already opened lets a third process
+create a fresh one and hold the "same" lock concurrently, so an
+unlink-when-the-registry-empties would trade a cosmetic problem for a correctness one. One
+empty file per wrapped config path, created once and reused forever, is the price of the
+lock working.
 
 Every fix below is the same shape: a rule distil already enforces somewhere, not enforced
 on the surface that is actually exposed. The proxy refuses a body it cannot read; the
@@ -240,7 +452,6 @@ provider: the public internet minus RFC1918, link-local and loopback, so a compr
 cannot reach the cluster, the node, or a cloud metadata service on 443. `values.yaml`
 carries an `egressTo` override and says plainly that narrowing it to your provider is the
 point.
-
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

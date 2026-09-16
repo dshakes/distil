@@ -205,7 +205,7 @@ class GatewayKeyStore:
             ) as f:
                 f.write(json.dumps(data, indent=2))
                 f.flush()
-            os.replace(tmp, self._path)
+            _filelock.replace_retrying(tmp, self._path)
             self._path.chmod(0o600)
         # Update the in-memory state so the next lookup doesn't re-read immediately.
         self._cache = cache
