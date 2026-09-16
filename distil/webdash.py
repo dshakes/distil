@@ -217,11 +217,16 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 # server to actually serve.
 _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "TF_BUILD")
 
+# A shell that runs `CI=false distil dashboard --web` (common in tool-invoked
+# scripts that pass CI through unconditionally) means "not CI" — the var is
+# SET but its value says otherwise, so presence alone is the wrong test.
+_CI_FALSY_VALUES = {"", "0", "false", "no", "off"}
+
 
 def _running_under_ci() -> bool:
     import os
 
-    return any(os.environ.get(v) for v in _CI_ENV_VARS)
+    return any(os.environ.get(v, "").strip().lower() not in _CI_FALSY_VALUES for v in _CI_ENV_VARS)
 
 
 def serve_webdash(

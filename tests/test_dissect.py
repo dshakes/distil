@@ -1274,6 +1274,51 @@ class TestTranscriptCorrelation:
         out = capsys.readouterr().out
         assert "not blocking" not in out
 
+    def test_serve_ci_false_still_serves(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`CI=false` is SET but says "not CI" — presence alone must not trip
+        the guard, the same rule as `dashboard --web`."""
+
+        called = []
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                called.append(True)
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "false")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        assert called == [True]
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
+    def test_serve_ci_true_does_not_serve(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`CI=true`/`CI=1` (a truthy, non-falsy value) must still trip the guard."""
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise AssertionError("serve_forever() must not be called under CI")
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        for value in ("true", "1"):
+            monkeypatch.setenv("CI", value)
+            assert main(["dissect", "--serve", "--port", "0"]) == 0
+            out = capsys.readouterr().out
+            assert "not blocking" in out
+
     def test_serve_foreground_blocks_until_ctrl_c(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

@@ -167,3 +167,32 @@ def test_serve_webdash_serves_when_not_a_tty_and_not_ci(tmp_path, monkeypatch):
     monkeypatch.setattr(webdash, "build_server", capture)
     webdash.serve_webdash(port=0, open_browser=False)
     assert called == [True]
+
+
+def test_serve_webdash_ci_false_still_serves(tmp_path, monkeypatch):
+    """`CI=false` is a common pattern for scripts that pass CI through
+    unconditionally — the var is SET but says "not CI", so presence alone
+    must not trip the guard."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("CI", "false")
+    real_build = webdash.build_server
+    called = []
+
+    def capture(host, port):
+        srv = real_build(host, 0)
+        monkeypatch.setattr(srv, "serve_forever", lambda: called.append(True))
+        return srv
+
+    monkeypatch.setattr(webdash, "build_server", capture)
+    webdash.serve_webdash(port=0, open_browser=False)
+    assert called == [True]
+
+
+def test_serve_webdash_ci_true_does_not_serve(tmp_path, monkeypatch, capsys):
+    """`CI=true`/`CI=1` (a truthy, non-falsy value) must still trip the guard."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    for value in ("true", "1"):
+        monkeypatch.setenv("CI", value)
+        webdash.serve_webdash(port=0, open_browser=False)
+        out = capsys.readouterr().out
+        assert "not blocking" in out
