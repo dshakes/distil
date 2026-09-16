@@ -2212,7 +2212,7 @@ def wrap_run(
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
     env_value_template: str | None = None,
-    config_ctx: Callable[[str, str], contextlib.AbstractContextManager[list[str]]] | None = None,
+    config_ctx: Callable[..., contextlib.AbstractContextManager[list[str]]] | None = None,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
 
@@ -2493,16 +2493,18 @@ def wrap_run(
         # otherwise leave a listening proxy, and in hot-swap mode an orphaned
         # worker process, behind it.
         if config_ctx is not None:
-            _config_cm = config_ctx(upstream, base)
+            _config_cm = config_ctx(upstream, base, command)
             try:
                 config_argv = _config_cm.__enter__()
-            except config_wrap.ConfigTargetBusy:
+            except config_wrap.ConfigWrapRefused:
                 # NOT swallowed, unlike every other injection failure below.
-                # Running on means running with the config another live session
-                # patched — this agent's traffic would go through THAT session's
-                # proxy and into its ledger. The in-lock recheck in
-                # `_own_config` exists precisely for the race `cmd_wrap`'s
-                # pre-check cannot close, so it has to be able to stop the wrap.
+                # Both refusals say the agent would read a DIFFERENT config
+                # than the one distil can write — another live session's, or a
+                # path the child's own flags moved — so carrying on means
+                # running unrouted, or worse, through someone else's proxy and
+                # into their ledger. `_own_config`'s in-lock recheck exists for
+                # the race cmd_wrap's pre-check cannot close, so it has to be
+                # able to stop the wrap.
                 _config_cm = None  # never entered; the finally must not exit it
                 raise
             except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap

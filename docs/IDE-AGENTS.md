@@ -184,10 +184,15 @@ never got to clean up. See `distil/config_wrap.py` for the implementation and
 > simultaneously, use `distil default --always-on`: one long-lived proxy, every
 > launch routed through it, no config patching at all.
 
-**Cline** stores its providers under `~/.cline/data/settings/providers.json`, or
-under `CLINE_DATA_DIR` if you have moved it — the preset reads that variable
-rather than assuming the default, since patching a file your CLI does not read is
-a wrap that reports success and routes nothing.
+**Cline** stores its providers under `~/.cline/data/settings/providers.json`, and
+publishes three ways to move that file, each rooted at a different depth:
+`--config` (the settings directory itself), `--data-dir` (two levels above it)
+and `CLINE_DATA_DIR` (one level above it). The preset follows whichever you used,
+because patching a file your CLI does not read is a wrap that reports success and
+routes nothing. Pass *two* of them and it refuses instead, naming both: Cline's
+own reference does not say which one wins, and distil will not guess. **Crush**
+follows `XDG_CONFIG_HOME` for the same reason, and **Continue** refuses if you
+passed your own `--config`, since its preset works by appending one.
 
 **Kilo Code** is the case that proves why that matters, and it is why it is *not*
 in this list. Its CLI does keep its providers in a config file, but Kilo's own

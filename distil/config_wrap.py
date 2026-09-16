@@ -33,6 +33,18 @@ Every preset also refuses to invent a credential: if the api-key env var it
 would embed isn't set, it prints why and leaves the tool's config untouched
 (same rule ``proxy.wrap_run``'s ``extra_env`` already follows).
 
+A preset is handed the wrapped command's argv, because several of these tools
+let the child be TOLD where its config lives — and patching the default then
+writes a real file that nobody reads. Cline takes ``--config`` (the settings
+dir itself), ``--data-dir`` (two levels above it) and ``CLINE_DATA_DIR`` (one
+level above it); Crush follows ``XDG_CONFIG_HOME``. Where exactly one of those
+is in play the preset follows it. Where several are, and the tool documents no
+precedence between them, ``ConfigPathUnresolved`` names them and the wrap
+refuses — guessing is how you patch the wrong file and still report success.
+``cn`` refuses for the mirror-image reason: it injects by appending its OWN
+``--config``, so a user who passed one would be silently overridden, or
+silently lose to it.
+
 Every write that can put a credential on disk — the real config file, and
 its ``.distil-backup`` copy of what was there before — goes through
 ``_atomic_write_secure``: 0600-at-creation (POSIX) plus a same-directory
@@ -94,9 +106,8 @@ import contextlib
 import json
 import os
 import re
-import sys
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,7 +121,7 @@ from distil import _filelock
 _MARKER_BEGIN = "# --- distil wrap: injected, restored on exit ---"
 _MARKER_END = "# --- end distil wrap ---"
 
-ApplyFn = Callable[[str, str], "contextlib.AbstractContextManager[list[str]]"]
+ApplyFn = Callable[[str, str, Sequence[str]], "contextlib.AbstractContextManager[list[str]]"]
 
 
 def _family(upstream: str) -> str:
@@ -253,7 +264,49 @@ def _pid_is_alive(pid: int) -> bool:
         return True  # couldn't ask — fail-safe, assume alive
 
 
-class ConfigTargetBusy(RuntimeError):
+class ConfigWrapRefused(RuntimeError):
+    """Config injection must not proceed, and the wrap must not run regardless.
+
+    Both subclasses share one shape: distil would otherwise write to a file the
+    child is not going to read, or fight a live session for one, and either way
+    ``wrap`` would report success while routing nothing. ``cmd_wrap`` catches
+    this base class, renders ``.render()`` exactly once, and exits non-zero.
+    """
+
+    def render(self) -> str:  # pragma: no cover - every subclass overrides it
+        raise NotImplementedError
+
+
+class ConfigPathUnresolved(ConfigWrapRefused):
+    """The child was told where its config lives, and distil cannot be sure.
+
+    An agent that accepts more than one way to relocate its config — Cline
+    takes ``--config``, ``--data-dir`` AND ``CLINE_DATA_DIR``, each rooted at a
+    different depth — publishes no precedence between them. Picking one would
+    be a guess, and a wrong guess patches a file the child never reads while
+    reporting success: exactly the Kilo shadowing bug in another costume. So
+    the combination is named and refused instead.
+    """
+
+    def __init__(self, label: str, sources: list[str]) -> None:
+        self.label = label
+        self.sources = sources
+        super().__init__(f"{label}: cannot resolve the config path from {', '.join(sources)}")
+
+    def render(self) -> str:
+        joined = "\n        ".join(self.sources)
+        return (
+            f"\n  ✗ distil wrap: {self.label} was given more than one way to locate\n"
+            f"    its configuration, and its docs do not say which one wins:\n\n"
+            f"        {joined}\n\n"
+            f"    distil will not guess — patching the wrong one would route nothing\n"
+            f"    while reporting success. Re-run with just one of them, or use the\n"
+            f"    always-on proxy, which patches no config at all:\n"
+            f"        distil default --always-on\n"
+        )
+
+
+class ConfigTargetBusy(ConfigWrapRefused):
     """Another *live* ``distil wrap`` session already owns this config file.
 
     Concurrent wraps of the same config-file target cannot be made to work by
@@ -280,6 +333,9 @@ class ConfigTargetBusy(RuntimeError):
         self.path = path
         self.pid = pid
         super().__init__(f"{path} is already owned by a live distil wrap (pid {pid})")
+
+    def render(self) -> str:
+        return busy_message(self.path, self.pid)
 
 
 def _registry_dir(path: Path) -> Path:
@@ -318,7 +374,7 @@ def _live_holder(registry_dir: Path) -> int | None:
     return None
 
 
-def busy_holder(preset: ConfigPreset) -> tuple[Path, int] | None:
+def busy_holder(preset: ConfigPreset, argv: Sequence[str] = ()) -> tuple[Path, int] | None:
     """``(path, pid)`` if a live wrap already owns one of this preset's config
     files, else ``None``. Used by ``cmd_wrap`` to refuse a second concurrent
     wrap of the same target cleanly — before a proxy is started or a byte is
@@ -326,7 +382,7 @@ def busy_holder(preset: ConfigPreset) -> tuple[Path, int] | None:
     advisory (a sibling could start in the gap) costs correctness nothing; it
     just makes the common case a tidy exit instead of an aborted injection.
     """
-    for path in preset.paths():
+    for path in preset.paths(argv):
         with _session_lock(path):
             pid = _live_holder(_registry_dir(path))
         if pid is not None:
@@ -337,7 +393,12 @@ def busy_holder(preset: ConfigPreset) -> tuple[Path, int] | None:
 def busy_message(path: Path, pid: int) -> str:
     """What to tell someone whose second wrap was refused. Names the holder,
     and leads with the thing that actually solves their problem rather than
-    with the refusal."""
+    with the refusal.
+
+    Rendered in exactly one place — ``cli.cmd_wrap``, for both the pre-check
+    and the ``ConfigTargetBusy`` it may catch out of ``wrap_run``. Nothing
+    inside this module prints it; the exception carries the path and the pid so
+    the caller decides how (and whether) to show them."""
     return (
         f"\n  ✗ distil wrap: {path} is already being managed by a live\n"
         f"    distil wrap session (pid {pid}). A config file can only name one\n"
@@ -453,7 +514,10 @@ def _own_config(path: Path, render: Callable[[bytes | None], bytes]) -> Iterator
         # for why sharing one config between two sessions cannot be made to work.
         holder = _live_holder(_registry_dir(path))
         if holder is not None:
-            print(busy_message(path, holder), file=sys.stderr)
+            # Raise, never print. The exception already carries the path and
+            # the pid, and ``cmd_wrap`` is the single place that renders
+            # ``busy_message`` — for its own pre-check and for this. Printing
+            # here as well showed the user the same seven-line refusal twice.
             raise ConfigTargetBusy(path, holder)
         registry_dir, my_id = _claim_session(path)
         current = path.read_bytes() if path.exists() else None
@@ -485,7 +549,7 @@ class ConfigPreset:
     apply: ApplyFn
     #: Stable paths this preset ever writes to directly (not temp files) —
     #: swept by restore_stale_backups() for crash recovery. Empty for "flag".
-    paths: Callable[[], list[Path]]
+    paths: Callable[[Sequence[str]], list[Path]]
     #: Doc metadata, joined with AGENT_PRESETS' in ``targets.catalog()``: the
     #: wire shape the proxy must speak for this target, and the config key the
     #: preset writes. Both are printed by ``distil wrap --list`` and rendered
@@ -517,7 +581,16 @@ class ConfigPreset:
 
 
 @contextlib.contextmanager
-def _continue_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _continue_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
+    # This preset works by APPENDING its own `--config <temp>`. If the user
+    # already passed one, distil would be overriding the configuration they
+    # explicitly chose — and which of the two `cn` honours is not documented,
+    # so it is equally possible distil's is ignored and the wrap routes
+    # nothing. Refuse and say so rather than silently win or silently lose.
+    if _flag_value(argv, "--config") is not None:
+        raise ConfigPathUnresolved(
+            "Continue", ["your own --config", "the session config distil would pass"]
+        )
     family = _family(upstream)
     provider, model, key_var = (
         ("anthropic", "claude-opus-4-8", "ANTHROPIC_API_KEY")
@@ -575,7 +648,7 @@ def _factory_settings_path() -> Path:
 
 
 @contextlib.contextmanager
-def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _droid_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     if _family(upstream) != "openai":
         print(
             "  ⚠ Factory Droid: only the OpenAI-compatible provider type "
@@ -702,7 +775,7 @@ def _omp_patch(text: str | None, fenced: str) -> str:
 
 
 @contextlib.contextmanager
-def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _omp_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     family = _family(upstream)
     key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
     api_key = os.environ.get(key_var, "")
@@ -750,11 +823,24 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
 
 
 def _crush_config_path() -> Path:
-    return Path.home() / ".config" / "crush" / "crush.json"
+    """Crush "respects the XDG Base Directory Specification, so your paths may
+    differ depending on your ``XDG_CONFIG_HOME`` value" (its own README,
+    verified 2026-09-16) — so that variable is read rather than assumed. The
+    same class of bug as Cline's ``--data-dir``: patch ``~/.config`` while the
+    child reads ``$XDG_CONFIG_HOME`` and the wrap routes nothing while
+    reporting success.
+
+    Crush has no flag that relocates its config, so there is nothing in argv to
+    consult. Its project-local ``./crushrc`` DOES outrank this file, but that
+    is a shell script distil deliberately does not splice; see the preset's
+    note above."""
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(xdg) if xdg else Path.home() / ".config"
+    return root / "crush" / "crush.json"
 
 
 @contextlib.contextmanager
-def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _crush_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     family = _family(upstream)
     key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
     api_key = os.environ.get(key_var, "")
@@ -834,18 +920,69 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def _cline_providers_path() -> Path:
-    """``CLINE_DATA_DIR`` replaces ``~/.cline/data`` wholesale (per the CLI
-    reference's environment-variable table), so it is read here rather than
-    assumed — a user who moved their data dir would otherwise get a patch
-    written to a file their CLI never reads, and `wrap` would report success
-    while routing nothing."""
-    data_dir = os.environ.get("CLINE_DATA_DIR") or str(Path.home() / ".cline" / "data")
-    return Path(data_dir) / "settings" / "providers.json"
+def _flag_value(argv: Sequence[str], flag: str) -> str | None:
+    """The value of ``--flag value`` or ``--flag=value`` in ``argv``, last
+    occurrence winning (the near-universal CLI convention, and the safe choice
+    either way: if the tool took the FIRST one we would merely refuse a
+    combination we could have handled, never patch the wrong file).
+
+    Stops at a bare ``--``: everything after it is the agent's own payload, not
+    flags distil gets to interpret.
+    """
+    found: str | None = None
+    for i, arg in enumerate(argv):
+        if arg == "--":
+            break
+        if arg == flag:
+            if i + 1 < len(argv):
+                found = argv[i + 1]
+        elif arg.startswith(flag + "="):
+            found = arg[len(flag) + 1 :]
+    return found
+
+
+def _cline_providers_path(argv: Sequence[str] = ()) -> Path:
+    """Where THIS invocation of Cline will read its providers from.
+
+    Cline publishes three different ways to move that file, each rooted at a
+    different depth (docs.cline.bot/cli/cli-reference, verified 2026-09-16):
+
+      ``--config <path>``     the settings directory itself, default
+                              ``~/.cline/data/settings``
+      ``--data-dir <path>``   "isolated local state", default ``~/.cline``
+      ``CLINE_DATA_DIR``      "replaces ``~/.cline/data/``"
+
+    Patching the default while the child was told to read somewhere else is the
+    failure this whole module exists to prevent, so all three are honoured. The
+    reference does NOT document what happens when more than one is given, and
+    they do not nest predictably — so that combination raises
+    ``ConfigPathUnresolved`` rather than picking a winner.
+    """
+    config_dir = _flag_value(argv, "--config")
+    data_dir_flag = _flag_value(argv, "--data-dir")
+    data_dir_env = os.environ.get("CLINE_DATA_DIR") or None
+
+    given = [
+        (f"--config {config_dir}", lambda: Path(config_dir or "")),
+        (f"--data-dir {data_dir_flag}", lambda: Path(data_dir_flag or "") / "data" / "settings"),
+        (f"CLINE_DATA_DIR={data_dir_env}", lambda: Path(data_dir_env or "") / "settings"),
+    ]
+    supplied = [
+        (label, resolve)
+        for (label, resolve), value in zip(
+            given, (config_dir, data_dir_flag, data_dir_env), strict=True
+        )
+        if value
+    ]
+    if len(supplied) > 1:
+        raise ConfigPathUnresolved("Cline", [label for label, _ in supplied])
+    if supplied:
+        return supplied[0][1]() / "providers.json"
+    return Path.home() / ".cline" / "data" / "settings" / "providers.json"
 
 
 @contextlib.contextmanager
-def _cline_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _cline_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     family = _family(upstream)
     key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
     api_key = os.environ.get(key_var, "")
@@ -857,7 +994,7 @@ def _cline_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
         return
 
-    path = _cline_providers_path()
+    path = _cline_providers_path(argv)
     provider, protocol, client = (
         ("anthropic", "anthropic", "anthropic")
         if family == "anthropic"
@@ -911,7 +1048,7 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://docs.continue.dev/cli/configuration",
         verified="2026-09-06",
         apply=_continue_apply,
-        paths=lambda: [],  # temp file only — nothing stable to sweep
+        paths=lambda argv: [],  # temp file only — nothing stable to sweep
         shape="Anthropic Messages or OpenAI Chat Completions",
         knob="config.yaml → models[].apiBase (via --config)",
     ),
@@ -921,7 +1058,7 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://docs.factory.ai/model-independence/byok",
         verified="2026-09-06",
         apply=_droid_apply,
-        paths=lambda: [_factory_settings_path()],
+        paths=lambda argv: [_factory_settings_path()],
         shape="OpenAI Chat Completions",
         knob="settings.local.json → customModels[].baseUrl",
         # _droid_apply hard-requires an OpenAI-shaped upstream (only
@@ -936,7 +1073,7 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://github.com/omnara-ai/omp",
         verified="2026-09-06",
         apply=_omp_apply,
-        paths=lambda: [_omp_models_path()],
+        paths=lambda argv: [_omp_models_path()],
         shape="Anthropic Messages or OpenAI Chat Completions",
         knob="models.yml → baseUrl",
     ),
@@ -946,7 +1083,7 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://github.com/charmbracelet/crush/blob/main/docs/config/README.md",
         verified="2026-09-07",
         apply=_crush_apply,
-        paths=lambda: [_crush_config_path()],
+        paths=lambda argv: [_crush_config_path()],
         shape="Anthropic Messages or OpenAI Chat Completions",
         knob="crush.json → providers.<id>.base_url",
     ),
@@ -956,7 +1093,7 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://docs.cline.bot/cli/cli-reference",
         verified="2026-09-16",
         apply=_cline_apply,
-        paths=lambda: [_cline_providers_path()],
+        paths=lambda argv: [_cline_providers_path(argv)],
         shape="Anthropic Messages or OpenAI Chat Completions",
         knob="providers.json → providers.<id>.settings.baseUrl",
     ),
@@ -969,13 +1106,19 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
 }
 
 
-def restore_stale_backups() -> None:
+def restore_stale_backups(argv: Sequence[str] = ()) -> None:
     """Crash recovery: call once at the top of every `distil wrap`. If a
     prior wrap died before its `finally` ran (SIGKILL, power loss, `kill -9`),
     the backup or the created-sentinel is still sitting next to the real
     file — put it back (or delete what we created) so the tool sees the same
     state it started in. Fail-open and silent on success; this must never
     block a wrap that has nothing to do with a previous one.
+
+    ``argv`` is this wrap's command, so a target whose config path depends on
+    the child's own flags (Cline's ``--config``/``--data-dir``) is swept at the
+    path THIS invocation would use as well as at its default. A crash under
+    flags nobody repeats is still not swept — nothing knows where to look — but
+    re-running the same command now cleans up after the last one.
 
     A backup/sentinel next to a target isn't proof of a crash by itself — a
     still-running sibling `distil wrap` session on the SAME config keeps its
@@ -999,7 +1142,16 @@ def restore_stale_backups() -> None:
     an unexpected error — must not be able to stop the wrap from running.
     """
     for preset in CONFIG_PRESETS.values():
-        for path in preset.paths():
+        paths = []
+        for candidate_argv in ((), argv) if argv else ((),):
+            try:
+                paths.extend(preset.paths(candidate_argv))
+            except ConfigWrapRefused:
+                # An argv distil refuses to resolve (Cline given two conflicting
+                # location flags) still must not stop the default sweep, and
+                # cmd_wrap will refuse the wrap itself a moment later anyway.
+                pass
+        for path in dict.fromkeys(paths):
             try:
                 _restore_one(path)
             except Exception:  # noqa: BLE001 — old cleanup must never block a new wrap

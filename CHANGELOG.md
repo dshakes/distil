@@ -58,6 +58,19 @@ All notable changes to Distil are documented here. Format loosely follows
 
 ### Changed
 
+- **Config-file presets follow the path the child was actually told to use.** A preset now
+  receives the wrapped command's argv, because several of these tools let you move their
+  config, and patching the default then writes a real file nobody reads — `wrap` reporting
+  success while routing nothing, the same shape as the Kilo shadowing bug. The Cline CLI
+  publishes three such knobs at three different depths: `--config` (the settings directory
+  itself), `--data-dir` (two levels above it) and `CLINE_DATA_DIR` (one level above it).
+  Each is honoured on its own. When more than one is given, Cline's reference documents no
+  precedence between them, so distil names them and refuses rather than guessing. Crush
+  follows `XDG_CONFIG_HOME` for the same reason. The Continue CLI refuses the mirror-image
+  case: its preset injects by appending its *own* `--config`, so a user who passed one
+  would be silently overridden, or silently lose to it. Crash recovery sweeps the flagged
+  path too, so re-running the same command cleans up after a `kill -9` under those flags.
+  Factory Droid and Oh My Pi publish no relocation knob, so there was nothing to follow.
 - **A second `distil wrap` of the same config-file agent is refused, not silently fought
   over.** The per-session registry made the shared *backup* safe — whose bytes to restore
   and which session restores them — and that had been mistaken for making concurrency

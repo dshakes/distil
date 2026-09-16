@@ -3032,7 +3032,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     # unconditionally — it may belong to a different tool than the one being
     # wrapped right now. `config_preset` itself was already resolved above,
     # where its default upstream (if any) needed to take effect.
-    config_wrap.restore_stale_backups()
+    config_wrap.restore_stale_backups(command)
     if config_preset is not None:
         # A config file can only name one proxy, and two live wraps need two
         # ports — so a second concurrent wrap of the same target is refused
@@ -3040,7 +3040,16 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         # silently repointing the first session's agent at this one's proxy.
         # (restore_stale_backups above has already reaped any dead session's
         # registry, so only a genuinely running pid can block this.)
-        _busy = config_wrap.busy_holder(config_preset)
+        #
+        # `command` is passed because the child's own flags can move the file
+        # it reads — Cline takes --config and --data-dir — and resolving that
+        # can itself refuse, when the agent accepts several relocation knobs
+        # and documents no precedence between them.
+        try:
+            _busy = config_wrap.busy_holder(config_preset, command)
+        except config_wrap.ConfigWrapRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            return 1
         if _busy is not None:
             print(config_wrap.busy_message(*_busy), file=sys.stderr)
             return 1
@@ -3071,13 +3080,15 @@ def cmd_wrap(args: argparse.Namespace) -> int:
             env_value_template=env_value_template,
             config_ctx=config_preset.apply if config_preset is not None else None,
         )
-    except config_wrap.ConfigTargetBusy as busy:
+    except config_wrap.ConfigWrapRefused as refused:
         # The pre-check above is advisory: a sibling wrap can claim the config
         # in the gap between it and the claim inside `_own_config`. That
         # in-lock recheck is the authoritative one, and this is where its
         # refusal lands — same message, same exit code, and wrap_run has
-        # already torn its proxy down and launched no child.
-        print(config_wrap.busy_message(busy.path, busy.pid), file=sys.stderr)
+        # already torn its proxy down and launched no child. A preset that
+        # only discovers at apply time that it cannot place its config (the
+        # Continue `--config` clash) arrives here too.
+        print(refused.render(), file=sys.stderr)
         return 1
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can

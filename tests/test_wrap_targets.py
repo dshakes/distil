@@ -440,7 +440,7 @@ def test_continue_extension_is_still_warned_about(monkeypatch, capsys):
 def test_the_continue_cli_is_not_warned_about(monkeypatch, capsys):
     from distil.cli import cmd_wrap
 
-    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
     _mock_wrap_run(monkeypatch)
     assert cmd_wrap(_ns(command=["cn"])) == 0
     assert "route NOTHING" not in capsys.readouterr().err
