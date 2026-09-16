@@ -47,6 +47,14 @@ not get a cosmetic one — aiohttp parses framing itself rather than leaving the
 the handler, and a direct attempt to desync it returned no response at all instead of
 parsing the trailing bytes as a request line.
 
+A second pass found the rule was still not universal: the two rate-limit 429s in the
+gateway's auth path wrote themselves through `_relay` directly, so "every rejection closes"
+was true of every rejection that went through `_reject` and false of the ones that did not
+— on the path that by construction is being hit repeatedly. `_reject` now takes the extra
+headers a 429 needs (`Retry-After`), and all four 429s go through it. That is the actual
+lesson of this release stated once more: the rule is only as good as the number of call
+sites that can skip it.
+
 ### Configuring an identity provider did not turn on authentication
 
 The gateway decided whether to require a credential before it decided what could serve as

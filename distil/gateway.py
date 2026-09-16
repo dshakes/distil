@@ -974,13 +974,7 @@ def build_gateway_handler(
                             auth="oidc",
                             remote=self.client_address[0] if self.client_address else None,
                         )
-                        body = json.dumps({"error": "rate limit exceeded"}).encode()
-                        self._relay(
-                            429,
-                            {"Content-Type": "application/json"},
-                            body,
-                            {"Retry-After": "60"},
-                        )
+                        self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                         return ("", "")
                     # Strip the bearer so the upstream never sees our IdP token.
                     return (ident.tenant, "authorization")
@@ -1018,8 +1012,7 @@ def build_gateway_handler(
                     limit_rpm=rpm_limit,
                     remote=self.client_address[0] if self.client_address else None,
                 )
-                body = json.dumps({"error": "rate limit exceeded"}).encode()
-                self._relay(429, {"Content-Type": "application/json"}, body, {"Retry-After": "60"})
+                self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                 return ("", "")
 
             # Per-key daily quota override, resolved HERE (the only place with the
@@ -1205,8 +1198,7 @@ def build_gateway_handler(
                 limit_daily_tokens=limit,
                 remote=self.client_address[0] if self.client_address else None,
             )
-            body_err = json.dumps({"error": "daily token quota exceeded"}).encode()
-            self._relay(429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"})
+            self._reject(429, "daily token quota exceeded", {"Retry-After": "60"})
             return False
 
         def _handle_compressible(
@@ -1240,10 +1232,7 @@ def build_gateway_handler(
                     limit_rpm=default_rpm,
                     remote=self.client_address[0] if self.client_address else None,
                 )
-                body_err = json.dumps({"error": "rate limit exceeded"}).encode()
-                self._relay(
-                    429, {"Content-Type": "application/json"}, body_err, {"Retry-After": "60"}
-                )
+                self._reject(429, "rate limit exceeded", {"Retry-After": "60"})
                 return
 
             try:
@@ -1440,7 +1429,7 @@ def build_gateway_handler(
                 return None
             return self.rfile.read(length) if length else b""
 
-        def _reject(self, code: int, message: str) -> None:
+        def _reject(self, code: int, message: str, extras: dict[str, str] | None = None) -> None:
             # Close the connection on EVERY rejection. All of them answer from the
             # headers alone, before _read_body runs, so whatever body the client
             # already sent is still queued on the socket; on a keep-alive HTTP/1.1
@@ -1449,9 +1438,15 @@ def build_gateway_handler(
             # a 413, a 400 on the path, and every auth 401/403/429 leave exactly the
             # same undrained body behind. One close here covers every caller, and
             # the cost on an error path is one reconnect.
+            #
+            # *extras* exists so the rate-limit paths can keep their Retry-After and
+            # still come through here. The 429s used to call _relay directly, which
+            # is exactly how two of them kept the connection alive after this rule
+            # was written: an error path that bypasses the one function holding the
+            # rule does not get the rule.
             self.close_connection = True
             body = json.dumps({"error": message}).encode()
-            self._relay(code, {"Content-Type": "application/json"}, body)
+            self._relay(code, {"Content-Type": "application/json"}, body, extras)
 
         def _client_headers(self, also_strip: str | None = None) -> dict[str, str]:
             """Client headers with hop-by-hop stripped.

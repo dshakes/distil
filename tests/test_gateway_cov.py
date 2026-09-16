@@ -586,6 +586,51 @@ def test_oversized_content_length_cannot_smuggle_a_second_request(gw: Any) -> No
     assert b"status" not in raw, raw
 
 
+def test_rate_limited_429_cannot_smuggle_a_second_request(tmp_path: Any, monkeypatch: Any) -> None:
+    """The third door into the same desync: the RPM 429 in _check_inbound_auth.
+
+    It fires before _read_body like every other rejection, but it used to write
+    itself through _relay instead of _reject — so it kept the connection alive
+    and left the body queued, on the one path that by definition is being hit
+    repeatedly. Exhaust a per-key limit of 1, then send body + trailing GET.
+    """
+    from distil.gateway_keys import GatewayKeyStore
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    store = GatewayKeyStore()
+    raw_key, _rec = store.issue(tenant="acme", rpm=1)
+
+    upstream = _start(_EchoHandler)
+    srv, _state = _make_gateway(upstream.server_address[1], key_store=store, require_keys=True)
+    port = srv.server_address[1]
+    try:
+        body = b'{"model":"claude-opus-4-8","messages":[]}'
+        head = (
+            b"POST /v1/messages HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Type: application/json\r\n"
+            b"x-distil-key: " + raw_key.encode() + b"\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n"
+        )
+        # Burn the single allowed request for this tenant.
+        first = _raw_exchange(port, head + body)
+        assert not first.startswith(b"HTTP/1.1 429 "), first[:80]
+
+        # Now the limit is spent: this one is rejected on headers alone.
+        raw = _raw_exchange(
+            port,
+            head + body + b"GET /distil/health HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+    finally:
+        srv.shutdown()
+        upstream.shutdown()
+
+    assert raw.startswith(b"HTTP/1.1 429 "), raw[:80]
+    assert b"Retry-After: 60" in raw, raw[:400]  # the header survived the move to _reject
+    _head, _, payload = raw.partition(b"\r\n\r\n")
+    assert payload == b'{"error": "rate limit exceeded"}', payload
+    assert b'"status"' not in raw, raw  # the smuggled health GET was never served
+
+
 def test_passthrough_verbs_refuse_a_chunked_body_too(gw: Any) -> None:
     """The guard lives in _read_body, so every verb gets it, not just POST."""
     gw_port, _state = gw
