@@ -127,6 +127,10 @@ class Report:
     #: `actions`. Counted separately so "no findings" never hides "half the window
     #: could not be assessed".
     sessions_without_detail: int = 0
+    #: Sessions the detail-based detectors actually read (``len(w.ds)``). Zero
+    #: means no detector ran at all — distinct from "ran and found nothing" —
+    #: so `render_text` never lets a ledger-only window read as an all-clear.
+    detectors_assessed_sessions: int = 0
     requests: int = 0
     days: float = 0.0
     notional: bool = False  # any flat-rate session in the window -> dollars are notional
@@ -165,6 +169,7 @@ class Report:
                 "sessions": self.sessions,
                 "sessions_without_traffic": self.sessions_without_traffic,
                 "sessions_without_detail": self.sessions_without_detail,
+                "detectors_assessed_sessions": self.detectors_assessed_sessions,
                 "requests": self.requests,
                 "days": round(self.days, 2),
                 "notional_dollars": self.notional,
@@ -640,6 +645,7 @@ def scan(*, sessions: int = 20, since_days: float | None = None) -> Report:
         sessions=len(scoreable),
         sessions_without_traffic=w.sessions_without_traffic,
         sessions_without_detail=len(w.ledger_only),
+        detectors_assessed_sessions=len(w.ds),
         requests=w.requests,
         days=w.days,
         notional=any(d.billing == "subscription" for d in scoreable),
@@ -708,12 +714,22 @@ def render_text(r: Report, *, color: bool = True) -> str:
 
     out.append("")
     if not r.actions:
-        out.append(c("1", "nothing to recommend"))
-        out.append(
-            "  No detector fired on this window: your fixed overhead, cache prefix, "
-            "re-fold churn\n  and system prompt are all within range. That is the "
-            "result, not a failure to look."
-        )
+        if r.detectors_assessed_sessions:
+            out.append(c("1", "nothing to recommend"))
+            out.append(
+                "  No detector fired on this window: your fixed overhead, cache prefix, "
+                "re-fold churn\n  and system prompt are all within range. That is the "
+                "result, not a failure to look."
+            )
+        else:
+            # No detector ran at all — every session in the window is ledger-only.
+            # Falling through to "nothing to recommend" here would claim an
+            # all-clear for a window nothing actually checked.
+            out.append(c("1", "no actions assessed"))
+            out.append(
+                f"  actions need per-request detail; none of these {r.sessions_without_detail} "
+                "session(s) carries it\n  (written by distil >= 1.15)."
+            )
         return "\n".join(out)
 
     money = ""

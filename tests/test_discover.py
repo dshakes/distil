@@ -791,6 +791,7 @@ class TestJsonSchema:
             "sessions",
             "sessions_without_traffic",
             "sessions_without_detail",
+            "detectors_assessed_sessions",
             "requests",
             "days",
             "notional_dollars",
@@ -909,6 +910,40 @@ class TestSessionsWithoutDetail:
         assert "1 older session(s) lack per-request detail" in out
         assert "savings counted, actions not assessed for them" in out
         assert "typical" in out  # the median/best line still renders
+
+    def test_json_reports_zero_assessed_sessions_when_the_window_is_ledger_only(
+        self, home: Path
+    ) -> None:
+        _seed_legacy(home)
+        d = dv.scan().to_dict()
+        assert d["window"]["detectors_assessed_sessions"] == 0
+
+    def test_text_does_not_claim_an_all_clear_when_no_detector_ran(self, home: Path) -> None:
+        """A window with only ledger-only sessions never reached a single detector —
+        "nothing to recommend" there would misreport an unchecked window as a
+        checked, clean one."""
+        _seed_legacy(home)
+        out = dv.render_text(dv.scan(), color=False)
+        assert "nothing to recommend" not in out
+        assert "within range" not in out
+        assert "no actions assessed" in out
+        assert "actions need per-request detail" in out
+        assert "none of these 1 session(s) carries it" in out
+
+    def test_mixed_window_all_clear_still_allowed_when_a_detector_actually_ran(
+        self, home: Path
+    ) -> None:
+        """sC has full detail and fires no detector; sLegacy is ledger-only. The
+        window as a whole DID get assessed (by sC), so the ordinary all-clear text
+        is the correct read here — unlike the ledger-only-only case above."""
+        _seed_c(home)
+        _seed_legacy(home)
+        r = dv.scan()
+        assert r.actions == []
+        assert r.detectors_assessed_sessions == 1
+        out = dv.render_text(r, color=False)
+        assert "nothing to recommend" in out
+        assert "no actions assessed" not in out
 
 
 class TestCli:
