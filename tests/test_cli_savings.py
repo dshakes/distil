@@ -212,14 +212,15 @@ class TestCmdLeaderboard:
         parsed = json.loads(capsys.readouterr().out)
         assert parsed["runs"] == 0
 
-    def test_eq_suppressed_below_25_samples(self, tmp_path, monkeypatch, capsys):
-        """Shadow ledger with < 25 samples must NOT show a decision-equivalence rate."""
-        from distil.shadow import ShadowLedger
+    def test_eq_suppressed_below_reporting_floor(self, tmp_path, monkeypatch, capsys):
+        """Below the shared floor, no decision-equivalence rate is shown."""
+        from distil.shadow import VERDICT_MIN_AB, ShadowLedger
 
         monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
         monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
 
-        # 5 samples — below the 25-sample floor cmd_leaderboard enforces
+        # 5 samples — below the VERDICT_MIN_AB floor cmd_leaderboard enforces
+        assert 5 < VERDICT_MIN_AB
         led = ShadowLedger()
         for eq in [True, True, True, False, True]:
             led.record(eq)

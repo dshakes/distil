@@ -1,0 +1,19 @@
+corpus gate — 9 trajectories | model claude-opus-4-8 | tokenizer=heuristic
+
+domain            trajectory                $ saved   distil   aggr  pruned
+---------------------------------------------------------------------------
+ops/sre           sre-disk-incident           32.8%     PASS   FAIL     615
+coding            coding-bugfix               25.5%     PASS   FAIL     736
+support           support-refund              32.6%     PASS   FAIL     765
+research          research-synthesis          25.7%     PASS   FAIL     809
+data-analysis     data-analysis-sql           18.1%     PASS   FAIL     965
+devops            devops-rollback             22.8%     PASS   FAIL     857
+finance           finance-reconcile           24.9%     PASS   FAIL    1014
+web-research      web-research                89.8%     PASS   FAIL     428
+agent-worklog     agent-worklog               35.3%     PASS   FAIL     891
+---------------------------------------------------------------------------
+
+aggregate: distil cuts $0.24052 -> $0.12400 (48.4% cheaper) reversibly; 7080 tokens causally prunable.
+verdict-retention: PASS — test/build verdicts survive digestion.
+
+GATE: PASS — every trajectory certified non-inferior; aggressive rejected on all.

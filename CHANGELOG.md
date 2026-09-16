@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact
 
 Two themes, and the same shape underneath both. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -491,6 +491,160 @@ same rule.
   the proxy route it already covered.
 - The Helm chart's default port matched `distil proxy`, not the `distil gateway` it
   actually deploys — fixed in `values.yaml`, chart version bumped to 0.1.2.
+
+### Fixed — numbers the artifacts did not support
+
+The site said `✓eq 99.5%` in the hero terminal, under a caption reading *"Real,
+reproducible output."* It was not output. `distil/cli.py` prints that check glyph only at
+`eq >= 0.99`, and only past the 50 A/B + 30 A/A reporting floor, and the maintainer's own
+traffic had never cleared it. The same invented verdict appeared a second time in the trust
+card on the same page, and twice more in `plugins/distil/README.md` with a sample size
+(`1.2k`) about three times the real one. All four now show the reading the estimator
+actually produced on 2026-09-15: **97.5%** with a 95% CI of [95.5, 99.5] over n=398 A/B and
+399 A/A, paired difference −0.025 [−0.045, −0.005], digest and lossless-only mixed. That is
+under 99%, so every surface shows the warning glyph, not a check. Replays run hot — 399 of
+399, temperature not pinned — so the paired difference is the statistic and raw agreement
+reads 53.0%; the artifact says so in its own header. The sample now clears the floor, so
+the four places that said *"the current live sample is below that floor"* say what it is
+instead. Artifact: `benchmarks/results/shadow-live-2026-09-15.json`. The 2026-09-04 reading
+(44 A/B, below the floor, unpaired estimator) stays committed as the evidence for the
+1.13.0 withdrawal.
+
+`docs/benchmark.html`'s certified-frontier block read **52.3%** for the lossless rung. The
+log it is presented from, `docs/paper/results/derc_live_compare.2026-07-05.log`, says
+**47.9%**. Every other row in that block matched the log exactly, which is why nothing
+noticed a single drifted digit pair inside an otherwise faithful transcript. Fixed to 47.9%.
+
+The July head-to-head — 83.2% savings at 0% decision-change, LLMLingua-2 53.1% flipping
+1-in-8, Headroom 39.7% — is real and reproduces from its log, but it was the *undated*
+headline on nine surfaces while the competitor it names had shipped ten minor versions. It
+is now dated inline everywhere it appears: **2026-07-05, distil 1.10.1 vs llmlingua 0.2.2
+and headroom-ai 0.27.0**. Beside it, the 2026-09-04 re-run against **headroom-ai 0.37.0**:
+distil-causal 52.9% tokens / 58.7% dollars at 100% decision-equivalence (PASS) against
+Headroom's 1.7% / 2.0% / 81% (FAIL) on the warm corpus gate, and 35.6% tokens for +4.9%
+dollars on the read→edit→re-read codebench workload. The **"2.1× less aggressive"** ratio was
+removed from every page rather than re-dated: it is 83.2/39.7 from the old run, and it does
+not survive the re-run in either direction. The ledger no longer marks the identical claim
+`verified` on one page and `stale` on two others.
+
+The adoption page's trust ring printed a capped value as a measurement. `distil/census.py`
+sends `round(min(100, pct))` because the collector rejects anything above 100, and the
+paired estimate genuinely can exceed 100% when compression agrees more often than the model
+agrees with itself. The cap cannot hide harm — the difference is bounded below, so only the
+upper bound can bind — but an unlabelled `100%` is the one number shape this project exists
+to criticise. The ring now prints **100% (capped)** and says why in the caption beneath it.
+The label is a word rather than a `≥`, because a rate printed above 100% reads as broken to
+anyone not holding the paired estimator in their head. The wire format is unchanged.
+
+### Fixed — a claim whose artifact directory was empty
+
+`docs/claims.json` cited `benchmarks/results/2026-09-06/` for the re-read delta's
+31.4%→41.7% headline. That directory held one README and no artifact: `benchmarks/.gitignore`
+ignores `*.out`, the 2026-09-04 batch was force-added, and this one was not. The run was
+repeated on 2026-09-15 with the README's exact commands and the outputs are force-added now.
+
+The headline pair reproduced exactly: **31.4% → 41.7%** tokens and **35.8% → 49.1%** dollars
+under the client shape that bills. Two secondary figures did not, because "after" is now
+`main` at 1.53.0rc1 rather than the `feat/reread-delta` branch, and the site takes the
+re-run: the **unmarked** client shape reads **+12.2%** dollars, not −15.4%, because
+forwarded-bytes prefix replay stops charging it for a prefix it never cached; and
+`distil validate` reads **175/175 over 25 cases**, not 150/150. `distil bench` is
+byte-identical before and after, as the README claimed. The results README names both
+superseded values rather than overwriting them.
+
+### Changed — the claims gate reads artifacts and scans pages
+
+`docs/CLAIMS.md` has always stated the rule in bold — *no number on the site without an
+entry in `docs/claims.json`* — and nothing enforced it. The gate checked that ledger entries
+still matched pages; it never checked that pages were covered by the ledger, and it never
+opened an artifact. Three failure states were live at once and all three passed CI: an
+artifact path that did not exist, an artifact that contradicted the page, and the site's
+most-repeated claim carrying no `artifact` key at all.
+
+`tests/test_claims_coverage.py` closes both directions. It scans `README.md`,
+`docs/*.html`, `docs/llms.txt` and `plugins/**/*.md` for percentages and multipliers and
+fails on any that no entry naming that page mentions; sample terminal blocks, fenced code
+and statistical notation are stripped, and the handful of genuine non-claims (a provider's
+published cache-price ratio, a status-line threshold, someone else's marketing quoted in
+order to refuse it) each carry a one-line reason. It also opens every `artifact`: the path
+must exist, and where the entry lists `values` those values must appear in it, with JSON
+fields compared as both fractions and percentages so a page's `36.8%` matches a stored
+`0.368`. Entries that genuinely cannot be machine-checked — a ratio of two columns, a bound
+computed at report time, a command whose output was never committed — are marked
+`"check": "manual"` and must say why.
+
+Running it turned up the rest of this entry's work: the ledger grew from 37 entries to 50,
+`llms.txt` and `plugins/` went from having no coverage at all to being fully scanned, and
+the pages that carry the product's load-bearing claims — `index.html`, `benchmark.html`,
+`benchmarks.html`, `output.html`, `architecture.html`, `concepts.html`, `faq.html`,
+`getting-started.html`, `llms.txt`, `README.md`, `plugins/**` — are clear. Pages not cleared
+in this pass carry a frozen debt list that may only shrink: a *new* number on them still
+fails CI. The ledger's own reproduction note for the adversarial battery had drifted too
+(28 cases / 175 checks against a real 32 / 231) and is corrected; `note` fields are still
+not machine-checked, which is the next thing to fix.
+
+The next stale number trips CI instead of a reader.
+
+### Fixed — a dashboard card quoting a floor the code had retired
+
+The HTML ledger's decision-equivalence card told a reader below the floor that it "needs
+25+" shadow samples. There is no 25 in the code: the shared reporting floor is 50 A/B plus
+30 A/A, and the card is only ever reached with a rate that already cleared it. The card now
+reads those two constants from `distil.shadow`, so it names the floor it actually enforces,
+and the three tests that pinned the retired wording assert against the constants rather than
+a copied string.
+
+The same retired floor was still quoted in five more places, all of them found by grepping
+for it rather than by any gate: the terminal dashboard's *collecting* line told the reader
+to "need 25" while the card one screen over had been corrected, `render_html`'s docstring
+and the status-line comment in `distil/cli.py` both named 25 as the threshold, two
+status-line examples rendered a `de 12/25` that the code can no longer produce, and
+`docs/BETA.md` asked beta users for `≥25 samples` before reporting. All now read the floor
+from `VERDICT_MIN_AB`/`VERDICT_MIN_AA` or spell it out as 50 A/B + 30 A/A.
+
+### Fixed — the dashboard could publish a rate with no noise baseline behind it
+
+Every surface gates decision-equivalence on the paired verdict: `VERDICT_MIN_AB` A/B samples
+**and** `VERDICT_MIN_AA` A/A ones, because a rate with no self-agreement baseline cannot
+tell compression harm from the model's own nondeterminism. The terminal dashboard did not.
+It took a bare `change_rate` and an A/B count, gated on the count alone, and was fed
+`ShadowLedger.rate()` — the raw A/B rate. A ledger with 50 A/B rows and zero A/A rows
+printed a confident percentage that the status line and `shadow-stats`, reading the same
+ledger, both refused to state.
+
+Both renderers now take the `Equivalence` object itself rather than a rate and a count, so
+the threshold lives in one place and a page cannot hold an opinion the verdict does not.
+Below the floor they print which counter is still short, from a new `Equivalence.shortfall`
+shared with any future surface. It names the constraint that *binds*: once both arms are
+full a paired verdict can still be short on the paired pool itself, and showing "50/50 A/B,
+30/30 A/A" beside a refusal reads as a bug rather than as evidence still accruing.
+
+`shadow-stats --json` keeps its raw `decision_change_rate`, which is correct — it sits
+beside `equivalence_pct`, `below_reporting_floor` and the paired fields, each labelled for
+what it is.
+
+Two surfaces also read the ledger **unscoped**. A verdict belongs to the signature algorithm
+that produced it — `SIG_VERSION` is bumped precisely so old rows are never compared against
+new ones — and the status line, leaderboard, census feed, proof ledger and web dashboard all
+pass `current_only=True`. The terminal dashboard and `distil doctor`'s shadow check did not,
+so a ledger holding only rows from a retired algorithm could carry either past the floor and
+print a confident percentage that every other surface, reading the same file, declined to
+state. Both now scope. `shadow-stats` still defaults to the current signature and widens only
+under `--all`, which is the one place reading retired rows is the point.
+
+The doctor check's own tests had stubbed `ShadowLedger.load` with a lambda taking no
+arguments, which is part of why this went unseen: the stub could not have noticed the missing
+scope. The new tests for both surfaces write real rows to a real ledger and read them back
+through the real command.
+
+### Fixed — the claims gate skipped the whole plugins tree on Windows
+
+Page keys were built with `Path.relative_to`, which renders with the host separator. On the
+Windows runner the plugin pages arrived as `plugins\distil\README.md`, matched no ledger
+entry spelled with forward slashes, and the new coverage gate reported every number on them
+as uncovered. Keys are now normalised to posix on both sides — the scan list and the `page`
+fields read out of `docs/claims.json` — so the gate compares the same spelling everywhere,
+with a unit test that feeds it a backslash path.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
