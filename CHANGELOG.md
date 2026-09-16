@@ -3,6 +3,126 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Mistral Vibe is wrapped — `distil wrap -- vibe`.** Vibe sat on the "could not verify"
+  list because its endpoint lives in a `config.toml` whose shape no docs page publishes.
+  Patching that file was never the answer. Vibe's own
+  [ADR 0005](https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md)
+  puts a `VIBE_*` environment layer **above** both the user and project TOML layers, and
+  its config layer reads that layer with `env_prefix="VIBE_"` — so the schema's
+  `providers` list is `VIBE_PROVIDERS`, taking a JSON array, and entries merge across
+  layers on `name`. `wrap` exports a one-element array redirecting the `mistral` provider
+  and leaves the rest of your configuration alone. Nothing on disk is touched, so there is
+  nothing to restore and nothing a crash can leave behind. It is the first preset whose
+  variable holds a *document* rather than a URL: `AGENT_ENV_TEMPLATES` renders `$BASE`
+  into a literal, because exporting a bare URL where the agent expects JSON is the exact
+  failure this project refuses to ship — `wrap` would report success, start a proxy, and
+  route zero traffic.
+- **The Cline CLI is wrapped — `distil wrap -- cline`.** It was declined for having no
+  published config schema. It has one; it is just not on the docs site — the zod
+  `StoredProviderSettings` in `cline/cline`, with a committed fixture of the real file.
+  `~/.cline/data/settings/providers.json`, where `providers.<id>.settings.baseUrl` is
+  documented in the code as outranking both the regional API line and the provider
+  default. The preset also sets `lastUsedProvider`, because an entry the CLI never selects
+  routes nothing — and it honours `CLINE_DATA_DIR`, because patching a file your CLI does
+  not read is the same lie by a different route.
+- **The Kilo Code CLI is wrapped — `distil wrap -- kilo` — via `KILO_CONFIG_CONTENT`,
+  not a config file.** This began as a config-file preset patching
+  `~/.config/kilo/kilo.json`, and that was wrong for a reason worth recording. Kilo's own
+  [precedence table](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md)
+  puts global config files at 4 and a **project-local `./kilo.json` at 6**, so inside any
+  repo shipping its own config the patch landed on a file the child never read, while
+  `wrap` reported success. That is the exact failure this area exists to prevent,
+  reintroduced by a fix for it. The same table lists `KILO_CONFIG_CONTENT` at **8**, above
+  both, and Kilo's loader hands it straight to `loadConfig(text, …)` as config content. So
+  the preset exports a config document instead: nothing read, written, backed up or
+  restored, no project file able to shadow it, and a `kilo.jsonc` full of comments never
+  at risk of being rewritten without them. What goes in that variable is a base URL for
+  Kilo's **built-in** `anthropic` and `openai` providers and nothing else — it declares no
+  models of its own, because Kilo treats a custom model with no
+  `limit.context`/`limit.output` as having limits of zero, and a provider that is
+  selectable and then quietly mismanages context for a whole session is the same
+  half-working shape as a guessed variable. Overriding the built-in ids keeps Kilo's own
+  catalogue, real limits included, and changes only the endpoint: nothing to pick by hand,
+  your top-level `model` untouched, and no credential in the environment since the key
+  variable comes from the catalogue too. A session on some other provider (OpenRouter,
+  Kilo's own, a local gateway) is simply not redirected — those are not wire shapes distil
+  speaks.
+- **`distil wrap --list` (and `--json`).** Every target, its mechanism (environment
+  variable / config file), the provider wire shape distil has to speak for it, the routing
+  knob, and the primary doc that contract was read from with the date. The agents `wrap`
+  cannot reach are on the same list with the reason — that half is the useful half.
+
+### Changed
+
+- **A second `distil wrap` of the same config-file agent is refused, not silently fought
+  over.** The per-session registry made the shared *backup* safe — whose bytes to restore
+  and which session restores them — and that had been mistaken for making concurrency
+  safe. It never was. Every config-file preset writes the same active provider entry
+  pointing at its **own** proxy port, and one file cannot name two ports. Two live wraps
+  of, say, Crush gave: the second repointed the file at its proxy, so the first agent's
+  traffic ran through the second session and landed in its ledger; the first exited, its
+  proxy died, and the config the second was still using named a dead port; the second
+  exited last and restored the pre-wrap backup under a session already gone. Having the
+  second reuse the first's proxy cannot fix it either — the first owns that proxy's
+  lifetime and takes it down when its agent exits. `distil wrap` now checks for a live
+  holder before starting a proxy or writing a byte, exits non-zero, names the pid holding
+  the file, and points at `distil default --always-on`, which is how several agents share
+  one long-lived proxy with no config patching at all. The check is repeated inside the
+  same lock as the claim, so two wraps starting in the same instant cannot both pass it.
+  Dead registrants are reaped exactly as before: a `kill -9`ed session never blocks the
+  next wrap.
+- **One catalogue, generated docs.** The same three facts about each agent were restated
+  in five places — two preset registries, a dict in `cli.py`, and prose tables in
+  README.md, `docs/IDE-AGENTS.md` and `docs/integrations.html` — and they drifted.
+  `distil/targets.py` now joins the registries with their doc metadata and
+  `scripts/build_agent_tables.py` renders all three documents from it;
+  `tests/test_wrap_targets.py` fails when any of them goes stale. A preset added without
+  its cited source is now a test failure rather than an undocumented target.
+- **Stale claims about other people's tools, corrected.** The docs said Warp had "no
+  published base-URL override at all"; Warp ships a custom inference endpoint now. The
+  real reason it is out of reach is the better one: the agent harness runs on Warp's own
+  servers and its docs reject localhost and private addresses, so a local proxy can never
+  be the target. The docs also called Cline "not a CLI" after Cline shipped one — that CLI
+  is wrappable as a process, it just publishes no base-URL knob it honours. And
+  `httpguard.py` described Azure OpenAI's `/openai/v1/` surface as preview with a required
+  `api-version`; it is GA now and the parameter is optional. The path patterns were
+  already right either way, since the query string is stripped before they run.
+- **Copilot's BYOK contract, re-checked 2026-09-16.** `COPILOT_PROVIDER_BASE_URL` /
+  `_TYPE` / `_API_KEY` are unchanged, so the preset stands. Two things it deliberately
+  does not set are now documented instead of silent: `COPILOT_MODEL` is *required* and
+  only you know which model you want, and Azure OpenAI needs `_AZURE_API_VERSION` plus
+  `_WIRE_MODEL` (your deployment name) alongside the resource-shaped base URL.
+
+### Not added, on purpose
+
+Seventeen targets were checked against their own primary documentation. Fourteen got no
+preset, and `docs/IDE-AGENTS.md` now lists every one with the page and date that was read.
+Three distinct reasons. **No knob at all**: Cursor CLI, Amp, `auggie`, Antigravity and
+Tabnine publish no base-URL override — their only network setting is a whole-process
+`HTTP_PROXY`. **A knob that cannot be local**: Warp, above; and Cody, whose override is an
+admin setting on the Sourcegraph instance rather than on the client. **A real knob, but
+nothing that scopes to one session**: Roo Code keeps its profiles in VS Code's Secret
+Storage rather than a file; OpenClaw's `baseUrl` belongs to a Gateway daemon its own README
+describes the CLI as merely connecting to, shared with chat channels and, on a team
+install, other people; ZCode is a desktop app with no process to launch; and Zed's built-in
+Anthropic provider documents no `api_url` at all, so redirecting it means adding a second
+provider the user must pick by hand, in a file Zed's own settings page rewrites while it
+runs. Trae and Junie could not be verified at all: every docs path returns the same
+client-rendered shell over a plain fetch. Bedrock's SigV4 path is out of scope.
+
+Note what is *not* a reason: "the settings file is global." That was the stated ground for
+declining Cline and Kilo Code, and it was wrong — a shared config file is precisely what
+`config_wrap` claims, backs up, patches and restores for Crush, Oh My Pi and Factory Droid
+already. Both are presets now. What *is* disqualifying is narrower and sharper: a global
+file that some other file outranks for the directory the wrap runs in, which is what sent
+Kilo to an environment variable rather than to this list. What remains declined is declined
+on the specific mechanism, because a preset built on a guess is indistinguishable from one
+that works right up until you check the savings counter.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

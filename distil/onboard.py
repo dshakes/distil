@@ -29,6 +29,7 @@ _AGENTS = [
     ("goose", "goose"),
     ("grok", "Grok CLI"),
     ("openhands", "OpenHands"),
+    ("vibe", "Mistral Vibe"),
 ]
 _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 
@@ -79,6 +80,12 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  its native "kimi" provider type (moonshotai.github.io/kimi-cli,
 #                  configuration/env-vars). No key passthrough: Moonshot's API key
 #                  namespace has no existing distil-known source to forward from.
+#   vibe         — Mistral Vibe has no plain base-URL variable: its endpoint lives in
+#                  a `providers` LIST, and the ONE documented way to override that
+#                  list without editing the user's own ~/.vibe/config.toml is the
+#                  VIBE_* environment layer, which its ADR 0005 places ABOVE both the
+#                  user and project TOML layers. So this preset's value is a JSON
+#                  provider array rather than a URL — see AGENT_ENV_TEMPLATES.
 #
 # DELIBERATELY ABSENT: cursor, cline, continue, windsurf. These are IDE
 # extensions, not CLIs — there is no argv to wrap and no documented env-var
@@ -92,11 +99,11 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 # Droid (`droid`), and Oh My Pi (`omp`). Unlike everything above, these DO have
 # a published routing contract — it's just a config file, not an env var, so
 # they can't live in this dict's 4-tuple shape. See config_wrap.CONFIG_PRESETS
-# for their (doc-cited) config-injection presets instead. Crush, Amp, Mistral
-# Vibe, and OpenClaw were investigated for the same treatment and rejected —
-# no verifiable base-URL override exists for the first three, and OpenClaw is
-# a persistent multi-channel gateway rather than a per-session CLI; see
-# docs/IDE-AGENTS.md.
+# for their (doc-cited) config-injection presets instead. Crush landed there
+# too; Mistral Vibe turned out to have a documented ENV layer after all and is
+# below. Everything still out of reach — with the primary source that was read
+# and the date — is enumerated in distil/targets.py's UNREACHABLE, which is
+# also what `distil wrap --list` and the docs tables are generated from.
 AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
     # cmd_name: (env_var, upstream_base_url, human_label, extra_env)
     # extra_env values: "$BASE" mirrors the primary env_var's value, "$VARNAME"
@@ -131,6 +138,164 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
         },
     ),
     "kimi": ("KIMI_BASE_URL", "https://api.moonshot.ai/v1", "Kimi CLI", {}),
+    "vibe": ("VIBE_PROVIDERS", "https://api.mistral.ai", "Mistral Vibe", {}),
+    "kilo": ("KILO_CONFIG_CONTENT", "https://api.anthropic.com", "Kilo Code CLI", {}),
+}
+
+#: Presets whose variable does NOT take a bare base URL. The template is the
+#: literal value to export with ``$BASE`` replaced by this wrap's proxy URL;
+#: without it a preset like Vibe's would export a URL where its CLI expects a
+#: JSON document, and route nothing while reporting success.
+#:
+#: vibe — verified 2026-09-16 against mistralai/mistral-vibe: docs/adr/0005
+#: ("`VIBE_*` environment values" sit above the user and project TOML layers),
+#: vibe/core/config/layers/environment.py (pydantic-settings, ``env_prefix
+#: "VIBE_"``, so the schema's ``providers`` field is ``VIBE_PROVIDERS`` and,
+#: being a complex type, is parsed as JSON), and the ProviderConfig fields in
+#: vibe/core/config/models.py (name / api_base / api_key_env_var / api_style /
+#: backend). Entries merge across layers on ``name``, so overriding "mistral"
+#: redirects the default provider and leaves the rest of the user's config
+#: alone — nothing on disk is touched.
+#:
+#: kilo — verified 2026-09-16 against Kilo-Org/kilocode. This replaced a
+#: config-file preset that patched ``~/.config/kilo/kilo.json``, and the reason
+#: is the whole point of this table: Kilo's own config-precedence table
+#: (packages/kilo-docs/pages/contributing/architecture/cli-runtime.md, "Later
+#: sources override earlier values") puts **global config files at 4 and
+#: project ``kilo.json[c]`` at 6**, so inside any repo carrying its own
+#: kilo.json the global patch was outranked — `wrap` reported success while
+#: the child read a different file. ``KILO_CONFIG_CONTENT`` sits at **8**,
+#: above both, and packages/opencode/src/config/config.ts passes it straight to
+#: ``loadConfig(text, …)`` → ``ConfigParse.jsonc`` as config *content*, merged
+#: with ``mergeDeep``. So no file is read, written, backed up or restored, and
+#: no project-local file can shadow it.
+#:
+#: What the document *says* is the second half, and it declares NO models of its
+#: own. An earlier version defined a custom ``distil`` provider with one model
+#: carrying only a ``name`` — which ai-providers/openai-compatible.md warns
+#: against in as many words: an omitted ``limit.context``/``limit.output``
+#: "defaults to 0, which limits context management". A preset that is selected
+#: and then mismanages context is exactly the half-working shape this file
+#: exists to refuse, and inventing the numbers would have been a guess about
+#: someone else's catalogue.
+#:
+#: Overriding the BUILT-IN provider ids sidesteps the question entirely.
+#: packages/opencode/src/provider/provider.ts builds each config provider as
+#: ``options: mergeDeep(existing?.options ?? {}, provider.options ?? {})`` with
+#: ``models: existing?.models ?? {}`` — so pointing ``anthropic`` and ``openai``
+#: at the proxy keeps every catalogue model and its real limits, and only the
+#: endpoint changes. ``options.baseURL`` is what the SDK resolution reads
+#: (same file, ``provider.options?.baseURL``). ai-providers/anthropic.md
+#: documents exactly this shape, a ``provider.anthropic`` entry with no
+#: ``models`` block at all.
+#:
+#: Two further consequences, both improvements: ``env`` is left unset so it
+#: falls back to the catalogue's (``ANTHROPIC_API_KEY`` / ``OPENAI_API_KEY``),
+#: meaning no credential appears in the environment value; and because the
+#: models the user already has selected are the ones being redirected, there is
+#: no provider to pick by hand and the top-level ``model`` key is still never
+#: touched. The limitation is the flip side: a session whose model belongs to
+#: some OTHER provider (openrouter, kilocode, a local gateway) is not
+#: redirected, because distil only speaks these two wire shapes.
+AGENT_ENV_TEMPLATES: dict[str, str] = {
+    "vibe": (
+        '[{"name": "mistral", "api_base": "$BASE/v1", '
+        '"api_key_env_var": "MISTRAL_API_KEY", "api_style": "openai", '
+        '"backend": "mistral"}]'
+    ),
+    "kilo": (
+        '{"provider": {'
+        '"anthropic": {"options": {"baseURL": "$BASE"}}, '
+        '"openai": {"options": {"baseURL": "$BASE/v1"}}'
+        "}}"
+    ),
+}
+
+
+@dataclass(frozen=True)
+class AgentMeta:
+    """Doc metadata for an ``AGENT_PRESETS`` entry: which wire shape the proxy
+    has to speak for it, and where its routing contract was verified from.
+
+    Kept beside the presets rather than inside them so the 4-tuple every
+    caller unpacks stays the routing contract and nothing else. The key sets
+    are asserted equal in tests/test_wrap_targets.py, so adding a preset
+    without its source is a test failure, not a silently undocumented target.
+    """
+
+    shape: str
+    doc_url: str
+    verified: str  # YYYY-MM-DD
+    note: str = ""
+
+
+_ANTHROPIC = "Anthropic Messages"
+_OPENAI_CHAT = "OpenAI Chat Completions"
+
+AGENT_META: dict[str, AgentMeta] = {
+    "claude": AgentMeta(_ANTHROPIC, "https://docs.anthropic.com/en/api/client-sdks", "2026-09-16"),
+    "codex": AgentMeta(
+        _OPENAI_CHAT,
+        "https://github.com/openai/openai-python#configuring-the-http-client",
+        "2026-09-16",
+        "the OpenAI SDK appends /v1 itself",
+    ),
+    "gemini": AgentMeta(
+        "Gemini generateContent",
+        "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/configuration.md",
+        "2026-09-16",
+    ),
+    "aider": AgentMeta(
+        _OPENAI_CHAT,
+        "https://aider.chat/docs/llms/openai-compat.html",
+        "2026-09-16",
+        "LiteLLM reads the older OPENAI_API_BASE, not OPENAI_BASE_URL",
+    ),
+    "opencode": AgentMeta(
+        _OPENAI_CHAT, "https://opencode.ai/docs/providers/", "2026-09-16", "env beats its config"
+    ),
+    "qwen": AgentMeta(_OPENAI_CHAT, "https://github.com/QwenLM/qwen-code#readme", "2026-09-16"),
+    "goose": AgentMeta(
+        _OPENAI_CHAT,
+        "https://block.github.io/goose/docs/getting-started/providers/",
+        "2026-09-16",
+        "OPENAI_HOST, not OPENAI_BASE_URL; ANTHROPIC_HOST rides along",
+    ),
+    "grok": AgentMeta(
+        _OPENAI_CHAT,
+        "https://docs.x.ai/build/settings",
+        "2026-09-16",
+        "upstream carries its own /v1",
+    ),
+    "openhands": AgentMeta(
+        _OPENAI_CHAT,
+        "https://docs.all-hands.dev/usage/how-to/cli-mode",
+        "2026-09-16",
+        "ignores the environment without --override-with-envs",
+    ),
+    "copilot": AgentMeta(
+        _ANTHROPIC,
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models",
+        "2026-09-16",
+        "COPILOT_MODEL is required too and only you know it — export it yourself",
+    ),
+    "kimi": AgentMeta(
+        _OPENAI_CHAT, "https://moonshotai.github.io/kimi-cli/configuration/", "2026-09-16"
+    ),
+    "vibe": AgentMeta(
+        _OPENAI_CHAT,
+        "https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md",
+        "2026-09-16",
+        "VIBE_PROVIDERS takes a JSON provider array, not a URL",
+    ),
+    "kilo": AgentMeta(
+        "Anthropic Messages or OpenAI Chat Completions",
+        "https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md",
+        "2026-09-16",
+        "KILO_CONFIG_CONTENT takes a JSON config document, outranks both the global "
+        "and the project kilo.json, and redirects the built-in anthropic/openai "
+        "providers so your existing model selection keeps working",
+    ),
 }
 
 
