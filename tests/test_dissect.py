@@ -29,6 +29,17 @@ from distil.ledger import (
 )
 from distil.proxy import build_handler, wrap_run
 
+
+def _clear_ci_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic on any runner: a CI runner sets more than one of these
+    (GitHub Actions exports both CI and GITHUB_ACTIONS), so a test asserting
+    "not CI" must clear all of them, not just the one it's setting."""
+    from distil.webdash import _CI_ENV_VARS
+
+    for var in _CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 _LOG_LINES = "\n".join(
     f"[2026-07-11 12:00:{i:02d}] INFO worker-{i}: heartbeat ok, queue depth {i * 3}"
     for i in range(60)
@@ -1251,11 +1262,7 @@ class TestTranscriptCorrelation:
         """pytest's captured stdout isn't a TTY, but that alone must not stop
         `--serve` from serving — nohup, a systemd/supervisor unit, and IDE run
         tasks are all non-TTY launches that DO want the server."""
-
-        from distil.webdash import _CI_ENV_VARS
-
-        for var in _CI_ENV_VARS:
-            monkeypatch.delenv(var, raising=False)
+        _clear_ci_env(monkeypatch)
 
         called = []
 
@@ -1279,6 +1286,7 @@ class TestTranscriptCorrelation:
     ) -> None:
         """`CI=false` is SET but says "not CI" — presence alone must not trip
         the guard, the same rule as `dashboard --web`."""
+        _clear_ci_env(monkeypatch)
 
         called = []
 

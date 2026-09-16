@@ -149,13 +149,20 @@ def test_serve_webdash_does_not_block_under_ci(tmp_path, monkeypatch, capsys):
     assert "not blocking" in out
 
 
+def _clear_ci_env(monkeypatch) -> None:
+    """Hermetic on any runner: a CI runner sets more than one of these
+    (GitHub Actions exports both CI and GITHUB_ACTIONS), so a test asserting
+    "not CI" must clear all of them, not just the one it's setting."""
+    for var in webdash._CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 def test_serve_webdash_serves_when_not_a_tty_and_not_ci(tmp_path, monkeypatch):
     """A non-interactive launch with no TTY (nohup, a systemd/supervisor unit,
     an IDE task) is not CI and must still serve — the guard is keyed on CI env
     vars, never on `isatty()` alone."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    for var in webdash._CI_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
+    _clear_ci_env(monkeypatch)
     real_build = webdash.build_server
     called = []
 
@@ -174,6 +181,7 @@ def test_serve_webdash_ci_false_still_serves(tmp_path, monkeypatch):
     unconditionally — the var is SET but says "not CI", so presence alone
     must not trip the guard."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    _clear_ci_env(monkeypatch)
     monkeypatch.setenv("CI", "false")
     real_build = webdash.build_server
     called = []
