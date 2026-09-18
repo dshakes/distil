@@ -1343,7 +1343,14 @@ def render_text(
         if d.shadow_net_usd is not None:
             line += f" · net after output ${d.shadow_net_usd:+.4f}"
         out.append(line)
-    elif not d.detail_available:
+    # The statistical verdicts, from the same function the wrap exit summary and
+    # `distil stats` use. Live-traffic-wide, not session-scoped: a certificate off one
+    # session's handful of samples would be below its own reporting floor anyway.
+    from .proof_ledger import _safe_proof_lines
+
+    for _label, _text in _safe_proof_lines():
+        out.append(f"  {_label}: {_text}")
+    if not d.detail_available and d.shadow_out_delta is None:
         out.append("  no session-scoped signal recorded for this session")
 
     if corr is not None:

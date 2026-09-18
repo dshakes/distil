@@ -529,6 +529,21 @@
       "note": "Replaces the invented '✓eq 99.5%' that appeared on index.html twice and plugins/distil/README.md twice — a verdict distil/cli.py:1826 prints only at eq>=0.99, with a sample size (1.2k) about 3x the real one. Content-free summary of ~/.distil/shadow.jsonl from `distil shadow-stats --json`. The prior below-floor reading is w-shadow-sample."
     },
     {
+      "id": "v-drift-null-false-alarm",
+      "status": "verified",
+      "page": "evals.html",
+      "anchor": null,
+      "snippet": "it alarms on 99 of those 2,000 runs (4.95%, against a δ of 5%)",
+      "claim": "Build gate on the anytime-valid drift monitor: 2,000 simulated runs at exactly the certified budget alarm 99 times, a 4.95% false-alarm rate against a delta of 5%, and a true rate ten points over budget is caught on 500 of 500 runs within a median of 172 requests. The 95% figure is the confidence the budget line is breached at, which is 1 - delta by construction.",
+      "artifact": "distil/drift.py",
+      "values": [
+        "4.95%",
+        "5%",
+        "95%"
+      ],
+      "note": "Simulated, not measured on traffic: the null is generated, so this is a property of the estimator rather than a reading of anyone's requests. Asserted every CI run by tests/test_drift_live.py::test_null_false_alarm_stays_under_delta and tests/test_proof_lines.py::test_conformal_coverage_meets_nominal."
+    },
+    {
       "id": "v-e7-swebench-regression",
       "status": "verified",
       "page": [

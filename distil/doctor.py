@@ -693,6 +693,37 @@ def _check_tokenizer_grade() -> Check:
     return Check("tokenizer", OK, f"tokenizers in ledger: {', '.join(sorted(s.tokenizers)) or '—'}")
 
 
+def _check_outcome_policy() -> Check:
+    """The outcome-guided policy runs on every request and can never fire. Say so.
+
+    ``proxy.py`` loads ``OutcomeStats.keep_predicate()`` unconditionally, and the docs
+    call the policy "always on". Both are true of the READ side. The write side —
+    ``record_trajectory_outcome`` — has no callers anywhere in the codebase, so
+    ``outcome-stats.json`` is empty on every real install and the predicate is
+    byte-identical to a no-op. A learned feature with no way to learn should not be
+    reported as running.
+    """
+    from .compress.guideline import OutcomeStats
+
+    stats = OutcomeStats.load()
+    seen = len(set(stats.degraded) | set(stats.ok))
+    if seen == 0:
+        return Check(
+            "outcome-guided policy",
+            INFO,
+            "0 samples — a no-op today: nothing in distil writes trajectory outcomes, "
+            "so the always-on predicate can never fire",
+            "the evidence it wants comes from matched full/compressed runs: "
+            "distil certify-trajectories outcomes.jsonl",
+        )
+    return Check(
+        "outcome-guided policy",
+        OK,
+        f"{seen} content class(es) with outcome evidence; "
+        f"{len(stats.protect_prone())} protected byte-exact",
+    )
+
+
 def diagnose() -> list[Check]:
     """Run every check; each is isolated so one failure can't abort the rest."""
     checks: list[Check] = []
@@ -711,6 +742,7 @@ def diagnose() -> list[Check]:
         _check_pricing_catalog,
         _check_tokenizer_grade,
         _check_mode,
+        _check_outcome_policy,
     ):
         try:
             checks.append(fn())

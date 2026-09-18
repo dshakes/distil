@@ -34,13 +34,14 @@ import hashlib
 import json
 import math
 import random
+import statistics
 import threading
 import time
 
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from distil import _filelock
 
@@ -122,6 +123,22 @@ def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
+#: Above this many samples the percentile bootstrap hands off to the normal interval it
+#: is converging to. The bootstrap costs ``resamples × n`` draws — at 50k rows that is
+#: 5×10⁷ and about 1.5 s, paid on every wrap exit now that the proof ledger quotes this
+#: interval. Below the threshold nothing changes, which is deliberate: every number this
+#: project has published sits at n in the hundreds (the live sample is n=398), so no
+#: committed result moves. Above it the two agree to within ~5% of the interval width
+#: across symmetric, skewed and three-valued samples — the bootstrap's own Monte Carlo
+#: noise at 1000 resamples, not a systematic difference. ``tests/test_shadow_ci.py``
+#: pins that agreement at the threshold, so the handoff cannot silently drift into a
+#: regime where the two disagree.
+BOOTSTRAP_MAX_N = 5000
+
+#: Two-sided 95% normal quantile.
+_Z95 = 1.959963984540054
+
+
 def bootstrap_ci(
     values: list[float] | list[int],
     *,
@@ -134,14 +151,24 @@ def bootstrap_ci(
     is re-run reads as a measurement that moved. Used for the paired difference
     (values in {-1,0,1}) and for the output-token delta (unbounded), which is why
     this is a bootstrap rather than a closed form — one helper covers both.
+
+    Above :data:`BOOTSTRAP_MAX_N` the closed form is used instead; see that constant for
+    why, and for what is checked to keep the two honest about each other.
     """
     n = len(values)
     if n == 0:
         return (0.0, 0.0)
     if n == 1:
         return (float(values[0]), float(values[0]))
-    rng = random.Random(seed)
     xs = [float(v) for v in values]
+    if n > BOOTSTRAP_MAX_N:
+        mean = sum(xs) / n
+        sd = statistics.stdev(xs)
+        if sd == 0.0:
+            return (mean, mean)  # every row identical — resampling cannot widen that
+        half = _Z95 * sd / math.sqrt(n)
+        return (mean - half, mean + half)
+    rng = random.Random(seed)
     means = sorted(sum(rng.choices(xs, k=n)) / n for _ in range(resamples))
     lo = means[int(0.025 * resamples)]
     hi = means[min(resamples - 1, int(math.ceil(0.975 * resamples)) - 1)]
@@ -739,6 +766,43 @@ class ShadowSampler:
         return self._rng.random() < self.rate
 
 
+def _row_ts(rec: dict[str, Any]) -> float:
+    """A row's timestamp, or 0.0 if it does not have a usable one.
+
+    Total on purpose: ``float(rec["ts"])`` on a hand-edited or truncated row raises out
+    of a time-window filter, which would take down a whole verdict block over one bad
+    line in an append-only file nobody promises is well-formed.
+    """
+    try:
+        return float(rec.get("ts", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _rows(path: Path | None = None) -> Iterator[dict[str, Any]]:
+    """Stream the shadow ledger one row at a time. Malformed lines are skipped.
+
+    Not ``read_text().splitlines()``: this file grows one row per shadowed request and
+    never shrinks, and the proof-ledger verdicts read it on every wrap exit. Slurping it
+    held the whole file AND a list of every line in memory to build tallies that only
+    ever need one row at a time.
+    """
+    try:
+        with (path or (_state_dir() / "shadow.jsonl")).open("rb") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+                    continue
+                if isinstance(rec, dict):
+                    yield rec
+    except OSError:
+        return
+
+
 @dataclass
 class ShadowLedger:
     """Rolling, content-free live decision-equivalence stats.
@@ -951,25 +1015,34 @@ class ShadowLedger:
         for auditing and backward compatibility with the certificate path.
         """
         led = cls()
-        try:
-            p = path or (_state_dir() / "shadow.jsonl")
-            for line in p.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if current_only and rec.get("sig") != SIG_VERSION:
-                    continue  # v1/legacy row — not comparable to current signatures
-                if since_ts is not None and float(rec.get("ts", 0.0)) < since_ts:
-                    continue
-                if isinstance(rec, dict):
-                    led._ingest(rec)
-        except OSError:
-            pass
+        for rec in _rows(path):
+            if current_only and rec.get("sig") != SIG_VERSION:
+                continue  # v1/legacy row — not comparable to current signatures
+            if since_ts is not None and _row_ts(rec) < since_ts:
+                continue
+            led._ingest(rec)
         return led
+
+    @classmethod
+    def load_split(
+        cls, since_ts: float, path: Path | None = None
+    ) -> tuple[ShadowLedger, ShadowLedger]:
+        """``(lifetime, since)`` — both current-signature — from ONE pass of the file.
+
+        The wrap exit summary needs both scopes: the session line reports what happened
+        since ``since_ts``, the statistical verdicts are deliberately lifetime-wide (one
+        session's handful of samples is below their own reporting floor). Two ``load``
+        calls parsed every row twice on a file that grows one row per shadowed request
+        forever, which is half the cost of a render on a long-lived install.
+        """
+        lifetime, recent = cls(), cls()
+        for rec in _rows(path):
+            if rec.get("sig") != SIG_VERSION:
+                continue
+            lifetime._ingest(rec)
+            if _row_ts(rec) >= since_ts:
+                recent._ingest(rec)
+        return lifetime, recent
 
 
 class ShadowCounters:
