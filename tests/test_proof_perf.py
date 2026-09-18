@@ -21,7 +21,9 @@ from distil.shadow import SIG_VERSION
 
 RECEIPTS = 200_000
 SHADOW = 50_000
-BUDGET_S = 0.30
+#: Warm renders must be this many times cheaper than the cold render measured on the
+#: SAME machine in the SAME test — an absolute budget is a statement about the runner.
+WARM_RATIO = 3.0
 
 
 def _traced() -> bool:
@@ -119,15 +121,20 @@ def test_the_whole_exit_render_is_fast_once_the_chain_is_checkpointed(big):
     """
     from distil.proof_ledger import build_ledger_text
 
-    build_ledger_text(SESSION, 0.0)  # cold: full chain verify + checkpoint written
+    t0 = time.perf_counter()
+    cold_text = build_ledger_text(SESSION, 0.0)  # cold: full chain verify + checkpoint written
+    cold = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     text = build_ledger_text(SESSION, 0.0)
     warm = time.perf_counter() - t0
 
-    assert text is not None
-    assert f"{RECEIPTS} receipts, chain verified" in text, text
-    assert warm < BUDGET_S, f"warm exit render took {warm * 1000:.0f} ms"
+    assert cold_text is not None and text is not None
+    assert f"{RECEIPTS} receipts, chain verified" in cold_text, cold_text
+    assert f"{RECEIPTS} receipts, chain intact" in text, text
+    assert warm * WARM_RATIO < cold, (
+        f"warm exit render {warm * 1000:.0f} ms vs cold {cold * 1000:.0f} ms — the checkpoint is not being used"
+    )
 
 
 def test_the_exit_render_parses_the_shadow_ledger_once(big):
@@ -163,13 +170,17 @@ def test_appending_one_receipt_does_not_re_hash_the_chain(big):
     """The steady state is 'one more receipt since last time', and that is what it costs."""
     from distil.proof_ledger import proof_lines
 
-    proof_lines()
+    t0 = time.perf_counter()
+    proof_lines()  # cold: the whole chain, once
+    cold = time.perf_counter() - t0
     R.append(R.Receipt(1.0, "extra", "s1", "claude-opus-4-8", "digest", 10, 5, False))
     t0 = time.perf_counter()
     lines = dict(proof_lines())
     warm = time.perf_counter() - t0
-    assert f"{RECEIPTS + 1} receipts, chain verified" in lines["receipts"]
-    assert warm < BUDGET_S, f"{warm * 1000:.0f} ms to fold one appended receipt"
+    assert f"{RECEIPTS + 1} receipts, chain intact — 1 re-checked" in lines["receipts"]
+    assert warm * WARM_RATIO < cold, (
+        f"{warm * 1000:.0f} ms to fold one appended receipt vs {cold * 1000:.0f} ms cold"
+    )
 
 
 def test_verification_memory_does_not_scale_with_the_file(tmp_path, monkeypatch):

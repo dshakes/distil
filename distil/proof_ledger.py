@@ -220,9 +220,17 @@ def _receipts_line() -> str:
     v = _r.verify()
     if v.total == 0:
         return "no receipts recorded"
-    if v.ok:
-        return f"{v.total} receipts, chain verified"
-    return f"chain BROKEN at receipt {v.first_bad_index} of {v.total} — {v.reason}"
+    if not v.ok:
+        return f"chain BROKEN at receipt {v.first_bad_index} of {v.total} — {v.reason}"
+    if not v.checked_from:
+        return f"{v.total} receipts, chain verified (every hash re-checked)"
+    # A checkpointed pass re-hashes only what was appended since this machine's last
+    # pass; the prefix is trusted from that checkpoint. Say exactly that, or the line
+    # claims a full verification `distil receipts --verify --full` would have to earn.
+    return (
+        f"{v.total} receipts, chain intact — {v.total - v.checked_from} re-checked since "
+        f"this machine's last pass; `distil receipts --verify --full` re-hashes all"
+    )
 
 
 def proof_lines(led=None) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]

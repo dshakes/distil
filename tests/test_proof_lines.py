@@ -254,7 +254,7 @@ def test_receipt_line_reports_verified_then_broken(tmp_path, monkeypatch):
                 reversible=False,
             )
         )
-    assert dict(proof_lines())["receipts"] == "3 receipts, chain verified"
+    assert dict(proof_lines())["receipts"] == "3 receipts, chain verified (every hash re-checked)"
 
     path = _r.receipts_path()
     rows = path.read_text(encoding="utf-8").splitlines()
