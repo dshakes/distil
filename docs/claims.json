@@ -541,7 +541,7 @@
         "5%",
         "95%"
       ],
-      "note": "Simulated, not measured on traffic: the null is generated, so this is a property of the estimator rather than a reading of anyone's requests. Asserted every CI run by tests/test_proof_lines.py::test_null_false_alarm_rate_is_within_budget and ::test_bound_covers_the_true_rate."
+      "note": "Simulated, not measured on traffic: the null is generated, so this is a property of the estimator rather than a reading of anyone's requests. Asserted every CI run by tests/test_drift_live.py::test_null_false_alarm_stays_under_delta and tests/test_proof_lines.py::test_conformal_coverage_meets_nominal."
     },
     {
       "id": "v-e7-swebench-regression",
