@@ -18,6 +18,7 @@ executed: this must stay free, offline and instant, or it becomes a gate people 
 from __future__ import annotations
 
 import contextlib
+import html
 import io
 import re
 import shlex
@@ -29,6 +30,8 @@ from distil.cli import build_parser
 
 _DOCS = Path(__file__).resolve().parent.parent / "docs"
 _FENCE = re.compile(r"```(?:bash|sh|console)\n(.*?)```", re.S)
+_TERM_BLOCK = re.compile(r'<pre class="term">(.*?)</pre>', re.S)
+_TERM_SPAN = re.compile(r'<span class="d">(.*?)</span>')
 
 # Placeholders in docs stand for a value the reader supplies. Substituting a
 # well-typed sample keeps the parse honest without pretending the doc is executable.
@@ -62,15 +65,47 @@ def _commands(text: str) -> list[list[str]]:
     return out
 
 
+def _html_commands(text: str) -> list[list[str]]:
+    """`docs/cli.html` is the CLI reference itself — its own `$ distil …` terminal
+    examples are the highest-value thing to keep honest. A trailing backslash joins
+    a line with the next, same as a shell would."""
+    out: list[list[str]] = []
+    for pre in _TERM_BLOCK.findall(text):
+        logical, buf = [], ""
+        for span in _TERM_SPAN.findall(pre):
+            buf += html.unescape(span)
+            if buf.rstrip().endswith("\\"):
+                buf = buf.rstrip()[:-1] + " "
+                continue
+            logical.append(buf)
+            buf = ""
+        if buf:
+            logical.append(buf)
+        for line in logical:
+            line = line.split("#", 1)[0].split(">", 1)[0].strip()
+            if not line.startswith("$ distil"):
+                continue
+            try:
+                tokens = shlex.split(line[1:].strip())
+            except ValueError:
+                continue
+            if "--" in tokens:
+                tokens = tokens[: tokens.index("--")]  # rest goes to a wrapped program
+            out.append(tokens[1:])
+    return out
+
+
 def _doc_files() -> list[Path]:
     """Every markdown doc, plus the README — which is where a first-time user starts,
     so a command that does not parse there costs the most."""
     return sorted(_DOCS.glob("*.md")) + [_DOCS.parent / "README.md"]
 
 
+_CLI_HTML = _DOCS / "cli.html"
+
 ALL: list[tuple[str, tuple[str, ...]]] = [
     (p.name, tuple(cmd)) for p in _doc_files() for cmd in _commands(p.read_text(encoding="utf-8"))
-]
+] + [(_CLI_HTML.name, tuple(cmd)) for cmd in _html_commands(_CLI_HTML.read_text(encoding="utf-8"))]
 
 
 def test_the_extractor_found_commands() -> None:

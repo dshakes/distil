@@ -174,12 +174,17 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
         f"    shadow   {_shadow_line(start_ts)}",
         f"    restore  {restore}",
     ]
-    # At most one line, and only when a detector actually fired. The ledger is what a
-    # user sees on every exit, so an advisory that prints "0 actions" every time is an
-    # ad; one that appears only when there is something to act on is a finding.
+    # At most one extra line, and only when a detector actually fired. The ledger is
+    # what a user sees on every exit, so an advisory that prints "0 actions" every
+    # time is an ad; one that appears only when there is something to act on is a
+    # finding. It comes before the standing next-command line so the summary still
+    # ends on the routine action, not a one-off recommendation.
     advice = _discover_line()
     if advice:
         lines.append(f"    next     {advice}  (run: distil discover)")
+    lines.append(
+        f"    next     distil dissect {session_id}   (or: distil stats for cumulative savings)"
+    )
     return "\n".join(lines)
 
 

@@ -68,6 +68,7 @@ INTEGRATIONS_SUB: list[tuple[str, str]] = [
     ("openai-sdk.html", "OpenAI SDK"),
     ("litellm.html", "LiteLLM"),
     ("langchain.html", "LangChain"),
+    ("langgraph.html", "LangGraph"),
     ("vercel-ai-sdk.html", "Vercel AI SDK"),
     ("agno.html", "Agno"),
     ("strands.html", "Strands"),
@@ -176,10 +177,30 @@ def render_sidebar(active: str) -> str:
 _TOPBAR_RE = re.compile(r'  <nav class="topbar-links">.*?\n  </nav>', re.S)
 _SIDEBAR_RE = re.compile(r'  <aside class="sidebar" id="sidebar">.*?\n  </aside>', re.S)
 
+# The third piece of shared chrome, and the one that drifted furthest: 16 of 44
+# pages ended right after </main> with no footer at all, so over a third of the
+# site had no licence line and no repo link. Same markup as the 28 pages that do
+# have one — this closes the drift, it does not redesign the footer.
+FOOTER = (
+    '    <div class="site-footer">\n'
+    "      Distil · compression with a quality contract · Apache-2.0 · "
+    '<a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>\n'
+    "    </div>"
+)
+_FOOTER_RE = re.compile(r'<div class="site-footer">.*?</div>', re.S)
+_MAIN_CLOSE_RE = re.compile(r"\n([ \t]*)</main>")
+
+
+def has_footer(text: str) -> bool:
+    return _FOOTER_RE.search(text) is not None
+
 
 def apply_to_text(text: str, active: str) -> str:
     text = _TOPBAR_RE.sub(lambda _m: render_topbar_links(active), text, count=1)
     text = _SIDEBAR_RE.sub(lambda _m: render_sidebar(active), text, count=1)
+    if not has_footer(text):
+        # Inserted just inside </main>, where every existing footer already sits.
+        text = _MAIN_CLOSE_RE.sub(lambda m: f"\n\n{FOOTER}\n{m.group(1)}</main>", text, count=1)
     return text
 
 

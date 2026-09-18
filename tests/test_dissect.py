@@ -29,6 +29,17 @@ from distil.ledger import (
 )
 from distil.proxy import build_handler, wrap_run
 
+
+def _clear_ci_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic on any runner: a CI runner sets more than one of these
+    (GitHub Actions exports both CI and GITHUB_ACTIONS), so a test asserting
+    "not CI" must clear all of them, not just the one it's setting."""
+    from distil.webdash import _CI_ENV_VARS
+
+    for var in _CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 _LOG_LINES = "\n".join(
     f"[2026-07-11 12:00:{i:02d}] INFO worker-{i}: heartbeat ok, queue depth {i * 3}"
     for i in range(60)
@@ -626,6 +637,15 @@ class TestDissection:
         assert "manifest not recorded" in text
         assert "not recorded — per-request detail" in text
         assert "rc=0" in text
+
+    def test_render_text_glosses_jargon_terms(self) -> None:
+        """decision-equivalence and prefix replay are used earlier in the report
+        than the terms: glossary explains them — so the glossary must actually
+        define both, not just the original fold/cache-delta/verbatim/unbooked set."""
+        d = dz.dissect("s200-1")
+        text = dz.render_text(d, color=False)
+        assert "decision-equivalence = agent's next action unchanged" in text
+        assert "prefix replay = a client-resent prefix forwarded as-is" in text
 
     def test_to_json_schema(self) -> None:
         payload = dz.to_json(dz.dissect("s200-1"))
@@ -1335,6 +1355,125 @@ class TestTranscriptCorrelation:
         assert main(["dissect", "s200", "--no-color", "--transcript"]) == 0
         out = capsys.readouterr().out
         assert "no matching agent transcript found" in out
+
+    def test_serve_does_not_block_under_ci(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Under CI `--serve` must print the URL and return immediately
+        rather than hang on serve_forever().
+
+        In-process rather than a subprocess (that variant flaked on a slow CI
+        runner importing a fresh interpreter and timing out): asserting
+        `serve_forever` is never reached is a deterministic, direct check of
+        the guard rather than inferring it from the test merely completing.
+        """
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise AssertionError("serve_forever() must not be called under CI")
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "1")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        out = capsys.readouterr().out
+        assert "dissect portal:" in out
+        assert "not blocking" in out
+
+    def test_serve_serves_when_not_a_tty_and_not_ci(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """pytest's captured stdout isn't a TTY, but that alone must not stop
+        `--serve` from serving — nohup, a systemd/supervisor unit, and IDE run
+        tasks are all non-TTY launches that DO want the server."""
+        _clear_ci_env(monkeypatch)
+
+        called = []
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                called.append(True)
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        assert called == [True]
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
+    def test_serve_ci_false_still_serves(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`CI=false` is SET but says "not CI" — presence alone must not trip
+        the guard, the same rule as `dashboard --web`."""
+        _clear_ci_env(monkeypatch)
+
+        called = []
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                called.append(True)
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "false")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        assert called == [True]
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
+    def test_serve_ci_true_does_not_serve(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`CI=true`/`CI=1` (a truthy, non-falsy value) must still trip the guard."""
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise AssertionError("serve_forever() must not be called under CI")
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        for value in ("true", "1"):
+            monkeypatch.setenv("CI", value)
+            assert main(["dissect", "--serve", "--port", "0"]) == 0
+            out = capsys.readouterr().out
+            assert "not blocking" in out
+
+    def test_serve_foreground_blocks_until_ctrl_c(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--foreground forces the old blocking behaviour even under CI."""
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise KeyboardInterrupt
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "1")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--foreground"]) == 0
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
 
     def test_serve_with_transcript_flag_correlates_by_default(self) -> None:
         server = dz.make_server("127.0.0.1", 0, transcript="auto")

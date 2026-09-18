@@ -162,4 +162,5 @@ uvx pypi-attestations verify pypi \
 
 Open a [GitHub Issue](https://github.com/dshakes/distil/issues) for bugs or
 unexpected behavior, and share your `distil shadow-stats` output when you have
-≥25 samples. That data is what closes the beta gate.
+cleared the reporting floor (50 A/B + 30 A/A samples). That data is what closes
+the beta gate.

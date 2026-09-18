@@ -840,7 +840,7 @@ def test_cmd_leaderboard_text_live_proxy(tmp_path, monkeypatch, capsys) -> None:
 
 
 def test_cmd_leaderboard_text_collecting_shadow(tmp_path, monkeypatch, capsys) -> None:
-    """Text with <25 shadow samples → 'collecting' line (line 211-215)."""
+    """Text below the shared A/B floor → 'collecting' line."""
     from distil import ledger as ledger_mod, shadow as shadow_mod
 
     p = tmp_path / "savings.jsonl"
@@ -894,9 +894,9 @@ def test_cmd_statusline_minimal_with_runs(tmp_path, monkeypatch, capsys) -> None
 
 
 def test_cmd_statusline_rich_with_shadow(tmp_path, monkeypatch, capsys) -> None:
-    """Rich statusline + ≥25 shadow samples AND an A/A baseline → shadow
-    equivalence segment (632-633). Without the baseline the verdict is
-    correctly suppressed to 'de baseline N/10' (see test_statusline)."""
+    """Rich statusline past the floor AND with an A/A baseline → shadow
+    equivalence segment. Without the baseline the verdict is correctly
+    suppressed to 'de baseline N/{VERDICT_MIN_AA}' (see test_statusline)."""
     from distil import ledger as ledger_mod, shadow as shadow_mod
 
     p = tmp_path / "savings.jsonl"
@@ -1371,6 +1371,39 @@ def test_cmd_onboard_conflict_status_hint(tmp_path, monkeypatch, capsys) -> None
     )
     assert rc == 0
     assert "force" in capsys.readouterr().out
+
+
+def test_cmd_onboard_ends_with_canonical_next_command(tmp_path, monkeypatch, capsys) -> None:
+    """The canonical savings path: onboard's own summary ends by naming the
+    exact next command (`distil stats`), not just "re-run onboard"."""
+    import distil.setup as setup_mod
+    from distil import onboard
+
+    env = onboard.Env(
+        os_name="Darwin",
+        agents=[("claude", "Claude Code")],
+        installed_version="1.0.0",
+        method="pipx",
+        managers=["pipx"],
+    )
+    monkeypatch.setattr(onboard, "detect", lambda: env)
+    monkeypatch.setattr(onboard, "latest_pypi_version", lambda *a, **k: None)
+    monkeypatch.setattr(setup_mod, "default_settings_path", lambda: tmp_path / "s.json")
+    monkeypatch.setattr(setup_mod, "wire_statusline", lambda *a, **k: ("ok", "wired"))
+    rc = cli.cmd_onboard(
+        argparse.Namespace(
+            json=False,
+            offline=False,
+            dry_run=False,
+            force=False,
+            upgrade=False,
+            no_color=True,
+            yes=False,
+            no_interactive=True,
+        )
+    )
+    assert rc == 0
+    assert "distil stats" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- #
@@ -1967,3 +2000,77 @@ def test_default_alias_verify_hint_does_not_mention_env_var(tmp_path, monkeypatc
     out = capsys.readouterr().out
     assert "type claude" in out
     assert "echo $ANTHROPIC_BASE_URL" not in out
+
+
+def test_cmd_dashboard_ignores_retired_signature_rows(tmp_path, monkeypatch, capsys) -> None:
+    """A verdict is scoped to the signature algorithm that produced it.
+
+    `cmd_dashboard` was the one reporting surface calling `ShadowLedger.load()`
+    unscoped, so a ledger holding only rows from a retired SIG_VERSION -- enough of
+    them to clear the floor -- rendered a confident percentage in the terminal
+    dashboard while the status line, leaderboard, census feed and web dashboard all
+    reported nothing. Rows are written to a real shadow.jsonl and read back through
+    the real command: monkeypatching `load` would test past the bug.
+    """
+    import json as _json
+
+    from distil import ledger as ledger_mod, shadow as shadow_mod
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    p = tmp_path / "savings.jsonl"
+    ledger_mod.record(
+        trajectory_id="live-proxy",
+        model="claude-opus-4-8",
+        turns=1,
+        baseline_dollars=0.10,
+        distil_dollars=0.04,
+        baseline_input_tokens=20000,
+        distil_input_tokens=9000,
+        path=p,
+    )
+    monkeypatch.setattr(ledger_mod, "default_path", lambda: p)
+
+    # Well past both floors, but every row carries a RETIRED signature version.
+    stale = shadow_mod.SIG_VERSION - 1
+    rows = [
+        {"equivalent": True, "ts": 1.0, "kind": "paired", "sig": stale, "aa_equal": True}
+        for _ in range(shadow_mod.VERDICT_MIN_AB * 2)
+    ]
+    (tmp_path / "shadow.jsonl").write_text(
+        "".join(_json.dumps(r) + "\n" for r in rows), encoding="utf-8"
+    )
+
+    # Unscoped these rows would clear the floor and publish a rate; scoped they vanish.
+    assert shadow_mod.ShadowLedger.load().equivalence().pct == 100.0
+    assert shadow_mod.ShadowLedger.load(current_only=True).equivalence().pct is None
+
+    rc = cli.cmd_dashboard(argparse.Namespace(once=True, web=False, port=8799, no_open=True))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "100.0%" not in out  # the retired rows must not speak
+    # Scoped, NOTHING is left, so this is the no-samples state rather than a
+    # shortfall: the dashboard asks for shadow mode instead of counting toward a
+    # floor it has no rows for.
+    assert "--shadow" in out
+
+    # Same ledger plus a handful of CURRENT-signature rows: now there is a real
+    # sample to count, and the shortfall is measured from those rows alone.
+    current = [
+        {
+            "equivalent": True,
+            "ts": 2.0,
+            "kind": "paired",
+            "sig": shadow_mod.SIG_VERSION,
+            "aa_equal": True,
+        }
+        for _ in range(3)
+    ]
+    (tmp_path / "shadow.jsonl").write_text(
+        "".join(_json.dumps(r) + "\n" for r in rows + current), encoding="utf-8"
+    )
+    rc = cli.cmd_dashboard(argparse.Namespace(once=True, web=False, port=8799, no_open=True))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "100.0%" not in out
+    assert "collecting" in out
+    assert f"3/{shadow_mod.VERDICT_MIN_AB} A/B" in out  # 3, not the 100 retired ones

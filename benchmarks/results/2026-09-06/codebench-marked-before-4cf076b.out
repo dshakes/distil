@@ -1,0 +1,9 @@
+distil (PAYG digest) on the codebench corpus, by client cache shape (20 sessions)
+
+client shape                          tok save   $ save (cache)
+---------------------------------------------------------------
+no marker (codebench as shipped)          0.0%             0.0%
+newest turn pinned (Claude Code)         31.4%            35.8%
+---------------------------------------------------------------
+An unmarked Anthropic request is not cached at all, so the first row prices a cache
+that does not exist for it. The second row is the configuration that bills.
