@@ -21,7 +21,7 @@ VALID_STATUSES = {"verified", "stale", "wrong", "unsourced"}
 # claims.json) whenever a claim is genuinely added or removed. A change here
 # without a matching, reviewed claims.json edit is exactly the drift this
 # test exists to catch.
-EXPECTED_ENTRY_COUNT = 37
+EXPECTED_ENTRY_COUNT = 51
 
 
 def _load_claims() -> list[dict]:
@@ -61,19 +61,33 @@ def test_claim_count_is_frozen():
 
 @pytest.mark.parametrize("entry", _load_claims(), ids=lambda e: e["id"])
 def test_claim_locator_still_matches_the_live_page(entry: dict):
-    for page in _pages(entry):
-        path = DOCS_DIR / page
-        assert path.is_file(), f"{entry['id']}: {page} does not exist"
-        text = path.read_text(encoding="utf-8")
+    """Every listed page exists; the locator still resolves on at least one of them.
 
-        anchor = entry.get("anchor")
-        if anchor:
-            needle = f'id="{anchor}"'
-            assert needle in text, f"{entry['id']}: anchor {needle!r} no longer found on {page}"
+    `page` is the list of surfaces a claim appears on, and since the 2026-09-15
+    audit that list is the whole point: the reverse-coverage gate in
+    tests/test_claims_coverage.py uses it to decide which numbers a page is
+    allowed to show. A claim repeated in six places is phrased differently in
+    each, so the anchor/snippet locator is required to resolve somewhere rather
+    than everywhere — it still fails when the claim leaves the site entirely,
+    which is what it was written to catch.
+    """
+    pages = _pages(entry)
+    for page in pages:
+        assert (DOCS_DIR / page).is_file(), f"{entry['id']}: {page} does not exist"
 
-        snippet = entry.get("snippet")
-        if snippet:
-            assert snippet in text, (
-                f"{entry['id']}: snippet {snippet!r} no longer found on {page} "
-                "— the claim moved, changed, or was removed; update claims.json"
-            )
+    anchor = entry.get("anchor")
+    snippet = entry.get("snippet")
+    if not anchor and not snippet:
+        return
+
+    texts = {page: (DOCS_DIR / page).read_text(encoding="utf-8") for page in pages}
+    if anchor:
+        needle = f'id="{anchor}"'
+        assert any(needle in text for text in texts.values()), (
+            f"{entry['id']}: anchor {needle!r} no longer found on any of {pages}"
+        )
+    if snippet:
+        assert any(snippet in text for text in texts.values()), (
+            f"{entry['id']}: snippet {snippet!r} no longer found on any of {pages} "
+            "— the claim moved, changed, or was removed; update claims.json"
+        )

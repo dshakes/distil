@@ -252,16 +252,15 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         print(json.dumps(d, indent=2))
         return 0
     if args.html:
-        change_rate: float | None = None
-        samples = 0
+        html_eq = None
         sess = None
         try:
             from .shadow import ShadowLedger
 
-            eq = ShadowLedger.load(current_only=True).equivalence()
-            samples = eq.n_ab
-            if eq.pct is not None:
-                change_rate = 1.0 - eq.pct / 100.0  # paired, like every other surface
+            # The verdict object itself: it carries both arm counts and refuses to
+            # state a rate below the shared floor, so the page cannot disagree with
+            # the status line.
+            html_eq = ShadowLedger.load(current_only=True).equivalence()
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
         try:
@@ -277,8 +276,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         Path(args.html).write_text(
             ledger.render_html(
                 s,
-                change_rate=change_rate,
-                samples=samples,
+                eq=html_eq,
                 session=sess,
                 subscription=subscription_mode(),
             ),
@@ -1338,6 +1336,25 @@ def cmd_dissect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Rank what is still costing you across recent sessions, with the derivation.
+
+    Exits 0 with no sessions: an advisor that has nothing to advise on is not an
+    error, and a non-zero exit here would fail any script that runs it routinely.
+    """
+    import os
+
+    from . import discover as dv
+
+    use_color = (not args.no_color) and sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+    report = dv.scan(sessions=args.sessions, since_days=args.since)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+        return 0
+    print(dv.render_text(report, color=use_color))
+    return 0
+
+
 def _print_shadow_sampling(_ctrs: dict) -> None:
     """Sampling diagnostics for ``distil shadow-stats`` — seen/sampled/failed.
 
@@ -1850,7 +1867,8 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     #   idle:          distil · total ▼27.0M saved · 50% smaller [$96.10]
     # ▼ = tokens saved; "session" = this run, "total" = lifetime.
     # Dropped by design: orig→compressed pair (derivable), run counts, and any
-    # eq% under 25 shadow samples — "eq 100.0% (1)" is noise wearing a number.
+    # eq% below the shared reporting floor (shadow.VERDICT_MIN_AB A/B +
+    # VERDICT_MIN_AA A/A) — "eq 100.0% (1)" is noise wearing a number.
     # Full breakdown: distil stats / dashboard.
     parts = [c("1;38;5;79", "distil")]
     # Mode chip: which compression mode this session is actually running, read from
@@ -1935,12 +1953,14 @@ def cmd_statusline(args: argparse.Namespace) -> int:
                     else ("✗", "38;5;196")
                 )
                 # Same "de" label as the collecting state below, so the segment
-                # reads as one metric maturing: de 12/25 → ✓de 99.5% (30).
+                # reads as one metric maturing: de 12/50 → ⚠de 97.5% (398).
                 parts.append(c(hue, f"{glyph}de {eq * 100:.1f}%") + c("38;5;73", f" ({n_str})"))
             elif led.samples > 0 or led.aa_samples > 0:
-                # Below 25 samples we don't claim a rate (a % over a handful is noise).
+                # Below the shared reporting floor (VERDICT_MIN_AB/VERDICT_MIN_AA)
+                # we don't claim a rate — a % over a handful is noise. The 25/10
+                # floor this comment used to name was retired in 1.52.0.
                 # Distinguish "warming up" (a sampler fed the ledger recently) from
-                # "idle" (nothing sampling in >24h) — a frozen "de 1/25" reads as
+                # "idle" (nothing sampling in >24h) — a frozen "de 1/50" reads as
                 # live measurement, which is honesty gap #3.
                 import time as _t
 
@@ -2699,15 +2719,19 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
     def frame() -> str:
         s = ledger.summary()
-        change_rate: float | None = None
-        samples = 0
+        dash_eq = None
         recent: list[int] | None = None
         sess = None
         try:
-            led = ShadowLedger.load()
-            samples = led.samples
-            if samples:
-                change_rate = led.rate()
+            # `current_only=True` like every other reporting surface: a verdict is
+            # scoped to the signature algorithm that produced it, so rows from an
+            # older SIG_VERSION must not be pooled into today's number.
+            led = ShadowLedger.load(current_only=True)
+            # The paired verdict, not `led.rate()`. The raw A/B rate has no A/A
+            # noise baseline behind it, so the dashboard was the one surface that
+            # would publish a number the status line and `shadow-stats` refused.
+            dash_eq = led.equivalence()
+            if led.samples:
                 recent = list(led.recent)
         except Exception:  # noqa: BLE001 — shadow stats are best-effort
             pass
@@ -2727,8 +2751,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
             pass
         return ledger.render_dashboard(
             s,
-            change_rate=change_rate,
-            samples=samples,
+            eq=dash_eq,
             recent=recent,
             subscription=subscription,
             color=color,
@@ -4697,6 +4720,20 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--json", action="store_true", help="machine-readable output")
     di.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     di.set_defaults(func=cmd_dissect)
+
+    dv = sub.add_parser(
+        "discover",
+        help="where you are still leaving savings on the table, ranked, across recent sessions",
+    )
+    dv.add_argument(
+        "--sessions", type=int, default=20, help="how many recent sessions to fold in (default: 20)"
+    )
+    dv.add_argument(
+        "--since", type=float, metavar="DAYS", help="only sessions active in the last N days"
+    )
+    dv.add_argument("--json", action="store_true", help="machine-readable output")
+    dv.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    dv.set_defaults(func=cmd_discover)
 
     dash = sub.add_parser(
         "dashboard",

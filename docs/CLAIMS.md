@@ -4,19 +4,55 @@
 
 Any figure, percentage, or comparative statement on the docs site — a
 benchmark result, a cost saving, a pass rate — gets one entry in
-`docs/claims.json`. `tests/test_site_claims.py` enforces two things every CI
-run:
+`docs/claims.json`. Two test modules enforce it every CI run.
 
-1. **Each entry's locator still matches the live page.** An entry names a
-   `page` (or list of pages), an optional `anchor` (an HTML `id`), and a
-   `snippet` (a verbatim substring of the page's source). If the page changes
-   and the snippet no longer appears, the test fails — the claim moved,
-   changed, or was quietly deleted, and the ledger is now lying.
+`tests/test_site_claims.py` — ledger → page:
+
+1. **Each entry's locator still resolves.** An entry names a `page` (or list of
+   pages), an optional `anchor` (an HTML `id`), and a `snippet` (a verbatim
+   substring of the page's source). Every listed page must exist, and the
+   locator must still resolve on at least one of them. A claim repeated on six
+   surfaces is worded differently on each, so the locator is required
+   *somewhere* rather than everywhere — it still fails when the claim leaves
+   the site.
 2. **The total entry count is frozen.** Adding or removing a claim without
    touching the ledger fails the count check in
    `tests/test_site_claims.py::test_claim_count_is_frozen`. Bump
    `EXPECTED_ENTRY_COUNT` in that file in the *same commit* that edits
    `claims.json`, so the diff is reviewable instead of silent.
+
+`tests/test_claims_coverage.py` — page → ledger, and ledger → artifact. Both
+directions were missing until 2026-09-15, which is how `docs/llms.txt`,
+`plugins/`, and one trust card on `index.html` carried numbers no entry named
+while CI stayed green, and how one entry could cite a directory that held no
+artifact while another printed 52.3% from a log that said 47.9%:
+
+3. **Reverse coverage.** Every percentage and multiplier on `README.md`,
+   `docs/*.html`, `docs/llms.txt` and `plugins/**/*.md` must appear in some
+   entry that names that page. Sample terminal blocks, fenced code, `<script>`,
+   `<style>`, `<svg>` and statistical notation (`95% CI`, `α=0.10`) are
+   stripped before the scan. Anything left that is genuinely not a claim goes
+   in `NON_CLAIMS` with a specific reason — never to make a real result pass.
+   Pages not yet cleared carry a frozen `LEDGER_DEBT` set that may only shrink;
+   a *new* number on those pages still fails.
+4. **Artifacts are opened.** For every entry with an `artifact`, the path must
+   exist and a directory must contain files. If the entry also carries
+   `values`, each value must appear in the artifact — JSON fields are compared
+   as both fractions and percentages, so a page's `36.8%` matches a stored
+   `0.368`. An entry that genuinely cannot be machine-checked sets
+   `"check": "manual"` and must say why in `check_reason`.
+
+## Fields beyond the locator
+
+- **`artifact`** — repo-relative path to the file or directory the number comes
+  from. Prefer the exact file over its directory; a directory is checked for
+  being non-empty, which is weaker.
+- **`values`** — the number strings this entry covers, e.g.
+  `["83.2%", "47.9%"]`. This is what lets one entry cover a whole table, and
+  it is what the artifact check reads.
+- **`check": "manual"` + `check_reason`** — for a figure that is derived (a
+  ratio of two columns), computed at report time, or produced by a command
+  whose output was never committed. Say which; "hard to check" is not a reason.
 
 ## Statuses
 
@@ -42,8 +78,11 @@ run:
    existing heading `id`) or a `snippet` that is unlikely to be touched by
    unrelated edits — a distinctive phrase next to the number, not just the
    number alone if the number recurs elsewhere on the page.
-3. Bump `EXPECTED_ENTRY_COUNT` in `tests/test_site_claims.py`.
-4. Run `pytest tests/test_site_claims.py` before committing.
+3. Cite the `artifact` it comes from and list its `values`, or set
+   `"check": "manual"` with a `check_reason`.
+4. Bump `EXPECTED_ENTRY_COUNT` in `tests/test_site_claims.py`.
+5. Run `pytest tests/test_site_claims.py tests/test_claims_coverage.py`
+   before committing.
 
 ## Why snippets, not line numbers
 

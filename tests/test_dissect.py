@@ -271,6 +271,57 @@ class TestRequestDetailLogging:
             assert resp.status == 200
         assert not list((tmp_path / "sessions").glob("*.requests.jsonl"))
 
+    def test_zero_cache_split_is_written_as_zero_not_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A provider that reports prompt caching at all returns BOTH split fields
+        even on a call with zero hits — that IS a measurement, and must not
+        collapse into the same `None` a provider that never reports caching
+        writes. `Dissection.cached_input_share` relies on this distinction."""
+        payload = json.dumps(
+            {
+                "id": "msg_test",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {
+                    "input_tokens": 500,
+                    "output_tokens": 10,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+            }
+        ).encode()
+
+        class _ZeroCacheHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 — http.server API
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args: Any) -> None:  # quiet
+                pass
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), _ZeroCacheHandler)
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        handler_cls = build_handler(f"http://127.0.0.1:{upstream.server_address[1]}")
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        try:
+            monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+            monkeypatch.setenv("DISTIL_SESSION", "s102-1")
+            with _post(proxy.server_address[1], _compressible_payload()) as resp:
+                assert resp.status == 200
+            path = session_requests_path("s102-1")
+            assert path is not None
+            rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+            assert rec["usage_cache_read"] == 0
+            assert rec["usage_cache_create"] == 0
+        finally:
+            proxy.shutdown()
+            upstream.shutdown()
+
 
 class TestWrapManifest:
     def test_manifest_written_at_wrap_start(
@@ -509,6 +560,28 @@ class TestDissection:
         assert d.blocks["aaaa1111"]["recoverable"] is True
         assert d.blocks["bbbb2222"]["recoverable"] is False
         assert d.blocks_by_kind()[0] == ("log:l", 1, 2000)
+
+    def test_since_ts_bounds_both_ledger_rows_and_request_detail(self) -> None:
+        """`distil discover`'s `--since N` must not fold an always-on session's
+        whole history into a bounded window: `since_ts` drops both the ledger
+        rows and the request-detail rows before that timestamp, the same as if
+        the session had never had them."""
+        # s200-1's two ledger rows are at ts 1000.0 and 1600.0; its three request
+        # rows are at ts 1000.0, 1600.0, 1700.0.
+        unbounded = dz.dissect("s200-1")
+        assert len(unbounded.ledger_rows) == 2 and len(unbounded.requests) == 3
+
+        bounded = dz.dissect("s200-1", since_ts=1600.0)
+        assert len(bounded.ledger_rows) == 1 and bounded.ledger_rows[0]["ts"] == 1600.0
+        assert len(bounded.requests) == 2
+        assert {r["ts"] for r in bounded.requests} == {1600.0, 1700.0}
+        # The old, larger ledger row (9000 baseline) is excluded, not summed in.
+        assert bounded.baseline_tokens == 1000 and bounded.distil_tokens == 900
+
+    def test_since_ts_none_is_unaffected(self) -> None:
+        """The default (no bound) must dissect exactly as before."""
+        d = dz.dissect("s200-1", since_ts=None)
+        assert len(d.ledger_rows) == 2 and len(d.requests) == 3
         # Shadow join is by time window: only the ts=1500 row is inside.
         assert d.shadow_window_rows == 1 and d.shadow_window_agree == 1
         # That row carries no usage, so there is nothing to price.
@@ -687,6 +760,43 @@ class TestInsights:
         advice = d._churn_advice()
         assert "prompt cache" in advice and "already discounted" in advice
         assert "session-delta cache absorbs" not in advice
+
+    def test_absent_split_fields_stay_unmeasured_even_with_usage(self) -> None:
+        """None on both split fields means the provider never reported them —
+        true of every OpenAI/Gemini row and every row written before this
+        proxy version — and must stay unmeasured regardless of whether
+        `usage_input_tokens` is present. Reading it as a measured 0% would
+        inflate churn/prefix-drift for exactly those non-Anthropic rows."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share is None
+
+    def test_literal_zero_cache_split_reads_as_measured(self) -> None:
+        """A literal 0 — what the proxy now writes whenever the provider's usage
+        object carried the split field at all — is a real measurement, not an
+        absence, and must read as a genuine 0% share."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r["usage_cache_read"] = 0
+            r["usage_cache_create"] = 0
+            r.pop("usage_cache_tokens", None)
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share == pytest.approx(0.0)
+
+    def test_no_usage_at_all_stays_unmeasured(self) -> None:
+        """A row with no billed usage recorded has nothing to measure a share
+        from — the true "unmeasured" case, distinct from a real zero."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r.pop("usage_input_tokens", None)
+        assert d.cached_input_share is None
 
     def test_legacy_rows_read_as_not_captured_not_zero(self) -> None:
         """Older records carry only the aggregate ``usage_cache_tokens``. Summing the

@@ -1,0 +1,3 @@
+distil validate — adversarial real-path invariant harness
+
+VALIDATE: PASS — 175/175 checks across 25 adversarial cases (reversibility · reject-if-bigger · recency · quote-survival · fail-open · prefix-replay-semantics · content-free).

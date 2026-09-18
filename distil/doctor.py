@@ -296,7 +296,10 @@ def _check_shadow() -> Check:
     try:
         from .shadow import ShadowLedger
 
-        led = ShadowLedger.load()
+        # `current_only=True` like every other reporting surface: this check ends by
+        # printing `eq.line()`, a verdict, so rows from a retired signature algorithm
+        # must not be pooled into it.
+        led = ShadowLedger.load(current_only=True)
     except Exception as exc:  # noqa: BLE001
         return Check("shadow validation", FAIL, f"could not read shadow ledger — {exc}")
     if led.samples == 0:

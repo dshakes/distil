@@ -37,7 +37,7 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 
 <p align="center">Compression that <b>cannot be checked</b> is a guess about your agent's behaviour.<br/>Distil is built so every part of it is checkable, and so the checks are allowed to come back <b>no</b>.</p>
 
-- **It proves decision-equivalence per request — and can say no.** Shadow mode replays a sampled request three times: twice on the original context and once on the compressed one, then reports `1{A=B} − 1{A=A'}` — a *paired difference* against the model's own self-agreement, with a bootstrap 95% CI, **unclipped, so it is allowed to be negative**. One reporting floor (50 A/B + 30 A/A) gates every surface; below it, every surface says *below reporting floor* instead of a number. The current live sample is below that floor, and the status line says so.
+- **It proves decision-equivalence per request — and can say no.** Shadow mode replays a sampled request three times: twice on the original context and once on the compressed one, then reports `1{A=B} − 1{A=A'}` — a *paired difference* against the model's own self-agreement, with a bootstrap 95% CI, **unclipped, so it is allowed to be negative**. One reporting floor (50 A/B + 30 A/A) gates every surface; below it, every surface says *below reporting floor* instead of a number. The current live sample cleared that floor on 2026-09-15 and reads **97.5%** [95.5, 99.5] over n=398 A/B — under 99%, so the status line flags it ⚠ rather than ✓.
 - **What it folds, it can give back byte-exact.** A digest is a marker plus a handle into a local content-addressed store, and the agent gets a `distil_expand` tool to recover the original mid-task. The gateway ships **Tier-0 only** rather than emit a stub it cannot restore.
 - **It will not digest a line your agent has to quote back.** An `Edit(old_string=…)` is a literal match. Reading exact-quote provenance from the *shell command*, not just the tool name, took byte-exact quote loss from **39.3% → 16.2%** on real coding traffic — and it costs real savings, which we price rather than hide.
 - **It does not break your prompt cache.** Compression is suffix-only and cache-monotonic by construction: a later turn may never rewrite bytes the provider has already cached. We shipped that bug once, measured it at *2× the cost of compressing nothing*, and made the invariant enforced. **[The cache contract →](https://dshakes.github.io/distil/cache-contract.html)**
@@ -169,7 +169,7 @@ TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs
 
 <p align="center"><sub>On the same corpus, re-run 2026-09-04 with Headroom's model preloaded: <b>distil 52.9% tokens / 58.7% $ / 100% decision-equivalent / PASS</b> vs <b>Headroom 1.7% / 2.0% / 81% / FAIL</b>. On a read→edit→re-read coding workload Headroom reaches 35.6% tokens where distil's digest is <b>0.0% by design</b> — that is the exact-quote guarantee being paid for, and <a href="https://dshakes.github.io/distil/compare.html#headroom-fresh">both numbers are on one page</a> with the raw output committed.</sub></p>
 
-<p align="center"><b>Distil is the only compressor statistically tied with full context — its v1.7 surprise-preserving digest reaches 42.0% vs 39.2% (paired non-inferiority certified; superiority not significant)</b> while every lossy tool craters. And on the live head-to-head above (graded by <code>claude-opus-4-8</code>), it certifies <b>83.2% savings at a 0% decision-change rate</b>, ~1,000× faster than the nearest tool <sub>(distil is pure-Python heuristics — no local ML model; competitors run transformer inference)</sub>. <a href="#-the-proof">Full breakdown ↓</a></p>
+<p align="center"><b>Distil is the only compressor statistically tied with full context — its v1.7 surprise-preserving digest reaches 42.0% vs 39.2% (paired non-inferiority certified; superiority not significant)</b> while every lossy tool craters. And on the live head-to-head above (graded by <code>claude-opus-4-8</code>), it certifies <b>83.2% savings at a 0% decision-change rate</b> <sub>(2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0)</sub>, ~1,000× faster than the nearest tool <sub>(distil is pure-Python heuristics — no local ML model; competitors run transformer inference)</sub>. <a href="#-the-proof">Full breakdown ↓</a></p>
 
 ---
 
@@ -352,7 +352,7 @@ GATE: PASS — every trajectory certified non-inferior; aggressive rejected on a
 
 Three results, all reproducible, all published with caveats:
 
-- **Live head-to-head** vs real `llmlingua` / `headroom-ai` (graded by `claude-opus-4-8`): **83.2% savings at 0% decision-change**, ~1,000× faster (no ML model loaded vs. competitors' local transformer inference). The live proxy behavior is pinned to the certified strategy by `tests/test_live_certified_equivalence.py`; the one reviewed delta is a recency carve-out that keeps the freshest tool-result turns verbatim (an agent needs its freshest output byte-exact). Since 1.45 that carve-out applies only to content the provider has *not* cached — anchored to the client's `cache_control` breakpoint, and dropped entirely for providers that cache implicitly. A carve-out counted back from the end of the conversation slid forward as it grew, rewriting already-cached content one turn later and costing more in re-billed prefix than the digest saved. → [benchmark](https://dshakes.github.io/distil/benchmark.html)
+- **Live head-to-head** vs real `llmlingua` / `headroom-ai` (graded by `claude-opus-4-8`; 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0): **83.2% savings at 0% decision-change**, ~1,000× faster (no ML model loaded vs. competitors' local transformer inference). The live proxy behavior is pinned to the certified strategy by `tests/test_live_certified_equivalence.py`; the one reviewed delta is a recency carve-out that keeps the freshest tool-result turns verbatim (an agent needs its freshest output byte-exact). Since 1.45 that carve-out applies only to content the provider has *not* cached — anchored to the client's `cache_control` breakpoint, and dropped entirely for providers that cache implicitly. A carve-out counted back from the end of the conversation slid forward as it grew, rewriting already-cached content one turn later and costing more in re-billed prefix than the digest saved. → [benchmark](https://dshakes.github.io/distil/benchmark.html)
 - **E7 (SWE-bench Verified):** aggressive *lossy* compression **craters** task success (52% → 16%) — a per-step certificate doesn't transfer to multi-turn. The **reversible** tier survives (56% vs 52%). We publish it because it's true. → [E7](https://dshakes.github.io/distil/research.html#e7)
 - **E8–E14 (500-instance agent):** the reversible tier is the **only compressor non-inferior to full context**, generalizes across 5 models / 3 vendors, and the newest digest matches full within noise (42.0% vs 39.2%). → [E8–E14](https://dshakes.github.io/distil/research.html#e8)
 
@@ -367,6 +367,7 @@ Measured on **your** traffic, never estimated, nothing leaves your machine:
 - **Per request:** `x-distil-*` response headers (`tokens-saved`, `mode`, `compressible-tokens`, `expanded`).
 - **Per machine:** `distil leaderboard` (`--html` for a page).
 - **Shadow mode:** `distil proxy --shadow 0.05` reports the live decision-change rate — streaming-aware.
+- **What you're still leaving behind:** `distil discover` aggregates your recent sessions and ranks what is *still* costing you — tool/MCP definitions resent on every request, sessions that never reached the digest tier, a cache prefix that drifts and re-bills itself, re-fold churn the provider is not already discounting, a system prompt that grew. Each action carries the tokens and dollars per week it would recover, **how that number was derived**, and the one command or setting to act on it. It prints the **median and the p10/p90** of your per-session savings *beside* the best session, so a best case is never read as a typical one, and it uses the rate your own ledger measured — falling back to a published benchmark ratio only when this machine has never run that mode, and saying so on the line. A detector that cannot measure stays silent, so "nothing to recommend" is a result rather than a failure to look.
 - **Org-wide:** `distil proxy` sidecar + set `ANTHROPIC_BASE_URL` once; every client routes through it.
 - **Community:** an **opt-in** census (`distil census on`) shares your numbers-only totals — preview the exact payload with `distil census show` before consenting; [`TELEMETRY.md`](TELEMETRY.md) has the frozen schema. Default remains: nothing is sent.
 
@@ -603,6 +604,7 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 | Watch genuine savings accumulate | `distil leaderboard` · live TUI: `distil dashboard` |
 | Session summary on exit (tokens, cost, shadow, restorability) | printed automatically by `distil wrap` — opt out with `DISTIL_NO_LEDGER=1` |
 | Deep-dive one session (savings, anomalies) | `distil dissect` (`--html` / `--serve`) |
+| Where you're still leaving savings on the table | `distil discover` (`--since 7` / `--json`) |
 | Live decision-equivalence on real traffic | `distil wrap --shadow 0.1 -- claude` → `distil shadow-stats` |
 | Certify on *your* domain | `distil ingest --input prod.jsonl --out ./mycorpus` → `distil conformal --corpus ./mycorpus` |
 | Recover digested detail from any agent (MCP) | `distil mcp` |
@@ -625,18 +627,20 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 > samples every request — proves equivalence in minutes at ~3× token cost, then drop
 > back to the default 2%).
 >
-> **Measured:** The earlier number here (signature v3 / 1.13.0, 100% over 116 sampled
-> requests, A/A 31/31) is withdrawn — the 1.51.1 changelog found that every replay
-> carrying a prior `thinking` block failed with a signature error, biasing the sample
-> toward the minority of turns that had none. Honest current reading, live shadow
-> build 1.51.1, lossless-only: **44 A/B and 11 A/A samples**; raw agreement **81.8%**
-> [67.3, 91.8]; model self-agreement on identical input **84.8%** [71.8, 92.4] over 46
-> byte-identical replays; statistically indistinguishable (p=0.63); 32 of the 44 A/B
-> samples had no bytes changed by compression. Below the 50 A/B + 30 A/A reporting
-> floor — not yet a verdict. The estimator (a ratio today, not a paired difference) is
-> replaced in 1.52.0 by a paired design (three replays per sample, unclipped difference
-> with a bootstrap CI, one reporting floor); the numbers above are from the pre-1.52.0
-> unpaired estimator and will be superseded once the paired sample clears the floor.
+> **Measured — 2026-09-15, build 1.53.0rc1, paired estimator (signature v5).** The live
+> sample now clears the reporting floor: **398 A/B and 399 A/A samples**, both modes
+> mixed (digest 206, lossless-only 192), paired equivalence **97.5%** [95.5, 99.5] from a
+> paired difference of −0.025 [−0.045, −0.005]. That is under 99%, so the status line
+> prints `⚠de 97.5% (398)`, not a ✓. Replays run **hot** — 399 of 399, temperature is not
+> pinned — so read the paired difference, not the 53.0% raw agreement: the A/A arm carries
+> the same run-to-run noise and the difference subtracts it out. Artifact:
+> [`benchmarks/results/shadow-live-2026-09-15.json`](benchmarks/results/shadow-live-2026-09-15.json).
+> Two earlier readings stay on the record: the signature-v3 / 1.13.0 number (100% over 116
+> sampled requests, A/A 31/31) is **withdrawn** — the 1.51.1 changelog found that every
+> replay carrying a prior `thinking` block failed with a signature error, biasing the
+> sample toward the minority of turns that had none — and the 1.51.1 reading (44 A/B, 11
+> A/A, raw agreement 81.8%, below the floor, unpaired estimator) is kept at
+> `benchmarks/results/shadow-live-2026-09-04.json`.
 >
 > `▼` = tokens saved · `total` = lifetime · `de` = decision-equivalence (verdict once 50 A/B + 30 A/A shadow samples accrue). Sharing the line with git/cwd/model? `DISTIL_STATUSLINE=minimal` → `distil ▼7.8K · 27M total`. On a flat-rate **subscription**, dollars are notional and auto-hidden (`DISTIL_SUBSCRIPTION=0/1`).
 

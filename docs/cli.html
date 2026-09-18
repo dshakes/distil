@@ -573,6 +573,40 @@ by trajectory:
 <span class="d">$ distil dissect --serve</span>       <span class="d"># localhost portal, all sessions</span></pre>
     <p><code>--serve</code> blocks until Ctrl-C. Under CI (<code>CI</code>, <code>GITHUB_ACTIONS</code>, <code>GITLAB_CI</code>, <code>BUILDKITE</code>, <code>TF_BUILD</code>) it prints the URL and exits 0 instead — nobody is there to open a browser; pass <code>--foreground</code> to block anyway. A non-TTY launch that isn't CI (nohup, a systemd/supervisor unit, an IDE task) still serves. Same rule for <code>distil dashboard --web</code>.</p>
 
+    <h2 id="discover">distil discover</h2>
+    <p><a href="#dissect">dissect</a> answers "what happened to <em>this</em> session?". <code>discover</code> answers the forward-looking question it cannot: <strong>where are you still leaving savings on the table, across your recent sessions, and what do you run to stop?</strong> It aggregates the last 20 sessions and prints a ranked list of concrete actions — unused-looking tool and MCP definitions resent on every request, sessions that never reached the digest tier, a cache prefix that drifts and re-bills itself, re-fold churn the provider is <em>not</em> already discounting, a system prompt that grew — each with the tokens and dollars per week it would recover, <strong>how that number was derived</strong>, and the one command or setting to act on it.</p>
+    <p>Two things it will not do. It never quotes a best case as a typical one: the median and the p10/p90 of per-session savings are printed <em>beside</em> the best session, because a headline next to a much worse fleet median is exactly the trust problem this command exists to be the opposite of. And it never invents a ratio — where an estimate needs "what would the other mode be worth", it uses the rate <em>this machine</em> measured (<code>distil leaderboard</code>'s own ledger); only a machine that has never run digest at all falls back to the published benchmark figure, and then the line says so. A detector that cannot measure stays silent rather than guessing, so "nothing to recommend" is a result, not a failure to look. Same content-free local records as <code>dissect</code>; nothing leaves the machine. Exits 0 with no sessions.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="distil discover">
+    <table>
+      <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>--sessions</code></td><td>20</td><td>How many recent sessions to fold into the window</td></tr>
+      <tr><td><code>--since</code></td><td>off</td><td>Only sessions active in the last N days</td></tr>
+      <tr><td><code>--json</code></td><td>off</td><td>Machine-readable: window, typical/best spread, and every action with its basis</td></tr>
+      <tr><td><code>--no-color</code></td><td>off</td><td>Disable ANSI colors</td></tr>
+    </table>
+    </div>
+    <pre class="term"><span class="d">$ distil discover</span>
+distil discover — where your remaining savings are
+  window   20 session(s), 4,812 requests, 9.1 days  (rates below are per week)
+  typical  1.0% saved on the median session (p10 0.3%, p90 66.7%), best 66.7% (sA)
+           the median is what to expect; the best session is not typical
+
+2 action(s) — up to 1.24M tokens/week
+
+  1. 7 of 20 sessions never reached the digest tier (lossless-only/verbatim) and saved 1.0%
+     recovers  938k tokens/week, $4.69/week
+     how       1.10M baseline tokens in those sessions x a 91.5% digest rate (your own
+               traffic, 612 runs), minus the 12.1k they already saved
+     do        distil default --mode expand
+
+  2. Your fixed setup is 54% of everything sent — the 3 costliest of 31 tool
+     definitions are mcp__github__search, mcp__slack__post, mcp__jira__issue
+     recovers  301k tokens/week, $1.51/week
+     how       each tool definition's size x the requests that carried it, summed over
+               20 session(s) ...
+     do        disable the MCP servers / tools you do not use in your agent's config</pre>
+    <pre class="term"><span class="d">$ distil discover --since 7 --json</span>   <span class="d"># last week, machine-readable</span></pre>
+
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while
 compressing for one agent is expandable by <em>any</em> other reading the same

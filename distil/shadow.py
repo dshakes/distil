@@ -266,6 +266,22 @@ class Equivalence:
         return self.estimator == "paired" and self.n_paired < VERDICT_MIN_AB
 
     @property
+    def shortfall(self) -> str:
+        """Which counter is still short, in `have/need` form, or "" above the floor.
+
+        The compact counterpart to :func:`floor_note`, for surfaces that show
+        progress rather than a sentence. It names the constraint that actually
+        BINDS: once both arms are full, a paired verdict can still be short on the
+        paired pool itself, and reporting "50/50 A/B, 30/30 A/A" while refusing to
+        state a rate reads as a bug rather than as evidence still accruing.
+        """
+        if not self.below_floor:
+            return ""
+        if self.n_ab < VERDICT_MIN_AB or self.n_aa < VERDICT_MIN_AA:
+            return f"{self.n_ab:,}/{VERDICT_MIN_AB} A/B, {self.n_aa:,}/{VERDICT_MIN_AA} A/A"
+        return f"{self.n_paired:,}/{VERDICT_MIN_AB} paired"
+
+    @property
     def pct(self) -> float | None:
         """The headline percentage, or None below the reporting floor."""
         if self.below_floor:

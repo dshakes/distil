@@ -270,19 +270,43 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
     else:
         restore = f"{n_digests} {digest_label}, some handles expired (TTL {ttl}d)"
 
-    return "\n".join(
-        [
-            f"\n  distil proof ledger — session {dur}",
-            f"    tokens   {cal_base:,} → {cal_dist:,}   ({pct:.1f}% smaller)",
-            f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
-            f"    shadow   {_shadow_line(start_ts)}",
-            f"    restore  {restore}",
-            *(f"    {label:<8} {text}" for label, text in _safe_proof_lines()),
-            # The verdicts are the reading; this is what to do about it. Last on purpose,
-            # so the block ends on the action rather than on a statistic.
-            f"    next     distil dissect {session_id}   (or: distil stats for cumulative savings)",
-        ]
+    lines = [
+        f"\n  distil proof ledger — session {dur}",
+        f"    tokens   {cal_base:,} → {cal_dist:,}   ({pct:.1f}% smaller)",
+        f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
+        f"    shadow   {_shadow_line(start_ts)}",
+        f"    restore  {restore}",
+        # The verdicts are the reading; the two lines below are what to do about it, so
+        # they come after every statistic and before anything that names a command.
+        *(f"    {label:<8} {text}" for label, text in _safe_proof_lines()),
+    ]
+    # At most one extra line, and only when a detector actually fired. The ledger is
+    # what a user sees on every exit, so an advisory that prints "0 actions" every
+    # time is an ad; one that appears only when there is something to act on is a
+    # finding. It comes before the standing next-command line so the summary still
+    # ends on the routine action, not a one-off recommendation.
+    advice = _discover_line()
+    if advice:
+        lines.append(f"    next     {advice}  (run: distil discover)")
+    lines.append(
+        f"    next     distil dissect {session_id}   (or: distil stats for cumulative savings)"
     )
+    return "\n".join(lines)
+
+
+def _discover_line() -> str | None:
+    """The missed-savings advisor's one-line teaser, or None.
+
+    Fail-open on its own: `print_proof_ledger` already swallows everything, but a
+    cross-session scan reads more files than the rest of this module and must not
+    be the reason a session's proof is missing entirely.
+    """
+    try:
+        from .discover import wrap_exit_line
+
+        return wrap_exit_line()
+    except Exception:  # noqa: BLE001 — an advisory must never cost the proof ledger
+        return None
 
 
 def _safe_proof_lines() -> list[tuple[str, str]]:
