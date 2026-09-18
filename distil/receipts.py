@@ -221,7 +221,7 @@ class Verdict:
                 else (
                     f"VERIFIED — {self.total} receipts, hash chain intact "
                     f"({self.total - self.checked_from} re-checked since this machine's last "
-                    f"pass; --full re-hashes all {self.total})."
+                    f"pass; `distil receipts` re-hashes all {self.total})."
                 )
             )
             return scope
@@ -304,7 +304,7 @@ def _scan(p: Path, count: int, prev: str, tail_start: int, tail_end: int) -> Ver
     return Verdict(count, True, checked_from=first)
 
 
-def verify(path: Path | None = None, *, full: bool = False) -> Verdict:
+def verify(path: Path | None = None, *, full: bool = True) -> Verdict:
     """Recompute every hash and every link. This is the whole point of the artifact:
     anyone can run it, and it needs nothing but the file.
 
@@ -323,8 +323,8 @@ def verify(path: Path | None = None, *, full: bool = False) -> Verdict:
     **What a resumed pass does not do**, stated plainly because the artifact's whole value
     is that it does not overclaim: it does not re-hash receipts this machine already
     verified. An edit buried in that prefix, made by something with write access to
-    ``~/.distil``, is found by ``--full`` and by anyone you hand the file to — not by the
-    resumed pass. That is the same trust boundary the chain always had (whoever can
+    ``~/.distil``, is found by the default full pass and by anyone you hand the file to — not by the
+    resumed pass (``full=False``, the per-exit line and ``distil receipts --fast``). That is the same trust boundary the chain always had (whoever can
     rewrite the receipts can rewrite the checkpoint beside them); what is new is that the
     fast path says so rather than implying a full audit it did not perform.
     """

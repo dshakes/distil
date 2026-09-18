@@ -1057,7 +1057,7 @@ def cmd_receipts(args: argparse.Namespace) -> int:
             print("# no receipts recorded", file=sys.stderr)
         return 0
 
-    verdict = _r.verify(full=bool(getattr(args, "full", False)))
+    verdict = _r.verify(full=not bool(getattr(args, "fast", False)))
     print(verdict.statement)
     if verdict.total:
         saved = sum(r.tokens_saved for r in _r.read())
@@ -4215,9 +4215,10 @@ def build_parser() -> argparse.ArgumentParser:
     # A resumed pass is this machine re-checking its own chain cheaply; --full is the
     # audit. Someone you hand the file to always gets the full pass, cache or no cache.
     rc.add_argument(
-        "--full",
+        "--fast",
         action="store_true",
-        help="re-hash every receipt instead of resuming from this machine's checkpoint",
+        help="resume from this machine's checkpoint and re-hash only what was appended since; "
+        "the default re-hashes every receipt",
     )
     rc.set_defaults(func=cmd_receipts)
 

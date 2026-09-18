@@ -757,8 +757,8 @@ records `(count, head_hash)` and the byte offsets of the last verified receipt, 
 rows appended since are re-hashed, and the statement names what it skipped. That
 checkpoint can only make the answer cheaper, never wronger — it is re-hashed before it is
 trusted, any failure from a resumed pass is discarded and re-run in full, and a third
-party handed the file always gets the full pass, as does `distil receipts --verify
---full`. `shadow.jsonl` is read once per render and shared by every line that quotes it,
+party handed the file always gets the full pass, as does `distil receipts` itself — the default is the full pass, and `--fast` is the opt-in that
+resumes from the checkpoint. `shadow.jsonl` is read once per render and shared by every line that quotes it,
 rather than once per line. And the drift monitor folds only the rows past `consumed`,
 carrying the stream fingerprint forward as an accumulator instead of re-deriving it over
 the whole prefix. On a 200,000-receipt chain and a 50,000-row shadow ledger the exit

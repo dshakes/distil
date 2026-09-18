@@ -763,7 +763,7 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
     budget   certified decision-change budget: not enough samples yet (12/50)
     risk     not enough samples yet (12/50)
     output   not enough samples yet (12/50)
-    receipts 87 receipts, chain intact — 3 re-checked since this machine's last pass; `distil receipts --verify --full` re-hashes all</pre>
+    receipts 87 receipts, chain intact — 3 re-checked since this machine's last pass; `distil receipts` re-hashes all</pre>
 
     <p>The last four lines are the statistical verdicts — an anytime-valid alarm on the certified risk budget, a distribution-free upper bound on the live decision-change rate, compression's measured effect on reply length, and the receipt chain. Each can come back negative, and below the reporting floor each withholds its number rather than guessing. The same four print in <code>distil stats</code> and <code>distil dissect</code>, from one shared function. <a href="evals.html#exit-summary">What the exit summary proves</a> explains each one and the method behind it.</p>
 

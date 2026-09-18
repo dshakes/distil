@@ -237,7 +237,7 @@ distil shadow-stats --record</pre>
     risk     decision-change risk &le; &lt;P&gt;% (95% conformal bound, n=&lt;N&gt;)
     output   the model's replies were &lt;T&gt; tokens shorter per request under compression
              (95% CI [&lt;lo&gt;, &lt;hi&gt;], n=&lt;N&gt;, shadow-measured on all traffic; not --shape-output)
-    receipts &lt;N&gt; receipts, chain intact — &lt;k&gt; re-checked since this machine's last pass; `distil receipts --verify --full` re-hashes all</pre>
+    receipts &lt;N&gt; receipts, chain intact — &lt;k&gt; re-checked since this machine's last pass; `distil receipts` re-hashes all</pre>
     <p>No sample values are shown here on purpose: these are the only numbers on this site that are not published measurements, because they are yours. Each line can also read <code>BREACHED at sample k</code>, <code>chain BROKEN at receipt k</code>, or <code>no measurable effect on reply length</code>.</p>
     <ul>
       <li><b>budget — is the certified risk budget still holding?</b> The certificate is a one-shot statement about a calibration corpus; live traffic drifts away from it. This line runs a betting e-process for the null "decision-change ≤ 5%": capital that crosses 20 means the budget is breached at 95% confidence. <em>Method:</em> under the null the capital is a non-negative supermartingale starting at 1, so by Ville's inequality the chance it <em>ever</em> crosses 1/δ is at most δ — which is what makes it safe to check after every single request, with no penalty for peeking. A null simulation of 2,000 runs at exactly the budget is a build gate; it alarms on 99 of those 2,000 runs (4.95%, against a δ of 5%), and it catches a true rate ten points over budget on 500 of 500 runs, within a median of 172 requests.</li>

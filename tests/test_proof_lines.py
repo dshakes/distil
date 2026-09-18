@@ -298,11 +298,11 @@ def test_incremental_receipt_verification_matches_a_full_pass(tmp_path, monkeypa
 
     for i in range(5):
         _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
-    first = _r.verify()  # cold: full pass, writes the checkpoint
+    first = _r.verify(full=False)  # cold: full pass, writes the checkpoint
     assert first.ok and first.total == 5 and first.checked_from == 0
 
     _r.append(_r.Receipt(9.0, "r5", "s", "m", "digest", 10, 5, False))
-    warm = _r.verify()  # resumed: only the new receipt re-hashed
+    warm = _r.verify(full=False)  # resumed: only the new receipt re-hashed
     assert warm.ok and warm.total == 6 and warm.checked_from == 5
     assert _r.verify(full=True) == _r.Verdict(6, True, -1, "", 0)
 
@@ -358,7 +358,7 @@ def test_the_resumed_pass_names_its_own_boundary(tmp_path, monkeypatch):
 
     for i in range(6):
         _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
-    assert _r.verify().ok  # checkpoint now covers all six
+    assert _r.verify(full=False).ok  # checkpoint now covers all six
 
     path = _r.receipts_path()
     rows = path.read_text(encoding="utf-8").splitlines()
@@ -367,10 +367,12 @@ def test_the_resumed_pass_names_its_own_boundary(tmp_path, monkeypatch):
     rows[1] = json.dumps(bad, sort_keys=True, separators=(",", ":"))
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
-    assert _r.verify().ok, "the resumed pass does not re-hash the prefix — by design"
+    assert _r.verify(full=False).ok, "the resumed pass does not re-hash the prefix — by design"
     full = _r.verify(full=True)
     assert not full.ok and full.first_bad_index == 1, full.statement
-    assert "--full" in _r.verify().statement, "the fast path must name what it skipped"
+    assert "`distil receipts` re-hashes all" in _r.verify(full=False).statement, (
+        "the fast path must name what it skipped"
+    )
 
 
 def test_a_corrupt_checkpoint_falls_back_to_the_full_pass(tmp_path, monkeypatch):

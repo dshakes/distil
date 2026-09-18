@@ -214,13 +214,17 @@ class LiveDrift:
                     setattr(mon, f, type(getattr(mon, f))(raw[f]))
                 except (TypeError, ValueError):
                     return cls(DriftMonitor(alpha=mon.alpha, delta=mon.delta))
-        return cls(
-            mon,
-            int(raw.get("consumed") or 0),
-            int(raw.get("tripped_at") or 0),
-            str(raw.get("stream") or ""),
-            int(raw.get("sig") or 0),
-        )
+        try:
+            consumed = int(raw.get("consumed") or 0)
+            tripped_at = int(raw.get("tripped_at") or 0)
+            sig = int(raw.get("sig") or 0)
+            if consumed < 0 or tripped_at < 0:
+                raise ValueError("negative counter")
+        except (TypeError, ValueError):
+            # Well-formed JSON with a corrupt field is still a corrupt state file: start
+            # over rather than raise out of a verdict line that is meant to be fail-open.
+            return cls(DriftMonitor(alpha=mon.alpha, delta=mon.delta))
+        return cls(mon, consumed, tripped_at, str(raw.get("stream") or ""), sig)
 
     def save(self, path: Path | None = None) -> None:
         """Persist; best-effort, like every other content-free store here.

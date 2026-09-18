@@ -217,7 +217,7 @@ def _receipts_line() -> str:
     remembers to run."""
     from . import receipts as _r
 
-    v = _r.verify()
+    v = _r.verify(full=False)  # the resumed pass: this machine re-checking its own tail
     if v.total == 0:
         return "no receipts recorded"
     if not v.ok:
@@ -226,10 +226,10 @@ def _receipts_line() -> str:
         return f"{v.total} receipts, chain verified (every hash re-checked)"
     # A checkpointed pass re-hashes only what was appended since this machine's last
     # pass; the prefix is trusted from that checkpoint. Say exactly that, or the line
-    # claims a full verification `distil receipts --verify --full` would have to earn.
+    # claims a full verification `distil receipts` (the default, full pass) would have to earn.
     return (
         f"{v.total} receipts, chain intact — {v.total - v.checked_from} re-checked since "
-        f"this machine's last pass; `distil receipts --verify --full` re-hashes all"
+        f"this machine's last pass; `distil receipts` re-hashes all"
     )
 
 

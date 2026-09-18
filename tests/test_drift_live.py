@@ -309,3 +309,21 @@ def test_an_interrupted_write_leaves_the_previous_state_intact(tmp_path, monkeyp
     # Loaded by explicit path: undoing the monkeypatch here would also undo DISTIL_HOME
     # and point this assertion at the developer's real ~/.distil.
     assert LiveDrift.load(tmp_path / "drift.json").monitor.tripped, "the breach was lost"
+
+
+def test_a_corrupt_but_well_formed_state_file_starts_a_fresh_monitor(tmp_path):
+    """`"consumed": "bad"` is valid JSON and an invalid state; load() must not raise."""
+    import json
+
+    from distil.drift import BUDGET_ALPHA, BUDGET_DELTA, LiveDrift
+
+    p = tmp_path / "drift.json"
+    p.write_text(
+        json.dumps({"alpha": (1.0 + BUDGET_ALPHA) / 2.0, "delta": BUDGET_DELTA, "consumed": "bad"})
+    )
+    live = LiveDrift.load(p)
+    assert live.consumed == 0 and live.tripped_at == 0
+    p.write_text(
+        json.dumps({"alpha": (1.0 + BUDGET_ALPHA) / 2.0, "delta": BUDGET_DELTA, "consumed": -5})
+    )
+    assert LiveDrift.load(p).consumed == 0
