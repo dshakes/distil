@@ -156,6 +156,13 @@ class CacheSummary:
     uncached_tokens: int = 0
     drifts: int = 0  # consecutive pairs whose stable prefix hash changed
     pairs: int = 0  # consecutive pairs we could compare at all
+    # Cache-WRITE tokens billed on the specific rows that caused a drift — the
+    # re-bill a fix would actually recover. Not `create_tokens * drift_ratio`:
+    # that blended product assumes every write is equally likely to be a
+    # drifting one, which is false whenever drifting and stable turns carry
+    # different prefix sizes (e.g. a growing memory file drifts on small early
+    # turns and stays stable once large).
+    drift_create_tokens: int = 0
     reported: bool = False  # did the provider report cache usage at all?
     # Rows written before 1.41 recorded reads and writes added together. That total
     # still proves caching was active, but it cannot yield a hit ratio — and printing
@@ -183,6 +190,7 @@ class CacheSummary:
             "drifts": self.drifts,
             "pairs": self.pairs,
             "drift_ratio": round(self.drift_ratio, 4),
+            "drift_create_tokens": self.drift_create_tokens,
             "reported": self.reported,
             "legacy_cache_tokens": self.legacy_cache_tokens,
             "legacy_rows": self.legacy_rows,
@@ -207,7 +215,12 @@ def summarise(records: list[dict[str, Any]]) -> CacheSummary:
         out.read_tokens += read
         out.create_tokens += create
         out.uncached_tokens += int(rec.get("usage_input_tokens") or 0)
-        if read or create:
+        # `is not None`, not truthiness: the proxy writes a literal 0 whenever the
+        # provider's usage object carried the field at all (a real measurement,
+        # matching `Dissection.cached_input_share`'s rule), and only omits it when
+        # the provider never reported it. `if read or create` would read a
+        # measured 0/0 row the same as an absent one and call it "not reported".
+        if rec.get("usage_cache_read") is not None or rec.get("usage_cache_create") is not None:
             out.reported = True
         elif rec.get("usage_cache_tokens"):
             out.legacy_cache_tokens += int(rec.get("usage_cache_tokens") or 0)
@@ -217,6 +230,7 @@ def summarise(records: list[dict[str, Any]]) -> CacheSummary:
             out.pairs += 1
             if cur != last_hash:
                 out.drifts += 1
+                out.drift_create_tokens += create
         if cur:
             last_hash = cur
     return out

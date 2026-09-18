@@ -3,9 +3,9 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table
 
-Two themes, and the same shape underneath both. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
+The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
 1.53.0rc1 shipped the re-read delta with its contract written out in six rules, an ADR and
 a changelog entry. A read of the request path against that contract found two of the rules
@@ -645,6 +645,50 @@ entry spelled with forward slashes, and the new coverage gate reported every num
 as uncovered. Keys are now normalised to posix on both sides — the scan list and the `page`
 fields read out of `docs/claims.json` — so the gate compares the same spelling everywhere,
 with a unit test that feeds it a backslash path.
+
+### `distil discover` — the report that says what to do next
+
+Every ingredient for "here is where you are still leaving savings on the table" was
+already being computed, per session, by `distil dissect`: the fixed-overhead share and
+the per-tool cost of it, which sessions never reached the digest tier, how often the
+cached prefix drifted and what the provider re-billed for it, how many tokens were
+re-folded after first sight, how far the system prompt grew. What was missing is the only
+part a user actually needs — the cross-session aggregation, ranked, with a number and a
+command against each line. `discover` adds no instrumentation and no estimator; it reads
+the same content-free records through the same accessors and does arithmetic on them.
+
+Two constraints shaped it more than the detectors did. The first is that **a best case
+must never be readable as a typical one** — the audit of this field found the gap
+between a competitor's headline and its fleet median to be the recurring trust problem,
+and a savings tool that can be read that way has no standing to point it out. So the
+median and the p10/p90 of per-session savings print *beside* the best session, labelled.
+The second is that **an estimate may not invent its own ratio.** Where a line needs "what
+would the other mode have been worth", it uses the rate this machine measured, in tiers:
+its own recent sessions first, then its lifetime history, and only a machine that has
+never run that mode at all reaches the published benchmark figure — and then the line
+names the corpus and says it is not your traffic. Detectors that cannot measure return
+nothing rather than something: churn is counted only over sessions whose cache-read share
+was *measured* and low, because a resend the provider already discounts is not a saving,
+and an unmeasured one is neither cheap nor expensive; a drift ratio needs four comparable
+turns before it is a ratio at all. "Measured" means the provider's own usage object
+carried the cache-split field — a literal `0` it reported is a real zero, but the field's
+outright absence (true of every OpenAI/Gemini row, and of every row written before this
+release) stays unmeasured rather than being read as one; the two are opposite diagnoses
+and conflating them would have inflated churn for exactly the providers that never send
+the split at all. A dollar figure is refused the same way when most of a window's tokens
+came from a model the proxy could not price at all — an unpriced minority may not dilute
+a priced majority's rate, and an unpriced majority gets no dollar figure rather than one
+extrapolated from an unrepresentative sample. "Nothing to recommend" is therefore a
+result, not a failure to look, and it is only printed when a detector actually ran: a
+window of ledger-only or unbooked sessions says so instead of a false all-clear.
+
+The wrap-exit proof ledger gains at most one line, and only when a detector actually
+fired — an advisory that prints "0 actions" on every exit is an ad, not a finding.
+`dissect()` grew two keyword arguments (`ledger_rows`, `shadow`) so that dissecting
+twenty sessions stops re-parsing a 37,000-run ledger twenty times over, and a third
+(`since_ts`) so that `--since N` bounds an always-on session's rows to the window asked
+for rather than folding its whole history in; nothing else about a dissection changes,
+and there is still one implementation of it.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
