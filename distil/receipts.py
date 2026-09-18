@@ -23,6 +23,7 @@ done, and is it still undoable" — not "was it safe".
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -150,25 +151,50 @@ def head_hash() -> str:
     return last.hash if last is not None else GENESIS
 
 
-def read(path: Path | None = None) -> Iterator[Receipt]:
-    """Yield receipts in file order. Malformed lines are skipped, not fatal."""
-    p = path or receipts_path()
+def _parse(raw: bytes) -> Receipt | None:
+    """One line into a receipt, or ``None`` if it is not one. Never raises."""
+    line = raw.strip()
+    if not line:
+        return None
     try:
-        raw = p.read_text(encoding="utf-8")
+        d = json.loads(line)
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    known = set(Receipt.FIELDS)
+    try:
+        return Receipt(**{k: v for k, v in d.items() if k in known})
+    except TypeError:
+        return None
+
+
+def _lines(p: Path, start: int = 0) -> Iterator[tuple[int, int, bytes]]:
+    """Yield ``(line_start, line_end, raw)`` from ``start``, streaming.
+
+    Binary and one line at a time: the chain file is append-only and unbounded (83 MB
+    on the maintainer's box), and ``read_text().splitlines()`` would hold the whole
+    thing plus a list of every line. Offsets are accumulated rather than taken from
+    ``tell()``, which text-mode iteration forbids anyway.
+    """
+    try:
+        with p.open("rb") as fh:
+            if start:
+                fh.seek(start)
+            off = start
+            for raw in fh:
+                begin, off = off, off + len(raw)
+                yield begin, off, raw
     except OSError:
         return
-    known = set(Receipt.FIELDS)
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            d = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if not isinstance(d, dict):
-            continue
-        yield Receipt(**{k: v for k, v in d.items() if k in known})
+
+
+def read(path: Path | None = None) -> Iterator[Receipt]:
+    """Yield receipts in file order. Malformed lines are skipped, not fatal."""
+    for _begin, _end, raw in _lines(path or receipts_path()):
+        r = _parse(raw)
+        if r is not None:
+            yield r
 
 
 @dataclass
@@ -179,31 +205,147 @@ class Verdict:
     ok: bool
     first_bad_index: int = -1
     reason: str = ""
+    #: Index of the first receipt this pass actually re-hashed. ``0`` means the whole
+    #: chain was checked; a higher number means the prefix was taken from this machine's
+    #: own checkpoint (see :func:`verify`).
+    checked_from: int = 0
 
     @property
     def statement(self) -> str:
         if self.total == 0:
             return "No receipts recorded."
         if self.ok:
-            return f"VERIFIED — {self.total} receipts, hash chain intact."
+            scope = (
+                f"VERIFIED — {self.total} receipts, hash chain intact."
+                if not self.checked_from
+                else (
+                    f"VERIFIED — {self.total} receipts, hash chain intact "
+                    f"({self.total - self.checked_from} re-checked since this machine's last "
+                    f"pass; --full re-hashes all {self.total})."
+                )
+            )
+            return scope
         return (
             f"BROKEN — chain fails at receipt {self.first_bad_index} of {self.total}: {self.reason}. "
             "A receipt was edited, reordered, or removed."
         )
 
 
-def verify(path: Path | None = None) -> Verdict:
-    """Recompute every hash and every link. This is the whole point of the artifact:
-    anyone can run it, and it needs nothing but the file."""
-    # Read the whole chain first: "receipt 3 of 40" has to count the receipts that
-    # exist, not the ones verified before the break — the second number is what tells
-    # the reader how much of the artifact is in question.
-    chain = list(read(path))
-    prev = GENESIS
-    for i, r in enumerate(chain):
+def _checkpoint_path() -> Path:
+    return _home() / "receipts-verified.json"
+
+
+def _load_checkpoint() -> tuple[int, str, int, int] | None:
+    """``(count, head_hash, tail_start, tail_end)`` from the last good full pass."""
+    try:
+        raw = json.loads(_checkpoint_path().read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        return (
+            int(raw["count"]),
+            str(raw["head"]),
+            int(raw["tail_start"]),
+            int(raw["tail_end"]),
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _save_checkpoint(count: int, head: str, tail_start: int, tail_end: int) -> None:
+    """Persist the resume point. Best-effort: losing it costs a full re-scan, nothing more."""
+    from . import _filelock
+
+    path = _checkpoint_path()
+    payload = {"count": count, "head": head, "tail_start": tail_start, "tail_end": tail_end}
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _filelock.locked(path):
+            with open(tmp, "w", encoding="utf-8", opener=atrest.owner_only) as fh:
+                fh.write(json.dumps(payload))
+                fh.flush()
+            _filelock.replace_retrying(tmp, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+
+
+def _scan(p: Path, count: int, prev: str, tail_start: int, tail_end: int) -> Verdict:
+    """Stream from byte ``tail_end``, chaining from ``prev``, with ``count`` behind us.
+
+    ``tail_start``/``tail_end`` bracket the last receipt already verified, and are carried
+    through untouched when the file has grown by nothing — otherwise a render that finds no
+    new receipts would move the resume point onto empty space and force the next one to
+    start over.
+
+    Never materialises the chain. On a break it stops hashing but keeps counting, because
+    "receipt 3 of 40" has to name the receipts that exist, not the ones checked before the
+    break — the second number is what tells a reader how much of the artifact is in question.
+    """
+    first = count
+    bad: tuple[int, str] | None = None
+    for begin, end, raw in _lines(p, tail_end):
+        r = _parse(raw)
+        if r is None:
+            continue
+        idx, count = count, count + 1
+        if bad is not None:
+            continue
         if r.hash != r.compute_hash():
-            return Verdict(len(chain), False, i, "content does not match its hash")
-        if r.prev != prev:
-            return Verdict(len(chain), False, i, "prev-hash does not match the preceding receipt")
-        prev = r.hash
-    return Verdict(len(chain), True)
+            bad = (idx, "content does not match its hash")
+        elif r.prev != prev:
+            bad = (idx, "prev-hash does not match the preceding receipt")
+        else:
+            prev, tail_start, tail_end = r.hash, begin, end
+    if bad is not None:
+        return Verdict(count, False, bad[0], bad[1], first)
+    if count:
+        _save_checkpoint(count, prev, tail_start, tail_end)
+    return Verdict(count, True, checked_from=first)
+
+
+def verify(path: Path | None = None, *, full: bool = False) -> Verdict:
+    """Recompute every hash and every link. This is the whole point of the artifact:
+    anyone can run it, and it needs nothing but the file.
+
+    **A third party always does the full pass.** Hand someone this file and they run
+    ``verify(path)`` — an explicit path never consults a checkpoint, so the guarantee the
+    artifact exists to provide is unchanged. What is cached is *this* machine re-checking
+    *its own* chain, which now happens on every wrap exit and every ``distil stats``: the
+    resume point records how far a previous pass got, and only receipts appended since are
+    re-hashed. Without that, a session's exit summary re-hashes an 83 MB chain.
+
+    The checkpoint can only make the answer *cheaper*, never wronger about the part it
+    checks: it is validated by re-reading AND re-hashing the last receipt it claims to
+    have verified, and any failure from a resumed pass is discarded and re-run in full, so
+    a stale checkpoint cannot print BROKEN over a healthy chain.
+
+    **What a resumed pass does not do**, stated plainly because the artifact's whole value
+    is that it does not overclaim: it does not re-hash receipts this machine already
+    verified. An edit buried in that prefix, made by something with write access to
+    ``~/.distil``, is found by ``--full`` and by anyone you hand the file to — not by the
+    resumed pass. That is the same trust boundary the chain always had (whoever can
+    rewrite the receipts can rewrite the checkpoint beside them); what is new is that the
+    fast path says so rather than implying a full audit it did not perform.
+    """
+    p = path or receipts_path()
+    if path is None and not full:
+        ck = _load_checkpoint()
+        if ck is not None:
+            count, head, tail_start, tail_end = ck
+            # The resume point is only usable if the receipt it names is still there,
+            # byte for byte. This is what makes truncate-and-regrow visible.
+            last = next((_parse(raw) for _b, _e, raw in _lines(p, tail_start)), None)
+            # RE-HASHED, not just compared: editing a field of that receipt leaves its
+            # stored `hash` untouched, so trusting the stored value would let the most
+            # recent receipt — the one most worth editing — be changed unnoticed.
+            if (
+                last is not None
+                and last.hash == head
+                and last.compute_hash() == head
+                and tail_end >= tail_start
+            ):
+                v = _scan(p, count, head, tail_start, tail_end)
+                if v.ok:
+                    return v
+    return _scan(p, 0, GENESIS, 0, 0)

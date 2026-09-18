@@ -136,8 +136,8 @@ def _state_path() -> Path:
 _FIELDS = ("alpha", "delta", "capital", "n", "tripped", "_run_sum", "_run_sq", "_sig2_prev")
 
 
-def _stream_id(diffs: list[int], sig: int) -> str:
-    """Content fingerprint of the exact prefix a monitor has already bet on.
+def _chain(prev: str, diffs: list[int], sig: int) -> str:
+    """Extend the prefix fingerprint by ``diffs``. ``prev`` is the fingerprint so far.
 
     ``consumed`` on its own is a count, and a count is only meaningful against the stream
     it counted. Fingerprinting the prefix makes that binding checkable: a truncation, an
@@ -145,10 +145,15 @@ def _stream_id(diffs: list[int], sig: int) -> str:
     it, where a length alone would miss every case that keeps the file the same size or
     larger. Content-free — the inputs are the ``{-1, 0, 1}`` decision differences already
     stored in the state file's own counters, never text.
+
+    Chained rather than computed over the whole prefix, so folding one new row costs one
+    hash of one integer instead of re-hashing every row ever seen. The saved fingerprint
+    is therefore an accumulator, and the staleness check re-derives it the same way.
     """
-    h = hashlib.sha256(b"distil.drift/1:%d:" % sig)
-    h.update(b",".join(b"%d" % d for d in diffs))
-    return h.hexdigest()[:16]
+    h = prev or hashlib.sha256(b"distil.drift/2:%d" % sig).hexdigest()[:16]
+    for d in diffs:
+        h = hashlib.sha256(b"%s:%d" % (h.encode(), d)).hexdigest()[:16]
+    return h
 
 
 @dataclass
@@ -218,29 +223,48 @@ class LiveDrift:
         )
 
     def save(self, path: Path | None = None) -> None:
-        """Persist; best-effort, like every other content-free store here."""
+        """Persist; best-effort, like every other content-free store here.
+
+        Written to a temp file and renamed, never in place. ``tripped`` is sticky and
+        capital accumulates across sessions, so a write torn by a crash, a full disk or a
+        Ctrl-C would not corrupt the alarm noisily — it would silently reset it to a fresh
+        monitor on the next load, which reads as "intact" over evidence that said BREACHED.
+        A rename is atomic, so a reader sees either the old state or the new one.
+        """
+        import contextlib
+
         p = path or _state_path()
         payload: dict[str, object] = {f: getattr(self.monitor, f) for f in _FIELDS}
         payload["consumed"] = self.consumed
         payload["tripped_at"] = self.tripped_at
         payload["stream"] = self.stream
         payload["sig"] = self.sig
+        tmp = p.with_name(p.name + ".tmp")
         try:
-            from . import _filelock
+            from . import _filelock, atrest
 
             p.parent.mkdir(parents=True, exist_ok=True)
             with _filelock.locked(p):
-                p.write_text(json.dumps(payload), encoding="utf-8")
+                with open(tmp, "w", encoding="utf-8", opener=atrest.owner_only) as fh:
+                    fh.write(json.dumps(payload))
+                    fh.flush()
+                _filelock.replace_retrying(tmp, p)
         except OSError:
-            pass
+            with contextlib.suppress(OSError):
+                tmp.unlink()
 
     def _stale(self, diffs: list[int], sig: int) -> bool:
-        """Is the persisted prefix still the prefix of the stream in front of us?"""
+        """Is the persisted prefix still the prefix of the stream in front of us?
+
+        Re-derives the accumulator over the prefix. That is O(consumed) hashes of one
+        integer each — no JSON, no allocation per row — against a single shared parse of
+        the ledger that the caller has already paid for.
+        """
         if not self.consumed:
             return False
         if len(diffs) < self.consumed or self.sig != sig:
             return True
-        return self.stream != _stream_id(diffs[: self.consumed], self.sig)
+        return self.stream != _chain("", diffs[: self.consumed], self.sig)
 
     def advance(self, diffs: list[int]) -> LiveDrift:
         """Fold every paired difference not yet counted. ``diffs`` is the full history.
@@ -255,13 +279,16 @@ class LiveDrift:
             self.consumed = 0
             self.tripped_at = 0
             self.rebuilt = True
-        for d in diffs[self.consumed :]:
+        if self.rebuilt or not self.stream:
+            self.stream = _chain("", [], SIG_VERSION)
+        fresh = diffs[self.consumed :]
+        for d in fresh:
             self.consumed += 1
             was = self.monitor.tripped
             if self.monitor.update(paired_loss(d)) and not was:
                 self.tripped_at = self.consumed
         self.sig = SIG_VERSION
-        self.stream = _stream_id(diffs[: self.consumed], SIG_VERSION)
+        self.stream = _chain(self.stream, fresh, SIG_VERSION)
         return self
 
     def line(self) -> str | None:

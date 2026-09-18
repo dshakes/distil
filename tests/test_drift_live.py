@@ -285,3 +285,27 @@ def test_an_unwritable_state_path_still_returns_a_verdict(tmp_path, monkeypatch)
     state = live_monitor([0] * 60)
     assert state.consumed == 60
     assert state.line() == f"intact (e-value {state.monitor.evalue:.2f}, n=60)"
+
+
+def test_an_interrupted_write_leaves_the_previous_state_intact(tmp_path, monkeypatch):
+    """`tripped` is sticky and capital accumulates across sessions, so a torn write is not
+    a loud corruption — it is a silent reset that reads "intact" over evidence that said
+    BREACHED. The temp file absorbs the tear; the rename is what the reader ever sees."""
+    import distil._filelock as _fl
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    breached = live_monitor([-1] * 200)
+    assert breached.monitor.tripped
+    before = (tmp_path / "drift.json").read_text()
+
+    def _die(src, dst):  # the crash lands after the temp file exists, before the rename
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(_fl, "replace_retrying", _die)
+    live_monitor([-1] * 200 + [0] * 5)  # must not raise
+
+    assert (tmp_path / "drift.json").read_text() == before, "the live state was damaged"
+    assert not (tmp_path / "drift.json.tmp").exists(), "the torn temp file was left behind"
+    # Loaded by explicit path: undoing the monkeypatch here would also undo DISTIL_HOME
+    # and point this assertion at the developer's real ~/.distil.
+    assert LiveDrift.load(tmp_path / "drift.json").monitor.tripped, "the breach was lost"

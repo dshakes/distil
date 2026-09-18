@@ -747,6 +747,31 @@ it is instead. A verdict computed over evidence too thin to support it is worse 
 verdict, because it teaches the reader to ignore a line that was supposed to be able to
 say no.
 
+**A verdict printed on every exit has to cost what one exit is worth.** Each of these
+lines reads an append-only artifact that grows one row per request and never shrinks —
+the maintainer's `receipts.jsonl` is 83 MB — so a render that re-parses them end to end
+is O(lifetime): a multi-second stall and a memory spike that arrive gradually enough that
+nobody attributes them to this feature. Three things now bound it. Chain verification
+streams instead of materialising the chain, and resumes: a small `receipts-verified.json`
+records `(count, head_hash)` and the byte offsets of the last verified receipt, so only
+rows appended since are re-hashed, and the statement names what it skipped. That
+checkpoint can only make the answer cheaper, never wronger — it is re-hashed before it is
+trusted, any failure from a resumed pass is discarded and re-run in full, and a third
+party handed the file always gets the full pass, as does `distil receipts --verify
+--full`. `shadow.jsonl` is read once per render and shared by every line that quotes it,
+rather than once per line. And the drift monitor folds only the rows past `consumed`,
+carrying the stream fingerprint forward as an accumulator instead of re-deriving it over
+the whole prefix. On a 200,000-receipt chain and a 50,000-row shadow ledger the exit
+summary goes from about 1.5 s to 237 ms, with peak allocation a fraction of either file.
+
+The drift state is also written atomically now — temp file, owner-only at creation, then
+a rename under the same lock. `tripped` is sticky and capital accumulates across sessions,
+so a write torn by a crash, a full disk or a Ctrl-C would not have corrupted the alarm
+noisily; it would have silently reset it to a fresh monitor that reads `intact` over
+evidence that said `BREACHED`. And each verdict is now computed in isolation, which the
+docstring already claimed: one unreadable artifact drops its own line and the other three
+still print.
+
 ### Saying which parts are not on the request path
 
 `distil doctor` now states plainly that `guideline.py`'s outcome statistics are a

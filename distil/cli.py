@@ -414,6 +414,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         print("total dollars saved:  — (flat-rate subscription; dollars are notional)")
     else:
         print(f"total dollars saved:  ${s.total_dollars_saved:,.2f}")
+    _shadow_led = None
     try:
         from .shadow import ShadowLedger
 
@@ -421,7 +422,8 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         # report the PAIRED estimate with its interval — identical gate and identical
         # number to the status line, so this line can't show something the verdict
         # disowns.
-        eq = ShadowLedger.load(current_only=True).equivalence()
+        _shadow_led = ShadowLedger.load(current_only=True)
+        eq = _shadow_led.equivalence()
         if eq.pct is not None:
             print(f"decision-equivalence: {eq.line()}")
         elif eq.n_ab or eq.n_aa:
@@ -429,10 +431,12 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001 — shadow stats are best-effort
         pass
     # The same four verdicts the wrap exit summary prints, from the same function —
-    # two surfaces reading one ledger must not be able to disagree about it.
+    # two surfaces reading one ledger must not be able to disagree about it. The ledger
+    # read just above is handed straight over; reading it again would parse an unbounded
+    # file twice for the same rows.
     from .proof_ledger import _safe_proof_lines
 
-    for _label, _text in _safe_proof_lines():
+    for _label, _text in _safe_proof_lines(_shadow_led):
         print(f"{_label + ':':<21} {_text}")
     if live and not subscription_mode():
         print(f"  of which genuine live traffic (live-proxy): ${live:,.2f}")
@@ -1053,7 +1057,7 @@ def cmd_receipts(args: argparse.Namespace) -> int:
             print("# no receipts recorded", file=sys.stderr)
         return 0
 
-    verdict = _r.verify()
+    verdict = _r.verify(full=bool(getattr(args, "full", False)))
     print(verdict.statement)
     if verdict.total:
         saved = sum(r.tokens_saved for r in _r.read())
@@ -4207,6 +4211,13 @@ def build_parser() -> argparse.ArgumentParser:
     # works rather than erroring at someone who is trying to check the chain.
     rc.add_argument(
         "--verify", action="store_true", help="verify the hash chain (the default action)"
+    )
+    # A resumed pass is this machine re-checking its own chain cheaply; --full is the
+    # audit. Someone you hand the file to always gets the full pass, cache or no cache.
+    rc.add_argument(
+        "--full",
+        action="store_true",
+        help="re-hash every receipt instead of resuming from this machine's checkpoint",
     )
     rc.set_defaults(func=cmd_receipts)
 

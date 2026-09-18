@@ -98,17 +98,21 @@ def _calib_note() -> str:
     return f"estimated · calibrating ({n}/{_calib.MIN_SAMPLES} samples)"
 
 
-def _shadow_line(since_ts: float) -> str:
+def _shadow_line(since_ts: float, led=None) -> str:  # type: ignore[no-untyped-def]
     """Shadow decision-equivalence line, threshold-suppression-aware.
 
     Respects ``VERDICT_MIN_AB`` / ``VERDICT_MIN_AA``: when below threshold,
     prints sample counts WITHOUT a verdict so we never claim equivalence over
     statistically thin evidence. Matches the same suppression logic the status
     line and dashboard use.
+
+    ``led`` is the session-scoped ledger when the caller already read the file — see
+    :meth:`distil.shadow.ShadowLedger.load_split` for why the exit summary hands one in.
     """
     from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB, ShadowLedger
 
-    led = ShadowLedger.load(current_only=True, since_ts=since_ts)
+    if led is None:
+        led = ShadowLedger.load(current_only=True, since_ts=since_ts)
     ab_n = led.samples
     aa_n = led.aa_samples
     changes = led.changes
@@ -137,15 +141,17 @@ def _shadow_line(since_ts: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _paired_diffs() -> list[int]:
-    """The live paired per-request differences, current signature version only.
+def _live_ledger():  # type: ignore[no-untyped-def]  # -> ShadowLedger (lazy import)
+    """The shadow ledger, current signature version only — read ONCE per render.
 
-    One read feeds the drift alarm and the conformal bound, so the two can never
-    disagree about which evidence they are quoting.
+    Three verdicts quote this evidence and they must quote the same evidence, which is the
+    correctness argument. The performance one is the same read: the ledger grows one row
+    per shadowed request forever, so a line-per-load design re-parsed it three times on
+    every wrap exit and every ``distil stats``.
     """
     from .shadow import ShadowLedger
 
-    return list(ShadowLedger.load(current_only=True).paired_diffs)
+    return ShadowLedger.load(current_only=True)
 
 
 def _drift_line(diffs: list[int]) -> str:
@@ -159,6 +165,30 @@ def _drift_line(diffs: list[int]) -> str:
     from .drift import live_monitor
 
     return live_monitor(diffs).line() or ""
+
+
+def _output_line(led) -> str:  # type: ignore[no-untyped-def]
+    """Effect of compression on REPLY length, measured by shadow's paired replays.
+
+    Distinct from ``--shape-output``, which asks the model for shorter replies: this is
+    what compression does to reply length on traffic that asked for nothing. The
+    direction word is only printed when the interval excludes zero.
+    """
+    from .shadow import VERDICT_MIN_AB
+
+    cost = led.cost()
+    if cost is None or cost.n < VERDICT_MIN_AB:
+        n = 0 if cost is None else cost.n
+        return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
+    lo, hi = cost.out_delta_ci
+    scope = f"n={cost.n}, shadow-measured on all traffic; not --shape-output"
+    if lo <= 0.0 <= hi:
+        return f"no measurable effect on reply length ({scope})"
+    word = "shorter" if cost.out_delta_mean < 0 else "longer"
+    return (
+        f"the model's replies were {abs(cost.out_delta_mean):.0f} tokens {word} per request "
+        f"under compression (95% CI [{lo:+.1f}, {hi:+.1f}], {scope})"
+    )
 
 
 def _risk_line(diffs: list[int]) -> str:
@@ -195,41 +225,43 @@ def _receipts_line() -> str:
     return f"chain BROKEN at receipt {v.first_bad_index} of {v.total} — {v.reason}"
 
 
-def _output_line() -> str:
-    """Effect of compression on REPLY length, measured by shadow's paired replays.
-
-    Distinct from ``--shape-output``, which asks the model for shorter replies: this is
-    what compression does to reply length on traffic that asked for nothing. The
-    direction word is only printed when the interval excludes zero.
-    """
-    from .shadow import VERDICT_MIN_AB, ShadowLedger
-
-    cost = ShadowLedger.load(current_only=True).cost()
-    if cost is None or cost.n < VERDICT_MIN_AB:
-        n = 0 if cost is None else cost.n
-        return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
-    lo, hi = cost.out_delta_ci
-    scope = f"n={cost.n}, shadow-measured on all traffic; not --shape-output"
-    if lo <= 0.0 <= hi:
-        return f"no measurable effect on reply length ({scope})"
-    word = "shorter" if cost.out_delta_mean < 0 else "longer"
-    return (
-        f"the model's replies were {abs(cost.out_delta_mean):.0f} tokens {word} per request "
-        f"under compression (95% CI [{lo:+.1f}, {hi:+.1f}], {scope})"
-    )
-
-
-def proof_lines() -> list[tuple[str, str]]:
+def proof_lines(led=None) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
     """``(label, sentence)`` for every statistical verdict, shared by the wrap exit
     summary, ``distil stats`` and ``distil dissect`` — one implementation, so the three
-    surfaces cannot report different verdicts off the same ledger."""
-    diffs = _paired_diffs()
+    surfaces cannot report different verdicts off the same ledger.
+
+    The shadow ledger is read once and handed to the three lines that quote it, and a
+    caller that has already read it (lifetime-scoped, current signature) passes it in
+    rather than paying for a second parse. Each line is then computed in isolation: a
+    statistic that cannot be computed drops its own line and the other three still print,
+    because one unreadable state file should not take the whole verdict block down with it.
+    """
+    if led is None:
+        led = _live_ledger()
+    diffs = list(led.paired_diffs)
     return [
-        ("budget", f"certified decision-change budget: {_drift_line(diffs)}"),
-        ("risk", _risk_line(diffs)),
-        ("output", _output_line()),
-        ("receipts", _receipts_line()),
+        (label, text)
+        for label, text in (
+            ("budget", _guarded(lambda: f"certified decision-change budget: {_drift_line(diffs)}")),
+            ("risk", _guarded(lambda: _risk_line(diffs))),
+            ("output", _guarded(lambda: _output_line(led))),
+            ("receipts", _guarded(_receipts_line)),
+        )
+        if text
     ]
+
+
+def _guarded(fn) -> str:  # type: ignore[no-untyped-def]
+    """Run one verdict; an unreadable artifact costs that line, not the block.
+
+    The empty string means "printed nothing", which the caller filters out — deliberately
+    NOT a "could not compute" line, because a reader cannot act on that and the accounting
+    above it is still true.
+    """
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 — a verdict that cannot be computed is not printed
+        return ""
 
 
 def build_ledger_text(session_id: str, start_ts: float) -> str | None:
@@ -242,10 +274,15 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
     """
     from . import calibration as _calib
     from . import ledger as _ledger
+    from .shadow import ShadowLedger
 
     sess = _ledger.summary(session=session_id)
     if sess.runs == 0:
         return None  # no proxied requests — stay silent (no noise on bypass)
+
+    # ONE pass for both scopes the block needs: the session line since `start_ts`, the
+    # verdicts lifetime-wide. Loading them separately parsed an unbounded file twice.
+    shadow_all, shadow_session = ShadowLedger.load_split(start_ts)
 
     dur = _dur(time.time() - start_ts)
     base_tok = sess.total_baseline_tokens
@@ -274,11 +311,11 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
         f"\n  distil proof ledger — session {dur}",
         f"    tokens   {cal_base:,} → {cal_dist:,}   ({pct:.1f}% smaller)",
         f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
-        f"    shadow   {_shadow_line(start_ts)}",
+        f"    shadow   {_shadow_line(start_ts, shadow_session)}",
         f"    restore  {restore}",
         # The verdicts are the reading; the two lines below are what to do about it, so
         # they come after every statistic and before anything that names a command.
-        *(f"    {label:<8} {text}" for label, text in _safe_proof_lines()),
+        *(f"    {label:<8} {text}" for label, text in _safe_proof_lines(shadow_all)),
     ]
     # At most one extra line, and only when a detector actually fired. The ledger is
     # what a user sees on every exit, so an advisory that prints "0 actions" every
@@ -309,12 +346,12 @@ def _discover_line() -> str | None:
         return None
 
 
-def _safe_proof_lines() -> list[tuple[str, str]]:
+def _safe_proof_lines(led=None) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
     """:func:`proof_lines`, but a broken statistic drops its own line instead of the
     whole ledger. ``print_proof_ledger`` is already fail-open; this keeps the token and
     dollar accounting visible when only the drift state file is unreadable."""
     try:
-        return proof_lines()
+        return proof_lines(led)
     except Exception:  # noqa: BLE001 — a verdict that cannot be computed is not printed
         return []
 

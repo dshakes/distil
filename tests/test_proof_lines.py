@@ -272,3 +272,120 @@ def test_ledger_survives_a_broken_verdict(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pl, "proof_lines", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
     assert pl._safe_proof_lines() == []
+
+
+def test_one_broken_verdict_drops_only_its_own_line(tmp_path, monkeypatch):
+    """The docstring has always claimed this; now it is true. A corrupt artifact behind
+    one statistic must not cost the other three, which read different files."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    _write_paired(tmp_path, [0] * 60, out_a=200, out_b=100)
+    import distil.proof_ledger as pl
+
+    def _boom(_diffs):
+        raise RuntimeError("unreadable drift state")
+
+    monkeypatch.setattr(pl, "_drift_line", _boom)
+    labels = dict(pl.proof_lines())
+    assert "budget" not in labels, "a verdict that cannot be computed must not print"
+    assert "risk" in labels and "output" in labels and "receipts" in labels
+    assert "95% conformal bound" in labels["risk"]
+
+
+def test_incremental_receipt_verification_matches_a_full_pass(tmp_path, monkeypatch):
+    """The cached prefix may only make the answer cheaper, never different."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import receipts as _r
+
+    for i in range(5):
+        _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
+    first = _r.verify()  # cold: full pass, writes the checkpoint
+    assert first.ok and first.total == 5 and first.checked_from == 0
+
+    _r.append(_r.Receipt(9.0, "r5", "s", "m", "digest", 10, 5, False))
+    warm = _r.verify()  # resumed: only the new receipt re-hashed
+    assert warm.ok and warm.total == 6 and warm.checked_from == 5
+    assert _r.verify(full=True) == _r.Verdict(6, True, -1, "", 0)
+
+
+def test_a_stale_checkpoint_cannot_print_broken_over_a_healthy_chain(tmp_path, monkeypatch):
+    """Archive the chain and start a new one: the resume point now names bytes that are
+    gone, or bytes that belong to a different chain. Either way the answer is the truth
+    about the file on disk, reached by re-verifying in full."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import receipts as _r
+
+    for i in range(6):
+        _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
+    assert _r.verify().ok
+    _r.receipts_path().unlink()  # archived by hand; the checkpoint survives
+    for i in range(3):
+        _r.append(_r.Receipt(50.0 + i, f"n{i}", "s", "m", "digest", 10, 5, False))
+
+    v = _r.verify()
+    assert v.ok, v.statement
+    assert v.total == 3, "the verdict must describe the file that exists"
+
+
+def test_a_tampered_prefix_is_still_caught_when_the_checkpoint_is_trusted(tmp_path, monkeypatch):
+    """The resume point is validated by re-reading the receipt it claims to have
+    verified. Editing that receipt invalidates the cache and forces the full pass."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import receipts as _r
+
+    for i in range(4):
+        _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
+    assert _r.verify().ok
+
+    path = _r.receipts_path()
+    rows = path.read_text(encoding="utf-8").splitlines()
+    bad = json.loads(rows[3])
+    bad["tokens_compressed"] = 1
+    rows[3] = json.dumps(bad, sort_keys=True, separators=(",", ":"))
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    v = _r.verify()
+    assert not v.ok and v.first_bad_index == 3, v.statement
+    assert v.total == 4
+
+
+def test_the_resumed_pass_names_its_own_boundary(tmp_path, monkeypatch):
+    """An edit inside the already-verified prefix is NOT found by a resumed pass, and IS
+    found by --full. That is the documented contract, so it is tested rather than left as
+    a hole that looks closed. The same trust boundary the chain always had: whoever can
+    rewrite the receipts can rewrite the checkpoint beside them."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import receipts as _r
+
+    for i in range(6):
+        _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
+    assert _r.verify().ok  # checkpoint now covers all six
+
+    path = _r.receipts_path()
+    rows = path.read_text(encoding="utf-8").splitlines()
+    bad = json.loads(rows[1])  # deep in the prefix, NOT the receipt the resume validates
+    bad["tokens_compressed"] = 1
+    rows[1] = json.dumps(bad, sort_keys=True, separators=(",", ":"))
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert _r.verify().ok, "the resumed pass does not re-hash the prefix — by design"
+    full = _r.verify(full=True)
+    assert not full.ok and full.first_bad_index == 1, full.statement
+    assert "--full" in _r.verify().statement, "the fast path must name what it skipped"
+
+
+def test_a_corrupt_checkpoint_falls_back_to_the_full_pass(tmp_path, monkeypatch):
+    """The resume point is a file on disk that nothing promises is well-formed — a torn
+    write, a half-truncated JSON object, a hand edit. It is read on every wrap exit, so
+    garbage there must cost a re-scan, never a verdict and never a traceback."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    from distil import receipts as _r
+
+    for i in range(4):
+        _r.append(_r.Receipt(1.0 + i, f"r{i}", "s", "m", "digest", 10, 5, False))
+    assert _r.verify().ok
+
+    for junk in ("{not json", "[]", '{"count": "many", "head": null}', ""):
+        _r._checkpoint_path().write_text(junk, encoding="utf-8")
+        v = _r.verify()
+        assert v.ok and v.total == 4, f"{junk!r} broke the verdict: {v.statement}"
+        assert v.checked_from == 0, "garbage must not be trusted as a resume point"
