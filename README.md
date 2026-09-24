@@ -83,7 +83,7 @@ pipx install distil-llm && distil onboard    # detects your agent + billing, wir
 > correctly, not failing. [Why →](#-compression-modes--in-plain-english)
 > Shell output (`grep`, `git`, test runs, ad-hoc scripts) goes through that same generic,
 > reversible digest; there are deliberately no per-command profiles, because measured on real
-> transcripts they would add too little on top of it. [ADR 0012 →](docs/adr/0012-no-per-command-shell-profiles.md)
+> transcripts they would add too little on top of it. [ADR 0015 →](docs/adr/0015-no-per-command-shell-profiles.md)
 
 <!-- ═══ LIVE community counter — fed by the opt-in census, re-polls every 5 min ═══ -->
 <p align="center"><sub>◉ &nbsp;<b>LIVE</b> · measured from the opt-in census on a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>, never estimated</sub></p>
