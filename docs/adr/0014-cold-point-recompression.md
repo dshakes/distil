@@ -56,15 +56,31 @@ forwarding that stub on every later turn in the lineage.
    with no new store. The evicted set only grows. On re-application the stub is still
    reject-if-bigger (stub tokens < block tokens), a pure function of the block's text, so a
    client that rewrote an old result into something short gets it back verbatim, stably.
-5. **Persist the set.** Whenever a lineage's set grows, `{lineage key: sorted ids}` is merged
-   into `$DISTIL_HOME/coldpoint.json` (LRU-capped at 512 lineages) under a file lock and
-   written mkstemp (0600 at creation) → fsync → `os.replace`. A first-seen lineage loads its
-   set and re-applies it — deciding nothing new — so a hot-swap (every upgrade), a restart or
-   an in-memory LRU drop forwards the same stubs instead of un-evicting a warm prefix. The
-   file is content-free: hashed keys and the provider's random `tool_use_id`s. Any read or
-   write error falls open to in-memory behaviour. Disk is touched only on a first-seen
-   lineage (one small read) and on a cold turn that evicted something (one write).
-4. **Recovery.** Eviction runs only where the expand tool is injected (`expand and not
+4. **Persist the set.** Whenever a lineage's set grows, `{lineage key: ids, oldest first}` is
+   merged into `$DISTIL_HOME/coldpoint.json` under a file lock and written mkstemp (0600 at
+   creation) → fsync → `os.replace`. Bounds: 512 lineages (LRU) and the 2048 most recent ids
+   per lineage (`_MAX_PERSISTED_IDS`; a session past that loses its oldest ids from the file
+   only, and pays one rewrite for them after a restart). A first-seen lineage loads its set
+   and re-applies it, deciding nothing new. The file is content-free: hashed keys and the
+   provider's random `tool_use_id`s.
+
+   **What it covers, precisely.** The key includes `DISTIL_SESSION` (via
+   `prefixreplay.lineage_key`), so persistence covers a hot-swap (every upgrade), a worker
+   restart and an in-memory LRU drop **within the same wrap session**. It does NOT cover a
+   fresh `distil wrap`, or `claude --resume` in a new terminal: the new session id makes a
+   new lineage, which is first-seen with an empty set, so a resumed conversation whose
+   stubbed prefix is still warm pays one rewrite, exactly as before persistence. The keying
+   is deliberately left alone (it is replay's, and ADR 0011 scopes lineages per session).
+
+   **Cost on the request path.** The process keeps a parsed copy keyed on the file's
+   (path, `st_mtime_ns`, size). A first-seen lineage — title generation, subagents, quota
+   pings, an LRU-dropped lineage — costs one `stat`, and the file is re-parsed only when
+   another process changed it. A read that fails (a Windows sharing violation mid-replace, a
+   torn or corrupt file) is treated as "no change" and keeps the cached copy, so a transient
+   error can neither un-evict nor let the next write erase other lineages' sets. The file is
+   written only on a cold turn that evicted something new. Any error falls open to
+   in-memory behaviour.
+5. **Recovery.** Eviction runs only where the expand tool is injected (`expand and not
    verbatim`), so a stub is always recoverable in the conversation. This is the same
    gate that already governs every Tier-1 stub.
 

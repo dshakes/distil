@@ -523,21 +523,29 @@ def test_two_credentials_never_share_a_lineage(proxy, clock) -> None:
 
 
 def test_the_clock_counts_sleep() -> None:
-    import sys
+    """Behaviour, not configuration: whatever clock is picked must carry a sleep through.
+    The sleep is simulated by the injected `gettime`, never by patching the process's
+    real clock."""
     import time
 
-    clk = coldpoint._pick_clock()
-    a = clk()
-    assert isinstance(a, float) and clk() >= a
-    if sys.platform == "darwin":
-        # time.monotonic is mach_absolute_time here, which stops while asleep.
-        assert getattr(clk, "args", None) == (time.CLOCK_MONOTONIC,)
-    elif hasattr(time, "CLOCK_BOOTTIME"):
-        assert getattr(clk, "args", None) == (time.CLOCK_BOOTTIME,)
-    # No sleep-counting clock on this platform → the plain monotonic one. Passed as an
-    # argument, never by patching the process-global sys.platform / time module.
-    if not hasattr(time, "CLOCK_BOOTTIME"):
-        assert coldpoint._pick_clock("sunos5") is time.monotonic
+    wall = [100.0]
+    clk = coldpoint._pick_clock("darwin", lambda cid: wall[0])
+    before = clk()
+    wall[0] += 3600  # the lid was closed for an hour
+    assert clk() - before == 3600
+    # ...and so a lineage idle across it is cold.
+    assert clk() - before > coldpoint.TTL_DEFAULT_S + coldpoint.MARGIN_S
+
+    def unsupported(cid: int) -> float:
+        raise OSError("clock not supported")
+
+    assert coldpoint._pick_clock("darwin", unsupported) is time.monotonic
+    assert coldpoint._pick_clock("darwin", None) is time.monotonic
+
+    real = coldpoint._pick_clock()
+    a = real()
+    time.sleep(0.01)
+    assert real() > a, "the picked clock does not advance"
 
 
 def test_reapplying_never_inflates() -> None:
@@ -603,11 +611,18 @@ def test_persistence_is_bounded_and_fails_open(monkeypatch, tmp_path) -> None:
     for i in range(5):
         coldpoint._persist(f"k{i}", frozenset({f"t{i}"}))
     coldpoint._persist("k2", frozenset({"u"}))  # merges, and refreshes its LRU slot
-    data = coldpoint._read_persisted(coldpoint._persist_path())
-    assert list(data) == ["k3", "k4", "k2"] and data["k2"] == {"t2", "u"}
+    data = coldpoint._parse(coldpoint._persist_path())
+    assert data is not None
+    assert list(data) == ["k3", "k4", "k2"] and set(data["k2"]) == {"t2", "u"}
 
+    # A file that cannot be parsed is "no information", not "no state": the cached copy
+    # stays, so the next write cannot erase every other lineage's set.
     coldpoint._persist_path().write_text("{not json")
-    assert coldpoint._load("k2") == frozenset()
+    assert coldpoint._load("k2") == {"t2", "u"}
+    coldpoint._persist("k9", frozenset({"z"}))
+    healed = coldpoint._parse(coldpoint._persist_path())
+    assert healed is not None and set(healed["k2"]) == {"t2", "u"}, "a bad read erased state"
+
     coldpoint._persist_path().write_text('{"lineages": {"k": ["a", 3], "bad": 1}}')
     assert coldpoint._load("k") == {"a"}
 
@@ -616,6 +631,50 @@ def test_persistence_is_bounded_and_fails_open(monkeypatch, tmp_path) -> None:
     (tmp_path / "file-not-dir").write_text("x")
     coldpoint._persist("k", frozenset({"a"}))
     assert coldpoint._load("k") == frozenset()
+
+
+def test_first_seen_lineages_parse_the_file_once(monkeypatch, tmp_path) -> None:
+    """Title-gen, subagents and quota pings are all first-seen lineages: each costs a
+    stat, and the file is parsed again only when it actually changed."""
+    import os
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    coldpoint._persist("k", frozenset({"a"}))
+    coldpoint.reset()  # a fresh process: nothing cached
+    parses = []
+    real = coldpoint._parse
+    monkeypatch.setattr(coldpoint, "_parse", lambda p: parses.append(p) or real(p))
+
+    for i in range(50):
+        coldpoint._load(f"side-request-{i}")
+    assert coldpoint._load("k") == {"a"}
+    assert len(parses) == 1, f"{len(parses)} parses for 51 first-seen lineages"
+
+    # Another process (the old worker during a hot-swap) writes: re-parse, once.
+    path = coldpoint._persist_path()
+    path.write_text('{"version":1,"lineages":{"k":["a","b"],"other":["c"]}}')
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+    assert coldpoint._load("k") == {"a", "b"}
+    assert coldpoint._load("other") == {"c"}
+    assert len(parses) == 2
+
+    # Our own write refreshes the cache without a parse.
+    coldpoint._persist("k", frozenset({"d"}))
+    assert coldpoint._load("k") == {"a", "b", "d"}
+    assert len(parses) == 2
+
+
+def test_ids_per_lineage_are_capped_most_recent_kept(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr(coldpoint, "_MAX_PERSISTED_IDS", 4)
+    coldpoint._persist("k", frozenset({"a1", "a2", "a3"}))
+    coldpoint._persist("k", frozenset({"a1", "a2", "a3", "b1", "b2"}))
+    data = coldpoint._parse(coldpoint._persist_path())
+    assert data is not None and data["k"] == ("a2", "a3", "b1", "b2")
+    mtime = coldpoint._persist_path().stat().st_mtime_ns
+    coldpoint._persist("k", frozenset({"b2"}))  # nothing new: no write at all
+    assert coldpoint._persist_path().stat().st_mtime_ns == mtime
 
 
 def test_a_persisted_set_is_reapplied_but_nothing_new_is_decided(clock) -> None:
@@ -629,3 +688,34 @@ def test_account_scope_ignores_the_bearer_token() -> None:
     assert coldpoint.account_scope({"Authorization": "Bearer b"}) == ""
     one = coldpoint.account_scope({"x-api-key": "k1"})
     assert one and one != coldpoint.account_scope({"x-api-key": "k2"})
+
+
+def test_ttl_is_read_from_every_marker_position() -> None:
+    """A message-level marker counts as much as a block-level one, and a malformed
+    message is skipped rather than raising on the request path."""
+    body = {
+        "messages": [
+            "not-a-message",
+            {"role": "user", "content": "x", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+        ]
+    }
+    assert coldpoint.request_ttl(body) == 3600.0
+    assert coldpoint.request_ttl({"messages": ["junk"]}) == coldpoint.TTL_DEFAULT_S
+
+
+def test_a_file_that_vanishes_before_the_read_is_empty_not_unreadable(tmp_path) -> None:
+    """stat → replace → read can race: a missing file is genuinely no state (empty),
+    unlike a read error, which is no information (None, keep the cache)."""
+    assert coldpoint._parse(tmp_path / "gone.json") == {}
+    (tmp_path / "dir.json").mkdir()
+    assert coldpoint._parse(tmp_path / "dir.json") is None
+
+
+def test_linux_picks_a_boot_clock_when_the_platform_has_one() -> None:
+    import time
+
+    picked = coldpoint._pick_clock("linux", lambda cid: 42.0)
+    if hasattr(time, "CLOCK_BOOTTIME"):
+        assert picked() == 42.0
+    else:  # no CLOCK_BOOTTIME on this interpreter: the plain monotonic clock, not a guess
+        assert picked is time.monotonic

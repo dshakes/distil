@@ -55,9 +55,12 @@ turn, so the smaller prefix is what gets cached for the rest of the session (ADR
   census gets a new `tool_result_evicted` bucket, which `dissect` labels. Handles are in
   the receipt (mode `digest`). `x-distil-cold` / `x-distil-cold-evicted` go on the
   response, and `cold` / `cold_evicted` go in the session ledger.
-- **The set survives a restart.** Evicted ids are persisted content-free to
-  `$DISTIL_HOME/coldpoint.json` (0600, atomic, LRU-capped, written only when a set grows),
-  so a hot-swap re-applies the same stubs instead of un-evicting a warm prefix. The lineage
+- **The set survives a hot-swap or restart within one wrap session.** Evicted ids are
+  persisted content-free to `$DISTIL_HOME/coldpoint.json` (0600, atomic, at most 512
+  lineages × 2048 ids, written only when a set grows, parsed once per change rather than
+  per request), so a hot-swap re-applies the same stubs instead of un-evicting a warm
+  prefix. A fresh `distil wrap` or a `claude --resume` in a new terminal is a new session
+  id and a new lineage, so it still pays one rewrite. The lineage
   is keyed on the static API key, not the OAuth bearer, so a token refresh does not fork it.
   The idle clock counts system sleep (`CLOCK_MONOTONIC` on macOS, `CLOCK_BOOTTIME` on Linux).
 - **Not yet measured live.** The gate is an rc soak plus a live A/B on `distil cache`

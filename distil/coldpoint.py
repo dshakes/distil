@@ -69,7 +69,10 @@ _MAX_EXPANDED = 4096
 _MAX_PERSISTED = 512
 
 
-def _pick_clock(platform: str = sys.platform) -> Callable[[], float]:
+def _pick_clock(
+    platform: str = sys.platform,
+    gettime: Callable[[int], float] | None = getattr(time, "clock_gettime", None),
+) -> Callable[[], float]:
     """A monotonic clock that keeps counting while the machine sleeps.
 
     The provider's TTL runs on wall time, so a laptop that slept through an idle hour has
@@ -77,16 +80,17 @@ def _pick_clock(platform: str = sys.platform) -> Callable[[], float]:
     STOPS during sleep; that errs safe (distil would just miss the cold point), but it
     misses the commonest one. ``clock_gettime(CLOCK_MONOTONIC)`` on darwin "will continue
     to increment while the system is asleep" (clock_gettime(3)); on Linux the equivalent
-    is ``CLOCK_BOOTTIME``. Anything else falls back to ``time.monotonic``.
+    is ``CLOCK_BOOTTIME``. Anything else falls back to ``time.monotonic``. *gettime* is
+    injectable so a test can simulate a sleep without patching the process-global clock.
     """
     cid = time.CLOCK_MONOTONIC if platform == "darwin" else getattr(time, "CLOCK_BOOTTIME", None)
-    if cid is None or not hasattr(time, "clock_gettime"):
+    if cid is None or gettime is None:
         return time.monotonic
     try:
-        time.clock_gettime(cid)
+        gettime(cid)
     except OSError:
         return time.monotonic
-    return functools.partial(time.clock_gettime, cid)
+    return functools.partial(gettime, cid)
 
 
 # The clock, as a module attribute so tests can drive it without patching the GLOBAL
@@ -125,6 +129,8 @@ def reset() -> None:
     with _LOCK:
         _STATES.clear()
         _EXPANDED.clear()
+    with _PERSIST_LOCK:
+        _CACHE.update(sig=None, data=OrderedDict())
 
 
 # Credential headers whose value is a long-lived key. `Authorization` is deliberately NOT
@@ -159,38 +165,85 @@ def _persist_path() -> Path:
     return Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil"))) / "coldpoint.json"
 
 
-def _read_persisted(path: Path) -> "OrderedDict[str, frozenset[str]]":
-    """``{lineage key: evicted ids}`` from disk, oldest first. Empty on any problem."""
-    out: "OrderedDict[str, frozenset[str]]" = OrderedDict()
+# Ids persisted per lineage, most recent kept. A Claude Code session evicts a few dozen
+# results per cold point; 2048 is far past any session we have seen. Past it, the OLDEST
+# ids fall out of the file (never out of the running process's memory), so only a restart
+# of such a session pays one rewrite for them.
+_MAX_PERSISTED_IDS = 2048
+
+# Parsed copy of the state file and the (path, st_mtime_ns, st_size) it was parsed at. A
+# first-seen lineage costs one stat; the file is re-parsed only when it changed.
+_CACHE: dict[str, Any] = {"sig": None, "data": OrderedDict()}
+_PERSIST_LOCK = threading.Lock()
+
+
+def _parse(path: Path) -> "OrderedDict[str, tuple[str, ...]] | None":
+    """``{lineage key: evicted ids, oldest first}``, or None when unreadable.
+
+    None is "no information", not "no state": a transient read error (Windows sharing
+    violation during a replace, say) must not be taken for an empty file, or the next
+    write would erase every other lineage's set.
+    """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return out
+        return OrderedDict()
     except (OSError, ValueError):
-        log.debug("cold-point state unreadable; starting empty", exc_info=True)
-        return out
+        log.debug("cold-point state unreadable; keeping the cached copy", exc_info=True)
+        return None
+    out: "OrderedDict[str, tuple[str, ...]]" = OrderedDict()
     lineages = raw.get("lineages") if isinstance(raw, dict) else None
     if isinstance(lineages, dict):
         for k, v in lineages.items():
             if isinstance(k, str) and isinstance(v, list):
-                out[k] = frozenset(x for x in v if isinstance(x, str))
+                out[k] = tuple(x for x in v if isinstance(x, str))[-_MAX_PERSISTED_IDS:]
     return out
+
+
+def _file_sig(path: Path) -> tuple[str, int, int] | None:
+    """What the cached parse is valid for. The path is part of it: `DISTIL_HOME` is read
+    per call, and a cache keyed on mtime alone would serve one home's state to another."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (str(path), st.st_mtime_ns, st.st_size)
+
+
+def _persisted() -> "OrderedDict[str, tuple[str, ...]]":
+    """The parsed state file, re-parsed only if its mtime/size moved. Caller holds
+    ``_PERSIST_LOCK``."""
+    path = _persist_path()
+    sig = _file_sig(path)
+    if sig is None:
+        if not path.exists():
+            _CACHE.update(sig=None, data=OrderedDict())
+        return _CACHE["data"]
+    if sig != _CACHE["sig"]:
+        parsed = _parse(path)
+        if parsed is not None:
+            _CACHE.update(sig=sig, data=parsed)
+    return _CACHE["data"]
 
 
 def _load(key: str) -> frozenset[str]:
     """The evicted set a previous process persisted for *key* (first-seen only)."""
-    return _read_persisted(_persist_path()).get(key, frozenset())
+    with _PERSIST_LOCK:
+        return frozenset(_persisted().get(key, ()))
 
 
 def _persist(key: str, ids: frozenset[str]) -> None:
     """Merge *ids* into *key*'s persisted set. Called only when a set grows.
 
     Why it exists: the set on the wire must outlive the process. A hot-swap (every
-    upgrade), a restart or an LRU drop would otherwise forward the un-evicted form on the
-    next turn — one full rewrite of a prefix that was still warm. Read-merge-write under
-    a file lock so an old worker draining during a hot-swap and the new one cannot drop
-    each other's ids; written with mkstemp (0600 at creation) → fsync → os.replace.
-    Content-free: hashed lineage keys and the provider's random tool_use ids.
+    upgrade), a restart or an LRU drop within the same wrap session would otherwise
+    forward the un-evicted form on the next turn — one full rewrite of a prefix that was
+    still warm. Only within the same session: the key carries ``DISTIL_SESSION``, so a
+    fresh ``distil wrap`` / ``claude --resume`` in a new terminal is a new lineage and
+    starts empty (one rewrite, as before). Read-merge-write under a file lock so an old worker draining during a
+    hot-swap and the new one cannot drop each other's ids; written with mkstemp (0600 at
+    creation) → fsync → os.replace. Content-free: hashed lineage keys and the provider's
+    random tool_use ids.
     """
     try:
         from . import _filelock
@@ -198,14 +251,19 @@ def _persist(key: str, ids: frozenset[str]) -> None:
 
         path = _persist_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with _filelock.locked(path):
-            data = _read_persisted(path)
-            data[key] = data.get(key, frozenset()) | ids
+        with _PERSIST_LOCK, _filelock.locked(path):
+            data = OrderedDict(_persisted())
+            old = data.get(key, ())
+            merged = (*old, *sorted(ids.difference(old)))[-_MAX_PERSISTED_IDS:]
+            if merged == old:
+                return
+            data[key] = merged
             data.move_to_end(key)
             while len(data) > _MAX_PERSISTED:
                 data.popitem(last=False)
-            blob = {"version": 1, "lineages": {k: sorted(v) for k, v in data.items()}}
+            blob = {"version": 1, "lineages": {k: list(v) for k, v in data.items()}}
             _atomic_write_secure(path, json.dumps(blob, separators=(",", ":")).encode())
+            _CACHE.update(sig=_file_sig(path), data=data)
     except Exception:  # noqa: BLE001 — persistence is an optimisation; never break a request
         log.debug("cold-point state not persisted", exc_info=True)
 
