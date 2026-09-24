@@ -585,6 +585,7 @@ def build_handler(
     retention_rate: float = 0.0,
     session_delta: bool = False,
     prefix_replay: bool = True,
+    diagnostic: bool = False,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
 
@@ -744,13 +745,15 @@ def build_handler(
     # Drift guard — the budget alarm that acts. When the anytime-valid e-process
     # (distil.drift) proves live decision-change above the shared budget, every later
     # request is served lossless-only (Tier-0, no digest, no output shaping), across
-    # restarts, until `distil reset --shadow`. Default ON; DISTIL_NO_DRIFT_GUARD=1 opts
+    # restarts, until `distil reset --drift-guard`. Default ON; DISTIL_NO_DRIFT_GUARD=1 opts
     # out. Cost on the request path is one attribute read: the guard is seeded here and
     # fed by the shadow thread, never by a file scan. start() never raises.
     from .drift import RELEASE_CMD as _RELEASE_CMD
     from .drift import DriftGuard
 
-    _drift_guard = DriftGuard.start()
+    # A diagnostic handler (doctor's self-test) reads the hold but writes nothing and
+    # starts no watcher: a health check must not migrate or quarantine state.
+    _drift_guard = DriftGuard.start(watch=not diagnostic, write=not diagnostic)
 
     def _request_mode() -> tuple[bool, str]:
         """(held, x-distil-mode) for one request. Fail-open: a broken guard means the

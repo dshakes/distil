@@ -13,6 +13,8 @@ import math
 import random
 import statistics
 
+import pytest
+
 from distil.conformal import BUDGET_ALPHA, BUDGET_DELTA
 from distil.drift import DriftGuard, DriftMonitor, LiveDrift, _bootstrap, fold, paired_loss, release
 
@@ -140,10 +142,11 @@ def test_restarts_continue_one_capital_path_exactly(tmp_path, monkeypatch):
 
 
 def test_null_false_alarm_stays_under_delta_across_restarts(tmp_path, monkeypatch):
-    """The review's scenario, simulated: under the null, a proxy that restarts every 25
-    samples (file I/O per fold, so fewer trials than the in-memory gate above;
-    the exact-capital test above is the sharp check). Before, each restart re-branched from stale capital — (k+1) looks, (k+1)·δ.
-    Now it is one e-process, so the rate is the single-process rate."""
+    """REGRESSION GUARD, not a δ-level check. Under the null, a proxy restarts every 20
+    samples. When each restart re-branched from stale capital, the rate grew as (k+1)·δ
+    — far above this bound. With 150 trials (file I/O per fold) the tolerance is
+    δ + 2σ ≈ 0.086, loose by construction; the exact-capital test above is the sharp
+    check that restarts add no looks, and the in-memory gate is the δ-level one."""
     trials, horizon, every = 150, 300, 20
     tolerance = BUDGET_DELTA + 2 * math.sqrt(BUDGET_DELTA * (1 - BUDGET_DELTA) / trials)
     alarms = 0
@@ -216,6 +219,8 @@ def test_release_leaves_a_fresh_state_that_bootstrap_does_not_refold(tmp_path, m
         for _ in range(200):
             row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
             f.write(json.dumps(row) + "\n")
+    old = {"alpha": NULL_MEAN, "delta": BUDGET_DELTA, "n": 0, "consumed": 0, "stream": "x"}
+    (tmp_path / "drift.json").write_text(json.dumps(old))  # a pre-schema-2 file: migrates
     assert _bootstrap().monitor.tripped
     assert release("t1")
     assert (tmp_path / "drift.json.reset-t1").exists()
@@ -233,11 +238,29 @@ def test_budget_change_discards_stale_capital(tmp_path, monkeypatch):
     assert LiveDrift.load().monitor.n == 0
 
 
-def test_corrupt_state_degrades_to_a_fresh_monitor(tmp_path, monkeypatch):
+@pytest.mark.parametrize("junk", ["", "{not json", "[]", '"a string"'])
+def test_an_unreadable_state_file_is_held_and_quarantined_not_overwritten(
+    tmp_path, monkeypatch, junk
+):
+    """Zero-length, garbage, parseable-but-wrong: the file may have held a breach, so it
+    is held (fail-safe), moved aside rather than overwritten, and the hold says how to
+    release it. Before, it loaded as fresh and the next fold destroyed it."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    for junk in ("{not json", "[]", '"a string"'):  # unparseable, and parseable-but-wrong
-        (tmp_path / "drift.json").write_text(junk)
-        assert LiveDrift.load().monitor.n == 0, junk
+    (tmp_path / "drift.json").write_text(junk)
+    assert LiveDrift.load().held  # a reader holds without touching the file
+    assert (tmp_path / "drift.json").read_text() == junk
+
+    state = fold([0])
+    assert state.held and not state.monitor.tripped
+    moved = list(tmp_path.glob("drift.json.corrupt-*"))
+    assert len(moved) == 1 and moved[0].read_text() == junk
+    line = LiveDrift.load().line()
+    assert line.startswith("HELD") and moved[0].name in line
+    assert "distil reset --drift-guard" in line
+    assert DriftGuard.start(watch=False).engaged
+
+    release("t")
+    assert not LiveDrift.load().held
 
 
 def test_below_floor_says_so_and_prints_no_evalue(tmp_path, monkeypatch):
@@ -257,9 +280,8 @@ def test_capital_is_floored_at_zero_for_an_aggressive_stake():
     assert not mon.tripped
 
 
-def test_a_wrongly_typed_field_degrades_to_a_fresh_monitor(tmp_path, monkeypatch):
-    """Corrupt JSON is one failure; well-formed JSON with a junk value is the other.
-    Either way the answer is a fresh monitor, never a capital number nobody can explain."""
+def test_a_wrongly_typed_field_is_held_as_corrupt(tmp_path, monkeypatch):
+    """Well-formed JSON with a junk value is still a state nobody can vouch for."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     fold([0] * 10)
     p = tmp_path / "drift.json"
@@ -267,9 +289,35 @@ def test_a_wrongly_typed_field_degrades_to_a_fresh_monitor(tmp_path, monkeypatch
         raw = json.loads(p.read_text())
         raw[field] = junk
         p.write_text(json.dumps(raw))
-        fresh = LiveDrift.load()
-        assert fresh.monitor.n == 0 and fresh.monitor.capital == 1.0, (field, junk)
+        assert LiveDrift.load().held, (field, junk)
+        release(field + str(junk))
         fold([0] * 10)
+
+
+def test_a_missing_state_is_fresh_and_never_refolds_released_history(tmp_path, monkeypatch):
+    """The review's blocker: release, then lose drift.json (deleted, or the fresh write
+    failed). The next start must NOT re-fold the shadow history into the same breach."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    fold([-1] * 200)
+    assert release("t")
+    (tmp_path / "drift.json").unlink()
+    guard = DriftGuard.start(watch=False)  # a restart
+    assert not guard.engaged
+    assert LiveDrift.load().monitor.n == 0
+
+
+def test_release_raises_when_the_fresh_state_cannot_be_written(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    fold([-1] * 200)
+    monkeypatch.setattr(LiveDrift, "_write", lambda self, p: False)
+    with pytest.raises(OSError):
+        release("t")
 
 
 def test_an_unwritable_state_path_still_returns_a_verdict(tmp_path, monkeypatch):

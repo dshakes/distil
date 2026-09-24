@@ -166,15 +166,24 @@ class LiveDrift:
     """The persisted e-process: the monitor, plus when (sample, wall clock) it tripped.
 
     ``tripped`` is sticky by construction (the monitor refuses further updates), and it is
-    also the hold: while it is set, every proxy serves lossless-only. It is cleared only by
-    :func:`release` — ``distil reset --drift-guard`` (or ``--shadow``, which also archives
-    the evidence).
+    the hold: while it is set, every proxy serves lossless-only. The other way to be held
+    is ``corrupt`` — an existing state file that cannot be read — or ``quarantined``, the
+    persisted record that a writer found one and moved it aside. A breach may be what the
+    unreadable file held, so failing safe is the only answer that cannot lose one. Both
+    are cleared only by :func:`release` — ``distil reset --drift-guard`` (or ``--shadow``,
+    which also archives the evidence).
     """
 
     monitor: DriftMonitor
     tripped_at: int = 0  # sample number the trip happened at
     tripped_ts: float = 0.0
     schema: int = _SCHEMA
+    corrupt: bool = False  # the file exists and could not be read; never persisted
+    quarantined: str = ""  # name the unreadable file was moved to; persisted until release
+
+    @property
+    def held(self) -> bool:
+        return self.monitor.tripped or self.corrupt or bool(self.quarantined)
 
     @classmethod
     def fresh(cls) -> LiveDrift:
@@ -182,14 +191,17 @@ class LiveDrift:
 
     @classmethod
     def load(cls, path: Path | None = None) -> LiveDrift:
-        """Read-only. Missing, corrupt, or bet against another budget → a fresh monitor."""
+        """Read-only. Missing or bet against another budget → a fresh monitor. An existing
+        file that cannot be read or parsed → a fresh monitor marked ``corrupt`` (held)."""
         p = path or _state_path()
         try:
             raw = json.loads(p.read_text(encoding="utf-8"))
+        except (FileNotFoundError, NotADirectoryError):
+            return cls.fresh()
         except (OSError, ValueError, TypeError):
-            return cls.fresh()
+            return cls._corrupt()
         if not isinstance(raw, dict):
-            return cls.fresh()
+            return cls._corrupt()
         state = cls.fresh()
         mon = state.monitor
         # A budget change invalidates the accumulated capital — it was bet against a
@@ -203,12 +215,18 @@ class LiveDrift:
             state.tripped_at = int(raw.get("tripped_at") or 0)
             state.tripped_ts = float(raw.get("tripped_ts") or 0.0)
             state.schema = int(raw.get("v") or 1)
+            state.quarantined = str(raw.get("quarantined") or "")
             if mon.n < 0 or state.tripped_at < 0:
                 raise ValueError("negative counter")
         except (TypeError, ValueError):
-            # Well-formed JSON with a corrupt field is still a corrupt state file: start
-            # over rather than raise out of a verdict line that is meant to be fail-open.
-            return cls.fresh()
+            # Well-formed JSON with a corrupt field is still a corrupt state file.
+            return cls._corrupt()
+        return state
+
+    @classmethod
+    def _corrupt(cls) -> LiveDrift:
+        state = cls.fresh()
+        state.corrupt = True
         return state
 
     def advance(self, diffs: list[int]) -> bool:
@@ -222,14 +240,16 @@ class LiveDrift:
             return True
         return False
 
-    def _write(self, p: Path) -> None:
-        """Atomic replace; the CALLER holds the lock. Best-effort (OSError swallowed).
+    def _write(self, p: Path) -> bool:
+        """Atomic, durable replace; the CALLER holds the lock. False if it failed.
 
-        A rename is atomic, so a reader sees either the old state or the new one: a torn
-        write must never silently reset a sticky breach to a fresh "intact" monitor.
+        fsync before the rename, then the rename is atomic: a reader sees either the old
+        state or the new one, and a crash cannot leave a zero-length file behind the name.
         """
         payload: dict[str, object] = {f: getattr(self.monitor, f) for f in _FIELDS}
         payload.update(tripped_at=self.tripped_at, tripped_ts=self.tripped_ts, v=_SCHEMA)
+        if self.quarantined:
+            payload["quarantined"] = self.quarantined
         tmp = p.with_name(p.name + ".tmp")
         try:
             from . import _filelock, atrest
@@ -237,10 +257,13 @@ class LiveDrift:
             with open(tmp, "w", encoding="utf-8", opener=atrest.owner_only) as fh:
                 fh.write(json.dumps(payload))
                 fh.flush()
+                os.fsync(fh.fileno())
             _filelock.replace_retrying(tmp, p)
+            return True
         except OSError:
             with contextlib.suppress(OSError):
                 tmp.unlink()
+            return False
 
     def line(self, bound: float | None = None) -> str:
         """One sentence. ``bound`` is the (1−δ) risk bound printed beside it.
@@ -257,6 +280,12 @@ class LiveDrift:
         from .shadow import VERDICT_MIN_AB
 
         m = self.monitor
+        if not m.tripped and (self.corrupt or self.quarantined):
+            where = f" (moved aside as {self.quarantined})" if self.quarantined else ""
+            return (
+                f"HELD — the drift state file was unreadable{where}, so a breach it may "
+                f"have recorded cannot be ruled out{held_note()}"
+            )
         if m.tripped:
             when = (
                 time.strftime(" %Y-%m-%d %H:%M", time.localtime(self.tripped_ts))
@@ -305,7 +334,7 @@ def fold(diffs: list[int], *, path: Path | None = None) -> LiveDrift:
     """
     p = path or _state_path()
     with _locked(p):
-        state = LiveDrift.load(p)
+        state = _load_for_write(p)
         tripped_now = state.advance(diffs)
         state._write(p)
         if tripped_now:
@@ -313,19 +342,39 @@ def fold(diffs: list[int], *, path: Path | None = None) -> LiveDrift:
     return state
 
 
+def _load_for_write(p: Path) -> LiveDrift:
+    """:meth:`LiveDrift.load`, for a writer holding the lock: an unreadable file is moved
+    aside (never overwritten — it is evidence) and replaced by a HELD state that records
+    where it went. Fails safe: if the move fails, the state is still held in memory."""
+    state = LiveDrift.load(p)
+    if state.corrupt:
+        dest = p.with_name(f"{p.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            p.rename(dest)
+            state.quarantined = dest.name
+            log.warning("distil drift: unreadable %s moved to %s; holding", p.name, dest.name)
+        except OSError:
+            log.warning("distil drift: %s is unreadable and could not be moved; holding", p)
+    return state
+
+
 def _bootstrap(path: Path | None = None) -> LiveDrift:
-    """First proxy start after an upgrade (no schema-2 state): fold the shadow ledger once.
+    """Proxy start. Migrates ONLY an existing pre-schema-2 file; never creates evidence.
 
     The pre-schema-2 e-process was folded from ``shadow.jsonl`` at wrap exit; rebuilding
-    it from that file, in file order, from ``K_0 = 1`` is the same e-process and carries
-    the evidence forward. From then on only :func:`fold` writes. No-op when the state is
-    already schema 2 — including the fresh one :func:`release` leaves behind, so a
-    release never re-folds the rows that caused the trip.
+    that file's rows, in file order, from ``K_0 = 1`` is the same e-process and carries
+    its evidence forward. A MISSING file is not a migration: it is a fresh e-process
+    (first run, or a release whose fresh state was deleted or never written). Re-folding
+    the shadow history there would re-trip a released hold on the very rows that were
+    released. An unreadable file is quarantined and held (:func:`_load_for_write`).
     """
     p = path or _state_path()
     with _locked(p):
-        current = LiveDrift.load(p)
-        if current.schema == _SCHEMA and p.exists():
+        existed = p.exists()
+        current = _load_for_write(p)
+        if current.held or not existed or current.schema >= _SCHEMA:
+            if current.quarantined:
+                current._write(p)
             return current
         from .shadow import ShadowLedger
 
@@ -340,16 +389,17 @@ def _bootstrap(path: Path | None = None) -> LiveDrift:
 def release(stamp: str, path: Path | None = None) -> bool:
     """Archive the e-process (and its hold) and start a fresh one. True if one existed.
 
-    Archived, not deleted — the trip is evidence, and its receipt stays on the chain. The
-    fresh schema-2 state written in its place is what stops the next proxy start from
-    re-folding the same rows back into the same breach.
+    Archived, not deleted — the trip is evidence, and its receipt stays on the chain.
+    Raises ``OSError`` when either step fails, so the command can say it did not work
+    rather than claim a release it did not make.
     """
     p = path or _state_path()
     with _locked(p):
         existed = p.exists()
         if existed:
             p.rename(p.with_name(p.name + f".reset-{stamp}"))
-        LiveDrift.fresh()._write(p)
+        if not LiveDrift.fresh()._write(p):
+            raise OSError(f"could not write a fresh drift state to {p}")
     return existed
 
 
@@ -417,7 +467,19 @@ def held_note() -> str:
 
 def held_now() -> bool:
     """Is compression being held right now? One small file read; for the status line."""
-    return not guard_disabled() and LiveDrift.load().monitor.tripped
+    return not guard_disabled() and LiveDrift.load().held
+
+
+_WATCHERS: list[DriftGuard] = []
+_WATCHERS_LOCK = threading.Lock()
+
+
+def stop_watchers() -> None:
+    """Stop every watcher thread this process started (tests, embedded servers)."""
+    with _WATCHERS_LOCK:
+        for g in _WATCHERS:
+            g.stop()
+        _WATCHERS.clear()
 
 
 @dataclass
@@ -440,15 +502,23 @@ class DriftGuard:
     POLL_S = 30.0
 
     @classmethod
-    def start(cls, *, watch: bool = True) -> DriftGuard:
-        """Never raises: a guard that cannot load starts un-held."""
+    def start(cls, *, watch: bool = True, write: bool = True) -> DriftGuard:
+        """Never raises: a guard that cannot load starts un-held.
+
+        ``write=False, watch=False`` is the read-only guard for diagnostics (``distil
+        doctor``'s self-test): it reads the hold and nothing else — no migration write, no
+        quarantine, no watcher thread.
+        """
         g = cls(disabled=guard_disabled())
         try:
-            g.held = _bootstrap().monitor.tripped
-            g.refresh()
+            g.held = (_bootstrap() if write else LiveDrift.load()).held
+            if write:
+                g.refresh()
         except Exception:  # noqa: BLE001 — the alarm must never stop the proxy starting
             log.debug("drift guard start failed", exc_info=True)
         if watch:
+            with _WATCHERS_LOCK:
+                _WATCHERS.append(g)
             threading.Thread(target=g._watch, name="distil-drift-guard", daemon=True).start()
         return g
 
@@ -468,7 +538,7 @@ class DriftGuard:
             if key == self._seen:
                 return
             self._seen = key
-            self._set(LiveDrift.load().monitor.tripped)
+            self._set(LiveDrift.load().held)
         except Exception:  # noqa: BLE001 — the alarm must never break the proxy
             log.debug("drift guard refresh failed", exc_info=True)
 
@@ -479,7 +549,7 @@ class DriftGuard:
         came from was served long ago; the alarm must never be why the next one is not.
         """
         try:
-            self._set(fold([diff]).monitor.tripped)
+            self._set(fold([diff]).held)
         except Exception:  # noqa: BLE001 — the alarm must never break the proxy
             log.debug("drift guard observe failed", exc_info=True)
 

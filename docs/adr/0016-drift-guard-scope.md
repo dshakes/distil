@@ -46,4 +46,6 @@ switches off compression for workloads it says nothing about.
 - Releasing the hold is deliberate and narrow. `distil reset --drift-guard` archives only
   `drift.json` and leaves a fresh state in its place, so the next proxy start does not
   re-fold the same rows into the same breach. It does not touch the savings ledger or the
-  shadow ledger.
+  shadow ledger. A missing state is a fresh e-process and never re-folds the shadow
+  history; an unreadable one is held and moved aside, never overwritten, because it may
+  have recorded a breach.

@@ -341,3 +341,30 @@ def test_observe_and_refresh_swallow_their_own_errors(home, monkeypatch):
 def test_a_start_that_cannot_load_state_starts_unheld(home, monkeypatch):
     monkeypatch.setattr(drift, "_bootstrap", lambda *a, **k: 1 / 0)
     assert not drift.DriftGuard.start(watch=False).engaged
+
+
+def test_a_release_that_cannot_write_says_so_and_exits_nonzero(home, monkeypatch, capsys):
+    import argparse
+
+    from distil.cli import cmd_reset
+
+    drift.fold([-1] * 200)
+    monkeypatch.setattr(drift.LiveDrift, "_write", lambda self, p: False)
+    rc = cmd_reset(argparse.Namespace(shadow=False, drift_guard=True))
+    out = capsys.readouterr()
+    assert rc == 1
+    assert "could NOT release" in out.err and "released" not in out.out
+
+
+def test_the_doctor_self_test_writes_no_drift_state_and_starts_no_watcher(home):
+    """A health check must not migrate, quarantine, or spawn threads."""
+    import threading
+
+    from distil.doctor import _check_proxy_selftest
+
+    (home / "drift.json").write_text("{torn", encoding="utf-8")
+    before = {t.name for t in threading.enumerate()}
+    _check_proxy_selftest()
+    assert (home / "drift.json").read_text(encoding="utf-8") == "{torn"
+    assert not list(home.glob("drift.json.corrupt-*"))
+    assert "distil-drift-guard" not in {t.name for t in threading.enumerate()} - before

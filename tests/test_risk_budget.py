@@ -40,7 +40,8 @@ def _verdicts(home: Path) -> dict[str, object]:
     from distil.replay.runner import DeterministicRunner
 
     (home / "drift.json").unlink(missing_ok=True)
-    guard = drift.DriftGuard.start(watch=False)  # bootstraps the e-process from the ledger
+    drift.fold(_DIFFS)  # what the proxies did with each verdict, under this budget
+    guard = drift.DriftGuard.start(watch=False)
     lines = dict(proof_lines())
     return {
         "certificate": calibrate(load_corpus(), DeterministicRunner()).level is not None,

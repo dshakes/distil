@@ -163,11 +163,25 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
-def _release_drift_guard(stamp: str) -> bool:
-    """Archive the drift e-process and its lossless-only hold; print what happened."""
+def _release_drift_guard(stamp: str) -> bool | None:
+    """Archive the drift e-process and its lossless-only hold; print what happened.
+
+    True = released, False = nothing to release, None = FAILED (said on stderr, and the
+    command exits non-zero — a release that did not happen must never read as one)."""
+    import sys
+
     from .drift import DriftGuard, release
 
-    if not release(stamp):
+    try:
+        existed = release(stamp)
+    except OSError as exc:
+        print(
+            f"distil: could NOT release the drift guard — {exc}. Check that DISTIL_HOME "
+            "is writable and has space, then run `distil reset --drift-guard` again.",
+            file=sys.stderr,
+        )
+        return None
+    if not existed:
         return False
     print(
         "drift alarm archived and reset — the lossless-only hold is released. Running "
@@ -191,7 +205,10 @@ def cmd_reset(args: argparse.Namespace) -> int:
 
     stamp = _time.strftime("%Y%m%d-%H%M%SZ", _time.gmtime())
     if getattr(args, "drift_guard", False) and not getattr(args, "shadow", False):
-        if not _release_drift_guard(stamp):
+        released = _release_drift_guard(stamp)
+        if released is None:
+            return 1
+        if not released:
             print("nothing to reset — no drift alarm state recorded yet.")
         return 0
     reset_any = False
@@ -216,8 +233,10 @@ def cmd_reset(args: argparse.Namespace) -> int:
             reset_any = True
         # The drift e-process summarises those rows and its trip is sticky, so a breach
         # would outlive the evidence it was computed from. Released with it.
-        if _release_drift_guard(stamp):
-            reset_any = True
+        released = _release_drift_guard(stamp)
+        if released is None:
+            return 1
+        reset_any = reset_any or released
     if not reset_any:
         print("nothing to reset — no ledger recorded yet.")
         return 0

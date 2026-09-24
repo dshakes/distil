@@ -52,9 +52,21 @@ bound that was over the budget.
   new tests show the restart path produces the exact same capital as one long-lived
   process, and that the null false-alarm rate across simulated restarts stays at δ.
   Wrap exit, `distil stats` and the status line only read the file; a reporting
-  command never writes it. The first proxy start after this upgrade rebuilds the
-  e-process once from `shadow.jsonl`, in file order, which is the same fold the exit
-  summary used to do.
+  command never writes it. Neither does `distil doctor`: its proxy self-test runs a
+  read-only guard, with no migration and no watcher thread. An existing old-format
+  `drift.json` is migrated once, on the first proxy start after this upgrade, by
+  rebuilding it from `shadow.jsonl` in file order. That is the same fold the exit
+  summary used to do. A *missing* `drift.json` always starts a fresh e-process and never
+  re-folds the shadow history. Otherwise a release whose fresh state was deleted, or
+  never written, would re-trip on the very rows it released.
+- **A state file nobody can read is held, not reset.** A zero-length, garbage or
+  wrongly-typed `drift.json` used to load as a fresh monitor, and the next fold then
+  overwrote it, so a recorded breach could vanish. Now:
+  - It counts as held. The first writer moves it aside as `drift.json.corrupt-<time>`
+    rather than overwriting it.
+  - Every surface says `HELD — the drift state file was unreadable …`, followed by the
+    release command.
+  - Writes fsync before the atomic rename.
 - **The alarm acts.** On a breach, the next request is served lossless-only: Tier-0, no
   digest, no output shaping. The response carries `x-distil-mode: lossless-only` and
   `x-distil-drift-guard: held`. `distil_expand` stays injected, so stubs already in the
@@ -80,15 +92,24 @@ bound that was over the budget.
   the same command. `distil reset --drift-guard` archives only the drift state and
   leaves a fresh one, so the next start does not re-fold the same rows into the same
   breach. Savings and shadow stats are untouched, and running proxies resume within
-  30s. `distil reset --shadow` still releases the hold as well.
+  30s. If the release cannot archive the old state or write the fresh one, it says so
+  on stderr and exits 1; it never claims a release it did not make. `distil reset
+  --shadow` still releases the hold as well.
 - **Fail-open, on by default.** A guard that raises, or cannot load its state, serves the
   request exactly as configured. `DISTIL_NO_DRIFT_GUARD=1` opts out of the hold. The
   alarm still trips, and the proof line then says compression was *not* held.
 - **Upgrading with an e-process that has already tripped.** If an earlier version left a
-  `~/.distil/drift.json` that says BREACHED, the first proxy start after upgrading
-  rebuilds the e-process from `shadow.jsonl`. If that evidence still crosses the budget,
-  the proxy starts held at lossless-only. That is the alarm doing its job on evidence you
-  already had. After `distil calibrate`, release it with `distil reset --drift-guard`.
+  `~/.distil/drift.json` that says BREACHED, the proxy starts held at lossless-only. That
+  is the alarm doing its job on evidence you already had. An old-format file that has
+  not tripped is rebuilt from `shadow.jsonl`, and it holds if that evidence crosses the
+  budget. With no `drift.json` at all, the e-process starts fresh. After
+  `distil calibrate`, release a hold with `distil reset --drift-guard`.
+- **Do not run an older distil side by side.** An older build still installed next to
+  this one, such as a second venv or a pinned launch agent, rewrites `drift.json` in
+  the old format at its own wrap exit. The next proxy start from this build then sees an
+  old-format file and rebuilds the e-process from `shadow.jsonl` again, from
+  `K_0 = 1`. Each alternation between the two versions is another look at the same rows,
+  so the one-e-process guarantee only holds when a single version writes the file.
 
 ### The freshest read the agent asked for came back as a pointer
 

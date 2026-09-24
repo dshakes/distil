@@ -35,6 +35,16 @@ def _distil_home_sandbox(monkeypatch, tmp_path_factory):
     )
 
 
+@pytest.fixture(autouse=True)
+def _stop_drift_watchers():
+    """Every build_handler starts a drift-guard watcher thread; stop them per test so
+    they do not accumulate across the suite."""
+    yield
+    from distil.drift import stop_watchers
+
+    stop_watchers()
+
+
 @pytest.fixture
 def real_claude_settings_files():
     """The genuine enumerator, for the tests that assert on precedence order."""
