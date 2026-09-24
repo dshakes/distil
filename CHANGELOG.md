@@ -50,6 +50,23 @@ reading the regex and hoping. `context_management` and `previous_response_id` we
 forwarded unchanged (a request body spread that never drops an unrecognised key), also now
 pinned.
 
+A review pass on that fix found the opaque-item guard was broader than it needed to be:
+`"encrypted_content" in item` alone, without also excluding the known compressible types,
+could in principle let a stray or future `encrypted_content` key on a `message`/
+`function_call_output`/`function_call` item shadow its own real handling. Narrowed to
+exclude those three, with a test pinning a `message` carrying a decoy `encrypted_content`
+key still compresses and censuses as `user_text`, not as an opaque passthrough. The census
+gap's mirror in `dissect`'s eligibility report is also closed: `reasoning_billed`,
+`compaction_billed`, and `signed_item_billed` are now in `_ELIGIBILITY_LABEL` and
+`_PROTECTED_REASONS`, so a reasoning-heavy session reads as "the design holding," the same
+verdict Anthropic's `thinking`/`compaction` census buckets already earn — not as a missed
+compression opportunity. And because `count_responses_tokens` deliberately does not count
+these items (documented at the function and in cache-contract.html clause (g)), the
+eligibility census total can legitimately exceed `x-distil-compressible-tokens` on a
+Responses session; both the docstring and the doc now say so, and both the census tokens
+and the report's opaque-bucket labels are marked approximate — a heuristic count of
+base64 ciphertext, not the provider's real billed reasoning-token count.
+
 ### The freshest read the agent asked for came back as a pointer
 
 ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency

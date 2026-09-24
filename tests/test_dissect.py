@@ -1614,6 +1614,31 @@ class TestEligibility:
         assert "the design holding" in text
         assert "compressor's to explain" not in text
 
+    def test_compaction_and_signed_blocks_count_as_protected_not_missed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A reasoning-heavy OpenAI session must read as "working as designed", not
+        as a missed opportunity distil should have compressed — its census buckets
+        are billed, provider-signed bytes distil cannot touch, same as Anthropic's
+        thinking/compaction blocks."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path,
+            [
+                {
+                    "reasoning_billed": 60_000,
+                    "compaction_billed": 15_000,
+                    "signed_item_billed": 5_000,
+                    "tool_result_digested": 20_000,
+                }
+            ],
+        )
+        d = dz.dissect(sid)
+        assert (d.protected_share("m") or 0) > 50.0
+        text = dz.render_text(d, color=False)
+        assert "the design holding" in text
+        assert "compressor's to explain" not in text
+
 
 class TestErrorReasons:
     """A non-2xx must record WHY, not only that it failed."""

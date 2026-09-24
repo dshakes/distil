@@ -167,6 +167,32 @@ class TestOpaqueItemsImmutable:
         out, _store = compress_responses_input(items, verbatim=False)
         assert out[0] is item
 
+    def test_stray_encrypted_content_on_a_message_does_not_shadow_compression(self) -> None:
+        # The `encrypted_content`-presence generalisation must not swallow a
+        # compressible item type that happens to carry that key (malformed input,
+        # or a future field collision) — dispatch on a KNOWN compressible type
+        # always wins over the opaque-item catch-all. User text only ever gets the
+        # lossless Tier-0 fold (never a Tier-1 digest handle), so a repeated-line
+        # run — not LONG_TOOL_OUTPUT's varied lines — is what proves the rewrite
+        # actually happened rather than "nothing needed folding".
+        text = "\n".join(["same line here"] * 20)
+        item = {
+            "type": "message",
+            "role": "user",
+            "encrypted_content": "should-not-matter",
+            "content": [{"type": "input_text", "text": text}],
+        }
+        items = [item, *_PAD]
+        out, _store = compress_responses_input(items, verbatim=False)
+        assert out[0] is not item  # rewritten — not opaque-passthrough
+        assert out[0]["content"][0]["text"] != text  # Tier-0 run-collapse applied
+        census = take_census() or {}
+        assert census.get("user_text", 0) > 0
+        assert census.get("signed_item_billed", 0) == 0
+        # Census attributes the exact same baseline text count_responses_tokens uses
+        # for this item — the guard didn't divert it into a different bucket either.
+        assert census["user_text"] == count_responses_tokens([item])
+
 
 # ---------------------------------------------------------------------------
 # Surrounding function_call_output items still compress
