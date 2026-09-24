@@ -648,6 +648,26 @@ def _census_tool_result(bucket: str, content: Any) -> None:
             _census(bucket, sub["text"])
 
 
+def _census_opaque_block(bucket: str, item: dict[str, Any]) -> None:
+    """Attribute a provider-signed opaque block's billed text to *bucket*.
+
+    Reads the same two keys (``text``, ``content``; string or list-of-text-parts) that
+    ``proxy._count_messages`` already reads generically for a block type it has no
+    bespoke knowledge of. Deliberately not guessing at a real field name beyond that:
+    matching the baseline's own extraction keeps census and baseline in lockstep on
+    whatever field the wire actually uses, rather than risking a name that makes one
+    side see tokens the other does not.
+    """
+    for key in ("text", "content"):
+        val = item.get(key)
+        if isinstance(val, str):
+            _census(bucket, val)
+        elif isinstance(val, list):
+            for sub in val:
+                if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                    _census(bucket, sub["text"])
+
+
 def _compress_content_item(
     item: dict[str, Any],
     store: RestoreStore,
@@ -682,6 +702,21 @@ def _compress_content_item(
         # turn, so it belongs in the census — otherwise the one context cost distil
         # cannot reduce is also the one it never shows you.
         _census("thinking_billed", str(item.get("thinking") or item.get("data") or ""))
+        return item
+
+    if btype == "compaction" or "signature" in item:
+        # Provider-signed opaque blocks: same contract as thinking/redacted_thinking just
+        # above, generalised so a signed block type we don't yet have a name for is safe
+        # by construction rather than by an updated allowlist. Anthropic's server-side
+        # compaction (beta `compact-2026-01-12` / `compact-2026-09-04`) emits exactly this
+        # shape — a `compaction` block whose `signature` the provider re-validates on the
+        # next request — and REJECTS the call (`compaction_signature_invalid`) if the
+        # block moved, was dropped, or its bytes changed even via a lossless re-encode. We
+        # never touch it (`item` is returned unchanged, same object), only census it so a
+        # billed cost distil cannot reduce is not also one it hides from the savings %.
+        _census_opaque_block(
+            "compaction_billed" if btype == "compaction" else "signed_block_billed", item
+        )
         return item
 
     if btype == "text":
