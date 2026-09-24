@@ -27,9 +27,14 @@ re-read for the rest of the session.
 On a **cold turn**, distil replaces older tool_results with a recoverable stub and keeps
 forwarding that stub on every later turn in the lineage.
 
-1. **State** (`distil/coldpoint.py`). Keyed by the same lineage identity prefix replay uses
-   (credential scope + `prefixreplay.lineage_key`: model, system, tools, head message,
-   `DISTIL_SESSION`). It holds a monotonic timestamp, the message count and a 16-hex hash of
+1. **State** (`distil/coldpoint.py`). Keyed by `account_scope` + `prefixreplay.lineage_key`
+   (model, system, tools, head message, `DISTIL_SESSION`). `account_scope` hashes the static
+   API-key headers (`x-api-key`, `api-key`, `x-goog-api-key`) and deliberately NOT
+   `Authorization`: Claude Code's OAuth bearer refreshes mid-session, and keying on it (as
+   replay's `credential_scope` does) forked the lineage and un-evicted a warm prefix at
+   every refresh. It holds a sleep-counting monotonic timestamp (`CLOCK_MONOTONIC` on darwin,
+   which keeps counting through sleep per clock_gettime(3), unlike Python's
+   `time.monotonic` = `mach_absolute_time`; `CLOCK_BOOTTIME` on Linux), the message count and a 16-hex hash of
    the last message, the longest TTL the lineage has asked for, an in-flight counter, the
    evicted `tool_use_id` set and an `ambiguous` flag. The state holds no content. An LRU caps
    it at 256 lineages, and every request does one O(1) lookup.
@@ -40,7 +45,7 @@ forwarding that stub on every later turn in the lineage.
    - nothing of the lineage is in flight;
    - the lineage is not ambiguous;
    - the TTL is parseable (`5m`, `1h` or absent);
-   - `now − last > ttl + 60 s`.
+   - `now − last > ttl + MARGIN_S` (60 s, one named constant in `coldpoint.py`).
 
    The candidates come from `adapters.anthropic.cold_candidates`.
 3. **Apply every turn.** `compress_messages(evict=…)` renders each evicted id as
@@ -48,7 +53,17 @@ forwarding that stub on every later turn in the lineage.
    The stub is a pure function of the block's content, so it has the same bytes on every
    turn. The original is recorded through the existing `RestoreStore._record`, which writes
    to memory and to the disk restore store. `distil_expand` and the expand loop recover it
-   with no new store. The evicted set only grows.
+   with no new store. The evicted set only grows. On re-application the stub is still
+   reject-if-bigger (stub tokens < block tokens), a pure function of the block's text, so a
+   client that rewrote an old result into something short gets it back verbatim, stably.
+5. **Persist the set.** Whenever a lineage's set grows, `{lineage key: sorted ids}` is merged
+   into `$DISTIL_HOME/coldpoint.json` (LRU-capped at 512 lineages) under a file lock and
+   written mkstemp (0600 at creation) → fsync → `os.replace`. A first-seen lineage loads its
+   set and re-applies it — deciding nothing new — so a hot-swap (every upgrade), a restart or
+   an in-memory LRU drop forwards the same stubs instead of un-evicting a warm prefix. The
+   file is content-free: hashed keys and the provider's random `tool_use_id`s. Any read or
+   write error falls open to in-memory behaviour. Disk is touched only on a first-seen
+   lineage (one small read) and on a cold turn that evicted something (one write).
 4. **Recovery.** Eviction runs only where the expand tool is injected (`expand and not
    verbatim`), so a stub is always recoverable in the conversation. This is the same
    gate that already governs every Tier-1 stub.
@@ -67,7 +82,8 @@ forwarding that stub on every later turn in the lineage.
   Correctness beats one cache write;
 - any block containing an `old_string` that an Edit in the history already quotes;
 - learned-keep content (the outcome and expand keep predicates);
-- any handle the model has expanded in this process (`note_expanded`);
+- any handle the model has expanded in this process under the same account scope
+  (`note_expanded(scope, handle)`);
 - non-single-text results (images, multi-part), and anything under 128 tokens.
 
 ## The cache-safety argument
@@ -85,7 +101,7 @@ already lost, and it is then stable for the rest of the lineage.**
 - **Merging only makes distil evict less.** If two conversations share a lineage key,
   `last` is the later touch of the two, so the gap distil measures is never longer than
   either one's own gap.
-- **Ambiguity is detected and is permanent.** Each request has to extend the previous one:
+- **Ambiguity is detected and is permanent (for the history shapes it can see).** Each request has to extend the previous one:
   at least as many messages, and the previous last message canonically unchanged
   (`prefixreplay.canonical`, which ignores the moving `cache_control`). Parallel
   subagents that share a key, a fork, a rewind or a client that rewrites its history
@@ -94,6 +110,15 @@ already lost, and it is then stable for the rest of the lineage.**
   cleanly, and this is the conservative answer to that. An already-evicted set keeps
   being applied, because stability beats novelty. A fork that inherited un-evicted
   history pays at most one rewrite.
+- **What the extension test does NOT see: rewrites of OLDER messages.** It hashes only the
+  previous last message. A client that rewrites earlier history in place — Claude Code's
+  microcompact clearing old tool results, say — passes it. Consequence: the client has
+  already busted its own cache at that message (contract clause d), so distil's timing is
+  unaffected; an evicted id whose content the client replaced is re-rendered from the NEW
+  content (still recoverable, still reject-if-bigger, and stable from then on). Distil
+  never fills a cleared block back in, and never reads another conversation's timing from
+  it. The one blind spot is two conversations that differ only before their shared last
+  message, which no real client produces.
 - **Byte stability after the cold point.** The stubs are deterministic and the set is
   re-applied every turn. Prefix replay (ADR 0011) therefore sees the evicted form as
   canonically equal on the next turn and holds it. `tests/test_coldpoint.py::
@@ -108,11 +133,19 @@ already lost, and it is then stable for the rest of the lineage.**
 
 ### Known costs, accepted
 
-- **State loss un-evicts.** After a hot-swap, a restart or an LRU drop, the next turn
-  forwards the un-evicted form. That costs one rewrite if the stubbed prefix was still
-  warm, which is the same cost ADR 0011 accepts for replay. If `distil cache` shows this
-  happening in practice, the fix is to persist the id set per lineage. That set is
-  content-free.
+- **State loss no longer un-evicts** (the set is persisted, above). What is still lost on a
+  restart is the timing: a restarted lineage is first-seen and decides nothing new until
+  distil has observed a full TTL of its own.
+- **Exact-quote wins, and that un-evicts.** If an Edit later quotes a block that was
+  evicted, `exact_quote_tool_use_ids` now names it and the apply step sends it verbatim
+  again. That rewrites a prefix that may be warm: one cache write, accepted, because the
+  agent's edit applying is worth more than the read.
+- **Bearer-token callers of one proxy are not told apart.** Two different OAuth users of
+  one proxy sending the same conversation head share a lineage. Interleaved, they fail the
+  extension check and go ambiguous (no new eviction); the worst case is a missed saving or
+  one rewrite, never another caller's bytes — the state holds no content and every stub is
+  rendered from the request's own. Tenant isolation is the gateway's job, and the gateway
+  does not run this yet.
 - **A block evicted and later expanded stays evicted.** The model can expand it again.
   Taking it back would bust a warm prefix.
 - **Cache refreshes distil cannot see.** Another client, or another key in the same
@@ -162,10 +195,17 @@ already lost, and it is then stable for the rest of the lineage.**
 
 ## Rollout
 
-1. **rc soak (≥3 days)** on the maintainer's live traffic. Read `cold` from the session
-   ledger. If `ambiguous` dominates on a single-conversation workload, the extension test
-   is too strict for Claude Code's real history shape, and that must be understood before
-   GA.
+1. **rc soak (≥3 days)** on the maintainer's live traffic, with two explicit promotion
+   gates read from the session ledger:
+   - **Reason distribution.** Report the count of every `cold` reason (`first-seen`,
+     `warm`, `cold`, `ambiguous`, `inflight`, `unknown-ttl`, `held`) per session. If
+     `ambiguous` dominates on single-conversation sessions, the extension test is too strict
+     for Claude Code's real history shape; understand it before GA.
+   - **TTL exactness.** On every row with `cold == "cold"`, `usage_cache_read` must not
+     exceed the static prefix (`system_tokens + tools_tokens`, calibrated). A cold turn that
+     read history from cache means the entry was still alive — distil's clock and the
+     provider's disagree — and `MARGIN_S` must be raised before GA. Zero violations is the
+     gate.
 2. **Live A/B is the real gate.** It has not been run. Use two arms over the same idle-gap
    workload (≥5 min between turns), `--no-cold-point` against the default. Compare
    `distil cache` read/write totals and billed dollars, and count expand round trips per

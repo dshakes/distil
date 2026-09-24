@@ -972,6 +972,7 @@ def build_handler(
                 return  # _read_body already sent the error response
             headers = self._client_headers(identity=True)
             extras: dict[str, str] = {}
+            _cold_scope = _coldpoint.account_scope(headers) if _cold_on else ""
             # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
             # conversation, and the items as the CLIENT sent them this turn. Set by
             # whichever adapter branch runs; consumed once, just before serialization.
@@ -1119,13 +1120,17 @@ def build_handler(
                         from . import prefixreplay as _prep
                         from .adapters.anthropic import cold_candidates
 
-                        _ck = _prep.credential_scope(headers) + _prep.lineage_key(body, original)
+                        # Account scope, not the credential: an OAuth bearer refreshes
+                        # mid-session and must not fork the lineage (ADR 0014).
+                        _ck = _cold_scope + _prep.lineage_key(body, original)
                         _cold_plan = _coldpoint.plan(
                             _ck,
                             body,
                             original,
                             lambda: cold_candidates(
-                                original, keep=_learn_keep, exclude_handles=_coldpoint.expanded()
+                                original,
+                                keep=_learn_keep,
+                                exclude_handles=_coldpoint.expanded(_cold_scope),
                             ),
                         )
                         self._distil_cold_key = _ck
@@ -1365,7 +1370,9 @@ def build_handler(
                     _expand_misses.append(handle)
                     return
                 _expanded_handles.append(handle)
-                _coldpoint.note_expanded(handle)  # never evict what the model asked for
+                _coldpoint.note_expanded(
+                    _cold_scope, handle
+                )  # never evict what the model asked for
                 if _learn_stats is not None:  # learn the expanded signature
                     from .learn import signature
 

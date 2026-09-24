@@ -55,8 +55,14 @@ turn, so the smaller prefix is what gets cached for the rest of the session (ADR
   census gets a new `tool_result_evicted` bucket, which `dissect` labels. Handles are in
   the receipt (mode `digest`). `x-distil-cold` / `x-distil-cold-evicted` go on the
   response, and `cold` / `cold_evicted` go in the session ledger.
+- **The set survives a restart.** Evicted ids are persisted content-free to
+  `$DISTIL_HOME/coldpoint.json` (0600, atomic, LRU-capped, written only when a set grows),
+  so a hot-swap re-applies the same stubs instead of un-evicting a warm prefix. The lineage
+  is keyed on the static API key, not the OAuth bearer, so a token refresh does not fork it.
+  The idle clock counts system sleep (`CLOCK_MONOTONIC` on macOS, `CLOCK_BOOTTIME` on Linux).
 - **Not yet measured live.** The gate is an rc soak plus a live A/B on `distil cache`
-  read/write totals, and neither has been run.
+  read/write totals, and neither has been run. The ADR names two soak gates: the
+  distribution of `cold` reasons, and zero `cold` turns that still read history from cache.
 
 ### The freshest read the agent asked for came back as a pointer
 

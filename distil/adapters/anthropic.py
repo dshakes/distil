@@ -799,13 +799,21 @@ def _compress_content_item(
             # Cold-point eviction (ADR 0014): chosen on a turn the provider cache had
             # already expired, then re-applied identically on every later turn. Placed
             # AFTER the exact-quote check on purpose — if an Edit later comes to depend on
-            # this block, the exemption wins and the block goes back to verbatim.
+            # this block, the exemption wins and the block goes back to verbatim. That
+            # un-eviction rewrites a prefix that may still be warm: one cache write,
+            # accepted, because the agent's edit is worth more than the read.
+            #
+            # Reject-if-bigger holds here too: the set can outlive the content it was
+            # chosen for (a client that rewrites an old result in place), and a stub that
+            # is not smaller is never worth sending. Both sides are a pure function of the
+            # block's text, so the decision is the same on every turn — stable either way.
             text = _result_text(content)
             if text is not None:
                 h = _handle(text)
-                if store._record(h, text):
+                stub = evicted_stub(text, h)
+                if _tokenizer.count(stub) < _tokenizer.count(text) and store._record(h, text):
                     _census("tool_result_evicted", text)
-                    return _replace_result_text(item, evicted_stub(text, h))
+                    return _replace_result_text(item, stub)
 
         if isinstance(content, str):
             new_content = _compress_tool_result_text(content, store, verbatim, is_recent)

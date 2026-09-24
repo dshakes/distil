@@ -222,8 +222,9 @@ def test_state_is_bounded(clock, monkeypatch) -> None:
     assert len(coldpoint._STATES) == 4
     monkeypatch.setattr(coldpoint, "_MAX_EXPANDED", 2)
     for h in ("a", "b", "c"):
-        coldpoint.note_expanded(h)
-    assert coldpoint.expanded() == {"b", "c"}
+        coldpoint.note_expanded("acct\0", h)
+    assert coldpoint.expanded("acct\0") == {"b", "c"}
+    assert coldpoint.expanded("other\0") == frozenset(), "expansions leaked across scopes"
 
 
 # --------------------------------------------------------------------------- the adapter
@@ -516,3 +517,115 @@ def test_two_credentials_never_share_a_lineage(proxy, clock) -> None:
     )
     with urllib.request.urlopen(req, timeout=10) as r:
         assert r.headers["x-distil-cold"] == "first-seen"
+
+
+# --------------------------------------------------------------------------- review round
+
+
+def test_the_clock_counts_sleep() -> None:
+    import sys
+    import time
+
+    clk = coldpoint._pick_clock()
+    a = clk()
+    assert isinstance(a, float) and clk() >= a
+    if sys.platform == "darwin":
+        # time.monotonic is mach_absolute_time here, which stops while asleep.
+        assert getattr(clk, "args", None) == (time.CLOCK_MONOTONIC,)
+    elif hasattr(time, "CLOCK_BOOTTIME"):
+        assert getattr(clk, "args", None) == (time.CLOCK_BOOTTIME,)
+    # No sleep-counting clock on this platform → the plain monotonic one. Passed as an
+    # argument, never by patching the process-global sys.platform / time module.
+    if not hasattr(time, "CLOCK_BOOTTIME"):
+        assert coldpoint._pick_clock("sunos5") is time.monotonic
+
+
+def test_reapplying_never_inflates() -> None:
+    """A set can outlive the content it was chosen for; a stub is sent only if smaller."""
+    msgs = _conv(3)["messages"]
+    msgs[2]["content"][0]["content"] = "ok"
+    out, _ = compress_messages(msgs, evict=frozenset({"toolu_0"}))
+    assert out[2]["content"][0]["content"] == "ok"
+
+
+def test_the_evicted_set_survives_a_restart(proxy, clock) -> None:
+    """A hot-swap (every upgrade) must not un-evict a warm stubbed prefix."""
+    import os
+    import stat
+
+    port = proxy()
+    _post(port, _conv(3))
+    clock[0] += 3600
+    _, cold = _post(port, _conv(4))
+    assert "distil evicted" in json.dumps(cold)
+    path = coldpoint._persist_path()
+    assert path.exists()
+    if os.name == "posix":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert "run0" not in path.read_text(), "content reached the state file"
+
+    coldpoint.reset()  # the new worker: empty memory, same disk
+    prefixreplay.reset()
+    clock[0] += 30
+    h, warm = _post(port, _conv(5))
+    assert h["x-distil-cold"] == "first-seen"
+    drift = [i for i in range(len(cold)) if _wire(warm[i]) != _wire(cold[i])]
+    assert not drift, f"restart un-evicted the prefix at {drift}"
+
+
+def test_a_token_refresh_does_not_fork_the_lineage(proxy, clock) -> None:
+    """Claude Code's OAuth bearer refreshes mid-session; the lineage must not notice."""
+
+    def post(token: str, body: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]]:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/messages",
+            data=json.dumps(body).encode(),
+            headers={"content-type": "application/json", "authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+            hdrs = {k.lower(): v for k, v in r.headers.items()}
+        return hdrs, json.loads(_Upstream.seen[-1])["messages"]
+
+    port = proxy()
+    post("oauth-1", _conv(3))
+    clock[0] += 3600
+    _, cold = post("oauth-1", _conv(4))
+    clock[0] += 30
+    h, warm = post("oauth-2-refreshed", _conv(5))
+    assert h["x-distil-cold"] == "warm"
+    assert not [i for i in range(len(cold)) if _wire(warm[i]) != _wire(cold[i])]
+
+
+def test_persistence_is_bounded_and_fails_open(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setattr(coldpoint, "_MAX_PERSISTED", 3)
+    for i in range(5):
+        coldpoint._persist(f"k{i}", frozenset({f"t{i}"}))
+    coldpoint._persist("k2", frozenset({"u"}))  # merges, and refreshes its LRU slot
+    data = coldpoint._read_persisted(coldpoint._persist_path())
+    assert list(data) == ["k3", "k4", "k2"] and data["k2"] == {"t2", "u"}
+
+    coldpoint._persist_path().write_text("{not json")
+    assert coldpoint._load("k2") == frozenset()
+    coldpoint._persist_path().write_text('{"lineages": {"k": ["a", 3], "bad": 1}}')
+    assert coldpoint._load("k") == {"a"}
+
+    # An unwritable home costs the optimisation, never the request.
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "file-not-dir"))
+    (tmp_path / "file-not-dir").write_text("x")
+    coldpoint._persist("k", frozenset({"a"}))
+    assert coldpoint._load("k") == frozenset()
+
+
+def test_a_persisted_set_is_reapplied_but_nothing_new_is_decided(clock) -> None:
+    coldpoint._persist("k", frozenset({"old"}))
+    p = _plan("k", _conv(3), frozenset({"new"}))
+    assert (p.reason, p.evict) == ("first-seen", frozenset({"old"}))
+
+
+def test_account_scope_ignores_the_bearer_token() -> None:
+    assert coldpoint.account_scope({"Authorization": "Bearer a"}) == ""
+    assert coldpoint.account_scope({"Authorization": "Bearer b"}) == ""
+    one = coldpoint.account_scope({"x-api-key": "k1"})
+    assert one and one != coldpoint.account_scope({"x-api-key": "k2"})
