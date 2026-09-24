@@ -251,19 +251,35 @@ def head_hash() -> str:
     return GENESIS
 
 
-def _parse(raw: bytes) -> Receipt | None:
-    """One line into a receipt, or ``None`` if it is not one. Never raises."""
+def _classify(raw: bytes) -> tuple[Receipt | None, str]:
+    """One line into ``(receipt, kind)``. Never raises. ``kind`` is:
+
+    * ``"blank"`` — nothing there.
+    * ``"receipt"`` — a valid receipt.
+    * ``"foreign"`` — not a JSON object at all: a torn write (a crash or full disk cuts a
+      line short, and a truncated object never parses), or text that is not ours.
+    * ``"invalid"`` — a JSON object that is not a valid receipt. No torn write produces
+      this, and distil's writer always writes every field with its type, so it means the
+      line was edited. Verification treats it as a break, not as noise to skip.
+    """
     line = raw.strip()
     if not line:
-        return None
+        return None, "blank"
     try:
         d = json.loads(line)
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
-        return None
+        return None, "foreign"
+    if not isinstance(d, dict):
+        return None, "foreign"
     try:
-        return _receipt_from_dict(d)
+        return _receipt_from_dict(d), "receipt"
     except ValueError:
-        return None
+        return None, "invalid"
+
+
+def _parse(raw: bytes) -> Receipt | None:
+    """One line into a receipt, or ``None`` if it is not one. Never raises."""
+    return _classify(raw)[0]
 
 
 _STR_FIELDS = ("request_id", "session", "model", "mode", "certificate", "prev", "hash")
@@ -353,11 +369,23 @@ class Verdict:
     #: chain was checked; a higher number means the prefix was taken from this machine's
     #: own checkpoint (see :func:`verify`).
     checked_from: int = 0
+    #: Non-blank lines that are not receipts at all (a torn write, foreign text). Skipped,
+    #: never chained — and always named in :attr:`statement`, so a chain with holes in its
+    #: file never reads as a clean VERIFIED.
+    skipped: int = 0
 
     @property
     def statement(self) -> str:
-        if self.total == 0:
+        if self.total == 0 and not self.skipped:
             return "No receipts recorded."
+        if self.ok and self.skipped:
+            lines = "line is" if self.skipped == 1 else "lines are"
+            return (
+                f"VERIFIED WITH GAPS — {self.total} receipts, hash chain intact, but "
+                f"{self.skipped} {lines} not a receipt and were skipped (a torn write, or "
+                "text that is not ours). A torn trailing write is expected after a crash; "
+                "anything else is worth a look."
+            )
         if self.ok:
             scope = (
                 f"VERIFIED — {self.total} receipts, hash chain intact."
@@ -379,8 +407,9 @@ def _checkpoint_path() -> Path:
     return _home() / "receipts-verified.json"
 
 
-def _load_checkpoint() -> tuple[int, str, int, int, int] | None:
-    """``(count, head_hash, file_index, tail_start, tail_end)`` from the last good full pass.
+def _load_checkpoint() -> tuple[int, str, int, int, int, int] | None:
+    """``(count, head_hash, file_index, tail_start, tail_end, skipped)`` from the last good
+    pass. ``skipped`` counts the non-receipt lines before ``tail_end``.
 
     ``file_index`` is the position in :func:`_chain_files` of the file holding that last
     receipt. A seal renames the active file into the next segment without touching a byte,
@@ -398,13 +427,14 @@ def _load_checkpoint() -> tuple[int, str, int, int, int] | None:
             int(raw.get("file", 0)),
             int(raw["tail_start"]),
             int(raw["tail_end"]),
+            int(raw.get("skipped", 0)),
         )
     except (OSError, ValueError, TypeError, KeyError):
         return None
 
 
 def _save_checkpoint(
-    count: int, head: str, file_index: int, tail_start: int, tail_end: int
+    count: int, head: str, file_index: int, tail_start: int, tail_end: int, skipped: int = 0
 ) -> None:
     """Persist the resume point. Best-effort: losing it costs a full re-scan, nothing more."""
     from . import _filelock
@@ -416,6 +446,7 @@ def _save_checkpoint(
         "file": file_index,
         "tail_start": tail_start,
         "tail_end": tail_end,
+        "skipped": skipped,
     }
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -522,6 +553,9 @@ def verify_inclusion(index: int, size: int, leaf: bytes, path: list[bytes], root
 # ---------------------------------------------------------------------------
 
 
+CHECKPOINT_SCHEMA = 1
+
+
 @dataclass(frozen=True)
 class Checkpoint:
     """What a seal commits to. Small enough to publish anywhere; enough to verify one
@@ -564,6 +598,8 @@ class Checkpoint:
             raise ValueError("checkpoint segment/rows must be integers")
         if not all(isinstance(x, str) for x in (ck.first, ck.last, ck.root)):
             raise ValueError("checkpoint first/last/root must be strings")
+        if isinstance(ck.v, bool) or not isinstance(ck.v, int) or ck.v != CHECKPOINT_SCHEMA:
+            raise ValueError(f"checkpoint v must be the integer {CHECKPOINT_SCHEMA}")
         return ck
 
 
@@ -582,6 +618,8 @@ def _segment_mismatch(
     """Why a segment's contents disagree with its checkpoint, or ``""``."""
     if ck is None:
         return f"sealed segment {seg} has no readable checkpoint"
+    if isinstance(ck.v, bool) or ck.v != CHECKPOINT_SCHEMA:
+        return f"segment {seg}'s checkpoint has schema v={ck.v!r}, not {CHECKPOINT_SCHEMA}"
     if ck.segment != seg:
         return f"segment {seg}'s checkpoint names segment {ck.segment}"
     if ck.rows != len(leaves):
@@ -655,6 +693,9 @@ def _maybe_rotate(active: Path) -> None:
     ponytail: per-process backoff, fixed interval. Each proxy process retries at most once
     a minute; the active file just grows past the threshold meanwhile, which costs nothing
     but a larger segment. Make it exponential if a seal ever fails for days at a time.
+    Also module-level, not per ``DISTIL_HOME``: a failure under one home delays seals
+    under another in the same process by up to a minute, which only tests do; key it by
+    home if a process ever serves several.
     """
     global _seal_retry_at
     if SEGMENT_BYTES <= 0 or time.monotonic() < _seal_retry_at:
@@ -684,6 +725,7 @@ def _scan(
     tail_end: int,
     *,
     save: bool,
+    skipped: int = 0,
 ) -> Verdict:
     """Stream the chain from byte ``tail_end`` of ``files[file_index]`` onward, chaining
     from ``prev``, with ``count`` receipts behind us.
@@ -704,13 +746,25 @@ def _scan(
     first_checked = count
     bad: tuple[int, str] | None = None
     last_file = file_index
+    # Non-receipt lines up to the resume point. Lines after it are re-read (and so
+    # re-counted) by every pass until a receipt moves the resume point past them.
+    skipped_at_tail = skipped
     for fi in range(file_index, len(files)):
         seg, p = files[fi]
         start = tail_end if fi == file_index else 0
         leaves: list[bytes] | None = [] if seg is not None and start == 0 else None
         seg_first_idx, seg_first, seg_last = count, "", ""
         for begin, end, raw in _lines(p, start):
-            r = _parse(raw)
+            r, kind = _classify(raw)
+            if kind == "foreign":
+                skipped += 1
+            if kind == "invalid":
+                # Receipt-shaped but not a receipt: an edit. It takes a receipt's index
+                # so "fails at receipt i of N" points at it.
+                idx, count = count, count + 1
+                if bad is None:
+                    bad = (idx, "a receipt-shaped line has fields that are not a valid receipt")
+                continue
             if r is None:
                 continue
             idx, count = count, count + 1
@@ -726,15 +780,16 @@ def _scan(
                 bad = (idx, "prev-hash does not match the preceding receipt")
             else:
                 prev, tail_start, tail_end, last_file = r.hash, begin, end, fi
+                skipped_at_tail = skipped
         if bad is None and leaves is not None and seg is not None:
             why = _segment_mismatch(load_segment_checkpoint(seg), seg, leaves, seg_first, seg_last)
             if why:
                 bad = (seg_first_idx, why)
     if bad is not None:
-        return Verdict(count, False, bad[0], bad[1], first_checked)
+        return Verdict(count, False, bad[0], bad[1], first_checked, skipped)
     if count and save:
-        _save_checkpoint(count, prev, last_file, tail_start, tail_end)
-    return Verdict(count, True, checked_from=first_checked)
+        _save_checkpoint(count, prev, last_file, tail_start, tail_end, skipped_at_tail)
+    return Verdict(count, True, checked_from=first_checked, skipped=skipped)
 
 
 def verify(path: Path | None = None, *, full: bool = True) -> Verdict:
@@ -790,7 +845,7 @@ def _verify_history(files: list[tuple[int | None, Path]], full: bool) -> Verdict
     if not full:
         ck = _load_checkpoint()
         if ck is not None:
-            count, head, fi, tail_start, tail_end = ck
+            count, head, fi, tail_start, tail_end, skipped = ck
             if 0 <= fi < len(files):
                 p = files[fi][1]
                 # The resume point is only usable if the receipt it names is still there,
@@ -805,7 +860,9 @@ def _verify_history(files: list[tuple[int | None, Path]], full: bool) -> Verdict
                     and last.compute_hash() == head
                     and tail_end >= tail_start
                 ):
-                    v = _scan(files, fi, count, head, tail_start, tail_end, save=True)
+                    v = _scan(
+                        files, fi, count, head, tail_start, tail_end, save=True, skipped=skipped
+                    )
                     if v.ok:
                         return v
     return _scan(files, 0, 0, GENESIS, 0, 0, save=True)
@@ -824,7 +881,17 @@ def verify_segment(seg_path: Path, checkpoint: Checkpoint | None) -> Verdict:
     bad: tuple[int, str] | None = None
     leaves: list[bytes] = []
     first = last = ""
-    for r in read(seg_path):
+    skipped = 0
+    for _b, _e, raw in _lines(seg_path):
+        r, kind = _classify(raw)
+        skipped += kind == "foreign"
+        if kind == "invalid":
+            idx, count = count, count + 1
+            if bad is None:
+                bad = (idx, "a receipt-shaped line has fields that are not a valid receipt")
+            continue
+        if r is None:
+            continue
         idx, count = count, count + 1
         if bad is not None:
             continue
@@ -842,8 +909,8 @@ def verify_segment(seg_path: Path, checkpoint: Checkpoint | None) -> Verdict:
         if why:
             bad = (0, why)
     if bad is not None:
-        return Verdict(count, False, bad[0], bad[1])
-    return Verdict(count, True)
+        return Verdict(count, False, bad[0], bad[1], skipped=skipped)
+    return Verdict(count, True, skipped=skipped)
 
 
 def prove(request_id: str) -> dict[str, Any] | None:

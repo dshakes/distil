@@ -830,6 +830,20 @@ length is also checked against the claimed tree size, and every receipt field in
 is type-checked, so a hostile bundle (`"handles": 5`) is a clean "malformed proof", not a
 traceback.
 
+The same type check now runs on every line of the chain, which forced a decision about
+lines that are not receipts. They are no longer silent. A JSON object that is not a valid
+receipt (`"handles": 5`, a string where a count belongs) is **BROKEN** at that line:
+no torn write produces a well-formed object, and distil's writer always writes every
+field with its type, so it can only be an edit — and it stays BROKEN after later receipts
+chain past it. A line that is not a JSON object at all (a torn trailing write after a
+crash, foreign text) keeps the existing contract, that it does not invalidate the real
+receipts around it, but the verdict now reads `VERIFIED WITH GAPS — … N lines are not a
+receipt and were skipped` instead of a clean `VERIFIED`, and the wrap exit line says so
+too. The resumed (`--fast`) pass carries that count in its resume point, so it reports
+the same number as the full pass. A checkpoint's schema field `v` is now validated as
+the integer 1; anything else is an unreadable checkpoint, and a checkpoint of another
+schema is a segment mismatch.
+
 Crash ordering is the design: checkpoint first, rename second. A crash between them leaves
 a checkpoint with no segment, which every reader ignores and the next seal overwrites, and
 the active file untouched; a crash after the rename leaves no active file, and

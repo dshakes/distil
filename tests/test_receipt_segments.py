@@ -615,3 +615,98 @@ def test_a_real_break_survives_the_retry(home, small_segments):
     _fill(12)
     R.segment_path(0).unlink()
     assert not R.verify().ok
+
+
+# ---------------------------------------------------------------------------
+# A line that is not a receipt is never silent
+# ---------------------------------------------------------------------------
+
+
+def _append_line(text: str) -> None:
+    with R.receipts_path().open("a", encoding="utf-8") as fh:
+        fh.write(text + "\n")
+
+
+def _type_invalid(i: int) -> str:
+    """A well-formed receipt whose `handles` has the wrong type: only an edit makes this."""
+    r = _mk(i).sealed()
+    from dataclasses import asdict
+
+    return json.dumps({**asdict(r), "handles": 5}, sort_keys=True)
+
+
+def test_type_invalid_last_line_is_broken_and_stays_broken(home):
+    _fill(4)
+    _append_line(_type_invalid(4))
+    v = R.verify()
+    assert not v.ok and v.first_bad_index == 4 and v.total == 5, v.statement
+    assert "not a valid receipt" in v.reason
+    _fill(1, start=5)  # the next append chains past it — the break must still be reported
+    v = R.verify()
+    assert not v.ok and v.first_bad_index == 4, v.statement
+    assert not R.verify(full=False).ok
+
+
+def test_type_invalid_mid_chain_line_is_broken(home):
+    _fill(2)
+    _append_line(_type_invalid(2))
+    _fill(2, start=3)
+    v = R.verify()
+    assert not v.ok and v.first_bad_index == 2 and v.total == 5, v.statement
+
+
+def test_torn_or_foreign_lines_are_counted_never_clean(home):
+    _fill(3)
+    _append_line('{"ts": 1, "torn')
+    v = R.verify()
+    assert v.ok and v.skipped == 1, v.statement
+    assert v.statement.startswith("VERIFIED WITH GAPS — 3 receipts")
+    assert "1 line is not a receipt" in v.statement
+    _append_line("42")  # mid-file once the next receipt lands
+    _fill(1, start=3)
+    v = R.verify()
+    assert v.ok and v.skipped == 2 and "VERIFIED WITH GAPS" in v.statement, v.statement
+    # The resumed pass reports the same count: the ones before its resume point are
+    # carried in the checkpoint, not forgotten.
+    _fill(1, start=4)
+    v = R.verify(full=False)
+    assert v.ok and v.checked_from > 0 and v.skipped == 2, v.statement
+    from distil.proof_ledger import _receipts_line
+
+    assert "2 line(s) in the file are not receipts" in _receipts_line()
+
+
+def test_a_type_invalid_line_in_a_sealed_segment_breaks_that_segment(home, small_segments):
+    _fill(12)
+    with R.segment_path(0).open("a", encoding="utf-8") as fh:
+        fh.write(_type_invalid(99) + "\n")
+    v = R.verify_segment(R.segment_path(0), R.load_segment_checkpoint(0))
+    assert not v.ok and "not a valid receipt" in v.reason, v.statement
+    assert not R.verify().ok
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint schema version is validated, not trusted
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_v", [2, 0, True, 1.0, "1", None])
+def test_checkpoint_v_must_be_the_integer_one(bad_v):
+    d = {"segment": 0, "rows": 1, "first": "a", "last": "a", "root": "00" * 32, "v": bad_v}
+    with pytest.raises(ValueError, match="checkpoint v"):
+        R.Checkpoint.from_dict(d)
+    assert R.Checkpoint.from_dict({**d, "v": 1}).v == 1
+    assert R.Checkpoint.from_dict({k: x for k, x in d.items() if k != "v"}).v == 1
+
+
+def test_a_checkpoint_with_another_schema_is_a_segment_mismatch(home, small_segments):
+    _fill(8)
+    ck = R.load_segment_checkpoint(0)
+    from dataclasses import replace
+
+    v = R.verify_segment(R.segment_path(0), replace(ck, v=2))
+    assert not v.ok and "schema" in v.reason, v.statement
+    path = R.segment_checkpoint_path(0)
+    path.write_text(json.dumps({**json.loads(path.read_text()), "v": 2}))
+    v = R.verify()
+    assert not v.ok and "no readable checkpoint" in v.reason, v.statement
