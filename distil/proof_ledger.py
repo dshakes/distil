@@ -154,17 +154,31 @@ def _live_ledger():  # type: ignore[no-untyped-def]  # -> ShadowLedger (lazy imp
     return ShadowLedger.load(current_only=True)
 
 
-def _drift_line(diffs: list[int]) -> str:
+def _drift_line(diffs: list[int], bound: float | None = None) -> str:
     """Anytime-valid budget alarm — is the certified decision-change budget still intact?
 
     The certificate (``distil conformal``) is a one-shot statement about a calibration
     corpus. This is the same claim, checked after every sample, with no multiplicity
     penalty: a betting e-process whose capital crossing ``1/delta`` means the live risk
     has exceeded the budget (Ville). See :func:`distil.drift.paired_loss` for the loss.
+    It is handed the same bound the risk line prints, so it cannot say "intact" beside
+    a bound above the budget, and it says plainly when the guard is holding compression.
     """
-    from .drift import live_monitor
+    from .drift import live_monitor, read_trip
 
-    return live_monitor(diffs).line() or ""
+    return "decision-change budget: " + live_monitor(diffs).line(bound, read_trip())
+
+
+def _bound(diffs: list[int]) -> float | None:
+    """The (1−δ) upper bound on the live decision-change rate, or None below the floor."""
+    from . import conformal
+    from .drift import paired_loss
+    from .shadow import VERDICT_MIN_AB
+
+    if len(diffs) < VERDICT_MIN_AB:
+        return None
+    b = 2.0 * conformal.tight_risk_bound([paired_loss(d) for d in diffs], conformal.BUDGET_DELTA)
+    return max(0.0, b - 1.0)
 
 
 def _output_line(led) -> str:  # type: ignore[no-untyped-def]
@@ -191,7 +205,7 @@ def _output_line(led) -> str:  # type: ignore[no-untyped-def]
     )
 
 
-def _risk_line(diffs: list[int]) -> str:
+def _risk_line(diffs: list[int], bound: float | None = None) -> str:
     """Distribution-free (1−delta) upper bound on the live decision-change rate.
 
     ``tight_risk_bound`` on the same affine-mapped paired losses the drift monitor bets
@@ -199,16 +213,21 @@ def _risk_line(diffs: list[int]) -> str:
     than the bootstrap interval next to it on purpose — this one assumes no distribution
     and holds at finite n, which the percentile bootstrap does not.
     """
-    from .conformal import tight_risk_bound
-    from .drift import BUDGET_DELTA, paired_loss
+    from . import conformal
     from .shadow import VERDICT_MIN_AB
 
     n = len(diffs)
     if n < VERDICT_MIN_AB:
         return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
-    bound = 2.0 * tight_risk_bound([paired_loss(d) for d in diffs], BUDGET_DELTA) - 1.0
-    conf = round((1.0 - BUDGET_DELTA) * 100)
-    return f"decision-change risk ≤ {max(0.0, bound) * 100:.1f}% ({conf}% conformal bound, n={n})"
+    if bound is None:
+        bound = _bound(diffs)
+        assert bound is not None  # n is above the floor
+    conf = round((1.0 - conformal.BUDGET_DELTA) * 100)
+    side = "within" if conformal.within_budget(bound) else "ABOVE"
+    return (
+        f"decision-change risk ≤ {bound * 100:.1f}% ({conf}% conformal bound, n={n}) — "
+        f"{side} the {conformal.budget_pct()} budget"
+    )
 
 
 def _receipts_line() -> str:
@@ -247,11 +266,16 @@ def proof_lines(led=None) -> list[tuple[str, str]]:  # type: ignore[no-untyped-d
     if led is None:
         led = _live_ledger()
     diffs = list(led.paired_diffs)
+    # One bound, quoted by both the budget and the risk line — they must not disagree.
+    try:
+        bound = _bound(diffs)
+    except Exception:  # noqa: BLE001 — no bound costs the two lines' numbers, not the block
+        bound = None
     return [
         (label, text)
         for label, text in (
-            ("budget", _guarded(lambda: f"certified decision-change budget: {_drift_line(diffs)}")),
-            ("risk", _guarded(lambda: _risk_line(diffs))),
+            ("budget", _guarded(lambda: _drift_line(diffs, bound))),
+            ("risk", _guarded(lambda: _risk_line(diffs, bound))),
             ("output", _guarded(lambda: _output_line(led))),
             ("receipts", _guarded(_receipts_line)),
         )

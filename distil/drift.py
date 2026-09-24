@@ -13,8 +13,11 @@ capital ``K_t = ∏ (1 + λ_i (X_i − α))`` (predictable stakes ``λ_i``, the 
 supermartingale with ``K_0 = 1``, so by Ville's inequality ``P(∃t: K_t ≥ 1/δ) ≤ δ`` — the
 false-alarm probability is at most ``δ`` *no matter how often you peek*. When capital crosses
 ``1/δ`` the monitor trips: the live risk has exceeded the budget with confidence ``1−δ``, and
-the operating point should be recalibrated (:func:`distil.calibrate.calibrate_operating_point`)
-or the gate should fall back to full context.
+the operating point should be recalibrated (:func:`distil.calibrate.calibrate_operating_point`).
+
+The trip acts: :class:`DriftGuard` holds the proxy at lossless-only from the next request,
+persists that across restarts, and writes a receipt — see "The guard" below. The budget
+itself lives in :mod:`distil.conformal` (``BUDGET_ALPHA``), shared with the certificate.
 """
 
 from __future__ import annotations
@@ -22,8 +25,14 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+import os
+import threading
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from . import conformal as _budget
 
 
 @dataclass
@@ -93,16 +102,14 @@ class DriftMonitor:
 # Live wiring — the same e-process, fed by shadow mode's paired rows
 # --------------------------------------------------------------------------- #
 
-#: The decision-change budget every certificate in this codebase is written against
-#: — the ``--alpha`` default of ``distil conformal`` / ``certify`` /
-#: ``certify-trajectories``, and the "≤5% at 95% confidence" the site publishes.
-#: Named here so the live alarm and the offline certificate cannot drift apart;
-#: ``tests/test_drift_live.py`` pins it to those CLI defaults.
-BUDGET_ALPHA = 0.05
+# The budget this alarm bets against is NOT defined here: it is
+# ``conformal.BUDGET_ALPHA`` / ``BUDGET_DELTA``, the one pair every certificate and
+# verdict reads, looked up at call time so the alarm cannot drift from the certificate.
 
-#: Failure probability of the alarm (Ville): at most this often under the null,
-#: no matter how many times it is checked. Matches ``--delta``'s default.
-BUDGET_DELTA = 0.05
+
+def _null_mean() -> float:
+    """The shifted budget the monitor runs at — see :func:`paired_loss` for why."""
+    return (1.0 + _budget.BUDGET_ALPHA) / 2.0
 
 
 def paired_loss(diff: int) -> float:
@@ -126,11 +133,12 @@ def paired_loss(diff: int) -> float:
     return (1.0 - float(diff)) / 2.0
 
 
-def _state_path() -> Path:
-    import os
+def _home() -> Path:
+    return Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil")))
 
-    home = Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil")))
-    return home / "drift.json"
+
+def _state_path() -> Path:
+    return _home() / "drift.json"
 
 
 _FIELDS = ("alpha", "delta", "capital", "n", "tripped", "_run_sum", "_run_sq", "_sig2_prev")
@@ -182,9 +190,9 @@ class LiveDrift:
     written before this provenance existed has no fingerprint to check and rebuilds once,
     for the same reason.
 
-    A caller who can replace ``shadow.jsonl`` at will can therefore clear a breach. That
-    is the same capability ``distil reset --shadow`` already exposes deliberately; the
-    alarm is an instrument for the operator, not a control on them.
+    A caller who can replace ``shadow.jsonl`` at will can therefore clear this *verdict*.
+    It cannot clear the guard: a trip is recorded separately (:func:`arm`) and holds the
+    proxy at lossless-only until ``distil reset --shadow``, the deliberate reset.
     """
 
     monitor: DriftMonitor
@@ -197,7 +205,7 @@ class LiveDrift:
     @classmethod
     def load(cls, path: Path | None = None) -> LiveDrift:
         p = path or _state_path()
-        mon = DriftMonitor(alpha=(1.0 + BUDGET_ALPHA) / 2.0, delta=BUDGET_DELTA)
+        mon = DriftMonitor(alpha=_null_mean(), delta=_budget.BUDGET_DELTA)
         try:
             raw = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
@@ -295,32 +303,233 @@ class LiveDrift:
         self.stream = _chain(self.stream, fresh, SIG_VERSION)
         return self
 
-    def line(self) -> str | None:
-        """One sentence, or None below the shared reporting floor.
+    def line(self, bound: float | None = None, trip: dict[str, Any] | None = None) -> str:
+        """One sentence. ``bound`` is the (1−δ) risk bound printed beside it; ``trip``
+        the persisted guard record (:func:`read_trip`), if any.
 
         Same floor discipline as every other surface: an e-value off a handful of
         samples is a number wearing a verdict, so below it we say how far along we are
-        and claim nothing.
+        and claim nothing — except that compression is being held, which is a fact
+        about the proxy rather than a statistic.
+
+        "intact" is only printed when the bound beside it is inside the budget. The
+        e-process not having tripped means "no breach proven", which is a weaker claim
+        than "within budget"; printing "intact" next to a bound above the budget was
+        the one place two surfaces read off one ledger contradicted each other.
         """
         from .shadow import VERDICT_MIN_AB
 
         m = self.monitor
+        held = _held_note(trip)
         if self.consumed < VERDICT_MIN_AB:
-            return f"not enough samples yet ({self.consumed}/{VERDICT_MIN_AB})"
+            return f"not enough samples yet ({self.consumed}/{VERDICT_MIN_AB}){held}"
         # A rebuild makes n drop and can clear a breach. Saying so is the difference
         # between a verdict that explains itself and one that quietly went away.
         note = " — restarted: the shadow stream was replaced" if self.rebuilt else ""
+        stat = f"e-value {m.evalue:.2f}, n={self.consumed}"
         if m.tripped:
             return (
                 f"BREACHED at sample {self.tripped_at} "
-                f"(e-value {m.evalue:.1f} ≥ {1.0 / m.delta:.0f}, n={self.consumed}) — "
-                f"recalibrate: distil calibrate{note}"
+                f"(e-value {m.evalue:.1f} ≥ {1.0 / m.delta:.0f}, n={self.consumed})"
+                f"{held or ' — recalibrate: distil calibrate'}{note}"
             )
-        return f"intact (e-value {m.evalue:.2f}, n={self.consumed}){note}"
+        if trip is not None:
+            # The guard's trip outlives a rebuilt stream on purpose: only
+            # `distil reset --shadow` clears it. Say both halves.
+            return f"BREACHED earlier{_when(trip)} — current stream: {stat}{held}{note}"
+        if bound is not None and not _budget.within_budget(bound):
+            return (
+                f"unproven ({stat}) — no breach detected, but the bound is above the "
+                f"{_budget.budget_pct()} budget{note}"
+            )
+        within = "" if bound is None else f" — bound within the {_budget.budget_pct()} budget"
+        return f"intact ({stat}){within}{note}"
 
 
 def live_monitor(diffs: list[int], *, path: Path | None = None) -> LiveDrift:
-    """Load the persisted monitor, fold in the new paired rows, persist, return it."""
+    """Load the persisted monitor, fold in the new paired rows, persist, return it.
+
+    A breach found here — at wrap exit, in ``distil stats`` — arms the guard, so the
+    next proxy start serves lossless-only even if no proxy saw the trip live.
+    """
     state = LiveDrift.load(path).advance(diffs)
     state.save(path)
+    if state.monitor.tripped:
+        arm(state.monitor.evalue, state.consumed, source="ledger")
     return state
+
+
+# --------------------------------------------------------------------------- #
+# The guard — a breach that acts
+# --------------------------------------------------------------------------- #
+#
+# Scope is GLOBAL (one trip file under DISTIL_HOME), not per-session. The e-process and
+# the budget are already global — drift.json accumulates across every session, and the
+# breach is a statement about this machine's operating point, not about one wrap. A
+# per-session hold would let the very next `distil wrap` resume lossy compression right
+# after a certified breach, which is the silent resume this exists to prevent. Cleared
+# only by `distil reset --shadow` (which also archives the evidence), after recalibrating.
+
+#: Opt-out, same shape as DISTIL_NO_LEDGER: the alarm still trips and still prints,
+#: but the proxy keeps compressing.
+GUARD_OPT_OUT = "DISTIL_NO_DRIFT_GUARD"
+
+
+def _trip_path() -> Path:
+    return _home() / "drift-trip.json"
+
+
+def guard_disabled() -> bool:
+    return os.environ.get(GUARD_OPT_OUT) == "1"
+
+
+def read_trip() -> dict[str, Any] | None:
+    """The persisted trip record, or None when the guard is not tripped.
+
+    A trip file that exists but cannot be parsed still counts as tripped: holding
+    lossless-only costs savings, never a request, and a torn write must not be the
+    thing that silently resumes lossy compression.
+    """
+    p = _trip_path()
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return {"unreadable": True}
+    return raw if isinstance(raw, dict) else {"unreadable": True}
+
+
+def _when(trip: dict[str, Any]) -> str:
+    ts = trip.get("ts")
+    if not isinstance(ts, (int, float)):
+        return ""
+    return f" ({time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))})"
+
+
+def _held_note(trip: dict[str, Any] | None) -> str:
+    if trip is None:
+        return ""
+    if guard_disabled():
+        return f" — guard off ({GUARD_OPT_OUT}=1): compression was NOT held"
+    return (
+        " — compression held at lossless-only; recalibrate (distil calibrate), "
+        "then distil reset --shadow to resume"
+    )
+
+
+def arm(evalue: float, n: int, *, source: str) -> dict[str, Any] | None:
+    """Record a trip: the state file the guard reads, plus one receipt on the chain.
+
+    Idempotent — an existing trip is returned untouched, so the first trip's time and
+    e-value are the ones on record. Best-effort like every store here (an ``OSError``
+    returns None; the caller holds in memory regardless). Content-free: counts, the
+    budget, a timestamp.
+    """
+    existing = read_trip()
+    if existing is not None:
+        return existing
+    rec: dict[str, Any] = {
+        "ts": time.time(),
+        "evalue": round(float(evalue), 4),
+        "n": int(n),
+        "budget": _budget.BUDGET_ALPHA,
+        "delta": _budget.BUDGET_DELTA,
+        "source": source,
+    }
+    p = _trip_path()
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        from . import _filelock, atrest
+
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with _filelock.locked(p):
+            with open(tmp, "w", encoding="utf-8", opener=atrest.owner_only) as fh:
+                fh.write(json.dumps(rec))
+            _filelock.replace_retrying(tmp, p)
+    except OSError:
+        return None
+    _trip_receipt(rec)
+    return rec
+
+
+def _trip_receipt(rec: dict[str, Any]) -> None:
+    """One hash-chained receipt naming the trip, so the moment compression was held is
+    in the same third-party-verifiable artifact as every request it affected."""
+    try:
+        from . import receipts
+
+        receipts.append(
+            receipts.Receipt(
+                ts=float(rec["ts"]),
+                request_id=hashlib.sha256(f"drift-trip:{rec['ts']}".encode()).hexdigest()[:16],
+                session=str(os.environ.get("DISTIL_SESSION") or ""),
+                model="-",
+                mode="drift-trip",
+                tokens_original=0,
+                tokens_compressed=0,
+                reversible=True,
+                certificate=(
+                    f"drift e-value {rec['evalue']} >= {1.0 / rec['delta']:.0f} at n={rec['n']}; "
+                    f"budget {rec['budget']}; lossless-only from here"
+                ),
+            )
+        )
+    except Exception:  # noqa: BLE001 — the receipt is a record of the trip, not the trip
+        pass
+
+
+@dataclass
+class DriftGuard:
+    """The proxy's in-memory view of the alarm. One attribute read per request.
+
+    Seeded once at proxy start from ``drift.json`` (the e-process every exit summary
+    folds) and the trip file; then fed each paired shadow verdict as it lands, in the
+    shadow thread, never on the request path. Folding this proxy's own verdicts in
+    arrival order onto the persisted prefix is a valid e-process: which rows reach
+    which proxy does not depend on their outcome. Nothing here scans a file after start.
+    """
+
+    monitor: DriftMonitor
+    trip: dict[str, Any] | None = None
+    disabled: bool = False
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    @classmethod
+    def start(cls) -> DriftGuard:
+        """Never raises: a guard that cannot load starts fresh and un-tripped."""
+        try:
+            mon = LiveDrift.load().monitor
+            g = cls(mon, read_trip(), guard_disabled())
+            if mon.tripped and g.trip is None:  # breach persisted before the guard existed
+                g.trip = arm(mon.evalue, mon.n, source="state") or {"ts": time.time()}
+            return g
+        except Exception:  # noqa: BLE001 — the alarm must never stop the proxy starting
+            return cls(DriftMonitor(alpha=_null_mean(), delta=_budget.BUDGET_DELTA))
+
+    @property
+    def engaged(self) -> bool:
+        """Serve lossless-only? The hot-path check — no I/O, no lock."""
+        return self.trip is not None and not self.disabled
+
+    def observe(self, diff: int) -> None:
+        """Fold one paired shadow difference; trip and persist on the 0→1 edge.
+
+        Fail-open: an exception here is logged at debug and swallowed. The request this
+        verdict came from was served long ago; the alarm must never be why the next one
+        is not.
+        """
+        try:
+            with self._lock:
+                if self.trip is not None:
+                    return
+                if self.monitor.update(paired_loss(diff)):
+                    # Hold in memory even if the write fails — this session is held
+                    # either way; only the restart persistence is best-effort.
+                    self.trip = arm(self.monitor.evalue, self.monitor.n, source="proxy") or {
+                        "ts": time.time()
+                    }
+        except Exception:  # noqa: BLE001 — the alarm must never break the proxy
+            import logging
+
+            logging.getLogger(__name__).debug("drift guard observe failed", exc_info=True)

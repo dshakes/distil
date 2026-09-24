@@ -13,9 +13,8 @@ import math
 import random
 import statistics
 
+from distil.conformal import BUDGET_ALPHA, BUDGET_DELTA
 from distil.drift import (
-    BUDGET_ALPHA,
-    BUDGET_DELTA,
     DriftMonitor,
     LiveDrift,
     live_monitor,
@@ -315,7 +314,7 @@ def test_a_corrupt_but_well_formed_state_file_starts_a_fresh_monitor(tmp_path):
     """`"consumed": "bad"` is valid JSON and an invalid state; load() must not raise."""
     import json
 
-    from distil.drift import BUDGET_ALPHA, BUDGET_DELTA, LiveDrift
+    from distil.drift import LiveDrift
 
     p = tmp_path / "drift.json"
     p.write_text(

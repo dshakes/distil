@@ -760,12 +760,12 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
     cost     $0.42 → $0.31        calibrated to your billed usage (n=58, ±2.1%)
     shadow   0 decision changes    (n=12 A/B, 8 A/A — below verdict threshold, gathering)
     restore  100% recoverable    (3 digests, all handles live, TTL 14d)
-    budget   certified decision-change budget: not enough samples yet (12/50)
+    budget   decision-change budget: not enough samples yet (12/50)
     risk     not enough samples yet (12/50)
     output   not enough samples yet (12/50)
     receipts 87 receipts, chain intact — 3 re-checked since this machine's last pass; `distil receipts` re-hashes all</pre>
 
-    <p>The last four lines are the statistical verdicts — an anytime-valid alarm on the certified risk budget, a distribution-free upper bound on the live decision-change rate, compression's measured effect on reply length, and the receipt chain. Each can come back negative, and below the reporting floor each withholds its number rather than guessing. The same four print in <code>distil stats</code> and <code>distil dissect</code>, from one shared function. <a href="evals.html#exit-summary">What the exit summary proves</a> explains each one and the method behind it.</p>
+    <p>The last four lines are the statistical verdicts — an anytime-valid alarm on the certified risk budget (which, once tripped, holds the proxy at lossless-only until <code>distil reset --shadow</code>; opt out with <code>DISTIL_NO_DRIFT_GUARD=1</code>), a distribution-free upper bound on the live decision-change rate, compression's measured effect on reply length, and the receipt chain. Each can come back negative, and below the reporting floor each withholds its number rather than guessing. The same four print in <code>distil stats</code> and <code>distil dissect</code>, from one shared function. <a href="evals.html#exit-summary">What the exit summary proves</a> explains each one and the method behind it.</p>
 
     <p>All numbers come from the same on-disk sources as the leaderboard — no new estimators. The <strong>shadow line</strong> respects the verdict-threshold gates (<code>VERDICT_MIN_AB=50</code>, <code>VERDICT_MIN_AA=30</code>): below threshold it shows sample counts with a "gathering" label rather than claiming equivalence over thin evidence. The <strong>cost line</strong> shows "calibrated to your billed usage (n=N, ±X%)" once enough proxy traffic has accumulated to correct the heuristic; "estimated · calibrating (N/20 samples)" until then. The <strong>restore line</strong> checks that every handle written this session is still live (not expired past <code>DISTIL_RESTORE_TTL_DAYS</code>).</p>
 

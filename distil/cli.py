@@ -197,12 +197,19 @@ def cmd_reset(args: argparse.Namespace) -> int:
         # The drift e-process is derived from those rows and its trip is sticky, so a
         # breach would outlive the evidence it was computed from. This is the
         # documented reset for the alarm.
-        from .drift import _state_path
+        from .drift import _state_path, _trip_path
 
         dr = _state_path()
         if dr.exists():
             dr.rename(dr.with_name(dr.name + f".reset-{stamp}"))
             print("drift monitor archived and reset — the budget alarm starts over")
+            reset_any = True
+        # The guard's trip is the one thing that holds compression at lossless-only.
+        # Archived, not deleted: the trip is evidence too (its receipt stays on the chain).
+        tr = _trip_path()
+        if tr.exists():
+            tr.rename(tr.with_name(tr.name + f".reset-{stamp}"))
+            print("drift guard released — lossy compression resumes on the next proxy start")
             reset_any = True
     if not reset_any:
         print("nothing to reset — no ledger recorded yet.")
@@ -4109,6 +4116,8 @@ research / CI internals:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from . import conformal as _budget  # the one risk budget; see conformal.BUDGET_ALPHA
+
     p = argparse.ArgumentParser(
         prog="distil",
         description="Compression with a quality contract.",
@@ -4227,7 +4236,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="archive the savings ledger and start fresh (non-destructive)",
     )
     rs.add_argument(
-        "--shadow", action="store_true", help="also archive/reset shadow decision-equivalence stats"
+        "--shadow",
+        action="store_true",
+        help="also archive/reset shadow decision-equivalence stats, the drift alarm, and its lossless-only hold",
     )
     rs.set_defaults(func=cmd_reset)
 
@@ -4247,13 +4258,13 @@ def build_parser() -> argparse.ArgumentParser:
     ce.add_argument(
         "--margin",
         type=float,
-        default=0.02,
+        default=_budget.CERT_MARGIN,
         help="TOST non-inferiority margin (max tolerated decision-change rate)",
     )
     ce.add_argument(
         "--alpha",
         type=float,
-        default=0.05,
+        default=_budget.BUDGET_DELTA,
         help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
     )
     ce.add_argument(
@@ -4295,13 +4306,13 @@ def build_parser() -> argparse.ArgumentParser:
     be.add_argument(
         "--margin",
         type=float,
-        default=0.02,
+        default=_budget.CERT_MARGIN,
         help="TOST non-inferiority margin (max tolerated decision-change rate)",
     )
     be.add_argument(
         "--alpha",
         type=float,
-        default=0.05,
+        default=_budget.BUDGET_DELTA,
         help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
     )
     be.add_argument(
@@ -4418,8 +4429,10 @@ def build_parser() -> argparse.ArgumentParser:
     bn.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
     bn.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
     bn.add_argument("--tokenizer", default="heuristic", choices=("heuristic", "anthropic"))
-    bn.add_argument("--margin", type=float, default=0.02, help="TOST non-inferiority margin")
-    bn.add_argument("--alpha", type=float, default=0.05, help="significance level")
+    bn.add_argument(
+        "--margin", type=float, default=_budget.CERT_MARGIN, help="TOST non-inferiority margin"
+    )
+    bn.add_argument("--alpha", type=float, default=_budget.BUDGET_DELTA, help="significance level")
     bn.add_argument(
         "--external",
         action="append",
@@ -4474,9 +4487,17 @@ def build_parser() -> argparse.ArgumentParser:
         "conformal",
         help="decision-equivalence risk certificate (distribution-free guarantee)",
     )
-    cf.add_argument("--alpha", type=float, default=0.05, help="max decision-change rate to certify")
     cf.add_argument(
-        "--delta", type=float, default=0.05, help="LTT failure probability (1−confidence)"
+        "--alpha",
+        type=float,
+        default=_budget.BUDGET_ALPHA,
+        help="max decision-change rate to certify",
+    )
+    cf.add_argument(
+        "--delta",
+        type=float,
+        default=_budget.BUDGET_DELTA,
+        help="LTT failure probability (1−confidence)",
     )
     cf.add_argument("--method", default="ltt", choices=("ltt", "crc"))
     cf.add_argument("--corpus", help="calibration corpus dir (e.g. your ingested traffic)")
@@ -4502,7 +4523,7 @@ def build_parser() -> argparse.ArgumentParser:
     cal.add_argument(
         "--margin",
         type=float,
-        default=0.05,
+        default=_budget.BUDGET_ALPHA,
         help="max tolerated task-success drop as a proportion (default 0.05 = 5 pp)",
     )
     cal.add_argument("--json", help="write the calibration certificate to this path")
@@ -5032,8 +5053,12 @@ def build_parser() -> argparse.ArgumentParser:
         "outcomes",
         help="JSONL of matched runs: {task_id, full_success, compressed_success} per line",
     )
-    ct.add_argument("--alpha", type=float, default=0.05, help="max degradation risk to certify")
-    ct.add_argument("--delta", type=float, default=0.05, help="confidence budget (1-δ)")
+    ct.add_argument(
+        "--alpha", type=float, default=_budget.BUDGET_ALPHA, help="max degradation risk to certify"
+    )
+    ct.add_argument(
+        "--delta", type=float, default=_budget.BUDGET_DELTA, help="confidence budget (1-δ)"
+    )
     ct.add_argument("--json", action="store_true", help="machine-readable output")
     ct.set_defaults(func=cmd_certify_trajectories)
 

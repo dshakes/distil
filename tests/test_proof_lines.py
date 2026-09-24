@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 
 from distil.conformal import tight_risk_bound
-from distil.drift import BUDGET_ALPHA, BUDGET_DELTA, paired_loss
+from distil.conformal import BUDGET_ALPHA, BUDGET_DELTA
+from distil.drift import paired_loss
 from distil.shadow import SIG_VERSION, VERDICT_MIN_AA, VERDICT_MIN_AB, bootstrap_ci
 
 ARTIFACT = Path(__file__).resolve().parent.parent / "benchmarks/results/shadow-live-2026-09-15.json"
@@ -170,12 +171,28 @@ def test_risk_line_reports_the_bound_it_computed(tmp_path, monkeypatch):
 
 def test_budget_line_flips_to_breached_on_sustained_harm(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    _write_paired(tmp_path, [0] * 60)
+    # Enough evidence for the bound to clear the budget: "intact" is earned, not assumed.
+    _write_paired(tmp_path, [0] * 200 + [1] * 20)
     from distil.proof_ledger import proof_lines
 
     assert "intact (e-value" in dict(proof_lines())["budget"]
     _write_paired(tmp_path, [-1] * 300)
-    assert "BREACHED at sample" in dict(proof_lines())["budget"]
+    line = dict(proof_lines())["budget"]
+    assert "BREACHED at sample" in line
+    assert "held at lossless-only" in line  # and it says the proxy acted on it
+
+
+def test_budget_line_never_says_intact_beside_a_bound_above_budget(tmp_path, monkeypatch):
+    """The regression this commit fixes: 60 neutral samples have not tripped the alarm,
+    but their bound is far above the budget — the old line printed "intact" next to it."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    _write_paired(tmp_path, [0] * 60)
+    from distil.proof_ledger import proof_lines
+
+    lines = dict(proof_lines())
+    assert "ABOVE the 5% budget" in lines["risk"]
+    assert "intact" not in lines["budget"]
+    assert "unproven" in lines["budget"]
 
 
 def test_budget_line_follows_a_truncated_shadow_file(tmp_path, monkeypatch):
@@ -192,8 +209,10 @@ def test_budget_line_follows_a_truncated_shadow_file(tmp_path, monkeypatch):
     _write_paired(tmp_path, [0] * 60)
     line = dict(proof_lines())["budget"]
     assert "n=60" in line
-    assert "BREACHED" not in line
+    assert "BREACHED at sample" not in line  # the e-process verdict follows the new stream
     assert "restarted: the shadow stream was replaced" in line
+    # ...but the guard's hold does not: hand-archiving the evidence is not the reset.
+    assert "BREACHED earlier" in line and "held at lossless-only" in line
 
 
 def test_output_line_names_a_direction_only_when_the_ci_excludes_zero(tmp_path, monkeypatch):

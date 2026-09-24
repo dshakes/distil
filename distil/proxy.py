@@ -741,6 +741,35 @@ def build_handler(
 
         _retention_meter = LiveMeter(retention_rate)
 
+    # Drift guard — the budget alarm that acts. When the anytime-valid e-process
+    # (distil.drift) proves live decision-change above the shared budget, every later
+    # request is served lossless-only (Tier-0, no digest, no output shaping), across
+    # restarts, until `distil reset --shadow`. Default ON; DISTIL_NO_DRIFT_GUARD=1 opts
+    # out. Cost on the request path is one attribute read: the guard is seeded here and
+    # fed by the shadow thread, never by a file scan. start() never raises.
+    from .drift import DriftGuard
+
+    _drift_guard = DriftGuard.start()
+
+    def _request_mode() -> tuple[bool, str]:
+        """(held, x-distil-mode) for one request. Fail-open: a broken guard means the
+        request is served exactly as configured, never refused."""
+        try:
+            held = bool(_drift_guard.engaged)
+        except Exception:  # noqa: BLE001 — the alarm must never break a request
+            held = False
+        return held, ("lossless-only" if held and not verbatim else _mode_label)
+
+    if _request_mode()[0] and not verbatim:
+        import sys as _sys
+
+        print(
+            "distil: drift alarm tripped — live decision-change exceeded the certified "
+            "budget, so this proxy serves lossless-only. Recalibrate (distil calibrate), "
+            "then `distil reset --shadow` to resume. Opt out: DISTIL_NO_DRIFT_GUARD=1.",
+            file=_sys.stderr,
+        )
+
     # First-POST latch for the session traffic marker: only the 0→1 transition
     # matters, so after one write the check is a single list lookup.
     _traffic_seen = [False]
@@ -946,6 +975,15 @@ def build_handler(
                 return  # _read_body already sent the error response
             headers = self._client_headers(identity=True)
             extras: dict[str, str] = {}
+            # The drift guard's hold, decided once per request: Tier-0 only (the same
+            # force lossless_only applies) and no output shaping. The expand tool stays
+            # injected, so stubs already in the history remain recoverable and the
+            # cached tools prefix does not change shape at the trip.
+            _held, _req_mode = _request_mode()
+            _verb = verbatim or _held
+            _shape_ok = _lossy_ok and not _held
+            if _held and savings is not None:
+                savings.mode = _req_mode
             # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
             # conversation, and the items as the CLIENT sent them this turn. Set by
             # whichever adapter branch runs; consumed once, just before serialization.
@@ -993,7 +1031,7 @@ def build_handler(
                 before_tok = count_responses_tokens(_orig_input)
                 try:
                     _compressed_input, store = compress_responses_input(
-                        _orig_input, verbatim=verbatim, keep=_learn_keep
+                        _orig_input, verbatim=_verb, keep=_learn_keep
                     )
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug(
@@ -1006,7 +1044,7 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _mode_label,
+                    "x-distil-mode": _req_mode,
                     "x-distil-compressible-tokens": str(before_tok),
                 }
                 if savings is not None:
@@ -1020,7 +1058,7 @@ def build_handler(
 
                     body = inject_expand_tool_responses(body)
                 # Output shaping: append verbosity directive to top-level ``instructions``.
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _shape_ok:
                     from .output import shape_request
 
                     body = shape_request(body, level=shape_output, allow=True, shape="responses")
@@ -1085,7 +1123,7 @@ def build_handler(
                 else:
                     _compress_fn = compress_messages
                 try:
-                    compressed, store = _compress_fn(pre, verbatim=verbatim, keep=_learn_keep)
+                    compressed, store = _compress_fn(pre, verbatim=_verb, keep=_learn_keep)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                     compressed, store = pre, None
@@ -1129,7 +1167,7 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _mode_label,
+                    "x-distil-mode": _req_mode,
                     # Bytes in the compressible zone (user/tool content distil is
                     # allowed to touch) — when this is ~0, a ▼0 is "nothing large
                     # to compress this turn", not a failure. System prompt, tool
@@ -1188,7 +1226,7 @@ def build_handler(
                 if savings is not None and before_tok is not None and after_tok is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
                 # Output compression: gated by lossless_only (only on PAYG-style).
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _shape_ok:
                     from .output import shape_request
 
                     _shape = "anthropic" if _path == "/v1/messages" else "openai"
@@ -1200,9 +1238,7 @@ def build_handler(
                 _replay_key, _replay_orig = "contents", body["contents"]
                 before_tok = count_tokens(body)
                 try:
-                    body, store = compress_generate_request(
-                        body, verbatim=verbatim, keep=_learn_keep
-                    )
+                    body, store = compress_generate_request(body, verbatim=_verb, keep=_learn_keep)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("gemini compression failed; forwarding uncompressed", exc_info=True)
                     store = None
@@ -1219,14 +1255,14 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _mode_label,
+                    "x-distil-mode": _req_mode,
                     "x-distil-compressible-tokens": str(before_tok),
                 }
                 if savings is not None:
                     # Gemini requests carry the model in the URL path, not the body.
                     _pending_savings = (before_tok, after_tok, _model_from_path(self.path))
                 # Output shaping: inject systemInstruction directive (PAYG only).
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _shape_ok:
                     from .output import shape_request
 
                     body = shape_request(body, level=shape_output, allow=True, shape="gemini")
@@ -1259,6 +1295,8 @@ def build_handler(
                     extras=extras,
                 )
 
+            if _held and extras:
+                extras["x-distil-drift-guard"] = "held"
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
 
@@ -1930,7 +1968,7 @@ def build_handler(
                     # content-free, same posture as the savings ledger.
                     ev: dict[str, Any] = {
                         "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
-                        "mode": _mode_label,
+                        "mode": _request_mode()[1],
                         # lossless-only and digest measure different things; the reports
                         # break them out rather than averaging two experiments.
                         "bytes_saved": len(rb_a.body) - len(rb_b.body),
@@ -1965,6 +2003,10 @@ def build_handler(
                     if _shadow_ledger is not None:
                         _shadow_ledger.record(equivalent, kind=kind, evidence=ev)
                         _written = True
+                    # Feed the drift guard the same paired difference the ledger just
+                    # booked. Here, in the shadow thread — never on the request path.
+                    if kind == "paired" and aa_equal is not None:
+                        _drift_guard.observe(int(equivalent) - int(aa_equal))
                 except Exception:  # noqa: BLE001 — shadow must never affect the request
                     log.debug("shadow compare failed", exc_info=True)
                     if _attempted and not _written:

@@ -163,6 +163,11 @@ def make_app(
     # until aproxy grows a streaming equivalent it must not emit an unrecoverable stub.
     # `_lossy_ok` still gates response shaping (opt-in) below.
     verbatim = True
+    # The drift guard (distil.drift): already Tier-0 here, so a persisted trip only has
+    # response shaping left to switch off. aproxy runs no shadow, so it never trips one.
+    from .drift import DriftGuard
+
+    _lossy_ok = _lossy_ok and not DriftGuard.start().engaged
 
     # Eager-load the request-path module the handler otherwise imports lazily, so
     # an in-place upgrade never loads a post-upgrade .py mid-serve against the

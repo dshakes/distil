@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and the alarm that acts
 
 The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -19,6 +19,52 @@ cannot be relied on to surface — the shapes below are invisible under `distil 
 Claude Code, and that is the only traffic the soak has.
 
 Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
+
+### The drift alarm stops the compression it catches, against the one budget everything else reads
+
+Two gaps, one shape. Before this, the anytime-valid drift e-process could print
+`BREACHED` at wrap exit while the proxy carried on compressing, because nothing on the
+request path imported `distil/drift.py`. The budget it bet against was also one of
+three thresholds nobody coordinated: the drift alarm's α, the conformal certificate's
+α, and `certify`'s TOST margin, each a literal in its own file. On the maintainer's own
+shadow ledger (read-only, 2026-09-24) that produced a real contradiction: the proof
+ledger printed `certified decision-change budget: intact` directly above a conformal
+bound that was over the budget.
+
+- **One risk budget.** `distil.conformal` now owns `BUDGET_ALPHA` (≤5% decision
+  change), `BUDGET_DELTA` (at 95% confidence) and `CERT_MARGIN` (the 2 pp TOST margin).
+  The conformal certificate, `certify-trajectories`, `calibrate`, the drift e-process,
+  the proof ledger's budget and risk lines, the proxy guard, and every CLI and library
+  default all read them at call time. No values changed. The TOST margin and the budget
+  measure the same estimand, and the margin is deliberately stricter, so a point that
+  just certified does not trip the live alarm on noise. A test now pins
+  `CERT_MARGIN ≤ BUDGET_ALPHA`, and another changes `BUDGET_ALPHA` and checks that the
+  certificate, drift, risk and guard verdicts all move with it.
+- **`intact` is earned.** When the e-process has not tripped, that means no breach has
+  been *proven*. It does not mean "within budget". The budget line now prints `intact`
+  only when the bound next to it is inside the budget. Otherwise it prints `unproven`.
+  The risk line now says `within` or `ABOVE` the budget.
+- **The alarm acts.** The proxy seeds a `DriftGuard` from `drift.json` once at startup.
+  From then on it feeds the guard each paired shadow verdict in the shadow thread, not
+  the request thread. On a breach, the next request is served lossless-only: Tier-0, no
+  digest, no output shaping. The response carries `x-distil-mode: lossless-only` and
+  `x-distil-drift-guard: held`. `distil_expand` stays injected, so stubs already in the
+  history stay recoverable and the cached tools prefix keeps its shape. The hot-path
+  cost is one attribute read. There is no per-request file I/O.
+- **It persists, globally.** A trip writes `~/.distil/drift-trip.json` (owner-only,
+  atomic rename) and one `mode: drift-trip` receipt on the hash chain. Every later proxy
+  start reads the file and holds. The scope is global rather than per-session because
+  the e-process and the budget are already global. A per-session hold would let the
+  next `distil wrap` resume lossy compression right after a certified breach. A breach
+  first seen at wrap exit or in `distil stats` arms the file as well. A trip file that
+  cannot be parsed counts as tripped. A rebuilt shadow stream does not clear the hold.
+  Only `distil reset --shadow` does, and it archives the file rather than deleting it.
+  The async proxy is already Tier-0, so a trip there turns off output shaping.
+- **Fail-open, on by default.** A guard that raises serves the request exactly as
+  configured. So does one whose state cannot be loaded or written: that session still
+  holds in memory, and only the restart persistence is lost.
+  `DISTIL_NO_DRIFT_GUARD=1` opts out of the hold. The alarm still trips, and the proof
+  line then says compression was *not* held.
 
 ### The freshest read the agent asked for came back as a pointer
 

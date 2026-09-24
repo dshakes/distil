@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from ..conformal import hb_pvalue, ltt_certify, tight_risk_bound
+from ..conformal import BUDGET_ALPHA, BUDGET_DELTA, hb_pvalue, ltt_certify, tight_risk_bound
 
 
 @dataclass(frozen=True)
@@ -97,8 +97,8 @@ _ASSUMPTIONS = (
 def certify_trajectory_risk(
     outcomes: Sequence[TrajectoryOutcome],
     *,
-    alpha: float = 0.05,
-    delta: float = 0.05,
+    alpha: float = BUDGET_ALPHA,
+    delta: float = BUDGET_DELTA,
     min_n: int = 20,
 ) -> TrajectoryRiskCertificate:
     """Test H0: trajectory-degradation risk > *alpha* at confidence 1-*delta*.
