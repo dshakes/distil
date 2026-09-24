@@ -689,10 +689,18 @@ measured.
   that sees it gone records that, and distil never adds it back.
 - Ownership is recorded only *after* the settings write succeeds, so a failed write
   can never make undo delete a key distil did not write. The pin and the key go in
-  as one read-modify-write. Every Claude Code settings write distil makes (the
-  existing `ANTHROPIC_BASE_URL` and status-line paths included) is now atomic (a
-  temporary file plus a rename), writes through a symlink to its target, and keeps
-  the file's mode. A malformed settings file is reported and left untouched.
+  as one read-modify-write, and `--undo` takes both out the same way: one write and
+  one `.bak` of the original per file. The pin is removed first and independently,
+  so trouble with the tool-search key can never leave behind the base URL that kills
+  sessions.
+- Every Claude Code settings write distil makes, and every rc-file write, is now
+  atomic. This includes the existing `ANTHROPIC_BASE_URL` and status-line paths.
+  - The temporary file is created `0600` (settings can hold API keys), fsynced, then
+    given the target's mode and, best-effort, its owner before the rename.
+  - It is removed if anything fails, so no copy of the file is left behind.
+  - The write goes through a symlink to its target.
+  - A brand-new file is created `0600`.
+  - A malformed settings file, or a symlink loop, is reported and left untouched.
 - Known limit: if you delete distil's key and re-add the identical `"true"` by hand
   with no distil command run in between, the two are indistinguishable, and undo
   removes it.

@@ -2394,8 +2394,7 @@ def cmd_default(args: argparse.Namespace) -> int:
         service_spec,
         socket_unit_spec,
         service_unload_cmd,
-        unwire_base_url,
-        unwire_tool_search,
+        unwire_always_on_settings,
         wire_always_on_settings,
         write_managed,
     )
@@ -2441,12 +2440,18 @@ def cmd_default(args: argparse.Namespace) -> int:
             # opposite on both counts, so an entry written on another port, or written into a
             # project's .claude/settings.local.json (which overrides the home file), survived
             # the uninstall and kept killing sessions after distil was gone from the machine.
+            # One read-modify-write and one .bak per file; the pin is decided first and
+            # independently of the ENABLE_TOOL_SEARCH key, and one file's failure never
+            # stops the sweep — a pin left behind kills every later session.
             cleaned = 0
             for sp in claude_settings_files():
-                st3, msg3 = unwire_tool_search(sp)
-                if st3 != "absent":
+                try:
+                    (st2, msg2), (st3, msg3) = unwire_always_on_settings(sp)
+                except (OSError, RuntimeError) as exc:
+                    print(f"✗ {sp}: {exc} — check ANTHROPIC_BASE_URL there by hand")
+                    continue
+                if st3 not in ("absent",):
                     print(("✓ " if st3 in ("ok", "user") else "✗ ") + msg3)
-                st2, msg2 = unwire_base_url(sp)
                 if st2 == "absent":
                     continue  # the common case for most of these paths; saying so is noise
                 print(("✓ " if st2 in ("ok", "foreign") else "✗ ") + msg2)
@@ -2674,13 +2679,19 @@ def cmd_offboard(args: argparse.Namespace) -> int:
     # nothing — anywhere. Sweep every file, match by shape, prompt only where there is
     # something real to remove, and name the value so the answer is an informed one.
     found_any = False
+    backed_up: set[str] = set()  # one .bak per file per run: the ORIGINAL, never a re-edit
     for bp in claude_settings_files():
         val = loopback_base_url(bp)
         if not val:
             continue
         found_any = True
         if ask(f"Unwire ANTHROPIC_BASE_URL ({val}) from {bp}?"):
-            st, msg = unwire_base_url(bp)
+            try:
+                st, msg = unwire_base_url(bp)
+            except (OSError, RuntimeError) as exc:
+                st, msg = "error", f"{bp}: {exc} — remove ANTHROPIC_BASE_URL by hand"
+            if st == "ok":
+                backed_up.add(os.path.abspath(bp))
             print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
     if not found_any:
         print("  · no ANTHROPIC_BASE_URL wired in any Claude Code settings file")
@@ -2693,7 +2704,10 @@ def cmd_offboard(args: argparse.Namespace) -> int:
         if os.path.abspath(bp) in added_to and ask(
             f"Remove the ENABLE_TOOL_SEARCH distil added to {bp}?"
         ):
-            st, msg = unwire_tool_search(bp)
+            try:
+                st, msg = unwire_tool_search(bp, backup=os.path.abspath(bp) not in backed_up)
+            except (OSError, RuntimeError) as exc:
+                st, msg = "error", f"{bp}: {exc} — ENABLE_TOOL_SEARCH left as-is"
             print(("✓ " if st in ("ok", "absent", "user") else "✗ ") + msg)
 
     # 4 · local data (opt-in; it's the user's measured savings history)

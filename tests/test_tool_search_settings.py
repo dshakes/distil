@@ -354,3 +354,121 @@ class TestEscapeHatch:
         r = self._run(home)
         assert r.returncode == 0, r.stderr
         assert _env(sp) == {TOOL_SEARCH_VAR: value}
+
+
+class TestAtomicWriteSafety:
+    """Settings can carry API keys in their env block: the temp copy must never be
+    readable by others, and must never be left behind."""
+
+    @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX file modes")
+    @pytest.mark.parametrize("target_mode", [0o600, 0o644, None])
+    def test_temp_copy_is_never_group_or_world_readable(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch, target_mode: int | None
+    ) -> None:
+        sp = _settings(home)
+        if target_mode is not None:
+            sp.write_text(json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-secret"}}))
+            os.chmod(sp, target_mode)
+        filled: list[int] = []  # every temp's mode once its content is written
+        installed: list[int] = []  # the settings temp's mode as it replaces the target
+        real_fsync, real_replace = os.fsync, os.replace
+
+        def fsync(fd: int) -> None:
+            filled.append(stat.S_IMODE(os.fstat(fd).st_mode))
+            real_fsync(fd)
+
+        def replace(src: object, dst: object) -> None:
+            if Path(str(dst)) == sp:
+                installed.append(stat.S_IMODE(os.stat(src).st_mode))  # type: ignore[arg-type]
+            real_replace(src, dst)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(os, "fsync", fsync)
+        monkeypatch.setattr(os, "replace", replace)
+        assert wire_tool_search(sp)[0] == "ok"
+        assert filled and all(m & 0o077 == 0 for m in filled), (
+            "a temp was readable by others while holding the settings"
+        )
+        want = target_mode if target_mode is not None else 0o600
+        assert installed == [want] and stat.S_IMODE(sp.stat().st_mode) == want
+
+    def test_failed_replace_leaves_no_temp_copy_and_no_record(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-secret"}}))
+        before = sp.read_text()
+
+        def deny(*a: object, **k: object) -> None:
+            raise PermissionError("read-only")
+
+        monkeypatch.setattr(os, "replace", deny)
+        assert wire_tool_search(sp)[0] == "error"
+        monkeypatch.undo()
+        assert sp.read_text() == before
+        assert not list(sp.parent.glob("*.distil.tmp")), "left a copy of the settings behind"
+        assert tool_search_added_to() == []
+
+    @pytest.mark.skipif(sys.platform.startswith("win"), reason="symlinks need privileges")
+    def test_symlink_loop_is_an_error_not_a_crash(self, home: Path) -> None:
+        sp = _settings(home)
+        other = home / ".claude" / "other.json"
+        sp.symlink_to(other)
+        other.symlink_to(sp)
+        assert wire_tool_search(sp)[0] == "error"
+
+
+class TestUndoIsFailSafe:
+    def test_tool_search_failure_still_removes_the_pin_and_bak_is_the_original(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _always_on_machine(home, monkeypatch)
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {"KEEP": "1"}}))
+        assert cli.cmd_default(_default_ns()) == 0
+        wired = sp.read_text()
+
+        def broken(*a: object, **k: object) -> None:
+            raise OSError("ownership record unreadable")
+
+        monkeypatch.setattr(setup_mod, "_read_state", broken)
+        assert cli.cmd_default(_default_ns(undo=True)) == 0
+        env = _env(sp)
+        assert "ANTHROPIC_BASE_URL" not in env, "the session-killing pin survived undo"
+        assert env[TOOL_SEARCH_VAR] == "true"  # unverifiable ownership: left alone
+        assert sp.with_name(sp.name + ".bak").read_text() == wired
+
+    def test_one_undo_one_write_one_backup_of_the_original(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _always_on_machine(home, monkeypatch)
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {"KEEP": "1"}}))
+        cli.cmd_default(_default_ns())
+        wired = sp.read_text()
+        writes: list[Path] = []
+        real = setup_mod._write_settings
+
+        def counting(path: Path, data: object) -> None:
+            writes.append(path)
+            real(path, data)
+
+        monkeypatch.setattr(setup_mod, "_write_settings", counting)
+        assert cli.cmd_default(_default_ns(undo=True)) == 0
+        assert writes == [sp]
+        assert _env(sp) == {"KEEP": "1"}
+        assert sp.with_name(sp.name + ".bak").read_text() == wired
+
+    def test_offboard_keeps_the_original_in_bak(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _always_on_machine(home, monkeypatch)
+        monkeypatch.setattr(onboard, "install_method", lambda: "pipx")
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {"KEEP": "1"}}))
+        cli.cmd_default(_default_ns())
+        wired = sp.read_text()
+        assert (
+            cli.cmd_offboard(argparse.Namespace(purge=False, yes=True, no_interactive=False)) == 0
+        )
+        assert _env(sp) == {"KEEP": "1"}
+        assert sp.with_name(sp.name + ".bak").read_text() == wired

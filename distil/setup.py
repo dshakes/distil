@@ -31,16 +31,42 @@ def _atomic_write(path: Path, text: str) -> None:
     edits stop taking effect and ours vanish on the next `stow`/`chezmoi` run.
     Writing through the link keeps the file the user actually version-controls.
     """
-    target = path.resolve() if path.is_symlink() else path
-    tmp = target.with_name(target.name + ".distil.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    # os.replace installs the tmp file's inode, so without this a 0600 settings or
-    # rc file would come back at the umask default — readable by everyone.
+    import tempfile
+
     try:
-        os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
-    except FileNotFoundError:
-        pass  # a new file: the umask default is the right mode
-    os.replace(tmp, target)
+        target = path.resolve() if path.is_symlink() else path
+    except RuntimeError as exc:  # a symlink loop (py<3.13) — an I/O error to callers
+        raise OSError(f"{path}: symlink loop ({exc})") from exc
+    # mkstemp: O_EXCL, mode 0600, unique name. A settings file can carry API keys in
+    # its env block, so the copy must never exist readable by others, not even for
+    # the moment between writing it and fixing its mode.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".distil.tmp"
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        # os.replace installs the tmp file's inode, so carry the target's mode (and,
+        # best-effort, owner) across. A new file stays 0600.
+        try:
+            st = target.stat()
+        except FileNotFoundError:
+            st = None
+        if st is not None:
+            os.chmod(tmp, stat.S_IMODE(st.st_mode))
+            if hasattr(os, "chown"):
+                try:
+                    os.chown(tmp, st.st_uid, st.st_gid)
+                except OSError:
+                    pass  # not ours to give away (non-root); the mode still holds
+        os.replace(tmp, target)
+    except BaseException:
+        # Never leave a copy of the user's settings (or rc file) lying next to it.
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _write_settings(settings_path: Path, data: object) -> None:
@@ -459,36 +485,107 @@ def wire_tool_search(settings_path: Path) -> tuple[str, str]:
     return (status, msg)
 
 
-def unwire_tool_search(settings_path: Path) -> tuple[str, str]:
+def _take_tool_search(
+    data: dict[str, Any], settings_path: Path
+) -> tuple[str, str, str | None, bool]:
+    """Remove distil's key from *data* in memory: ``(status, message, record, changed)``.
+    The key goes only if distil owns it here AND it still holds exactly distil's value;
+    *record* (``"forget"``) is committed by the caller only after its write succeeds."""
+    if _settings_key(settings_path) not in _read_state()["owned"]:
+        return ("absent", f"distil added no {TOOL_SEARCH_VAR} to {settings_path}", None, False)
+    env = data.get("env")
+    value = env.get(TOOL_SEARCH_VAR) if isinstance(env, dict) else None
+    if value is None:
+        return ("absent", f"no {TOOL_SEARCH_VAR} left in {settings_path}", "forget", False)
+    if value != TOOL_SEARCH_VALUE:
+        msg = f"{TOOL_SEARCH_VAR}={value!r} was changed by you — left as-is"
+        return ("user", msg, "forget", False)
+    assert isinstance(env, dict)
+    del env[TOOL_SEARCH_VAR]
+    if not env:
+        del data["env"]
+    return ("ok", f"removed distil's {TOOL_SEARCH_VAR} from {settings_path}", "forget", True)
+
+
+def unwire_tool_search(settings_path: Path, *, backup: bool = True) -> tuple[str, str]:
     """Remove ``ENABLE_TOOL_SEARCH`` from *settings_path* only if distil owns it there
     AND its current value is still exactly what distil wrote. A key distil never
     added, or one the user has since changed, is left as-is. Ownership is forgotten
     only after the key is actually gone (or was never there / is theirs now).
+    ``backup=False`` when the caller already took this run's ``.bak`` of the file —
+    a second backup would overwrite the original with an already-edited copy.
 
     Returns ``(status, message)``: ``ok`` | ``absent`` | ``user`` | ``error``.
     """
-    key = _settings_key(settings_path)
-    if key not in _read_state()["owned"]:
+    if _settings_key(settings_path) not in _read_state()["owned"]:
         return ("absent", f"distil added no {TOOL_SEARCH_VAR} to {settings_path}")
     data, why = _load_settings(settings_path)
     if data is None:
         return ("error", f"{why} — left untouched")
+    status, msg, record, changed = _take_tool_search(data, settings_path)
+    if changed:
+        try:
+            if backup:
+                _backup(settings_path)
+            _write_settings(settings_path, data)
+        except OSError as exc:
+            return ("error", f"could not write {settings_path} ({exc}) — left untouched")
+    _commit_tool_search(settings_path, record)
+    return (status, msg)
+
+
+def unwire_always_on_settings(
+    settings_path: Path,
+) -> tuple[tuple[str, str], tuple[str, str]]:
+    """Undo both always-on keys in ONE read-modify-write with ONE backup.
+
+    The loopback ``ANTHROPIC_BASE_URL`` pin is decided FIRST and independently: it
+    is the key that kills every session once the proxy is gone, so nothing about the
+    tool-search key (an unreadable ownership record, say) may stand in its way.
+    Returns ``(pin_result, tool_search_result)`` shaped like :func:`unwire_base_url`
+    and :func:`unwire_tool_search`.
+    """
+    from urllib.parse import urlparse
+
+    if not settings_path.exists():
+        msg = f"no settings file at {settings_path}"
+        return ("absent", msg), ("absent", msg)
+    data, why = _load_settings(settings_path)
+    if data is None:
+        return ("error", why), ("error", why)
     env = data.get("env")
-    value = env.get(TOOL_SEARCH_VAR) if isinstance(env, dict) else None
-    if value is None:
-        _commit_tool_search(settings_path, "forget")
-        return ("absent", f"no {TOOL_SEARCH_VAR} left in {settings_path}")
-    if value != TOOL_SEARCH_VALUE:
-        _commit_tool_search(settings_path, "forget")
-        return ("user", f"{TOOL_SEARCH_VAR}={value!r} was changed by you — left as-is")
-    assert isinstance(env, dict)
-    _backup(settings_path)
-    del env[TOOL_SEARCH_VAR]
-    if not env:
-        del data["env"]
-    _write_settings(settings_path, data)
-    _commit_tool_search(settings_path, "forget")
-    return ("ok", f"removed distil's {TOOL_SEARCH_VAR} from {settings_path}")
+    url = env.get("ANTHROPIC_BASE_URL") if isinstance(env, dict) else None
+    changed = False
+    if not url:
+        pin = ("absent", f"no ANTHROPIC_BASE_URL in {settings_path}")
+    elif urlparse(str(url)).hostname not in ("127.0.0.1", "localhost", "::1"):
+        pin = ("foreign", f"ANTHROPIC_BASE_URL is {url!r} (not loopback) — left as-is")
+    else:
+        assert isinstance(env, dict)
+        del env["ANTHROPIC_BASE_URL"]
+        if not env:
+            del data["env"]
+        changed = True
+        pin = ("ok", f"removed ANTHROPIC_BASE_URL ({url}) from {settings_path}")
+    record: str | None = None
+    try:
+        st, msg, record, ts_changed = _take_tool_search(data, settings_path)
+        ts: tuple[str, str] = (st, msg)
+        changed = changed or ts_changed
+    except (OSError, RuntimeError, ValueError) as exc:
+        ts = ("error", f"{TOOL_SEARCH_VAR} not checked in {settings_path} ({exc})")
+    if changed:
+        try:
+            _backup(settings_path)
+            _write_settings(settings_path, data)
+        except OSError as exc:
+            err = ("error", f"could not write {settings_path} ({exc}) — left untouched")
+            return (err if pin[0] == "ok" else pin), (err if ts[0] == "ok" else ts)
+    try:
+        _commit_tool_search(settings_path, record)
+    except OSError as exc:
+        ts = ("error", f"{ts[1]} (ownership record not updated: {exc})")
+    return pin, ts
 
 
 def unwire_statusline(settings_path: Path) -> tuple[str, str]:
@@ -835,7 +932,7 @@ from urllib.parse import urlparse
 p = sys.argv[1]
 MARKER = {str(settings_added_path())!r}
 try:
-    with open(p) as fh:
+    with open(p, encoding="utf-8") as fh:
         d = json.load(fh)
 except Exception as exc:
     print(f"  ! could not read {{p}}: {{exc}}")
@@ -848,7 +945,7 @@ removed = []
 # distil's value. A user's own setting is never touched. Ownership is forgotten only
 # AFTER the settings write succeeds. Mirrors unwire_tool_search() in distil/setup.py.
 try:
-    with open(MARKER) as fh:
+    with open(MARKER, encoding="utf-8") as fh:
         state = json.load(fh)
 except Exception:
     state = {{}}
@@ -865,13 +962,16 @@ def forget():
     if not ours:
         return
     entry["owned"] = [x for x in owned if x != key]
+    tmp = MARKER + ".distil.tmp"
     try:
-        tmp = MARKER + ".distil.tmp"
-        with open(tmp, "w") as fh:
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=2)
         os.replace(tmp, MARKER)
     except OSError:
-        pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 url = env.get("ANTHROPIC_BASE_URL")
@@ -895,19 +995,35 @@ if not removed:
     sys.exit(0)
 if not env:
     d.pop("env", None)
-# Atomic, through a symlink, keeping the file's mode — as _write_settings does.
-target = os.path.realpath(p)
-tmp = target + ".distil.tmp"
+# Atomic, through a symlink, keeping mode and owner — as _atomic_write does. The temp
+# copy is created 0600 (mkstemp) because settings can carry API keys, and it is
+# removed on any failure so no copy of the file is left behind.
+import tempfile
+tmp = None
 try:
-    with open(tmp, "w") as fh:
+    target = os.path.realpath(p)
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(target), prefix="." + os.path.basename(target) + ".",
+        suffix=".distil.tmp",
+    )
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(d, fh, indent=2)
         fh.write("\\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    st = os.stat(target)
+    os.chmod(tmp, st.st_mode & 0o7777)
     try:
-        os.chmod(tmp, os.stat(target).st_mode & 0o7777)
+        os.chown(tmp, st.st_uid, st.st_gid)
     except OSError:
         pass
     os.replace(tmp, target)
-except OSError as exc:
+except (OSError, RuntimeError) as exc:
+    if tmp is not None:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
     print(f"  ! could not write {{p}}: {{exc}} — remove {{', '.join(removed)}} by hand")
     sys.exit(0)
 forget()
