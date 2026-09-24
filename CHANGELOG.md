@@ -815,18 +815,34 @@ a deleted receipt does.
 `distil receipts` still verifies the whole history, now including every segment against
 its checkpoint. `--segment N` verifies one sealed segment against its checkpoint and opens
 no other file. `--checkpoints` prints the checkpoint records to pin somewhere outside
-`~/.distil` — the docs now say plainly that whoever can write there can re-seal a segment
-and its checkpoint together, so an unpinned root proves only what the chain already did.
-`--prove <request-id>` emits an inclusion proof for one sealed receipt, and
-`--check-proof proof.json --root <hex>` verifies it from the proof and the root alone:
-re-hashes the receipt from its content, then walks the audit path (RFC 9162 §2.1.3.2).
+`~/.distil` (each record's sha256 goes to stderr) — whoever can write there can re-seal a
+segment and its checkpoint together. `--prove <request-id>` emits an inclusion proof for
+one sealed receipt; `--check-proof` re-hashes the receipt from its content, then walks the
+audit path (RFC 9162 §2.1.3.2), reading nothing but the proof. What a pass proves is
+exactly what was pinned. `--checkpoint-hash <sha256>` pins the whole checkpoint record —
+segment, row count, first/last hash, root — so the output names the receipt's segment and
+position. `--root <hex>` alone pins only the tree: it proves membership, and the output
+names no position, because the row count then comes from the proof unauthenticated and
+audit paths for different (index, size) pairs coincide (index 1 of 2 also verifies as
+index 2 of 3). With nothing pinned the proof is checked against its own checkpoint, which
+is circular; the output says `SELF-CONSISTENT ONLY` and the CLI warns on stderr. The path
+length is also checked against the claimed tree size, and every receipt field in a proof
+is type-checked, so a hostile bundle (`"handles": 5`) is a clean "malformed proof", not a
+traceback.
 
 Crash ordering is the design: checkpoint first, rename second. A crash between them leaves
 a checkpoint with no segment, which every reader ignores and the next seal overwrites, and
 the active file untouched; a crash after the rename leaves no active file, and
 `head_hash()` then reads the newest segment's tail — still a tail read, not a history
 scan — so the next receipt links correctly. A seal that fails is logged at debug and the
-receipt is appended to the active file anyway. The resume point behind
+receipt is appended to the active file anyway, and this process does not try again for
+a minute: a seal that keeps failing (an unwritable segments directory; on Windows, a
+reader holding the active file open) would otherwise re-parse the whole active file on
+every append, inside the lock every request waits on. The cheap steps that can fail —
+creating the directory, tightening it to 0700 even if it already existed — run before
+the parse. `verify()` runs without the append lock, so a seal landing mid-pass could make
+a healthy chain read as broken at the segment boundary; a failure is re-run once against
+a fresh listing when the listing changed, and a real break survives the retry. The resume point behind
 `distil receipts --fast` and the wrap exit line records which file its last receipt was in;
 a rename keeps that receipt's offsets, so the fast pass resumes straight across a seal, and
 a resume point written before this reads as file 0, which is exactly where the migrated

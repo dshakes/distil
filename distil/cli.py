@@ -1057,7 +1057,16 @@ def cmd_receipts(args: argparse.Namespace) -> int:
         except (OSError, ValueError) as exc:
             print(f"cannot read proof {src}: {exc}", file=sys.stderr)
             return 2
-        ok, why = _r.verify_proof(bundle, root=getattr(args, "root", None))
+        root = getattr(args, "root", None)
+        ck_hash = getattr(args, "checkpoint_hash", None)
+        if root is None and ck_hash is None:
+            print(
+                "warning: nothing pinned — the proof is checked against the checkpoint it "
+                "carries, which only shows it is self-consistent. Pass --checkpoint-hash "
+                "(proves position) or --root (proves membership) from a source you trust.",
+                file=sys.stderr,
+            )
+        ok, why = _r.verify_proof(bundle, root=root, checkpoint_hash=ck_hash)
         print(why if ok else f"NOT INCLUDED — {why}")
         return 0 if ok else 1
 
@@ -1079,7 +1088,9 @@ def cmd_receipts(args: argparse.Namespace) -> int:
             if ck is None:
                 print(f"# segment {seg}: checkpoint missing or unreadable", file=sys.stderr)
                 continue
-            print(json.dumps(asdict(ck), sort_keys=True, separators=(",", ":")))
+            print(ck.canonical())
+            # The pin, on stderr so stdout stays exactly the records it is the hash of.
+            print(f"# segment {seg} checkpoint sha256 {ck.digest()}", file=sys.stderr)
         return 0
 
     if getattr(args, "segment", None) is not None:
@@ -4277,7 +4288,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--checkpoints",
         action="store_true",
         help="print every sealed segment's checkpoint (id, rows, first/last hash, Merkle root) "
-        "as JSONL — the small record to publish or pin elsewhere",
+        "as JSONL, with each record's sha256 on stderr — the value to pin elsewhere",
     )
     rc.add_argument(
         "--prove",
@@ -4292,7 +4303,14 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument(
         "--root",
         metavar="HEX",
-        help="with --check-proof: the Merkle root you already trust, instead of the proof's own",
+        help="with --check-proof: a Merkle root you already trust — proves the receipt is in "
+        "that tree, not where",
+    )
+    rc.add_argument(
+        "--checkpoint-hash",
+        metavar="HEX",
+        help="with --check-proof: the sha256 of a checkpoint record you already trust (a line "
+        "of --checkpoints) — proves the receipt's segment and position too",
     )
     rc.set_defaults(func=cmd_receipts)
 

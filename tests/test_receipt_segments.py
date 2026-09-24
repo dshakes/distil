@@ -23,6 +23,9 @@ from distil import receipts as R
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    # The seal backoff is per-process state: one test's failed seal must not suppress
+    # the next test's seals.
+    monkeypatch.setattr(R, "_seal_retry_at", 0.0)
     return tmp_path
 
 
@@ -144,15 +147,20 @@ def test_inclusion_proof_verifies_from_the_bundle_alone(home, small_segments, mo
     _fill(23)
     proof = R.prove("req7")
     assert proof is not None
-    root = R.load_segment_checkpoint(proof["checkpoint"]["segment"]).root
+    ck = R.load_segment_checkpoint(proof["checkpoint"]["segment"])
+    root, ck_hash = ck.root, ck.digest()
     bundle = json.loads(json.dumps(proof))  # what a third party receives: plain JSON
 
     # Nothing on disk is consulted: point DISTIL_HOME at nothing and forbid opens.
     monkeypatch.setenv("DISTIL_HOME", str(home / "nowhere"))
     monkeypatch.setattr(Path, "open", lambda *a, **k: pytest.fail("verify_proof opened a file"))
-    ok, why = R.verify_proof(bundle, root=root)
+    ok, why = R.verify_proof(bundle, checkpoint_hash=ck_hash)
     assert ok, why
-    assert "INCLUDED" in why
+    assert why.startswith(f"INCLUDED — receipt req7 is #{proof['index']} of ")
+    ok, why = R.verify_proof(bundle, root=root)
+    assert ok and "under pinned root" in why and "#" not in why, why
+    ok, why = R.verify_proof(bundle)
+    assert ok and why.startswith("SELF-CONSISTENT ONLY"), why
 
 
 def test_inclusion_proof_rejects_edits_wrong_roots_and_junk(home, small_segments):
@@ -179,9 +187,113 @@ def test_inclusion_proof_rejects_edits_wrong_roots_and_junk(home, small_segments
     ok, why = R.verify_proof(proof, root="00" * 32)
     assert not ok and "pinned" in why
 
-    for junk in (None, [], {"receipt": {}}, {**proof, "path": ["zz"]}, {**proof, "index": True}):
+    hostile_receipts = [
+        {**proof["receipt"], "handles": 5},
+        {**proof["receipt"], "handles": [1, "a"]},
+        {**proof["receipt"], "tokens_original": "1000"},
+        {**proof["receipt"], "reversible": 0},
+        {**proof["receipt"], "ts": None},
+    ]
+    for junk in (
+        None,
+        [],
+        {"receipt": {}},
+        {**proof, "path": ["zz"]},
+        {**proof, "path": "ab"},
+        {**proof, "path": ["ab"]},  # hex, but not a 32-byte hash
+        {**proof, "index": True},
+        *({**proof, "receipt": rec} for rec in hostile_receipts),
+    ):
         ok, why = R.verify_proof(junk)
         assert not ok and why.startswith("malformed proof"), (junk, why)
+    assert R.verify_proof(proof, checkpoint_hash="xyz")[1].startswith("malformed proof")
+
+
+def _two_leaf_bundle() -> tuple[dict, R.Checkpoint]:
+    a, b = _mk(0).sealed(), _mk(1)
+    b.prev = a.hash
+    b.sealed()
+    leaves = [R._leaf(a.hash), R._leaf(b.hash)]
+    ck = R.Checkpoint(0, 2, a.hash, b.hash, R.merkle_root(leaves).hex())
+    from dataclasses import asdict
+
+    bundle = {
+        "v": 1,
+        "receipt": asdict(b),
+        "checkpoint": asdict(ck),
+        "index": 1,
+        "path": [h.hex() for h in R._audit_path(leaves, 1, 0, 2)],
+    }
+    return bundle, ck
+
+
+def test_a_forged_position_passes_a_bare_root_but_is_never_printed():
+    """The reviewer's case: index 1 of 2 also verifies as index 2 of 3 under the same
+    root. With only the root pinned that forgery is unavoidable, so the output must not
+    claim a position; with the checkpoint pinned it must fail."""
+    bundle, ck = _two_leaf_bundle()
+    forged = json.loads(json.dumps(bundle))
+    forged["index"] = 2
+    forged["checkpoint"].update(rows=3, segment=7)
+    leaf = R._leaf(bundle["receipt"]["hash"])
+    path = [bytes.fromhex(h) for h in bundle["path"]]
+    assert R.verify_inclusion(2, 3, leaf, path, bytes.fromhex(ck.root))  # the ambiguity is real
+
+    ok, why = R.verify_proof(forged, root=ck.root)
+    assert ok, why
+    assert "#2" not in why and "segment 7" not in why and "of 3" not in why, why
+    assert "not proven" in why
+
+    ok, why = R.verify_proof(forged, checkpoint_hash=ck.digest())
+    assert (ok, why) == (False, "the proof's checkpoint is not the checkpoint you pinned")
+    ok, why = R.verify_proof(bundle, checkpoint_hash=ck.digest())
+    assert ok and "#1 of 2 in sealed segment 0" in why, why
+
+
+def test_every_forgeable_position_is_caught_by_a_pinned_checkpoint():
+    """Exhaustive over small trees: any (index, rows) that differs from the truth either
+    fails the path check, or — where the path shape coincides — fails the pin."""
+    for size in range(1, 20):
+        receipts, prev = [], R.GENESIS
+        for i in range(size):
+            r = _mk(i)
+            r.prev = prev
+            receipts.append(r.sealed())
+            prev = r.hash
+        leaves = [R._leaf(r.hash) for r in receipts]
+        root = R.merkle_root(leaves)
+        ck = R.Checkpoint(0, size, receipts[0].hash, receipts[-1].hash, root.hex())
+        for i, r in enumerate(receipts):
+            path = R._audit_path(leaves, i, 0, size)
+            assert len(path) == R._path_len(i, size)
+            from dataclasses import asdict
+
+            for n2 in range(1, 24):
+                for i2 in range(n2):
+                    if (i2, n2) == (i, size):
+                        continue
+                    forged = {
+                        "receipt": asdict(r),
+                        "checkpoint": {**asdict(ck), "rows": n2},
+                        "index": i2,
+                        "path": [h.hex() for h in path],
+                    }
+                    ok, why = R.verify_proof(forged, checkpoint_hash=ck.digest())
+                    assert not ok, (size, i, n2, i2, why)
+
+
+def test_checkpoints_output_line_hashes_to_the_digest(home, small_segments, capsys):
+    import hashlib
+
+    from distil.cli import main
+
+    _fill(12)
+    assert main(["receipts", "--checkpoints"]) == 0
+    out, err = capsys.readouterr()
+    for line, seg in zip(out.splitlines(), R.sealed_segments()):
+        digest = hashlib.sha256(line.encode()).hexdigest()
+        assert digest == R.load_segment_checkpoint(seg).digest()
+        assert f"segment {seg} checkpoint sha256 {digest}" in err
 
 
 def test_active_receipts_have_no_proof_yet(home, small_segments):
@@ -295,6 +407,7 @@ def test_crash_between_checkpoint_and_rename_loses_nothing(home, small_segments,
     assert v.ok and v.total == 8, v.statement  # the orphan is ignored; nothing was lost
 
     boom["on"] = False
+    monkeypatch.setattr(R, "_seal_retry_at", 0.0)  # the backoff has "expired"
     _fill(1, start=8)  # the next append seals, overwriting the orphan
     assert R.sealed_segments() == [0]
     assert R.load_segment_checkpoint(0).rows == 8
@@ -395,6 +508,7 @@ def test_cli_segment_checkpoints_prove_and_check(home, small_segments, capsys, t
 
     assert main(["receipts", "--checkpoints"]) == 0
     cks = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    ck0_hash = R.load_segment_checkpoint(0).digest()
     assert [c["segment"] for c in cks] == R.sealed_segments()
 
     assert main(["receipts", "--prove", "req3"]) == 0
@@ -405,9 +519,99 @@ def test_cli_segment_checkpoints_prove_and_check(home, small_segments, capsys, t
     assert "INCLUDED" in capsys.readouterr().out
     assert main(["receipts", "--check-proof", str(proof_file), "--root", "11" * 32]) == 1
     assert "NOT INCLUDED" in capsys.readouterr().out
+    assert main(["receipts", "--check-proof", str(proof_file), "--checkpoint-hash", ck0_hash]) == 0
+    assert "#" in capsys.readouterr().out
+    assert main(["receipts", "--check-proof", str(proof_file)]) == 0
+    out, err = capsys.readouterr()
+    assert "nothing pinned" in err and "SELF-CONSISTENT ONLY" in out
+    junk = tmp_path / "junk.json"
+    junk.write_text(json.dumps({**json.loads(proof_file.read_text()), "receipt": {"handles": 5}}))
+    assert main(["receipts", "--check-proof", str(junk)]) == 1
+    assert "malformed proof" in capsys.readouterr().out
 
     assert main(["receipts", "--prove", "nope"]) == 1
 
     _rewrite(R.segment_path(1), lambda rows: rows[0].update(model="x"))
     assert main(["receipts", "--segment", "1"]) == 1
     assert main(["receipts"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# A seal that keeps failing costs one attempt per backoff, not one per append
+# ---------------------------------------------------------------------------
+
+
+def test_persistently_failing_seal_is_attempted_a_bounded_number_of_times(
+    home, small_segments, monkeypatch
+):
+    real_mkdir, real_read = Path.mkdir, R.read
+    parses = 0
+
+    def no_segments_dir(self: Path, *a: object, **k: object) -> None:
+        if self.name == "receipts-segments":
+            raise PermissionError("simulated: segments dir not creatable")
+        real_mkdir(self, *a, **k)  # type: ignore[arg-type]
+
+    def counting_read(path: Path | None = None):  # type: ignore[no-untyped-def]
+        nonlocal parses
+        if path == R.receipts_path():
+            parses += 1
+        return real_read(path)
+
+    monkeypatch.setattr(Path, "mkdir", no_segments_dir)
+    monkeypatch.setattr(R, "read", counting_read)
+    attempts = 0
+    real_seal = R._seal
+
+    def counting_seal(active: Path):  # type: ignore[no-untyped-def]
+        nonlocal attempts
+        attempts += 1
+        return real_seal(active)
+
+    monkeypatch.setattr(R, "_seal", counting_seal)
+    _fill(300)
+    assert attempts == 1, f"{attempts} seal attempts in 300 appends"
+    assert parses == 0, "a seal that could not create its directory parsed the chain first"
+    assert R.verify().ok and R.verify().total == 300  # nothing lost; all still active
+
+    # The backoff expires: exactly one more attempt, and it succeeds once mkdir works.
+    monkeypatch.setattr(Path, "mkdir", real_mkdir)
+    monkeypatch.setattr(R.time, "monotonic", lambda: 1e12)
+    _fill(1, start=300)
+    assert attempts == 2 and R.sealed_segments() == [0]
+    assert R.verify().ok
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes only")
+def test_an_existing_segments_dir_is_tightened_to_owner_only(home, small_segments):
+    R.segments_dir().mkdir(mode=0o755)
+    R.segments_dir().chmod(0o755)
+    _fill(8)
+    assert R.sealed_segments()
+    assert stat.S_IMODE(R.segments_dir().stat().st_mode) == 0o700
+
+
+def test_a_seal_landing_mid_verify_is_not_reported_as_broken(home, small_segments, monkeypatch):
+    """verify() lists the segments, then a seal renames the active file, then verify opens
+    the new active file: its first receipt links to a segment the stale list lacks."""
+    _fill(8)
+    stale = R._chain_files()
+    R._seal(R.receipts_path())
+    _fill(2, start=8)
+    calls = {"n": 0}
+    real = R._chain_files
+
+    def first_call_stale():  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        return stale if calls["n"] == 1 else real()
+
+    monkeypatch.setattr(R, "_chain_files", first_call_stale)
+    v = R.verify()
+    assert v.ok and v.total == 10, v.statement
+    assert calls["n"] >= 2
+
+
+def test_a_real_break_survives_the_retry(home, small_segments):
+    _fill(12)
+    R.segment_path(0).unlink()
+    assert not R.verify().ok

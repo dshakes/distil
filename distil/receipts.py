@@ -28,6 +28,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -259,13 +260,47 @@ def _parse(raw: bytes) -> Receipt | None:
         d = json.loads(line)
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
         return None
-    if not isinstance(d, dict):
+    try:
+        return _receipt_from_dict(d)
+    except ValueError:
         return None
+
+
+_STR_FIELDS = ("request_id", "session", "model", "mode", "certificate", "prev", "hash")
+_INT_FIELDS = ("tokens_original", "tokens_compressed", "v")
+_BOOL_FIELDS = ("reversible", "restorable")
+
+
+def _receipt_from_dict(d: Any) -> Receipt:
+    """Build a receipt from untrusted JSON, checking every field's type.
+
+    Constructing the dataclass checks nothing, and ``compute_hash`` then sorts ``handles``
+    — so ``"handles": 5`` or ``[1, "a"]`` used to surface as a TypeError traceback from
+    whatever hashed it next (a proof check, a verify pass). Raises ``ValueError`` instead,
+    which every caller already treats as "not a receipt".
+    """
+    if not isinstance(d, dict):
+        raise ValueError("receipt is not an object")
     known = set(Receipt.FIELDS)
     try:
-        return Receipt(**{k: v for k, v in d.items() if k in known})
-    except TypeError:
-        return None
+        r = Receipt(**{k: v for k, v in d.items() if k in known})
+    except TypeError as exc:
+        raise ValueError(f"receipt fields: {exc}") from exc
+    if isinstance(r.ts, bool) or not isinstance(r.ts, int | float):
+        raise ValueError("receipt ts must be a number")
+    for name in _STR_FIELDS:
+        if not isinstance(getattr(r, name), str):
+            raise ValueError(f"receipt {name} must be a string")
+    for name in _INT_FIELDS:
+        x = getattr(r, name)
+        if isinstance(x, bool) or not isinstance(x, int):
+            raise ValueError(f"receipt {name} must be an integer")
+    for name in _BOOL_FIELDS:
+        if not isinstance(getattr(r, name), bool):
+            raise ValueError(f"receipt {name} must be a boolean")
+    if not isinstance(r.handles, list) or not all(isinstance(h, str) for h in r.handles):
+        raise ValueError("receipt handles must be a list of strings")
+    return r
 
 
 def _lines(p: Path, start: int = 0) -> Iterator[tuple[int, int, bytes]]:
@@ -439,9 +474,31 @@ def _audit_path(leaves: list[bytes], m: int, lo: int, hi: int) -> list[bytes]:
     return _audit_path(leaves, m - k, lo + k, hi) + [_mth(leaves, lo, lo + k)]
 
 
+def _path_len(index: int, size: int) -> int:
+    """Length of the RFC 6962 audit path for leaf ``index`` in a tree of ``size`` leaves."""
+    n, m, length = size, index, 0
+    while n > 1:
+        k = _split(n)
+        if m < k:
+            n = k
+        else:
+            m, n = m - k, n - k
+        length += 1
+    return length
+
+
 def verify_inclusion(index: int, size: int, leaf: bytes, path: list[bytes], root: bytes) -> bool:
-    """RFC 9162 §2.1.3.2 inclusion check. Needs the leaf, the path and the root — nothing else."""
-    if index < 0 or index >= size:
+    """RFC 9162 §2.1.3.2 inclusion check. Needs the leaf, the path and the root — nothing else.
+
+    What this proves depends on where ``size`` came from. A leaf that hashes up to ``root``
+    is in that tree whatever ``index``/``size`` claim (the 0x00/0x01 prefixes stop an
+    interior node passing as a leaf). The POSITION is only as good as ``size``: RFC 9162
+    paths for different ``(index, size)`` pairs can coincide — index 1 of 2 also verifies
+    as index 2 of 3 — so a position is only a claim when ``size`` is itself authenticated
+    (see :func:`verify_proof`). The path-length check below rejects every pair whose tree
+    shape cannot produce a path of this length; it cannot reject the ones that can.
+    """
+    if index < 0 or index >= size or len(path) != _path_len(index, size):
         return False
     fn, sn, r = index, size - 1, leaf
     for p in path:
@@ -476,6 +533,16 @@ class Checkpoint:
     last: str  # hash of its last receipt — the link the next segment's first receipt carries
     root: str  # hex Merkle root over every receipt hash in the segment, in order
     v: int = 1
+
+    def canonical(self) -> str:
+        """The exact line ``distil receipts --checkpoints`` prints and the file holds."""
+        return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
+
+    def digest(self) -> str:
+        """sha256 of :meth:`canonical` — the value to pin. Pinning this pins ``rows``,
+        ``segment``, ``first`` and ``last`` along with the root; pinning the root alone
+        pins only the set of leaves."""
+        return hashlib.sha256(self.canonical().encode()).hexdigest()
 
     @classmethod
     def from_dict(cls, d: Any) -> Checkpoint:
@@ -551,6 +618,11 @@ def _seal(active: Path) -> Checkpoint | None:
     """
     from . import _filelock
 
+    # The cheap steps that can fail go first, so a seal that cannot succeed fails before
+    # it has parsed the whole active file. The chmod is on EVERY seal: a directory that
+    # already existed (made by hand, or by an older build) keeps whatever mode it had.
+    segments_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+    segments_dir().chmod(0o700)
     leaves: list[bytes] = []
     first = last = ""
     for r in read(active):
@@ -561,26 +633,45 @@ def _seal(active: Path) -> Checkpoint | None:
         return None
     ids = sealed_segments()
     seg = ids[-1] + 1 if ids else 0
-    segments_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
     ck = Checkpoint(seg, len(leaves), first, last, merkle_root(leaves).hex())
-    _write_atomic(segment_checkpoint_path(seg), json.dumps(asdict(ck), sort_keys=True) + "\n")
+    _write_atomic(segment_checkpoint_path(seg), ck.canonical() + "\n")
     _filelock.replace_retrying(active, segment_path(seg))
     segment_path(seg).chmod(0o600)  # a legacy chain may predate the owner-only opener
     return ck
 
 
+#: After a failed seal, wait this long before this process tries again. Without it a seal
+#: that keeps failing (an unwritable segments dir; on Windows, a reader holding the active
+#: file open so the rename is refused) re-parses the whole active file on every append,
+#: inside the lock every request waits on.
+SEAL_RETRY_SECONDS = 60.0
+_seal_retry_at = 0.0  # time.monotonic() before which no seal is attempted
+
+
 def _maybe_rotate(active: Path) -> None:
     """Seal the active file if it has outgrown ``SEGMENT_BYTES``. Never loses a receipt:
-    a failed seal leaves the active file where it was and the append goes ahead."""
-    if SEGMENT_BYTES <= 0:
+    a failed seal leaves the active file where it was and the append goes ahead.
+
+    ponytail: per-process backoff, fixed interval. Each proxy process retries at most once
+    a minute; the active file just grows past the threshold meanwhile, which costs nothing
+    but a larger segment. Make it exponential if a seal ever fails for days at a time.
+    """
+    global _seal_retry_at
+    if SEGMENT_BYTES <= 0 or time.monotonic() < _seal_retry_at:
         return
     try:
-        if active.stat().st_size < SEGMENT_BYTES:
-            return
+        size = active.stat().st_size
+    except OSError:
+        return  # no active file (fresh, or just sealed): nothing to seal, nothing failed
+    if size < SEGMENT_BYTES:
+        return
+    try:
         _seal(active)
+        _seal_retry_at = 0.0
     except OSError:
         # Rotation is housekeeping; the receipt being written is the record. A seal that
-        # failed half-way is retried by the next append (see _seal's crash ordering).
+        # failed half-way is retried later (see _seal's crash ordering).
+        _seal_retry_at = time.monotonic() + SEAL_RETRY_SECONDS
         log.debug("receipt segment seal failed; appending to the active chain", exc_info=True)
 
 
@@ -676,10 +767,26 @@ def verify(path: Path | None = None, *, full: bool = True) -> Verdict:
     resumed pass (``full=False``, the per-exit line and ``distil receipts --fast``). That is the same trust boundary the chain always had (whoever can
     rewrite the receipts can rewrite the checkpoint beside them); what is new is that the
     fast path says so rather than implying a full audit it did not perform.
+
+    **A seal can land mid-pass.** Verify runs without the append lock (it must not stall
+    requests for a whole-history re-hash), so the file list it took can go stale: the
+    active file it opens may already be the fresh one, whose first receipt links to a
+    segment the list does not have. That reads as a broken link on a healthy chain, so a
+    failure is re-run once against a fresh listing when the listing changed. A real break
+    survives the retry; a seal does not.
     """
     if path is not None:
         return _scan([(None, path)], 0, 0, GENESIS, 0, 0, save=False)
     files = _chain_files()
+    v = _verify_history(files, full)
+    if not v.ok:
+        now = _chain_files()
+        if now != files:
+            v = _verify_history(now, full)
+    return v
+
+
+def _verify_history(files: list[tuple[int | None, Path]], full: bool) -> Verdict:
     if not full:
         ck = _load_checkpoint()
         if ck is not None:
@@ -765,36 +872,63 @@ def prove(request_id: str) -> dict[str, Any] | None:
     return None
 
 
-def verify_proof(bundle: Any, root: str | None = None) -> tuple[bool, str]:
-    """Check an inclusion proof. Reads no file: the bundle and a root are the whole input.
+def verify_proof(
+    bundle: Any, root: str | None = None, checkpoint_hash: str | None = None
+) -> tuple[bool, str]:
+    """Check an inclusion proof. Reads no file: the bundle and what you pinned are the
+    whole input. What a success means depends entirely on what was pinned:
 
-    ``root`` pins the Merkle root you already trust (published, or from a checkpoint you
-    were handed separately). Without it, the bundle's own checkpoint root is used, which
-    proves the receipt is in *that* checkpoint — only as good as where you got it from.
+    * ``checkpoint_hash`` — the sha256 of a checkpoint record you already trust (a line of
+      ``distil receipts --checkpoints``, see :meth:`Checkpoint.digest`). That pins
+      ``segment``, ``rows``, ``first``, ``last`` and ``root`` together, so the receipt's
+      segment and position are proven, and the message names them.
+    * ``root`` alone — proves the receipt is a leaf of the tree with that root, and nothing
+      about WHERE: ``rows`` and ``index`` still come from the bundle, unauthenticated, and
+      paths for different ``(index, rows)`` pairs can coincide. The message says only
+      "included under root R".
+    * neither — the bundle is checked against its own checkpoint, which is circular: it
+      shows the bundle is self-consistent and proves nothing about your log. The message
+      says that too.
     """
     try:
         if not isinstance(bundle, dict):
             raise ValueError("proof is not an object")
         ck = Checkpoint.from_dict(bundle["checkpoint"])
-        d = bundle["receipt"]
-        if not isinstance(d, dict):
-            raise ValueError("receipt is not an object")
-        known = set(Receipt.FIELDS)
-        r = Receipt(**{k: v for k, v in d.items() if k in known})
+        r = _receipt_from_dict(bundle["receipt"])
         index = bundle["index"]
         if not isinstance(index, int) or isinstance(index, bool):
             raise ValueError("index must be an integer")
-        path = [bytes.fromhex(h) for h in bundle["path"]]
+        raw_path = bundle["path"]
+        if not isinstance(raw_path, list) or not all(isinstance(h, str) for h in raw_path):
+            raise ValueError("path must be a list of hex strings")
+        path = [bytes.fromhex(h) for h in raw_path]
         want = bytes.fromhex(root if root is not None else ck.root)
+        if not all(len(h) == 32 for h in (*path, want)):
+            raise ValueError("path entries and roots must be 32-byte hashes")
+        if checkpoint_hash is not None:
+            bytes.fromhex(checkpoint_hash)
     except (KeyError, TypeError, ValueError) as exc:
         return False, f"malformed proof: {exc}"
+    if checkpoint_hash is not None and checkpoint_hash.lower() != ck.digest():
+        return False, "the proof's checkpoint is not the checkpoint you pinned"
     if root is not None and root.lower() != ck.root.lower():
         return False, "the proof's checkpoint root is not the root you pinned"
     if r.hash != r.compute_hash():
         return False, "receipt content does not match its hash"
     if not verify_inclusion(index, ck.rows, _leaf(r.hash), path, want):
-        return False, f"receipt is not at index {index} under root {want.hex()[:16]}…"
+        return False, f"receipt does not hash up to root {want.hex()[:16]}… by this path"
+    short = want.hex()[:16]
+    if checkpoint_hash is not None:
+        return True, (
+            f"INCLUDED — receipt {r.request_id} is #{index} of {ck.rows} in sealed segment "
+            f"{ck.segment} (pinned checkpoint {checkpoint_hash.lower()[:16]}…, root {short}…)"
+        )
+    if root is not None:
+        return True, (
+            f"INCLUDED — receipt {r.request_id} is in the tree under pinned root {short}… "
+            "(its position and segment are not proven; pin the checkpoint hash for those)"
+        )
     return True, (
-        f"INCLUDED — receipt {r.request_id} is #{index} of {ck.rows} in sealed segment "
-        f"{ck.segment} (root {want.hex()[:16]}…)"
+        f"SELF-CONSISTENT ONLY — receipt {r.request_id} hashes up to the root carried in its "
+        "own bundle; nothing was pinned, so this says nothing about your log"
     )

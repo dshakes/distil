@@ -137,20 +137,29 @@ links to the sealed segment's last hash, so segments form one continuous chain.
 ```bash
 distil receipts                    # verify the whole history; non-zero exit if broken
 distil receipts --segment 3        # one sealed segment vs its checkpoint, nothing else read
-distil receipts --checkpoints      # the checkpoint records (JSONL) — publish/pin these
+distil receipts --checkpoints      # checkpoint records (JSONL); each one's sha256 on stderr
 distil receipts --prove <req-id>   # Merkle inclusion proof for one sealed receipt
-distil receipts --check-proof proof.json --root <hex>   # verify it from the proof alone
+distil receipts --check-proof proof.json --checkpoint-hash <sha256>   # membership + position
+distil receipts --check-proof proof.json --root <hex>                 # membership only
 distil receipts --export           # newline-delimited JSON for your SIEM
 ```
 
 The verification needs nothing but the files — no server, no key escrow. An auditor
-can be handed a single receipt and its inclusion proof instead of the whole log, and
-check it against a root they already hold. Checkpoint roots are only as trustworthy as
-where they are kept: anyone with write access to `~/.distil` can re-seal a segment and
-rewrite its checkpoint, so copy the roots from `--checkpoints` somewhere they cannot
-(a ticket, a repo, your SIEM). A chain written before segments existed verifies
-unchanged and is sealed as segment 0, byte for byte, on its first rotation. Retention
-is yours to set; distil never prunes receipts or segments.
+can be handed a single receipt and its inclusion proof instead of the whole log.
+**What a passing proof means depends on what the auditor pinned beforehand:**
+
+| pinned | proven |
+|---|---|
+| checkpoint hash (sha256 of a `--checkpoints` line) | the receipt's content, that it is in that segment, and its position (`#i of n`) — the hash covers segment id, row count, first/last hash and root together |
+| Merkle root only | the receipt's content and that it is a leaf of the tree with that root; **not** its position or segment — the row count comes from the proof, and audit paths for different (index, size) pairs can coincide, so the output does not print one |
+| nothing | nothing about your log: the proof is checked against the checkpoint it carries, which only shows it is self-consistent; the CLI warns on stderr |
+
+Pins are only as trustworthy as where they are kept: anyone with write access to
+`~/.distil` can re-seal a segment and rewrite its checkpoint, so copy the checkpoint
+hashes somewhere they cannot (a ticket, a repo, your SIEM) when each segment is sealed.
+A chain written before segments existed verifies unchanged and is sealed as segment 0,
+byte for byte, on its first rotation. Retention is yours to set; distil never prunes
+receipts or segments.
 
 ## 8. Supply chain
 
