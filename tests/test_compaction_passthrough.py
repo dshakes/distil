@@ -129,6 +129,31 @@ class TestCompactionBlockImmutable:
         out, _store = compress_messages(msgs, verbatim=False)
         assert out[0]["content"][0] is block
 
+    def test_generic_signed_block_census_bucket_is_signed_block_billed(self) -> None:
+        # Distinct from "compaction_billed": an unknown signed type is real provider
+        # cost too, just not one distil has a dedicated name for yet.
+        block = {"type": "future_signed_block", "content": "x" * 500, "signature": "s"}
+        msgs = [{"role": "assistant", "content": [block]}, *_PAD]
+        compress_messages(msgs, verbatim=False)
+        census = take_census() or {}
+        assert census.get("signed_block_billed", 0) > 0
+        assert census.get("compaction_billed", 0) == 0
+
+    def test_tool_result_with_stray_signature_key_is_compressed_normally(self) -> None:
+        # A `signature` key is not exclusive to provider-opaque blocks — a tool_result
+        # could carry one incidentally (e.g. an upstream that stamps every block). It
+        # must still go through tool_result's own handling (digestion, exact-quote
+        # exemption), not be swallowed by the opaque-block fallback: that would skip
+        # compression AND drop it from the digest census silently.
+        signed_result = {**_tool_result(LONG_TOOL_RESULT), "signature": "not-actually-opaque"}
+        msgs = [{"role": "user", "content": [signed_result]}, *_PAD]
+        out, store = compress_messages(msgs, verbatim=False)
+        digested = out[0]["content"][0]["content"]
+        assert "handle=" in digested
+        assert store.handles
+        census = take_census() or {}
+        assert census.get("signed_block_billed", 0) == 0
+
 
 # ---------------------------------------------------------------------------
 # Content around a compaction block is still compressible
