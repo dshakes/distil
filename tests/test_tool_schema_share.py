@@ -83,3 +83,26 @@ def test_measure_prices_tools_as_prefix_cache_reads(tmp_path: Path) -> None:
 def test_measure_empty_root(tmp_path: Path) -> None:
     res = measure(tmp_path)
     assert res["requests"] == 0 and res["tool_share_of_billed_usd"] == 0.0
+
+
+def test_main_combines_share_and_headroom_into_the_deciding_number(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The ADR's headline (share of bill a perfect lossless compactor saves) is the
+    # product main() computes — pin it end to end, not just its two inputs.
+    import benchmarks.tool_schema_share as T
+
+    test_measure_prices_tools_as_prefix_cache_reads(tmp_path)  # writes the sessions fixture
+    tools = [{"name": "t", "input_schema": {"$schema": "x" * 400, "type": "object"}}]
+    (tmp_path / "tools.json").write_text(json.dumps(tools), encoding="utf-8")
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["x", "--root", str(tmp_path), "--tools", str(tmp_path / "tools.json"), "--out", str(out)],
+    )
+    T.main()
+    capsys.readouterr()
+    res = json.loads(out.read_text(encoding="utf-8"))
+    red = res["lossless_headroom"]["lossless_reduction"]
+    assert red > 0
+    assert res["ev_share_of_billed_usd_lossless"] == round(res["tool_share_of_billed_usd"] * red, 4)
