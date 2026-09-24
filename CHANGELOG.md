@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session
 
 The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -17,6 +17,8 @@ below, litter and all, with the reasoning written down this time. Nothing here i
 the documentation promises and what the code does, which is the only kind of bug a soak
 cannot be relied on to surface — the shapes below are invisible under `distil wrap` on
 Claude Code, and that is the only traffic the soak has.
+
+Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
 
 ### The freshest read the agent asked for came back as a pointer
 
@@ -453,6 +455,8 @@ cannot reach the cluster, the node, or a cloud metadata service on 443. `values.
 carries an `egressTo` override and says plainly that narrowing it to your provider is the
 point.
 
+### The ninth command still knows the other eight exist
+
 Docs and CLI-surface polish; no runtime behavior change. The through-line: in every
 case here the accurate answer already existed somewhere in the codebase, but only if
 you already knew where to look — `--help` for one savings command never mentioning
@@ -689,6 +693,94 @@ twenty sessions stops re-parsing a 37,000-run ledger twenty times over, and a th
 (`since_ts`) so that `--since N` bounds an always-on session's rows to the window asked
 for rather than folding its whole history in; nothing else about a dissection changes,
 and there is still one implementation of it.
+
+### Every wrap now ends with a verdict that can come back negative
+
+Every piece of statistical machinery in this repo already worked. None of it was ever
+shown to the person whose traffic it was measuring. The e-process in `drift.py` had no
+caller. The conformal bound was reachable only from a command nobody runs twice. The
+receipt chain was hash-linked and verified on request, which means in practice never.
+The gap was not rigor; it was that rigor stayed in the library and the user got a
+savings number.
+
+Every `distil wrap` session now ends with four verdicts, and the same four print in
+`distil stats` and `distil dissect` from one shared function, so three surfaces reading
+one ledger cannot disagree about it. Each one can come back negative — that is the
+entire reason to print it.
+
+- **`budget` — the certified decision-change budget, checked after every request.** Live
+  shadow rows feed a persisted betting e-process (`~/.distil/drift.json`, folded once per
+  row in file order, locked). Capital crossing `1/δ` means the live decision-change rate
+  has exceeded the certified 5% at 95% confidence, and the line says `BREACHED at sample
+  k` until the evidence is archived by `distil reset --shadow`. Ville's inequality is what
+  makes peeking free. The state is bound to the stream it counted — a fingerprint of the
+  rows already folded, plus the signature version they were read under — so archiving or
+  truncating `shadow.jsonl` outside `distil reset --shadow`, or a `SIG_VERSION` bump that
+  filters old rows out, rebuilds the e-process over the current stream and says
+  `restarted: the shadow stream was replaced`, instead of quoting a stale `n` while
+  ignoring every new sample until the file outgrows the old count. The gate is a build
+  gate, not a claim: 2,000 null runs at exactly
+  the budget alarm 99 times (4.95% against a δ of 5%), and a true rate ten points over
+  budget is caught on 500 of 500 runs within a median of 172 requests.
+- **`risk` — a distribution-free upper bound on the same losses.** Deliberately wider
+  than the bootstrap interval beside it: the bootstrap estimates where the rate is, this
+  one states where it is not, assuming no distribution and holding at finite `n`. A
+  1,000-run coverage simulation gates it.
+- **`output` — what compression did to reply *length*.** Shadow already measured it and
+  only `dissect` showed it. A shorter prompt that buys a longer answer can cost more than
+  it saved. The direction word prints only when the 95% interval excludes zero; it is the
+  measured effect on ordinary traffic, not `--shape-output`, which *asks* for shorter
+  replies.
+- **`receipts` — the chain, verified at exit.** `distil receipts --verify` now exists as
+  the obvious spelling of the default action. Verifying a broken chain used to report
+  `receipt 1 of 2` when three receipts existed, because the scan stopped counting at the
+  break; the second number is the one that tells a reader how much of the artifact is in
+  question, so it now counts the file. Writing a receipt is a read-modify-write, so the
+  head read and the append are now one locked critical section — unserialized, two
+  concurrent requests both claim the same predecessor and fork the chain, which this new
+  line would have reported as `chain BROKEN` on perfectly healthy traffic. The owner-only
+  opener above sits inside that section: mode-at-creation and chain ordering are two
+  properties of one write.
+
+Below the shared reporting floor every line withholds its number and says how far along
+it is instead. A verdict computed over evidence too thin to support it is worse than no
+verdict, because it teaches the reader to ignore a line that was supposed to be able to
+say no.
+
+**A verdict printed on every exit has to cost what one exit is worth.** Each of these
+lines reads an append-only artifact that grows one row per request and never shrinks —
+the maintainer's `receipts.jsonl` is 83 MB — so a render that re-parses them end to end
+is O(lifetime): a multi-second stall and a memory spike that arrive gradually enough that
+nobody attributes them to this feature. Three things now bound it. Chain verification
+streams instead of materialising the chain, and resumes: a small `receipts-verified.json`
+records `(count, head_hash)` and the byte offsets of the last verified receipt, so only
+rows appended since are re-hashed, and the statement names what it skipped. That
+checkpoint can only make the answer cheaper, never wronger — it is re-hashed before it is
+trusted, any failure from a resumed pass is discarded and re-run in full, and a third
+party handed the file always gets the full pass, as does `distil receipts` itself — the default is the full pass, and `--fast` is the opt-in that
+resumes from the checkpoint. `shadow.jsonl` is read once per render and shared by every line that quotes it,
+rather than once per line. And the drift monitor folds only the rows past `consumed`,
+carrying the stream fingerprint forward as an accumulator instead of re-deriving it over
+the whole prefix. On a 200,000-receipt chain and a 50,000-row shadow ledger the exit
+summary goes from about 1.5 s to 237 ms, with peak allocation a fraction of either file.
+
+The drift state is also written atomically now — temp file, owner-only at creation, then
+a rename under the same lock. `tripped` is sticky and capital accumulates across sessions,
+so a write torn by a crash, a full disk or a Ctrl-C would not have corrupted the alarm
+noisily; it would have silently reset it to a fresh monitor that reads `intact` over
+evidence that said `BREACHED`. And each verdict is now computed in isolation, which the
+docstring already claimed: one unreadable artifact drops its own line and the other three
+still print.
+
+### Saying which parts are not on the request path
+
+`distil doctor` now states plainly that `guideline.py`'s outcome statistics are a
+zero-sample no-op — `record_trajectory_outcome` has no callers, so the routing it feeds
+is running on defaults. Seven research modules (`gist`, `speculative`, `ensemble`,
+`retrieval`, `output.digest_output_blocks`, `telemetry.sign`/`submit`, and
+`trajectory_risk.drift_monitor`) now open their docstrings with **RESEARCH-ONLY — not on
+the request path**. Nothing was deleted and nothing changed behaviour; an inert module
+that reads as shipped is a claim, and it is now labelled as what it is.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 

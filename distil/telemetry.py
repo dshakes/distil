@@ -59,7 +59,12 @@ def _canonical(agg: SavingsAggregate) -> str:
 
 
 def sign(agg: SavingsAggregate, key: str) -> dict:
-    """Return a dict of all aggregate fields plus an HMAC-SHA256 ``sig`` field.
+    """RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+    Return a dict of all aggregate fields plus an HMAC-SHA256 ``sig`` field.
+
+    Nothing in distil produces a signed submission: ``distil census`` is a separate
+    implementation (:mod:`distil.census`) that never calls this.
 
     The HMAC is computed over ``_canonical(agg)`` encoded as UTF-8.
     """
@@ -95,7 +100,9 @@ def verify(signed: dict, key: str) -> bool:
 
 
 def submit(signed: dict, dir: str) -> str:
-    """Append *signed* as one JSONL line to ``<dir>/submissions.jsonl``.
+    """RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+    Append *signed* as one JSONL line to ``<dir>/submissions.jsonl``.
 
     Returns the absolute path of the file written.
     """

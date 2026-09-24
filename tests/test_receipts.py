@@ -237,3 +237,48 @@ def test_chain_file_is_created_owner_only(home, monkeypatch):
     finally:
         os.umask(old)
     assert stat.S_IMODE(R.receipts_path().stat().st_mode) == 0o600
+
+
+# ---------------------------------------------------------------------------
+# One writer at a time — the chain is a read-modify-write
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_appends_do_not_fork_the_chain(home):
+    """Reading the head and appending is a read-modify-write. Unserialized, two in-flight
+    requests both read head H, both write ``prev == H``, and the chain forks — which the
+    proof ledger now surfaces as "chain BROKEN" on entirely healthy concurrent traffic.
+
+    Threads are the real shape of this: the proxy appends from its request handlers, so
+    the writers share a process. ``flock`` is held per open file description and
+    ``_filelock.locked`` opens a fresh one per call, so it serializes them too.
+    """
+    import threading
+
+    n = 16
+    start = threading.Barrier(n, timeout=60)  # generous: a 2-core CI runner is not fast
+    errors: list[BaseException] = []
+
+    def write(i: int) -> None:
+        try:
+            start.wait()  # release together, so the appends genuinely overlap
+            R.append(_mk(i))
+        except BaseException as exc:  # noqa: BLE001 — reported below, never swallowed
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=120)
+    assert not any(t.is_alive() for t in threads), "an appender deadlocked"
+    assert not errors, f"appenders raised: {errors!r}"
+
+    v = R.verify()
+    assert v.ok, v.statement
+    assert v.total == n, f"expected {n} receipts, chain holds {v.total}"
+    # Every receipt is distinct and every link is used exactly once — a fork would
+    # repeat a prev-hash, which is the failure a verify pass alone can still miss.
+    chain = list(R.read())
+    assert len({r.hash for r in chain}) == n
+    assert len({r.prev for r in chain}) == n

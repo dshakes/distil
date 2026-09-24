@@ -1,4 +1,6 @@
-"""Speculative expansion — pay for full context only when divergence risk is certified low.
+"""RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+Speculative expansion — pay for full context only when divergence risk is certified low.
 
 The idea, borrowed from speculative decoding: most turns are safe to run on cheap compressed
 context; only a few actually need the full context to keep the agent's decision. A cheap
