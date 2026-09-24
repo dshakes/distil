@@ -121,6 +121,64 @@ def test_a_plain_reread_still_supersedes_the_older_copy() -> None:
     assert _result(out, "r2") == SRC
 
 
+UNREAD = "def written_by_the_agent():\n    return 'never read back'"
+
+
+def test_an_edit_no_read_carried_keeps_the_narrow_pass() -> None:
+    """Widening only helps a quote some read carried. One the agent `Write`-ed itself is
+    lost either way, so the widened pass must not be adopted: it would re-verbatim the
+    superseded copy (a cached-prefix rewrite) and rescue nothing."""
+    msgs = _anthropic_session("cat /app/handlers.py") + [
+        _bash_call("r2", "cat /app/handlers.py"),
+        _tool_result("r2", SRC),
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "e1",
+                    "name": "Edit",
+                    "input": {"file_path": "/app/new.py", "old_string": UNREAD, "new_string": ""},
+                }
+            ],
+        },
+        _tool_result("e1", "applied"),
+    ]
+    out, _store = compress_messages(msgs)
+    assert "handle=" in _result(out, "r1"), "a widen that rescued nothing was forwarded"
+    assert take_quote_hazard() == {"survived": 0, "lost": 1}
+
+
+def test_responses_keeps_the_narrow_pass_when_widening_rescues_nothing() -> None:
+    def call(cid: str, command: str) -> dict:
+        return {
+            "type": "function_call",
+            "call_id": cid,
+            "name": "shell",
+            "arguments": json.dumps({"command": command}),
+        }
+
+    items: list[dict] = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]},
+        call("f1", "cat /app/handlers.py"),
+        {"type": "function_call_output", "call_id": "f1", "output": SRC},
+        call("f2", "cat /app/handlers.py"),
+        {"type": "function_call_output", "call_id": "f2", "output": SRC},
+        {
+            "type": "function_call",
+            "call_id": "e1",
+            "name": "str_replace_editor",
+            "arguments": json.dumps({"path": "/app/new.py", "old_str": UNREAD, "new_str": ""}),
+        },
+        {"type": "function_call_output", "call_id": "e1", "output": "ok"},
+    ]
+    before, _ = compress_responses_input(items[:5])  # the turn before the Edit arrived
+    out, _store = compress_responses_input(items)
+    assert out[:5] == before, "an unrescuable Edit rewrote the already-sent prefix"
+    assert out[2]["output"] == SRC == out[4]["output"]
+    assert take_quote_hazard() == {"survived": 0, "lost": 1}
+
+
 def test_a_cd_prefixed_read_is_still_a_read() -> None:
     """`cd /repo && cat main.py` is the commonest way an agent reads a file. Requiring
     every stage to be a reader refused it, which digested the quote."""

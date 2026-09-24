@@ -237,6 +237,12 @@ class ReplayStats:
     hits: int = 0  # leading items forwarded as previously sent
     misses: int = 0  # items past the divergence point, compressed fresh
     restored: int = 0  # of the hits, how many differed from what we'd have sent now
+    # WHY the walk stopped, so an in-window cache write can be blamed on the right side:
+    # "held" (the whole previous turn replayed), "client" (the client changed or dropped an
+    # item it had sent before), "distil" (same client item, different compression
+    # decision), "marker" (a breakpoint with nowhere to sit), "cold" (no state for this
+    # lineage: first turn, restart, or LRU eviction), "untracked" (history over the cap).
+    stop: str = "cold"
 
 
 @dataclass
@@ -343,6 +349,7 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
         # than hold a context window per conversation forever.
         with _LOCK:
             _LINEAGES.pop(key, None)
+        stats.stop = "untracked"
         return forwarded, stats
 
     prev = _get(key)
@@ -354,8 +361,12 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
     if prev is not None:
         prev_fwd_canon = list(prev.fwd_canon)  # local: another thread may hold `prev`
         limit = min(len(cur_canon), len(prev.canon), len(forwarded), len(prev.forwarded))
+        # Running off the end of the shorter history is "held" only when that end is the
+        # previous turn's; a client that now sends fewer items dropped some.
+        stats.stop = "held" if len(cur_canon) >= len(prev.canon) else "client"
         for i in range(limit):
             if cur_canon[i] != prev.canon[i]:
+                stats.stop = "client"
                 break  # the client changed this item — stop, and stay stopped
             if i >= len(prev_fwd_canon):
                 prev_fwd_canon.append(canonical(prev.forwarded[i]))
@@ -364,11 +375,13 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
                 # We would send something semantically different this turn (an
                 # exact-quote exemption came into range, say). Replay restores bytes,
                 # never decisions — so this is a divergence like any other.
+                stats.stop = "distil"
                 break
             item = _remark(prev.forwarded[i], original[i])
             if item is None:
                 # The client's breakpoint has nowhere to sit on last turn's form. A
                 # replay that drops it trades the entry for the hit — stop here.
+                stats.stop = "marker"
                 break
             if _wire(item) != _wire(forwarded[i]):
                 stats.restored += 1
@@ -410,6 +423,7 @@ def apply(
             extras["x-distil-replay-hits"] = str(stats.hits)
             extras["x-distil-replay-misses"] = str(stats.misses)
             extras["x-distil-replay-restored"] = str(stats.restored)
+            extras["x-distil-replay-stop"] = stats.stop
         # Only rebuild the body when bytes actually changed, so an unmodified request
         # keeps whatever fast path its server has for forwarding the original bytes.
         return {**body, list_key: out} if stats.restored else body

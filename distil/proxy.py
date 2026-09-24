@@ -119,8 +119,10 @@ def _upstream_error_type(status: int, rbody: bytes) -> str | None:
     return f"http_{status}"
 
 
-def _replay_record(extras: dict[str, str]) -> dict[str, int]:
-    """The three prefix-replay counters, or nothing at all when replay did not run.
+def _replay_record(extras: dict[str, str]) -> dict[str, int | str]:
+    """The three prefix-replay counters and why the walk stopped, or nothing at all when
+    replay did not run. ``replay_stop`` is what lets an in-window cache write be blamed on
+    the client or on distil — see :class:`distil.prefixreplay.ReplayStats`.
 
     `distil dissect` reports `None` for a session with no such fields and says so in
     words ("not recorded"). Writing zeros for a `--no-prefix-replay` session would make
@@ -133,6 +135,7 @@ def _replay_record(extras: dict[str, str]) -> dict[str, int]:
         "replay_hits": int(extras.get("x-distil-replay-hits", 0) or 0),
         "replay_misses": int(extras.get("x-distil-replay-misses", 0) or 0),
         "replay_restored": int(extras.get("x-distil-replay-restored", 0) or 0),
+        "replay_stop": extras.get("x-distil-replay-stop", ""),
     }
 
 

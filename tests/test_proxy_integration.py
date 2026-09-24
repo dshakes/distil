@@ -346,6 +346,7 @@ def test_a_replay_off_request_records_no_counters_at_all() -> None:
         "replay_hits": 0,
         "replay_misses": 0,
         "replay_restored": 0,
+        "replay_stop": "",
     }, "a replay that genuinely held nothing must still record its zeros"
 
     def _d(rows):

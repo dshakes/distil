@@ -1,0 +1,35 @@
+{
+ "ttl_s": 300,
+ "slack_tokens": 2000,
+ "ledger": {
+  "requests": 16167,
+  "billed_usd": 2811.68,
+  "warm_pairs": 15097,
+  "warm_pairs_clean": 14645,
+  "break_usd": 37.91,
+  "break_share_of_billed": 0.0135,
+  "by_cause": {
+   "diverged_unattributed": {
+    "pairs": 412,
+    "usd": 27.33
+   },
+   "system_or_tools_changed": {
+    "pairs": 29,
+    "usd": 10.42
+   },
+   "replay_held": {
+    "pairs": 11,
+    "usd": 0.16
+   }
+  }
+ },
+ "transcript_replay": {
+  "requests": 4658,
+  "widen_ran": 2625,
+  "widen_rescued": 0,
+  "distil_breaks": 1,
+  "distil_break_bytes": 176944,
+  "forwarded_bytes": 1653343158,
+  "transcripts": 12
+ }
+}
