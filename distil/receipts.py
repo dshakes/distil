@@ -152,23 +152,32 @@ def _reverse_lines(p: Path) -> Iterator[bytes]:
 
     Cost is bounded by the trailing bytes actually inspected, not by the file: a
     multi-GB chain and a 200-byte one cost the same when the tail is healthy. A line
-    longer than one block just means another block read, not a longer line held.
+    longer than one block is held whole, but each block is searched once and the
+    pieces are joined once — linear in the line, never quadratic. That matters for
+    the unhealthy tail: a crash can leave megabytes of garbage with no newline, and
+    this runs inside the append lock on every request.
     """
     try:
         with p.open("rb") as fh:
             pos = fh.seek(0, os.SEEK_END)
-            buf = b""
+            parts: list[bytes] = []  # the line being assembled, last piece first
             while pos > 0:
                 read_size = min(_TAIL_BLOCK_SIZE, pos)
                 pos -= read_size
                 fh.seek(pos)
-                buf = fh.read(read_size) + buf
-                lines = buf.split(b"\n")
-                buf = lines[0]  # may be partial; grows if another block is needed
-                for line in reversed(lines[1:]):
-                    yield line
-            if buf:
-                yield buf
+                block = fh.read(read_size)
+                end = len(block)
+                nl = block.rfind(b"\n", 0, end)
+                while nl != -1:
+                    parts.append(block[nl + 1 : end])
+                    yield b"".join(reversed(parts))
+                    parts = []
+                    end = nl
+                    nl = block.rfind(b"\n", 0, end)
+                parts.append(block[:end])
+            head = b"".join(reversed(parts))
+            if head:
+                yield head
     except OSError:
         return
 

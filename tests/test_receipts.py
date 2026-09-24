@@ -389,3 +389,32 @@ def test_concurrent_appends_do_not_fork_the_chain(home):
     chain = list(R.read())
     assert len({r.hash for r in chain}) == n
     assert len({r.prev for r in chain}) == n
+
+
+def test_head_hash_is_linear_in_a_long_garbage_tail(home, monkeypatch):
+    # A crash can leave megabytes with no newline. Each block must be searched once:
+    # re-splitting the growing buffer per block was quadratic (3.3 s at 32 MB, inside
+    # the append lock). A 1 KiB block over 8 MB makes quadratic unmistakable (~32 GB
+    # copied) while linear stays well under the bound.
+    import time
+
+    for i in range(3):
+        R.append(_mk(i))
+    p = home / "receipts.jsonl"
+    with p.open("ab") as fh:
+        fh.write(b"\0" * (8 * 1024 * 1024))
+    monkeypatch.setattr(R, "_TAIL_BLOCK_SIZE", 1024)
+    t0 = time.perf_counter()
+    got = R.head_hash()
+    assert time.perf_counter() - t0 < 2.0
+    assert got == _old_head_hash() == list(R.read())[-1].hash
+
+
+def test_head_hash_agrees_with_full_scan_on_crlf_and_non_receipt_tails(home):
+    for i in range(3):
+        R.append(_mk(i))
+    p = home / "receipts.jsonl"
+    base = p.read_bytes()
+    for tail in (b'{"foo": 1}\r\n', b"[1]\n", b"\r\n\r\n", b'{"foo": 1}'):
+        p.write_bytes(base + tail)
+        assert R.head_hash() == _old_head_hash()
