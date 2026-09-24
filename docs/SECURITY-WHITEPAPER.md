@@ -127,13 +127,30 @@ Every request writes a **hash-chained receipt**: counts, mode, handles issued, a
 whether they resolved. Never content. Each receipt carries the previous receipt's
 hash, so removing or editing an entry breaks the chain.
 
+Treat it as the team's audit log for what compression did. The chain is split into
+**sealed segments**: when the active file reaches the segment size it is renamed —
+never rewritten — into `receipts-segments/`, and a checkpoint is written beside it
+(segment id, row count, first and last receipt hash, and a Merkle root over the
+segment's receipt hashes, RFC 6962 leaf/node domain separation). The next receipt
+links to the sealed segment's last hash, so segments form one continuous chain.
+
 ```bash
-distil receipts            # verify the chain; non-zero exit if broken
-distil receipts --export   # newline-delimited JSON for your SIEM
+distil receipts                    # verify the whole history; non-zero exit if broken
+distil receipts --segment 3        # one sealed segment vs its checkpoint, nothing else read
+distil receipts --checkpoints      # the checkpoint records (JSONL) — publish/pin these
+distil receipts --prove <req-id>   # Merkle inclusion proof for one sealed receipt
+distil receipts --check-proof proof.json --root <hex>   # verify it from the proof alone
+distil receipts --export           # newline-delimited JSON for your SIEM
 ```
 
-The verification needs nothing but the file — no server, no key escrow. Retention
-is yours to set; distil never prunes receipts.
+The verification needs nothing but the files — no server, no key escrow. An auditor
+can be handed a single receipt and its inclusion proof instead of the whole log, and
+check it against a root they already hold. Checkpoint roots are only as trustworthy as
+where they are kept: anyone with write access to `~/.distil` can re-seal a segment and
+rewrite its checkpoint, so copy the roots from `--checkpoints` somewhere they cannot
+(a ticket, a repo, your SIEM). A chain written before segments existed verifies
+unchanged and is sealed as segment 0, byte for byte, on its first rotation. Retention
+is yours to set; distil never prunes receipts or segments.
 
 ## 8. Supply chain
 

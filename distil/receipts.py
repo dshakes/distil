@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -45,7 +46,46 @@ def _home() -> Path:
 
 
 def receipts_path() -> Path:
+    """The ACTIVE chain file — the only one ever appended to."""
     return _home() / "receipts.jsonl"
+
+
+log = logging.getLogger(__name__)
+
+#: Rotate the active chain into a sealed segment once it reaches this size. Checked
+#: with one ``stat`` per append; the seal itself reads the segment once, so the cost
+#: per receipt is O(1) amortized. ``0`` disables rotation.
+SEGMENT_BYTES = 32 * 1024 * 1024
+
+
+def segments_dir() -> Path:
+    return _home() / "receipts-segments"
+
+
+def segment_path(seg: int) -> Path:
+    return segments_dir() / f"{seg:06d}.jsonl"
+
+
+def segment_checkpoint_path(seg: int) -> Path:
+    return segments_dir() / f"{seg:06d}.checkpoint.json"
+
+
+def sealed_segments() -> list[int]:
+    """Ids of the sealed segments on disk, oldest first.
+
+    A checkpoint with no segment beside it is NOT a segment: it is what a crash between
+    writing the checkpoint and moving the active file leaves behind (see ``_seal``), and
+    the next seal overwrites it.
+
+    ponytail: a directory listing, O(segments). It runs on a seal and on the one
+    ``head_hash`` right after it, never per request; at 32 MiB a segment that is a
+    handful of entries a year. Keep a manifest if it ever reaches thousands.
+    """
+    try:
+        names = os.listdir(segments_dir())
+    except OSError:
+        return []
+    return sorted(int(n[:-6]) for n in names if n.endswith(".jsonl") and n[:-6].isdigit())
 
 
 @dataclass
@@ -129,6 +169,7 @@ def append(receipt: Receipt) -> Receipt:
         path = receipts_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with _filelock.locked(path):
+            _maybe_rotate(path)
             receipt.prev = head_hash()
             receipt.sealed()
             # 0600 AT CREATION via the opener, not by the chmod below: a chmod after
@@ -197,6 +238,15 @@ def head_hash() -> str:
         r = _parse(raw)
         if r is not None:
             return r.hash
+    # An empty active file means a seal just happened (or nothing was ever written):
+    # the head is the last receipt of the newest segment — also a tail read. This is
+    # what links the first receipt of a new segment to the one sealed before it.
+    ids = sealed_segments()
+    if ids:
+        for raw in _reverse_lines(segment_path(ids[-1])):
+            r = _parse(raw)
+            if r is not None:
+                return r.hash
     return GENESIS
 
 
@@ -238,12 +288,22 @@ def _lines(p: Path, start: int = 0) -> Iterator[tuple[int, int, bytes]]:
         return
 
 
+def _chain_files() -> list[tuple[int | None, Path]]:
+    """The whole history in order: every sealed segment, then the active file (``None``)."""
+    return [(i, segment_path(i)) for i in sealed_segments()] + [(None, receipts_path())]
+
+
 def read(path: Path | None = None) -> Iterator[Receipt]:
-    """Yield receipts in file order. Malformed lines are skipped, not fatal."""
-    for _begin, _end, raw in _lines(path or receipts_path()):
-        r = _parse(raw)
-        if r is not None:
-            yield r
+    """Yield receipts in chain order. Malformed lines are skipped, not fatal.
+
+    With no ``path``, that is the whole history: every sealed segment, then the active file.
+    """
+    paths = [path] if path is not None else [p for _s, p in _chain_files()]
+    for p in paths:
+        for _begin, _end, raw in _lines(p):
+            r = _parse(raw)
+            if r is not None:
+                yield r
 
 
 @dataclass
@@ -284,8 +344,15 @@ def _checkpoint_path() -> Path:
     return _home() / "receipts-verified.json"
 
 
-def _load_checkpoint() -> tuple[int, str, int, int] | None:
-    """``(count, head_hash, tail_start, tail_end)`` from the last good full pass."""
+def _load_checkpoint() -> tuple[int, str, int, int, int] | None:
+    """``(count, head_hash, file_index, tail_start, tail_end)`` from the last good full pass.
+
+    ``file_index`` is the position in :func:`_chain_files` of the file holding that last
+    receipt. A seal renames the active file into the next segment without touching a byte,
+    so the index and both offsets stay valid across rotation. A checkpoint written before
+    segments existed has no index, and ``0`` is exactly right for it: its file is either
+    still the active one, or segment 0 after the lazy migration.
+    """
     try:
         raw = json.loads(_checkpoint_path().read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
@@ -293,6 +360,7 @@ def _load_checkpoint() -> tuple[int, str, int, int] | None:
         return (
             int(raw["count"]),
             str(raw["head"]),
+            int(raw.get("file", 0)),
             int(raw["tail_start"]),
             int(raw["tail_end"]),
         )
@@ -300,12 +368,20 @@ def _load_checkpoint() -> tuple[int, str, int, int] | None:
         return None
 
 
-def _save_checkpoint(count: int, head: str, tail_start: int, tail_end: int) -> None:
+def _save_checkpoint(
+    count: int, head: str, file_index: int, tail_start: int, tail_end: int
+) -> None:
     """Persist the resume point. Best-effort: losing it costs a full re-scan, nothing more."""
     from . import _filelock
 
     path = _checkpoint_path()
-    payload = {"count": count, "head": head, "tail_start": tail_start, "tail_end": tail_end}
+    payload = {
+        "count": count,
+        "head": head,
+        "file": file_index,
+        "tail_start": tail_start,
+        "tail_end": tail_end,
+    }
     tmp = path.with_name(path.name + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,50 +395,274 @@ def _save_checkpoint(count: int, head: str, tail_start: int, tail_end: int) -> N
             tmp.unlink()
 
 
-def _scan(p: Path, count: int, prev: str, tail_start: int, tail_end: int) -> Verdict:
-    """Stream from byte ``tail_end``, chaining from ``prev``, with ``count`` behind us.
+# ---------------------------------------------------------------------------
+# Merkle tree over a segment's receipt hashes (RFC 6962 / RFC 9162 shape)
+# ---------------------------------------------------------------------------
+#
+# Domain-separated: a leaf is H(0x00 || receipt-hash) and an interior node is
+# H(0x01 || left || right), so no interior node can be passed off as a leaf. The leaf
+# input is the receipt's own ``hash`` field as ASCII hex — which the verifier recomputes
+# from the receipt's content, so an inclusion proof proves the content, not a label.
+
+
+def _leaf(receipt_hash: str) -> bytes:
+    return hashlib.sha256(b"\x00" + str(receipt_hash).encode()).digest()
+
+
+def _node(left: bytes, right: bytes) -> bytes:
+    return hashlib.sha256(b"\x01" + left + right).digest()
+
+
+def _split(n: int) -> int:
+    """Largest power of two strictly below ``n`` (``n >= 2``)."""
+    return 1 << ((n - 1).bit_length() - 1)
+
+
+def _mth(leaves: list[bytes], lo: int, hi: int) -> bytes:
+    if hi - lo == 1:
+        return leaves[lo]
+    k = _split(hi - lo)
+    return _node(_mth(leaves, lo, lo + k), _mth(leaves, lo + k, hi))
+
+
+def merkle_root(leaves: list[bytes]) -> bytes:
+    """RFC 6962 Merkle Tree Hash over already-hashed leaves."""
+    return _mth(leaves, 0, len(leaves)) if leaves else hashlib.sha256(b"").digest()
+
+
+def _audit_path(leaves: list[bytes], m: int, lo: int, hi: int) -> list[bytes]:
+    if hi - lo == 1:
+        return []
+    k = _split(hi - lo)
+    if m < k:
+        return _audit_path(leaves, m, lo, lo + k) + [_mth(leaves, lo + k, hi)]
+    return _audit_path(leaves, m - k, lo + k, hi) + [_mth(leaves, lo, lo + k)]
+
+
+def verify_inclusion(index: int, size: int, leaf: bytes, path: list[bytes], root: bytes) -> bool:
+    """RFC 9162 §2.1.3.2 inclusion check. Needs the leaf, the path and the root — nothing else."""
+    if index < 0 or index >= size:
+        return False
+    fn, sn, r = index, size - 1, leaf
+    for p in path:
+        if sn == 0:
+            return False
+        if fn & 1 or fn == sn:
+            r = _node(p, r)
+            if not fn & 1:
+                while not fn & 1 and fn != 0:
+                    fn >>= 1
+                    sn >>= 1
+        else:
+            r = _node(r, p)
+        fn >>= 1
+        sn >>= 1
+    return sn == 0 and r == root
+
+
+# ---------------------------------------------------------------------------
+# Sealed segments
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Checkpoint:
+    """What a seal commits to. Small enough to publish anywhere; enough to verify one
+    segment, or one receipt inside it, without any other part of the history."""
+
+    segment: int
+    rows: int
+    first: str  # hash of the segment's first receipt
+    last: str  # hash of its last receipt — the link the next segment's first receipt carries
+    root: str  # hex Merkle root over every receipt hash in the segment, in order
+    v: int = 1
+
+    @classmethod
+    def from_dict(cls, d: Any) -> Checkpoint:
+        """Validate untrusted input (a checkpoint file, or one embedded in a proof)."""
+        if not isinstance(d, dict):
+            raise ValueError("checkpoint is not an object")
+        try:
+            ck = cls(
+                segment=d["segment"],
+                rows=d["rows"],
+                first=d["first"],
+                last=d["last"],
+                root=d["root"],
+                v=d.get("v", 1),
+            )
+        except KeyError as exc:
+            raise ValueError(f"checkpoint is missing {exc}") from exc
+        if not all(isinstance(x, int) and not isinstance(x, bool) for x in (ck.segment, ck.rows)):
+            raise ValueError("checkpoint segment/rows must be integers")
+        if not all(isinstance(x, str) for x in (ck.first, ck.last, ck.root)):
+            raise ValueError("checkpoint first/last/root must be strings")
+        return ck
+
+
+def load_segment_checkpoint(seg: int) -> Checkpoint | None:
+    try:
+        return Checkpoint.from_dict(
+            json.loads(segment_checkpoint_path(seg).read_text(encoding="utf-8"))
+        )
+    except (OSError, ValueError):
+        return None
+
+
+def _segment_mismatch(
+    ck: Checkpoint | None, seg: int, leaves: list[bytes], first: str, last: str
+) -> str:
+    """Why a segment's contents disagree with its checkpoint, or ``""``."""
+    if ck is None:
+        return f"sealed segment {seg} has no readable checkpoint"
+    if ck.segment != seg:
+        return f"segment {seg}'s checkpoint names segment {ck.segment}"
+    if ck.rows != len(leaves):
+        return f"segment {seg} holds {len(leaves)} receipts, its checkpoint sealed {ck.rows}"
+    if (ck.first, ck.last) != (first, last):
+        return f"segment {seg}'s first/last receipt does not match its checkpoint"
+    if merkle_root(leaves).hex() != ck.root:
+        return f"segment {seg}'s Merkle root does not match its checkpoint"
+    return ""
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    from . import _filelock
+
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", opener=atrest.owner_only) as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    _filelock.replace_retrying(tmp, path)
+
+
+def _seal(active: Path) -> Checkpoint | None:
+    """Move the active chain into the next sealed segment. Caller holds the append lock.
+
+    **Order is the crash story.** The checkpoint is written (atomically) FIRST, then the
+    active file is renamed into place. A crash between the two leaves a checkpoint with no
+    segment — ignored by every reader, overwritten by the next seal — and the active file
+    exactly as it was. A crash after the rename leaves a sealed segment with its checkpoint
+    and no active file, which ``head_hash`` reads as "link to the newest segment". There is
+    no state in which a receipt's bytes were rewritten: the segment IS the old active file,
+    renamed, which is also what lets a legacy single-file chain migrate by becoming
+    segment 0 untouched.
+    """
+    from . import _filelock
+
+    leaves: list[bytes] = []
+    first = last = ""
+    for r in read(active):
+        leaves.append(_leaf(r.hash))
+        first = first or str(r.hash)
+        last = str(r.hash)
+    if not leaves:
+        return None
+    ids = sealed_segments()
+    seg = ids[-1] + 1 if ids else 0
+    segments_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+    ck = Checkpoint(seg, len(leaves), first, last, merkle_root(leaves).hex())
+    _write_atomic(segment_checkpoint_path(seg), json.dumps(asdict(ck), sort_keys=True) + "\n")
+    _filelock.replace_retrying(active, segment_path(seg))
+    segment_path(seg).chmod(0o600)  # a legacy chain may predate the owner-only opener
+    return ck
+
+
+def _maybe_rotate(active: Path) -> None:
+    """Seal the active file if it has outgrown ``SEGMENT_BYTES``. Never loses a receipt:
+    a failed seal leaves the active file where it was and the append goes ahead."""
+    if SEGMENT_BYTES <= 0:
+        return
+    try:
+        if active.stat().st_size < SEGMENT_BYTES:
+            return
+        _seal(active)
+    except OSError:
+        # Rotation is housekeeping; the receipt being written is the record. A seal that
+        # failed half-way is retried by the next append (see _seal's crash ordering).
+        log.debug("receipt segment seal failed; appending to the active chain", exc_info=True)
+
+
+def _scan(
+    files: list[tuple[int | None, Path]],
+    file_index: int,
+    count: int,
+    prev: str,
+    tail_start: int,
+    tail_end: int,
+    *,
+    save: bool,
+) -> Verdict:
+    """Stream the chain from byte ``tail_end`` of ``files[file_index]`` onward, chaining
+    from ``prev``, with ``count`` receipts behind us.
 
     ``tail_start``/``tail_end`` bracket the last receipt already verified, and are carried
     through untouched when the file has grown by nothing — otherwise a render that finds no
     new receipts would move the resume point onto empty space and force the next one to
     start over.
 
+    Every sealed segment read from its first byte is also checked against its checkpoint
+    (row count, first/last hash, Merkle root). A segment the resume point sits inside is
+    only chained, not re-rooted: its prefix is the part a resumed pass trusts.
+
     Never materialises the chain. On a break it stops hashing but keeps counting, because
     "receipt 3 of 40" has to name the receipts that exist, not the ones checked before the
     break — the second number is what tells a reader how much of the artifact is in question.
     """
-    first = count
+    first_checked = count
     bad: tuple[int, str] | None = None
-    for begin, end, raw in _lines(p, tail_end):
-        r = _parse(raw)
-        if r is None:
-            continue
-        idx, count = count, count + 1
-        if bad is not None:
-            continue
-        if r.hash != r.compute_hash():
-            bad = (idx, "content does not match its hash")
-        elif r.prev != prev:
-            bad = (idx, "prev-hash does not match the preceding receipt")
-        else:
-            prev, tail_start, tail_end = r.hash, begin, end
+    last_file = file_index
+    for fi in range(file_index, len(files)):
+        seg, p = files[fi]
+        start = tail_end if fi == file_index else 0
+        leaves: list[bytes] | None = [] if seg is not None and start == 0 else None
+        seg_first_idx, seg_first, seg_last = count, "", ""
+        for begin, end, raw in _lines(p, start):
+            r = _parse(raw)
+            if r is None:
+                continue
+            idx, count = count, count + 1
+            if bad is not None:
+                continue
+            if leaves is not None:
+                leaves.append(_leaf(r.hash))
+                seg_first = seg_first or str(r.hash)
+                seg_last = str(r.hash)
+            if r.hash != r.compute_hash():
+                bad = (idx, "content does not match its hash")
+            elif r.prev != prev:
+                bad = (idx, "prev-hash does not match the preceding receipt")
+            else:
+                prev, tail_start, tail_end, last_file = r.hash, begin, end, fi
+        if bad is None and leaves is not None and seg is not None:
+            why = _segment_mismatch(load_segment_checkpoint(seg), seg, leaves, seg_first, seg_last)
+            if why:
+                bad = (seg_first_idx, why)
     if bad is not None:
-        return Verdict(count, False, bad[0], bad[1], first)
-    if count:
-        _save_checkpoint(count, prev, tail_start, tail_end)
-    return Verdict(count, True, checked_from=first)
+        return Verdict(count, False, bad[0], bad[1], first_checked)
+    if count and save:
+        _save_checkpoint(count, prev, last_file, tail_start, tail_end)
+    return Verdict(count, True, checked_from=first_checked)
 
 
 def verify(path: Path | None = None, *, full: bool = True) -> Verdict:
     """Recompute every hash and every link. This is the whole point of the artifact:
-    anyone can run it, and it needs nothing but the file.
+    anyone can run it, and it needs nothing but the files.
 
-    **A third party always does the full pass.** Hand someone this file and they run
-    ``verify(path)`` — an explicit path never consults a checkpoint, so the guarantee the
-    artifact exists to provide is unchanged. What is cached is *this* machine re-checking
-    *its own* chain, which now happens on every wrap exit and every ``distil stats``: the
-    resume point records how far a previous pass got, and only receipts appended since are
-    re-hashed. Without that, a session's exit summary re-hashes an 83 MB chain.
+    With no ``path`` this is the WHOLE history: every sealed segment in order (each also
+    checked against its checkpoint's Merkle root), then the active file, with the chain
+    carried across each boundary — so a deleted, reordered or re-sealed segment breaks it.
+    An explicit ``path`` is one self-contained chain from genesis (a legacy file, or a
+    whole history someone concatenated for you). One sealed segment on its own is
+    :func:`verify_segment`; one receipt on its own is :func:`verify_proof`.
+
+    **A third party always does the full pass.** An explicit path never consults a
+    checkpoint, so the guarantee the artifact exists to provide is unchanged. What is
+    cached is *this* machine re-checking *its own* chain, which now happens on every wrap
+    exit and every ``distil stats``: the resume point records how far a previous pass got,
+    and only receipts appended since are re-hashed. Without that, a session's exit summary
+    re-hashes an 83 MB chain.
 
     The checkpoint can only make the answer *cheaper*, never wronger about the part it
     checks: it is validated by re-reading AND re-hashing the last receipt it claims to
@@ -377,24 +677,124 @@ def verify(path: Path | None = None, *, full: bool = True) -> Verdict:
     rewrite the receipts can rewrite the checkpoint beside them); what is new is that the
     fast path says so rather than implying a full audit it did not perform.
     """
-    p = path or receipts_path()
-    if path is None and not full:
+    if path is not None:
+        return _scan([(None, path)], 0, 0, GENESIS, 0, 0, save=False)
+    files = _chain_files()
+    if not full:
         ck = _load_checkpoint()
         if ck is not None:
-            count, head, tail_start, tail_end = ck
-            # The resume point is only usable if the receipt it names is still there,
-            # byte for byte. This is what makes truncate-and-regrow visible.
-            last = next((_parse(raw) for _b, _e, raw in _lines(p, tail_start)), None)
-            # RE-HASHED, not just compared: editing a field of that receipt leaves its
-            # stored `hash` untouched, so trusting the stored value would let the most
-            # recent receipt — the one most worth editing — be changed unnoticed.
-            if (
-                last is not None
-                and last.hash == head
-                and last.compute_hash() == head
-                and tail_end >= tail_start
-            ):
-                v = _scan(p, count, head, tail_start, tail_end)
-                if v.ok:
-                    return v
-    return _scan(p, 0, GENESIS, 0, 0)
+            count, head, fi, tail_start, tail_end = ck
+            if 0 <= fi < len(files):
+                p = files[fi][1]
+                # The resume point is only usable if the receipt it names is still there,
+                # byte for byte. This is what makes truncate-and-regrow visible.
+                last = next((_parse(raw) for _b, _e, raw in _lines(p, tail_start)), None)
+                # RE-HASHED, not just compared: editing a field of that receipt leaves its
+                # stored `hash` untouched, so trusting the stored value would let the most
+                # recent receipt — the one most worth editing — be changed unnoticed.
+                if (
+                    last is not None
+                    and last.hash == head
+                    and last.compute_hash() == head
+                    and tail_end >= tail_start
+                ):
+                    v = _scan(files, fi, count, head, tail_start, tail_end, save=True)
+                    if v.ok:
+                        return v
+    return _scan(files, 0, 0, GENESIS, 0, 0, save=True)
+
+
+def verify_segment(seg_path: Path, checkpoint: Checkpoint | None) -> Verdict:
+    """Verify ONE sealed segment against its checkpoint, reading nothing else.
+
+    Every receipt is re-hashed and every link inside the segment re-checked; the segment's
+    link to its predecessor is pinned by ``checkpoint.first`` (whose hash covers that
+    receipt's ``prev``), and the whole contents by the Merkle root. Continuity with the
+    neighbouring segments is the full-history pass's job.
+    """
+    count = 0
+    prev: str | None = None
+    bad: tuple[int, str] | None = None
+    leaves: list[bytes] = []
+    first = last = ""
+    for r in read(seg_path):
+        idx, count = count, count + 1
+        if bad is not None:
+            continue
+        leaves.append(_leaf(r.hash))
+        first = first or str(r.hash)
+        last = str(r.hash)
+        if r.hash != r.compute_hash():
+            bad = (idx, "content does not match its hash")
+        elif prev is not None and r.prev != prev:
+            bad = (idx, "prev-hash does not match the preceding receipt")
+        prev = r.hash
+    if bad is None:
+        seg = checkpoint.segment if checkpoint is not None else -1
+        why = _segment_mismatch(checkpoint, seg, leaves, first, last)
+        if why:
+            bad = (0, why)
+    if bad is not None:
+        return Verdict(count, False, bad[0], bad[1])
+    return Verdict(count, True)
+
+
+def prove(request_id: str) -> dict[str, Any] | None:
+    """An inclusion proof for the receipt with ``request_id``, or ``None``.
+
+    Only a SEALED receipt has one — the active file has no root yet. The proof bundles the
+    receipt, its segment's checkpoint, its index and the audit path: everything
+    :func:`verify_proof` needs, and nothing from any other receipt but sibling hashes.
+    Newest segment first, since that is where a receipt someone is asking about usually is.
+    """
+    for seg in reversed(sealed_segments()):
+        ck = load_segment_checkpoint(seg)
+        if ck is None:
+            continue
+        receipts = list(read(segment_path(seg)))
+        for i, r in enumerate(receipts):
+            if r.request_id == request_id:
+                leaves = [_leaf(x.hash) for x in receipts]
+                return {
+                    "v": 1,
+                    "receipt": asdict(r),
+                    "checkpoint": asdict(ck),
+                    "index": i,
+                    "path": [h.hex() for h in _audit_path(leaves, i, 0, len(leaves))],
+                }
+    return None
+
+
+def verify_proof(bundle: Any, root: str | None = None) -> tuple[bool, str]:
+    """Check an inclusion proof. Reads no file: the bundle and a root are the whole input.
+
+    ``root`` pins the Merkle root you already trust (published, or from a checkpoint you
+    were handed separately). Without it, the bundle's own checkpoint root is used, which
+    proves the receipt is in *that* checkpoint — only as good as where you got it from.
+    """
+    try:
+        if not isinstance(bundle, dict):
+            raise ValueError("proof is not an object")
+        ck = Checkpoint.from_dict(bundle["checkpoint"])
+        d = bundle["receipt"]
+        if not isinstance(d, dict):
+            raise ValueError("receipt is not an object")
+        known = set(Receipt.FIELDS)
+        r = Receipt(**{k: v for k, v in d.items() if k in known})
+        index = bundle["index"]
+        if not isinstance(index, int) or isinstance(index, bool):
+            raise ValueError("index must be an integer")
+        path = [bytes.fromhex(h) for h in bundle["path"]]
+        want = bytes.fromhex(root if root is not None else ck.root)
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"malformed proof: {exc}"
+    if root is not None and root.lower() != ck.root.lower():
+        return False, "the proof's checkpoint root is not the root you pinned"
+    if r.hash != r.compute_hash():
+        return False, "receipt content does not match its hash"
+    if not verify_inclusion(index, ck.rows, _leaf(r.hash), path, want):
+        return False, f"receipt is not at index {index} under root {want.hex()[:16]}…"
+    return True, (
+        f"INCLUDED — receipt {r.request_id} is #{index} of {ck.rows} in sealed segment "
+        f"{ck.segment} (root {want.hex()[:16]}…)"
+    )

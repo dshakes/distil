@@ -639,7 +639,12 @@ dependency-free — so read it as a floor on what the context window kept.</p>
     <p>Verify — or export — the tamper-evident per-request receipt chain. Each compressed request appends a hash-linked receipt, so the savings you report can be audited rather than taken on faith, and a broken link is detectable.</p>
     <pre class="term"><span class="d">$ distil receipts</span>           <span class="d"># verify the chain</span>
 <span class="d">$ distil receipts --verify</span>   <span class="d"># same thing, spelled out</span>
-<span class="d">$ distil receipts --export &gt; receipts.jsonl</span></pre>
+<span class="d">$ distil receipts --export &gt; receipts.jsonl</span>
+<span class="d">$ distil receipts --segment 3</span>        <span class="d"># one sealed segment vs its checkpoint</span>
+<span class="d">$ distil receipts --checkpoints</span>      <span class="d"># Merkle-root checkpoints, JSONL, to pin</span>
+<span class="d">$ distil receipts --prove &lt;req-id&gt; &gt; proof.json</span>
+<span class="d">$ distil receipts --check-proof proof.json --root &lt;hex&gt;</span></pre>
+    <p>Use it as the team's audit log. When the active file reaches the segment size it is sealed — renamed, never rewritten — into <code>receipts-segments/</code> with a checkpoint beside it: segment id, row count, first/last receipt hash and an RFC 6962-shaped Merkle root. The next receipt links to the sealed segment's last hash, so the history stays one chain. <code>--segment</code> verifies one segment without reading the others; <code>--prove</code> and <code>--check-proof</code> let an auditor check a single receipt from its inclusion proof and a root they already hold. Pin the roots from <code>--checkpoints</code> somewhere outside <code>~/.distil</code>: whoever can write there can re-seal a segment and its checkpoint together. A chain from before segments existed verifies unchanged and becomes segment 0, byte for byte, on its first rotation.</p>
     <p>The chain is also verified at the end of every <code>wrap</code> session — see <a href="evals.html#exit-summary">what the exit summary proves</a>.</p>
 
     <h2 id="mcp">distil mcp</h2>
