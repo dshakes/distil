@@ -312,6 +312,54 @@ def test_a_missing_state_is_fresh_and_never_refolds_released_history(tmp_path, m
     assert LiveDrift.load().monitor.n == 0
 
 
+def test_a_first_start_folds_existing_shadow_evidence(tmp_path, monkeypatch):
+    """Fresh install / first upgrade: no drift.json and no release archive. The harm the
+    machine already measured must count — starting from zero would discard it."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    assert DriftGuard.start(watch=False).engaged
+    assert LiveDrift.load().monitor.n > 0
+    assert DriftGuard.start(watch=False).engaged  # and only once: schema 2 from here
+
+
+def test_a_quarantined_file_is_not_a_release(tmp_path, monkeypatch):
+    """Only drift.json.reset-* marks a release; a .corrupt-* leftover must not suppress
+    the first-ever bootstrap."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    (tmp_path / "drift.json.corrupt-20260101-000000").write_text("{torn")
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    assert _bootstrap().monitor.tripped
+
+
+def test_deleting_the_state_and_every_release_archive_rebootstraps(tmp_path, monkeypatch):
+    """Documented, accepted: with the release archive gone too, nothing tells this machine
+    apart from a first install, so the shadow evidence is folded again (and holds)."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    assert DriftGuard.start(watch=False).engaged  # first start folds the evidence
+    assert release("t")
+    assert not DriftGuard.start(watch=False).engaged
+    (tmp_path / "drift.json").unlink()
+    for a in tmp_path.glob("drift.json.reset-*"):
+        a.unlink()
+    assert DriftGuard.start(watch=False).engaged
+
+
 def test_release_raises_when_the_fresh_state_cannot_be_written(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     fold([-1] * 200)

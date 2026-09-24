@@ -46,6 +46,14 @@ switches off compression for workloads it says nothing about.
 - Releasing the hold is deliberate and narrow. `distil reset --drift-guard` archives only
   `drift.json` and leaves a fresh state in its place, so the next proxy start does not
   re-fold the same rows into the same breach. It does not touch the savings ledger or the
-  shadow ledger. A missing state is a fresh e-process and never re-folds the shadow
-  history; an unreadable one is held and moved aside, never overwritten, because it may
-  have recorded a breach.
+  shadow ledger. What a missing state means depends on the release archive:
+  - **No `drift.json.reset-*` beside it:** a first-ever start (a fresh install, or an
+    upgrade). The existing `shadow.jsonl` evidence is folded once, so harm the machine
+    already measured is not discarded.
+  - **A release archive beside it:** the user released before. The state starts fresh
+    and never re-folds.
+  - **State file and every archive deleted:** this is indistinguishable from a first
+    install and re-bootstraps, which is accepted.
+
+  A quarantined `.corrupt-*` file is not a release. An unreadable state is held and moved
+  aside, never overwritten, because it may have recorded a breach.

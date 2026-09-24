@@ -359,20 +359,34 @@ def _load_for_write(p: Path) -> LiveDrift:
 
 
 def _bootstrap(path: Path | None = None) -> LiveDrift:
-    """Proxy start. Migrates ONLY an existing pre-schema-2 file; never creates evidence.
+    """Proxy start: carry existing shadow evidence into the e-process exactly once.
 
-    The pre-schema-2 e-process was folded from ``shadow.jsonl`` at wrap exit; rebuilding
-    that file's rows, in file order, from ``K_0 = 1`` is the same e-process and carries
-    its evidence forward. A MISSING file is not a migration: it is a fresh e-process
-    (first run, or a release whose fresh state was deleted or never written). Re-folding
-    the shadow history there would re-trip a released hold on the very rows that were
-    released. An unreadable file is quarantined and held (:func:`_load_for_write`).
+    Folds ``shadow.jsonl`` (file order, from ``K_0 = 1``) in two cases, and only these:
+
+    * an existing pre-schema-2 ``drift.json`` — the old exit-time fold, migrated; and
+    * a MISSING ``drift.json`` with no release archive (``drift.json.reset-*``) beside
+      it — a first-ever state, i.e. a fresh install or first upgrade. Starting at zero
+      there would discard real harm evidence the machine already collected.
+
+    A missing file WITH a release archive means the user released before (and the fresh
+    state was deleted, or its write failed): that is a fresh e-process, never a re-fold,
+    or the rows that were just released would re-trip the hold. A quarantined
+    ``drift.json.corrupt-*`` is not a release. If the user deletes both ``drift.json``
+    and every release archive, nothing distinguishes that machine from a first install,
+    so it re-bootstraps from ``shadow.jsonl`` — acceptable: the archive is the release's
+    only durable trace, and ``distil reset --shadow`` archives the ledger too.
+
+    An unreadable file is quarantined and held (:func:`_load_for_write`).
     """
     p = path or _state_path()
     with _locked(p):
         existed = p.exists()
         current = _load_for_write(p)
-        if current.held or not existed or current.schema >= _SCHEMA:
+        if existed:
+            migrate = not current.held and current.schema < _SCHEMA
+        else:
+            migrate = not any(p.parent.glob(p.name + ".reset-*"))
+        if not migrate:
             if current.quarantined:
                 current._write(p)
             return current

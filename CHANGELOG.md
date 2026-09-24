@@ -56,9 +56,15 @@ bound that was over the budget.
   read-only guard, with no migration and no watcher thread. An existing old-format
   `drift.json` is migrated once, on the first proxy start after this upgrade, by
   rebuilding it from `shadow.jsonl` in file order. That is the same fold the exit
-  summary used to do. A *missing* `drift.json` always starts a fresh e-process and never
-  re-folds the shadow history. Otherwise a release whose fresh state was deleted, or
-  never written, would re-trip on the very rows it released.
+  summary used to do. A *missing* `drift.json` is folded from `shadow.jsonl` once, but
+  only on a first-ever start: a fresh install, or an upgrade from a version that never
+  wrote the file. Starting those at zero would throw away harm evidence the machine had
+  already measured. If a release archive (`drift.json.reset-*`) sits beside the missing
+  file, the user has released before. That case starts fresh and never re-folds, or a
+  release whose fresh state was deleted or never written would re-trip on the very rows
+  it released. A quarantined `.corrupt-*` file does not count as a release. If both the
+  state file and every release archive are deleted, the machine looks like a first
+  install and re-bootstraps; that is accepted.
 - **A state file nobody can read is held, not reset.** A zero-length, garbage or
   wrongly-typed `drift.json` used to load as a fresh monitor, and the next fold then
   overwrote it, so a recorded breach could vanish. Now:
@@ -102,7 +108,9 @@ bound that was over the budget.
   `~/.distil/drift.json` that says BREACHED, the proxy starts held at lossless-only. That
   is the alarm doing its job on evidence you already had. An old-format file that has
   not tripped is rebuilt from `shadow.jsonl`, and it holds if that evidence crosses the
-  budget. With no `drift.json` at all, the e-process starts fresh. After
+  budget. With no `drift.json` at all (a version that never wrote one), the existing
+  shadow evidence is folded once on the first start, and it holds if it crosses the
+  budget. After
   `distil calibrate`, release a hold with `distil reset --drift-guard`.
 - **Do not run an older distil side by side.** An older build still installed next to
   this one, such as a second venv or a pinned launch agent, rewrites `drift.json` in
