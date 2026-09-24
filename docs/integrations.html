@@ -250,6 +250,7 @@
 
     <h2 id="wrapped-agents">Agents <code>distil wrap</code> routes for you</h2>
     <p>No configuration and no code change: <code>distil wrap -- &lt;agent&gt;</code> starts a proxy, points the agent at it, and restores everything on exit. Most read an environment variable; a few have no such contract and route through a config file <code>wrap</code> manages for that one session. This table and the next are generated from <code>distil/targets.py</code> — <code>distil wrap --list</code> prints the same thing in your terminal.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Agents distil wrap routes for you">
     <table>
       <thead>
         <tr><th>Agent</th><th>Command</th><th>Mechanism</th><th>Routing knob</th><th>Wire shape</th></tr>
@@ -277,9 +278,11 @@
 <!-- END agent-wrappable-rows -->
       </tbody>
     </table>
+    </div>
 
     <h2 id="config-file-agents">Agents it cannot reach — and what was checked</h2>
     <p>Each of these was read against its own primary documentation on the date shown. Where a base-URL setting exists, point it at the URL <code>distil proxy</code> prints (<code>http://127.0.0.1:8788/v1</code>) and verify with <code>distil doctor</code>; where it says <code>—</code> there is no such setting to point. Full reasoning: <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md">IDE-AGENTS.md</a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Agents it cannot reach — and what was checked">
     <table>
       <thead>
         <tr><th>Agent</th><th>Its own base-URL setting</th><th>Why <code>wrap</code> cannot</th><th>Verified</th></tr>
@@ -306,6 +309,7 @@
 <!-- END agent-unreachable-rows -->
       </tbody>
     </table>
+    </div>
 
     <hr/>
 
