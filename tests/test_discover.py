@@ -327,8 +327,9 @@ class TestDetectors:
         a = _by_id(dv.scan(), "tool_overhead")
         assert a.tokens_per_week == (4000 + 3000 + 2000) * 5 * 7
         assert "mcp__heavy__one" in a.title
-        # The honest limit: distil never sees which tools were CALLED.
-        assert "--transcript" in a.basis
+        # The honest limit: per-tool calls still need the transcript join; per-MCP-server
+        # calls are recorded (`mcp_called`) and the basis says so.
+        assert "--transcript" in a.basis and "MCP servers" in a.basis
 
     def test_tool_overhead_silent_when_there_is_nothing_to_triage(self, home: Path) -> None:
         _seed_c(home)  # one tool defined; "audit your tools" is not advice
@@ -1650,3 +1651,87 @@ class TestPerformance:
         dv.wrap_exit_line(sessions=8)
         elapsed = time.perf_counter() - t0
         assert elapsed < 1.0, f"wrap_exit_line took {elapsed:.3f}s on a 37k-row ledger"
+
+
+def _seed_connectors(
+    sid: str,
+    *,
+    requests: int = 25,
+    called: tuple[str, ...] = (),
+    cache_read: int | None = 90_000,
+    cache_create: int | None = 0,
+) -> None:
+    """A Claude Code session carrying two MCP servers' definitions every turn —
+    the shape the proxy writes (`mcp_servers` / `mcp_called`, names only)."""
+    _manifest(sid)
+    record(
+        trajectory_id="live-proxy",
+        model="claude-opus-4-8",
+        turns=requests,
+        baseline_dollars=0.5,
+        distil_dollars=0.5,
+        baseline_input_tokens=100_000,
+        distil_input_tokens=100_000,
+        session=sid,
+        mode="digest",
+    )
+    for i in range(requests):
+        append_session_request(
+            {
+                "ts": NOW - 100 + i,
+                "model": "claude-opus-4-8",
+                "status": 200,
+                "booked": True,
+                "mode": "digest",
+                "compressible_tokens": 1000,
+                "tokens_saved": 0,
+                "overhead_tokens": 90_000,
+                "system_tokens": 0,
+                "tools_tokens": 90_000,
+                "tools": [],
+                "mcp_servers": {"mcp__claude_ai_Deploys": 80_000, "mcp__codeindex": 10_000},
+                "mcp_called": list(called),
+                "usage_input_tokens": 1000,
+                "usage_output_tokens": 100,
+                "usage_cache_read": cache_read,
+                "usage_cache_create": cache_create,
+                "blocks": [],
+            },
+            sid,
+        )
+
+
+class TestUnusedConnectors:
+    def test_names_the_server_never_called_and_not_the_one_that_was(self, home: Path) -> None:
+        _seed_connectors("sM", called=("mcp__codeindex",))
+        a = _by_id(dv.scan(), "unused_connectors")
+        assert "claude_ai_Deploys" in a.title and "codeindex" not in a.title
+        assert a.tokens_per_week == 80_000 * 25 * 7
+        assert "ENABLE_TOOL_SEARCH" in a.command
+
+    def test_called_in_any_session_of_the_window_counts_as_used(self, home: Path) -> None:
+        _seed_connectors("sM1")
+        _seed_connectors("sM2", called=("mcp__claude_ai_Deploys", "mcp__codeindex"))
+        assert "unused_connectors" not in _ids(dv.scan())
+
+    def test_priced_at_the_cache_read_rate_it_actually_billed(self, home: Path) -> None:
+        # Definitions fully inside the cache read: 0.10x input, not 1.0x.
+        _seed_connectors("sM", called=("mcp__codeindex",))
+        cached = _by_id(dv.scan(), "unused_connectors").dollars_per_week
+        assert cached is not None
+        base = dv._collect(20, None).usd_per_week(80_000 * 25)
+        assert base is not None
+        assert cached == pytest.approx(base * 0.10)
+
+    def test_unreported_cache_split_is_priced_at_full_input(self, home: Path) -> None:
+        _seed_connectors("sM", called=("mcp__codeindex",), cache_read=None, cache_create=None)
+        a = _by_id(dv.scan(), "unused_connectors")
+        assert a.dollars_per_week == pytest.approx(dv._collect(20, None).usd_per_week(80_000 * 25))
+
+    def test_too_few_requests_is_not_a_finding(self, home: Path) -> None:
+        _seed_connectors("sM", requests=dv.MIN_UNUSED_REQUESTS - 1)
+        assert "unused_connectors" not in _ids(dv.scan())
+
+    def test_records_without_mcp_fields_stay_silent(self, seeded: Path) -> None:
+        # Pre-existing records (no `mcp_servers`) are "not recorded", never "unused".
+        assert "unused_connectors" not in _ids(dv.scan())

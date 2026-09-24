@@ -102,7 +102,18 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
     # extra_env values: "$BASE" mirrors the primary env_var's value, "$VARNAME"
     # passes os.environ[VARNAME] through (skipped if unset/empty), anything else
     # is set literally. See wrap_run in proxy.py for the resolution.
-    "claude": ("ANTHROPIC_BASE_URL", "https://api.anthropic.com", "Claude Code", {}),
+    # Claude Code switches its own MCP tool search OFF whenever ANTHROPIC_BASE_URL
+    # is not a first-party host ("most proxies don't forward tool_reference
+    # blocks"), so wrapping it used to load every connector's full schema on every
+    # turn. distil forwards those blocks untouched; restore the first-party default.
+    # setdefault in wrap_run, so an exported ENABLE_TOOL_SEARCH=false still wins.
+    # Numbers + why distil does not hide tools itself: docs/adr/0013.
+    "claude": (
+        "ANTHROPIC_BASE_URL",
+        "https://api.anthropic.com",
+        "Claude Code",
+        {"ENABLE_TOOL_SEARCH": "true"},
+    ),
     "codex": ("OPENAI_BASE_URL", "https://api.openai.com", "Codex CLI", {}),
     "gemini": (
         "GOOGLE_GEMINI_BASE_URL",

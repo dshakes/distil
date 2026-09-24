@@ -2395,7 +2395,9 @@ def cmd_default(args: argparse.Namespace) -> int:
         socket_unit_spec,
         service_unload_cmd,
         unwire_base_url,
+        unwire_tool_search,
         wire_settings_env,
+        wire_tool_search,
         write_managed,
     )
 
@@ -2442,6 +2444,9 @@ def cmd_default(args: argparse.Namespace) -> int:
             # the uninstall and kept killing sessions after distil was gone from the machine.
             cleaned = 0
             for sp in claude_settings_files():
+                st3, msg3 = unwire_tool_search(sp)
+                if st3 != "absent":
+                    print(("✓ " if st3 in ("ok", "user") else "✗ ") + msg3)
                 st2, msg2 = unwire_base_url(sp)
                 if st2 == "absent":
                     continue  # the common case for most of these paths; saying so is noise
@@ -2540,6 +2545,12 @@ def cmd_default(args: argparse.Namespace) -> int:
             print(f"{glyph2} {msg2}")
             if st2 == "conflict":
                 print(f"  re-run with: distil default --always-on --force  (backs up {sp} first)")
+            if st2 in ("ok", "exists"):
+                # Claude Code turns its MCP tool search off behind a non-first-party
+                # base URL — which the line above just made this one. Only where the
+                # key is absent; a user's own value always wins (ADR 0013).
+                st3, msg3 = wire_tool_search(sp)
+                print(("✓ " if st3 in ("ok", "exists", "user") else "✗ ") + msg3)
         print(f"\nAll base-URL clients now route through distil. Next: source {rc}")
         # The single-point-of-failure warning is real and stays, but it is one
         # line: a persistent pin whose service is down takes every session out,
@@ -2591,7 +2602,9 @@ def cmd_offboard(args: argparse.Namespace) -> int:
         service_unload_cmd,
         socket_unit_spec,
         unwire_base_url,
+        tool_search_added_to,
         unwire_statusline,
+        unwire_tool_search,
     )
 
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
@@ -2671,6 +2684,17 @@ def cmd_offboard(args: argparse.Namespace) -> int:
             print(("✓ " if st in ("ok", "absent", "foreign") else "✗ ") + msg)
     if not found_any:
         print("  · no ANTHROPIC_BASE_URL wired in any Claude Code settings file")
+
+    # 3c · the ENABLE_TOOL_SEARCH --always-on added beside that pin — only in files
+    # distil recorded adding it to, and never a value the user set or changed since.
+    # A separate sweep, so a pin already removed by hand does not strand the key.
+    added_to = set(tool_search_added_to())
+    for bp in claude_settings_files():
+        if os.path.abspath(bp) in added_to and ask(
+            f"Remove the ENABLE_TOOL_SEARCH distil added to {bp}?"
+        ):
+            st, msg = unwire_tool_search(bp)
+            print(("✓ " if st in ("ok", "absent", "user") else "✗ ") + msg)
 
     # 4 · local data (opt-in; it's the user's measured savings history)
     home = Path(os.environ.get("DISTIL_HOME", str(Path.home() / ".distil")))

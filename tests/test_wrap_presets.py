@@ -63,6 +63,9 @@ def test_preset_claude(monkeypatch, capsys):
     assert captured["upstream"] == "https://api.anthropic.com"
     out = capsys.readouterr().out
     assert "Claude Code" in out and "ANTHROPIC_BASE_URL" in out
+    # Claude Code disables its MCP tool search behind any non-first-party base URL;
+    # the preset turns it back on (wrap_run applies it with setdefault).
+    assert captured["extra_env"] == {"ENABLE_TOOL_SEARCH": "true"}
 
 
 def test_preset_codex(monkeypatch, capsys):

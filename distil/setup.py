@@ -273,6 +273,122 @@ def unwire_settings_env(settings_path: Path, env_var: str, value: str) -> tuple[
     return ("ok", f"removed distil's {env_var} from {settings_path}")
 
 
+#: Claude Code switches its MCP tool search OFF behind a non-first-party
+#: ANTHROPIC_BASE_URL, so the always-on pin above would load every connector's full
+#: schema on every turn (ADR 0013). Wired beside the pin, only where absent.
+TOOL_SEARCH_VAR = "ENABLE_TOOL_SEARCH"
+TOOL_SEARCH_VALUE = "true"
+
+
+def settings_added_path() -> Path:
+    """Where distil records the settings keys IT added, so undo removes only those.
+
+    ``{"ENABLE_TOOL_SEARCH": ["/abs/path/settings.json", ...]}``. Lives in distil's
+    home, not in the settings file, so Claude Code never sees a key it does not know.
+    """
+    return log_dir() / "settings-added.json"
+
+
+def _settings_key(settings_path: Path) -> str:
+    return os.path.abspath(settings_path)
+
+
+def _read_added() -> dict[str, list[str]]:
+    try:
+        data = json.loads(settings_added_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: [str(p) for p in v] for k, v in data.items() if isinstance(v, list)}
+
+
+def _write_added(added: dict[str, list[str]]) -> None:
+    path = settings_added_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, json.dumps({k: v for k, v in added.items() if v}, indent=2) + "\n")
+
+
+def tool_search_added_to() -> list[str]:
+    """Absolute settings paths distil recorded adding ``ENABLE_TOOL_SEARCH`` to."""
+    return list(_read_added().get(TOOL_SEARCH_VAR, []))
+
+
+def wire_tool_search(settings_path: Path) -> tuple[str, str]:
+    """Set ``ENABLE_TOOL_SEARCH=true`` in *settings_path*'s env block — only if the key
+    is ABSENT. A user value (``true``, ``false``, ``auto:5``, anything) is never
+    touched. What distil adds is recorded in :func:`settings_added_path`, before the
+    settings write, so an interrupted run can only ever under-remove on undo.
+
+    Returns ``(status, message)``: ``ok`` | ``exists`` (distil's, already there) |
+    ``user`` (the user's own value, kept) | ``error`` (unreadable — nothing written).
+    """
+    data: object = {}
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            return ("error", f"{settings_path} is not valid JSON ({exc}) — left untouched")
+    if not isinstance(data, dict):
+        return ("error", f"{settings_path} is not a JSON object — left untouched")
+    env = data.get("env", {})
+    if not isinstance(env, dict):
+        return ("error", f"{settings_path}: `env` is not an object — left untouched")
+    key = _settings_key(settings_path)
+    added = _read_added()
+    ours = key in added.get(TOOL_SEARCH_VAR, [])
+    if TOOL_SEARCH_VAR in env:
+        if ours and env[TOOL_SEARCH_VAR] == TOOL_SEARCH_VALUE:
+            return ("exists", f"distil's {TOOL_SEARCH_VAR} already wired")
+        return ("user", f"{TOOL_SEARCH_VAR}={env[TOOL_SEARCH_VAR]!r} is yours — left as-is")
+    if not ours:
+        added.setdefault(TOOL_SEARCH_VAR, []).append(key)
+        _write_added(added)
+    data["env"] = {**env, TOOL_SEARCH_VAR: TOOL_SEARCH_VALUE}
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return ("ok", f"wired {TOOL_SEARCH_VAR}={TOOL_SEARCH_VALUE} into {settings_path}")
+
+
+def unwire_tool_search(settings_path: Path) -> tuple[str, str]:
+    """Remove ``ENABLE_TOOL_SEARCH`` from *settings_path* only if distil added it there
+    AND it still holds distil's value. A key distil never added, or one the user has
+    since changed, is left as-is (and a changed one is forgotten: it is theirs now).
+
+    Returns ``(status, message)``: ``ok`` | ``absent`` | ``user`` | ``error``.
+    """
+    key = _settings_key(settings_path)
+    added = _read_added()
+    if key not in added.get(TOOL_SEARCH_VAR, []):
+        return ("absent", f"distil added no {TOOL_SEARCH_VAR} to {settings_path}")
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        data = {}
+    except (json.JSONDecodeError, OSError) as exc:
+        return ("error", f"{settings_path} is not valid JSON ({exc}) — left untouched")
+    if not isinstance(data, dict):
+        return ("error", f"{settings_path} is not a JSON object — left untouched")
+    env = data.get("env")
+    value = env.get(TOOL_SEARCH_VAR) if isinstance(env, dict) else None
+    status, msg = "absent", f"no {TOOL_SEARCH_VAR} left in {settings_path}"
+    if value is not None and value != TOOL_SEARCH_VALUE:
+        status, msg = "user", f"{TOOL_SEARCH_VAR}={value!r} was changed by you — left as-is"
+    elif value is not None:
+        assert isinstance(env, dict)
+        settings_path.with_name(settings_path.name + ".bak").write_text(
+            settings_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        del env[TOOL_SEARCH_VAR]
+        if not env:
+            del data["env"]
+        settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        status, msg = "ok", f"removed distil's {TOOL_SEARCH_VAR} from {settings_path}"
+    added[TOOL_SEARCH_VAR] = [p for p in added[TOOL_SEARCH_VAR] if p != key]
+    _write_added(added)
+    return (status, msg)
+
+
 def unwire_statusline(settings_path: Path) -> tuple[str, str]:
     """Remove the distil status line from ``settings_path`` (the inverse of
     :func:`wire_statusline`). Only touches a status line that is distil's — a
@@ -561,7 +677,8 @@ def escape_hatch_spec(port: int, rc: "Path | None" = None) -> tuple[Path, str]:
 # `distil offboard` while distil is still installed; use this when it isn't.
 #
 # Removes: the managed shell block, the always-on proxy service, and any loopback
-# ANTHROPIC_BASE_URL pinned in a Claude Code settings file. Leaves your savings data.
+# ANTHROPIC_BASE_URL pinned in a Claude Code settings file, plus the ENABLE_TOOL_SEARCH
+# distil added beside it (never one you set). Leaves your savings data.
 set -u
 echo "distil escape hatch — removing machine wiring"
 changed=0
@@ -603,16 +720,18 @@ if [ -f "$unit" ] || [ -f "$sock" ]; then
     systemctl --user daemon-reload 2>/dev/null
 fi
 
-# 3 · loopback ANTHROPIC_BASE_URL in Claude Code settings (JSON — needs python3).
+# 3 · loopback ANTHROPIC_BASE_URL (+ distil-added ENABLE_TOOL_SEARCH) in Claude Code
+#     settings (JSON — needs python3).
 # Extra settings paths may be passed as arguments, for project-scoped files this
 # script could not know about when it was written.
 for s in "$HOME/.claude/settings.json" "$HOME/.claude/settings.local.json" "$@"; do
     [ -f "$s" ] || continue
     if command -v python3 >/dev/null 2>&1; then
         python3 - "$s" <<'PY'
-import json, sys
+import json, os, sys
 from urllib.parse import urlparse
 p = sys.argv[1]
+MARKER = {str(settings_added_path())!r}
 try:
     with open(p) as fh:
         d = json.load(fh)
@@ -620,22 +739,47 @@ except Exception as exc:
     print(f"  ! could not read {{p}}: {{exc}}")
     sys.exit(0)
 env = d.get("env") if isinstance(d, dict) else None
-url = env.get("ANTHROPIC_BASE_URL") if isinstance(env, dict) else None
-if not url or not isinstance(url, str):
+if not isinstance(env, dict):
     sys.exit(0)
-# Parse the host; do NOT substring-match. "127.0.0.1" appearing anywhere in a URL
-# is not evidence that it IS loopback: a corporate gateway at
-# https://gw.corp.example.com/pools/127.0.0.1 would be silently deleted by a
-# substring test, and http://127.1:8788 — a valid loopback shorthand — would be
-# kept. This mirrors loopback_base_url() in distil/setup.py.
+removed = []
+# ENABLE_TOOL_SEARCH: only where distil recorded adding it, and only while it still
+# holds distil's value. A user's own setting is never touched. Mirrors
+# unwire_tool_search() in distil/setup.py.
 try:
-    host = urlparse(url).hostname or ""
-except ValueError:
-    host = ""
-if host not in ("127.0.0.1", "127.1", "localhost", "::1", "0.0.0.0"):
-    print(f"  · kept ANTHROPIC_BASE_URL={{url}} in {{p}} (not a local proxy — not ours)")
+    with open(MARKER) as fh:
+        added = json.load(fh)
+except Exception:
+    added = {{}}
+ours = added.get("{TOOL_SEARCH_VAR}") if isinstance(added, dict) else None
+key = os.path.abspath(p)
+if isinstance(ours, list) and key in ours:
+    if env.get("{TOOL_SEARCH_VAR}") == "{TOOL_SEARCH_VALUE}":
+        del env["{TOOL_SEARCH_VAR}"]
+        removed.append("{TOOL_SEARCH_VAR}={TOOL_SEARCH_VALUE}")
+    added["{TOOL_SEARCH_VAR}"] = [x for x in ours if x != key]
+    try:
+        with open(MARKER, "w") as fh:
+            json.dump(added, fh, indent=2)
+    except OSError:
+        pass
+url = env.get("ANTHROPIC_BASE_URL")
+if url and isinstance(url, str):
+    # Parse the host; do NOT substring-match. "127.0.0.1" appearing anywhere in a URL
+    # is not evidence that it IS loopback: a corporate gateway at
+    # https://gw.corp.example.com/pools/127.0.0.1 would be silently deleted by a
+    # substring test, and http://127.1:8788 — a valid loopback shorthand — would be
+    # kept. This mirrors loopback_base_url() in distil/setup.py.
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        host = ""
+    if host in ("127.0.0.1", "127.1", "localhost", "::1", "0.0.0.0"):
+        del env["ANTHROPIC_BASE_URL"]
+        removed.append(f"ANTHROPIC_BASE_URL={{url}}")
+    else:
+        print(f"  · kept ANTHROPIC_BASE_URL={{url}} in {{p}} (not a local proxy — not ours)")
+if not removed:
     sys.exit(0)
-del env["ANTHROPIC_BASE_URL"]
 if not env:
     d.pop("env", None)
 try:
@@ -643,9 +787,10 @@ try:
         json.dump(d, fh, indent=2)
         fh.write("\\n")
 except OSError as exc:
-    print(f"  ! could not write {{p}}: {{exc}} — remove ANTHROPIC_BASE_URL by hand")
+    print(f"  ! could not write {{p}}: {{exc}} — remove {{', '.join(removed)}} by hand")
     sys.exit(0)
-print(f"  removed ANTHROPIC_BASE_URL={{url}} from {{p}}")
+for r in removed:
+    print(f"  removed {{r}} from {{p}}")
 sys.exit(10)  # 10 = "I changed something", so the summary below cannot overclaim
 PY
         [ $? -eq 10 ] && changed=1

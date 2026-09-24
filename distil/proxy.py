@@ -136,6 +136,45 @@ def _replay_record(extras: dict[str, str]) -> dict[str, int]:
     }
 
 
+def _mcp_server(name: object) -> str | None:
+    """``mcp__<server>`` for a Claude Code MCP tool name, else None (built-ins)."""
+    if not isinstance(name, str) or not name.startswith("mcp__"):
+        return None
+    server = name.split("__", 2)[1]
+    return f"mcp__{server}" if server else None
+
+
+def _mcp_record(body: Any, tool_tokens: dict[str, int]) -> dict[str, Any]:
+    """Per-MCP-server definition tokens sent, and which servers the conversation has
+    CALLED so far — names only, never schemas or arguments.
+
+    ``tool_tokens`` maps each non-deferred tool name to its counted size. "Called"
+    reads the tool_use blocks already in the request's own history, so it needs no
+    state across requests: the latest request of a session knows every server that
+    session ever used. Absent when the request carried no MCP definitions, so
+    `distil discover` can tell "no connectors" from a record that predates this.
+    """
+    servers: dict[str, int] = {}
+    for name, n in tool_tokens.items():
+        s = _mcp_server(name)
+        if s is not None:
+            servers[s] = servers.get(s, 0) + n
+    if not servers:
+        return {}
+    called: set[str] = set()
+    messages = body.get("messages") if isinstance(body, dict) else None
+    for msg in messages if isinstance(messages, list) else []:
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                s = _mcp_server(block.get("name"))
+                if s is not None:
+                    called.add(s)
+    return {"mcp_servers": servers, "mcp_called": sorted(called)}
+
+
 def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
     """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
 
@@ -1691,7 +1730,7 @@ def build_handler(
                         )
                     except Exception:  # noqa: BLE001 — one bad handle must not drop the record
                         continue
-                system_tok = tools_tok = 0
+                system_tok = tools_tok = tools_deferred = 0
                 tool_costs: list[dict[str, Any]] = []
                 if isinstance(body, dict):
                     sys_val = body.get("system")
@@ -1701,6 +1740,13 @@ def build_handler(
                         )
                     for tool in body.get("tools") or []:
                         try:
+                            if isinstance(tool, dict) and tool.get("defer_loading") is True:
+                                # Tool search: the API keeps a deferred definition OUT of
+                                # the prompt until the model asks for it, so it is not
+                                # billed and must not count as overhead (or feed the
+                                # calibrator an estimate the bill never saw).
+                                tools_deferred += 1
+                                continue
                             n = _tokenizer.count(json.dumps(tool))
                             tools_tok += n
                             name = tool.get("name") if isinstance(tool, dict) else None
@@ -1708,6 +1754,10 @@ def build_handler(
                         except Exception:  # noqa: BLE001 — one odd tool must not drop the rest
                             continue
                     tool_costs.sort(key=lambda t: -t["tokens"])
+                try:
+                    _mcp = _mcp_record(body, {t["name"]: t["tokens"] for t in tool_costs})
+                except Exception:  # noqa: BLE001 — a diagnostic must not drop the record
+                    _mcp = {}
                 overhead = system_tok + tools_tok
                 # Full billed input = uncached + cached prefix. Prompt caching bills the cached
                 # prefix under cache_read/cache_creation, NOT input_tokens — so the true input
@@ -1791,6 +1841,8 @@ def build_handler(
                     "system_tokens": system_tok,
                     "tools_tokens": tools_tok,
                     "tools": tool_costs[:24],  # names + token counts only; content-free
+                    "tools_deferred": tools_deferred,
+                    **_mcp,
                     "delta_refs": int(extras.get("x-distil-cache-refs", 0) or 0),
                     "delta_tokens_saved": int(extras.get("x-distil-cache-tokens-saved", 0) or 0),
                     "prefix_msgs": int(extras.get("x-distil-cache-prefix-msgs", 0) or 0),
