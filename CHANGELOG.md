@@ -797,6 +797,20 @@ the real corpus fixture, not invented — and the entry points at it.
 the one other `.md`-backed entry (the re-read delta's 51.4%, ADR 0010) was checked
 against this tightened gate and passes.
 
+### Fixed — `distil discover --since` dropped a session whose only recent traffic failed
+
+`list_sessions()` derived `last_ts` from booked ledger rows and the manifest's
+`started_ts` alone. The ledger only ever gets a row once a request is billed, and
+`started_ts` is a session's birth, not its most recent activity — so a session whose
+only in-window traffic was a failed, unbooked request (bad key, upstream 5xx, client
+abort) read as stale under `--since` and was silently dropped from both `distil dissect`'s
+session picker and `distil discover`'s window, even though it had just been used. Every
+proxied request appends to `sessions/<sid>.requests.jsonl` regardless of outcome, so its
+mtime is folded in as a fallback — only when the ledger has nothing at all for that sid,
+so a session with real booked history still trusts its own timestamps over incidental
+filesystem metadata. New tests at both the `dissect.list_sessions()` and
+`discover.scan(since_days=...)` layers cover the previously-dropped case.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

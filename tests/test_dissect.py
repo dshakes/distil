@@ -9,6 +9,7 @@ the *artifact* — sessions/<sid>.requests.jsonl — not on internals.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -346,6 +347,30 @@ class TestWrapManifest:
         assert session_manifest_path() is None
         write_session_manifest({"sid": "x"})
         append_session_request({"ts": 1})
+
+    def test_last_ts_follows_unbooked_request_activity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A session's only *in-window* traffic can be a failed (unbooked) request:
+        no ledger row (the ledger only ever gets booked rows) and a manifest
+        `started_ts` that still points at the session's birth, long before the
+        window. `--since` used to read that as "nothing recent" and drop the
+        session. The requests file is appended on every proxied request
+        regardless of outcome, so its mtime is what should carry `last_ts`
+        forward."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        monkeypatch.delenv("DISTIL_SESSION", raising=False)
+        write_session_manifest({"sid": "s1", "tool": "codex", "started_ts": 1000.0}, sid="s1")
+        append_session_request({"ts": 6000.0, "booked": False}, sid="s1")
+        req_path = session_requests_path("s1")
+        assert req_path is not None
+        os.utime(req_path, (6000.0, 6000.0))  # the write itself races the clock in CI
+
+        sessions = dz.list_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].sid == "s1"
+        assert sessions[0].last_ts == pytest.approx(6000.0)
+        assert sessions[0].last_ts > sessions[0].started  # manifest start alone is not enough
 
 
 # ----------------------------------------------------------------- report math

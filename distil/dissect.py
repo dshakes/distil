@@ -117,12 +117,31 @@ def list_sessions(
         except (OSError, json.JSONDecodeError):
             continue
         sid = man.get("sid") or mp.stem
+        has_ledger_rows = sid in by_sid
         ov = by_sid.setdefault(sid, SessionOverview(sid=sid))
         ov.tool = str(man.get("tool") or "")
         started = float(man.get("started_ts") or 0.0)
         if started:
             ov.started = min(ov.started or started, started)
             ov.last_ts = max(ov.last_ts, started)
+        # Ledger rows only exist for *booked* requests, and the manifest's
+        # started_ts is the session's birth, not its most recent activity — so a
+        # session whose only traffic ever failed (proxied but never billed: bad
+        # key, upstream 5xx, client abort) has neither and reads as permanently
+        # stale under `--since`, even though it was just used. The requests file
+        # is appended once per proxied request regardless of outcome
+        # (`_emit_detail`, distil/proxy.py), so its mtime is the freshest honest
+        # "this session did something" signal a failed-only session still leaves.
+        # Only consulted when the ledger has nothing at all for this sid — once
+        # there's a real booked row, its ``ts`` is trusted over a file mtime that
+        # merely reflects when the OS last touched the file.
+        if not has_ledger_rows:
+            req_path = session_requests_path(sid)
+            if req_path is not None:
+                try:
+                    ov.last_ts = max(ov.last_ts, req_path.stat().st_mtime)
+                except OSError:
+                    pass
     if with_status:
         for ov in by_sid.values():
             marker = session_marker_path(ov.sid)
