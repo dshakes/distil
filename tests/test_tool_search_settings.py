@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +31,7 @@ from distil.setup import (
     settings_added_path,
     tool_search_added_to,
     unwire_tool_search,
+    wire_always_on_settings,
     wire_tool_search,
 )
 
@@ -93,6 +96,93 @@ class TestWire:
         assert wire_tool_search(sp)[0] == "error"
         assert sp.read_text() == body
         assert not settings_added_path().exists()
+
+    def test_failed_settings_write_records_nothing(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {"KEEP": "1"}}))
+
+        def boom(*a: object, **k: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(setup_mod, "_write_settings", boom)
+        assert wire_tool_search(sp)[0] == "error"
+        assert _env(sp) == {"KEEP": "1"}
+        assert tool_search_added_to() == []
+        # ...so a key the user adds later is never mistaken for distil's
+        monkeypatch.undo()
+        sp.write_text(json.dumps({"env": {TOOL_SEARCH_VAR: "true"}}))
+        assert unwire_tool_search(sp)[0] == "absent"
+        assert _env(sp) == {TOOL_SEARCH_VAR: "true"}
+
+    def test_a_key_the_user_deleted_is_never_resurrected(self, home: Path) -> None:
+        sp = _settings(home)
+        wire_tool_search(sp)
+        sp.write_text(json.dumps({"env": {}}))  # user removes distil's key
+        assert wire_tool_search(sp)[0] == "declined"
+        assert _env(sp) == {}
+        assert wire_tool_search(sp)[0] == "declined"  # and stays declined
+        assert tool_search_added_to() == []
+
+    def test_user_re_adding_after_deleting_is_left_alone_by_undo(self, home: Path) -> None:
+        sp = _settings(home)
+        wire_tool_search(sp)
+        sp.write_text(json.dumps({"env": {}}))
+        wire_tool_search(sp)  # a distil run observes the deletion
+        sp.write_text(json.dumps({"env": {TOOL_SEARCH_VAR: "true"}}))  # re-added by hand
+        assert unwire_tool_search(sp)[0] == "absent"
+        assert _env(sp) == {TOOL_SEARCH_VAR: "true"}
+
+    @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX file modes")
+    def test_file_mode_is_preserved(self, home: Path) -> None:
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {}}))
+        os.chmod(sp, 0o600)
+        wire_tool_search(sp)
+        assert stat.S_IMODE(sp.stat().st_mode) == 0o600
+        unwire_tool_search(sp)
+        assert stat.S_IMODE(sp.stat().st_mode) == 0o600
+
+    @pytest.mark.skipif(sys.platform.startswith("win"), reason="symlinks need privileges")
+    def test_a_symlinked_settings_file_stays_a_symlink(self, home: Path, tmp_path: Path) -> None:
+        real = tmp_path / "dotfiles" / "settings.json"
+        real.parent.mkdir()
+        real.write_text(json.dumps({"env": {"KEEP": "1"}}))
+        sp = _settings(home)
+        sp.symlink_to(real)
+        wire_tool_search(sp)
+        assert sp.is_symlink()
+        assert _env(real) == {"KEEP": "1", TOOL_SEARCH_VAR: "true"}
+
+    def test_always_on_is_one_read_modify_write(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sp = _settings(home)
+        writes: list[Path] = []
+        real = setup_mod._write_settings
+
+        def counting(path: Path, data: object) -> None:
+            writes.append(path)
+            real(path, data)
+
+        monkeypatch.setattr(setup_mod, "_write_settings", counting)
+        (base, ts) = wire_always_on_settings(sp, "http://127.0.0.1:8788")
+        assert base[0] == "ok" and ts is not None and ts[0] == "ok"
+        assert writes == [sp]
+        assert _env(sp) == {"ANTHROPIC_BASE_URL": "http://127.0.0.1:8788", TOOL_SEARCH_VAR: "true"}
+        writes.clear()
+        wire_always_on_settings(sp, "http://127.0.0.1:8788")
+        assert writes == []  # nothing changed, nothing written
+
+    def test_always_on_conflict_writes_neither_key(self, home: Path) -> None:
+        sp = _settings(home)
+        sp.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://gw.example.com"}}))
+        before = sp.read_text()
+        (base, ts) = wire_always_on_settings(sp, "http://127.0.0.1:8788")
+        assert base[0] == "conflict" and ts is None
+        assert sp.read_text() == before
+        assert tool_search_added_to() == []
 
 
 class TestUnwire:
@@ -236,6 +326,22 @@ class TestEscapeHatch:
         assert r.returncode == 0, r.stderr
         assert _env(sp) == {"KEEP": "1"}
         assert "removed ENABLE_TOOL_SEARCH" in r.stdout
+
+    @pytest.mark.skipif(
+        sys.platform.startswith("win") or os.geteuid() == 0, reason="needs an unwritable dir"
+    )
+    def test_ownership_survives_a_failed_settings_write(self, home: Path) -> None:
+        sp = _settings(home)
+        wire_tool_search(sp)
+        os.chmod(sp.parent, 0o555)  # the atomic tmp file cannot be created
+        try:
+            r = self._run(home)
+        finally:
+            os.chmod(sp.parent, 0o755)
+        assert r.returncode == 0, r.stderr
+        assert "could not write" in r.stdout
+        assert _env(sp) == {TOOL_SEARCH_VAR: "true"}
+        assert tool_search_added_to() == [str(sp.absolute())], "forgot a key it did not remove"
 
     @pytest.mark.parametrize("value", ["true", "false"])
     def test_never_touches_a_user_value(self, home: Path, value: str) -> None:

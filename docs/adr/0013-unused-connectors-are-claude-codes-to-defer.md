@@ -102,7 +102,9 @@ positive.
    user settings, but only where the key is absent. It records the file in
    `settings-added.json` in the distil home. `--undo`, `offboard` and the `sh`
    escape hatch remove it only from recorded files, and only while it still holds
-   `true`.
+   `true`. Ownership is recorded only after the settings write succeeds, and forgotten
+   only after the key is gone. A key the user deleted is never re-added. The pin and
+   the key are one atomic read-modify-write.
 
 ## Reopen when
 

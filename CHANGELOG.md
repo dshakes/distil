@@ -685,8 +685,23 @@ measured.
   distil records the files it added the key to (`settings-added.json` in the distil
   home). `--undo`, `distil offboard` and the `uninstall.sh` escape hatch remove the
   key only from those files, and only while it still reads `true`. If you have
-  changed it since, it is yours and stays. A malformed settings file is reported and
-  left untouched.
+  changed it since, it is yours and stays. If you delete it, the next distil run
+  that sees it gone records that, and distil never adds it back.
+- Ownership is recorded only *after* the settings write succeeds, so a failed write
+  can never make undo delete a key distil did not write. The pin and the key go in
+  as one read-modify-write. Every Claude Code settings write distil makes (the
+  existing `ANTHROPIC_BASE_URL` and status-line paths included) is now atomic (a
+  temporary file plus a rename), writes through a symlink to its target, and keeps
+  the file's mode. A malformed settings file is reported and left untouched.
+- Known limit: if you delete distil's key and re-add the identical `"true"` by hand
+  with no distil command run in between, the two are indistinguishable, and undo
+  removes it.
+- Downgrading distil below this release leaves `ENABLE_TOOL_SEARCH` set. That is
+  harmless against Anthropic's API, since it is Claude Code's own default there.
+  Behind a gateway that strips `tool_reference` blocks, it breaks loading of MCP
+  tools. To remove it by hand, delete the `"ENABLE_TOOL_SEARCH": "true"` line from
+  the `env` block of your Claude Code user settings. Or run
+  `distil default --always-on --undo` before downgrading.
 - **UNVERIFIED live.** No metered Claude Code session has run with tool search on
   through distil yet. The passthrough test uses a stub upstream. It is confirmed when
   a wrapped or always-on session that uses an MCP tool records `tools_deferred > 0`
@@ -694,8 +709,8 @@ measured.
   there are two ways to revert:
   - Per user: `export ENABLE_TOOL_SEARCH=false` (wrap) or set it to `false` in the
     settings env block (always-on). Both win over distil's default.
-  - In code: `AGENT_PRESETS["claude"]` back to `{}` and the `wire_tool_search` call
-    in `cmd_default`.
+  - In code: `AGENT_PRESETS["claude"]` back to `{}`, and `cmd_default` back to
+    `wire_settings_env` for the pin instead of `wire_always_on_settings`.
 
 ### `distil discover` — the report that says what to do next
 

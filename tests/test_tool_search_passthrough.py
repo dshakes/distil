@@ -86,12 +86,71 @@ def _payload() -> dict[str, Any]:
     }
 
 
+def _event(name: str, data: dict[str, Any]) -> str:
+    return f"event: {name}\ndata: {json.dumps(data)}\n\n"
+
+
+# A streamed turn in which the model calls Claude Code's ToolSearch — the client-side
+# half of the protocol. It must reach the client as-is; only distil_expand is internal.
+_SSE = "".join(
+    [
+        _event(
+            "message_start",
+            {
+                "type": "message_start",
+                "message": {"usage": {"input_tokens": 7, "output_tokens": 1}},
+            },
+        ),
+        _event(
+            "content_block_start",
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "ts2",
+                    "name": "ToolSearch",
+                    "input": {},
+                },
+            },
+        ),
+        _event(
+            "content_block_delta",
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"query": "deploy"}'},
+            },
+        ),
+        _event("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        _event(
+            "message_delta",
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "tool_use"},
+                "usage": {"output_tokens": 9},
+            },
+        ),
+        _event("message_stop", {"type": "message_stop"}),
+    ]
+)
+
+
 class _Capture(BaseHTTPRequestHandler):
     seen: list[tuple[dict[str, str], dict[str, Any]]] = []
 
     def do_POST(self) -> None:  # noqa: N802 — http.server API
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        _Capture.seen.append(({k.lower(): v for k, v in self.headers.items()}, json.loads(raw)))
+        body = json.loads(raw)
+        _Capture.seen.append(({k.lower(): v for k, v in self.headers.items()}, body))
+        if body.get("stream"):
+            sse = _SSE.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(sse)))
+            self.end_headers()
+            self.wfile.write(sse)
+            return
         out = json.dumps(
             {
                 "id": "m",
@@ -128,15 +187,33 @@ def port() -> Any:
     upstream.shutdown()
 
 
-def _send(port: int) -> None:
+def _send(port: int, *, stream: bool = False) -> bytes:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/v1/messages",
-        data=json.dumps(_payload()).encode(),
+        data=json.dumps(_payload() | {"stream": stream}).encode(),
         headers={"Content-Type": "application/json", "anthropic-beta": "tool-search-2026"},
         method="POST",
     )
     with urllib.request.urlopen(req) as resp:
         assert resp.status == 200
+        return resp.read()
+
+
+def test_streamed_turn_carries_the_protocol_both_ways(
+    port: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_SESSION", "s3-1")
+    out = _send(port, stream=True).decode()
+    headers, body = _Capture.seen[-1]
+    assert body["stream"] is True
+    assert headers.get("anthropic-beta") == "tool-search-2026"
+    assert body["tools"][2] == _DEFERRED
+    assert body["messages"][2]["content"][0]["content"] == [_REFERENCE]
+    # the model's ToolSearch call reaches the client intact, and the turn ends
+    assert '"name": "ToolSearch"' in out or '"name":"ToolSearch"' in out
+    assert "deploy" in out
+    assert "message_stop" in out
 
 
 def test_tool_search_protocol_reaches_the_provider_untouched(

@@ -2396,8 +2396,7 @@ def cmd_default(args: argparse.Namespace) -> int:
         service_unload_cmd,
         unwire_base_url,
         unwire_tool_search,
-        wire_settings_env,
-        wire_tool_search,
+        wire_always_on_settings,
         write_managed,
     )
 
@@ -2538,19 +2537,20 @@ def cmd_default(args: argparse.Namespace) -> int:
             # an rc file. Claude Code reads ~/.claude/settings.json on every
             # launch regardless, so that's the channel that actually reaches it.
             sp = default_settings_path()
-            st2, msg2 = wire_settings_env(
-                sp, "ANTHROPIC_BASE_URL", f"http://127.0.0.1:{args.port}", force=args.force
+            # The pin AND ENABLE_TOOL_SEARCH in one read-modify-write: Claude Code turns
+            # its MCP tool search off behind a non-first-party base URL — which the pin
+            # makes this one. The key is added only where absent and never re-added
+            # after the user removed it; a user's own value always wins (ADR 0013).
+            (st2, msg2), ts = wire_always_on_settings(
+                sp, f"http://127.0.0.1:{args.port}", force=args.force
             )
             glyph2 = "✓" if st2 in ("ok", "exists") else ("⚠" if st2 == "conflict" else "✗")
             print(f"{glyph2} {msg2}")
             if st2 == "conflict":
                 print(f"  re-run with: distil default --always-on --force  (backs up {sp} first)")
-            if st2 in ("ok", "exists"):
-                # Claude Code turns its MCP tool search off behind a non-first-party
-                # base URL — which the line above just made this one. Only where the
-                # key is absent; a user's own value always wins (ADR 0013).
-                st3, msg3 = wire_tool_search(sp)
-                print(("✓ " if st3 in ("ok", "exists", "user") else "✗ ") + msg3)
+            if ts is not None:
+                st3, msg3 = ts
+                print(("✗ " if st3 == "error" else "✓ ") + msg3)
         print(f"\nAll base-URL clients now route through distil. Next: source {rc}")
         # The single-point-of-failure warning is real and stays, but it is one
         # line: a persistent pin whose service is down takes every session out,
