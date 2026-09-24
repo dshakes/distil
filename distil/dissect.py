@@ -1069,6 +1069,8 @@ def _flags_line(man: dict[str, Any]) -> str:
     # prefix-replay" there would blame the wrong thing for a low cache-read share.
     if flags.get("prefix_replay") is False:
         on.append("no-prefix-replay")
+    if flags.get("cold_point") is False:
+        on.append("no-cold-point")
     if float(flags.get("shadow_rate") or 0.0) > 0:
         on.append(f"shadow={flags['shadow_rate']}")
     if (flags.get("shape_output") or "off") != "off":
@@ -1084,6 +1086,7 @@ _ELIGIBILITY_LABEL = {
     "tool_result_recent": "freshest tool output (kept byte-exact)",
     "tool_result_digested": "digested",
     "tool_result_html_stripped": "HTML chrome stripped",
+    "tool_result_evicted": "evicted at a cold point (cache had expired; recoverable)",
     "tool_result_short": "too short to digest",
     "tool_result_verbatim": "verbatim mode",
     "tool_result_learned_keep": "learned keep-byte-exact",

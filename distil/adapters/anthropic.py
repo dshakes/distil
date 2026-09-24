@@ -297,6 +297,69 @@ def _apply_reread(text: str, elision: _rereaddelta.Elision, store: RestoreStore)
     return "".join(lines[: elision.start]) + stub + ("\n" if kept_tail else "") + kept_tail
 
 
+# Cold-point eviction (ADR 0014). A block below this many tokens is left alone: the stub
+# costs ~25 tokens and a round trip to recover, so a short block is cheaper kept.
+_EVICT_MIN_TOKENS = 128
+
+
+def evicted_stub(text: str, handle: str) -> str:
+    """The stub an evicted tool_result becomes. A pure function of the content (its handle
+    and line count), so the bytes are identical on every turn that forwards it."""
+    return (
+        f"<<distil evicted older tool output ({text.count(chr(10)) + 1} lines); "
+        f"distil_expand handle={handle} recovers it>>"
+    )
+
+
+def cold_candidates(
+    messages: list[dict[str, Any]],
+    *,
+    keep: Any = None,
+    exclude_handles: frozenset[str] = frozenset(),
+) -> frozenset[str]:
+    """tool_use ids of the tool_results a cold turn may evict.
+
+    Every protection the digest honours, and then some — an eviction outlives the turn:
+
+    * never the freshest ``RECENCY_KEEP_TURNS`` tool-bearing turns, counted from the END
+      whatever the client caches (the agent reasons over those to choose its next action);
+    * never an exact-quote result (file reads an ``Edit`` quotes back, ``distil_expand``
+      results) — ``exact_quote_tool_use_ids`` is the one keep policy for Edit safety;
+    * never a block holding an ``old_string`` some Edit in the history already quotes;
+    * never learned-keep content, nor a block the model has expanded before;
+    * only a single-text result big enough that the stub is a real saving.
+    """
+    idxs = [
+        i
+        for i, m in enumerate(messages)
+        if isinstance(m, dict) and m.get("role") in ("user", "tool")
+    ]
+    recent = set(idxs[-_RECENCY_KEEP_TURNS:]) if _RECENCY_KEEP_TURNS > 0 else set()
+    exact = exact_quote_tool_use_ids(messages)
+    quotes = _provenance.edit_quotes(messages)
+    out: set[str] = set()
+    for idx, msg in enumerate(messages):
+        if idx in recent or not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict) or blk.get("type") != "tool_result":
+                continue
+            tid = blk.get("tool_use_id")
+            if not isinstance(tid, str) or not tid or tid in exact:
+                continue
+            text = _result_text(blk.get("content"))
+            if text is None or _handle(text) in exclude_handles:
+                continue
+            if (keep is not None and keep(text)) or any(q in text for q in quotes):
+                continue
+            if _tokenizer.count(text) >= _EVICT_MIN_TOKENS:
+                out.add(tid)
+    return frozenset(out)
+
+
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
     """Indices of tool-output-bearing turns (role ``user``/``tool``) whose
     tool_result blocks must stay verbatim. See ``_RECENCY_KEEP_TURNS``.
@@ -656,6 +719,7 @@ def _compress_content_item(
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
     reread: Mapping[str, _rereaddelta.Elision] = MappingProxyType({}),
+    evict: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) content block after compression.
 
@@ -731,6 +795,18 @@ def _compress_content_item(
             _census_tool_result(bucket, content)
             return item
 
+        if tid in evict and not is_recent:
+            # Cold-point eviction (ADR 0014): chosen on a turn the provider cache had
+            # already expired, then re-applied identically on every later turn. Placed
+            # AFTER the exact-quote check on purpose — if an Edit later comes to depend on
+            # this block, the exemption wins and the block goes back to verbatim.
+            text = _result_text(content)
+            if text is not None:
+                h = _handle(text)
+                if store._record(h, text):
+                    _census("tool_result_evicted", text)
+                    return _replace_result_text(item, evicted_stub(text, h))
+
         if isinstance(content, str):
             new_content = _compress_tool_result_text(content, store, verbatim, is_recent)
             if new_content == content:
@@ -785,6 +861,7 @@ def _compress_message(
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
     reread: Mapping[str, _rereaddelta.Elision] = MappingProxyType({}),
+    evict: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) message dict after compressing its content."""
     role = msg.get("role", "")
@@ -813,7 +890,7 @@ def _compress_message(
         for item in content:
             if isinstance(item, dict):
                 new_item = _compress_content_item(
-                    item, store, role, verbatim, is_recent, exact_ids, reread
+                    item, store, role, verbatim, is_recent, exact_ids, reread, evict
                 )
                 if isinstance(new_item, list):
                     # A block may expand into a PAIR (a downscaled image plus the
@@ -877,6 +954,7 @@ def compress_messages(
     *,
     verbatim: bool = False,
     keep: Any = None,
+    evict: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -893,6 +971,10 @@ def compress_messages(
         When *False* (the default), large tool results are replaced by reversible
         Tier-1 digests — decision-equivalent by the certificate, recoverable via the
         RestoreStore / ``distil_expand`` — for far higher savings.
+    evict:
+        tool_use ids whose results become a recoverable eviction stub (ADR 0014,
+        chosen by :mod:`distil.coldpoint`). Ignored in verbatim mode, on recent
+        turns, and for any exact-quote result.
 
     Returns
     -------
@@ -954,6 +1036,7 @@ def compress_messages(
                         is_recent=idx in recent,
                         exact_ids=exact_ids,
                         reread=reread,
+                        evict=frozenset() if verbatim else evict,
                     )
                 )
             return new_messages, store

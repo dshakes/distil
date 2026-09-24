@@ -20,6 +20,44 @@ Claude Code, and that is the only traffic the soak has.
 
 Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
 
+### Old tool output shrinks on the turn the cache has already expired
+
+A tool result is billed on every later turn at the cache-read rate. Shrinking it after
+first sight used to bust the cache, which is what the August 2x incident did. The one
+exception is a turn that arrives after the provider's cache entry has expired: the whole
+prefix is re-written then anyway. On such a turn distil now replaces older tool output with
+a stub that `distil_expand` can recover (`<<distil evicted older tool output (N lines);
+distil_expand handle=H recovers it>>`). It then forwards those same stubs on every later
+turn, so the smaller prefix is what gets cached for the rest of the session (ADR 0014,
+`distil/coldpoint.py`).
+
+- **Expiry has to be certain from distil's own observation.** That means a lineage known to
+  this process, nothing of it in flight (streams, expand re-queries and shadow replays
+  count), and a monotonic gap since distil last *finished* forwarding it that exceeds the
+  longest TTL the lineage asked for (5 min, or 1 h for `ttl: "1h"`) plus 60 s. An
+  unparseable TTL never evicts. First-seen, restarted and hot-swapped lineages do nothing.
+- **Two conversations under one lineage key never evict.** Every request has to extend the
+  previous one. Parallel subagents, forks and rewinds fail that test, and the lineage turns
+  ambiguous for good.
+- **Byte-stable after the cold point.** Stubs are a pure function of content, the evicted
+  `tool_use_id` set only grows, and prefix replay holds the result. A proxy test drives
+  first-seen → warm → 20-minute gap → four warm turns and asserts that the cold turn's
+  messages are forwarded byte-identical on every later turn.
+- **Never evicted:** the freshest tool turns, exact-quote results (Edit targets, shell
+  reads, `distil_expand` results; if an Edit comes to depend on an evicted block later,
+  the exemption wins), text an Edit already quotes, learned-keep content, expanded
+  handles, and blocks under 128 tokens.
+- **Where it runs:** Anthropic Messages on `distil proxy` / `distil wrap`, only where the
+  recoverable digest already runs. Lossless-only, verbatim and `--session-delta` are
+  untouched. Opt out with `--no-cold-point` or `DISTIL_COLD_POINT=0`. The gateway and
+  OpenAI are documented TODOs in the ADR.
+- **Accounting uses the existing path.** Evicted tokens are part of `tokens_saved`. The
+  census gets a new `tool_result_evicted` bucket, which `dissect` labels. Handles are in
+  the receipt (mode `digest`). `x-distil-cold` / `x-distil-cold-evicted` go on the
+  response, and `cold` / `cold_evicted` go in the session ledger.
+- **Not yet measured live.** The gate is an rc soak plus a live A/B on `distil cache`
+  read/write totals, and neither has been run.
+
 ### The freshest read the agent asked for came back as a pointer
 
 ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency

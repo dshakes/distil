@@ -33,6 +33,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
+from . import coldpoint as _coldpoint
 from ._log import log
 from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
@@ -585,6 +586,7 @@ def build_handler(
     retention_rate: float = 0.0,
     session_delta: bool = False,
     prefix_replay: bool = True,
+    cold_point: bool = True,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
 
@@ -709,6 +711,21 @@ def build_handler(
     # cold start stays cheap because this is not run at `import distil` time.
     from .streamrelay import stream_upstream as _stream_upstream  # noqa: F401
 
+    # Cold-point recompression (ADR 0014): on a turn that arrives after the provider's
+    # cache for the conversation has certainly expired, evict older tool_results to
+    # recoverable stubs. Only where the recoverable digest already runs (expand on, not
+    # verbatim — which excludes lossless-only unless the user opted into --expand, the
+    # same policy as every other stub). Not with --session-delta: its references would
+    # be evicted into stubs of stubs. `DISTIL_COLD_POINT=0` is the kill switch for
+    # installs whose argv is pinned in a launch agent.
+    _cold_on = (
+        cold_point
+        and expand
+        and not verbatim
+        and not session_delta
+        and os.environ.get("DISTIL_COLD_POINT", "1") != "0"
+    )
+
     def _learn_keep(text: str) -> bool:
         return _outcome_keep(text) or (_expand_keep is not None and _expand_keep(text))
 
@@ -780,7 +797,16 @@ def build_handler(
                     _surfaces.bump(p)
                 except Exception:  # noqa: BLE001 — counting must never affect a request
                     pass
-                self._handle_compressible()
+                # Cold-point lineage this request planned against (ADR 0014). Closed in
+                # `finally`, AFTER the response is fully relayed: a stream or an expand
+                # re-query refreshes the provider's cache later than the forward did, and
+                # the lineage is "in flight" (never cold) until then.
+                self._distil_cold_key: str | None = None
+                try:
+                    self._handle_compressible()
+                finally:
+                    if self._distil_cold_key is not None:
+                        _coldpoint.end(self._distil_cold_key)
             else:
                 self._passthrough()
 
@@ -1084,8 +1110,34 @@ def build_handler(
                     _compress_fn = compress_chat_completions
                 else:
                     _compress_fn = compress_messages
+                # Cold-point recompression (ADR 0014), Anthropic Messages only. Fail-open:
+                # any error plans nothing and the request compresses exactly as before.
+                _cold_plan: Any = None
+                _cold_kw: dict[str, Any] = {}
+                if _cold_on and not _is_chat:
+                    try:
+                        from . import prefixreplay as _prep
+                        from .adapters.anthropic import cold_candidates
+
+                        _ck = _prep.credential_scope(headers) + _prep.lineage_key(body, original)
+                        _cold_plan = _coldpoint.plan(
+                            _ck,
+                            body,
+                            original,
+                            lambda: cold_candidates(
+                                original, keep=_learn_keep, exclude_handles=_coldpoint.expanded()
+                            ),
+                        )
+                        self._distil_cold_key = _ck
+                        if _cold_plan.evict:
+                            _cold_kw = {"evict": _cold_plan.evict}
+                    except Exception:  # noqa: BLE001 — never break a request for a saving
+                        log.debug("cold-point plan failed; compressing as usual", exc_info=True)
+                        _cold_plan = None
                 try:
-                    compressed, store = _compress_fn(pre, verbatim=verbatim, keep=_learn_keep)
+                    compressed, store = _compress_fn(
+                        pre, verbatim=verbatim, keep=_learn_keep, **_cold_kw
+                    )
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                     compressed, store = pre, None
@@ -1149,6 +1201,12 @@ def build_handler(
                     # Stateful, content-free — the verifiable benefit of a prefix-freeze
                     # router, without the lossy rewrite (distil is cache-monotonic).
                     extras["x-distil-cache-prefix-msgs"] = str(_dstats.prefix_msgs)
+                if _cold_plan is not None:
+                    # Why this turn did (or did not) evict, and how many ids the lineage
+                    # carries evicted. The tokens are in the census (tool_result_evicted)
+                    # and already inside tokens-saved: one accounting path, not two.
+                    extras["x-distil-cold"] = _cold_plan.reason
+                    extras["x-distil-cold-evicted"] = str(len(_cold_plan.evict))
                 # Recoverable compression: offer the model the distil_expand tool so it
                 # can pull back detail on demand.
                 #
@@ -1307,6 +1365,7 @@ def build_handler(
                     _expand_misses.append(handle)
                     return
                 _expanded_handles.append(handle)
+                _coldpoint.note_expanded(handle)  # never evict what the model asked for
                 if _learn_stats is not None:  # learn the expanded signature
                     from .learn import signature
 
@@ -1801,6 +1860,17 @@ def build_handler(
                     # reads the absence as "did not run", and zeros would report a
                     # switched-off feature as one that ran and found nothing to hold.
                     **_replay_record(extras),
+                    # Cold-point recompression (ADR 0014): this turn's decision and the
+                    # lineage's evicted-id count. Absent when it did not run, for the same
+                    # reason as replay's counters.
+                    **(
+                        {
+                            "cold": extras["x-distil-cold"],
+                            "cold_evicted": int(extras.get("x-distil-cold-evicted") or 0),
+                        }
+                        if "x-distil-cold" in extras
+                        else {}
+                    ),
                     # Provider-reported quota state (counters/timestamps only). Billed
                     # tokens say what was sent; this says what it cost the plan's budget.
                     "ratelimit": getattr(self, "_distil_ratelimit", None),
@@ -1983,7 +2053,21 @@ def build_handler(
             # killed on process exit, which loses the sample on a quick run
             # (e.g. `claude -p`) or right after the last turn. Prune finished
             # ones first so the list stays bounded on long sessions.
-            _t = threading.Thread(target=_shadow_compare, daemon=True)
+            # The compressed arm re-sends this lineage's prefix, which refreshes the
+            # provider's cache after the request itself has finished — so the lineage
+            # stays in flight (never cold, ADR 0014) until the replay is done.
+            _ck = getattr(self, "_distil_cold_key", None)
+
+            def _shadow_run() -> None:
+                try:
+                    _shadow_compare()
+                finally:
+                    if _ck is not None:
+                        _coldpoint.end(_ck)
+
+            if _ck is not None:
+                _coldpoint.begin(_ck)
+            _t = threading.Thread(target=_shadow_run, daemon=True)
             with _shadow_threads_lock:
                 # Prune finished threads and append under one lock — concurrent
                 # sampled requests otherwise race here and drop a thread, which
@@ -2129,6 +2213,7 @@ def serve(
     retention_rate: float = 0.0,
     session_delta: bool = False,
     prefix_replay: bool = True,
+    cold_point: bool = True,
 ) -> None:
     """Run a blocking :class:`ThreadingHTTPServer` proxy.
 
@@ -2174,6 +2259,7 @@ def serve(
         retention_rate=retention_rate,
         session_delta=session_delta,
         prefix_replay=prefix_replay,
+        cold_point=cold_point,
     )
     server, activated = _listen(host, port, handler)
     print(f"distil proxy listening on http://{host}:{port}")
@@ -2240,6 +2326,7 @@ def wrap_run(
     expand: bool = False,
     session_delta: bool = False,
     prefix_replay: bool = True,
+    cold_point: bool = True,
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
@@ -2324,6 +2411,7 @@ def wrap_run(
                     "expand": expand,
                     "session_delta": session_delta,
                     "prefix_replay": prefix_replay,
+                    "cold_point": cold_point,
                     "shadow_rate": shadow_rate,
                     "retention_rate": retention_rate,
                 },
@@ -2353,6 +2441,7 @@ def wrap_run(
                     expand=expand,
                     session_delta=session_delta,
                     prefix_replay=prefix_replay,
+                    cold_point=cold_point,
                     shadow_rate=shadow_rate,
                     retention_rate=retention_rate,
                 ),
@@ -2382,6 +2471,7 @@ def wrap_run(
             expand=expand,
             session_delta=session_delta,
             prefix_replay=prefix_replay,
+            cold_point=cold_point,
             shadow_rate=shadow_rate,
             retention_rate=retention_rate,
         )

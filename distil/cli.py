@@ -1224,6 +1224,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
             retention_rate=getattr(args, "retention", 0.0),
             session_delta=args.session_delta,
             prefix_replay=not getattr(args, "no_prefix_replay", False),
+            cold_point=not getattr(args, "no_cold_point", False),
         )
     return 0
 
@@ -3129,6 +3130,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
         expand=args.expand,
         session_delta=args.session_delta,
         prefix_replay=not getattr(args, "no_prefix_replay", False),
+        cold_point=not getattr(args, "no_cold_point", False),
         shadow_rate=args.shadow,
         retention_rate=getattr(args, "retention", 0.0),
         extra_env=extra_env,
@@ -4659,6 +4661,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by default: when the client re-sends its history with only non-semantic churn — the cache_control marker advanced, an SDK added `index`, a string became a text block — distil forwards the bytes it forwarded last turn so the provider's prompt cache still hits. Content is never changed either way; pass this to forward exactly what the compressor produced.",
     )
+    px.add_argument(
+        "--no-cold-point",
+        action="store_true",
+        help="opt OUT of cold-point recompression (ADR 0014). On by default wherever the "
+        "recoverable digest runs: when a turn arrives after the provider's prompt cache has "
+        "certainly expired (5 min, or 1 h if the client asked for it), older tool output is "
+        "replaced by distil_expand-recoverable stubs, and those stubs are what gets cached for "
+        "the rest of the session. Also: DISTIL_COLD_POINT=0.",
+    )
     px.set_defaults(func=cmd_proxy)
 
     pw = sub.add_parser(
@@ -4971,6 +4982,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-prefix-replay",
         action="store_true",
         help="opt OUT of forwarded-bytes prefix replay (ADR 0011). Replay is on by default: when the client re-sends its history with only non-semantic churn — the cache_control marker advanced, an SDK added `index`, a string became a text block — distil forwards the bytes it forwarded last turn so the provider's prompt cache still hits. Content is never changed either way; pass this to forward exactly what the compressor produced.",
+    )
+    wr.add_argument(
+        "--no-cold-point",
+        action="store_true",
+        help="opt OUT of cold-point recompression (ADR 0014). On by default wherever the "
+        "recoverable digest runs: when a turn arrives after the provider's prompt cache has "
+        "certainly expired (5 min, or 1 h if the client asked for it), older tool output is "
+        "replaced by distil_expand-recoverable stubs, and those stubs are what gets cached for "
+        "the rest of the session. Also: DISTIL_COLD_POINT=0.",
     )
     wr.add_argument(
         "--retention",
