@@ -734,7 +734,7 @@
       "snippet": null,
       "claim": "distil shipped the naive-recompression-busts-the-cache bug once on the live adapter before 1.45: a recency carve-out that rewrote an already-committed prefix one turn late produced zero cache reads on every turn and cost 2x the price of compressing nothing at all, measured against the real Anthropic API in a 4-arm live A/B (direct / digest / lossless_only / naive). The invariant (suffix-only, cache-monotonic compression) is now enforced by tests/test_cache_contract.py.",
       "check": "manual",
-      "check_reason": "No committed artifact holds the live A/B's raw numbers -- searched benchmarks/results/ and docs/ for a file backing '2x', 'zero cache reads' or 'four arms'; only the narrative writeup on docs/cache-contract.html and its retelling in CHANGELOG.md/benchmark.html exist. The regression is now covered by a passing test (test_cache_contract.py), not a re-run of the original incident.",
+      "check_reason": "No committed artifact holds the live A/B's raw numbers. benchmarks/results/cache-aware-vs-naive-2026-09-24.json is a `distil savings` run of the unrelated trajectory simulation above and must hold only what that run measured -- it does not, and must not, carry this figure. Searched benchmarks/results/ and docs/ for anything else backing '2x', 'zero cache reads' or 'four arms'; only the narrative writeup on docs/cache-contract.html and its retelling in CHANGELOG.md/benchmark.html exist. The regression is now covered by a passing test (test_cache_contract.py), not a re-run of the original incident.",
       "values": [
         "2×"
       ],

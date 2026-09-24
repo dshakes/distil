@@ -27,9 +27,5 @@
       "cache_hit_tokens": 1028
     }
   },
-  "naive_pct_more_than_distil": 66,
-  "live_incident_2026": {
-    "description": "Separate from the trajectory simulation above: distil shipped the same class of bug (naive recompression busting the prefix cache) once on the live adapter, before 1.45 -- a recency carve-out that rewrote an already-committed prefix one turn late produced zero cache reads on every turn and cost 2x direct (uncompressed) on the real Anthropic API. The invariant is now enforced (suffix-only, cache-monotonic compression). Full writeup, live numbers: docs/cache-contract.html.",
-    "cost_multiplier_vs_direct": "2x"
-  }
+  "naive_pct_more_than_distil": 66
 }
