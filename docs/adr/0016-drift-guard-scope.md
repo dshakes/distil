@@ -1,4 +1,4 @@
-# 0012 — Drift guard scope: global per machine, and not the gateway
+# 0016 — Drift guard scope: global per machine, and not the gateway
 
 - **Status:** accepted
 - **Date:** 2026-09-24

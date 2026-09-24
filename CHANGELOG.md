@@ -73,7 +73,7 @@ bound that was over the budget.
   trip, and a release, without a restart. The async proxy is already Tier-0, so a trip
   there turns off output shaping. The multi-tenant gateway runs no shadow and is
   deliberately exempt. One tenant's evidence must not hold every tenant; see
-  [ADR 0012](docs/adr/0012-drift-guard-scope.md).
+  [ADR 0016](docs/adr/0016-drift-guard-scope.md).
 - **Visible where you look, releasable without collateral.** While a hold is on, the
   status line shows `⚠ drift hold · distil reset --drift-guard`. The wrap exit summary
   and `distil stats` say `BREACHED … compression held at lossless-only`, followed by

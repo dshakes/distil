@@ -394,7 +394,7 @@ def _trip_receipt(state: LiveDrift) -> None:
 # budget are already global, and the breach is a statement about this machine's operating
 # point, not about one wrap. A per-session hold would let the very next `distil wrap`
 # resume lossy compression right after a certified breach. The multi-tenant gateway is
-# deliberately NOT held by it — see docs/adr/0012-drift-guard-scope.md.
+# deliberately NOT held by it — see docs/adr/0016-drift-guard-scope.md.
 
 #: Opt-out, same shape as DISTIL_NO_LEDGER: the alarm still trips and still prints,
 #: but the proxy keeps compressing.
