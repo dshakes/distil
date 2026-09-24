@@ -1,5 +1,5 @@
 {
-  "generated_ts": 1790150244,
+  "generated_ts": 1790236101,
   "installs": {
     "census_total": 2,
     "active_7d": 1,
@@ -193,27 +193,27 @@
     }
   },
   "channels": {
-    "pypi_downloads_month": 1878,
-    "pypi_downloads_week": 357,
+    "pypi_downloads_month": 1873,
+    "pypi_downloads_week": 366,
     "github_stars": 16,
-    "clones_uniques_14d": 353,
+    "clones_uniques_14d": 309,
     "docker_pulls": null
   },
   "pypi_detail": {
-    "real_os_30d": 139,
-    "real_os_7d": 12,
-    "bots_30d": 1739,
+    "real_os_30d": 141,
+    "real_os_7d": 15,
+    "bots_30d": 1732,
     "by_system_30d": {
-      "Darwin": 36,
-      "Linux": 96,
+      "Darwin": 37,
+      "Linux": 97,
       "Windows": 7,
-      "null": 1739
+      "null": 1732
     },
     "by_python_30d": {
       "3.10": 12,
       "3.11": 52,
-      "3.12": 43,
-      "3.13": 12,
+      "3.12": 44,
+      "3.13": 13,
       "3.14": 16,
       "3.9": 4
     }
