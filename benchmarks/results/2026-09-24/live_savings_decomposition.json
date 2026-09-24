@@ -1,5 +1,5 @@
 {
-  "source": "/Users/shakes/.distil/sessions/*.requests.jsonl",
+  "source": "~/.distil/sessions/*.requests.jsonl",
   "since": "2026-09-01",
   "pricing": "distil.pricing list prices; write 1.25x, read 0.10x",
   "until": "2026-09-24T20:20:00",

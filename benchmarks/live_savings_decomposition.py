@@ -39,6 +39,8 @@ def _rows(pattern: str, since_ts: float, until_ts: float = float("inf")):
                     d = json.loads(line)
                 except ValueError:
                     continue
+                if not isinstance(d, dict):
+                    continue
                 if d.get("status") != 200 or not since_ts <= float(d.get("ts") or 0) < until_ts:
                     continue
                 if not (
@@ -293,7 +295,7 @@ def analyse(rows) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sessions", default=os.path.expanduser("~/.distil/sessions/*.requests.jsonl"))
+    ap.add_argument("--sessions", default="~/.distil/sessions/*.requests.jsonl")
     ap.add_argument("--since", default="2026-09-01")
     ap.add_argument(
         "--until", default=None, help="ISO date/time; freeze the window (live logs grow)"
@@ -311,7 +313,7 @@ def main() -> int:
         "since": a.since,
         "pricing": "distil.pricing list prices; write 1.25x, read 0.10x",
         "until": a.until,
-        **analyse(_rows(a.sessions, since, until)),
+        **analyse(_rows(os.path.expanduser(a.sessions), since, until)),
     }
     text = json.dumps(res, indent=2)
     if a.out:

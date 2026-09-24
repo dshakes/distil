@@ -47,15 +47,25 @@ A tool_result token saved at first sight is worth **4.8x its own write cost** ov
 (it is re-read on every later turn; E, lineage model). That multiplier is why first-sight and
 cache-safe beat everything else.
 
-| # | lever | ceiling | realistic | conf. |
+Every "realistic" figure is **E and judgment**: an assumed reduction rate applied to the ceiling.
+The rate is not measured.
+
+| # | lever | ceiling | realistic (E, judgment) | conf. |
 |---|---|---|---|---|
-| 1 | **Cold-point recompaction**: when a turn arrives past the 5-min TTL the provider re-writes the whole prefix anyway, so evict old tool_results to stubs there, at zero cache penalty | 18.4% (carried tool_result $ from cold points to the next break, E) | **5–9%** at 30–50% eviction | low-med |
-| 2 | Tighter first-sight digest of fresh tool_results (short-block fold, harder digest) | 13.3% (digested + short + html + declined) | 3–5% | med |
-| 3 | Warm prefix breaks, any cause (incl. the provenance re-expand P0, where a digested block turns verbatim when an Edit arrives later) | 2.0% (writes past lineage growth, clean pairs only, lower bound, E) | 1–2% | med |
-| 4 | Output shaping | 5.9% × 20–30% | 1–2%, PAYG only | med |
-| 5 | Lossless tool-schema compaction (sibling branch) | 1.1% | 1.1% | high |
-| 6 | 1-hour TTL for idle gaps | cold writes 5–60 min = 5.2% (M) | **negative**: 2x on every write adds ~$325 to recover ≤$119 | high |
+| 1 | **Cold-point recompaction**: when a turn arrives past the 5-min TTL the provider re-writes the whole prefix anyway, so evict old tool_results to stubs there, at zero cache penalty | 18.4% (E: carried post-compression tool_result $ from each cold point to the next break) | **5–9%**, assuming 30–50% eviction | low-med |
+| 2 | Tighter first-sight digest of fresh tool_results (short-block fold, harder digest) | 13.3% (E: digested 10.2 + short 2.6 + html 0.3 + declined 0.2) | 3–5%, assuming 25–35% further reduction | med |
+| 3 | Warm prefix breaks, any cause (incl. the provenance re-expand P0, where a digested block turns verbatim when an Edit arrives later) | 2.0% (E: writes past lineage growth, clean pairs only, lower bound) | 1–2%, assuming most breaks are fixable | med |
+| 4 | Output shaping | 5.9% (M) | 1–2%, assuming a 20–30% cut, PAYG only | med |
+| 5 | Lossless tool-schema compaction (sibling branch) | 1.1% (E: 3.2% lossless schema reduction, measured on the schemas, × the tool $ share) | 1.1% | high |
+| 6 | 1-hour TTL for idle gaps | 5.2% (write $ is M; bucketing by gap is E, via the lineage model) | **negative** ³ | high |
 | — | Expand round-trips (the cost of lossy digest) | −0.4% (M) | — | — |
+
+³ This assumes a 1-hour write costs 2.0x input, Anthropic's list price for the 1-hour TTL. That
+multiplier is **not** in `distil/pricing.py`, which models only the 5-minute 1.25x write.
+- Added cost: every write moves from 1.25x to 2.0x, so $541.65 × (2.0/1.25 − 1) = **+$324.99**.
+- Recovered: the 5–60 min cold writes become reads, so ($100.11 + $29.26 = $129.37) × (1 − 0.10/1.25) =
+  **≤$119.02**. This is an upper bound, because gaps over 60 min stay cold under a 1-hour TTL too.
+- Net: at least −$206.
 
 Fresh tool_results at first appearance are only **5.2%** of the bill (E: 41% of newly written
 tokens on clean lineage pairs × warm write $). Their value is in the reads that follow, not the
