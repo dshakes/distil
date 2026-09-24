@@ -280,6 +280,53 @@ def test_capital_is_floored_at_zero_for_an_aggressive_stake():
     assert not mon.tripped
 
 
+def test_a_failed_held_write_during_quarantine_still_holds(tmp_path, monkeypatch):
+    """Quarantine copies, then writes the held state over the corrupt file. If that write
+    fails (disk full, EACCES), drift.json must still be the corrupt file — never missing,
+    which the watcher, the status line and a start beside a .reset-* archive would all
+    read as released."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    (tmp_path / "drift.json.reset-earlier").write_text("{}")  # the user released once
+    (tmp_path / "drift.json").write_text("{torn")
+    monkeypatch.setattr(LiveDrift, "_write", lambda self, p: False)
+
+    guard = DriftGuard.start(watch=False)  # bootstrap's quarantine branch
+    fold([0])  # fold's quarantine path
+    assert (tmp_path / "drift.json").read_text() == "{torn"
+    assert len(list(tmp_path.glob("drift.json.corrupt-*"))) == 2  # copies, never moves
+    assert LiveDrift.load().held  # reader
+    guard._seen = None
+    guard.refresh()  # watcher
+    assert guard.engaged
+    assert DriftGuard.start(watch=False).engaged  # next start, archive present
+
+
+def test_quarantine_copy_failure_never_overwrites_the_only_copy(tmp_path, monkeypatch):
+    import shutil
+
+    import distil.drift as d
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    (tmp_path / "drift.json").write_text("{torn")
+
+    def _no(*a, **k):
+        raise OSError("no space")
+
+    monkeypatch.setattr(d.os, "link", _no)
+    monkeypatch.setattr(shutil, "copy2", _no)
+    assert fold([0]).held
+    assert (tmp_path / "drift.json").read_text() == "{torn"
+
+
+def test_a_second_corruption_never_overwrites_the_first_quarantine(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    for junk in ("{first", "{second"):
+        (tmp_path / "drift.json").write_text(junk)
+        fold([0])
+    kept = sorted(q.read_text() for q in tmp_path.glob("drift.json.corrupt-*"))
+    assert kept == ["{first", "{second"]
+
+
 def test_a_wrongly_typed_field_is_held_as_corrupt(tmp_path, monkeypatch):
     """Well-formed JSON with a junk value is still a state nobody can vouch for."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))

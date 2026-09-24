@@ -55,5 +55,7 @@ switches off compression for workloads it says nothing about.
   - **State file and every archive deleted:** this is indistinguishable from a first
     install and re-bootstraps, which is accepted.
 
-  A quarantined `.corrupt-*` file is not a release. An unreadable state is held and moved
-  aside, never overwritten, because it may have recorded a breach.
+  A quarantined `.corrupt-*` file is not a release. An unreadable state is held. It may have
+  recorded a breach, so it is copied aside before a held state replaces it, and it stays
+  in place if either step fails. Known limits: a lock that cannot be taken fails open, so
+  two processes may write two trip receipts; archives are never pruned.

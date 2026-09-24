@@ -68,11 +68,22 @@ bound that was over the budget.
 - **A state file nobody can read is held, not reset.** A zero-length, garbage or
   wrongly-typed `drift.json` used to load as a fresh monitor, and the next fold then
   overwrote it, so a recorded breach could vanish. Now:
-  - It counts as held. The first writer moves it aside as `drift.json.corrupt-<time>`
-    rather than overwriting it.
+  - It counts as held. The first writer copies it to `drift.json.corrupt-<time>-<ns>`
+    (a hard link, or a copy when linking fails), then atomically writes a held state
+    over the original that records the copy's name. The file is copied rather than
+    moved so there is no moment when `drift.json` is missing; a missing file would read
+    as released. If the held write fails, the corrupt file stays in place and is still
+    held. If the copy fails, the original is never overwritten. A second corruption gets
+    its own name.
   - Every surface says `HELD — the drift state file was unreadable …`, followed by the
     release command.
   - Writes fsync before the atomic rename.
+  - Known limits, documented rather than built:
+    - When the advisory lock can't be taken, locking fails open. Two processes crossing
+      the threshold together can then each write a trip receipt; the hold itself is
+      unaffected.
+    - `.reset-*` and `.corrupt-*` archives are never pruned, because they are evidence.
+      They accumulate one per release or corruption.
 - **The alarm acts.** On a breach, the next request is served lossless-only: Tier-0, no
   digest, no output shaping. The response carries `x-distil-mode: lossless-only` and
   `x-distil-drift-guard: held`. `distil_expand` stays injected, so stubs already in the

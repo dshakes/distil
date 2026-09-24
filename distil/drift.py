@@ -34,6 +34,7 @@ import math
 import contextlib
 import logging
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -246,6 +247,10 @@ class LiveDrift:
         fsync before the rename, then the rename is atomic: a reader sees either the old
         state or the new one, and a crash cannot leave a zero-length file behind the name.
         """
+        if self.corrupt and not self.quarantined:
+            # The unreadable file on disk is the only copy of whatever it recorded, and it
+            # is what keeps every reader held. Never replace it with an un-held state.
+            return False
         payload: dict[str, object] = {f: getattr(self.monitor, f) for f in _FIELDS}
         payload.update(tripped_at=self.tripped_at, tripped_ts=self.tripped_ts, v=_SCHEMA)
         if self.quarantined:
@@ -330,7 +335,11 @@ def fold(diffs: list[int], *, path: Path | None = None) -> LiveDrift:
     a proxy that restarted, a hot-swap worker and a second wrap all continue the same
     capital, so no row is ever bet twice and no restart re-branches from stale capital.
     The trip's receipt is written inside the same critical section, so two processes
-    crossing the threshold together produce exactly one.
+    crossing the threshold together produce exactly one — as long as the advisory lock is
+    obtainable. ``_filelock.locked`` fails open to no lock (unlockable filesystem), and
+    then two processes crossing together can each write a trip receipt; the hold itself
+    is unaffected. Archives (``.reset-*``, ``.corrupt-*``) accumulate at human pace — one
+    per release or corruption — and are never pruned, because they are evidence.
     """
     p = path or _state_path()
     with _locked(p):
@@ -343,18 +352,29 @@ def fold(diffs: list[int], *, path: Path | None = None) -> LiveDrift:
 
 
 def _load_for_write(p: Path) -> LiveDrift:
-    """:meth:`LiveDrift.load`, for a writer holding the lock: an unreadable file is moved
-    aside (never overwritten — it is evidence) and replaced by a HELD state that records
-    where it went. Fails safe: if the move fails, the state is still held in memory."""
+    """:meth:`LiveDrift.load`, for a writer holding the lock: an unreadable file is COPIED
+    aside (it is evidence) and the caller then writes a HELD state over it that records
+    where the copy went.
+
+    Copy, not move: until the held replacement is durably in place, ``drift.json`` is
+    still the unreadable file, and an unreadable file reads as held. A move would leave a
+    window — and, if the replacement write failed, a permanent gap — in which the state
+    is MISSING, which every watcher reads as released. If the copy fails, ``quarantined``
+    stays empty and :meth:`LiveDrift._write` refuses to overwrite the only copy.
+    The name carries nanoseconds so a second corruption never overwrites the first.
+    """
     state = LiveDrift.load(p)
     if state.corrupt:
-        dest = p.with_name(f"{p.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        dest = p.with_name(f"{p.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns()}")
         try:
-            p.rename(dest)
+            try:
+                os.link(p, dest)
+            except OSError:
+                shutil.copy2(p, dest)
             state.quarantined = dest.name
-            log.warning("distil drift: unreadable %s moved to %s; holding", p.name, dest.name)
+            log.warning("distil drift: unreadable %s copied to %s; holding", p.name, dest.name)
         except OSError:
-            log.warning("distil drift: %s is unreadable and could not be moved; holding", p)
+            log.warning("distil drift: %s is unreadable and could not be copied; holding", p)
     return state
 
 
