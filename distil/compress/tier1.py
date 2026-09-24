@@ -132,6 +132,19 @@ def digest(
             if shape_seen[s] <= max_repeats:
                 keep_idx.add(i)
 
+    # A dropped run shorter than the marker that would replace it is shown inline
+    # instead: more faithful AND fewer tokens. Compared against the exact marker
+    # emitted below, and applied before the flywheel so shown lines are not "dropped".
+    marker_tail = f" lines, handle={_handle(text)} >>"
+    i = 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and j not in keep_idx:
+            j += 1
+        if j > i and sum(len(x) + 1 for x in lines[i:j]) <= len(f"<< +{j - i}{marker_tail}"):
+            keep_idx.update(range(i, j))
+        i = j + 1
+
     # Phase-2 dark collection: record the *dropped* lines' numeric query-features so a future
     # retrain can learn semantic relevance from real expands. Content-free, gated + sampled,
     # fail-open — a no-op unless the live proxy enabled it (offline/cert/tests untouched).
@@ -142,32 +155,24 @@ def digest(
 
             query_flywheel.maybe_record(_handle(text), intent, lines, kind, _dropped)
 
-    # First-sight tightening, measured on 5,000 real digested originals
-    # (benchmarks/results/2026-09-24/first_sight_digest.json):
-    # (a) a gap whose lines are shorter than the marker that would replace them is
-    #     shown inline instead: more faithful AND fewer tokens;
-    # (b) only the FIRST marker in a block names the handle. Every marker in one
-    #     block points at the same original, so repeating it bought nothing.
-    h = _handle(text)
     out: list[str] = []
+    dropped = 0
     emitted = False  # did we actually elide anything?
     i = 0
     n = len(lines)
     while i < n:
         if i in keep_idx:
+            if dropped:
+                out.append(f"<< +{dropped} lines, handle={_handle(text)} >>")
+                emitted = True
+                dropped = 0
             out.append(lines[i])
-            i += 1
-            continue
-        j = i
-        while j < n and j not in keep_idx:
-            j += 1
-        marker = f"<< +{j - i} lines >>"
-        if sum(len(x) + 1 for x in lines[i:j]) <= len(marker):
-            out.extend(lines[i:j])  # (a)
         else:
-            out.append(marker if emitted else f"<< +{j - i} lines, handle={h} >>")
-            emitted = True
-        i = j
+            dropped += 1
+        i += 1
+    if dropped:
+        out.append(f"<< +{dropped} lines, handle={_handle(text)} >>")
+        emitted = True
     # `changed` must mean the output actually differs. When every line is must-keep —
     # a 400-line test log where the verdict policy pins each PASS line — nothing is
     # dropped, no marker is emitted, and the output is byte-identical to the input.

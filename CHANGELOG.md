@@ -784,29 +784,27 @@ that reads as shipped is a claim, and it is now labelled as what it is.
 
 ### A digest that stops pointing at what it could just show
 
-A tool result is cheapest to shrink the first time it is sent: after that it sits in
-the cached prefix and is re-read every turn. So the digest was measured where it runs,
-on the 4,999 most recent blocks the live proxy actually digested (read from the local
-restore store, aggregates only; `benchmarks/first_sight_digest.py`, artifact
-`benchmarks/results/2026-09-24/first_sight_digest.json`). 13.8% of what it still sent
-was the `<< +N lines, handle=… >>` markers themselves, and two kinds of marker were pure
-overhead:
+A dropped run of lines no longer than the `<< +N lines, handle=… >>` marker that would
+replace it is now shown inline. The marker format is unchanged and every marker still
+names its handle; the only difference is that the digest no longer spends a pointer on
+something cheaper to show. It is more faithful and never more expensive, and the inlined
+lines are no longer reported to the query flywheel as dropped.
 
-- a dropped run shorter than the marker that replaced it is now shown inline. More
-  faithful and fewer tokens, with nothing to trade;
-- only the first marker in a block names the handle. Every marker in a block points at
-  the same original, so the second and later ones now read `<< +N lines >>`.
+The gain is small and it is stated as such. On the corpus it is zero: none of the 51
+markers the corpus produces replaces a run that short
+(`benchmarks/first_sight_digest.py`, artifact
+`benchmarks/results/2026-09-24/first_sight_digest.json`), and `bench`, `verify`,
+`validate`, `retention`, `fidelity` and `suite` all read exactly as before. It exists for
+the short gaps between pinned lines that real tool output has and the corpus does not.
 
-Digest output on that sample fell from 862,712 to 844,529 tokens (71.40% to 72.00%
-reduction), with marker tokens down 17%; per class, test/build output 58.3% to 59.7%,
-diffs 73.3% to 75.0%, tracebacks 36.9% to 39.9%. `distil bench` moves from 48.4% to
-48.7% cheaper; `verify`, `validate`, `fidelity` and `suite` output is unchanged, and
-`retention` still reads 100% recall, 412 of 1,094 facts visible, 0 lost.
-
-One thing measured and not shipped: shortening over-long head and tail lines to their
-two ends took the real sample to 72.6%, but on the corpus it moved facts from visible
-to one `distil_expand` away (retention visible 37.7% to 33.1%) and added a silent
-failure. A token saved by a round trip is not a token saved, so it stays out.
+Two other ways to shrink the markers were measured and not shipped. Dropping the handle
+from every marker after the first in a block saved a little more, but the
+`distil_expand` description tells the model every marker carries one, a kept line that
+itself contains `handle=…` could then sit between a bare marker and its real handle,
+and correcting the description would have cost every user one cache miss on their tools
+prefix. Shortening over-long head and tail lines to their two ends moved corpus facts
+from visible to one `distil_expand` away (retention visible 37.7% to 33.1%) and added a
+silent failure; a token saved by a round trip is not a token saved.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 

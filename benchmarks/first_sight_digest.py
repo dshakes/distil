@@ -1,13 +1,12 @@
-"""First-sight reduction of the live digest path, per content class, on REAL originals.
+"""First-sight reduction of the live digest path, per content class, on the corpus.
 
-Reads the local restore store (~/.distil/restore: the most recent blocks the live
-proxy actually digested) in memory, runs the adapter's `_compress_tool_result_text`
-on each block with disk writes and the census stubbed out, and writes AGGREGATES
-ONLY — counts and token sums, never content — to a JSON artifact. The baseline is
-the digest as of ``--baseline-ref`` (loaded from git), so before/after run on one
-snapshot of the store.
+Runs the adapter's `_compress_tool_result_text` (the path a tool_result takes the
+first time the proxy sees it) over every tool-output/retrieved block in corpus/,
+with disk writes and the census stubbed out, and writes before/after aggregates to a
+JSON artifact. The baseline is the digest as of ``--baseline-ref`` (loaded from
+git), so both sides run on the same blocks.
 
-    uv run --python 3.12 --with cryptography python benchmarks/first_sight_digest.py \
+    uv run --python 3.12 python benchmarks/first_sight_digest.py \
         --baseline-ref origin/main --out benchmarks/results/2026-09-24/first_sight_digest.json
 
 Content classes are a shape heuristic over the text (this script only; the proxy is
@@ -23,17 +22,17 @@ import importlib.util
 import json
 import re
 import subprocess
-import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from distil import mcp_server
+from distil.corpus import load_corpus
 from distil.adapters import anthropic as A
 from distil.compress import keep_policy as K
 from distil.compress import tier1 as T1
 from distil.tokenizer import HeuristicTokenizer
+from distil.trajectory import Kind
 
 _GREP = re.compile(r"^[\w./-]+:\d+[:-]")
 _CATN = re.compile(r"^\s*\d+[\t→]")
@@ -41,7 +40,7 @@ _TS = re.compile(r"\d{4}-\d\d-\d\d[T ]\d\d:\d\d|^\[?\d\d:\d\d:\d\d")
 _CODE = re.compile(
     r"^\s*(def |class |import |from \S+ import|function |const |let |fn |func |pub |#include|package )"
 )
-_MARKER = re.compile(r"^<< \+\d+ lines(?:, handle=[0-9a-f]{8})? >>$")
+_MARKER = re.compile(r"^<< \+\d+ lines, handle=[0-9a-f]{8} >>$")
 
 
 def content_class(t: str) -> str:
@@ -122,19 +121,22 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--baseline-ref", default="origin/main")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--corpus", default="corpus")
     args = ap.parse_args(argv)
 
     # Measurement must not write: no restore persistence, no census.
     A._record_restore = lambda h, o: True  # type: ignore[assignment]
     A._census = lambda b, t: None  # type: ignore[assignment]
     A._census_tokens = lambda b, n: None  # type: ignore[assignment]
-    d = mcp_server._restore_dir()
-    texts = [t for p in sorted(d.iterdir()) if (t := mcp_server._read_restore_text(p))]
-    if not texts:
-        print(f"no restore originals under {d}", file=sys.stderr)
-        return 1
+    texts = [
+        b.text
+        for e in load_corpus(args.corpus)
+        for t in e.trajectory.turns
+        for b in t.blocks
+        if b.kind in (Kind.TOOL_OUTPUT, Kind.RETRIEVED)
+    ]
     res = {
-        "source": "local restore store (most recent live-digested blocks), aggregates only",
+        "source": f"corpus tool-output/retrieved blocks ({args.corpus})",
         "tokenizer": "heuristic",
         "baseline_ref": args.baseline_ref,
         "before": _run(texts, _baseline_digest(args.baseline_ref)),
