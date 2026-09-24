@@ -33,8 +33,12 @@ the cache window, for nothing. And because the history only grows, it kept the c
 the rest of the session. This is the "provenance re-expand" the live-savings research counted
 among in-window breaks, and it is a different bug from #184's expand re-digest.
 
-The widened pass is now forwarded only when it rescues at least one quote, on both the
-Messages and the Responses paths (`_widen_rescued`). The miss is still booked in `quotes`.
+The widened pass is now forwarded only when it rescues at least one quote and loses none
+the narrow pass kept, on both the Messages and the Responses paths (`_widen_rescued`). The
+lost quotes are compared as sets, not counts, so the choice does not assume the widened
+pass is monotone. The miss is still booked in `quotes`. Replay now calls a walk "held" only
+when it reached the end of the previous turn on both the client's list and the forwarded
+list, so a stop caused by distil's own forwarded list can't be labelled "held".
 Replayed offline over 12 local Claude Code transcripts (4,658 append-only requests), the
 widened pass ran on 2,625 requests and rescued a quote on none. The same replay found one
 in-window break before the change (176,944 bytes of prefix) and none after it.

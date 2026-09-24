@@ -752,14 +752,31 @@
       ],
       "anchor": "quote-guard",
       "snippet": "rescued a quote on none",
-      "claim": "Replaying 12 local Claude Code transcripts (4,658 append-only requests) through compress_messages + prefix replay: the quote guard's widened pass ran on 2,625 requests and rescued 0 quotes; before the fix it caused 1 in-window break (176,944 bytes of prefix rewritten), after it 0.",
+      "claim": "Before the fix, replaying 12 local Claude Code transcripts (4,658 append-only requests) through compress_messages + prefix replay: the quote guard's widened pass ran on 2,625 requests and rescued 0 quotes, and the replay found 1 in-window break (176,944 bytes of prefix rewritten).",
       "artifact": "benchmarks/results/2026-09-24/in_window_prefix_breaks.pre-fix.json",
       "values": [
         "4658",
         "2625",
         "176944"
       ],
-      "note": "The post-fix run (0 breaks) is benchmarks/results/2026-09-24/in_window_prefix_breaks.json; the pre-fix one is the same script against git archive origin/main distil."
+      "note": "benchmarks/in_window_prefix_breaks.py run against git archive origin/main distil (the commit before the quote-guard change). The after-fix half is v-quote-guard-widen-transcripts-after."
+    },
+    {
+      "id": "v-quote-guard-widen-transcripts-after",
+      "status": "verified",
+      "page": [
+        "cache-contract.html"
+      ],
+      "anchor": "quote-guard",
+      "snippet": "After it, none.",
+      "claim": "After the fix, the same replay (4,658 requests, widened pass ran on 2,625) finds 0 in-window breaks and 0 bytes of prefix rewritten.",
+      "artifact": "benchmarks/results/2026-09-24/in_window_prefix_breaks.json",
+      "values": [
+        "4658",
+        "2625",
+        "0"
+      ],
+      "note": "benchmarks/in_window_prefix_breaks.py on this branch; transcript_replay.distil_breaks and distil_break_bytes are both 0."
     },
     {
       "id": "u-live-cache-saving",

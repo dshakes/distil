@@ -509,13 +509,13 @@ def _guard_response_quotes(
     quotes = _provenance.response_edit_quotes(items)
     if not quotes or verbatim:
         return compressed, store
-    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    if lost:
+    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
+    if missing:
         wide, wide_store = walk(exact_quote_call_ids(items, widen=True))
-        w_survived, w_lost = _provenance.quote_hazard(quotes, _provenance.observed_view(wide))
-        if _widen_rescued(lost, w_lost):
-            compressed, store, survived, lost = wide, wide_store, w_survived, w_lost
-    _hazard_tls.counts = {"survived": survived, "lost": lost}
+        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
+        if _widen_rescued(missing, w_missing):
+            compressed, store, missing = wide, wide_store, w_missing
+    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
     return compressed, store
 
 

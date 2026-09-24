@@ -361,9 +361,6 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
     if prev is not None:
         prev_fwd_canon = list(prev.fwd_canon)  # local: another thread may hold `prev`
         limit = min(len(cur_canon), len(prev.canon), len(forwarded), len(prev.forwarded))
-        # Running off the end of the shorter history is "held" only when that end is the
-        # previous turn's; a client that now sends fewer items dropped some.
-        stats.stop = "held" if len(cur_canon) >= len(prev.canon) else "client"
         for i in range(limit):
             if cur_canon[i] != prev.canon[i]:
                 stats.stop = "client"
@@ -388,6 +385,17 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
             out[i] = item
             fwd_canon.append(cur_key)
             stats.hits += 1
+        else:
+            # Walked off the end without a divergence. That is "held" only when the end
+            # was every item of the previous turn, both as the client sent it and as we
+            # forwarded it. A client that now sends fewer items dropped some; otherwise
+            # the forwarded lists disagree in length with the client's, which is ours.
+            if limit == len(prev.canon) == len(prev.forwarded):
+                stats.stop = "held"
+            elif len(cur_canon) < len(prev.canon):
+                stats.stop = "client"
+            else:
+                stats.stop = "distil"
         stats.misses = len(forwarded) - stats.hits
 
     _put(key, _Lineage(canon=cur_canon, forwarded=out, fwd_canon=fwd_canon))

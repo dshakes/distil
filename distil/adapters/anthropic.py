@@ -29,7 +29,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from types import MappingProxyType
-from typing import Mapping
+from typing import Iterable, Mapping
 from typing import Any
 
 from ..compress.tier0 import collapse_runs, minify_json
@@ -866,18 +866,22 @@ def _guard_quotes(
     quotes = _provenance.edit_quotes(messages)
     if not quotes or verbatim:
         return compressed, store
-    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    if lost:
+    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
+    if missing:
         wide, wide_store = walk(exact_quote_tool_use_ids(messages, widen=True), {})
-        w_survived, w_lost = _provenance.quote_hazard(quotes, _provenance.observed_view(wide))
-        if _widen_rescued(lost, w_lost):
-            compressed, store, survived, lost = wide, wide_store, w_survived, w_lost
-    _hazard_tls.counts = {"survived": survived, "lost": lost}
+        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
+        if _widen_rescued(missing, w_missing):
+            compressed, store, missing = wide, wide_store, w_missing
+    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
     return compressed, store
 
 
-def _widen_rescued(lost: int, widened_lost: int) -> bool:
-    """Adopt the widened pass only if it put back a quote the narrow pass had lost.
+def _widen_rescued(lost: Iterable[str], widened_lost: Iterable[str]) -> bool:
+    """Adopt the widened pass only if it put back a quote the narrow pass had lost, and
+    lost none the narrow pass kept: its lost quotes are a STRICT SUBSET of the narrow
+    pass's. Compared as sets, not counts, so the choice does not rest on the widened pass
+    being monotone — one that rescued a quote and dropped another would tie on count and
+    still be the wrong pass to forward.
 
     A quote that no read ever carried byte-exact — the agent ``Write``-ing a file and then
     editing it, or a multi-line ``old_string`` against Claude Code's line-numbered ``Read``
@@ -889,7 +893,7 @@ def _widen_rescued(lost: int, widened_lost: int) -> bool:
     request it ran on. Still sticky where it does help: the rescued quote stays in the
     history, so it is re-detected, and re-rescued, on every later turn.
     """
-    return widened_lost < lost
+    return set(widened_lost) < set(lost)
 
 
 def compress_messages(

@@ -610,6 +610,31 @@ def test_the_replay_names_which_side_broke_the_prefix() -> None:
     prefixreplay.reset()
 
 
+def test_a_walk_cut_short_by_our_own_forwarded_list_is_not_called_held() -> None:
+    """The walk runs to the shortest of four lists. When the one that ran out is a
+    FORWARDED list, not the client's, the prefix was not held, and the side that
+    shortened it is distil's."""
+    prefixreplay.reset()
+    base, grown = _anthropic(4, "moving"), _anthropic(5, "moving")
+    # Last turn we forwarded fewer items than the client sent.
+    prefixreplay.replay("short", base, _fwd_anthropic(base)[:-1])
+    _, stats = prefixreplay.replay("short", grown, _fwd_anthropic(grown))
+    assert (stats.stop, stats.hits) == ("distil", len(base) - 1)
+
+    # This turn we forward fewer items than last turn's history.
+    prefixreplay.reset()
+    prefixreplay.replay("short", base, _fwd_anthropic(base))
+    _, stats = prefixreplay.replay("short", grown, _fwd_anthropic(grown)[: len(base) - 1])
+    assert stats.stop == "distil"
+
+    # Control: the full previous turn replayed is still "held".
+    prefixreplay.reset()
+    prefixreplay.replay("short", base, _fwd_anthropic(base))
+    _, stats = prefixreplay.replay("short", grown, _fwd_anthropic(grown))
+    assert (stats.stop, stats.hits) == ("held", len(base))
+    prefixreplay.reset()
+
+
 def test_a_changed_tool_result_is_never_overlaid_with_old_bytes() -> None:
     """The failure that would matter: a tool_result whose bytes changed keeps the new
     bytes. A file re-read after an edit is exactly this shape, and forwarding the old
