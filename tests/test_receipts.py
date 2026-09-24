@@ -218,6 +218,113 @@ def test_broken_chain_statement_names_the_failure(home):
 
 
 # ---------------------------------------------------------------------------
+# head_hash reads backward from the end, not the whole chain
+# ---------------------------------------------------------------------------
+
+
+def _old_head_hash() -> str:
+    """The pre-fix implementation: forward scan, keep the last receipt. The O(1)
+    backward reader must agree with this on every fixture below."""
+    last = None
+    for last in R.read():  # noqa: B007 — we want the final element
+        pass
+    return last.hash if last is not None else R.GENESIS
+
+
+def test_head_hash_matches_full_scan_on_multi_row_chain(home):
+    for i in range(5):
+        R.append(_mk(i))
+    assert R.head_hash() == _old_head_hash()
+
+
+def test_head_hash_falls_back_past_a_torn_last_line(home):
+    for i in range(3):
+        R.append(_mk(i))
+    p = home / "receipts.jsonl"
+    torn = p.read_text() + '{"v": 1, "ts": 9, "hash": "deadbeef"'  # cut mid-write, no \n
+    p.write_text(torn)
+    assert R.head_hash() == _old_head_hash()
+    real_last = list(R.read())[-1]  # read() also skips the torn tail
+    assert R.head_hash() == real_last.hash
+
+
+def test_head_hash_on_empty_file(home):
+    p = home / "receipts.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("")
+    assert R.head_hash() == R.GENESIS == _old_head_hash()
+
+
+def test_head_hash_on_missing_file(home):
+    assert not (home / "receipts.jsonl").exists()
+    assert R.head_hash() == R.GENESIS == _old_head_hash()
+
+
+def test_head_hash_handles_a_line_longer_than_one_read_block(home):
+    """A single receipt line bigger than ``_TAIL_BLOCK_SIZE`` must still be found —
+    the backward reader has to pull more than one block before it hits the line's
+    start."""
+    p = home / "receipts.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    huge_handles = [f"{i:08x}" for i in range(10_000)]
+    payload = {
+        "ts": 1.0,
+        "request_id": "r",
+        "session": "s",
+        "model": "m",
+        "mode": "digest",
+        "tokens_original": 10,
+        "tokens_compressed": 5,
+        "reversible": False,
+        "handles": huge_handles,
+        "restorable": True,
+        "certificate": "",
+        "v": 1,
+        "prev": R.GENESIS,
+        "hash": "deadbeefcafe",
+    }
+    line = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    assert len(line) > R._TAIL_BLOCK_SIZE, "fixture must exceed one read block"
+    p.write_text(line + "\n")
+    assert R.head_hash() == "deadbeefcafe" == _old_head_hash()
+
+
+def test_head_hash_does_not_read_the_file_in_full(home, monkeypatch):
+    """The guard this fix exists for: a lookup on a large chain must touch a small,
+    bounded slice of it, not the whole file. Measured in bytes read, not wall clock."""
+    for i in range(2_000):
+        R.append(_mk(i))
+    p = home / "receipts.jsonl"
+    size = p.stat().st_size
+    assert size > R._TAIL_BLOCK_SIZE * 4, "fixture must be well over one tail block"
+
+    real_open = Path.open
+    bytes_read = 0
+
+    def counting_open(self: Path, *a: object, **k: object):
+        fh = real_open(self, *a, **k)
+        if self != p:
+            return fh
+        orig_read = fh.read
+
+        def counted_read(n: int = -1) -> bytes:
+            nonlocal bytes_read
+            data = orig_read(n)
+            bytes_read += len(data)
+            return data
+
+        fh.read = counted_read  # type: ignore[method-assign]
+        return fh
+
+    monkeypatch.setattr(Path, "open", counting_open)
+    h = R.head_hash()
+    read_for_lookup = bytes_read
+    monkeypatch.setattr(Path, "open", real_open)  # unpatch before the reference scan
+    assert h == list(R.read())[-1].hash
+    assert read_for_lookup < size // 4, f"read {read_for_lookup} of {size} bytes for a lookup"
+
+
+# ---------------------------------------------------------------------------
 # Owner-only at creation, not by a chmod afterwards
 # ---------------------------------------------------------------------------
 
