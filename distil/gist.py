@@ -1,4 +1,6 @@
-"""Content-addressed gist caching for static assets (tool schemas, system prompts).
+"""RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+Content-addressed gist caching for static assets (tool schemas, system prompts).
 
 This is the model-agnostic realization of "send the static prefix once, reference
 it forever."  The key insight: large static payloads — tool schemas, system prompts,

@@ -28,11 +28,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import site_nav  # noqa: E402
+import wrap_tables  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CHANGELOG = _ROOT / "CHANGELOG.md"
 _DOCS = _ROOT / "docs"
 _OUT = _DOCS / "changelog.html"
+_PYPROJECT = _ROOT / "pyproject.toml"
 _GITHUB_BLOB = "https://github.com/dshakes/distil/blob/main/"
 # Lookup keyed by lowercased path -> real on-disk name. Built from a directory
 # listing (not `Path.is_file()`): this repo has both docs/CACHE.md and
@@ -49,6 +51,8 @@ _DOCS_HTML_BY_LOWER = (
 
 _VERSION_RE = re.compile(r"^## \[([^\]]+)\](?: — (.*))?\s*$")
 _H3_RE = re.compile(r"^### (.*)$")
+# PEP 440 pre-release suffix: 1.53.0rc1 -> ("1.53.0", "rc1").
+_PRERELEASE_RE = re.compile(r"^(\d+(?:\.\d+)*)((?:a|b|rc)\d+)$")
 _BULLET_RE = re.compile(r"^(\s*)- (.*)$")
 
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -362,7 +366,36 @@ def _render_block(lines: list[str]) -> str:
     return "\n".join(out)
 
 
-def render_entries(changelog_md: str) -> str:
+def installed_version(pyproject_path: Path = _PYPROJECT) -> str:
+    """The version in pyproject.toml — the one source RELEASING.md bumps."""
+    try:
+        text = pyproject_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if line.startswith("version"):
+            _, _, rhs = line.partition("=")
+            return rhs.strip().strip('"').strip("'")
+    return ""
+
+
+def soak_badge(version: str, released: str) -> str:
+    """A "soaking as X, not yet on PyPI" badge for the entry an rc is soaking for.
+
+    RELEASING.md is deliberate about this: an rc's CHANGELOG entry is written
+    under the **final** version, because the rc soaks *for* that release. The
+    heading is therefore correct and must not be renamed — but a reader scanning
+    `## [1.53.0]` with no other signal concludes 1.53.0 shipped, while
+    pyproject.toml says 1.53.0rc1 and PyPI has no 1.53.0 at all. This adds the
+    missing signal beside the heading and nothing once the final ships.
+    """
+    m = _PRERELEASE_RE.match(version.strip())
+    if m is None or m.group(1) != released:
+        return ""
+    return f' <span class="nav-badge">soaking as {html.escape(version.strip())} — not yet on PyPI</span>'
+
+
+def render_entries(changelog_md: str, version: str = "") -> str:
     lines = changelog_md.splitlines()
     i, n = 0, len(lines)
     while i < n and not _VERSION_RE.match(lines[i]):
@@ -378,21 +411,21 @@ def render_entries(changelog_md: str) -> str:
     while i < n:
         m = _VERSION_RE.match(lines[i])
         assert m, f"expected a '## [version]' header at line {i + 1}"
-        version, title = m.group(1), m.group(2)
+        released, title = m.group(1), m.group(2)
         i += 1
         body_start = i
         while i < n and not _VERSION_RE.match(lines[i]):
             i += 1
         body_html = _render_block(lines[body_start:i])
-        heading = f"{version} — {title}" if title else version
-        base = _slug(version)
+        heading = f"{released} — {title}" if title else released
+        base = _slug(released)
         seen[base] = seen.get(base, 0) + 1
         slug = base if seen[base] == 1 else f"{base}-{seen[base]}"
         # The id lives on the <h2>, not the <section>, because
         # scripts/build_search_index.py only reads anchors off h1/h2/h3.
         sections.append(
             f'<section class="changelog-entry">\n'
-            f'<h2 id="{slug}">{_inline(heading)}</h2>\n'
+            f'<h2 id="{slug}">{_inline(heading)}{soak_badge(version, released)}</h2>\n'
             f"{body_html}\n"
             "</section>"
         )
@@ -455,13 +488,16 @@ _PAGE_TEMPLATE = """<!doctype html>
 
 def build(changelog_path: Path = _CHANGELOG) -> str:
     md = changelog_path.read_text(encoding="utf-8")
-    entries = render_entries(md)
+    entries = render_entries(md, installed_version())
     page = _PAGE_TEMPLATE % {
         "topbar": site_nav.render_topbar_links("changelog.html"),
         "sidebar": site_nav.render_sidebar("changelog.html"),
         "entries": entries,
     }
-    return page
+    # CHANGELOG.md's GFM tables land in the page like any other docs table, so
+    # they need the same scroll region — applied through the shared script so the
+    # generated page can never disagree with the hand-written ones.
+    return wrap_tables.apply_to_text(page)
 
 
 def main(argv: list[str]) -> int:

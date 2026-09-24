@@ -111,7 +111,9 @@ _DIGESTIBLE_OUTPUT = {Kind.HISTORY}  # assistant answers settle into history
 
 
 def digest_output_blocks(blocks: list[Block], *, min_lines: int = 6) -> tuple[list[Block], dict]:
-    """Reversibly digest large assistant/history blocks so verbose past outputs
+    """RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+    Reversibly digest large assistant/history blocks so verbose past outputs
     stop costing full price when they re-enter context. Returns (blocks, restore)."""
     digester = Tier1Reversible(min_lines=min_lines)
     out: list[Block] = []

@@ -211,12 +211,48 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 </script></body></html>"""
 
 
-def serve_webdash(port: int = 8766, *, host: str = "127.0.0.1", open_browser: bool = True) -> None:
-    """Blocking: serve the live dashboard until Ctrl-C."""
+# Env vars set by the major CI providers — checked by name, never inferred
+# from "no TTY", because plenty of legitimate non-interactive launches (nohup,
+# a systemd/supervisor unit, an IDE task) have no TTY but still want the
+# server to actually serve.
+_CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "TF_BUILD")
+
+# A shell that runs `CI=false distil dashboard --web` (common in tool-invoked
+# scripts that pass CI through unconditionally) means "not CI" — the var is
+# SET but its value says otherwise, so presence alone is the wrong test.
+_CI_FALSY_VALUES = {"", "0", "false", "no", "off"}
+
+
+def _running_under_ci() -> bool:
+    import os
+
+    return any(os.environ.get(v, "").strip().lower() not in _CI_FALSY_VALUES for v in _CI_ENV_VARS)
+
+
+def serve_webdash(
+    port: int = 8766,
+    *,
+    host: str = "127.0.0.1",
+    open_browser: bool = True,
+    foreground: bool = False,
+) -> None:
+    """Serve the live dashboard until Ctrl-C.
+
+    A CI job has nobody to open a browser and would otherwise hang forever on
+    ``serve_forever()`` — under CI this prints the URL and returns immediately
+    instead. ``foreground=True`` forces the old blocking behaviour anyway.
+    Deliberately NOT keyed on ``sys.stdout.isatty()``: nohup, a systemd/
+    supervisor unit, and IDE run tasks all have no TTY but do want the server.
+    """
     server = build_server(host, port)
     url = f"http://{host}:{port}"
     print(f"distil live dashboard → {url}")
     print("  local only · reads your ledger · nothing leaves this machine · Ctrl-C to stop")
+
+    if not foreground and _running_under_ci():
+        print("  (CI detected: not blocking — pass --foreground to serve anyway)")
+        server.server_close()
+        return
 
     def _open() -> None:
         time.sleep(0.4)

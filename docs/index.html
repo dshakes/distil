@@ -409,8 +409,11 @@
     <pre class="term"><span class="d">$</span> uvx --from distil-llm distil bench   <span class="d"># ~10s, no API key</span>
 <span class="g">GATE: PASS</span> <span class="d">— every trajectory certified non-inferior; aggressive rejected.</span>
 <span class="d">$</span> distil wrap -- claude   <span class="d"># route your agent, zero config</span>
-<span style="color:#8b91a1">distil</span> · <span style="color:#5ad19a;font-weight:600">▼75.0K</span> · <span class="d">62% smaller</span> · <span class="g">$0.31</span> · <span style="color:#5ad1c9">total ▼27.0M</span> · <span style="color:#5ad19a">✓eq 99.5%</span><span class="hc"></span></pre>
-    <div class="cap">Real, reproducible output — you run the exact same commands.</div>
+<span style="color:#8b91a1">distil</span> · <span style="color:#5ad19a;font-weight:600">▼75.0K</span> · <span class="d">62% smaller</span> · <span class="g">$0.31</span> · <span style="color:#5ad1c9">total ▼27.0M</span> · <span style="color:var(--warn)">⚠de 97.5%</span><span style="color:#5ad1c9"> (398)</span><span class="hc"></span></pre>
+    <div class="cap">Real commands, real output shape — you run the exact same commands. The session
+      figures are illustrative; the equivalence segment is the maintainer's live shadow sample
+      (<a href="#proof">97.5% [95.5, 99.5], n=398 A/B, 2026-09-15</a>), which the status line flags
+      <span style="color:var(--warn)">⚠</span> because it is under 99%.</div>
   </div>
 
   <div class="herofoot">
@@ -541,7 +544,7 @@
         <li><b>Tested against hostile input</b>, not just hard input — and the two cases that fail are on the page</li>
         <li><b>Fails closed</b> — if quality would drop, it doesn't compress</li>
       </ul>
-      <div class="vfoot">signed certificate · <span style="color:var(--good)">✓eq 99.5%</span></div>
+      <div class="vfoot">signed certificate · <span style="color:var(--warn)">live eq 97.5% [95.5, 99.5], n=398 · 2026-09-15</span></div>
     </div>
   </div>
 </div></section>
@@ -618,7 +621,9 @@
       <code>1{A=B} − 1{A=A′}</code> with a bootstrap 95% CI, <b>unclipped</b>. A ratio
       clamped at zero can never report harm; a difference can. One reporting floor
       (50 A/B + 30 A/A) gates every surface, and below it each one prints
-      <i>below reporting floor</i> instead of a number.</p>
+      <i>below reporting floor</i> instead of a number. The maintainer's live sample cleared
+      that floor on 2026-09-15: <b>97.5%</b> [95.5, 99.5] over n=398 A/B and 399 A/A,
+      paired difference −0.025 [−0.045, −0.005].</p>
     </div>
   </div>
 
@@ -640,7 +645,8 @@
   <div class="callout" style="margin-bottom:22px">
     <b>On the decision-equivalence proxy, Distil is the most aggressive, fully decision-equivalent, and lowest-latency.</b>
     Certified <b>83.2% token savings at a 0% decision-change rate</b> (≤5% at 95% confidence) — while LLMLingua-2 cuts 53% but flips
-    1-in-8 decisions, and Headroom is safe but 2.1× less aggressive. <a href="benchmark.html#live-head-to-head">See the full live benchmark →</a>
+    1-in-8 decisions. <a href="benchmark.html#live-head-to-head">See the full live benchmark →</a>
+    <br><span style="font-size:12.5px;opacity:.8"><b>Dated:</b> 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0. Headroom has moved since: re-run 2026-09-04 against <b>headroom-ai 0.37.0</b>, distil-causal takes 52.9% tokens / 58.7% dollars at 100% decision-equivalence (PASS) against Headroom’s 1.7% / 2.0% / 81% (FAIL) on the warm corpus gate, and on the read→edit→re-read codebench workload Headroom takes 35.6% tokens for +4.9% dollars. The “2.1× less aggressive” ratio is from 0.27.0 and does not survive the re-run. <a href="compare.html#headroom-fresh">Fresh head-to-head →</a></span>
     <br><span style="font-size:12.5px;opacity:.8"><b>Proxy caveat:</b> this is next-action equivalence on a (partly synthetically decision-determined) corpus — not end-to-end task success. On <a href="research.html#e7">real SWE-bench Verified (E7)</a> aggressive compression drops pass@1 52%→16%; the proxy certificate does not transfer. <a href="research.html#e8">E8</a> (500-instance long-horizon ReAct agent, 6 conditions, full 500-instance SWE-bench Verified) shows relevance-gated reversible compression is non-inferior to full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9]; McNemar p=0.19), beats Headroom by +4.2&nbsp;pp (p=0.035), and beats LLMLingua-2 by 34 points (36.8% vs 2.4% pass@1, p&lt;0.001) at nearly identical context-reduction ratios. The newest digest (<a href="compare.html">E14</a>) keeps this <b>on par with full context — 42.0% vs 39.2%</b> (paired CI &minus;0.6..+6.2pp; non-inferiority certified, superiority not yet significant). Distil is the only certified and reversible compressor in the comparison; it does not claim cheapest.</span>
   </div>
   <p class="lead" style="margin-top:8px">Underneath it: a strategy ships only if a pre-registered non-inferiority test certifies it.

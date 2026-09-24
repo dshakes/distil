@@ -82,6 +82,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html" class="active" aria-current="page">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -102,9 +103,27 @@
   <main class="content" id="content" tabindex="-1">
 
     <h1>Vercel AI SDK <span class="g">&times; Distil</span></h1>
-    <p class="lead">Pass <code>baseURL</code> to the provider factory. Streaming works unchanged — the proxy relays the stream rather than buffering it.</p>
+    <p class="lead">Two routes. <code>distilMiddleware()</code> compresses the request in your own process &mdash; no proxy, no network hop. The <strong>proxy</strong> needs no code change at all beyond a base URL — and streaming works unchanged either way, since the proxy relays the stream rather than buffering it. Pick one; they are not meant to be stacked.</p>
 
-    <h2 id="setup">Setup</h2>
+    <h2 id="middleware">Middleware &mdash; <code>distilMiddleware()</code></h2>
+    <p>Wraps <code>wrapLanguageModel</code>'s own middleware seam, from the <code>distil-llm</code> npm package.</p>
+
+<pre class="term"><span class="d">$ npm install distil-llm</span>
+
+<span class="k">import</span> { wrapLanguageModel } <span class="k">from</span> <span class="s">"ai"</span>;
+<span class="k">import</span> { distilMiddleware } <span class="k">from</span> <span class="s">"distil-llm"</span>;
+
+<span class="k">const</span> model = wrapLanguageModel({
+  model: gateway(<span class="s">"anthropic/claude-sonnet-5"</span>),
+  middleware: distilMiddleware({
+    onSavings: (s) =&gt; console.log(<span class="s">`${s.savedPct.toFixed(1)}% smaller`</span>),
+  }),
+});</pre>
+
+    <p>Implements <code>transformParams</code> only &mdash; compression happens on the way <strong>in</strong>, and wrapping the response would mean rewriting the model&rsquo;s own output, which distil does not do. Tool results (both the v4 <code>result</code> and v5 <code>output.value</code> shapes), user text parts, and system strings are compressed; assistant messages, files, and tool calls are passed through untouched.</p>
+    <p>Lossless tier only, like the package&rsquo;s <code>compress()</code> helper. Route through the proxy below for the reversible digest tier.</p>
+
+    <h2 id="setup">Setup &mdash; the proxy route</h2>
     <p>Start the proxy against the provider this SDK talks to, then point the client at it. Nothing else in your code changes.</p>
 
 <pre class="term"><span class="d">$ distil proxy --port 8788 --upstream https://api.anthropic.com &amp;</span>
@@ -137,6 +156,10 @@
     <hr/>
     <p class="muted">Full matrix of every supported SDK, including the in-process hooks that need no proxy: <a href="integrations.html">Integrations</a>. Distil is a proxy, so anything that lets you set a base URL works &mdash; this page is a worked example, not the boundary of support.</p>
 
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
   </main>
 </div>
 

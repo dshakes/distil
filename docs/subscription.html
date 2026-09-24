@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -198,6 +199,7 @@ distil quota              # see the window it is saving</code></pre>
 
     <h3>Troubleshooting</h3>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Troubleshooting">
     <table>
       <thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead>
       <tbody>
@@ -207,12 +209,14 @@ distil quota              # see the window it is saving</code></pre>
         <tr><td>Errors look truncated</td><td>They shouldn&rsquo;t be &mdash; distil never compresses a failed tool, a non-empty <code>stderr</code>, or an MCP error. Please file an issue.</td></tr>
       </tbody>
     </table>
+    </div>
 
     <h2 id="measured">What it measures &mdash; on a real session</h2>
 
     <p>Paired live A/B, same task and fixture, hook off then on. Both arms answered the question
     correctly.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="What it measures — on a real session">
     <table>
       <thead><tr><th>Metric</th><th>Hook off</th><th>Hook on</th><th>Change</th></tr></thead>
       <tbody>
@@ -222,6 +226,7 @@ distil quota              # see the window it is saving</code></pre>
         <tr><td>cost-weighted equivalent</td><td>120,025</td><td>37,989</td><td><strong>&minus;68.3%</strong></td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>Cost weights: <code>input&nbsp;=&nbsp;1.0</code>, <code>cache_creation&nbsp;=&nbsp;1.25</code>,
     <code>cache_read&nbsp;=&nbsp;0.10</code>. The critical row is <code>cache_read</code>: it did
@@ -232,6 +237,7 @@ distil quota              # see the window it is saving</code></pre>
     <p>Five decision-bearing tasks, two arms each, live. Every task&rsquo;s answer is independently
     verifiable, so both equivalence and correctness are checkable.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Decision-equivalence">
     <table>
       <thead><tr><th>Check</th><th>Result</th></tr></thead>
       <tbody>
@@ -241,6 +247,7 @@ distil quota              # see the window it is saving</code></pre>
         <tr><td>Compression on those tasks</td><td>25% &ndash; 96%</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p><em>n</em>=5 with no A/A arm: enough to detect a gross regression, <strong>not</strong> a
     certificate. The proxy tier carries a conformal bound; this one does not yet.</p>
@@ -250,6 +257,7 @@ distil quota              # see the window it is saving</code></pre>
     <p>Tier-0 is JSON minification plus consecutive-run collapse. Both are lossless and both are
     shape-dependent. Measured with the <strong>real Anthropic tokenizer</strong>:</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Where it saves nothing — stated plainly">
     <table>
       <thead><tr><th>Output shape</th><th>Saved</th></tr></thead>
       <tbody>
@@ -261,6 +269,7 @@ distil quota              # see the window it is saving</code></pre>
         <tr><td><strong>distil&rsquo;s own eval corpus</strong></td><td><strong>0.00%</strong></td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>That last row is not a typo. distil&rsquo;s corpus contains 43 tool-output blocks; the five over
     2&nbsp;KB have <em>zero</em> consecutive duplicate lines and <em>zero</em> JSON, so Tier-0 has
@@ -298,6 +307,7 @@ Subscription quota (the currency a flat-rate plan actually spends):
 
     <h2 id="other-agents">Other agents</h2>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Other agents">
     <table>
       <thead><tr><th>Agent</th><th>Can a hook rewrite tool output?</th><th>Status</th></tr></thead>
       <tbody>
@@ -306,6 +316,7 @@ Subscription quota (the currency a flat-rate plan actually spends):
         <tr><td>Codex CLI</td><td>Hooks are observe-only; <code>updatedMCPToolOutput</code> is rejected</td><td>Blocked upstream</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p>For agents without a rewrite hook, the proxy and the in-process library remain the paths, and on
     a metered key both reach the full reversible digest tier.</p>

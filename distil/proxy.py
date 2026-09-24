@@ -1763,9 +1763,22 @@ def build_handler(
                     # one: a write is a 25% surcharge, a read a ~90% discount, and a prefix
                     # that drifts every turn writes forever and never reads — which looks
                     # identical to a healthy cache once the two are added together.
-                    "usage_cache_read": int(_u.get("cache_read_input_tokens", 0) or 0) or None,
-                    "usage_cache_create": int(_u.get("cache_creation_input_tokens", 0) or 0)
-                    or None,
+                    #
+                    # A genuine zero (the provider returned the field, valued at 0) and
+                    # "the provider never returned this field at all" are opposite
+                    # diagnoses — the first is a measured cache miss, the second is no
+                    # measurement — so `None` is reserved for the field's real absence
+                    # from the provider's usage object, never used to mean "was zero".
+                    "usage_cache_read": (
+                        int(_u["cache_read_input_tokens"] or 0)
+                        if "cache_read_input_tokens" in _u
+                        else None
+                    ),
+                    "usage_cache_create": (
+                        int(_u["cache_creation_input_tokens"] or 0)
+                        if "cache_creation_input_tokens" in _u
+                        else None
+                    ),
                     # Content-free fingerprint of the stable prefix we actually sent. Lets
                     # `distil cache` say WHERE a prefix broke between two turns instead of
                     # only that the provider re-billed it.

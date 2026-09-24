@@ -45,7 +45,23 @@ output the certificate does not cover.
 
 Graded on SWE-bench Verified: 42.0% task success
 vs 39.2% full context (paired non-inferiority certified; superiority not
-significant). 83.2% savings at 0% decision-change rate on a live head-to-head.
+significant). 83.2% savings at 0% decision-change rate on a live head-to-head
+(2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0; that run's Headroom figures are 0.27.0-era). Re-run 2026-09-04
+against headroom-ai 0.37.0: distil-causal 52.9% tokens / 58.7% dollars at 100%
+decision-equivalence (PASS) vs Headroom 1.7% / 2.0% / 81% (FAIL) on the warm
+corpus gate; on the read->edit->re-read codebench workload Headroom takes 35.6%
+tokens for +4.9% dollars.
+
+Two reporting commands read the same content-free local records and answer
+different questions. `distil dissect <session>` is backward-looking and
+per-session: what happened to this one. `distil discover` is forward-looking and
+cross-session: where savings are still being left on the table across the last N
+sessions, as a ranked list of actions, each carrying the tokens and dollars per
+week it would recover, the derivation of that number, and the one command to act
+on it. `discover` prints the median and p10/p90 of per-session savings beside the
+best session so a best case is never read as typical, prefers the rate the
+machine itself measured over any published ratio, and stays silent where it
+cannot measure.
 
 Five properties are checked rather than asserted, and each is separately
 runnable:
@@ -72,6 +88,12 @@ runnable:
     difference 1{A=B} - 1{A=A'} with a bootstrap 95% CI, unclipped, so it can
     report harm. One reporting floor (50 A/B + 30 A/A) gates every surface, and
     below it every surface prints "below reporting floor" rather than a number.
+    The maintainer's live sample cleared that floor on 2026-09-15: paired
+    equivalence 97.5% with a 95% CI of [95.5, 99.5] over n=398 A/B and 399 A/A,
+    paired difference -0.025 [-0.045, -0.005], digest and lossless-only mixed.
+    Replays run hot (399 of 399, temperature not pinned), so the paired
+    difference is the statistic, not the 53.0% raw agreement. Artifact:
+    benchmarks/results/shadow-live-2026-09-15.json
 
 ## Key sources
 
@@ -156,6 +178,12 @@ https://dshakes.github.io/distil/subscription.html
 Evals (every probe distil runs on itself, including the three bugs these probes
 found in distil's OWN harness — published, not hidden):
 https://dshakes.github.io/distil/evals.html
+
+What the exit summary proves (the four verdicts every `distil wrap` session ends
+with — an anytime-valid alarm on the certified risk budget, a distribution-free
+upper bound on the live decision-change rate, compression's measured effect on
+reply length, and the hash-chained receipts — and the method behind each):
+https://dshakes.github.io/distil/evals.html#exit-summary
 
 Independent benchmark (75 agent runs by an outside engineer, graded from the
 API's own usage fields: the defect that finished 6 of 15 tasks, why it happened,

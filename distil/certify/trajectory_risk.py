@@ -155,7 +155,13 @@ def select_compression_level(
 
 
 def drift_monitor(alpha: float = 0.05, delta: float = 0.05):
-    """An anytime-valid monitor for the certificate's exchangeability assumption.
+    """RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+    An anytime-valid monitor for the certificate's exchangeability assumption.
+
+    Superseded on the live path by :func:`distil.drift.live_monitor`, which feeds the
+    same e-process from shadow mode's paired rows and prints its verdict in the wrap
+    exit summary. This factory has no callers.
 
     Feed it every post-deployment trajectory loss (``monitor.update(loss)``);
     it returns True — and the certificate must be considered STALE and

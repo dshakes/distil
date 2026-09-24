@@ -476,3 +476,26 @@ def test_helm_chart_defaults_to_this_release() -> None:
         f"Chart.yaml appVersion is {app} but this release is {version} — a default "
         f"`helm install` would deploy ghcr.io/dshakes/distil:{app}"
     )
+
+
+def test_helm_chart_port_matches_gateway_cli_default() -> None:
+    """`values.yaml` had drifted onto 8788 — `distil proxy`'s port, not
+    `distil gateway`'s. The chart's `deployment.yaml` passes `gateway.port`
+    straight through as `distil gateway --port`, so a default `helm install`
+    disagreed with a bare `distil gateway` about which port it was on."""
+    import distil.cli as cli
+
+    parser = cli.build_parser()
+    subparsers = next(a for a in parser._subparsers._group_actions if "gateway" in a.choices)
+    default_port = next(
+        act.default for act in subparsers.choices["gateway"]._actions if act.dest == "port"
+    )
+
+    values = (ROOT / "packaging" / "helm" / "distil-gateway" / "values.yaml").read_text()
+    # No YAML parser in the test deps (see Chart.yaml's own appVersion parsing
+    # above) — `gateway.port` and `service.port` are the only two `port:` keys
+    # in this file, so a plain regex is exact, not an approximation.
+    ports = [int(m) for m in re.findall(r"^\s*port:\s*(\d+)", values, re.MULTILINE)]
+    assert ports == [default_port, default_port], (
+        f"values.yaml port(s) {ports} != distil gateway's own default {default_port}"
+    )

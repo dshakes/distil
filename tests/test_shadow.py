@@ -1104,3 +1104,42 @@ def test_paired_design_bumped_the_signature_version():
         p.write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
         led = ShadowLedger.load(path=p, current_only=True)
         assert led.samples == 1 and led.changes == 0
+
+
+def test_load_split_matches_the_two_loads_it_replaces():
+    """One pass, two scopes — and the numbers must be the ones separate reads gave.
+
+    ``load_split`` exists only to stop the exit summary parsing an unbounded file twice.
+    A faster read that quietly changes a published verdict is worse than the slow one, so
+    this pins it against the two calls it replaced, including the awkward rows: a legacy
+    signature, a row exactly on the boundary, and one whose timestamp is not a number.
+    """
+    import json as _json
+    import pathlib
+    import tempfile
+
+    from distil.shadow import SIG_VERSION, ShadowLedger
+
+    cut = 1000.0
+    rows = [
+        {"equivalent": True, "kind": "paired", "aa_equal": True, "ts": 900.0, "sig": SIG_VERSION},
+        {"equivalent": False, "kind": "paired", "aa_equal": True, "ts": cut, "sig": SIG_VERSION},
+        {"equivalent": True, "kind": "paired", "aa_equal": False, "ts": 1100.0, "sig": SIG_VERSION},
+        {"equivalent": False, "kind": "ab", "ts": 1200.0, "sig": SIG_VERSION - 1},  # legacy
+        {"equivalent": True, "kind": "aa", "ts": "not-a-number", "sig": SIG_VERSION},
+        {"equivalent": True, "kind": "paired", "aa_equal": True, "sig": SIG_VERSION},  # no ts
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "shadow.jsonl"
+        p.write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+        both = ShadowLedger.load_split(cut, p)
+        want = (
+            ShadowLedger.load(path=p, current_only=True),
+            ShadowLedger.load(path=p, current_only=True, since_ts=cut),
+        )
+        for got, expect in zip(both, want):
+            assert (got.samples, got.changes) == (expect.samples, expect.changes)
+            assert (got.aa_samples, got.aa_changes) == (expect.aa_samples, expect.aa_changes)
+            assert got.paired_diffs == expect.paired_diffs
+        # The cut is inclusive and the legacy row is excluded on both sides.
+        assert both[0].samples == 4 and both[1].samples == 2

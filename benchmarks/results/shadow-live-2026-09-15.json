@@ -1,0 +1,34 @@
+{
+  "_note": "Content-free summary of the maintainer's ~/.distil/shadow.jsonl under the v5 paired estimator, cited by docs/claims.json (w-shadow-sample-v5). No prompt or response text is stored here — counts, agreement rates and token deltas only. Supersedes shadow-live-2026-09-04.json, which was below its own reporting floor under the v4 unpaired estimator.",
+  "date": "2026-09-15",
+  "distil_build": "1.53.0rc1",
+  "sig_version": 5,
+  "estimator": "paired",
+  "mode": "mixed (digest + lossless-only)",
+  "n_ab_samples": 398,
+  "n_aa_samples": 399,
+  "raw_agreement_pct": 53.0,
+  "raw_agreement_ci95": [48.1, 57.9],
+  "self_agreement_pct": 55.6,
+  "self_agreement_ci95": [50.7, 60.4],
+  "paired_difference": -0.0251,
+  "paired_difference_ci95": [-0.0452, -0.0050],
+  "decision_equivalence_pct": 97.5,
+  "decision_equivalence_ci95": [95.5, 99.5],
+  "output_token_delta_per_request": -68.3,
+  "output_token_delta_ci95": [-147.2, -2.9],
+  "net_usd_after_output": 0.4536,
+  "pinned_temperature_samples": 0,
+  "hot_samples": 399,
+  "ab_samples_zero_bytes_changed": 1,
+  "by_mode": {
+    "digest": {"ab_n": 206, "ab_eq": 102, "aa_n": 206, "aa_eq": 113},
+    "lossless-only": {"ab_n": 192, "ab_eq": 109, "aa_n": 193, "aa_eq": 109}
+  },
+  "reporting_floor": {"ab_min": 50, "aa_min": 30},
+  "verdict": "above the reporting floor — compression costs 2.5 pp of decision agreement relative to the model's own self-agreement, 95% CI [0.5, 4.5] pp, inside the 5% certified budget",
+  "honest_scope": [
+    "Every replay ran HOT (0 of 399 pinned to temperature 0): Claude Code runs extended thinking by default and Opus 4.7+ removed the temperature knob, so neither arm is greedy. The A/A control is what absorbs that noise, and it is why the raw agreement reads 53% while the paired difference reads 2.5 pp.",
+    "The paired difference is the estimator; the raw agreement rates are reported only so the noise floor is visible. The v4 ratio this replaces could not express harm at all."
+  ]
+}

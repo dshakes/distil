@@ -81,3 +81,35 @@ def test_memory_clear_removes_the_originals(tmp_path, monkeypatch, capsys):
     assert cmd_memory(argparse.Namespace(clear=True)) == 0
     assert "cleared 2" in capsys.readouterr().out
     assert ms.load_restore("aaaa1111") is None
+
+
+def test_savings_report_commands_cross_reference_each_other():
+    """The canonical savings path: `--help` for stats/dashboard/dissect/doctor/
+    shadow-stats/receipts each point at the sibling commands, so landing on any
+    one of them still surfaces the others."""
+    from distil.cli import build_parser
+
+    parser = build_parser()
+    subparsers = next(a for a in parser._subparsers._group_actions if "dashboard" in a.choices)
+    epilogs = {
+        name: subparsers.choices[name].epilog
+        for name in ("stats", "dashboard", "dissect", "doctor", "shadow-stats", "receipts")
+    }
+    for name, epilog in epilogs.items():
+        assert epilog, f"{name} --help has no cross-reference epilog"
+        assert "distil " in epilog, name
+
+
+def test_onboard_and_offboard_agree_on_yes_vs_no_interactive():
+    """--yes and --no-interactive do opposite things (act vs report-only) on both
+    onboard and offboard — the same sentence in both --help texts says so, so a
+    user who learns the rule on one command already knows the other."""
+    from distil.cli import build_parser
+
+    parser = build_parser()
+    subparsers = next(a for a in parser._subparsers._group_actions if "onboard" in a.choices)
+    onboard_epilog = subparsers.choices["onboard"].epilog
+    offboard_epilog = subparsers.choices["offboard"].epilog
+    assert onboard_epilog and onboard_epilog == offboard_epilog
+    assert "--yes acts" in onboard_epilog
+    assert "--no-interactive only reports" in onboard_epilog

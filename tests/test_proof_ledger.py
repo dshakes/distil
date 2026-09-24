@@ -111,6 +111,20 @@ def test_returns_text_for_matching_session(tmp_path, monkeypatch):
     assert "$0.02" in text
 
 
+def test_ends_with_exact_next_command(tmp_path, monkeypatch):
+    """The canonical savings path: the summary names the exact next command for
+    this session, not a vague pointer."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-next-cmd"
+    _write_ledger_row(tmp_path, sid)
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 60)
+    assert text is not None
+    assert f"distil dissect {sid}" in text
+    assert "distil stats" in text
+
+
 def test_duration_label_appears(tmp_path, monkeypatch):
     """Session duration is shown in the header."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))

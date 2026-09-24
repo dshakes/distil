@@ -85,6 +85,7 @@
             <li><a href="openai-sdk.html">OpenAI SDK</a></li>
             <li><a href="litellm.html">LiteLLM</a></li>
             <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
             <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
             <li><a href="agno.html">Agno</a></li>
             <li><a href="strands.html">Strands</a></li>
@@ -109,7 +110,7 @@
     <p class="lead">Every compression method shrinks tokens — the only number that matters is how much it saves <em>without changing what the agent decides</em>, once prompt caching is priced in. This head-to-head runs every technique through the <strong>same</strong> decision-equivalence gate and the <strong>same</strong> cache-aware cost model: the winner is computed, not assumed.</p>
 
     <div class="callout good">
-      <strong>The result, in one line.</strong> On a realistic, decision-determined agent corpus graded <strong>live by <code>claude-opus-4-8</code></strong>, Distil is <strong>certified at 83.2% token savings with a 0% decision-change rate</strong> (≤5% guaranteed at 95% confidence) — while running <strong>~1,000× faster</strong> than the nearest tool. The real competitors, run live through the same gate: <strong>LLMLingua-2</strong> cuts 53% but <strong>flips 1-in-8 decisions</strong> (fails); <strong>Headroom</strong> is decision-safe but only 40% (2.1× less than Distil). See the <a href="#live-head-to-head">live head-to-head</a> and <a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md">full report</a>.
+      <strong>The result, in one line.</strong> On a realistic, decision-determined agent corpus graded <strong>live by <code>claude-opus-4-8</code></strong>, Distil is <strong>certified at 83.2% token savings with a 0% decision-change rate</strong> (≤5% guaranteed at 95% confidence) — while running <strong>~1,000× faster</strong> than the nearest tool. The real competitors, run live through the same gate on 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0: <strong>LLMLingua-2</strong> cuts 53% but <strong>flips 1-in-8 decisions</strong> (fails); <strong>Headroom 0.27.0</strong> is decision-safe but only 40%. Headroom has moved since: re-run 2026-09-04 against <strong>headroom-ai 0.37.0</strong>, distil-causal takes 52.9% tokens / 58.7% dollars at 100% decision-equivalence (PASS) against Headroom’s 1.7% / 2.0% / 81% (FAIL) on the warm corpus gate, and on the read→edit→re-read codebench workload Headroom takes 35.6% tokens for +4.9% dollars. The “2.1× less aggressive” ratio is from 0.27.0 and does not survive the re-run. See the <a href="#live-head-to-head">live head-to-head</a> and <a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md">full report</a>.
     </div>
     <div class="callout">
       <strong>Read this before quoting 83.2%.</strong> Every number on this page is <em>decision-equivalence</em> — the agent's <strong>next action</strong> on a trajectory corpus (partly synthetically decision-determined). That is a <strong>proxy</strong>, not end-to-end task success. In our real <a href="research.html#e7">SWE-bench Verified end-to-end test (E7)</a>, aggressive compression drops actual pass@1 from 52% to 16% and the proxy certificate <strong>does not transfer</strong>. <a href="research.html#e8"><strong>E8</strong></a> (500-instance long-horizon ReAct agent, 6 conditions, full SWE-bench Verified) is the end-to-end positive counterpart: distil's relevance-gated tier achieves <strong>36.8% pass@1</strong>, the highest of any compressor tested, is <strong>non-inferior to full context</strong> (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9]; McNemar p=0.19), and beats Headroom by +4.2&nbsp;pp (p=0.035). LLMLingua-2 removes a nearly identical fraction of context (52%) yet reaches only 2.4% pass@1. Lossy truncation craters to 5.6%. The newest surprise-preserving digest (<a href="compare.html">E14</a>) keeps distil <strong>on par with full context — 42.0% vs 39.2%</strong> (paired CI &minus;0.6..+6.2pp; non-inferiority certified, superiority not yet significant). Distil does not claim cheapest — Headroom is cheaper — it claims certified accuracy with a guarantee. The full methodology — including why compression ratio alone is meaningless and how the A/A nondeterminism baseline works — is in <a href="https://github.com/dshakes/distil/blob/main/docs/EVALUATION.md">docs/EVALUATION.md</a>.
@@ -121,6 +122,7 @@
 
     <p align="center"><img src="assets/head-to-head.svg" alt="Bar chart: Distil achieves 83.2% token savings with 0.0% decision-change (certified, 0.026 ms/turn); LLMLingua-2 reaches 53.1% savings but 12.5% decision-change (fails the gate); Headroom reaches 39.7% savings with 0.0% decision-change (certified, 26 ms/turn); full figures in the table below" width="100%" style="max-width:760px"/></p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Live head-to-head — real packages, real model">
     <table>
       <thead>
         <tr><th scope="col">Method</th><th scope="col" style="text-align:right">Token&nbsp;savings</th><th scope="col" style="text-align:right">Live&nbsp;decision-change</th><th scope="col">Certifies&nbsp;≤5%@95%?</th><th scope="col" style="text-align:right">Latency/turn</th></tr>
@@ -140,7 +142,8 @@
           <td><span class="badge-pass">✔ certified</span></td><td style="text-align:right">26&nbsp;ms</td></tr>
       </tbody>
     </table>
-    <p style="font-size:12.5px;color:#5b6177;">Live, <code>claude-opus-4-8</code>, majority-of-3, n=120, α=0.05/δ=0.05. <strong>Distil is the only method that is simultaneously the most aggressive, fully decision-equivalent, and lowest-latency.</strong> Headroom is genuinely decision-<em>safe</em> (it preserved the exact target ID every turn) but 2.1× less aggressive and loads a ModernBERT scorer. LLMLingua-2 is aggressive but decision-<em>unaware</em> — it drops/garbles the load-bearing ID on 1-in-8 turns, so the gate disqualifies it. Reproduce: <code>python benchmarks/derc_live_compare.py</code>; raw output of the 2026-07-05 run is committed at <a href="https://github.com/dshakes/distil/blob/main/docs/paper/results/derc_live_compare.2026-07-05.log"><code>docs/paper/results/</code></a>. <strong><a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md">Full methodology &amp; caveats →</a></strong></p>
+    </div>
+    <p style="font-size:12.5px;color:#5b6177;">Live, <code>claude-opus-4-8</code>, majority-of-3, n=120, α=0.05/δ=0.05. <strong>Distil is the only method that is simultaneously the most aggressive, fully decision-equivalent, and lowest-latency.</strong> Headroom <strong>0.27.0</strong> is genuinely decision-<em>safe</em> here (it preserved the exact target ID every turn) but 2.1× less aggressive and loads a ModernBERT scorer — both facts are specific to 0.27.0 and to this 2026-07-05 run; see the <a href="compare.html#headroom-fresh">2026-09-04 re-run against headroom-ai 0.37.0</a>. LLMLingua-2 is aggressive but decision-<em>unaware</em> — it drops/garbles the load-bearing ID on 1-in-8 turns, so the gate disqualifies it. Reproduce: <code>python benchmarks/derc_live_compare.py</code>; raw output of the 2026-07-05 run is committed at <a href="https://github.com/dshakes/distil/blob/main/docs/paper/results/derc_live_compare.2026-07-05.log"><code>docs/paper/results/</code></a>. <strong><a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md">Full methodology &amp; caveats →</a></strong></p>
 
     <div class="callout">
       <strong>Why RTK isn't in the table.</strong> RTK (<code>rtk-py</code>) is a <em>command-output proxy</em> — it compresses the output of specific wrapped commands (<code>git</code>, <code>ls</code>, <code>psql</code>, <code>aws</code>…) by stripping known boilerplate, and exposes <strong>no raw-text/stdin mode</strong>. It physically cannot compress arbitrary agent context, so it's a different layer of the stack, not a contender on this axis. We attempted it for real; the adapter reports the mismatch rather than fabricating a number.
@@ -151,7 +154,7 @@
     <pre class="term">ladder level        decision-change   savings   certifies @ ≤5%/95%
 <span class="d">--------------------------------------------------------------------</span>
 byte-exact                  0.0%        2.6%     <span class="g">✔ yes</span>
-lossless (tier-0/1)         0.0%       52.3%     <span class="g">✔ yes</span>
+lossless (tier-0/1)         0.0%       47.9%     <span class="g">✔ yes</span>
 causal-prune                0.0%       83.2%     <span class="g">✔ yes</span>
 <span class="g">prune + lossless            0.0%       83.2%     ✔ yes  ← operating point</span>
 truncate@400 (blind)        0.0%       61.6%     <span class="g">✔ yes</span>
@@ -188,6 +191,7 @@ It's not how many tokens you cut — it's which ones.</pre>
     <h2 id="coding-agent">Coding-agent benchmark <span class="g">— cache-delta on read→edit→reread</span></h2>
     <p>A second, <strong>messages-level</strong> benchmark targets the coding-agent hot path (<code>benchmarks/codebench.py</code>: 20 sessions / 320 turns of read → edit → <strong>re-read</strong>, re-run 2026-09-04), scoring <strong>cache-aware real dollars</strong> against the <em>real</em> installed packages: <code>headroom-ai</code> 0.37.0 (<code>[ml,code]</code> extras), <code>llmlingua</code> 0.2.2, distil 1.51.1. Each method is a pure, deterministic, <strong>cache-monotonic</strong> function of the cumulative conversation — the same standard distil holds itself to. Raw output committed at <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/2026-09-04"><code>benchmarks/results/2026-09-04/</code></a>.</p>
     <img src="assets/cache-delta.svg" alt="Cache-delta: read, edit, re-read — distil sends a reference + diff" class="svg-embed"/>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Coding-agent benchmark — cache-delta on read→edit→reread">
     <table>
       <thead><tr><th scope="col">method</th><th scope="col" style="text-align:right">token savings</th><th scope="col" style="text-align:right">$ savings (cache-aware)</th><th scope="col" style="text-align:right">latency / turn</th><th scope="col">fidelity</th></tr></thead>
       <tbody>
@@ -199,6 +203,7 @@ It's not how many tokens you cut — it's which ones.</pre>
         <tr style="background:rgba(139,123,255,.07)"><th scope="row"><b>distil</b> (PAYG digest)</th><td class="r">0.0%<sup>*</sup></td><td class="r">0.0%<sup>*</sup></td><td class="r">1.0 ms</td><td>reversible</td></tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">*By design, not a regression: this workload is read → edit → re-read, and once the agent has quoted a Read/Grep/Glob result byte-exact, that provenance is exempted from digest for the rest of the session — the exact-quote guarantee an <code>Edit</code> depends on. See <a href="changelog.html#v1-49-0">the 1.49.0 changelog entry</a>. Headroom's <code>ms/turn</code> above pays a one-time ModernBERT weight-load cost on this process's first invocation; a warm re-run (same token/$ percentages — see <code>codebench-warm-headroom-2026-09-04.out</code>) measures 2.2 ms/turn. distil has no model weights to load, so its own numbers don't move cold or warm.</p>
     <div class="callout">
       <b>Honest reading, 2026-09-04.</b> Once digested reads are exempt from re-digesting, the reversible floor on this workload comes from <strong>cache-delta, not the bare digest</strong>: <strong>distil + cache-delta holds 43.8% cache-aware $ savings, fully reversible</strong>. The bare PAYG digest correctly measures <strong>0.0% here</strong> — the 1.49.0 provenance-exemption fix protects the byte-exact quote an <code>Edit</code> needs, at the cost of the digest's savings on a workload that is nothing <em>but</em> re-reads. <strong>LLMLingua-2 still posts the highest raw compression (56.7% tokens, 57.2% dollars)</strong> — we don't hide it — but it's lossy and, even with the digest now doing far less work here, <strong>~175× slower</strong> than it. <strong>Headroom's own number is a real improvement over its June 2026-06-23 run below</strong>: token savings flipped from a net cost <em>increase</em> to a <strong>net decrease (4.9% cheaper)</strong> on a newer, non-ML code path — though its default read-lifecycle compression still leaves it well behind cache-delta's reversible 43.8%. Reproduce: <code>PYTHONPATH=. python benchmarks/codebench.py 20</code>.
@@ -206,6 +211,7 @@ It's not how many tokens you cut — it's which ones.</pre>
 
     <h3 id="coding-agent-2026-06-23" style="margin-top:22px;color:#8891a8;">Historical: the 2026-06-23 measurement</h3>
     <p style="font-size:12.5px;color:#5b6177;">Kept for context, not current — superseded by the 2026-09-04 run above (newer package versions, a larger sample, and the 1.49.0 provenance-exemption fix that changes what the bare digest row even measures). This table ran against <code>headroom-ai</code> 0.27.0 with 16 sessions / 256 turns.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Historical: the 2026-06-23 measurement">
     <table>
       <thead><tr><th scope="col">method</th><th scope="col" style="text-align:right">token savings</th><th scope="col" style="text-align:right">$ savings (cache-aware)</th><th scope="col" style="text-align:right">latency / turn</th><th scope="col">fidelity</th></tr></thead>
       <tbody>
@@ -217,12 +223,14 @@ It's not how many tokens you cut — it's which ones.</pre>
         <tr><th scope="row">Headroom (<code>headroom-ai</code> 0.27.0, real, default)</th><td class="r">22.4%</td><td class="r">&minus;16.8%</td><td class="r">5.3 ms</td><td>lossy</td></tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">Honest reading at the time: the Tier-1 reversible digest was the dominant lever (~91% cache-aware, reversible, 0.08 ms) — it already captured the re-reads, so cache-delta added little on top of it. LLMLingua-2 was genuinely strong on savings (57.2%) but lossy and <strong>~3,400× slower</strong>. Headroom reduced tokens 22.4% yet cost 16.8% <em>more</em>, busting the prompt cache with its default read-lifecycle compression. This benchmark also caught two real distil bugs (a cache-monotonicity flip and a Tier-0 token inflation) — both fixed in v0.22.0; the numbers above are post-fix.</p>
 
     <hr/>
 
     <h2 id="coding-agent-corpus">The <code>distil benchmark</code> corpus, warm <span class="g">— same 2026-09-04 re-run</span></h2>
     <p>The deterministic corpus gate (9 domains, no API key) run against the same package versions. A cold process shows Headroom skipping compression entirely — its Kompress model is still loading — which trivially "passes" the decision-equivalence check on requests it never touched; the table below is the <strong>warm</strong> re-run, after Kompress finished loading.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The distil benchmark corpus, warm — same 2026-09-04 re-run">
     <table>
       <thead><tr><th scope="col">technique</th><th scope="col" style="text-align:right">tokens saved</th><th scope="col" style="text-align:right">$ saved</th><th scope="col" style="text-align:right">decision-equiv</th><th scope="col">gate</th></tr></thead>
       <tbody>
@@ -230,6 +238,7 @@ It's not how many tokens you cut — it's which ones.</pre>
         <tr><th scope="row">Headroom (<code>headroom-ai</code> 0.37.0, real, warm)</th><td class="r">1.7%</td><td class="r">2.0%</td><td class="r">81%</td><td><span class="badge-fail">✘ FAIL</span></td></tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">Cold-process artifact, for the record: the same run before Kompress finishes loading shows Headroom at a misleading 0.0% tokens / 100% "PASS" — it fails open while loading and passes through every request untouched, which trivially agrees with the ungated baseline. Preload before comparing. Raw output: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/2026-09-04"><code>benchmarks/results/2026-09-04/</code></a>.</p>
 
     <hr/>
@@ -237,6 +246,7 @@ It's not how many tokens you cut — it's which ones.</pre>
     <h2>The offline standings <span class="g">— deterministic runner, zero API key</span></h2>
     <p>The companion to the live head-to-head above: the same gate run by the <strong>deterministic (structural)</strong> runner on a broader 64-trajectory corpus — fully reproducible by anyone, no key required. Ranked by cache-aware dollar savings (see methodology below). <strong>Certified</strong> means the method passed a statistical non-inferiority test <em>and</em> preserved 100% of decisions; anything less is disqualified, however much it saved. Want to test a specific tool? Register it through the reproducible <code>--external</code> seam and it's measured on the identical axes.</p>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The offline standings — deterministic runner, zero API key">
     <table>
       <thead>
         <tr><th scope="col">Technique</th><th scope="col">Family</th><th scope="col" style="text-align:right">Tokens&nbsp;saved</th><th scope="col" style="text-align:right">$&nbsp;saved</th><th scope="col" style="text-align:right">Decision&nbsp;equiv.</th><th scope="col">Verdict</th><th scope="col">Fidelity</th></tr>
@@ -280,6 +290,7 @@ It's not how many tokens you cut — it's which ones.</pre>
           <td style="text-align:right">100%</td><td><span class="badge-pass">✔ certified</span></td><td>byte-exact</td></tr>
       </tbody>
     </table>
+    </div>
     <p style="font-size:12.5px;color:#5b6177;">*<code>distil-causal</code> drops context that ablation <em>proves</em> never changed a decision — not byte-reversible, but certified decision-equivalent. The three Distil operating points are all certified at 100%: <code>distil-lossless</code> (byte-exact: <strong>structured fold</strong> + <strong>template mining</strong>), <code>distil-stream</code> (adds <strong>cross-turn dedup</strong> of recurring tool output the cache can't reach — fully recoverable), and <code>distil-causal</code> (adds causal pruning). The lossy families are faithful reference implementations; bring your own tool with <code>--external</code> to add it to the table. Numbers: <code>claude-opus-4-8</code> pricing, deterministic runner. Reproduce below.</p>
 
     <h2>The corpus</h2>
@@ -358,7 +369,7 @@ distil <span class="c">benchmark</span> --corpus corpus_taubench --runner anthro
     <p style="color:#9aa1b3;font-size:13.5px;">What this buys: the <code>equiv</code> column becomes "did the live model make the same decision on the compressed context," graded on τ-bench / SWE-bench / GSM8K episodes instead of the synthetic corpus. The <a href="research.html">non-inferiority gate</a>, the cost model, and the technique set are unchanged — only the judge and the data get more real.</p>
 
     <div class="callout good">
-      <strong>We did this — see the <a href="#live-head-to-head">live head-to-head</a> at the top.</strong> On a realistic, <em>decision-determined</em> corpus (where <code>byte-exact = 0%</code> proves the model reproduces its own decision on identical context), Distil's <code>causal-prune + lossless</code> certifies <strong>83.2% savings at a 0% live decision-change rate</strong> — the aggressive operating point <em>does</em> hold when the decision is actually determined by the context, and the real competitor packages run through the very same live gate.
+      <strong>We did this — see the <a href="#live-head-to-head">live head-to-head</a> at the top.</strong> On a realistic, <em>decision-determined</em> corpus (where <code>byte-exact = 0%</code> proves the model reproduces its own decision on identical context), Distil's <code>causal-prune + lossless</code> certifies <strong>83.2% savings at a 0% live decision-change rate</strong> (2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0) — the aggressive operating point <em>does</em> hold when the decision is actually determined by the context, and the real competitor packages run through the very same live gate.
     </div>
     <div class="callout warn">
       <strong>The honest boundary (why the corpus matters).</strong> On <em>decision-ambiguous</em> traffic the live model varies on identical context — on the original synthetic corpus its byte-exact change rate was ~50%, so <em>nothing</em> can certify and equivalence is undefined (it's the model's coin-flip, not the compressor's fault). The fix is not to spin the number — it's to certify on traffic where the decision is genuinely determined (as real agent steps are). That's why the determinism precondition is checked and reported, not assumed. Recalibrate on your own traffic; the guarantee is marginal over the calibration distribution, not a per-prompt promise.
@@ -369,6 +380,7 @@ distil <span class="c">benchmark</span> --corpus corpus_taubench --runner anthro
 
     <img src="assets/curve.svg" alt="Fact recall plotted against token savings for each rung of the compression ladder. The none, tier-0 only, subscription and lossless rungs all sit at 1.0 recall and differ only in savings; the aggressive rung drops to 0.55 recall and is marked as not reversible." class="svg-embed"/>
 
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The degradation curve — what each rung costs">
     <table>
       <thead><tr><th>Rung</th><th>Savings</th><th>Recall</th><th>Visible</th><th>Facts lost</th><th>Reversible</th></tr></thead>
       <tbody>
@@ -379,6 +391,7 @@ distil <span class="c">benchmark</span> --corpus corpus_taubench --runner anthro
         <tr><td><code>aggressive</code></td><td>65.5%</td><td>0.551</td><td>0.551</td><td><b>828</b></td><td><b>no</b></td></tr>
       </tbody>
     </table>
+    </div>
     <p style="color:#9aa1b3;font-size:13.5px;">Distil 1.51.1, 9-trajectory corpus, generated 2026-09-06. <em>Recall</em> is the macro average across domains, counting facts that are recoverable through an expand handle; <em>visible</em> counts only facts still readable in the forwarded text. <code>subscription</code> is the lossless-only path driven through the adapter's real verbatim branch, not a reconstruction of it. Every rung carries production's reject-if-bigger guard, so no rung can report savings the proxy would not take. Regenerate with <code>distil bench --curve</code>.</p>
 
     <h3>Three things the curve says that the gate cannot</h3>

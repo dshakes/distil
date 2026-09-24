@@ -1,4 +1,6 @@
-"""Cross-family grader ensemble — robustness to a single unfaithful grader.
+"""RESEARCH-ONLY — not on the request path; see docs/research.html.
+
+Cross-family grader ensemble — robustness to a single unfaithful grader.
 
 Decision-equivalence is graded by a model that maps context to a canonical next-action
 fingerprint (:class:`distil.replay.runner.AgentRunner`). A standing limitation of the

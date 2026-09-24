@@ -18,6 +18,21 @@ from distil import ledger
 from distil.cli import cmd_statusline
 
 
+def _eq(n_ab: int, n_aa: int, change_rate: float = 0.02):
+    """A real shadow verdict, as the CLI builds one (see test_conformal_extra)."""
+    from distil.shadow import ShadowLedger
+
+    led = ShadowLedger()
+    n_changed = round(n_ab * change_rate)
+    for i in range(n_ab):
+        equivalent = i >= n_changed
+        if i < n_aa:
+            led.record(equivalent, kind="paired", evidence={"aa_equal": True})
+        else:
+            led.record(equivalent)
+    return led.equivalence()
+
+
 def test_humanize_tokens():
     assert ledger._human(0) == "0"
     assert ledger._human(999) == "999"
@@ -254,7 +269,7 @@ def test_render_dashboard_shows_orig_and_compressed():
         total_baseline_dollars=10.0,
         total_distil_dollars=5.0,
     )
-    out = ledger.render_dashboard(s, change_rate=0.01, samples=200, color=False)
+    out = ledger.render_dashboard(s, eq=_eq(200, 200, change_rate=0.01), color=False)
     assert "2.0M → 1.0M" in out  # orig -> compressed tokens
     assert "50.0% trimmed" in out
     assert "$10.00 → $5.00" in out
@@ -291,7 +306,7 @@ def test_render_dashboard_recent_strip():
         total_distil_dollars=5.0,
     )
     out = ledger.render_dashboard(
-        s, change_rate=0.2, samples=10, recent=[1, 1, 0, 1, 1], color=False
+        s, eq=_eq(10, 10, change_rate=0.2), recent=[1, 1, 0, 1, 1], color=False
     )
     assert "recent" in out
     assert "▰" in out and "▱" in out  # equivalent + changed marks present

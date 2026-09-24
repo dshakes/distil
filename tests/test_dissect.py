@@ -29,6 +29,17 @@ from distil.ledger import (
 )
 from distil.proxy import build_handler, wrap_run
 
+
+def _clear_ci_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic on any runner: a CI runner sets more than one of these
+    (GitHub Actions exports both CI and GITHUB_ACTIONS), so a test asserting
+    "not CI" must clear all of them, not just the one it's setting."""
+    from distil.webdash import _CI_ENV_VARS
+
+    for var in _CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 _LOG_LINES = "\n".join(
     f"[2026-07-11 12:00:{i:02d}] INFO worker-{i}: heartbeat ok, queue depth {i * 3}"
     for i in range(60)
@@ -259,6 +270,57 @@ class TestRequestDetailLogging:
         with _post(servers, _compressible_payload()) as resp:
             assert resp.status == 200
         assert not list((tmp_path / "sessions").glob("*.requests.jsonl"))
+
+    def test_zero_cache_split_is_written_as_zero_not_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A provider that reports prompt caching at all returns BOTH split fields
+        even on a call with zero hits — that IS a measurement, and must not
+        collapse into the same `None` a provider that never reports caching
+        writes. `Dissection.cached_input_share` relies on this distinction."""
+        payload = json.dumps(
+            {
+                "id": "msg_test",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {
+                    "input_tokens": 500,
+                    "output_tokens": 10,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+            }
+        ).encode()
+
+        class _ZeroCacheHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 — http.server API
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args: Any) -> None:  # quiet
+                pass
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), _ZeroCacheHandler)
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        handler_cls = build_handler(f"http://127.0.0.1:{upstream.server_address[1]}")
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        try:
+            monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+            monkeypatch.setenv("DISTIL_SESSION", "s102-1")
+            with _post(proxy.server_address[1], _compressible_payload()) as resp:
+                assert resp.status == 200
+            path = session_requests_path("s102-1")
+            assert path is not None
+            rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+            assert rec["usage_cache_read"] == 0
+            assert rec["usage_cache_create"] == 0
+        finally:
+            proxy.shutdown()
+            upstream.shutdown()
 
 
 class TestWrapManifest:
@@ -498,6 +560,28 @@ class TestDissection:
         assert d.blocks["aaaa1111"]["recoverable"] is True
         assert d.blocks["bbbb2222"]["recoverable"] is False
         assert d.blocks_by_kind()[0] == ("log:l", 1, 2000)
+
+    def test_since_ts_bounds_both_ledger_rows_and_request_detail(self) -> None:
+        """`distil discover`'s `--since N` must not fold an always-on session's
+        whole history into a bounded window: `since_ts` drops both the ledger
+        rows and the request-detail rows before that timestamp, the same as if
+        the session had never had them."""
+        # s200-1's two ledger rows are at ts 1000.0 and 1600.0; its three request
+        # rows are at ts 1000.0, 1600.0, 1700.0.
+        unbounded = dz.dissect("s200-1")
+        assert len(unbounded.ledger_rows) == 2 and len(unbounded.requests) == 3
+
+        bounded = dz.dissect("s200-1", since_ts=1600.0)
+        assert len(bounded.ledger_rows) == 1 and bounded.ledger_rows[0]["ts"] == 1600.0
+        assert len(bounded.requests) == 2
+        assert {r["ts"] for r in bounded.requests} == {1600.0, 1700.0}
+        # The old, larger ledger row (9000 baseline) is excluded, not summed in.
+        assert bounded.baseline_tokens == 1000 and bounded.distil_tokens == 900
+
+    def test_since_ts_none_is_unaffected(self) -> None:
+        """The default (no bound) must dissect exactly as before."""
+        d = dz.dissect("s200-1", since_ts=None)
+        assert len(d.ledger_rows) == 2 and len(d.requests) == 3
         # Shadow join is by time window: only the ts=1500 row is inside.
         assert d.shadow_window_rows == 1 and d.shadow_window_agree == 1
         # That row carries no usage, so there is nothing to price.
@@ -553,6 +637,15 @@ class TestDissection:
         assert "manifest not recorded" in text
         assert "not recorded — per-request detail" in text
         assert "rc=0" in text
+
+    def test_render_text_glosses_jargon_terms(self) -> None:
+        """decision-equivalence and prefix replay are used earlier in the report
+        than the terms: glossary explains them — so the glossary must actually
+        define both, not just the original fold/cache-delta/verbatim/unbooked set."""
+        d = dz.dissect("s200-1")
+        text = dz.render_text(d, color=False)
+        assert "decision-equivalence = agent's next action unchanged" in text
+        assert "prefix replay = a client-resent prefix forwarded as-is" in text
 
     def test_to_json_schema(self) -> None:
         payload = dz.to_json(dz.dissect("s200-1"))
@@ -667,6 +760,43 @@ class TestInsights:
         advice = d._churn_advice()
         assert "prompt cache" in advice and "already discounted" in advice
         assert "session-delta cache absorbs" not in advice
+
+    def test_absent_split_fields_stay_unmeasured_even_with_usage(self) -> None:
+        """None on both split fields means the provider never reported them —
+        true of every OpenAI/Gemini row and every row written before this
+        proxy version — and must stay unmeasured regardless of whether
+        `usage_input_tokens` is present. Reading it as a measured 0% would
+        inflate churn/prefix-drift for exactly those non-Anthropic rows."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share is None
+
+    def test_literal_zero_cache_split_reads_as_measured(self) -> None:
+        """A literal 0 — what the proxy now writes whenever the provider's usage
+        object carried the split field at all — is a real measurement, not an
+        absence, and must read as a genuine 0% share."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r["usage_cache_read"] = 0
+            r["usage_cache_create"] = 0
+            r.pop("usage_cache_tokens", None)
+            r["usage_input_tokens"] = 1_000
+        assert d.cached_input_share == pytest.approx(0.0)
+
+    def test_no_usage_at_all_stays_unmeasured(self) -> None:
+        """A row with no billed usage recorded has nothing to measure a share
+        from — the true "unmeasured" case, distinct from a real zero."""
+        d = dz.dissect("s200-1")
+        for r in d.requests:
+            r.pop("usage_cache_read", None)
+            r.pop("usage_cache_create", None)
+            r.pop("usage_cache_tokens", None)
+            r.pop("usage_input_tokens", None)
+        assert d.cached_input_share is None
 
     def test_legacy_rows_read_as_not_captured_not_zero(self) -> None:
         """Older records carry only the aggregate ``usage_cache_tokens``. Summing the
@@ -1225,6 +1355,125 @@ class TestTranscriptCorrelation:
         assert main(["dissect", "s200", "--no-color", "--transcript"]) == 0
         out = capsys.readouterr().out
         assert "no matching agent transcript found" in out
+
+    def test_serve_does_not_block_under_ci(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Under CI `--serve` must print the URL and return immediately
+        rather than hang on serve_forever().
+
+        In-process rather than a subprocess (that variant flaked on a slow CI
+        runner importing a fresh interpreter and timing out): asserting
+        `serve_forever` is never reached is a deterministic, direct check of
+        the guard rather than inferring it from the test merely completing.
+        """
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise AssertionError("serve_forever() must not be called under CI")
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "1")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        out = capsys.readouterr().out
+        assert "dissect portal:" in out
+        assert "not blocking" in out
+
+    def test_serve_serves_when_not_a_tty_and_not_ci(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """pytest's captured stdout isn't a TTY, but that alone must not stop
+        `--serve` from serving — nohup, a systemd/supervisor unit, and IDE run
+        tasks are all non-TTY launches that DO want the server."""
+        _clear_ci_env(monkeypatch)
+
+        called = []
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                called.append(True)
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        assert called == [True]
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
+    def test_serve_ci_false_still_serves(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`CI=false` is SET but says "not CI" — presence alone must not trip
+        the guard, the same rule as `dashboard --web`."""
+        _clear_ci_env(monkeypatch)
+
+        called = []
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                called.append(True)
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "false")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--port", "0"]) == 0
+        assert called == [True]
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
+
+    def test_serve_ci_true_does_not_serve(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`CI=true`/`CI=1` (a truthy, non-falsy value) must still trip the guard."""
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise AssertionError("serve_forever() must not be called under CI")
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        for value in ("true", "1"):
+            monkeypatch.setenv("CI", value)
+            assert main(["dissect", "--serve", "--port", "0"]) == 0
+            out = capsys.readouterr().out
+            assert "not blocking" in out
+
+    def test_serve_foreground_blocks_until_ctrl_c(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--foreground forces the old blocking behaviour even under CI."""
+
+        class _Server:
+            server_address = ("127.0.0.1", 12345)
+
+            def serve_forever(self):
+                raise KeyboardInterrupt
+
+            def server_close(self):
+                pass
+
+        monkeypatch.setenv("CI", "1")
+        monkeypatch.setattr(dz, "make_server", lambda *a, **kw: _Server())
+        assert main(["dissect", "--serve", "--foreground"]) == 0
+        out = capsys.readouterr().out
+        assert "not blocking" not in out
 
     def test_serve_with_transcript_flag_correlates_by_default(self) -> None:
         server = dz.make_server("127.0.0.1", 0, transcript="auto")

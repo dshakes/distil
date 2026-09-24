@@ -98,17 +98,21 @@ def _calib_note() -> str:
     return f"estimated · calibrating ({n}/{_calib.MIN_SAMPLES} samples)"
 
 
-def _shadow_line(since_ts: float) -> str:
+def _shadow_line(since_ts: float, led=None) -> str:  # type: ignore[no-untyped-def]
     """Shadow decision-equivalence line, threshold-suppression-aware.
 
     Respects ``VERDICT_MIN_AB`` / ``VERDICT_MIN_AA``: when below threshold,
     prints sample counts WITHOUT a verdict so we never claim equivalence over
     statistically thin evidence. Matches the same suppression logic the status
     line and dashboard use.
+
+    ``led`` is the session-scoped ledger when the caller already read the file — see
+    :meth:`distil.shadow.ShadowLedger.load_split` for why the exit summary hands one in.
     """
     from .shadow import VERDICT_MIN_AA, VERDICT_MIN_AB, ShadowLedger
 
-    led = ShadowLedger.load(current_only=True, since_ts=since_ts)
+    if led is None:
+        led = ShadowLedger.load(current_only=True, since_ts=since_ts)
     ab_n = led.samples
     aa_n = led.aa_samples
     changes = led.changes
@@ -129,6 +133,145 @@ def _shadow_line(since_ts: float) -> str:
     return f"{changes} decision change{plural}    {suffix}"
 
 
+# ---------------------------------------------------------------------------
+# The four verdict lines. Each one can come back negative — that is the point.
+# All of them share shadow's reporting floor: below it they name the shortfall
+# and print no number, because a statistic that can print a wrong verdict is
+# worse than no line at all.
+# ---------------------------------------------------------------------------
+
+
+def _live_ledger():  # type: ignore[no-untyped-def]  # -> ShadowLedger (lazy import)
+    """The shadow ledger, current signature version only — read ONCE per render.
+
+    Three verdicts quote this evidence and they must quote the same evidence, which is the
+    correctness argument. The performance one is the same read: the ledger grows one row
+    per shadowed request forever, so a line-per-load design re-parsed it three times on
+    every wrap exit and every ``distil stats``.
+    """
+    from .shadow import ShadowLedger
+
+    return ShadowLedger.load(current_only=True)
+
+
+def _drift_line(diffs: list[int]) -> str:
+    """Anytime-valid budget alarm — is the certified decision-change budget still intact?
+
+    The certificate (``distil conformal``) is a one-shot statement about a calibration
+    corpus. This is the same claim, checked after every sample, with no multiplicity
+    penalty: a betting e-process whose capital crossing ``1/delta`` means the live risk
+    has exceeded the budget (Ville). See :func:`distil.drift.paired_loss` for the loss.
+    """
+    from .drift import live_monitor
+
+    return live_monitor(diffs).line() or ""
+
+
+def _output_line(led) -> str:  # type: ignore[no-untyped-def]
+    """Effect of compression on REPLY length, measured by shadow's paired replays.
+
+    Distinct from ``--shape-output``, which asks the model for shorter replies: this is
+    what compression does to reply length on traffic that asked for nothing. The
+    direction word is only printed when the interval excludes zero.
+    """
+    from .shadow import VERDICT_MIN_AB
+
+    cost = led.cost()
+    if cost is None or cost.n < VERDICT_MIN_AB:
+        n = 0 if cost is None else cost.n
+        return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
+    lo, hi = cost.out_delta_ci
+    scope = f"n={cost.n}, shadow-measured on all traffic; not --shape-output"
+    if lo <= 0.0 <= hi:
+        return f"no measurable effect on reply length ({scope})"
+    word = "shorter" if cost.out_delta_mean < 0 else "longer"
+    return (
+        f"the model's replies were {abs(cost.out_delta_mean):.0f} tokens {word} per request "
+        f"under compression (95% CI [{lo:+.1f}, {hi:+.1f}], {scope})"
+    )
+
+
+def _risk_line(diffs: list[int]) -> str:
+    """Distribution-free (1−delta) upper bound on the live decision-change rate.
+
+    ``tight_risk_bound`` on the same affine-mapped paired losses the drift monitor bets
+    on; the bound is on ``E[x] = (1 + harm)/2``, so it is mapped back the same way. Wider
+    than the bootstrap interval next to it on purpose — this one assumes no distribution
+    and holds at finite n, which the percentile bootstrap does not.
+    """
+    from .conformal import tight_risk_bound
+    from .drift import BUDGET_DELTA, paired_loss
+    from .shadow import VERDICT_MIN_AB
+
+    n = len(diffs)
+    if n < VERDICT_MIN_AB:
+        return f"not enough samples yet ({n}/{VERDICT_MIN_AB})"
+    bound = 2.0 * tight_risk_bound([paired_loss(d) for d in diffs], BUDGET_DELTA) - 1.0
+    conf = round((1.0 - BUDGET_DELTA) * 100)
+    return f"decision-change risk ≤ {max(0.0, bound) * 100:.1f}% ({conf}% conformal bound, n={n})"
+
+
+def _receipts_line() -> str:
+    """Hash-chain verdict for the per-request receipts — the one artifact a third party
+    can check without trusting us. Verified at exit instead of only in a command nobody
+    remembers to run."""
+    from . import receipts as _r
+
+    v = _r.verify(full=False)  # the resumed pass: this machine re-checking its own tail
+    if v.total == 0:
+        return "no receipts recorded"
+    if not v.ok:
+        return f"chain BROKEN at receipt {v.first_bad_index} of {v.total} — {v.reason}"
+    if not v.checked_from:
+        return f"{v.total} receipts, chain verified (every hash re-checked)"
+    # A checkpointed pass re-hashes only what was appended since this machine's last
+    # pass; the prefix is trusted from that checkpoint. Say exactly that, or the line
+    # claims a full verification `distil receipts` (the default, full pass) would have to earn.
+    return (
+        f"{v.total} receipts, chain intact — {v.total - v.checked_from} re-checked since "
+        f"this machine's last pass; `distil receipts` re-hashes all"
+    )
+
+
+def proof_lines(led=None) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
+    """``(label, sentence)`` for every statistical verdict, shared by the wrap exit
+    summary, ``distil stats`` and ``distil dissect`` — one implementation, so the three
+    surfaces cannot report different verdicts off the same ledger.
+
+    The shadow ledger is read once and handed to the three lines that quote it, and a
+    caller that has already read it (lifetime-scoped, current signature) passes it in
+    rather than paying for a second parse. Each line is then computed in isolation: a
+    statistic that cannot be computed drops its own line and the other three still print,
+    because one unreadable state file should not take the whole verdict block down with it.
+    """
+    if led is None:
+        led = _live_ledger()
+    diffs = list(led.paired_diffs)
+    return [
+        (label, text)
+        for label, text in (
+            ("budget", _guarded(lambda: f"certified decision-change budget: {_drift_line(diffs)}")),
+            ("risk", _guarded(lambda: _risk_line(diffs))),
+            ("output", _guarded(lambda: _output_line(led))),
+            ("receipts", _guarded(_receipts_line)),
+        )
+        if text
+    ]
+
+
+def _guarded(fn) -> str:  # type: ignore[no-untyped-def]
+    """Run one verdict; an unreadable artifact costs that line, not the block.
+
+    The empty string means "printed nothing", which the caller filters out — deliberately
+    NOT a "could not compute" line, because a reader cannot act on that and the accounting
+    above it is still true.
+    """
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 — a verdict that cannot be computed is not printed
+        return ""
+
+
 def build_ledger_text(session_id: str, start_ts: float) -> str | None:
     """Return the formatted proof ledger block, or None if no proxied requests.
 
@@ -139,10 +282,15 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
     """
     from . import calibration as _calib
     from . import ledger as _ledger
+    from .shadow import ShadowLedger
 
     sess = _ledger.summary(session=session_id)
     if sess.runs == 0:
         return None  # no proxied requests — stay silent (no noise on bypass)
+
+    # ONE pass for both scopes the block needs: the session line since `start_ts`, the
+    # verdicts lifetime-wide. Loading them separately parsed an unbounded file twice.
+    shadow_all, shadow_session = ShadowLedger.load_split(start_ts)
 
     dur = _dur(time.time() - start_ts)
     base_tok = sess.total_baseline_tokens
@@ -167,15 +315,53 @@ def build_ledger_text(session_id: str, start_ts: float) -> str | None:
     else:
         restore = f"{n_digests} {digest_label}, some handles expired (TTL {ttl}d)"
 
-    return "\n".join(
-        [
-            f"\n  distil proof ledger — session {dur}",
-            f"    tokens   {cal_base:,} → {cal_dist:,}   ({pct:.1f}% smaller)",
-            f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
-            f"    shadow   {_shadow_line(start_ts)}",
-            f"    restore  {restore}",
-        ]
+    lines = [
+        f"\n  distil proof ledger — session {dur}",
+        f"    tokens   {cal_base:,} → {cal_dist:,}   ({pct:.1f}% smaller)",
+        f"    cost     ${base_usd:,.2f} → ${dist_usd:,.2f}        {_calib_note()}",
+        f"    shadow   {_shadow_line(start_ts, shadow_session)}",
+        f"    restore  {restore}",
+        # The verdicts are the reading; the two lines below are what to do about it, so
+        # they come after every statistic and before anything that names a command.
+        *(f"    {label:<8} {text}" for label, text in _safe_proof_lines(shadow_all)),
+    ]
+    # At most one extra line, and only when a detector actually fired. The ledger is
+    # what a user sees on every exit, so an advisory that prints "0 actions" every
+    # time is an ad; one that appears only when there is something to act on is a
+    # finding. It comes before the standing next-command line so the summary still
+    # ends on the routine action, not a one-off recommendation.
+    advice = _discover_line()
+    if advice:
+        lines.append(f"    next     {advice}  (run: distil discover)")
+    lines.append(
+        f"    next     distil dissect {session_id}   (or: distil stats for cumulative savings)"
     )
+    return "\n".join(lines)
+
+
+def _discover_line() -> str | None:
+    """The missed-savings advisor's one-line teaser, or None.
+
+    Fail-open on its own: `print_proof_ledger` already swallows everything, but a
+    cross-session scan reads more files than the rest of this module and must not
+    be the reason a session's proof is missing entirely.
+    """
+    try:
+        from .discover import wrap_exit_line
+
+        return wrap_exit_line()
+    except Exception:  # noqa: BLE001 — an advisory must never cost the proof ledger
+        return None
+
+
+def _safe_proof_lines(led=None) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
+    """:func:`proof_lines`, but a broken statistic drops its own line instead of the
+    whole ledger. ``print_proof_ledger`` is already fail-open; this keeps the token and
+    dollar accounting visible when only the drift state file is unreadable."""
+    try:
+        return proof_lines(led)
+    except Exception:  # noqa: BLE001 — a verdict that cannot be computed is not printed
+        return []
 
 
 def print_proof_ledger(session_id: str, start_ts: float) -> None:

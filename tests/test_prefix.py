@@ -142,6 +142,17 @@ class TestSessionSummary:
         assert not s.reported and not s.legacy_rows
         assert "not reported by the provider" in prefix.format_summary(s)
 
+    def test_a_literal_zero_split_reads_as_reported(self) -> None:
+        """`reported` checks field presence (`is not None`), the same rule as
+        `Dissection.cached_input_share`, so a literal 0 on both split fields —
+        exactly what the proxy now writes for a measured zero — is a real
+        measurement and must render a 0% hit ratio, not "not reported"."""
+        s = prefix.summarise(
+            [{"usage_input_tokens": 100, "usage_cache_read": 0, "usage_cache_create": 0}]
+        )
+        assert s.reported and s.hit_ratio == 0.0
+        assert "hit ratio       0.0%" in prefix.format_summary(s)
+
     def test_the_summary_is_content_free(self) -> None:
         s = prefix.summarise([{"prefix_hash": "abc", "usage_cache_read": 5}])
         assert set(s.to_dict()) >= {"hit_ratio", "drift_ratio", "requests"}

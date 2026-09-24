@@ -79,13 +79,23 @@ class SessionOverview:
     status: str = ""  # "live" | "exited" | ""
 
 
-def list_sessions() -> list[SessionOverview]:
+def list_sessions(
+    *, rows: list[dict[str, Any]] | None = None, with_status: bool = True
+) -> list[SessionOverview]:
     """Every session distil has heard of: ledger rows ∪ session manifests.
 
     Newest-last-activity first, so the session you just ran is on top.
+
+    ``rows`` lets a caller that already parsed the ledger (e.g. ``discover``,
+    which also needs it per-session) pass it in rather than paying for a second
+    full parse of a file that can be tens of thousands of lines.
+
+    ``with_status=False`` skips the liveness stat() per session (two syscalls
+    each) for a caller that never reads ``.status`` — on a ledger with years of
+    distinct session ids, that loop dwarfs everything else here.
     """
     by_sid: dict[str, SessionOverview] = {}
-    for rec in _read_jsonl(default_path()):
+    for rec in rows if rows is not None else _read_jsonl(default_path()):
         sid = rec.get("session")
         if not sid or not isinstance(sid, str):
             continue
@@ -113,13 +123,14 @@ def list_sessions() -> list[SessionOverview]:
         if started:
             ov.started = min(ov.started or started, started)
             ov.last_ts = max(ov.last_ts, started)
-    for ov in by_sid.values():
-        marker = session_marker_path(ov.sid)
-        if marker is not None:
-            if marker.with_suffix(".exit").exists():
-                ov.status = "exited"
-            elif marker.exists():
-                ov.status = "live"
+    if with_status:
+        for ov in by_sid.values():
+            marker = session_marker_path(ov.sid)
+            if marker is not None:
+                if marker.with_suffix(".exit").exists():
+                    ov.status = "exited"
+                elif marker.exists():
+                    ov.status = "live"
     return sorted(by_sid.values(), key=lambda o: o.last_ts, reverse=True)
 
 
@@ -367,13 +378,25 @@ class Dissection:
         return sum(int(r.get("overhead_tokens") or 0) for r in self.booked_detail)
 
     @property
+    def sent_tokens_total(self) -> int:
+        """Denominator ``overhead_share`` divides by: overhead plus what actually
+        went out of the compressible pool (compressible minus what compression
+        removed), floored at zero. A caller with its own accounting bug that lets
+        ``tokens_saved_total`` exceed ``compressible_tokens`` must not turn this
+        into a negative "sent" total — the flooring is what keeps it a valid
+        denominator no matter how that upstream number misbehaves. A second
+        surface (``discover``) needs this exact figure and calls this property
+        rather than re-deriving it, so the two can never disagree."""
+        comp = sum(int(r.get("compressible_tokens") or 0) for r in self.booked_detail)
+        return self.overhead_tokens_total + max(0, comp - self.tokens_saved_total)
+
+    @property
     def overhead_share(self) -> float:
         """Fixed tax: system prompt + tool definitions as a share of what was actually
         sent — i.e. measured *after* compression, over the same booked population the
         savings headline uses. Dividing by the pre-compression total understated the
         share (the denominator counted tokens distil had already removed)."""
-        comp = sum(int(r.get("compressible_tokens") or 0) for r in self.booked_detail)
-        total = self.overhead_tokens_total + max(0, comp - self.tokens_saved_total)
+        total = self.sent_tokens_total
         return 100.0 * self.overhead_tokens_total / total if total else 0.0
 
     @property
@@ -446,11 +469,17 @@ class Dissection:
         number overstates what any dedup mechanism could recover. None when no usage
         was recorded.
 
-        Older records carry only the aggregate ``usage_cache_tokens`` and neither split
-        field. Summing the split fields over those rows gives 0 cached against a nonzero
-        input total, so the share reads a confident **0.0%** — "the cache never hit" —
-        for a session where it was never measured. Those are opposite diagnoses, so
-        require at least one row to carry a split field before reporting anything.
+        The rule is provider-agnostic, not usage-presence based: OpenAI and Gemini
+        rows (and every row written before the proxy started distinguishing the two)
+        report ``usage_input_tokens`` but NEVER carry either Anthropic-style split
+        field — reading "usage present, split absent" as a measured 0% would inflate
+        churn/prefix-drift for exactly those rows. The proxy now writes a literal
+        ``0`` whenever the provider's own usage object carried the field (a real
+        measurement) and ``None`` only when the field was never in that object at
+        all (never measured) — so ``None`` on a split field means unmeasured, full
+        stop, regardless of whether ``usage_input_tokens`` is present. Requiring at
+        least one row to carry a split field before reporting anything is the
+        conservative reading of an ambiguous, pre-existing row.
         """
         detail = self.booked_detail
         if not any(
@@ -487,16 +516,29 @@ class Dissection:
         return 100.0 * prot / total
 
     @property
+    def _booked_fold_counts(self) -> dict[str, dict[str, int]]:
+        """Fold counts from ``booked_detail`` only — unlike ``self.blocks`` (built from
+        every request for the recoverable-blocks display), a fold on an unbooked
+        retry is the same resend billed once, not a second re-fold."""
+        out: dict[str, dict[str, int]] = {}
+        for rec in self.booked_detail:
+            for blk in rec.get("blocks") or []:
+                h = blk.get("h")
+                if not isinstance(h, str):
+                    continue
+                info = out.setdefault(h, {"tokens": int(blk.get("tokens") or 0), "folds": 0})
+                info["folds"] += 1
+        return out
+
+    @property
     def churn_tokens(self) -> int:
         """Tokens re-folded after first sight — resent content the client keeps sending."""
-        return sum(
-            int(i.get("tokens") or 0) * (int(i.get("folds") or 1) - 1) for i in self.blocks.values()
-        )
+        return sum(i["tokens"] * (i["folds"] - 1) for i in self._booked_fold_counts.values())
 
     @property
     def churned_blocks(self) -> int:
         """Blocks folded more than once — the same count churn_tokens sums over."""
-        return sum(1 for i in self.blocks.values() if int(i.get("folds") or 0) >= 2)
+        return sum(1 for i in self._booked_fold_counts.values() if i["folds"] >= 2)
 
     @property
     def usage_input_total(self) -> int:
@@ -699,19 +741,32 @@ class Dissection:
         vals = [int(r.get("tools_tokens") or 0) for r in self.requests]
         return sum(vals) // len(vals) if vals else 0
 
-    def system_growth(self) -> tuple[int, int] | None:
-        """(first, last) system-prompt size — memory/context injections show up here."""
-        vals = [int(r.get("system_tokens") or 0) for r in self.requests if r.get("system_tokens")]
+    def system_growth(self, *, booked_only: bool = False) -> tuple[int, int] | None:
+        """(first, last) system-prompt size — memory/context injections show up here.
+
+        ``booked_only=False`` (default) keeps dissect's own report contract: an
+        unbooked retry's system prompt was still actually sent, so it is real
+        evidence of growth. A caller pricing a recovery off the result (discover's
+        request-count multiplier) wants ``True``, to match the population that
+        multiplier is already filtered to.
+        """
+        records = self.booked_detail if booked_only else self.requests
+        vals = [int(r.get("system_tokens") or 0) for r in records if r.get("system_tokens")]
         return (vals[0], vals[-1]) if len(vals) >= 2 else None
 
-    def tool_costs(self) -> list[tuple[str, int, int]]:
+    def tool_costs(self, *, booked_only: bool = False) -> list[tuple[str, int, int]]:
         """[(tool_name, tokens_per_request, session_total)] biggest total first.
 
         A tool definition is resent on every request, so its session cost is
         its size × the requests that carried it — the "trim this" worklist.
+
+        ``booked_only=False`` (default) keeps dissect's own report contract (every
+        request that actually carried the tool, retried or not). A caller pricing a
+        recovery estimate against an already booked-only denominator — discover's
+        tool_overhead numerator — wants ``True``, so the two agree.
         """
         per: dict[str, list[int]] = {}
-        for r in self.requests:
+        for r in self.booked_detail if booked_only else self.requests:
             for t in r.get("tools") or []:
                 name = str(t.get("name") or "?")
                 m = per.setdefault(name, [0, 0])
@@ -846,9 +901,33 @@ class Dissection:
         return sorted(rows, key=lambda t: -t[2])[:n]
 
 
-def dissect(sid: str) -> Dissection:
-    """Assemble a full Dissection for *sid* from every local source."""
-    ledger_rows = [r for r in _read_jsonl(default_path()) if r.get("session") == sid]
+def dissect(
+    sid: str,
+    *,
+    ledger_rows: list[dict[str, Any]] | None = None,
+    shadow: bool = True,
+    since_ts: float | None = None,
+) -> Dissection:
+    """Assemble a full Dissection for *sid* from every local source.
+
+    ``ledger_rows`` and ``shadow`` exist for ``distil discover``, which dissects
+    twenty sessions in one pass. The two whole-file scans below — the savings
+    ledger and shadow.jsonl — are per-call, so twenty sessions re-parse a 37k-run
+    ledger twenty times for rows the caller has already grouped. Passing
+    ``ledger_rows`` (pre-filtered to *sid*) and ``shadow=False`` skips only work
+    the caller does not need; nothing else about the report changes, and there is
+    still one implementation of it.
+
+    ``since_ts`` bounds a long-lived (always-on) session to its rows at or after
+    that timestamp, on both the ledger rows and the request-detail file — a caller
+    asking for "the last 7 days" must not have weeks of an always-on session's
+    history folded into that window just because the session itself is older.
+    None (the default) applies no bound, so every existing caller is unaffected.
+    """
+    if ledger_rows is None:
+        ledger_rows = [r for r in _read_jsonl(default_path()) if r.get("session") == sid]
+    if since_ts is not None:
+        ledger_rows = [r for r in ledger_rows if float(r.get("ts") or 0.0) >= since_ts]
     manifest: dict[str, Any] | None = None
     mp = session_manifest_path(sid)
     if mp is not None:
@@ -859,6 +938,8 @@ def dissect(sid: str) -> Dissection:
             manifest = None
     rp = session_requests_path(sid)
     requests = _read_jsonl(rp) if rp is not None else []
+    if since_ts is not None:
+        requests = [r for r in requests if float(r.get("ts") or 0.0) >= since_ts]
 
     marker = heartbeat = exit_note = None
     marker_p = session_marker_path(sid)
@@ -902,7 +983,7 @@ def dissect(sid: str) -> Dissection:
     for h, info in d.blocks.items():
         info["recoverable"] = (restore_dir / h).exists()
 
-    if d.started and d.ended:
+    if shadow and d.started and d.ended:
         from .shadow import ReplayCost, cost_delta
 
         costs: list[ReplayCost] = []
@@ -1262,7 +1343,14 @@ def render_text(
         if d.shadow_net_usd is not None:
             line += f" · net after output ${d.shadow_net_usd:+.4f}"
         out.append(line)
-    elif not d.detail_available:
+    # The statistical verdicts, from the same function the wrap exit summary and
+    # `distil stats` use. Live-traffic-wide, not session-scoped: a certificate off one
+    # session's handful of samples would be below its own reporting floor anyway.
+    from .proof_ledger import _safe_proof_lines
+
+    for _label, _text in _safe_proof_lines():
+        out.append(f"  {_label}: {_text}")
+    if not d.detail_available and d.shadow_out_delta is None:
         out.append("  no session-scoped signal recorded for this session")
 
     if corr is not None:
@@ -1320,7 +1408,16 @@ def render_text(
     out.append(
         c("2", "resent content replaced by a reference · verbatim = passed through untouched ·")
     )
-    out.append(c("2", "unbooked = upstream failed/retried, not counted as savings"))
+    out.append(c("2", "unbooked = upstream failed/retried, not counted as savings ·"))
+    out.append(
+        c(
+            "2",
+            "decision-equivalence = agent's next action unchanged with vs without compression ·",
+        )
+    )
+    out.append(
+        c("2", "prefix replay = a client-resent prefix forwarded as-is instead of recompressed")
+    )
     out.append("")
     out.append(
         c(
