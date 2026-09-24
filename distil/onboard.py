@@ -36,8 +36,16 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 # Per-agent proxy presets for `distil wrap`.  Maps argv[0] basename → (env_var,
 # upstream, label).  Sourced from each agent's published SDK/env-var contract:
 #   claude       — Anthropic SDK honours ANTHROPIC_BASE_URL (Anthropic SDK docs).
-#   codex        — OpenAI Codex CLI uses the OpenAI SDK which reads OPENAI_BASE_URL;
-#                  the SDK appends /v1 itself so no suffix needed here (OpenAI SDK docs).
+#   codex        — codex-rs (Rust, not the openai-python/-node SDK the previous
+#                  version of this comment assumed) builds its request URL as a
+#                  literal `{base_url}/{path}` concatenation and is Responses-only
+#                  (wire_api="chat" was removed — codex-rs/model-provider-info).
+#                  ITS base_url field, though, is populated only from the TOML
+#                  `openai_base_url` config key (codex-rs/core/config.schema.json);
+#                  no env-var-to-config-field mapping for OPENAI_BASE_URL into that
+#                  field was found in codex-rs/config, so this preset may not route
+#                  traffic at all today, independent of any /v1 question. See
+#                  AGENT_META["codex"]'s note — left unfixed pending that answer.
 #   gemini       — Gemini CLI honours GOOGLE_GEMINI_BASE_URL (verified: distil statusline
 #                  already checks this var, and Gemini CLI changelog confirms it).
 #   aider        — defaults to OpenAI mode, but it calls the provider through
@@ -59,13 +67,24 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #   grok         — the endpoint override is GROK_MODELS_BASE_URL
 #                  (docs.x.ai/build/settings). GROK_BASE_URL, which we shipped, is
 #                  not a variable the CLI reads at all — same silent no-op as aider.
-#                  Note the upstream carries the /v1 itself, unlike the OpenAI SDK.
+#                  Confirmed 2026-09-24 against xai-org/grok-build:
+#                  resolve_inference_base_url() uses models_base_url LITERALLY
+#                  (same defect class as aider/opencode/qwen above) — README/test
+#                  fixtures all show values already carrying /v1. AGENT_ENV_TEMPLATES
+#                  now supplies $BASE/v1 and the upstream default here has the /v1
+#                  stripped to match (it would otherwise double to /v1/v1 — a 404).
 #   openhands    — reads LLM_BASE_URL / LLM_API_KEY / LLM_MODEL, but ONLY when run
 #                  with `--override-with-envs`. Without that flag it ignores the
 #                  environment entirely and reads ~/.openhands/settings.json, so a
 #                  preset alone routes NOTHING while reporting success — the exact
 #                  failure the note below is about. `wrap` therefore checks argv and
-#                  says so; see _warn_if_env_ignored in cli.py.
+#                  says so; see _warn_if_env_ignored in cli.py. Separately (2026-09-24):
+#                  OpenHands-CLI forwards LLM_BASE_URL as `api_base` to LiteLLM
+#                  verbatim (openhands-sdk litellm_provider.py's own docstring says
+#                  so), and LiteLLM does not inject a fallback base for the "openai"
+#                  provider branch (only some other providers get one) — same
+#                  literal-base_url defect class as aider, so AGENT_ENV_TEMPLATES
+#                  supplies $BASE/v1 here too.
 #   cursor-agent — env var not publicly documented; left out rather than guessing.
 #                  Use --env-var to configure manually.
 #   copilot      — GitHub Copilot CLI's BYOK contract is COPILOT_PROVIDER_BASE_URL +
@@ -80,6 +99,14 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  its native "kimi" provider type (moonshotai.github.io/kimi-cli,
 #                  configuration/env-vars). No key passthrough: Moonshot's API key
 #                  namespace has no existing distil-known source to forward from.
+#                  Confirmed 2026-09-24 against MoonshotAI/kimi-code
+#                  (packages/kosong/src/providers/kimi.ts): builds `new OpenAI({
+#                  baseURL: this._baseUrl })` from the official openai npm SDK, the
+#                  same literal-base_url convention verified for aider/opencode/qwen
+#                  above — its own default already carries /v1
+#                  ("https://api.moonshot.ai/v1"), so AGENT_ENV_TEMPLATES supplies
+#                  $BASE/v1 and the upstream default here has the /v1 stripped to
+#                  match (same shape as the grok fix above).
 #   vibe         — Mistral Vibe has no plain base-URL variable: its endpoint lives in
 #                  a `providers` LIST, and the ONE documented way to override that
 #                  list without editing the user's own ~/.vibe/config.toml is the
@@ -126,7 +153,7 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
         "goose",
         {"ANTHROPIC_HOST": "$BASE"},
     ),
-    "grok": ("GROK_MODELS_BASE_URL", "https://api.x.ai/v1", "Grok CLI", {}),
+    "grok": ("GROK_MODELS_BASE_URL", "https://api.x.ai", "Grok CLI", {}),
     "openhands": ("LLM_BASE_URL", "https://api.openai.com", "OpenHands", {}),
     "copilot": (
         "COPILOT_PROVIDER_BASE_URL",
@@ -137,7 +164,7 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
             "COPILOT_PROVIDER_API_KEY": "$ANTHROPIC_API_KEY",
         },
     ),
-    "kimi": ("KIMI_BASE_URL", "https://api.moonshot.ai/v1", "Kimi CLI", {}),
+    "kimi": ("KIMI_BASE_URL", "https://api.moonshot.ai", "Kimi CLI", {}),
     "vibe": ("VIBE_PROVIDERS", "https://api.mistral.ai", "Mistral Vibe", {}),
     "kilo": ("KILO_CONFIG_CONTENT", "https://api.anthropic.com", "Kilo Code CLI", {}),
 }
@@ -232,6 +259,14 @@ AGENT_ENV_TEMPLATES: dict[str, str] = {
     "aider": "$BASE/v1",
     "opencode": "$BASE/v1",
     "qwen": "$BASE/v1",
+    # grok / kimi / openhands — same literal-base_url defect class, confirmed
+    # 2026-09-24 (see the AGENT_PRESETS comment above for each). Their own
+    # upstream defaults already carry /v1 (grok, kimi) or route through the same
+    # LiteLLM `api_base=` mechanism already verified for aider (openhands), so
+    # they need the same $BASE/v1 template.
+    "grok": "$BASE/v1",
+    "kimi": "$BASE/v1",
+    "openhands": "$BASE/v1",
 }
 
 
@@ -254,23 +289,32 @@ class AgentMeta:
 
 _ANTHROPIC = "Anthropic Messages"
 _OPENAI_CHAT = "OpenAI Chat Completions"
+_OPENAI_RESPONSES = "OpenAI Responses"
 
 AGENT_META: dict[str, AgentMeta] = {
     "claude": AgentMeta(_ANTHROPIC, "https://docs.anthropic.com/en/api/client-sdks", "2026-09-16"),
     "codex": AgentMeta(
-        _OPENAI_CHAT,
-        "https://github.com/openai/openai-python#configuring-the-http-client",
-        "2026-09-16",
-        # Re-checked 2026-09-24: a live openai-python/-node install does NOT
-        # append /v1 to an explicitly-set base_url — it uses it literally and
-        # appends only /chat/completions (same finding that sent aider/
-        # opencode/qwen to AGENT_ENV_TEMPLATES below). This note's original
-        # claim was wrong for those two SDKs; it stands unverified for codex
-        # specifically because codex-rs is its own client, not openai-python,
-        # and OPENAI_BASE_URL was not found wired to its model-request path in
-        # the codex-rs source read the same day — needs dedicated follow-up
-        # rather than a guessed fix.
-        "unverified 2026-09-24 — codex-rs is not the openai-python SDK; see note",
+        _OPENAI_RESPONSES,
+        "https://github.com/openai/codex/blob/main/codex-rs/model-provider-info/src/lib.rs",
+        "2026-09-24",
+        # Shape corrected 2026-09-24: codex-rs's wire_api="chat" was REMOVED
+        # entirely (CHAT_WIRE_API_REMOVED_ERROR) — codex now speaks Responses
+        # only, never Chat Completions, so the previous _OPENAI_CHAT label here
+        # was wrong regardless of the base_url question below.
+        #
+        # base_url question re-checked 2026-09-24, still unresolved: codex-rs
+        # is a native Rust client (not openai-python/-node), builds its request
+        # URL as a literal `{base_url}/{path}` concatenation
+        # (codex-rs/codex-client/src/provider.rs, url_for_path), and its default
+        # already carries /v1 (DEFAULT_OPENAI_BASE_URL). But base_url is
+        # populated only from the TOML `openai_base_url` config key
+        # (codex-rs/core/config.schema.json) — no env-var-to-config-field
+        # mapping for OPENAI_BASE_URL into that field was found in
+        # codex-rs/config, so this preset may not route traffic at all today,
+        # independent of any /v1 fix. Needs dedicated follow-up (a config-file
+        # preset, like Kilo's, may be the real fix) rather than a guessed one.
+        "unverified 2026-09-24 — shape is now confirmed Responses, but whether "
+        "OPENAI_BASE_URL reaches codex's request path at all is still unresolved; see note",
     ),
     "gemini": AgentMeta(
         "Gemini generateContent",
@@ -287,13 +331,21 @@ AGENT_META: dict[str, AgentMeta] = {
         "$BASE/v1 so it lands on a path the proxy compresses",
     ),
     "opencode": AgentMeta(
-        _OPENAI_CHAT,
+        _OPENAI_RESPONSES,
         "https://opencode.ai/docs/providers/",
-        "2026-09-16",
+        "2026-09-24",
         "env beats its config; its provider layer is @ai-sdk/openai's createOpenAI "
         "(opencode/src/provider/provider.ts, options.baseURL) — the same "
         "literal-base-url mechanism Kilo Code forks, so it needs the same $BASE/v1 "
-        "template (AGENT_ENV_TEMPLATES) Kilo was fixed with",
+        "template (AGENT_ENV_TEMPLATES) Kilo was fixed with. Shape corrected 2026-09-24: "
+        "calling @ai-sdk/openai's provider function directly (no .chat/.responses suffix) "
+        "defaults to the Responses API in the installed version (v4.0.75), and opencode's "
+        "own packages/llm/src/providers/openai.ts independently defaults model=responses "
+        "too — two agreeing primary sources, not one. NOTE this is a config-file "
+        "mechanism per opencode's own docs (opencode.json, provider.<id>.options.baseURL); "
+        "whether env truly outranks an explicit config baseURL (as opposed to only "
+        "supplying the fallback when none is set) was not re-verified this session and "
+        "is flagged here for follow-up, not silently fixed",
     ),
     "qwen": AgentMeta(
         _OPENAI_CHAT,
@@ -311,15 +363,22 @@ AGENT_META: dict[str, AgentMeta] = {
     ),
     "grok": AgentMeta(
         _OPENAI_CHAT,
-        "https://docs.x.ai/build/settings",
-        "2026-09-16",
-        "upstream carries its own /v1",
+        "https://github.com/xai-org/grok-build",
+        "2026-09-24",
+        "resolve_inference_base_url() uses models_base_url LITERALLY (confirmed 2026-09-24 "
+        "against xai-org/grok-build source + tests) and its own default already carries /v1 "
+        "— AGENT_ENV_TEMPLATES exports $BASE/v1 and the upstream default above is stripped "
+        "of /v1 to match, same shape as the aider fix",
     ),
     "openhands": AgentMeta(
         _OPENAI_CHAT,
         "https://docs.all-hands.dev/usage/how-to/cli-mode",
         "2026-09-16",
-        "ignores the environment without --override-with-envs",
+        "ignores the environment without --override-with-envs. Separately (verified "
+        "2026-09-24 against OpenHands/software-agent-sdk's litellm_provider.py): "
+        "LLM_BASE_URL is forwarded to LiteLLM as api_base VERBATIM, and LiteLLM injects "
+        "no fallback base for the openai provider branch — same literal-base_url defect "
+        "class as aider, so AGENT_ENV_TEMPLATES exports $BASE/v1 here too",
     ),
     "copilot": AgentMeta(
         _ANTHROPIC,
@@ -328,7 +387,15 @@ AGENT_META: dict[str, AgentMeta] = {
         "COPILOT_MODEL is required too and only you know it — export it yourself",
     ),
     "kimi": AgentMeta(
-        _OPENAI_CHAT, "https://moonshotai.github.io/kimi-cli/configuration/", "2026-09-16"
+        _OPENAI_CHAT,
+        "https://moonshotai.github.io/kimi-cli/configuration/",
+        "2026-09-24",
+        "verified 2026-09-24 against MoonshotAI/kimi-code's packages/kosong/src/"
+        "providers/kimi.ts: KIMI_BASE_URL is used LITERALLY (this.baseUrl ?? "
+        "env['KIMI_BASE_URL'] ?? 'https://api.moonshot.ai/v1') then handed to the "
+        "official openai SDK — same literal-base_url convention as openai-node, and "
+        "its default already carries /v1, so AGENT_PRESETS strips the /v1 from the "
+        "upstream default and AGENT_ENV_TEMPLATES exports $BASE/v1",
     ),
     "vibe": AgentMeta(
         _OPENAI_CHAT,

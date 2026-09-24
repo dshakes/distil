@@ -522,12 +522,60 @@ point.
   exporting `$BASE/v1`. `tests/test_reach_contract.py` pins the fix per SDK convention (with
   its own doc citation per row) by running each preset's exported value through the real
   proxy against a fake upstream and asserting the request both lands on a path the proxy
-  compresses and reaches the upstream on that same path — reverting either template's `/v1`
-  fails it. `codex`, `goose`, `grok`, `openhands`, `copilot`, and `kimi` were checked against
-  what's independently verifiable and are NOT changed: none has a live-confirmed answer for
-  what their own client does with a bare base_url, and `grok`'s upstream already baking
-  `/v1` into its *default* (the same shape aider/opencode/qwen had before this fix) is worth
-  a dedicated look rather than a guess folded into this one.
+  compresses (b) reaches the upstream on that same path, and (c) actually triggered the
+  compression branch — a genuinely-compressible tool result in the canned body must come
+  back with `x-distil-tokens-saved` > 0, not just a passthrough that happens to land on a
+  compressible-shaped path. Reverting any template's `/v1` fails it.
+- **`grok`, `kimi`, and `openhands` had the exact same defect, confirmed this round from
+  each client's own source (not guessed at):** `xai-org/grok-build`'s
+  `resolve_inference_base_url()` and `MoonshotAI/kimi-code`'s
+  `packages/kosong/src/providers/kimi.ts` both use their base URL **literally**, and both
+  default it to a value that already carries `/v1` — so a distil upstream default of
+  `.../v1` plus a bare `$BASE` export would double the segment into `.../v1/v1/...`, a 404
+  that reads like a distil bug, once the OpenAI-SDK-style `/v1`-autoinsert assumption
+  underneath the old preset stopped holding. `AGENT_ENV_TEMPLATES` now exports `$BASE/v1`
+  for both, and `AGENT_PRESETS`'s upstream is stripped back to the bare host so the proxy's
+  own forward doesn't double it either. OpenHands turned out to be the same convention one
+  layer down: `LLM_BASE_URL` is forwarded into LiteLLM's `api_base` **verbatim** (confirmed
+  from `OpenHands/software-agent-sdk`'s own docstring: the resolved value LiteLLM would
+  otherwise compute is deliberately discarded so a later per-call resolution isn't frozen),
+  and LiteLLM injects no fallback base for its `openai` provider branch — so OpenHands now
+  gets the same `$BASE/v1` template as aider.
+- **Codex's and OpenCode's OpenAI presets were modelled on the wrong wire shape.** Both are
+  Responses API, not Chat Completions, confirmed from two independent sources: `codex-rs`
+  removed `wire_api="chat"` entirely (`codex-rs/model-provider-info/src/lib.rs`), and
+  `@ai-sdk/openai@4.0.75`'s bare `openai(modelId)` invocation (no `.chat`/`.responses`
+  suffix, which is how OpenCode's own `packages/llm/src/providers/openai.ts` calls it, by
+  independent default) now resolves to `createResponsesModel`. `AGENT_META`'s `shape` for
+  both is corrected; `tests/test_reach_contract.py` gained an `openai_responses` case and
+  body shape (`function_call_output` items) to prove it.
+- **A genuinely deeper finding on `codex`, surfaced while chasing the shape question and
+  left unfixed pending an answer, per this project's own rule against guessing:** `codex-rs`
+  is a native Rust client, not the `openai-python`/`-node` SDK the old preset comment
+  assumed, and it builds request URLs by literal concatenation
+  (`Provider::url_for_path`). Its `base_url` field, though, is populated **only** from the
+  TOML `openai_base_url` config key (`codex-rs/core/config.schema.json`) — no
+  env-var-to-config-field mapping for `OPENAI_BASE_URL` was found anywhere in
+  `codex-rs/config`. Distil's `codex` preset may not route codex's traffic **at all**,
+  independent of any `/v1` question. Left unchanged; documented in `AGENT_META["codex"]`'s
+  note and this file rather than silently patched.
+- **Unverified and deliberately unchanged** (no live-confirmed answer for what the client
+  does with a bare base_url, so left as-is rather than guessed at): `goose`, `copilot`.
+  OpenCode's real end-user override is a config file (`opencode.json`), not a plain env
+  var, and whether `OPENAI_BASE_URL` genuinely outranks an *explicit* config-set `baseURL`
+  (versus only supplying a fallback when none is configured) was not re-verified this round
+  — flagged in `AGENT_META["opencode"]`'s note for follow-up.
+- **A tautological regression test.** `test_kilo_fix_is_load_bearing` monkeypatched
+  `AGENT_ENV_TEMPLATES["kilo"]` to a locally-defined reverted string and then read that same
+  entry back out — it never read the real template and never sent a request through the
+  proxy, so it could not have caught the regression it claimed to guard. Deleted; the
+  `kilo-anthropic`/`kilo-openai` parametrized cases in the table above are the real guard.
+- **`/v1/v1` documented, not patched.** `httpguard`'s `_CHAT_RE`/`_RESPONSES_RE` are
+  anchored, and the proxy forwards `_upstream + path` unchanged, so a client whose base_url
+  already carries `/v1` and appends its own `/v1` leaf on top lands on a doubled prefix
+  neither regex matches — an uncompressed passthrough today, not a silent drop and not a
+  match on a malformed path. `tests/test_reach_contract.py` now pins that behaviour
+  directly rather than leaving it implicit; the allowlist itself is unchanged.
 
 ### Changed
 
