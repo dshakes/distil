@@ -209,6 +209,29 @@ AGENT_ENV_TEMPLATES: dict[str, str] = {
         '"openai": {"options": {"baseURL": "$BASE/v1"}}'
         "}}"
     ),
+    # aider / opencode / qwen — same defect class as the Kilo fix above, on a
+    # plain URL rather than a JSON document. The Kilo fix's premise generalises:
+    # an OpenAI-shaped client built on the official `openai` SDK (Python or
+    # Node), on `@ai-sdk/openai`, or on LiteLLM uses its configured base_url
+    # LITERALLY — it appends only `/chat/completions`, it does not add `/v1`
+    # itself. Verified live 2026-09-24 against real installs of each: setting
+    # a bare `http://host:port` as the SDK's base_url produces a request to
+    # `{base}/chat/completions`, never `{base}/v1/chat/completions`
+    # (openai-python `OpenAI(base_url=...)`, openai-node `new OpenAI({baseURL})`,
+    # and `litellm.completion(..., api_base=...)` all agree). Exporting the bare
+    # proxy URL therefore sends every request to a path the proxy's
+    # `is_compressible_path` does not match — `wrap` would report success and
+    # compress nothing, the same failure the Kilo entry above exists to name.
+    #   aider    — routes through LiteLLM (see AGENT_PRESETS comment above);
+    #              confirmed directly against `litellm.completion(api_base=...)`.
+    #   opencode — its provider layer is `@ai-sdk/openai`'s `createOpenAI`
+    #              (opencode/src/provider/provider.ts, `options.baseURL`) — the
+    #              same mechanism Kilo Code forks and was just fixed for.
+    #   qwen     — `packages/core/package.json` depends on the `openai` npm
+    #              package directly (checked 2026-09-24); same SDK as above.
+    "aider": "$BASE/v1",
+    "opencode": "$BASE/v1",
+    "qwen": "$BASE/v1",
 }
 
 
@@ -238,7 +261,16 @@ AGENT_META: dict[str, AgentMeta] = {
         _OPENAI_CHAT,
         "https://github.com/openai/openai-python#configuring-the-http-client",
         "2026-09-16",
-        "the OpenAI SDK appends /v1 itself",
+        # Re-checked 2026-09-24: a live openai-python/-node install does NOT
+        # append /v1 to an explicitly-set base_url — it uses it literally and
+        # appends only /chat/completions (same finding that sent aider/
+        # opencode/qwen to AGENT_ENV_TEMPLATES below). This note's original
+        # claim was wrong for those two SDKs; it stands unverified for codex
+        # specifically because codex-rs is its own client, not openai-python,
+        # and OPENAI_BASE_URL was not found wired to its model-request path in
+        # the codex-rs source read the same day — needs dedicated follow-up
+        # rather than a guessed fix.
+        "unverified 2026-09-24 — codex-rs is not the openai-python SDK; see note",
     ),
     "gemini": AgentMeta(
         "Gemini generateContent",
@@ -249,12 +281,28 @@ AGENT_META: dict[str, AgentMeta] = {
         _OPENAI_CHAT,
         "https://aider.chat/docs/llms/openai-compat.html",
         "2026-09-16",
-        "LiteLLM reads the older OPENAI_API_BASE, not OPENAI_BASE_URL",
+        "LiteLLM reads the older OPENAI_API_BASE, not OPENAI_BASE_URL; and (verified live "
+        "2026-09-24 against litellm.completion(api_base=...)) LiteLLM uses that value "
+        "literally and appends only /chat/completions — AGENT_ENV_TEMPLATES exports "
+        "$BASE/v1 so it lands on a path the proxy compresses",
     ),
     "opencode": AgentMeta(
-        _OPENAI_CHAT, "https://opencode.ai/docs/providers/", "2026-09-16", "env beats its config"
+        _OPENAI_CHAT,
+        "https://opencode.ai/docs/providers/",
+        "2026-09-16",
+        "env beats its config; its provider layer is @ai-sdk/openai's createOpenAI "
+        "(opencode/src/provider/provider.ts, options.baseURL) — the same "
+        "literal-base-url mechanism Kilo Code forks, so it needs the same $BASE/v1 "
+        "template (AGENT_ENV_TEMPLATES) Kilo was fixed with",
     ),
-    "qwen": AgentMeta(_OPENAI_CHAT, "https://github.com/QwenLM/qwen-code#readme", "2026-09-16"),
+    "qwen": AgentMeta(
+        _OPENAI_CHAT,
+        "https://github.com/QwenLM/qwen-code#readme",
+        "2026-09-16",
+        "packages/core/package.json depends on the openai npm package directly "
+        "(checked 2026-09-24) — same literal-base_url SDK verified for codex's note above, "
+        "so it needs the same $BASE/v1 template (AGENT_ENV_TEMPLATES) as aider/opencode",
+    ),
     "goose": AgentMeta(
         _OPENAI_CHAT,
         "https://block.github.io/goose/docs/getting-started/providers/",

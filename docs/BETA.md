@@ -56,7 +56,7 @@ uvx --from 'distil-llm==1.20.0rc1' distil onboard
 distil wrap -- claude       # Claude Code
 distil wrap -- codex        # Codex (sets OPENAI_BASE_URL)
 distil wrap -- gemini       # Gemini CLI (sets GOOGLE_GEMINI_BASE_URL)
-distil wrap -- aider        # aider (sets OPENAI_BASE_URL)
+distil wrap -- aider        # aider (sets OPENAI_API_BASE — LiteLLM's older var)
 ```
 
 Each recognized agent auto-selects the right env var and upstream — no extra

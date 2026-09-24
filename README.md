@@ -403,7 +403,7 @@ const client = new Anthropic({ baseURL: distilBaseURL() });
 | LangChain (py/js) · LangGraph | `anthropicApiUrl` / base URL · `pre_model_hook` | [`examples/js_langchain.ts`](examples/js_langchain.ts) |
 | LiteLLM | `api_base="http://127.0.0.1:8788"` | [`examples/python_litellm.py`](examples/python_litellm.py) |
 | Google Gemini | `--upstream https://generativelanguage.googleapis.com` | [`examples/python_gemini.py`](examples/python_gemini.py) |
-| Codex · aider · Cursor-agent · **any `base_url` client** | `distil wrap -- <agent>` or `OPENAI_BASE_URL` | — |
+| Codex · aider · OpenCode · Qwen Code · **any `base_url` client** | `distil wrap -- <agent>` (picks the right var per agent) or `OPENAI_BASE_URL` | — |
 
 Anything that speaks the Anthropic / OpenAI / Gemini wire format works — the proxy is framework-agnostic, so CrewAI, AutoGen, LlamaIndex, Agno, Strands, Bedrock, etc. route through it unchanged by pointing their client's base URL at distil.
 

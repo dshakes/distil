@@ -506,6 +506,29 @@ point.
   knob, and the primary doc that contract was read from with the date. The agents `wrap`
   cannot reach are on the same list with the reason — that half is the useful half.
 
+### Fixed
+
+- **A preset can export the right variable and still route nothing, because the variable's
+  own client uses it a way distil never checked.** Kilo Code's `KILO_CONFIG_CONTENT` named
+  the right env var but the wrong value: its provider layer forks `@ai-sdk/anthropic` /
+  `@ai-sdk/openai`, both of which use a configured `baseURL` **literally** and append only
+  the leaf path (`/messages`, `/chat/completions`) — so `$BASE` alone landed every request
+  on `/messages`, a path `is_compressible_path` does not recognise, while `wrap` reported
+  success. The fix appends `/v1` in the template, not the base preset. The same defect class
+  was then checked against every other `AGENT_ENV_TEMPLATES` entry and confirmed live
+  (real installs of `openai-python`, `openai-node`, and `litellm`, none of which insert
+  `/v1` for an explicitly-set base_url either) against **aider**, **OpenCode**, and
+  **Qwen Code** — all three built on that same literal-base_url convention, all three now
+  exporting `$BASE/v1`. `tests/test_reach_contract.py` pins the fix per SDK convention (with
+  its own doc citation per row) by running each preset's exported value through the real
+  proxy against a fake upstream and asserting the request both lands on a path the proxy
+  compresses and reaches the upstream on that same path — reverting either template's `/v1`
+  fails it. `codex`, `goose`, `grok`, `openhands`, `copilot`, and `kimi` were checked against
+  what's independently verifiable and are NOT changed: none has a live-confirmed answer for
+  what their own client does with a bare base_url, and `grok`'s upstream already baking
+  `/v1` into its *default* (the same shape aider/opencode/qwen had before this fix) is worth
+  a dedicated look rather than a guess folded into this one.
+
 ### Changed
 
 - **Config-file presets follow the path the child was actually told to use.** A preset now
