@@ -29,9 +29,11 @@ shaping can never be kept on by evidence it produced itself.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .certify.gate import CERT_MARGIN
 from .certify.holdout import bootstrap_ci
 from .compress.tier1 import Tier1Reversible
 from .tokenizer import DEFAULT, Tokenizer
@@ -123,6 +125,14 @@ SHAPE_MODES = ("auto", "off", "light", "aggressive")
 #: conservative directive; the strongest lossy setting stays a thing you ask for.
 AUTO_LEVEL = "light"
 
+#: The harm budget ``auto`` holds shaping to — the pre-registered certification
+#: margin, not a number of its own. Swap point when the single risk budget lands.
+SHAPE_HARM_MARGIN = CERT_MARGIN
+
+#: How far back ``auto`` reads shadow evidence — the same 7-day recent window
+#: ``distil stats`` uses for its "recent" savings line.
+SHAPE_EVIDENCE_DAYS = 7
+
 
 @dataclass(frozen=True)
 class ShapeDecision:
@@ -175,14 +185,20 @@ def resolve_shape_output(
     live output-side evidence that exists before the session runs. What shaping
     itself costs is measured by :func:`measure_output_savings`.
 
-    **Only rows measured with shaping OFF count.** Once shaping is on, the shadow
-    B arm carries the directive, so its "shorter replies" is shaping measuring
-    itself — a gate fed those rows would keep itself on by construction. Every
-    row is tagged with its levers (:func:`shadow.lever`); rows that predate the
-    tag are excluded too, because their shaping state is unknown.
-    ponytail: a ledger that is all shaped rows freezes the unshaped evidence at
-    whatever preceded it. Upgrade path: a paired shaped-vs-unshaped shadow arm.
-    The live ``budget`` e-process still reads every row, shaped or not.
+    **Evidence to turn ON comes only from rows measured with shaping OFF.** Once
+    shaping is on, the shadow B arm carries the directive, so its "shorter
+    replies" is shaping measuring itself — a gate fed those rows would keep itself
+    on by construction. Every row is tagged with its levers (:func:`shadow.lever`);
+    rows that predate the tag are excluded too, because their shaping state is
+    unknown.
+
+    **Evidence to turn OFF also comes from shaped rows.** They are the only rows
+    that measure the directive's own decision-change effect, so once they clear
+    the reporting floor their harm bound must sit inside the same budget, or
+    shaping goes off. Without this, ``auto`` could turn shaping on but never off.
+
+    Both sets are read over the last :data:`SHAPE_EVIDENCE_DAYS` only, so an "on"
+    decision cannot rest forever on traffic that has since changed.
 
     Reading the ledger is startup-only — never on the request path.
     """
@@ -197,23 +213,35 @@ def resolve_shape_output(
     if requested != "auto":
         return ShapeDecision(requested, "explicitly requested", requested)
 
-    from .certify.gate import CERT_MARGIN
     from .shadow import VERDICT_MIN_AB, ShadowLedger, floor_note, lever
 
-    led = ShadowLedger.load(path, current_only=True, where=lambda r: lever(r, "shape") == "off")
+    since = time.time() - SHAPE_EVIDENCE_DAYS * 86400
+    # ponytail: two passes over the file, startup-only; one split pass if it ever shows up.
+    led = ShadowLedger.load(
+        path, current_only=True, since_ts=since, where=lambda r: lever(r, "shape") == "off"
+    )
+    shaped = ShadowLedger.load(
+        path,
+        current_only=True,
+        since_ts=since,
+        where=lambda r: lever(r, "shape") not in (None, "off"),
+    )
     eq = led.equivalence()
     if eq.below_floor:
         return ShapeDecision(
             "off", f"auto: {floor_note(eq.n_ab, eq.n_aa)} (unshaped rows only)", requested
         )
     harm = eq.diff_ci[0] if eq.diff_ci else None
-    if harm is None or harm < -CERT_MARGIN:
-        shown = "unmeasured" if harm is None else f"{harm * 100:+.1f}pp"
+    if harm is None or harm < -SHAPE_HARM_MARGIN:
+        return ShapeDecision("off", f"auto: {_harm_note(harm)}", requested)
+    # Shaping's OWN harm: only shaped rows measure it. Below the floor there is no
+    # evidence either way, which must not block the first "on" — the drift e-process
+    # (the `budget` line) watches every row in the meantime.
+    s_eq = shaped.equivalence()
+    s_harm = s_eq.diff_ci[0] if s_eq.diff_ci else None
+    if not s_eq.below_floor and (s_harm is None or s_harm < -SHAPE_HARM_MARGIN):
         return ShapeDecision(
-            "off",
-            f"auto: decision-equivalence harm bound {shown} is outside the certified "
-            f"budget (±{CERT_MARGIN * 100:.0f}pp)",
-            requested,
+            "off", f"auto: with shaping on, {_harm_note(s_harm)} (n={s_eq.n_ab})", requested
         )
     cost = led.cost()
     if cost is None or cost.n < VERDICT_MIN_AB:
@@ -232,9 +260,17 @@ def resolve_shape_output(
     return ShapeDecision(
         AUTO_LEVEL,
         f"auto: {eq.pct:.1f}% decision-equivalence (harm bound {harm * 100:+.1f}pp within "
-        f"±{CERT_MARGIN * 100:.0f}pp) and replies already {-cost.out_delta_mean:.0f} tokens "
-        f"shorter under compression, n={cost.n}",
+        f"±{SHAPE_HARM_MARGIN * 100:.0f}pp) and replies already {-cost.out_delta_mean:.0f} "
+        f"tokens shorter under compression, n={cost.n}",
         requested,
+    )
+
+
+def _harm_note(harm: float | None) -> str:
+    shown = "unmeasured" if harm is None else f"{harm * 100:+.1f}pp"
+    return (
+        f"decision-equivalence harm bound {shown} is outside the certified "
+        f"budget (±{SHAPE_HARM_MARGIN * 100:.0f}pp)"
     )
 
 

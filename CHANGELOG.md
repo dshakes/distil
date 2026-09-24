@@ -810,12 +810,15 @@ What shaping itself costs is still `distil output-savings`, after the fact.
 request carries the directive, so "replies got shorter" on those rows is shaping
 measuring itself — a gate fed them would stay on by construction. Every shadow row now
 records the levers active when it was measured (`"levers": {"compression": …, "shape":
-…}`), and `auto` reads only `shape: off` rows. Rows written before the tag are excluded
-too; their shaping state is unknown, not off. The tag is per-lever so expand and re-read
-delta can join it later. What this does not yet do: once a ledger is all shaped rows,
-the unshaped evidence is frozen at whatever preceded it — a paired shaped-vs-unshaped
-arm is the upgrade. The `budget` e-process still reads every row, so shaping's own harm
-stays on the alarm.
+…}`), and the evidence that turns shaping ON comes only from `shape: off` rows. Rows
+written before the tag are excluded too; their shaping state is unknown, not off. The
+evidence that turns it OFF includes the shaped rows: they are the only ones that measure
+the directive's own decision-change effect, so once they clear the reporting floor their
+harm bound must sit inside the same ±2pp budget, or `auto` resolves off. Without that
+half, shaping could be turned on but never off. Both sets are read over the last 7 days
+only (the same recent window `distil stats` uses), so an "on" decision cannot rest on
+traffic that has since changed. The tag is per-lever so expand and re-read delta can
+join it later.
 
 Off is never silent. The reason is printed at startup, written into the session manifest
 beside the level and what was asked for, and read back by `distil dissect`. The last

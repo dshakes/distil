@@ -1,6 +1,7 @@
 """Output compression — shaping (gated + adaptive), lossless re-entry digest, A/B."""
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from distil.certify.gate import CERT_MARGIN
 from distil.output import (
     AUTO_LEVEL,
+    SHAPE_EVIDENCE_DAYS,
     answer_fingerprint,
     digest_output_blocks,
     measure_output_savings,
@@ -29,6 +31,7 @@ def _ledger(
     alternating: bool = False,
     n_cost: int | None = None,
     shape: str | None = "off",
+    age_days: float = 0.0,
 ) -> Path:
     """A shadow.jsonl of synthetic PAIRED rows — no network.
 
@@ -38,7 +41,7 @@ def _ledger(
     is the shaping lever the rows were measured under; ``None`` writes pre-tag rows.
     """
     n_cost = n_ab if n_cost is None else n_cost
-    base: dict = {"sig": SIG_VERSION, "mode": "digest"}
+    base: dict = {"sig": SIG_VERSION, "mode": "digest", "ts": time.time() - age_days * 86400}
     if shape is not None:
         base["levers"] = {"compression": "digest", "shape": shape}
     rows = []
@@ -93,6 +96,36 @@ def test_auto_decides_from_the_unshaped_rows_in_a_mixed_ledger(tmp_path):
     path = _ledger(tmp_path, alternating=True)
     d = resolve_shape_output("auto", lossy_ok=True, path=path)
     assert d.level == "off" and "does not exclude zero" in d.reason
+
+
+def test_shaped_rows_showing_harm_turn_auto_off(tmp_path):
+    """The reverse direction. Unshaped rows justify shaping; the shaped rows — the
+    only ones that measure the directive's own effect — show every decision
+    changed. Shaping's own harm must turn it off, or auto could never undo itself."""
+    _ledger(tmp_path)  # unshaped: would turn shaping on alone
+    path = _ledger(tmp_path, shape=AUTO_LEVEL, equivalent=False)
+    d = resolve_shape_output("auto", lossy_ok=True, path=path)
+    assert d.level == "off"
+    assert "with shaping on" in d.reason and "certified budget" in d.reason
+
+
+def test_thin_shaped_evidence_does_not_block_the_first_on(tmp_path):
+    # Below the floor, shaped rows are no evidence either way.
+    _ledger(tmp_path)
+    path = _ledger(tmp_path, shape=AUTO_LEVEL, equivalent=False, n_ab=5)
+    assert resolve_shape_output("auto", lossy_ok=True, path=path).level == AUTO_LEVEL
+
+
+def test_auto_evidence_expires(tmp_path):
+    """An "on" decision cannot rest forever on the past: rows older than the
+    window do not count, so stale evidence reads as no evidence."""
+    stale = _ledger(tmp_path, age_days=SHAPE_EVIDENCE_DAYS + 1)
+    d = resolve_shape_output("auto", lossy_ok=True, path=stale)
+    assert d.level == "off" and "n=0 A/B" in d.reason
+    # And stale shaped harm does not veto fresh evidence either.
+    _ledger(tmp_path, shape=AUTO_LEVEL, equivalent=False, age_days=SHAPE_EVIDENCE_DAYS + 1)
+    fresh = _ledger(tmp_path)
+    assert resolve_shape_output("auto", lossy_ok=True, path=fresh).level == AUTO_LEVEL
 
 
 def test_auto_is_off_below_the_reporting_floor(tmp_path):
