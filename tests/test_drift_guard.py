@@ -130,8 +130,8 @@ def _capture_guard(monkeypatch: pytest.MonkeyPatch) -> list[drift.DriftGuard]:
     made: list[drift.DriftGuard] = []
     real = drift.DriftGuard.start
 
-    def start() -> drift.DriftGuard:
-        g = real()
+    def start(**kw: Any) -> drift.DriftGuard:
+        g = real(**kw)
         made.append(g)
         return g
 
@@ -142,9 +142,17 @@ def _capture_guard(monkeypatch: pytest.MonkeyPatch) -> list[drift.DriftGuard]:
 def _trip(g: drift.DriftGuard) -> None:
     for _ in range(200):
         g.observe(-1)
-        if g.trip is not None:
+        if g.engaged:
             return
     raise AssertionError("sustained harm never tripped the guard")
+
+
+def _release() -> None:
+    import argparse
+
+    from distil.cli import cmd_reset
+
+    cmd_reset(argparse.Namespace(shadow=False, drift_guard=True))
 
 
 def _assert_digest(h: dict[str, str]) -> None:
@@ -172,7 +180,7 @@ def test_no_breach_leaves_compression_unchanged(home, proxy, monkeypatch):
     for _ in range(40):
         guards[0].observe(0)  # neutral evidence never trips
     _assert_digest(_post(port)[0])
-    assert drift.read_trip() is None
+    assert not drift.held_now()
 
 
 def test_breach_holds_the_very_next_request_lossless_only(home, proxy, monkeypatch):
@@ -183,70 +191,119 @@ def test_breach_holds_the_very_next_request_lossless_only(home, proxy, monkeypat
     _trip(guards[0])
     _assert_held(_post(port)[0])
 
-    # ...recorded where it can be audited: a trip file and one receipt on the chain.
-    trip = drift.read_trip()
-    assert trip is not None and trip["source"] == "proxy" and trip["evalue"] >= 20
+    # ...recorded where it can be audited: the state file and one receipt on the chain.
+    state = drift.LiveDrift.load()
+    assert state.monitor.tripped and state.monitor.evalue >= 20 and state.tripped_ts > 0
     rows = [r for r in R.read() if r.mode == "drift-trip"]
     assert len(rows) == 1 and "lossless-only" in rows[0].certificate
+    assert rows[0].reversible is False and rows[0].tokens_original == 0
     assert R.verify().ok
 
 
-def test_the_hold_survives_a_proxy_restart_until_reset(home, proxy, monkeypatch):
+def test_held_requests_are_receipted_as_byte_reversible(home, proxy, monkeypatch):
+    """Held = Tier-0, which round-trips byte-exact; the receipt must say so."""
+    guards = _capture_guard(monkeypatch)
+    port = proxy(shape_output="aggressive")
+    _trip(guards[0])
+    _post(port)
+    last = [r for r in R.read() if r.mode == "lossless-only"][-1]
+    assert last.reversible is True and last.handles == []
+
+
+def test_the_hold_survives_a_proxy_restart_until_released(home, proxy, monkeypatch):
     guards = _capture_guard(monkeypatch)
     proxy(shape_output="aggressive")
     _trip(guards[0])
 
-    restarted = proxy(shape_output="aggressive")  # a fresh process reads the trip file
+    restarted = proxy(shape_output="aggressive")  # a fresh process reads drift.json
     _assert_held(_post(restarted)[0])
 
-    import argparse
-
-    from distil.cli import cmd_reset
-
-    cmd_reset(argparse.Namespace(shadow=True))
-    assert drift.read_trip() is None
+    _release()
+    assert not drift.held_now()
     _assert_digest(_post(proxy(shape_output="aggressive"))[0])
 
 
-def test_live_shadow_verdicts_trip_the_guard_end_to_end(home, proxy):
+def test_release_touches_only_the_drift_state(home, capsys):
+    """A false trip must be releasable without wiping the statusline/leaderboard totals."""
+    (home / "savings.jsonl").write_text('{"x": 1}\n', encoding="utf-8")
+    (home / "shadow.jsonl").write_text("", encoding="utf-8")
+    drift.fold([-1] * 200)
+    _release()
+    assert (home / "savings.jsonl").read_text(encoding="utf-8") == '{"x": 1}\n'
+    assert (home / "shadow.jsonl").exists()
+    assert not drift.held_now()
+    assert "no restart needed" in capsys.readouterr().out
+
+
+def test_a_running_proxy_notices_another_process_trip_and_release(home, proxy, monkeypatch):
+    """A long-lived launch-agent proxy must not keep digesting after another process
+    trips, nor stay held after a release — its watcher stats the state file."""
+    monkeypatch.setattr(drift.DriftGuard, "POLL_S", 0.05)
+    port = proxy(shape_output="aggressive")
+    _assert_digest(_post(port)[0])
+
+    drift.fold([-1] * 200)  # another proxy's verdicts trip the shared e-process
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        h = _post(port)[0]
+        if h.get("x-distil-drift-guard") == "held":
+            break
+        time.sleep(0.05)
+    _assert_held(h)
+
+    _release()
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        h = _post(port)[0]
+        if "x-distil-drift-guard" not in h:
+            break
+        time.sleep(0.05)
+    _assert_digest(h)
+
+
+def test_two_processes_crossing_together_write_one_receipt(home):
+    """The trip and its receipt are one critical section — no double-trip."""
+    a = drift.DriftGuard.start(watch=False)
+    b = drift.DriftGuard.start(watch=False)
+    for _ in range(200):
+        a.observe(-1)
+        b.observe(-1)
+    assert a.engaged and b.engaged
+    assert len([r for r in R.read() if r.mode == "drift-trip"]) == 1
+
+
+def test_live_shadow_verdicts_trip_the_guard_end_to_end(home, proxy, monkeypatch):
     """No test hooks: shadow replays the request, the stub model changes its tool call
     when the log is digested, and the paired rows alone must trip the hold."""
+    guards = _capture_guard(monkeypatch)
     port = proxy(shape_output="aggressive", shadow_rate=1.0)
     deadline = time.time() + 60
-    while drift.read_trip() is None and time.time() < deadline:
+    while not guards[0].engaged and time.time() < deadline:
         _post(port)
-        time.sleep(0.05)
-    assert drift.read_trip() is not None, "paired shadow harm never reached the guard"
+    assert guards[0].engaged, "paired shadow harm never reached the guard"
     _assert_held(_post(port)[0])
 
 
-def test_a_breach_found_at_exit_arms_the_next_session(home):
-    """The wrap-exit fold (distil stats / proof ledger) must arm the guard too, or a
-    breach discovered after the proxy stopped would be resumed on the next start."""
-    from distil.proof_ledger import proof_lines
-    from distil.shadow import SIG_VERSION
+def test_the_status_line_shows_the_hold_and_its_release_command(home, capsys):
+    import argparse
 
-    with (home / "shadow.jsonl").open("w", encoding="utf-8") as f:
-        for _ in range(300):
-            row = {"equivalent": False, "aa_equal": True, "ts": time.time()}
-            f.write(json.dumps({**row, "kind": "paired", "sig": SIG_VERSION}) + "\n")
-    assert "BREACHED" in dict(proof_lines())["budget"]
-    assert (drift.read_trip() or {}).get("source") == "ledger"
-    assert drift.DriftGuard.start().engaged
+    from distil.cli import cmd_statusline
+
+    args = argparse.Namespace(no_color=True)
+    cmd_statusline(args)
+    assert "drift hold" not in capsys.readouterr().out
+    drift.fold([-1] * 200)
+    cmd_statusline(args)
+    assert "⚠ drift hold · distil reset --drift-guard" in capsys.readouterr().out
 
 
 def test_opt_out_keeps_compressing_and_says_so(home, proxy, monkeypatch):
-    drift.arm(99.0, 60, source="test")
+    drift.fold([-1] * 200)
     monkeypatch.setenv(drift.GUARD_OPT_OUT, "1")
     _assert_digest(_post(proxy(shape_output="aggressive"))[0])
-    assert not drift.DriftGuard.start().engaged
-    line = drift.LiveDrift.load().line(None, drift.read_trip())
-    assert "compression was NOT held" in line
-
-
-def test_an_unreadable_trip_file_holds_rather_than_resumes(home):
-    (home / "drift-trip.json").write_text("{torn", encoding="utf-8")
-    assert drift.DriftGuard.start().engaged
+    assert not drift.DriftGuard.start(watch=False).engaged
+    assert not drift.held_now()
+    assert "compression was NOT held" in drift.LiveDrift.load().line()
 
 
 # --- fail-open ---------------------------------------------------------------
@@ -261,7 +318,7 @@ def test_a_guard_that_raises_never_breaks_a_request(home, proxy, monkeypatch):
         def observe(self, diff: int) -> None:
             raise RuntimeError("alarm exploded")
 
-    monkeypatch.setattr(drift.DriftGuard, "start", staticmethod(lambda: _Broken()))
+    monkeypatch.setattr(drift.DriftGuard, "start", staticmethod(lambda **kw: _Broken()))
     port = proxy(shape_output="aggressive", shadow_rate=1.0)
     for _ in range(3):  # and again after the shadow thread's observe() has raised
         h, body = _post(port)
@@ -271,24 +328,16 @@ def test_a_guard_that_raises_never_breaks_a_request(home, proxy, monkeypatch):
         assert h["x-distil-mode"] == "digest" and "x-distil-drift-guard" not in h
 
 
-def test_observe_swallows_its_own_errors(home, monkeypatch):
-    g = drift.DriftGuard.start()
-    monkeypatch.setattr(
-        drift.DriftMonitor, "update", lambda self, x: (_ for _ in ()).throw(ValueError("x"))
-    )
+def test_observe_and_refresh_swallow_their_own_errors(home, monkeypatch):
+    g = drift.DriftGuard.start(watch=False)
+    monkeypatch.setattr(drift, "fold", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr(drift.LiveDrift, "load", classmethod(lambda cls, path=None: 1 / 0))
     g.observe(-1)  # must not raise
+    g._seen = (0, 0)
+    g.refresh()  # must not raise
     assert not g.engaged
 
 
-def test_a_start_that_cannot_load_state_starts_fresh(home, monkeypatch):
-    monkeypatch.setattr(drift.LiveDrift, "load", classmethod(lambda cls, path=None: 1 / 0))
-    g = drift.DriftGuard.start()
-    assert not g.engaged and g.monitor.n == 0
-
-
-def test_an_unwritable_home_still_holds_this_session(home, monkeypatch):
-    """Persistence is best-effort; the in-memory hold is not."""
-    monkeypatch.setattr(drift, "arm", lambda *a, **k: None)
-    g = drift.DriftGuard.start()
-    _trip(g)
-    assert g.engaged
+def test_a_start_that_cannot_load_state_starts_unheld(home, monkeypatch):
+    monkeypatch.setattr(drift, "_bootstrap", lambda *a, **k: 1 / 0)
+    assert not drift.DriftGuard.start(watch=False).engaged

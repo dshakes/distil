@@ -747,6 +747,7 @@ def build_handler(
     # restarts, until `distil reset --shadow`. Default ON; DISTIL_NO_DRIFT_GUARD=1 opts
     # out. Cost on the request path is one attribute read: the guard is seeded here and
     # fed by the shadow thread, never by a file scan. start() never raises.
+    from .drift import RELEASE_CMD as _RELEASE_CMD
     from .drift import DriftGuard
 
     _drift_guard = DriftGuard.start()
@@ -766,7 +767,7 @@ def build_handler(
         print(
             "distil: drift alarm tripped — live decision-change exceeded the certified "
             "budget, so this proxy serves lossless-only. Recalibrate (distil calibrate), "
-            "then `distil reset --shadow` to resume. Opt out: DISTIL_NO_DRIFT_GUARD=1.",
+            f"then release: {_RELEASE_CMD}. Opt out: DISTIL_NO_DRIFT_GUARD=1.",
             file=_sys.stderr,
         )
 
@@ -1704,7 +1705,11 @@ def build_handler(
                             # Tier-0 (verbatim/lossless) round-trips byte-exact. digest is
                             # recoverable-on-demand via a handle — a weaker claim, so it is
                             # not reported as reversible.
-                            reversible=_mode in ("verbatim", "lossless"),
+                            # lossless-only is Tier-0 too (the flag and the drift hold
+                            # both force it) — unless --expand let a digest run, which
+                            # issued handles; any handle means recoverable, not reversible.
+                            reversible=_mode in ("verbatim", "lossless", "lossless-only")
+                            and not _handles,
                             handles=list(_handles),
                             restorable=_restorable,
                             certificate=str(extras.get("x-distil-certificate", "")),

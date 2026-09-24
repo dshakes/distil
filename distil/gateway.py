@@ -767,6 +767,11 @@ def build_gateway_handler(
         Gateway-wide per-tenant daily input-token cap (0 = unlimited).
         Per-key overrides win when a key record carries a non-None
         ``daily_tokens``.
+
+    Not held by the drift guard (``distil.drift.DriftGuard``), by design: the gateway runs
+    no shadow, so the machine-global e-process carries no evidence about any tenant, and
+    one workload's breach must not switch compression off for every tenant. See
+    docs/adr/0012-drift-guard-scope.md.
     """
 
     _upstream = upstream.rstrip("/")

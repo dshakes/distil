@@ -56,7 +56,7 @@ class Receipt:
     request_id: str
     session: str
     model: str
-    mode: str  # verbatim | lossless | digest
+    mode: str  # verbatim | lossless | lossless-only | digest | drift-trip (an event row: no request, zero counts)
     tokens_original: int
     tokens_compressed: int
     reversible: bool  # was this tier byte-reversible (Tier-0) as opposed to recoverable-on-demand

@@ -164,9 +164,11 @@ def _drift_line(diffs: list[int], bound: float | None = None) -> str:
     It is handed the same bound the risk line prints, so it cannot say "intact" beside
     a bound above the budget, and it says plainly when the guard is holding compression.
     """
-    from .drift import live_monitor, read_trip
+    from .drift import LiveDrift
 
-    return "decision-change budget: " + live_monitor(diffs).line(bound, read_trip())
+    # Read-only: the e-process is written by the proxies that produce the verdicts
+    # (distil.drift.fold). `distil stats` and wrap exit only report it.
+    return "decision-change budget: " + LiveDrift.load().line(bound)
 
 
 def _bound(diffs: list[int]) -> float | None:

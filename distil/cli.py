@@ -163,17 +163,37 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def _release_drift_guard(stamp: str) -> bool:
+    """Archive the drift e-process and its lossless-only hold; print what happened."""
+    from .drift import DriftGuard, release
+
+    if not release(stamp):
+        return False
+    print(
+        "drift alarm archived and reset — the lossless-only hold is released. Running "
+        f"proxies resume lossy compression within {DriftGuard.POLL_S:.0f}s; no restart needed."
+    )
+    return True
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     """Archive the savings ledger (and optionally shadow stats) and start fresh.
 
     Non-destructive: the ledger is renamed to ``savings.jsonl.reset-<utc>`` next
     to the original, so history is auditable but the statusline/leaderboard
-    start from zero on the current (post-1.10, record-after-2xx) accounting."""
+    start from zero on the current (post-1.10, record-after-2xx) accounting.
+
+    ``--drift-guard`` alone touches ONLY the drift alarm: a hold (true or false) must be
+    releasable without wiping the savings totals the status line and leaderboard show."""
     import time as _time
 
     from . import ledger
 
     stamp = _time.strftime("%Y%m%d-%H%M%SZ", _time.gmtime())
+    if getattr(args, "drift_guard", False) and not getattr(args, "shadow", False):
+        if not _release_drift_guard(stamp):
+            print("nothing to reset — no drift alarm state recorded yet.")
+        return 0
     reset_any = False
     src = ledger.default_path()
     if src.exists():
@@ -194,22 +214,9 @@ def cmd_reset(args: argparse.Namespace) -> int:
             sh.rename(sh.with_name(sh.name + f".reset-{stamp}"))
             print("shadow decision-equivalence stats archived and reset")
             reset_any = True
-        # The drift e-process is derived from those rows and its trip is sticky, so a
-        # breach would outlive the evidence it was computed from. This is the
-        # documented reset for the alarm.
-        from .drift import _state_path, _trip_path
-
-        dr = _state_path()
-        if dr.exists():
-            dr.rename(dr.with_name(dr.name + f".reset-{stamp}"))
-            print("drift monitor archived and reset — the budget alarm starts over")
-            reset_any = True
-        # The guard's trip is the one thing that holds compression at lossless-only.
-        # Archived, not deleted: the trip is evidence too (its receipt stays on the chain).
-        tr = _trip_path()
-        if tr.exists():
-            tr.rename(tr.with_name(tr.name + f".reset-{stamp}"))
-            print("drift guard released — lossy compression resumes on the next proxy start")
+        # The drift e-process summarises those rows and its trip is sticky, so a breach
+        # would outlive the evidence it was computed from. Released with it.
+        if _release_drift_guard(stamp):
             reset_any = True
     if not reset_any:
         print("nothing to reset — no ledger recorded yet.")
@@ -1848,10 +1855,24 @@ def cmd_statusline(args: argparse.Namespace) -> int:
         for h in ("127.0.0.1", "localhost")
     )
 
+    def _drift_chip() -> str | None:
+        """The live surface for a drift-alarm hold: a trip mid-session changes what
+        every later request does, so it cannot wait for the wrap exit summary."""
+        try:
+            from .drift import RELEASE_CMD, held_now
+
+            return c("1;38;5;220", f"⚠ drift hold · {RELEASE_CMD}") if held_now() else None
+        except Exception:  # noqa: BLE001 — a status line must never error out
+            return None
+
+    drift_chip = _drift_chip()
+
     # MINIMAL is opt-in (DISTIL_STATUSLINE=minimal|lite|compact) — a two-fact
     # segment for crowded composite lines: this session's saving + lifetime.
     if os.environ.get("DISTIL_STATUSLINE", "").lower() in ("minimal", "lite", "compact"):
         mseg = [c("1;38;5;79", "distil")]
+        if drift_chip:
+            mseg.append(drift_chip)
         if s is None or s.runs == 0:
             if _bypass_suspected():
                 mseg.append(c("38;5;220", "⚠ bypassed"))
@@ -1898,6 +1919,8 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     )  # ponytail: newest overall mode; pass a session id if mixed-mode panes ever matter
     if _mode_chip:
         parts.append(c(*_mode_chip))
+    if drift_chip:
+        parts.append(drift_chip)
     if s is None or s.runs == 0:
         if not _routed:
             parts.append(c("38;5;73", "no savings yet · distil wrap -- <agent>"))
@@ -4239,6 +4262,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--shadow",
         action="store_true",
         help="also archive/reset shadow decision-equivalence stats, the drift alarm, and its lossless-only hold",
+    )
+    rs.add_argument(
+        "--drift-guard",
+        action="store_true",
+        help="release a drift-alarm hold (lossless-only) ONLY — savings and shadow stats "
+        "are left untouched; running proxies resume within 30s",
     )
     rs.set_defaults(func=cmd_reset)
 
