@@ -27,6 +27,18 @@ The body's ``input`` field is an array of heterogeneous typed items::
     {"type": "message",              "role": "assistant", "content": [{"type": "output_text", "text": "..."}]}
     {"type": "function_call",        "id": "...", ...}      # model output — passthrough
     {"type": "function_call_output", "call_id": "...", "output": "..."}  # tool result — Tier-1
+    {"type": "reasoning",  "id": "...", "encrypted_content": "..."}  # opaque — passthrough, censused
+    {"type": "compaction", "id": "...", "encrypted_content": "..."}  # opaque — passthrough, censused
+
+A ``reasoning`` item's ``encrypted_content`` (stateless mode / Zero Data Retention) and
+a ``compaction`` item (what ``POST /v1/responses/compact`` returns, and what
+``context_management: [{"type": "compaction", ...}]`` appends inline) are opaque,
+provider-owned bytes the client must return unaltered on the next turn — see
+``tests/test_openai_opaque_passthrough.py`` for the contract this pins. They pass
+through byte-identical (same object) and are censused under ``reasoning_billed`` /
+``compaction_billed`` so a cost distil cannot reduce is not also one it hides from
+the eligibility census, mirroring the Anthropic adapter's ``thinking``/``compaction``
+content-block handling.
 
 The top-level ``instructions`` field (the system prompt) passes through unchanged.
 
@@ -399,6 +411,29 @@ def exact_quote_call_ids(items: list[dict[str, Any]], *, widen: bool = False) ->
     )
 
 
+def _census_opaque_response_item(bucket: str, item: dict[str, Any]) -> None:
+    """Attribute a Responses API opaque item's billed text to *bucket*.
+
+    Mirrors ``anthropic._census_opaque_block`` for this provider's item shape.
+    ``encrypted_content`` is the field both ``reasoning`` and ``compaction`` items
+    carry; ``summary`` is a reasoning item's plaintext parts (``[{"type":
+    "summary_text", "text": ...}]``) when ``include`` asks for one instead of/
+    alongside the encrypted form. Not guessing at further field names beyond
+    that: an opaque item's cost is billed whether or not distil can name every
+    field it might carry, so under-counting here only hides the very thing this
+    census exists to show.
+    """
+    for key in ("encrypted_content", "text", "content"):
+        val = item.get(key)
+        if isinstance(val, str):
+            _census(bucket, val)
+    summary = item.get("summary")
+    if isinstance(summary, list):
+        for part in summary:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                _census(bucket, part["text"])
+
+
 def _compress_response_item(
     item: dict[str, Any],
     store: RestoreStore,
@@ -432,6 +467,28 @@ def _compress_response_item(
         if new_output == output:
             return item
         return {**item, "output": new_output}
+
+    if itype in ("reasoning", "compaction") or "encrypted_content" in item:
+        # Opaque, provider-signed items: a `reasoning` item's `encrypted_content`
+        # (stateless mode / ZDR) lets the provider re-derive the model's reasoning on
+        # the next turn, and a `compaction` item is exactly what `POST
+        # /v1/responses/compact` returns — OpenAI's own docs say "do not prune
+        # /responses/compact output... pass it into your next /responses call as-is".
+        # Editing either (even a lossless re-encode) risks the provider rejecting the
+        # next request or silently losing state it cannot recover. `item` is returned
+        # unchanged (same object), only censused — same contract as the Anthropic
+        # adapter's `thinking`/`compaction` blocks, generalised on the presence of
+        # `encrypted_content` rather than an allowlist of type strings, so a future
+        # opaque item type is safe by construction.
+        _census_opaque_response_item(
+            "reasoning_billed"
+            if itype == "reasoning"
+            else "compaction_billed"
+            if itype == "compaction"
+            else "signed_item_billed",
+            item,
+        )
+        return item
 
     if itype == "message":
         role = item.get("role", "")

@@ -20,6 +20,36 @@ Claude Code, and that is the only traffic the soak has.
 
 Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
 
+### The OpenAI adapter had no guarantee the Anthropic path had just proven
+
+A sibling audit proved Anthropic's server-side compaction block — the one the provider
+re-validates by `signature` on the next turn — never gets touched, moved, or re-encoded by
+`compress_messages`. The OpenAI Responses API has the exact same class of surface and no
+equivalent proof had ever been written: a `reasoning` item's `encrypted_content` (stateless
+mode / Zero Data Retention) and a `compaction` item — precisely what `POST
+/v1/responses/compact` returns, and what OpenAI's own docs say not to prune — must reach
+the next request byte-identical or the provider cannot re-derive state it never got back.
+
+Twenty contract tests (`tests/test_openai_opaque_passthrough.py`) found the passthrough
+itself was already correct: `_compress_response_item` dispatches by `item["type"]`, and
+neither item type is on its digest path, so both survive every mode — verbatim, digest,
+recency, the `distil_expand` re-query, and the buffered-stream re-emit — as the same
+object, never a copy. What was missing was the accounting: three tests failed before any
+fix, because these items' tokens landed in neither `count_responses_tokens` (by design —
+they join `assistant_text`/`function_call` outside the compressible-zone baseline, not a
+bug) nor the eligibility census, so a request could show near-zero savings with the real
+explanation — thousands of billed, uncompressible reasoning/compaction tokens — invisible.
+Same shape as the Anthropic gap, same fix: `_census_opaque_response_item` attributes
+`encrypted_content` (and any `summary`/`text`/`content` a future variant carries) to
+`reasoning_billed` / `compaction_billed`, generalised on the presence of `encrypted_content`
+rather than an allowlist of type strings — a future opaque item type is safe by
+construction. `/v1/responses/compact` itself was already never touched: it fails the
+`is_responses_path` regex (a distinct endpoint, not a query-string variant) and falls
+through to the byte-for-byte `_passthrough` relay, pinned here by test rather than by
+reading the regex and hoping. `context_management` and `previous_response_id` were already
+forwarded unchanged (a request body spread that never drops an unrecognised key), also now
+pinned.
+
 ### The freshest read the agent asked for came back as a pointer
 
 ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency
