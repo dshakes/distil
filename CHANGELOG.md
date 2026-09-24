@@ -782,6 +782,21 @@ is running on defaults. Seven research modules (`gist`, `speculative`, `ensemble
 the request path**. Nothing was deleted and nothing changed behaviour; an inert module
 that reads as shipped is a claim, and it is now labelled as what it is.
 
+### Fixed — a claim pointed at the one file that never had its numbers
+
+`docs/claims.json`'s `v-cache-aware-vs-naive` entry cited `docs/CACHE.md` for its 33% /
+11% / 2× figures. That file contains none of them — the coverage gate's `.md` skip is
+why nothing caught it. The figures are real (they are the `distil savings --trajectory
+corpus/sample_trajectory.json --pricing claude-opus-4-8` table already printed on
+`architecture.html` and `concepts.html`, and the "2×" figure is the separate live-adapter
+incident documented in `docs/cache-contract.html`), but no artifact had ever committed
+the underlying run. `benchmarks/results/cache-aware-vs-naive-2026-09-24.json` now holds
+that run's output — produced by executing `distil.compress.cache_aware.simulate` against
+the real corpus fixture, not invented — and the entry points at it.
+`tests/test_claims_coverage.py` no longer exempts `.md` artifacts from value-checking;
+the one other `.md`-backed entry (the re-read delta's 51.4%, ADR 0010) was checked
+against this tightened gate and passes.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the
