@@ -205,7 +205,7 @@ AGENT_ENV_TEMPLATES: dict[str, str] = {
     ),
     "kilo": (
         '{"provider": {'
-        '"anthropic": {"options": {"baseURL": "$BASE"}}, '
+        '"anthropic": {"options": {"baseURL": "$BASE/v1"}}, '
         '"openai": {"options": {"baseURL": "$BASE/v1"}}'
         "}}"
     ),

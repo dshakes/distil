@@ -345,7 +345,7 @@ def test_kilo_template_redirects_builtin_providers_and_declares_no_models():
     assert set(doc["provider"]) == {"anthropic", "openai"}, (
         "must redirect built-in provider ids, not invent a custom one"
     )
-    assert doc["provider"]["anthropic"]["options"]["baseURL"] == "http://127.0.0.1:1234"
+    assert doc["provider"]["anthropic"]["options"]["baseURL"] == "http://127.0.0.1:1234/v1"
     assert doc["provider"]["openai"]["options"]["baseURL"] == "http://127.0.0.1:1234/v1"
     for provider_id, entry in doc["provider"].items():
         assert set(entry) == {"options"}, (
