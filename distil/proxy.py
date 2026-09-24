@@ -577,7 +577,7 @@ def build_handler(
     *,
     lossless_only: bool = False,
     verbatim: bool = False,
-    shape_output: str = "off",
+    shape_output: str = "auto",
     savings: Any = None,
     flush_every: int = 10,
     expand: bool = False,
@@ -596,9 +596,12 @@ def build_handler(
     lossless_only:
         When *True* only Tier-0 lossless transforms are applied.
     shape_output:
-        Output-compression level (``"off"``/``"light"``/``"aggressive"``). When
-        not ``"off"`` and lossy compression is permitted, a verbosity-control
+        Output-compression mode (``"auto"``/``"off"``/``"light"``/``"aggressive"``).
+        When not ``"off"`` and lossy compression is permitted, a verbosity-control
         ``role:"system"`` directive is appended so the model emits fewer tokens.
+        ``"auto"`` (the default) asks :func:`distil.output.resolve_shape_output` to
+        decide from the live shadow evidence; the resolved decision and its reason
+        are exposed on the returned handler as ``shape_decision``.
     """
 
     _upstream = upstream.rstrip("/")
@@ -623,6 +626,16 @@ def build_handler(
     # can never loosen). This forces Tier-0-only (verbatim) and gates output shaping.
     _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
     _lossy_ok = may_compress_lossy(_auth_mode)
+    # Resolve `auto` HERE, where the policy answer already is — every entry point
+    # (serve, wrap_run's in-thread proxy, the hot-swap worker, aproxy) builds its
+    # handler through this function, so one call covers all of them and no caller
+    # can arrive with an unresolved mode. `wrap_run` resolves first and passes the
+    # concrete level down, so this is a no-op there and the worker cannot decide
+    # differently mid-session from a ledger that moved.
+    from .output import resolve_shape_output
+
+    _shape = resolve_shape_output(shape_output, lossy_ok=_lossy_ok)
+    shape_output = _shape.level
     # lossless-only forces verbatim because an *unrecoverable* Tier-1 stub is
     # irreversibly lossy in-context. But `--expand` injects distil_expand, so every
     # stub IS recoverable — the very condition the verbatim-force guards against no
@@ -754,6 +767,10 @@ def build_handler(
         # no read or write to a client can block forever. Read at class-creation
         # time (build_handler runs per server), so tests can dial it down.
         timeout = _CLIENT_TIMEOUT
+
+        #: The resolved output-shaping decision and the sentence explaining it —
+        #: read by `serve` to print the reason once, and by tests.
+        shape_decision = _shape
 
         # ----------------------------------------------------------------
         # Silence request logs — quiet by design
@@ -1931,6 +1948,10 @@ def build_handler(
                     ev: dict[str, Any] = {
                         "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
                         "mode": _mode_label,
+                        # Every lever that shaped the B arm. `compressed_raw` already
+                        # carries the shaping directive, so a gate deciding whether to
+                        # shape must read only shape=off rows (see output.resolve_shape_output).
+                        "levers": {"compression": _mode_label, "shape": shape_output},
                         # lossless-only and digest measure different things; the reports
                         # break them out rather than averaging two experiments.
                         "bytes_saved": len(rb_a.body) - len(rb_b.body),
@@ -2121,7 +2142,7 @@ def serve(
     *,
     lossless_only: bool = False,
     verbatim: bool = False,
-    shape_output: str = "off",
+    shape_output: str = "auto",
     record: bool = True,
     pricing_model: str = "claude-opus-4-8",
     expand: bool = False,
@@ -2150,7 +2171,8 @@ def serve(
         sees content verbatim — for interactive sessions / out-of-distribution
         traffic. Lower savings, byte-in-context fidelity.
     shape_output:
-        Output-compression level: ``"off"``/``"light"``/``"aggressive"``.
+        Output-compression mode: ``"auto"`` (default — decided from the live
+        shadow evidence), ``"off"``, ``"light"`` or ``"aggressive"``.
     record:
         When *True* (default), accumulate GENUINE per-request token savings from
         real traffic into the local ledger (`distil leaderboard`). Numbers only,
@@ -2196,14 +2218,15 @@ def serve(
         print(
             "  → recoverable compression: distil_expand tool active (agent recovers detail on demand)"
         )
-    if shape_output != "off":
-        if lossless_only:
-            print(
-                "  ⚠ --shape-output requested but SUPPRESSED: lossless-only never modifies "
-                "the response. No shaping will happen. Drop --lossless-only to enable it."
-            )
-        else:
-            print(f"  → output shaping: {shape_output}")
+    # Same reach-into-the-handler-class pattern as _drain_shadow above: the class is
+    # built inside build_handler, so its extra attributes are not on the base type.
+    _shape = getattr(handler, "shape_decision")  # noqa: B009
+    if _shape.on:
+        print(f"  → output shaping: {_shape.level} ({_shape.reason})")
+    elif _shape.requested != "auto":
+        # An explicit ask that did not happen is the one silence worth breaking;
+        # `auto` deciding off is the quiet default and says why in the manifest.
+        print(f"  ⚠ --shape-output {_shape.requested} SUPPRESSED: {_shape.reason}")
     if savings is not None:
         print("  → recording genuine savings → distil leaderboard")
     _install_sigterm_flush()
@@ -2233,7 +2256,7 @@ def wrap_run(
     upstream: str = "https://api.anthropic.com",
     lossless_only: bool = False,
     verbatim: bool = False,
-    shape_output: str = "off",
+    shape_output: str = "auto",
     record: bool = True,
     pricing_model: str = "claude-opus-4-8",
     env_var: str = "ANTHROPIC_BASE_URL",
@@ -2291,6 +2314,21 @@ def wrap_run(
         except OSError:
             pass  # marker is best-effort; never block the wrap over it
 
+    # Decide output shaping ONCE for the whole session, before anything is spawned:
+    # the manifest, the printed reason and the worker must all describe the same
+    # decision. Re-deciding per worker (hot-swap restarts one mid-session) would let
+    # a session change its own shaping silently when the shadow ledger moved.
+    from .output import resolve_shape_output as _resolve_shape
+    from .policy import AuthMode, may_compress_lossy
+
+    shape = _resolve_shape(
+        shape_output,
+        lossy_ok=may_compress_lossy(AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG),
+    )
+    shape_output = shape.level
+    if shape.on or shape.requested not in ("auto", "off"):
+        print(f"distil: {shape.line}", file=sys.stderr)
+
     # Session manifest: what this wrap *is* (tool, argv, flags, billing) — the
     # header `distil dissect` reads. Best-effort, like the marker above.
     try:
@@ -2320,7 +2358,12 @@ def wrap_run(
                     "env_var": env_var,
                     "lossless_only": lossless_only,
                     "verbatim": verbatim,
+                    # The RESOLVED level plus what was asked for and why, so
+                    # `distil dissect` can explain an auto decision instead of
+                    # just reporting its outcome.
                     "shape_output": shape_output,
+                    "shape_requested": shape.requested,
+                    "shape_reason": shape.reason,
                     "expand": expand,
                     "session_delta": session_delta,
                     "prefix_replay": prefix_replay,

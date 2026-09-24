@@ -791,6 +791,16 @@
         "7%"
       ],
       "note": "Kept because it is reader-facing and numeric; it belongs with the re-read-delta ceiling work."
+    },
+    {
+      "id": "v-output-shaping-auto",
+      "status": "verified",
+      "page": "output.html",
+      "anchor": "adaptive",
+      "snippet": "below the reporting floor",
+      "claim": "Output shaping defaults to --shape-output auto on a metered session and is ON only when all three hold: the paired decision-equivalence verdict is at or above the shared reporting floor (50 A/B + 30 A/A), its harm bound (lower end of the paired difference interval) is inside the pre-registered +/-2pp certification margin, and the shadow output-token delta excludes zero on the saving side over at least 50 priced samples. Otherwise OFF with a stated reason. Only shadow rows tagged levers.shape == off count, so shaped rows cannot keep shaping on. Always off on subscription/OAuth. The last published live sample (398 A/B, 399 A/A) predates the lever tag and counts as zero rows; its harm bound (-4.5pp) is outside the 2pp budget regardless, so auto resolves to OFF.",
+      "artifact": "distil/output.py (resolve_shape_output) + benchmarks/results/shadow-live-2026-09-15.json",
+      "note": "The rule is covered by the decision matrix in tests/test_output.py; the thresholds are read from shadow.VERDICT_MIN_AB/VERDICT_MIN_AA and certify.gate.CERT_MARGIN, not re-declared. Reply LENGTH cannot be measured offline (the deterministic oracle decides from blocks and emits no prose), so there is no corpus number for shaping and none is claimed: the n=6 output_pairs.jsonl A/B is a hand-written mechanism check, already labelled illustrative on the page. The README paragraph in the savings section restates this entry and originates no fact of its own."
     }
   ]
 }

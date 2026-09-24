@@ -16,6 +16,13 @@ from ..replay.runner import AgentRunner, DeterministicRunner
 from ..trajectory import Trajectory
 from .stats import TostResult, tost
 
+#: The pre-registered non-inferiority margin, in decision-equivalence proportion.
+#: It was three copies of the same ``0.02`` default (``certify``, ``bench``,
+#: ``calibrate``); anything that asks "is this harm within the certified budget?"
+#: — including the live shaping gate in :mod:`distil.output` — must read THIS,
+#: not a number of its own.
+CERT_MARGIN = 0.02
+
 
 @dataclass
 class TurnDivergence:
@@ -62,7 +69,7 @@ def certify(
     strategy: str | Strategy,
     *,
     runner: AgentRunner | None = None,
-    margin: float = 0.02,
+    margin: float = CERT_MARGIN,
     alpha: float = 0.05,
     aa_control: bool = False,
 ) -> CertReport:
@@ -92,7 +99,7 @@ def certify_pooled(
     strategy: str | Strategy,
     *,
     runner: AgentRunner | None = None,
-    margin: float = 0.02,
+    margin: float = CERT_MARGIN,
     alpha: float = 0.05,
     aa_control: bool = False,
 ) -> CertReport:
