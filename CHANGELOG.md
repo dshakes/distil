@@ -794,7 +794,7 @@ every output in the families it targets adds at most **1.4%** of the bill, becau
 the volume is `grep`, `python` scripts and `sed`, not test runners or `git`. That is below
 the bar for a second transform surface, so nothing was built. The decision, the numbers and
 the three conditions that would reopen it are in
-[ADR 0012](docs/adr/0012-no-per-command-shell-profiles.md); the measurement is one command,
+[ADR 0015](docs/adr/0015-no-per-command-shell-profiles.md); the measurement is one command,
 `benchmarks/results/2026-09-24/shell_headroom.py`, and writes only its own JSON.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss

@@ -1,4 +1,4 @@
-# 0012 — No per-command shell-output profiles (yet)
+# 0015 — No per-command shell-output profiles (yet)
 
 - **Status:** accepted (decision: do not build)
 - **Date:** 2026-09-24
