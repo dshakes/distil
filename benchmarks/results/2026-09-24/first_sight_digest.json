@@ -1,0 +1,165 @@
+{
+ "after": {
+  "by_class": {
+   "ALL": {
+    "n": 4999,
+    "orig_tokens": 3015976,
+    "out_tokens": 844529,
+    "reduction": 0.72
+   },
+   "code": {
+    "n": 463,
+    "orig_tokens": 336969,
+    "out_tokens": 58391,
+    "reduction": 0.8267
+   },
+   "diff": {
+    "n": 83,
+    "orig_tokens": 155502,
+    "out_tokens": 38935,
+    "reduction": 0.7496
+   },
+   "file-read": {
+    "n": 47,
+    "orig_tokens": 54882,
+    "out_tokens": 9302,
+    "reduction": 0.8305
+   },
+   "html": {
+    "n": 8,
+    "orig_tokens": 3156,
+    "out_tokens": 1672,
+    "reduction": 0.4702
+   },
+   "json": {
+    "n": 27,
+    "orig_tokens": 41666,
+    "out_tokens": 20869,
+    "reduction": 0.4991
+   },
+   "jsonl": {
+    "n": 19,
+    "orig_tokens": 30051,
+    "out_tokens": 4404,
+    "reduction": 0.8534
+   },
+   "log": {
+    "n": 53,
+    "orig_tokens": 23505,
+    "out_tokens": 8667,
+    "reduction": 0.6313
+   },
+   "other": {
+    "n": 3522,
+    "orig_tokens": 1889248,
+    "out_tokens": 533785,
+    "reduction": 0.7175
+   },
+   "search": {
+    "n": 358,
+    "orig_tokens": 266973,
+    "out_tokens": 79297,
+    "reduction": 0.703
+   },
+   "test/build": {
+    "n": 385,
+    "orig_tokens": 198707,
+    "out_tokens": 79997,
+    "reduction": 0.5974
+   },
+   "traceback": {
+    "n": 34,
+    "orig_tokens": 15317,
+    "out_tokens": 9210,
+    "reduction": 0.3987
+   }
+  },
+  "line_markers": {
+   "count": 7753,
+   "tokens": 98757
+  }
+ },
+ "baseline_ref": "origin/main",
+ "before": {
+  "by_class": {
+   "ALL": {
+    "n": 4999,
+    "orig_tokens": 3015976,
+    "out_tokens": 862712,
+    "reduction": 0.714
+   },
+   "code": {
+    "n": 463,
+    "orig_tokens": 336969,
+    "out_tokens": 60252,
+    "reduction": 0.8212
+   },
+   "diff": {
+    "n": 83,
+    "orig_tokens": 155502,
+    "out_tokens": 41454,
+    "reduction": 0.7334
+   },
+   "file-read": {
+    "n": 47,
+    "orig_tokens": 54882,
+    "out_tokens": 9544,
+    "reduction": 0.8261
+   },
+   "html": {
+    "n": 8,
+    "orig_tokens": 3156,
+    "out_tokens": 1672,
+    "reduction": 0.4702
+   },
+   "json": {
+    "n": 27,
+    "orig_tokens": 41666,
+    "out_tokens": 21283,
+    "reduction": 0.4892
+   },
+   "jsonl": {
+    "n": 19,
+    "orig_tokens": 30051,
+    "out_tokens": 4446,
+    "reduction": 0.8521
+   },
+   "log": {
+    "n": 53,
+    "orig_tokens": 23505,
+    "out_tokens": 8725,
+    "reduction": 0.6288
+   },
+   "other": {
+    "n": 3522,
+    "orig_tokens": 1889248,
+    "out_tokens": 543159,
+    "reduction": 0.7125
+   },
+   "search": {
+    "n": 358,
+    "orig_tokens": 266973,
+    "out_tokens": 79713,
+    "reduction": 0.7014
+   },
+   "test/build": {
+    "n": 385,
+    "orig_tokens": 198707,
+    "out_tokens": 82803,
+    "reduction": 0.5833
+   },
+   "traceback": {
+    "n": 34,
+    "orig_tokens": 15317,
+    "out_tokens": 9661,
+    "reduction": 0.3693
+   }
+  },
+  "line_markers": {
+   "count": 7957,
+   "tokens": 119355
+  }
+ },
+ "source": "local restore store (most recent live-digested blocks), aggregates only",
+ "tokenizer": "heuristic"
+}

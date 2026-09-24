@@ -142,24 +142,32 @@ def digest(
 
             query_flywheel.maybe_record(_handle(text), intent, lines, kind, _dropped)
 
+    # First-sight tightening, measured on 5,000 real digested originals
+    # (benchmarks/results/2026-09-24/first_sight_digest.json):
+    # (a) a gap whose lines are shorter than the marker that would replace them is
+    #     shown inline instead: more faithful AND fewer tokens;
+    # (b) only the FIRST marker in a block names the handle. Every marker in one
+    #     block points at the same original, so repeating it bought nothing.
+    h = _handle(text)
     out: list[str] = []
-    dropped = 0
     emitted = False  # did we actually elide anything?
     i = 0
     n = len(lines)
     while i < n:
         if i in keep_idx:
-            if dropped:
-                out.append(f"<< +{dropped} lines, handle={_handle(text)} >>")
-                emitted = True
-                dropped = 0
             out.append(lines[i])
+            i += 1
+            continue
+        j = i
+        while j < n and j not in keep_idx:
+            j += 1
+        marker = f"<< +{j - i} lines >>"
+        if sum(len(x) + 1 for x in lines[i:j]) <= len(marker):
+            out.extend(lines[i:j])  # (a)
         else:
-            dropped += 1
-        i += 1
-    if dropped:
-        out.append(f"<< +{dropped} lines, handle={_handle(text)} >>")
-        emitted = True
+            out.append(marker if emitted else f"<< +{j - i} lines, handle={h} >>")
+            emitted = True
+        i = j
     # `changed` must mean the output actually differs. When every line is must-keep —
     # a 400-line test log where the verdict policy pins each PASS line — nothing is
     # dropped, no marker is emitted, and the output is byte-identical to the input.

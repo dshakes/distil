@@ -117,7 +117,7 @@
     <h2 id="mitigated">Mitigated by construction</h2>
 
     <h3>Nothing folded is irrecoverable</h3>
-    <p>Every fold announces itself. A stub reads <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code>, the original sits in the <code>RestoreStore</code> keyed by its content address, and <code>distil_expand</code> returns it byte-for-byte. So the invariant Distil asserts against hostile input is a disjunction, and both branches are acceptable:</p>
+    <p>Every fold announces itself. A stub reads <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code> (later stubs in the same block read <code>&lt;&lt; +N lines &gt;&gt;</code> and share its one handle), the original sits in the <code>RestoreStore</code> keyed by its content address, and <code>distil_expand</code> returns it byte-for-byte. So the invariant Distil asserts against hostile input is a disjunction, and both branches are acceptable:</p>
     <blockquote><p>The genuine load-bearing line survives in what we forward — <b>or</b> it was folded, the block is reversible through a handle Distil issued, and the stub declares that lines were elided.</p></blockquote>
     <p>An attacker can push a line from the first branch into the second. They cannot push it out of both, because the second does not depend on any judgement they can influence.</p>
 

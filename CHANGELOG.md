@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and a digest that stops pointing at what it could just show
 
 The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -781,6 +781,32 @@ is running on defaults. Seven research modules (`gist`, `speculative`, `ensemble
 `trajectory_risk.drift_monitor`) now open their docstrings with **RESEARCH-ONLY — not on
 the request path**. Nothing was deleted and nothing changed behaviour; an inert module
 that reads as shipped is a claim, and it is now labelled as what it is.
+
+### A digest that stops pointing at what it could just show
+
+A tool result is cheapest to shrink the first time it is sent: after that it sits in
+the cached prefix and is re-read every turn. So the digest was measured where it runs,
+on the 4,999 most recent blocks the live proxy actually digested (read from the local
+restore store, aggregates only; `benchmarks/first_sight_digest.py`, artifact
+`benchmarks/results/2026-09-24/first_sight_digest.json`). 13.8% of what it still sent
+was the `<< +N lines, handle=… >>` markers themselves, and two kinds of marker were pure
+overhead:
+
+- a dropped run shorter than the marker that replaced it is now shown inline. More
+  faithful and fewer tokens, with nothing to trade;
+- only the first marker in a block names the handle. Every marker in a block points at
+  the same original, so the second and later ones now read `<< +N lines >>`.
+
+Digest output on that sample fell from 862,712 to 844,529 tokens (71.40% to 72.00%
+reduction), with marker tokens down 17%; per class, test/build output 58.3% to 59.7%,
+diffs 73.3% to 75.0%, tracebacks 36.9% to 39.9%. `distil bench` moves from 48.4% to
+48.7% cheaper; `verify`, `validate`, `fidelity` and `suite` output is unchanged, and
+`retention` still reads 100% recall, 412 of 1,094 facts visible, 0 lost.
+
+One thing measured and not shipped: shortening over-long head and tail lines to their
+two ends took the real sample to 72.6%, but on the corpus it moved facts from visible
+to one `distil_expand` away (retention visible 37.7% to 33.1%) and added a silent
+failure. A token saved by a round trip is not a token saved, so it stays out.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
