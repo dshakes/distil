@@ -201,8 +201,12 @@ class Tier1Reversible:
 
         out: list[Block] = []
         restore: dict[str, str] = {}
+        from .keeptags import OPEN as _KEEP
+
         for b in blocks:
-            if b.kind in _DIGESTIBLE:
+            # A block carrying an inline keep tag stays whole here: the offline path
+            # records one restore handle per block, so it cannot split around a span.
+            if b.kind in _DIGESTIBLE and _KEEP not in b.text:
                 # 0) HTML from a fetch/browser tool. Runs FIRST because minified markup
                 #    is one long line, which defeats every fold below it (measured: 0%
                 #    savings on a real 8.3k-token page). Extraction yields lines, so the

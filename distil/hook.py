@@ -131,13 +131,15 @@ def _compress_plain(text: str) -> str:
 def compress_text(text: str) -> str | None:
     """A smaller replacement for one tool-output string, or None to leave it alone.
 
-    Reject-if-bigger by tokens.
+    ``<distil:keep>…</distil:keep>`` spans pass through byte-exact (see
+    ``compress.keeptags``). Reject-if-bigger by tokens.
     """
     if not isinstance(text, str) or len(text) < _MIN_CHARS:
         return None
+    from .compress.keeptags import apply as _keep_apply
     from .tokenizer import resolve
 
-    out = _compress_plain(text)
+    out = _keep_apply(text, _compress_plain)
     if out == text:
         return None
     tok = resolve("heuristic")
