@@ -309,6 +309,8 @@ distil trajectory-risk certificate
     direct, checked against the provider's reported <code>cache_read</code>. Earlier versions
     reproduced the naive failure this section describes.</p>
 
+    <p>There is one moment the rule relaxes. A provider's cache entry lives for a fixed time after the last request that used it; a turn that arrives after it has expired pays to re-write the whole prefix no matter what is sent. <strong>Cold-point recompression</strong> uses exactly that turn to shrink older tool output behind recoverable stubs, then holds the smaller prefix byte-stable from there on. It acts only when expiry is certain from distil's own clock, and it is <strong>not yet measured live</strong> — see <a href="cache-contract.html#cold-point">the cache contract, clause (h)</a>.</p>
+
     <h3>The numbers, measured</h3>
 
     <div class="stat-row">

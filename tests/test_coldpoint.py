@@ -547,7 +547,11 @@ def test_the_clock_counts_sleep(monkeypatch) -> None:
 
     real = coldpoint._pick_clock()
     a = real()
-    time.sleep(0.01)
+    # Windows' monotonic clock ticks every ~15.6 ms, so one short sleep can read the
+    # same value twice. Poll with a generous deadline instead of guessing a sleep.
+    deadline = time.time() + 2.0
+    while real() <= a and time.time() < deadline:
+        time.sleep(0.02)
     assert real() > a, "the picked clock does not advance"
 
 

@@ -5132,7 +5132,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--safe",
         action="store_true",
         help="policy/subscription-safe mode: no lossy output-shaping, no tool injection "
-        "(the reversible, certified digest still runs). Alias: --safe. For byte-in-context "
+        "(Tier-0 lossless only: no Tier-1 digest runs, since no expand tool is injected to "
+        "recover it). Alias: --safe. For byte-in-context "
         "content use --verbatim.",
     )
     px.add_argument(
@@ -5566,7 +5567,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--safe",
         action="store_true",
         help="policy/subscription-safe mode: no lossy output-shaping, no tool injection "
-        "(the reversible, certified digest still runs). Alias: --safe. For byte-in-context "
+        "(Tier-0 lossless only: no Tier-1 digest runs, since no expand tool is injected to "
+        "recover it). Alias: --safe. For byte-in-context "
         "content use --verbatim.",
     )
     wr.add_argument(

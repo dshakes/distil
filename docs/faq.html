@@ -171,7 +171,22 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <p>No, and we measured it rather than argued it. <code>distil certify-provider</code> ran pre-registered, replicated experiments (n=40 per run) against both providers' own context management. Anthropic's <strong>default</strong> context-editing policy (<code>keep=3</code>) changed the agent's next action in <strong>95–100%</strong> of cases against a 2.5% A/A noise floor — keeping the three most recent tool uses did not lower the change rate, it turned <em>stalling</em> into <em>acting on missing facts</em>. OpenAI's compaction changed <strong>12.5–20%</strong>. Summarisation is roughly 7× safer than deletion, and neither certifies at α=0.1. <a href="provider-compaction.html">The study, and how to re-run it on your own config →</a></p>
 
+    <p>If you run both, distil leaves the provider's output alone: Anthropic's signed <code>compaction</code> block and OpenAI's <code>reasoning</code>/<code>compaction</code> items are forwarded byte-identical and pinned by contract tests (<a href="cache-contract.html#opaque">cache contract, clause (g)</a>).</p>
+
     <p>The structural difference: provider compaction is server-side, on by default, and reports nothing about what it removed. Distil's folds are reversible, declared in-context, and the agent can pull the original back. The two are not alternatives — you can run distil precisely to <em>measure</em> what the provider's compaction is costing you.</p>
+
+    <hr/>
+
+    <h2>"Does distil touch my tool definitions or MCP connectors?"</h2>
+
+    <p>No. The request <code>tools</code> array is forwarded untouched. Tool definitions sit at the head of the cached prefix and bill almost entirely at the cache-read rate, so a lossless compactor would save little and one unstable byte would turn every cache read into a write (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0012-tool-definitions-are-left-alone.md">ADR 0012</a>).</p>
+    <p>What distil does instead is stop switching off Claude Code's own fix. Claude Code defers MCP tool definitions and loads one only when the model searches for it, but disables that whenever <code>ANTHROPIC_BASE_URL</code> points somewhere non-first-party — which every <code>distil wrap -- claude</code> does. So wrap now sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (your own <code>ENABLE_TOOL_SEARCH=false</code> still wins), <code>distil default --always-on</code> adds the key to Claude Code's settings only if it is absent, and distil forwards <code>defer_loading</code> and <code>tool_reference</code> blocks byte-identical. <strong>Unverified live:</strong> no metered session has run with tool search on through distil yet. <code>distil discover</code> names MCP servers whose definitions were sent on 20 or more requests and never called. Why distil does not hide unused tools behind a meta-tool itself: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>.</p>
+
+    <hr/>
+
+    <h2>"My status line says <code>drift hold</code> — what happened?"</h2>
+
+    <p>Shadow mode's paired replays proved, with the anytime-valid e-process, that live decision change on your traffic crossed the risk budget (≤5% at 95% confidence). That alarm used to print and do nothing. Now every proxy on the machine serves the next request lossless-only — Tier-0, no digest, no output shaping — and keeps doing so across restarts, because a new session must not resume what the last one proved harmful. <code>distil_expand</code> stays available so stubs already in your history still resolve. Recalibrate on your own traffic with <code>distil calibrate</code>, then release with <code>distil reset --drift-guard</code>; running proxies resume within 30s and your savings history is untouched. <code>DISTIL_NO_DRIFT_GUARD=1</code> keeps compressing through a breach (the alarm still prints). The multi-tenant gateway is exempt (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>). Details: <a href="evals.html#exit-summary">what the exit summary proves</a>.</p>
 
     <hr/>
 
@@ -245,7 +260,11 @@ distil bench   --tokenizer anthropic</pre>
         <tr><td>Holdout A/B with confidence intervals</td><td><span class="badge-pass">Done</span> — <code>distil holdout</code></td></tr>
         <tr><td>Byte-fidelity invariants</td><td><span class="badge-pass">Done</span> — <code>distil verify</code></td></tr>
         <tr><td>Adversarial real-path invariants (hostile inputs)</td><td><span class="badge-pass">Done</span> — <code>distil validate</code></td></tr>
-        <tr><td>BM25 partial retrieval · delta context · keep-model codec · gist caching</td><td><span class="badge-pass">Done</span> — all wired, real implementations</td></tr>
+        <tr><td>Cache-delta context · keep-model codec</td><td><span class="badge-pass">Done</span> — wired, real implementations</td></tr>
+        <tr><td>BM25 partial retrieval · gist caching for tool schemas</td><td><span class="badge-new">Research-only</span> — the modules exist and are labelled <code>RESEARCH-ONLY</code>; neither is on the request path. The request <code>tools</code> array is deliberately left untouched (ADR 0012)</td></tr>
+        <tr><td>Drift guard — the live alarm holds compression at lossless-only on a proven breach</td><td><span class="badge-pass">Done</span> — <code>distil/drift.py</code>, released by <code>distil reset --drift-guard</code>; on by default, still to pass an rc soak</td></tr>
+        <tr><td>Cold-point recompression</td><td><span class="badge-pass">Done</span>, <span class="badge-new">not yet measured live</span> — ADR 0014; the rc soak and a live A/B are its gate</td></tr>
+        <tr><td>Sealed receipt segments + Merkle inclusion proofs</td><td><span class="badge-pass">Done</span> — <code>distil receipts --segment / --checkpoints / --prove / --check-proof</code></td></tr>
         <tr><td>Provider proxy + managed gateway</td><td><span class="badge-pass">Done</span> — <code>distil proxy</code> / <code>distil gateway</code> (live per-tenant dashboard)</td></tr>
         <tr><td>Google Gemini adapter (request compression + decision-equivalence + output shaping)</td><td><span class="badge-pass">Done</span> — <code>distil/adapters/gemini.py</code>; recency carve-out, query-aware intent, <code>--shape-output</code> via <code>shape="gemini"</code>. Documented seams: expand-tool injection (<code>--expand</code>), <code>cachedContent</code> caching.</td></tr>
         <tr><td>Output compression (input <em>and</em> output)</td><td><span class="badge-pass">Done</span> — gated shaping + lossless re-entry digest, <code>distil output-savings</code></td></tr>
@@ -253,7 +272,7 @@ distil bench   --tokenizer anthropic</pre>
         <tr><td>Certified compression frontier (proof pack)</td><td><span class="badge-pass">Done</span> — <code>distil eval</code></td></tr>
         <tr><td>Trajectory-level task-outcome certificate (bounds end-to-end degradation, not just per-step decisions)</td><td><span class="badge-pass">Done</span> — <code>distil certify-trajectories</code>; see <a href="concepts.html#trajectory-certificate">Concepts</a></td></tr>
         <tr><td>Self-distilling keep-model (causal labels, never-regressing)</td><td><span class="badge-pass">Done</span> — <code>distil online</code></td></tr>
-        <tr><td>Outcome-guided compression policy (protects content classes that break tasks when digested)</td><td><span class="badge-pass">Done</span> — <code>distil/compress/guideline.py</code>, fed by matched <code>certify-trajectories</code> outcomes</td></tr>
+        <tr><td>Outcome-guided compression policy (protects content classes that break tasks when digested)</td><td><span class="badge-new">Written, not fed</span> — <code>distil/compress/guideline.py</code> exists, but <code>record_trajectory_outcome</code> has no callers, so it runs on defaults (<code>distil doctor</code> says so)</td></tr>
         <tr><td>Verifiable federated telemetry</td><td><span class="badge-pass">Done</span> — <code>distil federated-leaderboard</code></td></tr>
         <tr><td>Async high-concurrency proxy · Rust hot-path core</td><td><span class="badge-pass">Done</span> — <code>distil proxy --async</code> · <code>rust/distil-core</code> (python parity fallback)</td></tr>
         <tr><td>Real-trace ingestion · performance benchmark</td><td><span class="badge-pass">Done</span> — <code>distil ingest</code> · <code>distil perf</code></td></tr>
@@ -325,7 +344,7 @@ distil bench   --tokenizer anthropic</pre>
 
     <p><code>de</code> is the decision-equivalence rate — the fraction of shadow-checked requests where the agent made the <em>same next action</em> (tool call) with and without compression. It appears in the <a href="cli.html#statusline">status line</a> as <code>de n/50</code> while collecting samples, then as a ✓/⚠/✗ percentage once enough data has accrued.</p>
 
-    <p><strong>Gate mechanics:</strong> a verdict requires <strong>50 A/B samples</strong> (compressed-vs-original) plus <strong>30 A/A samples</strong> (same request replayed against itself — the sampling-noise baseline). A/A runs at temperature 0 so the rate should be ~100%; that baseline noise-adjusts the A/B equivalence number. Shadow sampling is on by default at 2% of requests — at that rate, the gate takes days to fill on typical traffic.</p>
+    <p><strong>Gate mechanics:</strong> a verdict requires <strong>50 A/B samples</strong> (compressed-vs-original) plus <strong>30 A/A samples</strong> (same request replayed against itself — the sampling-noise baseline). The A/A arm measures how often the model disagrees with <em>itself</em> on identical input, and the verdict is the paired difference against it. Replays are not always at temperature 0 — on Claude Code traffic they usually run hot — which is exactly why the A/A arm is there. Shadow sampling is on by default at 2% of requests — at that rate, the gate takes days to fill on typical traffic.</p>
 
     <p><strong>Live result — 2026-09-15, build 1.53.0rc1, paired estimator (signature v5).</strong> The sample now clears the reporting floor: <strong>398 A/B and 399 A/A samples</strong>, both modes mixed (digest 206, lossless-only 192), paired equivalence <strong>97.5%</strong> [95.5, 99.5] from a paired difference of −0.025 [−0.045, −0.005]. Under 99%, which is why the status line prints <code>⚠de 97.5% (398)</code> rather than a ✓. Replays run <em>hot</em> — 399 of 399, temperature is not pinned — so the paired difference is the statistic to read, not the 53.0% raw agreement; the A/A arm carries the same nondeterminism and is what the difference subtracts out. Artifact: <code>benchmarks/results/shadow-live-2026-09-15.json</code>. Two earlier readings stay on the record: the 1.13.0 number (100% over 116 sampled requests, A/A 31/31) is <strong>withdrawn</strong> — the 1.51.1 changelog found that every replay carrying a prior <code>thinking</code> block failed with a signature error, biasing the sample — and the 1.51.1 reading (44 A/B, 11 A/A, raw agreement 81.8%, below the floor, unpaired estimator) is kept at <code>benchmarks/results/shadow-live-2026-09-04.json</code>.</p>
 
@@ -360,17 +379,17 @@ distil shadow-stats                  <span class="d"># check the de rate</span>
 
     <h2>"distil wrap ran but I see no savings — what went wrong?"</h2>
 
-    <p>When <code>distil wrap</code> ends a session with <strong>zero proxied requests</strong> and the agent is one of the recognized presets (<code>claude</code> / <code>codex</code> / <code>gemini</code> / <code>aider</code>), it prints a warning:</p>
+    <p>When <code>distil wrap</code> ends a session with <strong>zero proxied requests</strong> and the agent is one of the recognized presets (<code>distil wrap --list</code>), it prints a warning. If a Claude Code settings file pins the base URL over the wrap's environment, it names that file instead:</p>
 
-    <pre class="term">  warning: no requests flowed through distil this session —
-  claude may have stopped honoring ANTHROPIC_BASE_URL (agent update?).
-  Run `distil doctor` to check.</pre>
+    <pre class="term">  warning: no requests flowed through distil this session — claude may have
+  stopped honoring ANTHROPIC_BASE_URL (agent update?). Fix: distil doctor</pre>
 
     <p>This is the <em>upstream-contract tripwire</em>: distil's interception relies on the agent honoring the injected env var (<code>ANTHROPIC_BASE_URL</code> etc.), which is not a documented stable API. An agent update can silently stop honoring it. Common causes:</p>
     <ul>
       <li><strong>Agent updated</strong> and now pins its own endpoint regardless of the env var. Restart the wrap and watch for the env var line at startup (<code>→ ANTHROPIC_BASE_URL=http://127.0.0.1:…</code>).</li>
       <li><strong>OAuth / subscription login overrides the base URL.</strong> Claude Code on a Pro/Max subscription occasionally ignores the env var for that session. Restart the wrap — the next session usually picks it up.</li>
-      <li><strong>Wrong agent name.</strong> The preset only fires when <code>argv[0]</code> exactly matches <code>claude</code>, <code>codex</code>, <code>gemini</code>, or <code>aider</code>. If you aliased the command, pass <code>--env-var ANTHROPIC_BASE_URL</code> explicitly.</li>
+      <li><strong>Wrong agent name.</strong> The preset only fires when <code>argv[0]</code> matches a name in <code>distil wrap --list</code>. If you aliased the command, pass <code>--env-var</code> (and <code>--upstream</code>) explicitly.</li>
+      <li><strong>Codex.</strong> Its preset is unverified: codex-rs reads its base URL from the <code>openai_base_url</code> config key, and no mapping from <code>OPENAI_BASE_URL</code> was found. A zero-traffic warning on <code>codex</code> is most likely this.</li>
     </ul>
     <p>Run <code>distil doctor</code> for a wiring self-test, or <code>DISTIL_DEBUG=1 distil wrap -- &lt;agent&gt;</code> to see the full proxy log.</p>
 
