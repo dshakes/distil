@@ -43,6 +43,11 @@ from ..tokenizer import DEFAULT as _tokenizer
 # Minimum line count for a tool_result to be digested (matches Tier1Reversible default).
 _MIN_LINES = 6
 
+# Block types with their own dedicated handling in _compress_content_item. The
+# provider-signed-opaque fallback below must never fire for one of these even if it
+# happens to carry a stray `signature` key — see that guard for why.
+_COMPRESSIBLE_BLOCK_TYPES = frozenset({"text", "tool_result", "tool_use", "image"})
+
 # Recency exemption: tool_result blocks in the last K user/tool turns are NEVER
 # digested — an agent must always see its most recent tool outputs byte-exact to
 # choose its next action, and a Tier-1 stub it may not be able to expand there
@@ -648,6 +653,26 @@ def _census_tool_result(bucket: str, content: Any) -> None:
             _census(bucket, sub["text"])
 
 
+def _census_opaque_block(bucket: str, item: dict[str, Any]) -> None:
+    """Attribute a provider-signed opaque block's billed text to *bucket*.
+
+    Reads the same two keys (``text``, ``content``; string or list-of-text-parts) that
+    ``proxy._count_messages`` already reads generically for a block type it has no
+    bespoke knowledge of. Deliberately not guessing at a real field name beyond that:
+    matching the baseline's own extraction keeps census and baseline in lockstep on
+    whatever field the wire actually uses, rather than risking a name that makes one
+    side see tokens the other does not.
+    """
+    for key in ("text", "content"):
+        val = item.get(key)
+        if isinstance(val, str):
+            _census(bucket, val)
+        elif isinstance(val, list):
+            for sub in val:
+                if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                    _census(bucket, sub["text"])
+
+
 def _compress_content_item(
     item: dict[str, Any],
     store: RestoreStore,
@@ -682,6 +707,28 @@ def _compress_content_item(
         # turn, so it belongs in the census — otherwise the one context cost distil
         # cannot reduce is also the one it never shows you.
         _census("thinking_billed", str(item.get("thinking") or item.get("data") or ""))
+        return item
+
+    if btype == "compaction" or (btype not in _COMPRESSIBLE_BLOCK_TYPES and "signature" in item):
+        # Provider-signed opaque blocks: same contract as thinking/redacted_thinking just
+        # above, generalised so a signed block type we don't yet have a name for is safe
+        # by construction rather than by an updated allowlist. Anthropic's server-side
+        # compaction (beta `compact-2026-01-12` / `compact-2026-09-04`) emits exactly this
+        # shape — a `compaction` block whose `signature` the provider re-validates on the
+        # next request — and REJECTS the call (`compaction_signature_invalid`) if the
+        # block moved, was dropped, or its bytes changed even via a lossless re-encode. We
+        # never touch it (`item` is returned unchanged, same object), only census it so a
+        # billed cost distil cannot reduce is not also one it hides from the savings %.
+        #
+        # The generic `"signature" in item` branch is gated OUT of `_COMPRESSIBLE_BLOCK_TYPES`
+        # (tool_result/text/tool_use/image, the last two already returned above): a stray
+        # `signature` key on one of those is not this shape, and must not short-circuit
+        # past a tool_result's exact-quote exemption + digestion or an image's pixel-area
+        # census — either would silently drift the census from the baseline it is checked
+        # against. `compaction` itself stays an explicit, unconditional match.
+        _census_opaque_block(
+            "compaction_billed" if btype == "compaction" else "signed_block_billed", item
+        )
         return item
 
     if btype == "text":

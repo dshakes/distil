@@ -36,6 +36,45 @@ import math
 from dataclasses import dataclass
 
 # --------------------------------------------------------------------------- #
+# The risk budget — ONE source of truth for every surface that says "safe"
+# --------------------------------------------------------------------------- #
+#
+# The certificate below, the live drift e-process (distil.drift), the proof ledger's
+# budget and risk lines, and the proxy's drift guard all read these names AT CALL
+# TIME (``conformal.BUDGET_ALPHA``, never a ``from ... import`` copy), so no surface
+# can certify against one number while another alarms against a different one.
+# tests/test_risk_budget.py moves BUDGET_ALPHA and checks every verdict moves with it.
+
+#: The decision-change budget: the compression-attributable decision-change rate every
+#: certificate is written against — ``distil conformal --alpha``, the "≤5% at 95%
+#: confidence" the site publishes, and the null the live drift alarm bets against.
+BUDGET_ALPHA = 0.05
+
+#: Failure probability shared by every statistical claim about that budget: the
+#: certificate's δ, the risk line's bound, the drift alarm's Ville level (it trips at
+#: e-value 1/δ), and the TOST gate's significance level.
+BUDGET_DELTA = 0.05
+
+#: The TOST non-inferiority margin ``distil certify`` / ``bench`` / ``benchmark`` gate
+#: on. Same estimand as the budget (paired A/B-vs-A/A decision change), held
+#: deliberately STRICTER: an operating point certified at this margin sits inside the
+#: budget with headroom, so it does not trip the live alarm on sampling noise the day
+#: it ships. It must never exceed BUDGET_ALPHA — a gate looser than the alarm would
+#: certify operating points the alarm exists to stop. Pinned by the budget test.
+CERT_MARGIN = 0.02
+
+
+def within_budget(bound: float) -> bool:
+    """Is a (1−δ) upper bound on the decision-change rate inside the budget?"""
+    return bound <= BUDGET_ALPHA
+
+
+def budget_pct() -> str:
+    """The budget as every surface prints it, e.g. ``5%``."""
+    return f"{BUDGET_ALPHA * 100:g}%"
+
+
+# --------------------------------------------------------------------------- #
 # Hoeffding–Bentkus p-value for the null  H: R(λ) > α  (reject ⇒ certify R ≤ α)
 # --------------------------------------------------------------------------- #
 
@@ -350,8 +389,8 @@ def calibrate(
     entries,
     runner,
     *,
-    alpha: float,
-    delta: float = 0.05,
+    alpha: float | None = None,
+    delta: float | None = None,
     method: str = "ltt",
     ladder=None,
     tok=None,
@@ -361,7 +400,10 @@ def calibrate(
     For each level, the per-turn loss is ``1`` iff the runner's decision on the
     compressed context differs from its decision on the original. Returns the most
     aggressive level whose decision-change rate is certified ≤ ``alpha`` (LTT:
-    with confidence 1−``delta``; CRC: in expectation)."""
+    with confidence 1−``delta``; CRC: in expectation). Both default to the shared
+    budget (:data:`BUDGET_ALPHA`, :data:`BUDGET_DELTA`), read at call time."""
+    alpha = BUDGET_ALPHA if alpha is None else alpha
+    delta = BUDGET_DELTA if delta is None else delta
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must be in (0,1), got {alpha}")
     if tok is None:

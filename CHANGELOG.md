@@ -3,9 +3,9 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
 
-The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
+Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
 1.53.0rc1 shipped the re-read delta with its contract written out in six rules, an ADR and
 a changelog entry. A read of the request path against that contract found two of the rules
@@ -19,6 +19,185 @@ cannot be relied on to surface — the shapes below are invisible under `distil 
 Claude Code, and that is the only traffic the soak has.
 
 Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
+
+### Anthropic server-side compaction: census gap fixed, passthrough pinned by contract tests
+
+Anthropic's Messages API now compacts context server-side (beta `compact-2026-01-12` /
+`compact-2026-09-04`) and returns a `compaction` content block whose `signature` the
+provider re-validates on replay: alter it, move it, or even re-encode it losslessly, and
+the next request 400s with `compaction_signature_invalid`. A new contract test suite
+(`tests/test_compaction_passthrough.py`, 22 cases) pins that distil's whole Anthropic path
+— `compress_messages` (digest/recency/provenance/rereaddelta), the SDK `wrap()` adapter,
+the proxy (`context_management` field + `anthropic-beta` header), and the streaming splice
+— never touches that block, both non-streaming and streaming, including when the
+tool_results around it ARE digested.
+
+Passthrough was already safe: the dispatch that makes it true predates this work (an
+unknown block type falls through untouched, the same guard that already protected
+`thinking`/`redacted_thinking`), and 18 of the 22 cases pass with no code change at all —
+they exist now as a contract so it stays true. The actual bug the suite found was a
+census gap: a `compaction` block's billed tokens were invisible to the eligibility census,
+the exact blind spot `thinking_billed` was added to close for extended thinking. Fixed by
+generalising that guard from an allowlist of two type strings to "provider-signed and
+opaque" (`compaction`, or any future block carrying a `signature`) so a cost distil cannot
+reduce is not also one it hides from the savings percentage — narrowed to exclude blocks
+with their own dedicated handling (`tool_result`, `text`, `tool_use`, `image`) so a stray
+`signature` key on one of those can't shadow its compression or its census. `dissect.py`'s
+protected/missed-opportunity split now recognises `compaction_billed` and
+`signed_block_billed` alongside `thinking_billed`, so a compaction- or thinking-heavy
+session reads as policy holding rather than a broken gate.
+
+### The OpenAI adapter had no guarantee the Anthropic path had just proven
+A sibling audit proved Anthropic's server-side compaction block — the one the provider
+re-validates by `signature` on the next turn — never gets touched, moved, or re-encoded by
+`compress_messages`. The OpenAI Responses API has the exact same class of surface and no
+equivalent proof had ever been written: a `reasoning` item's `encrypted_content` (stateless
+mode / Zero Data Retention) and a `compaction` item — precisely what `POST
+/v1/responses/compact` returns, and what OpenAI's own docs say not to prune — must reach
+the next request byte-identical or the provider cannot re-derive state it never got back.
+Twenty contract tests (`tests/test_openai_opaque_passthrough.py`) found the passthrough
+itself was already correct: `_compress_response_item` dispatches by `item["type"]`, and
+neither item type is on its digest path, so both survive every mode — verbatim, digest,
+recency, the `distil_expand` re-query, and the buffered-stream re-emit — as the same
+object, never a copy. What was missing was the accounting: three tests failed before any
+fix, because these items' tokens landed in neither `count_responses_tokens` (by design —
+they join `assistant_text`/`function_call` outside the compressible-zone baseline, not a
+bug) nor the eligibility census, so a request could show near-zero savings with the real
+explanation — thousands of billed, uncompressible reasoning/compaction tokens — invisible.
+Same shape as the Anthropic gap, same fix: `_census_opaque_response_item` attributes
+`encrypted_content` (and any `summary`/`text`/`content` a future variant carries) to
+`reasoning_billed` / `compaction_billed`, generalised on the presence of `encrypted_content`
+rather than an allowlist of type strings — a future opaque item type is safe by
+construction. `/v1/responses/compact` itself was already never touched: it fails the
+`is_responses_path` regex (a distinct endpoint, not a query-string variant) and falls
+through to the byte-for-byte `_passthrough` relay, pinned here by test rather than by
+reading the regex and hoping. `context_management` and `previous_response_id` were already
+forwarded unchanged (a request body spread that never drops an unrecognised key), also now
+pinned.
+A review pass on that fix found the opaque-item guard was broader than it needed to be:
+`"encrypted_content" in item` alone, without also excluding the known compressible types,
+could in principle let a stray or future `encrypted_content` key on a `message`/
+`function_call_output`/`function_call` item shadow its own real handling. Narrowed to
+exclude those three, with a test pinning a `message` carrying a decoy `encrypted_content`
+key still compresses and censuses as `user_text`, not as an opaque passthrough. The census
+gap's mirror in `dissect`'s eligibility report is also closed: `reasoning_billed`,
+`compaction_billed`, and `signed_item_billed` are now in `_ELIGIBILITY_LABEL` and
+`_PROTECTED_REASONS`, so a reasoning-heavy session reads as "the design holding," the same
+verdict Anthropic's `thinking`/`compaction` census buckets already earn — not as a missed
+compression opportunity. And because `count_responses_tokens` deliberately does not count
+these items (documented at the function and in cache-contract.html clause (g)), the
+eligibility census total can legitimately exceed `x-distil-compressible-tokens` on a
+Responses session; both the docstring and the doc now say so, and both the census tokens
+and the report's opaque-bucket labels are marked approximate — a heuristic count of
+base64 ciphertext, not the provider's real billed reasoning-token count.
+
+### The drift alarm stops the compression it catches, against the one budget everything else reads
+Two gaps, one shape. Before this, the anytime-valid drift e-process could print
+`BREACHED` at wrap exit while the proxy carried on compressing, because nothing on the
+request path imported `distil/drift.py`. The budget it bet against was also one of
+three thresholds nobody coordinated: the drift alarm's α, the conformal certificate's
+α, and `certify`'s TOST margin, each a literal in its own file. On the maintainer's own
+shadow ledger (read-only, 2026-09-24) that produced a real contradiction: the proof
+ledger printed `certified decision-change budget: intact` directly above a conformal
+bound that was over the budget.
+- **One risk budget.** `distil.conformal` now owns `BUDGET_ALPHA` (≤5% decision
+  change), `BUDGET_DELTA` (at 95% confidence) and `CERT_MARGIN` (the 2 pp TOST margin).
+  The conformal certificate, `certify-trajectories`, `calibrate`, the drift e-process,
+  the proof ledger's budget and risk lines, the proxy guard, and every CLI and library
+  default all read them at call time. No values changed. The TOST margin and the budget
+  measure the same estimand, and the margin is deliberately stricter, so a point that
+  just certified does not trip the live alarm on noise. A test now pins
+  `CERT_MARGIN ≤ BUDGET_ALPHA`, and another changes `BUDGET_ALPHA` and checks that the
+  certificate, drift, risk and guard verdicts all move with it.
+- **`intact` is earned.** When the e-process has not tripped, that means no breach has
+  been *proven*. It does not mean "within budget". The budget line now prints `intact`
+  only when the bound next to it is inside the budget. Otherwise it prints `unproven`.
+  The risk line now says `within` or `ABOVE` the budget.
+- **One e-process, written only by the proxies that feed it.** `drift.json` is the
+  e-process. Each proxy folds the paired shadow verdict it just produced into that file,
+  under a file lock, from the shadow thread (`drift.fold`). Loading inside the lock
+  means a restart, a hot-swap worker and a second wrap all continue the same capital,
+  so no row is bet twice and no restart takes a fresh look from stale capital. The
+  new tests show the restart path produces the exact same capital as one long-lived
+  process, and that the null false-alarm rate across simulated restarts stays at δ.
+  Wrap exit, `distil stats` and the status line only read the file; a reporting
+  command never writes it. Neither does `distil doctor`: its proxy self-test runs a
+  read-only guard, with no migration and no watcher thread. An existing old-format
+  `drift.json` is migrated once, on the first proxy start after this upgrade, by
+  rebuilding it from `shadow.jsonl` in file order. That is the same fold the exit
+  summary used to do. A *missing* `drift.json` is folded from `shadow.jsonl` once, but
+  only on a first-ever start: a fresh install, or an upgrade from a version that never
+  wrote the file. Starting those at zero would throw away harm evidence the machine had
+  already measured. If a release archive (`drift.json.reset-*`) sits beside the missing
+  file, the user has released before. That case starts fresh and never re-folds, or a
+  release whose fresh state was deleted or never written would re-trip on the very rows
+  it released. A quarantined `.corrupt-*` file does not count as a release. If both the
+  state file and every release archive are deleted, the machine looks like a first
+  install and re-bootstraps; that is accepted.
+- **A state file nobody can read is held, not reset.** A zero-length, garbage or
+  wrongly-typed `drift.json` used to load as a fresh monitor, and the next fold then
+  overwrote it, so a recorded breach could vanish. Now:
+  - It counts as held. The first writer copies it to `drift.json.corrupt-<time>-<ns>`
+    (a hard link, or a copy when linking fails), then atomically writes a held state
+    over the original that records the copy's name. The file is copied rather than
+    moved so there is no moment when `drift.json` is missing; a missing file would read
+    as released. If the held write fails, the corrupt file stays in place and is still
+    held. If the copy fails, the original is never overwritten. A second corruption gets
+    its own name.
+  - Every surface says `HELD — the drift state file was unreadable …`, followed by the
+    release command.
+  - Writes fsync before the atomic rename.
+  - Known limits, documented rather than built:
+    - When the advisory lock can't be taken, locking fails open. Two processes crossing
+      the threshold together can then each write a trip receipt; the hold itself is
+      unaffected.
+    - `.reset-*` and `.corrupt-*` archives are never pruned, because they are evidence.
+      They accumulate one per release or corruption.
+- **The alarm acts.** On a breach, the next request is served lossless-only: Tier-0, no
+  digest, no output shaping. The response carries `x-distil-mode: lossless-only` and
+  `x-distil-drift-guard: held`. `distil_expand` stays injected, so stubs already in the
+  history stay recoverable and the cached tools prefix keeps its shape. The hot-path
+  cost is one attribute read, with no per-request file I/O. Held requests are receipted
+  as byte-reversible (`lossless-only` is Tier-0). A request that issued digest handles
+  never is, whatever its mode. This also corrects `--lossless-only`, which the receipt
+  chain used to mislabel as not reversible.
+- **It persists globally, and every process sees it.** A trip is part of `drift.json`
+  and adds one `mode: drift-trip` event receipt (zero counts, `reversible: false`) to the
+  chain. It is written inside the same lock, so two processes crossing together produce
+  one receipt. The hold is global rather than per-session: the e-process and budget
+  already are, and a per-session hold would let the next `distil wrap` resume lossy
+  compression right after a certified breach. A long-running proxy, such as the launch
+  agent, stats the file every 30s from a daemon thread. It picks up another process's
+  trip, and a release, without a restart. The async proxy is already Tier-0, so a trip
+  there turns off output shaping. The multi-tenant gateway runs no shadow and is
+  deliberately exempt. One tenant's evidence must not hold every tenant; see
+  [ADR 0016](docs/adr/0016-drift-guard-scope.md).
+- **Visible where you look, releasable without collateral.** While a hold is on, the
+  status line shows `⚠ drift hold · distil reset --drift-guard`. The wrap exit summary
+  and `distil stats` say `BREACHED … compression held at lossless-only`, followed by
+  the same command. `distil reset --drift-guard` archives only the drift state and
+  leaves a fresh one, so the next start does not re-fold the same rows into the same
+  breach. Savings and shadow stats are untouched, and running proxies resume within
+  30s. If the release cannot archive the old state or write the fresh one, it says so
+  on stderr and exits 1; it never claims a release it did not make. `distil reset
+  --shadow` still releases the hold as well.
+- **Fail-open, on by default.** A guard that raises, or cannot load its state, serves the
+  request exactly as configured. `DISTIL_NO_DRIFT_GUARD=1` opts out of the hold. The
+  alarm still trips, and the proof line then says compression was *not* held.
+- **Upgrading with an e-process that has already tripped.** If an earlier version left a
+  `~/.distil/drift.json` that says BREACHED, the proxy starts held at lossless-only. That
+  is the alarm doing its job on evidence you already had. An old-format file that has
+  not tripped is rebuilt from `shadow.jsonl`, and it holds if that evidence crosses the
+  budget. With no `drift.json` at all (a version that never wrote one), the existing
+  shadow evidence is folded once on the first start, and it holds if it crosses the
+  budget. After
+  `distil calibrate`, release a hold with `distil reset --drift-guard`.
+- **Do not run an older distil side by side.** An older build still installed next to
+  this one, such as a second venv or a pinned launch agent, rewrites `drift.json` in
+  the old format at its own wrap exit. The next proxy start from this build then sees an
+  old-format file and rebuilds the e-process from `shadow.jsonl` again, from
+  `K_0 = 1`. Each alternation between the two versions is another look at the same rows,
+  so the one-e-process guarantee only holds when a single version writes the file.
 
 ### The freshest read the agent asked for came back as a pointer
 
@@ -455,6 +634,208 @@ cannot reach the cluster, the node, or a cloud metadata service on 443. `values.
 carries an `egressTo` override and says plainly that narrowing it to your provider is the
 point.
 
+### Added
+
+- **Mistral Vibe is wrapped — `distil wrap -- vibe`.** Vibe sat on the "could not verify"
+  list because its endpoint lives in a `config.toml` whose shape no docs page publishes.
+  Patching that file was never the answer. Vibe's own
+  [ADR 0005](https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md)
+  puts a `VIBE_*` environment layer **above** both the user and project TOML layers, and
+  its config layer reads that layer with `env_prefix="VIBE_"` — so the schema's
+  `providers` list is `VIBE_PROVIDERS`, taking a JSON array, and entries merge across
+  layers on `name`. `wrap` exports a one-element array redirecting the `mistral` provider
+  and leaves the rest of your configuration alone. Nothing on disk is touched, so there is
+  nothing to restore and nothing a crash can leave behind. It is the first preset whose
+  variable holds a *document* rather than a URL: `AGENT_ENV_TEMPLATES` renders `$BASE`
+  into a literal, because exporting a bare URL where the agent expects JSON is the exact
+  failure this project refuses to ship — `wrap` would report success, start a proxy, and
+  route zero traffic.
+- **The Cline CLI is wrapped — `distil wrap -- cline`.** It was declined for having no
+  published config schema. It has one; it is just not on the docs site — the zod
+  `StoredProviderSettings` in `cline/cline`, with a committed fixture of the real file.
+  `~/.cline/data/settings/providers.json`, where `providers.<id>.settings.baseUrl` is
+  documented in the code as outranking both the regional API line and the provider
+  default. The preset also sets `lastUsedProvider`, because an entry the CLI never selects
+  routes nothing — and it honours `CLINE_DATA_DIR`, because patching a file your CLI does
+  not read is the same lie by a different route.
+- **The Kilo Code CLI is wrapped — `distil wrap -- kilo` — via `KILO_CONFIG_CONTENT`,
+  not a config file.** This began as a config-file preset patching
+  `~/.config/kilo/kilo.json`, and that was wrong for a reason worth recording. Kilo's own
+  [precedence table](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md)
+  puts global config files at 4 and a **project-local `./kilo.json` at 6**, so inside any
+  repo shipping its own config the patch landed on a file the child never read, while
+  `wrap` reported success. That is the exact failure this area exists to prevent,
+  reintroduced by a fix for it. The same table lists `KILO_CONFIG_CONTENT` at **8**, above
+  both, and Kilo's loader hands it straight to `loadConfig(text, …)` as config content. So
+  the preset exports a config document instead: nothing read, written, backed up or
+  restored, no project file able to shadow it, and a `kilo.jsonc` full of comments never
+  at risk of being rewritten without them. What goes in that variable is a base URL for
+  Kilo's **built-in** `anthropic` and `openai` providers and nothing else — it declares no
+  models of its own, because Kilo treats a custom model with no
+  `limit.context`/`limit.output` as having limits of zero, and a provider that is
+  selectable and then quietly mismanages context for a whole session is the same
+  half-working shape as a guessed variable. Overriding the built-in ids keeps Kilo's own
+  catalogue, real limits included, and changes only the endpoint: nothing to pick by hand,
+  your top-level `model` untouched, and no credential in the environment since the key
+  variable comes from the catalogue too. A session on some other provider (OpenRouter,
+  Kilo's own, a local gateway) is simply not redirected — those are not wire shapes distil
+  speaks.
+- **`distil wrap --list` (and `--json`).** Every target, its mechanism (environment
+  variable / config file), the provider wire shape distil has to speak for it, the routing
+  knob, and the primary doc that contract was read from with the date. The agents `wrap`
+  cannot reach are on the same list with the reason — that half is the useful half.
+
+### Fixed
+
+- **A preset can export the right variable and still route nothing, because the variable's
+  own client uses it a way distil never checked.** Kilo Code's `KILO_CONFIG_CONTENT` named
+  the right env var but the wrong value: its provider layer forks `@ai-sdk/anthropic` /
+  `@ai-sdk/openai`, both of which use a configured `baseURL` **literally** and append only
+  the leaf path (`/messages`, `/chat/completions`) — so `$BASE` alone landed every request
+  on `/messages`, a path `is_compressible_path` does not recognise, while `wrap` reported
+  success. The fix appends `/v1` in the template, not the base preset. The same defect class
+  was then checked against every other `AGENT_ENV_TEMPLATES` entry and confirmed live
+  (real installs of `openai-python`, `openai-node`, and `litellm`, none of which insert
+  `/v1` for an explicitly-set base_url either) against **aider**, **OpenCode**, and
+  **Qwen Code** — all three built on that same literal-base_url convention, all three now
+  exporting `$BASE/v1`. `tests/test_reach_contract.py` pins the fix per SDK convention (with
+  its own doc citation per row) by running each preset's exported value through the real
+  proxy against a fake upstream and asserting the request both lands on a path the proxy
+  compresses (b) reaches the upstream on that same path, and (c) actually triggered the
+  compression branch — a genuinely-compressible tool result in the canned body must come
+  back with `x-distil-tokens-saved` > 0, not just a passthrough that happens to land on a
+  compressible-shaped path. Reverting any template's `/v1` fails it.
+- **`grok`, `kimi`, and `openhands` had the exact same defect, confirmed this round from
+  each client's own source (not guessed at):** `xai-org/grok-build`'s
+  `resolve_inference_base_url()` and `MoonshotAI/kimi-code`'s
+  `packages/kosong/src/providers/kimi.ts` both use their base URL **literally**, and both
+  default it to a value that already carries `/v1` — so a distil upstream default of
+  `.../v1` plus a bare `$BASE` export would double the segment into `.../v1/v1/...`, a 404
+  that reads like a distil bug, once the OpenAI-SDK-style `/v1`-autoinsert assumption
+  underneath the old preset stopped holding. `AGENT_ENV_TEMPLATES` now exports `$BASE/v1`
+  for both, and `AGENT_PRESETS`'s upstream is stripped back to the bare host so the proxy's
+  own forward doesn't double it either. OpenHands turned out to be the same convention one
+  layer down: `LLM_BASE_URL` is forwarded into LiteLLM's `api_base` **verbatim** (confirmed
+  from `OpenHands/software-agent-sdk`'s own docstring: the resolved value LiteLLM would
+  otherwise compute is deliberately discarded so a later per-call resolution isn't frozen),
+  and LiteLLM injects no fallback base for its `openai` provider branch — so OpenHands now
+  gets the same `$BASE/v1` template as aider.
+- **Codex's and OpenCode's OpenAI presets were modelled on the wrong wire shape.** Both are
+  Responses API, not Chat Completions, confirmed from two independent sources: `codex-rs`
+  removed `wire_api="chat"` entirely (`codex-rs/model-provider-info/src/lib.rs`), and
+  `@ai-sdk/openai@4.0.75`'s bare `openai(modelId)` invocation (no `.chat`/`.responses`
+  suffix, which is how OpenCode's own `packages/llm/src/providers/openai.ts` calls it, by
+  independent default) now resolves to `createResponsesModel`. `AGENT_META`'s `shape` for
+  both is corrected; `tests/test_reach_contract.py` gained an `openai_responses` case and
+  body shape (`function_call_output` items) to prove it.
+- **A genuinely deeper finding on `codex`, surfaced while chasing the shape question and
+  left unfixed pending an answer, per this project's own rule against guessing:** `codex-rs`
+  is a native Rust client, not the `openai-python`/`-node` SDK the old preset comment
+  assumed, and it builds request URLs by literal concatenation
+  (`Provider::url_for_path`). Its `base_url` field, though, is populated **only** from the
+  TOML `openai_base_url` config key (`codex-rs/core/config.schema.json`) — no
+  env-var-to-config-field mapping for `OPENAI_BASE_URL` was found anywhere in
+  `codex-rs/config`. Distil's `codex` preset may not route codex's traffic **at all**,
+  independent of any `/v1` question. Left unchanged; documented in `AGENT_META["codex"]`'s
+  note and this file rather than silently patched.
+- **Unverified and deliberately unchanged** (no live-confirmed answer for what the client
+  does with a bare base_url, so left as-is rather than guessed at): `goose`, `copilot`.
+  OpenCode's real end-user override is a config file (`opencode.json`), not a plain env
+  var, and whether `OPENAI_BASE_URL` genuinely outranks an *explicit* config-set `baseURL`
+  (versus only supplying a fallback when none is configured) was not re-verified this round
+  — flagged in `AGENT_META["opencode"]`'s note for follow-up.
+- **A tautological regression test.** `test_kilo_fix_is_load_bearing` monkeypatched
+  `AGENT_ENV_TEMPLATES["kilo"]` to a locally-defined reverted string and then read that same
+  entry back out — it never read the real template and never sent a request through the
+  proxy, so it could not have caught the regression it claimed to guard. Deleted; the
+  `kilo-anthropic`/`kilo-openai` parametrized cases in the table above are the real guard.
+- **`/v1/v1` documented, not patched.** `httpguard`'s `_CHAT_RE`/`_RESPONSES_RE` are
+  anchored, and the proxy forwards `_upstream + path` unchanged, so a client whose base_url
+  already carries `/v1` and appends its own `/v1` leaf on top lands on a doubled prefix
+  neither regex matches — an uncompressed passthrough today, not a silent drop and not a
+  match on a malformed path. `tests/test_reach_contract.py` now pins that behaviour
+  directly rather than leaving it implicit; the allowlist itself is unchanged.
+
+### Changed
+
+- **Config-file presets follow the path the child was actually told to use.** A preset now
+  receives the wrapped command's argv, because several of these tools let you move their
+  config, and patching the default then writes a real file nobody reads — `wrap` reporting
+  success while routing nothing, the same shape as the Kilo shadowing bug. The Cline CLI
+  publishes three such knobs at three different depths: `--config` (the settings directory
+  itself), `--data-dir` (two levels above it) and `CLINE_DATA_DIR` (one level above it).
+  Each is honoured on its own. When more than one is given, Cline's reference documents no
+  precedence between them, so distil names them and refuses rather than guessing. Crush
+  follows `XDG_CONFIG_HOME` for the same reason. The Continue CLI refuses the mirror-image
+  case: its preset injects by appending its *own* `--config`, so a user who passed one
+  would be silently overridden, or silently lose to it. Crash recovery sweeps the flagged
+  path too, so re-running the same command cleans up after a `kill -9` under those flags.
+  Factory Droid and Oh My Pi publish no relocation knob, so there was nothing to follow.
+- **A second `distil wrap` of the same config-file agent is refused, not silently fought
+  over.** The per-session registry made the shared *backup* safe — whose bytes to restore
+  and which session restores them — and that had been mistaken for making concurrency
+  safe. It never was. Every config-file preset writes the same active provider entry
+  pointing at its **own** proxy port, and one file cannot name two ports. Two live wraps
+  of, say, Crush gave: the second repointed the file at its proxy, so the first agent's
+  traffic ran through the second session and landed in its ledger; the first exited, its
+  proxy died, and the config the second was still using named a dead port; the second
+  exited last and restored the pre-wrap backup under a session already gone. Having the
+  second reuse the first's proxy cannot fix it either — the first owns that proxy's
+  lifetime and takes it down when its agent exits. `distil wrap` now checks for a live
+  holder before starting a proxy or writing a byte, exits non-zero, names the pid holding
+  the file, and points at `distil default --always-on`, which is how several agents share
+  one long-lived proxy with no config patching at all. The check is repeated inside the
+  same lock as the claim, so two wraps starting in the same instant cannot both pass it.
+  Dead registrants are reaped exactly as before: a `kill -9`ed session never blocks the
+  next wrap.
+- **One catalogue, generated docs.** The same three facts about each agent were restated
+  in five places — two preset registries, a dict in `cli.py`, and prose tables in
+  README.md, `docs/IDE-AGENTS.md` and `docs/integrations.html` — and they drifted.
+  `distil/targets.py` now joins the registries with their doc metadata and
+  `scripts/build_agent_tables.py` renders all three documents from it;
+  `tests/test_wrap_targets.py` fails when any of them goes stale. A preset added without
+  its cited source is now a test failure rather than an undocumented target.
+- **Stale claims about other people's tools, corrected.** The docs said Warp had "no
+  published base-URL override at all"; Warp ships a custom inference endpoint now. The
+  real reason it is out of reach is the better one: the agent harness runs on Warp's own
+  servers and its docs reject localhost and private addresses, so a local proxy can never
+  be the target. The docs also called Cline "not a CLI" after Cline shipped one — that CLI
+  is wrappable as a process, it just publishes no base-URL knob it honours. And
+  `httpguard.py` described Azure OpenAI's `/openai/v1/` surface as preview with a required
+  `api-version`; it is GA now and the parameter is optional. The path patterns were
+  already right either way, since the query string is stripped before they run.
+- **Copilot's BYOK contract, re-checked 2026-09-16.** `COPILOT_PROVIDER_BASE_URL` /
+  `_TYPE` / `_API_KEY` are unchanged, so the preset stands. Two things it deliberately
+  does not set are now documented instead of silent: `COPILOT_MODEL` is *required* and
+  only you know which model you want, and Azure OpenAI needs `_AZURE_API_VERSION` plus
+  `_WIRE_MODEL` (your deployment name) alongside the resource-shaped base URL.
+
+### Not added, on purpose
+
+Seventeen targets were checked against their own primary documentation. Fourteen got no
+preset, and `docs/IDE-AGENTS.md` now lists every one with the page and date that was read.
+Three distinct reasons. **No knob at all**: Cursor CLI, Amp, `auggie`, Antigravity and
+Tabnine publish no base-URL override — their only network setting is a whole-process
+`HTTP_PROXY`. **A knob that cannot be local**: Warp, above; and Cody, whose override is an
+admin setting on the Sourcegraph instance rather than on the client. **A real knob, but
+nothing that scopes to one session**: Roo Code keeps its profiles in VS Code's Secret
+Storage rather than a file; OpenClaw's `baseUrl` belongs to a Gateway daemon its own README
+describes the CLI as merely connecting to, shared with chat channels and, on a team
+install, other people; ZCode is a desktop app with no process to launch; and Zed's built-in
+Anthropic provider documents no `api_url` at all, so redirecting it means adding a second
+provider the user must pick by hand, in a file Zed's own settings page rewrites while it
+runs. Trae and Junie could not be verified at all: every docs path returns the same
+client-rendered shell over a plain fetch. Bedrock's SigV4 path is out of scope.
+
+Note what is *not* a reason: "the settings file is global." That was the stated ground for
+declining Cline and Kilo Code, and it was wrong — a shared config file is precisely what
+`config_wrap` claims, backs up, patches and restores for Crush, Oh My Pi and Factory Droid
+already. Both are presets now. What *is* disqualifying is narrower and sharper: a global
+file that some other file outranks for the directory the wrap runs in, which is what sent
+Kilo to an environment variable rather than to this list. What remains declined is declined
+on the specific mechanism, because a preset built on a guess is indistinguishable from one
+that works right up until you check the savings counter.
+
 ### The ninth command still knows the other eight exist
 
 Docs and CLI-surface polish; no runtime behavior change. The through-line: in every
@@ -782,15 +1163,150 @@ is running on defaults. Seven research modules (`gist`, `speculative`, `ensemble
 the request path**. Nothing was deleted and nothing changed behaviour; an inert module
 that reads as shipped is a claim, and it is now labelled as what it is.
 
-### The output shaper was off, and nothing was deciding
+### Every receipt now costs one write and one read of the last line, not the chain
 
+Appending a receipt reads the current head hash first — it has to, the chain links
+each receipt to the one before it — and that read held the same lock the append
+itself takes, so it serialized every request behind it. It was also an O(chain) scan:
+`head_hash()` walked the file from byte zero looking for its last line. On the
+maintainer's own 94 MB, 102,767-row chain that is 0.53 s spent per request holding a
+lock every other in-flight request is waiting on, growing without bound as the file
+does. `head_hash()` now reads backward from the end of the file in blocks instead of
+forward from the start, stopping at the first line that parses — a torn trailing line
+(a write cut short by a crash or a full disk) is skipped exactly as `read()` already
+skips it going the other direction, and a line longer than one block just costs
+another block, never a wrong answer. Chain format, lock scope, and every caller's
+semantics are unchanged. On a synthetic 100,000-row chain the lookup goes from 325 ms
+to 0.18 ms.
+
+### The receipt chain is sealed into segments, each with a Merkle root an auditor can check alone
+
+The receipt chain is the artifact a team hands to someone who does not trust it, and it
+only grows: one file, re-hashed end to end to answer anything about any part of it. It is
+now split. When the active `receipts.jsonl` reaches the segment size, the append that
+finds it there (inside the same lock, one `stat` per request) seals it: a checkpoint is
+written first — segment id, row count, first and last receipt hash, and a Merkle root over
+the segment's receipt hashes with RFC 6962 leaf/node domain separation — and then the file
+is *renamed* into `receipts-segments/`. No receipt byte is rewritten, which is also the
+migration: a chain from before this verifies unchanged and becomes segment 0 on its first
+rotation. The next receipt links to the sealed segment's last hash, so every segment
+boundary is a chain link, and a deleted or reordered segment breaks the chain the same way
+a deleted receipt does.
+
+`distil receipts` still verifies the whole history, now including every segment against
+its checkpoint. `--segment N` verifies one sealed segment against its checkpoint and opens
+no other file. `--checkpoints` prints the checkpoint records to pin somewhere outside
+`~/.distil` (each record's sha256 goes to stderr) — whoever can write there can re-seal a
+segment and its checkpoint together. `--prove <request-id>` emits an inclusion proof for
+one sealed receipt; `--check-proof` re-hashes the receipt from its content, then walks the
+audit path (RFC 9162 §2.1.3.2), reading nothing but the proof. What a pass proves is
+exactly what was pinned. `--checkpoint-hash <sha256>` pins the whole checkpoint record —
+segment, row count, first/last hash, root — so the output names the receipt's segment and
+position. `--root <hex>` alone pins only the tree: it proves membership, and the output
+names no position, because the row count then comes from the proof unauthenticated and
+audit paths for different (index, size) pairs coincide (index 1 of 2 also verifies as
+index 2 of 3). With nothing pinned the proof is checked against its own checkpoint, which
+is circular; the output says `SELF-CONSISTENT ONLY` and the CLI warns on stderr. The path
+length is also checked against the claimed tree size, and every receipt field in a proof
+is type-checked, so a hostile bundle (`"handles": 5`) is a clean "malformed proof", not a
+traceback.
+
+The same type check now runs on every line of the chain, which forced a decision about
+lines that are not receipts. They are no longer silent. A JSON object that is not a valid
+receipt (`"handles": 5`, a string where a count belongs) is **BROKEN** at that line:
+no torn write produces a well-formed object, and distil's writer always writes every
+field with its type, so it can only be an edit — and it stays BROKEN after later receipts
+chain past it. A line that is not a JSON object at all (a torn trailing write after a
+crash, foreign text) keeps the existing contract, that it does not invalidate the real
+receipts around it, but the verdict now reads `VERIFIED WITH GAPS — … N lines are not a
+receipt and were skipped` instead of a clean `VERIFIED`, and the wrap exit line says so
+too. The resumed (`--fast`) pass carries that count in its resume point, so it reports
+the same number as the full pass. A checkpoint's schema field `v` is now validated as
+the integer 1; anything else is an unreadable checkpoint, and a checkpoint of another
+schema is a segment mismatch.
+
+Crash ordering is the design: checkpoint first, rename second. A crash between them leaves
+a checkpoint with no segment, which every reader ignores and the next seal overwrites, and
+the active file untouched; a crash after the rename leaves no active file, and
+`head_hash()` then reads the newest segment's tail — still a tail read, not a history
+scan — so the next receipt links correctly. A seal that fails is logged at debug and the
+receipt is appended to the active file anyway, and this process does not try again for
+a minute: a seal that keeps failing (an unwritable segments directory; on Windows, a
+reader holding the active file open) would otherwise re-parse the whole active file on
+every append, inside the lock every request waits on. The cheap steps that can fail —
+creating the directory, tightening it to 0700 even if it already existed — run before
+the parse. `verify()` runs without the append lock, so a seal landing mid-pass could make
+a healthy chain read as broken at the segment boundary; a failure is re-run once against
+a fresh listing when the listing changed, and a real break survives the retry. The resume point behind
+`distil receipts --fast` and the wrap exit line records which file its last receipt was in;
+a rename keeps that receipt's offsets, so the fast pass resumes straight across a seal, and
+a resume point written before this reads as file 0, which is exactly where the migrated
+chain lands. Segments and checkpoints are created 0600 in a 0700 directory, like the chain.
+
+One side fix, in the function this rewrote: `verify(path)` on an explicit file used to
+write this machine's resume point with offsets from that other file. It no longer does.
+
+### Fixed — a claim pointed at the one file that never had its numbers
+`docs/claims.json`'s `v-cache-aware-vs-naive` entry cited `docs/CACHE.md` for its 33% /
+11% / 2× figures. That file contains none of them — the coverage gate's `.md` skip is
+why nothing caught it. The figures are real (they are the `distil savings --trajectory
+corpus/sample_trajectory.json --pricing claude-opus-4-8` table already printed on
+`architecture.html` and `concepts.html`, and the "2×" figure is the separate live-adapter
+incident documented in `docs/cache-contract.html`), but no artifact had ever committed
+the underlying run. `benchmarks/results/cache-aware-vs-naive-2026-09-24.json` now holds
+that run's output — produced by executing `distil.compress.cache_aware.simulate` against
+the real corpus fixture, not invented — and the entry points at it.
+`tests/test_claims_coverage.py` no longer exempts `.md` artifacts from value-checking;
+the one other `.md`-backed entry (the re-read delta's 51.4%, ADR 0010) was checked
+against this tightened gate and passes.
+### Fixed — `distil discover --since` dropped a session whose only recent traffic failed
+`list_sessions()` derived `last_ts` from booked ledger rows and the manifest's
+`started_ts` alone. The ledger only ever gets a row once a request is billed, and
+`started_ts` is a session's birth, not its most recent activity — so a session whose
+only in-window traffic was a failed, unbooked request (bad key, upstream 5xx, client
+abort) read as stale under `--since` and was silently dropped from both `distil dissect`'s
+session picker and `distil discover`'s window, even though it had just been used, and this
+held even for a session with an old booked row on record: a request from 30 days ago does
+not make a failure five minutes ago any less recent. Every proxied request appends to
+`sessions/<sid>.requests.jsonl` regardless of outcome, so its mtime is now folded into
+`last_ts` unconditionally, alongside the ledger and the manifest — whichever source saw
+the most recent activity wins, rather than the requests file only being trusted when the
+ledger had nothing at all for that sid. New tests at both the `dissect.list_sessions()`
+and `discover.scan(since_days=...)` layers cover the previously-dropped cases, including
+the old-booked-row-plus-recent-failure shape.
+### Fixed — the "2×" figure was carried by a run that never measured it
+`v-cache-aware-vs-naive` above still bundled a "2×" value that its artifact,
+`benchmarks/results/cache-aware-vs-naive-2026-09-24.json`, does not state — that figure
+belongs to a different incident (the pre-1.45 live-adapter cache-bust bug) than the
+trajectory simulation the artifact actually ran. The artifact itself had also grown a
+`live_incident_2026` block describing that separate incident, which is the same failure
+mode this fix exists to close: a results artifact must hold only what its run measured.
+Removed the block, trimmed `v-cache-aware-vs-naive`'s `values` to the 33%/11% the artifact
+does state, and moved "2×" to its own entry, `u-live-cache-naive-2x`, marked `unsourced`
+with a `check_reason`: no committed artifact holds the live A/B's raw numbers, only the
+narrative writeup on `docs/cache-contract.html` and its retelling in `CHANGELOG.md` and
+`benchmark.html`. `EXPECTED_ENTRY_COUNT` in `tests/test_site_claims.py` moves 51 → 52 for
+the split.
+### Fixed — an old booked row could still mask a session's most recent failure
+The previous fix folded a session's `sessions/<sid>.requests.jsonl` mtime into `last_ts`
+only when the ledger had no booked row at all for that sid — which missed the more
+realistic shape of the same bug: a session booked once, long ago, whose only *recent*
+activity was a failed request. The old row won the `max()`, the session still read as
+stale under `--since`, and the fix didn't fix the case it was written for. The fold-in is
+now unconditional — ledger, manifest `started_ts`, and requests-file mtime all feed the
+same `max()`, so whichever source actually saw the most recent activity wins regardless of
+which of the three happens to be populated. The fixtures that broke under the unconditional
+rule were pinning their requests file's mtime to wall-clock "now" beside a synthetic
+historical `ts`; `os.utime`'d to match their own fixture clock instead of narrowing the
+rule to work around them. A new test pins the old-row-plus-recent-failure case.
+
+### The output shaper was off, and nothing was deciding
 The verbosity directive that shortens replies has existed since output compression
 shipped. It defaulted to off, and the only way to turn it on was to know the flag — which
 means the decision about whether to use it was being made by whoever read the docs most
 recently, not by any evidence. That is backwards for a lossy transform. Every other lossy
 thing distil does answers to the live paired shadow verdict; this one answered to a
 default.
-
 `--shape-output` now takes `auto`, and `auto` is the default on a metered session.
 Shaping is on while three things hold and off the moment one stops: the paired
 decision-equivalence verdict is at or above the one reporting floor the whole product
@@ -800,12 +1316,10 @@ number that could drift from it; and the shadow output-token delta excludes zero
 saving side over at least as many samples. Explicit `light`/`aggressive`/`off` still win.
 Subscription and OAuth sessions are unchanged and always off — that is a policy boundary,
 not a preference, and an explicit request there is suppressed and says so.
-
 The third condition is an enabling signal, not a forecast, and the docs say so where the
 rule is described: it measures what *input* compression already does to reply length on
 your traffic, because a shaping A/B needs a live model and cannot be run at session start.
 What shaping itself costs is still `distil output-savings`, after the fact.
-
 **The gate cannot vote for itself.** Once shaping is on, the shadow replay of the served
 request carries the directive, so "replies got shorter" on those rows is shaping
 measuring itself — a gate fed them would stay on by construction. Every shadow row now
@@ -819,7 +1333,6 @@ half, shaping could be turned on but never off. Both sets are read over the last
 only (the same recent window `distil stats` uses), so an "on" decision cannot rest on
 traffic that has since changed. The tag is per-lever so expand and re-read delta can
 join it later.
-
 Off is never silent. The reason is printed at startup, written into the session manifest
 beside the level and what was asked for, and read back by `distil dissect`. The last
 published live sample (398 A/B, 399 A/A) predates the lever tag and so counts as zero

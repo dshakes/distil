@@ -33,6 +33,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
+from . import config_wrap
 from ._log import log
 from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
@@ -585,6 +586,7 @@ def build_handler(
     retention_rate: float = 0.0,
     session_delta: bool = False,
     prefix_replay: bool = True,
+    diagnostic: bool = False,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
 
@@ -753,6 +755,38 @@ def build_handler(
         from .retention import LiveMeter
 
         _retention_meter = LiveMeter(retention_rate)
+
+    # Drift guard — the budget alarm that acts. When the anytime-valid e-process
+    # (distil.drift) proves live decision-change above the shared budget, every later
+    # request is served lossless-only (Tier-0, no digest, no output shaping), across
+    # restarts, until `distil reset --drift-guard`. Default ON; DISTIL_NO_DRIFT_GUARD=1 opts
+    # out. Cost on the request path is one attribute read: the guard is seeded here and
+    # fed by the shadow thread, never by a file scan. start() never raises.
+    from .drift import RELEASE_CMD as _RELEASE_CMD
+    from .drift import DriftGuard
+
+    # A diagnostic handler (doctor's self-test) reads the hold but writes nothing and
+    # starts no watcher: a health check must not migrate or quarantine state.
+    _drift_guard = DriftGuard.start(watch=not diagnostic, write=not diagnostic)
+
+    def _request_mode() -> tuple[bool, str]:
+        """(held, x-distil-mode) for one request. Fail-open: a broken guard means the
+        request is served exactly as configured, never refused."""
+        try:
+            held = bool(_drift_guard.engaged)
+        except Exception:  # noqa: BLE001 — the alarm must never break a request
+            held = False
+        return held, ("lossless-only" if held and not verbatim else _mode_label)
+
+    if _request_mode()[0] and not verbatim:
+        import sys as _sys
+
+        print(
+            "distil: drift alarm tripped — live decision-change exceeded the certified "
+            "budget, so this proxy serves lossless-only. Recalibrate (distil calibrate), "
+            f"then release: {_RELEASE_CMD}. Opt out: DISTIL_NO_DRIFT_GUARD=1.",
+            file=_sys.stderr,
+        )
 
     # First-POST latch for the session traffic marker: only the 0→1 transition
     # matters, so after one write the check is a single list lookup.
@@ -963,6 +997,15 @@ def build_handler(
                 return  # _read_body already sent the error response
             headers = self._client_headers(identity=True)
             extras: dict[str, str] = {}
+            # The drift guard's hold, decided once per request: Tier-0 only (the same
+            # force lossless_only applies) and no output shaping. The expand tool stays
+            # injected, so stubs already in the history remain recoverable and the
+            # cached tools prefix does not change shape at the trip.
+            _held, _req_mode = _request_mode()
+            _verb = verbatim or _held
+            _shape_ok = _lossy_ok and not _held
+            if _held and savings is not None:
+                savings.mode = _req_mode
             # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
             # conversation, and the items as the CLIENT sent them this turn. Set by
             # whichever adapter branch runs; consumed once, just before serialization.
@@ -1010,7 +1053,7 @@ def build_handler(
                 before_tok = count_responses_tokens(_orig_input)
                 try:
                     _compressed_input, store = compress_responses_input(
-                        _orig_input, verbatim=verbatim, keep=_learn_keep
+                        _orig_input, verbatim=_verb, keep=_learn_keep
                     )
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug(
@@ -1023,7 +1066,7 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _mode_label,
+                    "x-distil-mode": _req_mode,
                     "x-distil-compressible-tokens": str(before_tok),
                 }
                 if savings is not None:
@@ -1037,7 +1080,7 @@ def build_handler(
 
                     body = inject_expand_tool_responses(body)
                 # Output shaping: append verbosity directive to top-level ``instructions``.
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _shape_ok:
                     from .output import shape_request
 
                     body = shape_request(body, level=shape_output, allow=True, shape="responses")
@@ -1102,7 +1145,7 @@ def build_handler(
                 else:
                     _compress_fn = compress_messages
                 try:
-                    compressed, store = _compress_fn(pre, verbatim=verbatim, keep=_learn_keep)
+                    compressed, store = _compress_fn(pre, verbatim=_verb, keep=_learn_keep)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                     compressed, store = pre, None
@@ -1146,7 +1189,7 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _mode_label,
+                    "x-distil-mode": _req_mode,
                     # Bytes in the compressible zone (user/tool content distil is
                     # allowed to touch) — when this is ~0, a ▼0 is "nothing large
                     # to compress this turn", not a failure. System prompt, tool
@@ -1205,7 +1248,7 @@ def build_handler(
                 if savings is not None and before_tok is not None and after_tok is not None:
                     _pending_savings = (before_tok, after_tok, body.get("model"))
                 # Output compression: gated by lossless_only (only on PAYG-style).
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _shape_ok:
                     from .output import shape_request
 
                     _shape = "anthropic" if _path == "/v1/messages" else "openai"
@@ -1217,9 +1260,7 @@ def build_handler(
                 _replay_key, _replay_orig = "contents", body["contents"]
                 before_tok = count_tokens(body)
                 try:
-                    body, store = compress_generate_request(
-                        body, verbatim=verbatim, keep=_learn_keep
-                    )
+                    body, store = compress_generate_request(body, verbatim=_verb, keep=_learn_keep)
                 except Exception:  # noqa: BLE001 — compression must never break a request
                     log.debug("gemini compression failed; forwarding uncompressed", exc_info=True)
                     store = None
@@ -1236,14 +1277,14 @@ def build_handler(
                 extras = {
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _mode_label,
+                    "x-distil-mode": _req_mode,
                     "x-distil-compressible-tokens": str(before_tok),
                 }
                 if savings is not None:
                     # Gemini requests carry the model in the URL path, not the body.
                     _pending_savings = (before_tok, after_tok, _model_from_path(self.path))
                 # Output shaping: inject systemInstruction directive (PAYG only).
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _shape_ok:
                     from .output import shape_request
 
                     body = shape_request(body, level=shape_output, allow=True, shape="gemini")
@@ -1276,6 +1317,8 @@ def build_handler(
                     extras=extras,
                 )
 
+            if _held and extras:
+                extras["x-distil-drift-guard"] = "held"
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
 
@@ -1683,7 +1726,11 @@ def build_handler(
                             # Tier-0 (verbatim/lossless) round-trips byte-exact. digest is
                             # recoverable-on-demand via a handle — a weaker claim, so it is
                             # not reported as reversible.
-                            reversible=_mode in ("verbatim", "lossless"),
+                            # lossless-only is Tier-0 too (the flag and the drift hold
+                            # both force it) — unless --expand let a digest run, which
+                            # issued handles; any handle means recoverable, not reversible.
+                            reversible=_mode in ("verbatim", "lossless", "lossless-only")
+                            and not _handles,
                             handles=list(_handles),
                             restorable=_restorable,
                             certificate=str(extras.get("x-distil-certificate", "")),
@@ -1947,11 +1994,15 @@ def build_handler(
                     # content-free, same posture as the savings ledger.
                     ev: dict[str, Any] = {
                         "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
-                        "mode": _mode_label,
+                        "mode": _request_mode()[1],
                         # Every lever that shaped the B arm. `compressed_raw` already
                         # carries the shaping directive, so a gate deciding whether to
                         # shape must read only shape=off rows (see output.resolve_shape_output).
-                        "levers": {"compression": _mode_label, "shape": shape_output},
+                        # A drift-guard hold serves no shaping, so its rows are shape=off.
+                        "levers": {
+                            "compression": _request_mode()[1],
+                            "shape": "off" if _request_mode()[0] else shape_output,
+                        },
                         # lossless-only and digest measure different things; the reports
                         # break them out rather than averaging two experiments.
                         "bytes_saved": len(rb_a.body) - len(rb_b.body),
@@ -1986,6 +2037,10 @@ def build_handler(
                     if _shadow_ledger is not None:
                         _shadow_ledger.record(equivalent, kind=kind, evidence=ev)
                         _written = True
+                    # Feed the drift guard the same paired difference the ledger just
+                    # booked. Here, in the shadow thread — never on the request path.
+                    if kind == "paired" and aa_equal is not None:
+                        _drift_guard.observe(int(equivalent) - int(aa_equal))
                 except Exception:  # noqa: BLE001 — shadow must never affect the request
                     log.debug("shadow compare failed", exc_info=True)
                     if _attempted and not _written:
@@ -2249,6 +2304,25 @@ def serve(
         server.server_close()
 
 
+#: ``$BASE`` / ``${BASE}`` in a preset's env template, wherever it appears in
+#: the value. The negative lookahead is what keeps ``$BASE`` from swallowing a
+#: passthrough variable that merely starts with those letters (``$BASEBOARD``
+#: stays a variable name); ``${BASE}`` is accepted for anyone who wants to be
+#: explicit about the boundary.
+_BASE_TOKEN = re.compile(r"\$\{BASE\}|\$BASE(?![A-Za-z0-9_])")
+
+
+def _render_base_template(template: str, base: str) -> str:
+    """Substitute this wrap's proxy URL into ``template``.
+
+    Shared by the primary variable (``env_value_template``) and by
+    ``extra_env`` so the two can't drift: an agent whose knob wants
+    ``$BASE/v1``, or a JSON document with the URL somewhere in the middle,
+    behaves identically whichever slot it is declared in.
+    """
+    return _BASE_TOKEN.sub(lambda _: base, template)
+
+
 def wrap_run(
     command: list[str],
     *,
@@ -2266,7 +2340,8 @@ def wrap_run(
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
-    config_ctx: Callable[[str, str], contextlib.AbstractContextManager[list[str]]] | None = None,
+    env_value_template: str | None = None,
+    config_ctx: Callable[..., contextlib.AbstractContextManager[list[str]]] | None = None,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
 
@@ -2275,6 +2350,11 @@ def wrap_run(
     any base-url-honoring SDK routes through compression with no code change,
     runs the command to completion, then tears the proxy down — flushing genuine
     savings to the local ledger. Returns the child process's exit code.
+
+    ``env_value_template``, when given, is the literal value to export for
+    ``env_var`` with ``$BASE`` replaced by the proxy URL — for an agent whose
+    variable takes a document containing the endpoint rather than the endpoint
+    itself (see ``onboard.AGENT_ENV_TEMPLATES``).
 
     ``config_ctx``, when given, is a ``(upstream, base) -> contextmanager``
     factory for a tool whose only routing knob is a config file rather than
@@ -2452,18 +2532,31 @@ def wrap_run(
         threading.Thread(target=_serve_resilient, daemon=True).start()
 
     child_env = dict(os.environ)
-    child_env[env_var] = base
+    # Most presets' variable takes the proxy URL verbatim. A few take a document
+    # that CONTAINS it — Mistral Vibe's VIBE_PROVIDERS is a JSON provider array —
+    # so a template (``$BASE`` anywhere inside it) renders the value instead.
+    # Exporting a bare URL where the agent expects JSON routes nothing while
+    # reporting success, which is the one failure `wrap` must never ship.
+    env_value = _render_base_template(env_value_template, base) if env_value_template else base
+    child_env[env_var] = env_value
     print(f"distil wrap → proxy {base} (upstream {upstream})")
-    print(f"  → {env_var}={base}")
+    print(f"  → {env_var}={env_value if len(env_value) <= 120 else env_value[:117] + '…'}")
     # Some presets need more than one env var wired (e.g. goose reads a
     # separate Anthropic-flavoured host var; Copilot CLI needs a provider
     # type alongside its base URL). "$BASE" mirrors this wrap's proxy URL,
-    # "$VARNAME" passes an existing environment value through (skipped if
-    # unset/empty — never invent a credential), anything else is literal.
-    # setdefault so a user's own exported override always wins.
+    # "$BASE"/"${BASE}" ANYWHERE in the value interpolates this wrap's proxy
+    # URL, "$VARNAME" alone passes an existing environment value through
+    # (skipped if unset/empty — never invent a credential), anything else is
+    # literal. setdefault so a user's own exported override always wins.
+    #
+    # The BASE check has to come FIRST. Ordered after the "$VARNAME" branch, a
+    # template like "$BASE/v1" matched `startswith("$")`, was looked up as an
+    # environment variable literally named "BASE/v1", came back empty, and hit
+    # the `continue` — so the variable was not merely un-interpolated, it was
+    # dropped entirely and the preset exported nothing at all.
     for name, template in (extra_env or {}).items():
-        if template == "$BASE":
-            value = base
+        if _BASE_TOKEN.search(template):
+            value = _render_base_template(template, base)
         elif template.startswith("$"):
             value = os.environ.get(template[1:], "")
             if not value:
@@ -2504,19 +2597,8 @@ def wrap_run(
     except Exception:  # noqa: BLE001 — never fail wrap over terminal bookkeeping
         _saved_tty = None
 
-    # Config-file wrap targets (tools with no env-var contract, e.g. Continue,
-    # Factory Droid, Oh My Pi — see distil/config_wrap.py): entered here so
-    # its cleanup rides the SAME finally block SIGTERM/SIGHUP already funnel
-    # into below, and exited there too — no separate signal handling needed.
     config_argv: list[str] = []
     _config_cm: contextlib.AbstractContextManager[list[str]] | None = None
-    if config_ctx is not None:
-        _config_cm = config_ctx(upstream, base)
-        try:
-            config_argv = _config_cm.__enter__()
-        except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
-            log.warning("config-file injection failed; running without it", exc_info=True)
-            config_argv, _config_cm = [], None
 
     code = 0
     proc_holder: list = []
@@ -2551,6 +2633,32 @@ def wrap_run(
         except (ValueError, AttributeError):
             pass  # not the main thread, or platform without SIGUSR1
     try:
+        # Config-file wrap targets (tools with no env-var contract, e.g.
+        # Continue, Factory Droid, Oh My Pi — see distil/config_wrap.py).
+        # Entered INSIDE this try so both halves ride the same finally that
+        # SIGTERM/SIGHUP already funnel into: its cleanup on the way out, and —
+        # the reason it moved here — the proxy/supervisor teardown if entering
+        # it raises. A ConfigTargetBusy escaping from further up would
+        # otherwise leave a listening proxy, and in hot-swap mode an orphaned
+        # worker process, behind it.
+        if config_ctx is not None:
+            _config_cm = config_ctx(upstream, base, command)
+            try:
+                config_argv = _config_cm.__enter__()
+            except config_wrap.ConfigWrapRefused:
+                # NOT swallowed, unlike every other injection failure below.
+                # Both refusals say the agent would read a DIFFERENT config
+                # than the one distil can write — another live session's, or a
+                # path the child's own flags moved — so carrying on means
+                # running unrouted, or worse, through someone else's proxy and
+                # into their ledger. `_own_config`'s in-lock recheck exists for
+                # the race cmd_wrap's pre-check cannot close, so it has to be
+                # able to stop the wrap.
+                _config_cm = None  # never entered; the finally must not exit it
+                raise
+            except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
+                log.warning("config-file injection failed; running without it", exc_info=True)
+                config_argv, _config_cm = [], None
         # Reserve the slot before Popen so a SIGTERM in the spawn window still
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.

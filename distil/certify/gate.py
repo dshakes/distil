@@ -12,16 +12,13 @@ import json
 from dataclasses import dataclass
 
 from ..compress.strategies import REGISTRY, Strategy
+from ..conformal import BUDGET_DELTA, CERT_MARGIN
 from ..replay.runner import AgentRunner, DeterministicRunner
 from ..trajectory import Trajectory
 from .stats import TostResult, tost
 
-#: The pre-registered non-inferiority margin, in decision-equivalence proportion.
-#: It was three copies of the same ``0.02`` default (``certify``, ``bench``,
-#: ``calibrate``); anything that asks "is this harm within the certified budget?"
-#: — including the live shaping gate in :mod:`distil.output` — must read THIS,
-#: not a number of its own.
-CERT_MARGIN = 0.02
+# The non-inferiority margin (CERT_MARGIN) lives in distil.conformal with the rest of
+# the one risk budget; certify, bench, calibrate and the live shaping gate all read it.
 
 
 @dataclass
@@ -70,7 +67,7 @@ def certify(
     *,
     runner: AgentRunner | None = None,
     margin: float = CERT_MARGIN,
-    alpha: float = 0.05,
+    alpha: float = BUDGET_DELTA,
     aa_control: bool = False,
 ) -> CertReport:
     """Certify decision-equivalence of *strategy* on *traj*.
@@ -100,7 +97,7 @@ def certify_pooled(
     *,
     runner: AgentRunner | None = None,
     margin: float = CERT_MARGIN,
-    alpha: float = 0.05,
+    alpha: float = BUDGET_DELTA,
     aa_control: bool = False,
 ) -> CertReport:
     """One pooled TOST over EVERY turn of every trajectory.

@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .certify.gate import CERT_MARGIN
+from .conformal import CERT_MARGIN
 from .certify.holdout import bootstrap_ci
 from .compress.tier1 import Tier1Reversible
 from .tokenizer import DEFAULT, Tokenizer
@@ -174,7 +174,7 @@ def resolve_shape_output(
          floor (:func:`shadow.floor_note`'s 50 A/B + 30 A/A), and
       2. its harm bound — the lower end of the paired difference interval — is
          inside the pre-registered certification budget
-         (:data:`certify.gate.CERT_MARGIN`), and
+         (:data:`conformal.CERT_MARGIN`), and
       3. the shadow output-token delta excludes zero on the saving side, over at
          least as many samples as the verdict floor.
 
