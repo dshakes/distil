@@ -179,6 +179,10 @@ def stream_with_expand(
                             ):
                                 if k in u:
                                     usage_sink.setdefault(k, int(u[k] or 0))
+                            cc = u.get("cache_creation")
+                            for k in ("ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"):
+                                if isinstance(cc, dict) and k in cc:
+                                    usage_sink.setdefault(k, int(cc[k] or 0))
                     continue
                 if etype == "content_block_start":
                     ui = evt.get("index", 0)

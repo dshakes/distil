@@ -137,6 +137,20 @@ def request_cost(model: str | None, t: Tokens, write_1h: int = 0) -> float | Non
     )
 
 
+def row_tokens(r: dict[str, Any]) -> tuple[Tokens, int]:
+    """One proxy request record as ``(Tokens, write_1h)``.
+
+    ``usage_cache_create_1h`` is absent on rows written before the proxy recorded the
+    TTL split; those price every write at the 5-minute rate, exactly as before."""
+    t = Tokens(
+        int(r.get("usage_input_tokens") or 0),
+        int(r.get("usage_cache_read") or 0),
+        int(r.get("usage_cache_create") or 0),
+        int(r.get("usage_output_tokens") or 0),
+    )
+    return t, min(int(r.get("usage_cache_create_1h") or 0), t.cache_write)
+
+
 def _add(acc: Tokens, t: Tokens) -> None:
     acc.uncached += t.uncached
     acc.cache_read += t.cache_read
@@ -236,16 +250,10 @@ def ledger_screen(since: float | None, *, now: float | None = None) -> Screen:
             ts = float(r.get("ts") or 0)
             if since is not None and ts < since:
                 continue
-            t = Tokens(
-                int(r.get("usage_input_tokens") or 0),
-                int(r.get("usage_cache_read") or 0),
-                int(r.get("usage_cache_create") or 0),
-                int(r.get("usage_output_tokens") or 0),
-            )
+            t, w1h = row_tokens(r)
             s.requests += 1
             _add(s.tokens, t)
-            # The proxy records writes without the 1h/5m split, so they price at 5m.
-            usd = request_cost(r.get("model"), t)
+            usd = request_cost(r.get("model"), t, w1h)
             if usd is None:
                 s.unpriced_requests += 1
                 continue

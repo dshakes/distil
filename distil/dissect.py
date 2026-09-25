@@ -512,6 +512,32 @@ class Dissection:
         )
         return 100.0 * cached / total if total else None
 
+    @property
+    def cache_write_usd(self) -> tuple[float, float] | None:
+        """Dollars for cache writes over booked requests: ``(5-minute, 1-hour)``.
+
+        A 1-hour write bills at 2x input, a 5-minute one at 1.25x, so the total write
+        count alone misprices Claude Code's traffic (it asks for 1h). Rows written before
+        the proxy recorded the split price every write at 5m, as they always did. None
+        when no booked row carries a write count, or no row's model can be priced.
+        """
+        from . import pricing
+        from .savings_screen import row_tokens
+
+        five = one = 0.0
+        priced = False
+        for r in self.booked_detail:
+            if r.get("usage_cache_create") is None:
+                continue
+            p = pricing.resolve(r.get("model"))
+            if p is None:
+                continue
+            t, w1h = row_tokens(r)
+            five += (t.cache_write - w1h) * p.cache_write
+            one += w1h * p.cache_write_1h
+            priced = True
+        return (five, one) if priced else None
+
     def protected_share(self, model: str) -> float | None:
         """Share of one model's eligible tokens that policy refuses to digest.
 
@@ -1303,6 +1329,12 @@ def render_text(
             )
         else:
             out.append("  billed usage: not captured (older records or non-usage responses)")
+        cw = d.cache_write_usd
+        if cw is not None:
+            out.append(
+                f"  cache writes: ${cw[0] + cw[1]:.4f} "
+                f"(${cw[0]:.4f} at the 5-minute rate, ${cw[1]:.4f} at the 1-hour 2x rate)"
+            )
         # The cache contract (ADR 0008), as the provider scored it. distil promises the
         # prefix it forwards is byte-stable across turns; this is the only number that
         # says whether the provider agreed. A near-zero share on a long session means
@@ -1561,6 +1593,15 @@ def to_json(
                 # measure this" and "the cache never hit" are opposite diagnoses.
                 "cache_read_share_pct": (
                     None if d.cached_input_share is None else round(d.cached_input_share, 1)
+                ),
+                # (5m, 1h) write dollars; None when no booked row carries a write count.
+                "cache_write_usd": (
+                    None
+                    if d.cache_write_usd is None
+                    else {
+                        "5m": round(d.cache_write_usd[0], 6),
+                        "1h": round(d.cache_write_usd[1], 6),
+                    }
                 ),
                 # None, not zeros, when the records predate ADR 0011 or replay was off.
                 "prefix_replay": (

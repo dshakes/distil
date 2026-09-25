@@ -55,6 +55,10 @@ _USAGE_OUT = re.compile(rb'"output_tokens"\s*:\s*(\d+)')
 # sum of all three — without these, token accounting (and calibration) is wrong on cached traffic.
 _CACHE_READ = re.compile(rb'"cache_read_input_tokens"\s*:\s*(\d+)')
 _CACHE_CREATE = re.compile(rb'"cache_creation_input_tokens"\s*:\s*(\d+)')
+# The write split by TTL (usage.cache_creation.ephemeral_{1h,5m}_input_tokens): a 1-hour
+# write bills at 2x input, a 5-minute one at 1.25x, so the total alone misprices writes.
+_CACHE_1H = re.compile(rb'"ephemeral_1h_input_tokens"\s*:\s*(\d+)')
+_CACHE_5M = re.compile(rb'"ephemeral_5m_input_tokens"\s*:\s*(\d+)')
 _USAGE_SCAN_CAP = 16384  # head/tail window — usage lives at the edges of a stream
 
 
@@ -62,7 +66,8 @@ def scan_usage(blob: bytes) -> dict[str, int]:
     """Best-effort billed-token extraction from a response body (JSON or SSE).
 
     Returns any of ``{"input_tokens", "output_tokens", "cache_read_input_tokens",
-    "cache_creation_input_tokens"}`` found — empty dict when the body carries no usage. The
+    "cache_creation_input_tokens", "ephemeral_1h_input_tokens",
+    "ephemeral_5m_input_tokens"}`` found — empty dict when the body carries no usage. The
     cache fields matter: on cached traffic ``input_tokens`` is only the uncached remainder, so
     the true billed input is ``input_tokens + cache_read + cache_creation``.
     """
@@ -73,6 +78,8 @@ def scan_usage(blob: bytes) -> dict[str, int]:
     for key, rx in (
         ("cache_read_input_tokens", _CACHE_READ),
         ("cache_creation_input_tokens", _CACHE_CREATE),
+        ("ephemeral_1h_input_tokens", _CACHE_1H),
+        ("ephemeral_5m_input_tokens", _CACHE_5M),
     ):
         cm = rx.search(blob)
         if cm:
