@@ -271,15 +271,23 @@ UNREACHABLE: tuple[Target, ...] = (
         "but there is no process for wrap to launch or scope a config change to",
     ),
     Target(
+        # Re-checked 2026-09-25: VS Code's BYOK "Custom Endpoint" provider (which
+        # replaced the deprecated `github.copilot.chat.customOAIModels` setting) takes
+        # any Chat Completions / Responses / Anthropic Messages URL per model — so a
+        # local distil proxy IS a valid target now. It stays "proxy" (not wrap): the
+        # extension is started by the editor, with no argv to wrap.
         key="code",
-        label="VS Code Copilot (extension)",
+        label="VS Code Copilot Chat (extension)",
         mechanism="proxy",
-        shape=OPENAI_CHAT,
-        knob="—",
-        doc_url="https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models",
-        verified="2026-09-16",
-        note="the extension terminates at GitHub's own service and exposes no "
-        "endpoint override; BYOK is a Copilot CLI feature, and that CLI IS wrapped",
+        shape=EITHER,
+        knob="chatLanguageModels.json → vendor customendpoint → models[].url",
+        doc_url="https://code.visualstudio.com/docs/copilot/customization/language-models",
+        verified="2026-09-25",
+        note="BYOK 'Custom Endpoint' takes a full per-model URL (Chat Completions, "
+        "Responses or Anthropic Messages), so point it at a running distil proxy — "
+        "`distil setup --vscode` prints the entry. The extension is editor-launched, so "
+        "there is nothing to wrap; chat only (inline completions, embeddings and "
+        "semantic search stay on GitHub), and a Business/Enterprise admin can disable BYOK",
     ),
     Target(
         key="cortex",

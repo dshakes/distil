@@ -2306,6 +2306,8 @@ def cmd_setup_front(args: argparse.Namespace) -> int:
         return cmd_setup(args)
     if getattr(args, "hooks", False):
         return cmd_hook(argparse.Namespace(action="install", client="auto"))
+    if getattr(args, "vscode", False):
+        return _print_vscode_entry(args.port)
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
     rc = cmd_onboard(
         argparse.Namespace(
@@ -2350,6 +2352,49 @@ def cmd_setup_front(args: argparse.Namespace) -> int:
     rc = max(rc, cmd_doctor(argparse.Namespace(no_color=args.no_color, json=False)))
     print("\nnext:  distil wrap -- claude     then:  distil savings")
     return rc
+
+
+def vscode_entry(port: int) -> list[dict[str, Any]]:
+    """A VS Code ``chatLanguageModels.json`` provider routing Copilot Chat via distil.
+
+    Shape from code.visualstudio.com/docs/copilot/customization/language-models
+    (Custom Endpoint, verified 2026-09-25). The key stays an ``${input:…}`` variable
+    so VS Code prompts for it and stores it — distil never sees or writes a key.
+    """
+    return [
+        {
+            "name": "distil",
+            "vendor": "customendpoint",
+            "apiKey": "${input:anthropicApiKey}",
+            "apiType": "messages",
+            "models": [
+                {
+                    "id": "claude-sonnet-4-6",
+                    "name": "Claude Sonnet 4.6 (via distil)",
+                    "url": f"http://127.0.0.1:{port}/v1/messages",
+                    "toolCalling": True,
+                    "vision": True,
+                    "maxInputTokens": 200000,
+                    "maxOutputTokens": 64000,
+                }
+            ],
+        }
+    ]
+
+
+def _print_vscode_entry(port: int) -> int:
+    """Print the Copilot Chat entry; writing VS Code's own file is left to VS Code."""
+    import json as _json
+
+    print("VS Code Copilot Chat → distil (BYOK Custom Endpoint)\n")
+    print(f"1. Keep a distil proxy on port {port}:  distil setup --always-on")
+    print("2. In VS Code: Chat: Manage Language Models → Add Models → Custom Endpoint,")
+    print("   API type Messages. VS Code opens chatLanguageModels.json — use this entry:\n")
+    print(_json.dumps(vscode_entry(port), indent=2))
+    print("\n3. Pick 'Claude Sonnet 4.6 (via distil)' in the chat model picker.")
+    print("   Change id/name for another model. Chat only: inline completions stay on GitHub.")
+    print("   Source: https://code.visualstudio.com/docs/copilot/customization/language-models")
+    return 0
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -5319,6 +5364,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="only install post-tool hooks for every detected client (Claude Code, Cursor, "
         "Gemini CLI, Codex) — for agents a proxy cannot reach",
     )
+    su.add_argument(
+        "--vscode",
+        action="store_true",
+        help="print the VS Code Copilot Chat custom-endpoint entry that routes it via distil",
+    )
+    su.add_argument("--port", type=int, default=8788, help="proxy port for --vscode (default 8788)")
     su.set_defaults(func=cmd_setup_front)
 
     ob = sub.add_parser(
