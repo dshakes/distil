@@ -1015,7 +1015,7 @@ try:
     os.chmod(tmp, st.st_mode & 0o7777)
     try:
         os.chown(tmp, st.st_uid, st.st_gid)
-    except OSError:
+    except (OSError, AttributeError):  # AttributeError: no os.chown (Windows Python)
         pass
     os.replace(tmp, target)
 except (OSError, RuntimeError) as exc:

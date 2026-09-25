@@ -1635,6 +1635,7 @@ def test_cline_path_falls_back_to_the_env_then_the_default(monkeypatch, tmp_path
     )
     monkeypatch.delenv("CLINE_DATA_DIR")
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows ~
     assert config_wrap._cline_providers_path(["cline"]).parts[-4:] == (
         ".cline",
         "data",
@@ -1682,6 +1683,7 @@ def test_cline_patches_the_flagged_file_and_leaves_the_default_alone(tmp_path, m
     default.parent.mkdir(parents=True)
     default.write_text('{"version": 1, "providers": {}}')
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Windows ~
     monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     flagged_dir = tmp_path / "elsewhere"
@@ -1750,6 +1752,7 @@ def test_crush_path_follows_xdg_config_home(monkeypatch, tmp_path):
     assert config_wrap._crush_config_path() == tmp_path / "xdg" / "crush" / "crush.json"
     monkeypatch.delenv("XDG_CONFIG_HOME")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Windows ~
     assert config_wrap._crush_config_path().parts[-3:] == (".config", "crush", "crush.json")
 
 
@@ -1758,6 +1761,7 @@ def test_restore_sweeps_the_flagged_path_too(tmp_path, monkeypatch):
     the same command has to clean it up; sweeping only the default would leave
     the user's real config patched forever."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Windows ~
     monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
     settings = tmp_path / "state" / "data" / "settings"
     settings.mkdir(parents=True)

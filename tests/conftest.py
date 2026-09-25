@@ -35,6 +35,40 @@ def _distil_home_sandbox(monkeypatch, tmp_path_factory):
     )
 
 
+#: Every env var an in-process resolver of a user's agent config reads. Unset, each falls
+#: back to ~ — which the sandbox below owns.
+_USER_CONFIG_VARS = ("CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "CLINE_DATA_DIR")
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_home: opt out of the per-test HOME/USERPROFILE sandbox (path-resolution "
+        "tests that must see the genuine home; they may not write under it)",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _user_home_sandbox(request, monkeypatch, tmp_path_factory):
+    """No test may write the developer's or CI runner's real ~/.claude, ~/.cursor,
+    ~/.codex, ~/.cline, ~/.config... — on ANY OS.
+
+    `default_settings_path()` and every other agent-config resolver derive from
+    `Path.home()`, which is HOME on POSIX and USERPROFILE on Windows. A test that set
+    only HOME wired the Windows runner's real C:\\Users\\runneradmin\\.claude\\settings.json
+    (and the next tests read that pollution back). Redirecting both here, per test,
+    closes it by construction: a test that forgets costs nothing. Tests that set their
+    own HOME still win (monkeypatch applies theirs after this).
+    """
+    if request.node.get_closest_marker("real_home"):
+        return
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    for var in _USER_CONFIG_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def _stop_drift_watchers():
     """Every build_handler starts a drift-guard watcher thread; stop them per test so
