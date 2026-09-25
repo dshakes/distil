@@ -392,6 +392,7 @@ def test_kilo_is_not_shadowed_by_a_project_local_config(tmp_path, monkeypatch):
     global_original = '{"provider": {"mine": {"npm": "y"}}}\n'
     global_cfg.write_text(global_original)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Windows ~
     monkeypatch.chdir(project)
 
     code = _run_child(

@@ -361,21 +361,46 @@ def _load_for_write(p: Path) -> LiveDrift:
     window — and, if the replacement write failed, a permanent gap — in which the state
     is MISSING, which every watcher reads as released. If the copy fails, ``quarantined``
     stays empty and :meth:`LiveDrift._write` refuses to overwrite the only copy.
-    The name carries nanoseconds so a second corruption never overwrites the first.
+    The name carries nanoseconds, and an existing archive is never overwritten: a clash
+    takes the next ``-N`` suffix. Nanoseconds alone are not unique — Windows' clock ticks
+    every ~15.6 ms, so two quarantines in one tick got the same name, the link failed and
+    the copy fallback hit the first archive (a hard link to the same file) and gave up.
     """
     state = LiveDrift.load(p)
     if state.corrupt:
-        dest = p.with_name(f"{p.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns()}")
+        base = f"{p.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns()}"
         try:
-            try:
-                os.link(p, dest)
-            except OSError:
-                shutil.copy2(p, dest)
-            state.quarantined = dest.name
-            log.warning("distil drift: unreadable %s copied to %s; holding", p.name, dest.name)
+            for n in range(100):
+                dest = p.with_name(base if n == 0 else f"{base}-{n}")
+                try:
+                    _copy_aside(p, dest)
+                except FileExistsError:
+                    continue
+                state.quarantined = dest.name
+                log.warning("distil drift: unreadable %s copied to %s; holding", p.name, dest.name)
+                break
+            else:
+                raise FileExistsError(f"{base}: every archive name is taken")
         except OSError:
             log.warning("distil drift: %s is unreadable and could not be copied; holding", p)
     return state
+
+
+def _copy_aside(src: Path, dest: Path) -> None:
+    """Hard-link *src* to *dest*, else copy it; ``FileExistsError`` if *dest* exists.
+
+    The copy is created exclusively (``xb``), so neither branch can overwrite an archive.
+    """
+    try:
+        os.link(src, dest)
+        return
+    except FileExistsError:
+        raise
+    except OSError:
+        pass  # no hard links here (FAT, some network shares): copy instead
+    with open(src, "rb") as fi, open(dest, "xb") as fo:
+        shutil.copyfileobj(fi, fo)
+    shutil.copystat(src, dest)
 
 
 def _bootstrap(path: Path | None = None) -> LiveDrift:

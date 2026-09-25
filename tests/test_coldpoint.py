@@ -522,12 +522,15 @@ def test_two_credentials_never_share_a_lineage(proxy, clock) -> None:
 # --------------------------------------------------------------------------- review round
 
 
-def test_the_clock_counts_sleep() -> None:
+def test_the_clock_counts_sleep(monkeypatch) -> None:
     """Behaviour, not configuration: whatever clock is picked must carry a sleep through.
     The sleep is simulated by the injected `gettime`, never by patching the process's
     real clock."""
     import time
 
+    # The constant is only an id handed to the injected gettime; Windows has none, so
+    # supply one (raising=False) rather than depend on the host interpreter.
+    monkeypatch.setattr(time, "CLOCK_MONOTONIC", getattr(time, "CLOCK_MONOTONIC", 1), raising=False)
     wall = [100.0]
     clk = coldpoint._pick_clock("darwin", lambda cid: wall[0])
     before = clk()
@@ -709,6 +712,16 @@ def test_a_file_that_vanishes_before_the_read_is_empty_not_unreadable(tmp_path) 
     assert coldpoint._parse(tmp_path / "gone.json") == {}
     (tmp_path / "dir.json").mkdir()
     assert coldpoint._parse(tmp_path / "dir.json") is None
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
+def test_an_interpreter_without_clock_constants_falls_back(monkeypatch, platform) -> None:
+    """Windows' `time` has no CLOCK_* constants: the pick is time.monotonic, not a raise."""
+    import time
+
+    monkeypatch.delattr(time, "CLOCK_MONOTONIC", raising=False)
+    monkeypatch.delattr(time, "CLOCK_BOOTTIME", raising=False)
+    assert coldpoint._pick_clock(platform, lambda cid: 42.0) is time.monotonic
 
 
 def test_linux_picks_a_boot_clock_when_the_platform_has_one() -> None:
