@@ -353,6 +353,16 @@ def test_input_equivalents():
         billed_input_equiv({"input_tokens": 10, "cache_read_input_tokens": 100}, "gemini-x") == 110
     )
     assert billed_input_equiv({"output_tokens": 1}, "claude-opus-4-8") == 5
+    # 1-hour cache writes bill at 2x, 5-minute at 1.25x; the split is capped at the total.
+    assert billed_input_equiv({"cache_creation_input_tokens": 100}, "claude-opus-4-8") == 125
+    w = {"cache_creation_input_tokens": 100, "ephemeral_1h_input_tokens": 100}
+    assert billed_input_equiv(w, "claude-opus-4-8") == 200
+    w["ephemeral_1h_input_tokens"] = 40
+    assert billed_input_equiv(w, "claude-opus-4-8") == 155
+    w["ephemeral_1h_input_tokens"] = 999
+    assert billed_input_equiv(w, "claude-opus-4-8") == 200
+    r = {"requery_cache_creation_input_tokens": 100, "requery_ephemeral_1h_input_tokens": 100}
+    assert billed_input_equiv(r, "claude-opus-4-8", prefix="requery_") == 200
 
 
 def test_zero_baseline_spend_is_flushed_not_dropped(tmp_path):

@@ -195,22 +195,23 @@ def billed_input_equiv(usage: dict[str, int] | None, model: str | None, *, prefi
     The ledger prices a token at the model's base input rate, so spend distil CAUSES
     (an expand re-query, a shadow replay) is converted into that unit before it is
     added to the distil side: uncached input at 1x, cache read at 0.1x, cache write at
-    1.25x, output at output/input. Then tokens-saved and dollars-saved both net it out.
+    1.25x (5-minute) or 2x (the 1-hour share the provider reports), output at
+    output/input. Then tokens-saved and dollars-saved both net it out.
     An unpriceable model adds the input tokens it sent, unweighted.
     """
     u = usage or {}
     inp = int(u.get(prefix + "input_tokens", 0) or 0)
     cr = int(u.get(prefix + "cache_read_input_tokens", 0) or 0)
     cw = int(u.get(prefix + "cache_creation_input_tokens", 0) or 0)
+    cw1h = min(cw, int(u.get(prefix + "ephemeral_1h_input_tokens", 0) or 0))
     out = int(u.get(prefix + "output_tokens", 0) or 0)
     from . import pricing as _pricing
 
     p = _pricing.resolve(model)
     if p is None:
         return inp + cr + cw
-    return round(
-        (inp * p.input + cr * p.cache_read + cw * p.cache_write + out * p.output) / p.input
-    )
+    write = (cw - cw1h) * p.cache_write + cw1h * p.cache_write_1h
+    return round((inp * p.input + cr * p.cache_read + write + out * p.output) / p.input)
 
 
 def requery_input_equiv(usage: dict[str, int] | None, model: str | None) -> int:
