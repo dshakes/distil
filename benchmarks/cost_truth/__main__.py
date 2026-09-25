@@ -296,7 +296,8 @@ def _live(args: argparse.Namespace) -> int:
         live.prepare_tools(args.tools_dir)
         tasks_dir = args.tasks_dir
         if tasks_dir is None:
-            tasks_dir = TASKS_ROOT / arms_mod.TASK_DATASET.split("@")[0]
+            # harbor stores a hub dataset "org/name[@ver]" under TASKS_ROOT/name
+            tasks_dir = TASKS_ROOT / arms_mod.TASK_DATASET.split("@")[0].split("/")[-1]
             if not tasks_dir.is_dir():
                 subprocess.run(
                     [*HARBOR, "download", arms_mod.TASK_DATASET, "-o", str(TASKS_ROOT)], check=True
