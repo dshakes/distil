@@ -784,6 +784,8 @@ What we *did* adopt (it survives the gate): a pluggable salience scorer to *prot
 
 Distil compresses **input/context** (comprehensive) **and output** — generation-side verbosity shaping (PAYG, measured with `distil output-savings`) plus a reversible output-on-re-entry digest, so verbose past answers stop costing full price as history. Details: [Output & I/O](https://dshakes.github.io/distil/output.html).
 
+Shaping changes the model's own words, so it is not on because someone typed a flag — it is on while the evidence says it should be. `--shape-output auto` is the default on a metered session: shaping runs only when the live paired shadow verdict clears the shared reporting floor (50 A/B + 30 A/A), its harm bound sits inside the same ±2pp budget `distil certify` tests against, and the measured effect of compression on reply length excludes zero on the saving side. Miss any one and shaping is off, with the reason printed, stored in the session manifest, and shown by `distil dissect`. The gate reads only shadow rows measured with shaping off, so shaping can never keep itself on with its own shorter replies. On a subscription or OAuth session it is always off — distil does not alter a flat-rate prompt.
+
 ## 🔬 Reproducible evaluation & the paper
 
 Every number reproduces from the bundled corpus (`distil bench`, no key). The non-circular proof harness grades **real agent traces with a real model** (τ-bench / SWE-bench): [`benchmarks/PROVE.md`](benchmarks/PROVE.md). Compiled paper, LaTeX source, and all committed results: [`docs/PAPER.md`](docs/PAPER.md) · [`docs/paper/`](docs/paper/) · [paper PDF](docs/paper/main.pdf). **Step-by-step: [Reproduce the Numbers →](https://dshakes.github.io/distil/benchmarks.html)**

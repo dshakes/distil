@@ -835,7 +835,12 @@ class Dissection:
         if self.usage_output_total:
             total_usage = self.usage_input_total + self.usage_output_total
             pct = 100.0 * self.usage_output_total / total_usage if total_usage else 0.0
-            shaping = (self.manifest or {}).get("flags", {}).get("shape_output", "off")
+            flags = (self.manifest or {}).get("flags", {})
+            shaping = flags.get("shape_output", "off")
+            # The manifest records WHY, not just what — an `auto` session that chose
+            # off is a decision with evidence behind it, and printing only "off"
+            # reads as a flag nobody set.
+            why = flags.get("shape_reason") or ""
             if self.billing == "subscription":
                 shaping_note = (
                     "Live replies are never shortened on a subscription — output shaping "
@@ -843,7 +848,9 @@ class Dissection:
                     "being trusted."
                 )
             elif shaping and shaping != "off":
-                shaping_note = f"Output shaping is on ({shaping}) for live replies."
+                shaping_note = f"Output shaping is on ({shaping}{f' — {why}' if why else ''})."
+            elif why:
+                shaping_note = f"Output shaping is off — {why}."
             else:
                 shaping_note = (
                     "Live replies can additionally be shortened with --shape-output "
@@ -1088,7 +1095,10 @@ def _flags_line(man: dict[str, Any]) -> str:
     if float(flags.get("shadow_rate") or 0.0) > 0:
         on.append(f"shadow={flags['shadow_rate']}")
     if (flags.get("shape_output") or "off") != "off":
-        on.append(f"shape_output={flags['shape_output']}")
+        # `auto` that resolved ON reads as "shape=light(auto)" — the level that ran
+        # and the fact nobody typed it.
+        req = flags.get("shape_requested")
+        on.append(f"shape_output={flags['shape_output']}" + ("(auto)" if req == "auto" else ""))
     return ", ".join(on) or "defaults"
 
 

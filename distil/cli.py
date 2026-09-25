@@ -23,6 +23,7 @@ from .compress.strategies import REGISTRY, distil as distil_strategy
 from .corpus import load_corpus, validate
 from .replay.ablation import discover
 from .certify.gate import certify, certify_pooled
+from .output import SHAPE_MODES
 from .trajectory import Trajectory
 
 from .corpus import CORPUS_DIR  # env-aware corpus dir (wheel / repo / $DISTIL_CORPUS)
@@ -4851,9 +4852,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     px.add_argument(
         "--shape-output",
-        default="off",
-        choices=("off", "light", "aggressive"),
-        help="output-token compression via a gated verbosity directive (PAYG only)",
+        default="auto",
+        choices=SHAPE_MODES,
+        help="output-token shaping via a gated verbosity directive (PAYG only). "
+        "auto (default) turns it on only while the live shadow verdict says it is "
+        "safe and replies measurably shorten; off/light/aggressive override",
     )
     px.add_argument(
         "--async",
@@ -5208,9 +5211,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     wr.add_argument(
         "--shape-output",
-        default="off",
-        choices=("off", "light", "aggressive"),
-        help="output-token compression via a gated verbosity directive (PAYG only)",
+        default="auto",
+        choices=SHAPE_MODES,
+        help="output-token shaping via a gated verbosity directive (PAYG only). "
+        "auto (default) turns it on only while the live shadow verdict says it is "
+        "safe and replies measurably shorten; off/light/aggressive override",
     )
     wr.add_argument(
         "--pricing",

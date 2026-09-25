@@ -1300,6 +1300,46 @@ rule were pinning their requests file's mtime to wall-clock "now" beside a synth
 historical `ts`; `os.utime`'d to match their own fixture clock instead of narrowing the
 rule to work around them. A new test pins the old-row-plus-recent-failure case.
 
+### The output shaper was off, and nothing was deciding
+The verbosity directive that shortens replies has existed since output compression
+shipped. It defaulted to off, and the only way to turn it on was to know the flag — which
+means the decision about whether to use it was being made by whoever read the docs most
+recently, not by any evidence. That is backwards for a lossy transform. Every other lossy
+thing distil does answers to the live paired shadow verdict; this one answered to a
+default.
+`--shape-output` now takes `auto`, and `auto` is the default on a metered session.
+Shaping is on while three things hold and off the moment one stops: the paired
+decision-equivalence verdict is at or above the one reporting floor the whole product
+shares (50 A/B, 30 A/A); its harm bound sits inside the pre-registered ±2pp certification
+budget, read from the same constant `distil certify` tests against rather than a second
+number that could drift from it; and the shadow output-token delta excludes zero on the
+saving side over at least as many samples. Explicit `light`/`aggressive`/`off` still win.
+Subscription and OAuth sessions are unchanged and always off — that is a policy boundary,
+not a preference, and an explicit request there is suppressed and says so.
+The third condition is an enabling signal, not a forecast, and the docs say so where the
+rule is described: it measures what *input* compression already does to reply length on
+your traffic, because a shaping A/B needs a live model and cannot be run at session start.
+What shaping itself costs is still `distil output-savings`, after the fact.
+**The gate cannot vote for itself.** Once shaping is on, the shadow replay of the served
+request carries the directive, so "replies got shorter" on those rows is shaping
+measuring itself — a gate fed them would stay on by construction. Every shadow row now
+records the levers active when it was measured (`"levers": {"compression": …, "shape":
+…}`), and the evidence that turns shaping ON comes only from `shape: off` rows. Rows
+written before the tag are excluded too; their shaping state is unknown, not off. The
+evidence that turns it OFF includes the shaped rows: they are the only ones that measure
+the directive's own decision-change effect, so once they clear the reporting floor their
+harm bound must sit inside the same ±2pp budget, or `auto` resolves off. Without that
+half, shaping could be turned on but never off. Both sets are read over the last 7 days
+only (the same recent window `distil stats` uses), so an "on" decision cannot rest on
+traffic that has since changed. The tag is per-lever so expand and re-read delta can
+join it later.
+Off is never silent. The reason is printed at startup, written into the session manifest
+beside the level and what was asked for, and read back by `distil dissect`. The last
+published live sample (398 A/B, 399 A/A) predates the lever tag and so counts as zero
+rows; its harm bound of −4.5pp is outside the 2pp budget in any case. `auto` resolves to
+off and prints why, which is the feature working rather than a number being withheld.
+Reply length itself is #185's `output` verdict line; this change adds no second one.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

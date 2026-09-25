@@ -104,6 +104,23 @@ def test_shadow_round_trip(proxy_factory):
     time.sleep(0.6)  # let the background shadow compare run to completion
 
 
+@pytest.mark.parametrize("shape", ["off", "light"])
+def test_shadow_rows_carry_the_active_levers(proxy_factory, shape):
+    """Every shadow row names the levers that shaped its B arm — the tag the
+    auto-shaping gate filters on, so shaped rows can never vote shaping back on."""
+    import os
+    from pathlib import Path
+
+    ledger = Path(os.environ["DISTIL_HOME"]) / "shadow.jsonl"
+    port = proxy_factory(shadow_rate=1.0, shape_output=shape)
+    _post(port, _digestible())
+    deadline = time.time() + 5
+    while not ledger.exists() and time.time() < deadline:
+        time.sleep(0.05)
+    rows = [json.loads(ln) for ln in ledger.read_text().splitlines()]
+    assert rows and all(r["levers"] == {"compression": "digest", "shape": shape} for r in rows)
+
+
 def test_expand_gate_round_trip(proxy_factory):
     # expand on + a handle stub in the conversation -> _expand_should_intercept True ->
     # tool injected + response buffered + run_expand_loop (echo has no expand call -> returns)

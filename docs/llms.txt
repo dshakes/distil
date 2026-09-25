@@ -94,6 +94,17 @@ runnable:
     Replays run hot (399 of 399, temperature not pinned), so the paired
     difference is the statistic, not the 53.0% raw agreement. Artifact:
     benchmarks/results/shadow-live-2026-09-15.json
+  - Adaptive output shaping: the verbosity directive that shortens replies is
+    lossy, so it runs only while that same live referee says it is safe and
+    paying. `--shape-output auto` is the default on a metered session and turns
+    shaping on when the paired verdict clears the reporting floor, its harm
+    bound is inside the same +/-2pp budget `distil certify` uses, and the
+    measured effect of compression on reply length excludes zero on the saving
+    side; otherwise off, with the reason printed and recorded in the session
+    manifest. The gate reads only shadow rows measured with shaping off (each
+    row is tagged with its active levers), so shaping cannot keep itself on with
+    its own shorter replies. Always off on subscription/OAuth — distil does not
+    alter a flat-rate prompt.
 
 ## Key sources
 

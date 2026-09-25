@@ -17,6 +17,9 @@ from ..replay.runner import AgentRunner, DeterministicRunner
 from ..trajectory import Trajectory
 from .stats import TostResult, tost
 
+# The non-inferiority margin (CERT_MARGIN) lives in distil.conformal with the rest of
+# the one risk budget; certify, bench, calibrate and the live shaping gate all read it.
+
 
 @dataclass
 class TurnDivergence:

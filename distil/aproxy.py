@@ -111,7 +111,7 @@ def make_app(
     *,
     lossless_only: bool = False,
     verbatim: bool = False,
-    shape_output: str = "off",
+    shape_output: str = "auto",
     savings: Any = None,
     prefix_replay: bool = True,
 ) -> Any:
@@ -128,9 +128,11 @@ def make_app(
     lossless_only:
         When *True* only Tier-0 lossless transforms are applied.
     shape_output:
-        Output-compression level (``"off"``/``"light"``/``"aggressive"``). When
-        not ``"off"`` and lossy compression is permitted, a verbosity-control
-        directive is appended so the model emits fewer tokens.
+        Output-compression mode (``"auto"``/``"off"``/``"light"``/``"aggressive"``).
+        When not ``"off"`` and lossy compression is permitted, a verbosity-control
+        directive is appended so the model emits fewer tokens. ``"auto"`` resolves
+        through :func:`distil.output.resolve_shape_output` at app build; the
+        decision is on the app as ``app["distil_shape_decision"]``.
     """
     try:
         from aiohttp import web
@@ -153,6 +155,13 @@ def make_app(
     # and gates output shaping below.
     _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
     _lossy_ok = may_compress_lossy(_auth_mode)
+    # Same adaptive rule as the sync proxy, resolved once at app build. `auto` must
+    # never reach `shape_request`, which only knows concrete levels.
+    from .output import resolve_shape_output as _resolve_shape
+
+    shape_decision = _resolve_shape(shape_output, lossy_ok=_lossy_ok)
+    shape_output = shape_decision.level
+    app_shape_decision = shape_decision  # stashed on the app below for the banner
     # aproxy injects no distil_expand tool and runs no expand loop, so a Tier-1 digest
     # stub here can NEVER be recovered — irreversibly lossy on PAYG exactly as on a
     # subscription. The note above says to fold unrecoverable digest into verbatim; the
@@ -439,6 +448,7 @@ def make_app(
     # Cap inbound body size so a giant POST can't exhaust memory (aiohttp returns
     # 413 automatically past this); matches the sync servers' guard.
     app = web.Application(client_max_size=MAX_BODY_BYTES)
+    app["distil_shape_decision"] = app_shape_decision  # what `aserve` prints
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)
 
@@ -466,7 +476,7 @@ def serve(
     *,
     lossless_only: bool = False,
     verbatim: bool = False,
-    shape_output: str = "off",
+    shape_output: str = "auto",
     record: bool = True,
     pricing_model: str = "claude-opus-4-8",
     prefix_replay: bool = True,
@@ -508,14 +518,11 @@ def serve(
     )
     print(f"distil async proxy listening on http://{host}:{port}")
     print(f"  → upstream: {upstream}")
-    if shape_output != "off":
-        if lossless_only:
-            print(
-                "  ⚠ --shape-output requested but SUPPRESSED: lossless-only never modifies "
-                "the response. No shaping will happen. Drop --lossless-only to enable it."
-            )
-        else:
-            print(f"  → output shaping: {shape_output}")
+    _shape = app["distil_shape_decision"]
+    if _shape.on:
+        print(f"  → output shaping: {_shape.level} ({_shape.reason})")
+    elif _shape.requested != "auto":
+        print(f"  ⚠ --shape-output {_shape.requested} SUPPRESSED: {_shape.reason}")
     if savings is not None:
         print("  → recording genuine savings → distil leaderboard")
     web.run_app(app, host=host, port=port, print=None)
