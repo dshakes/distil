@@ -34,6 +34,8 @@ from distil import pricing
 #: 1.25x write. Claude Code can request 1h TTLs, and ``usage.cache_creation`` splits them.
 CACHE_WRITE_1H_MULT = 2.0
 
+CANARY_USER_PREFIX = "cost-truth-canary-"  # mirrors arms.CANARY_USER_PREFIX
+
 USAGE_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -188,6 +190,12 @@ class MeterConfig:
     spend: SpendMeter
     run_id: str
     timeout_s: float = 600.0
+    #: bind address. Loopback by default; the live run binds where task containers can
+    #: reach it (Docker Desktop forwards host.docker.internal to host loopback).
+    bind: str = "127.0.0.1"
+    #: preflight: a request whose ``metadata.user_id`` is the canary id is flagged
+    #: ``canary: true`` (a boolean — the id itself is never written).
+    canary_nonce: str | None = None
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -215,6 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _proxy(self) -> None:
         cfg = self.server.cfg
         self._began = False  # response headers not yet sent (per request on keep-alive)
+        self._canary = False
         n = int(self.headers.get("content-length") or 0)
         body = self.rfile.read(n) if n else b""
         t0 = time.monotonic()
@@ -227,6 +236,9 @@ class _Handler(BaseHTTPRequestHandler):
                 req = {}
             model = str(req.get("model") or "")
             stream = bool(req.get("stream"))
+            meta = req.get("metadata") if isinstance(req, dict) else None
+            if cfg.canary_nonce and isinstance(meta, dict):
+                self._canary = meta.get("user_id") == CANARY_USER_PREFIX + cfg.canary_nonce
             try:
                 worst = worst_case_cost(model, len(body), int(req.get("max_tokens") or 0))
                 reservation = cfg.spend.reserve(worst)
@@ -331,6 +343,7 @@ class _Handler(BaseHTTPRequestHandler):
             "request_bytes": req_bytes,
             "response_bytes": resp_bytes,
             "note": note,
+            "canary": self._canary,
         }
         with srv.log_lock, srv.cfg.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, sort_keys=True) + "\n")
@@ -340,7 +353,7 @@ class _MeterServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, cfg: MeterConfig) -> None:
-        super().__init__(("127.0.0.1", 0), _Handler)
+        super().__init__((cfg.bind, 0), _Handler)
         self.cfg = cfg
         self.log_lock = threading.Lock()
         self._seq = 0
@@ -361,9 +374,13 @@ class UsageMeter:
         self._thread = threading.Thread(target=self._srv.serve_forever, daemon=True)
 
     @property
+    def port(self) -> int:
+        return int(self._srv.server_address[1])
+
+    @property
     def base_url(self) -> str:
-        host, port = self._srv.server_address[:2]
-        return f"http://{host!s}:{port}"
+        host = str(self._srv.server_address[0])
+        return f"http://{'127.0.0.1' if host == '0.0.0.0' else host}:{self.port}"
 
     def __enter__(self) -> UsageMeter:
         self._thread.start()

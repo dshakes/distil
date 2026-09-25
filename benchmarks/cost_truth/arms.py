@@ -1,148 +1,305 @@
-"""The four arms as data: pinned install, documented Claude Code integration, savings claim.
+"""The four arms: pinned artifacts, documented Claude Code integration, savings claim.
 
-Nothing here executes. ``plan`` prints these so a reviewer (and the competitor maintainers
-the protocol invites) can check the exact commands *before* a dollar is spent. Every field
-marked ``verified=False`` is a claim about a third-party CLI that the live preflight
-(protocol §6.3, the "chain proof") must confirm; ``plan`` lists them and the live runner
-refuses to start while any remain.
+Every tool runs INSIDE the task container, installed and launched exactly as its own docs
+say (protocol Amendment 1). This module only builds strings — bash scripts the Harbor
+agent (``harbor_agent.py``) executes in the container, and the local executor
+(``live.LocalExecutor``) executes against the mock upstream in tests. Nothing here runs a
+competitor binary.
 
-Versions are the latest releases on 2026-09-25 and are frozen with the protocol. They are
-not bumped mid-study, even if a bug is found (Quesma hit an ``rtk find`` loop fixed one
-release after their run; the protocol's answer is to report it, not to swap versions).
+Every ``evidence`` string cites the primary source the spec was checked against on
+2026-09-25 (wheel/tarball downloaded, hashed, unpacked and READ — never executed).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import shlex
+from dataclasses import dataclass
+from pathlib import Path
 
-CLAUDE_CODE_VERSION = "2.1.282"  # npm @anthropic-ai/claude-code, latest 2026-09-25
-HARBOR_VERSION = "0.23.0"  # PyPI harbor, sha256 8747400d…5c37 (wheel)
-TASK_SUITE = "terminal-bench@2.1"  # Harbor dataset id — confirm spelling at freeze
+LOCKS = Path(__file__).resolve().parent / "locks"
+
+# --------------------------------------------------------------------------- pins
+
+CLAUDE_CODE_VERSION = "2.1.282"  # npm @anthropic-ai/claude-code latest, 2026-09-25
+HARBOR_VERSION = "0.23.0"  # PyPI harbor; wheel sha256 8747400dbb2a5e22…
+TASK_DATASET = "terminal-bench@2.1"  # Harbor registry id (README shows terminal-bench@2.0)
+
+#: Downloaded once on the host by ``live.prepare_tools``, sha256-verified, then bind-mounted
+#: read-only into every task container at ``HOST_MOUNT``. Name -> (url, sha256).
+ARTIFACTS: dict[str, tuple[str, str]] = {
+    "uv.tar.gz": (
+        "https://github.com/astral-sh/uv/releases/download/0.12.19/uv-x86_64-unknown-linux-musl.tar.gz",
+        "db7278c9f57981338fddff1fb250e11964bc0a4fafcb9eed8303fdb117dc067b",
+    ),
+    "rtk.tar.gz": (
+        "https://github.com/rtk-ai/rtk/releases/download/v0.50.0/rtk-x86_64-unknown-linux-musl.tar.gz",
+        "bc2b8902b0d9c796c82ef45f16ae2307e17757afeca5ee156235a3dc7bda5f89",
+    ),
+}
+UV_DIR_IN_TARBALL = "uv-x86_64-unknown-linux-musl"
+
+CT = "/opt/cost-truth"  # everything the harness adds to a container lives here
+HOST_MOUNT = f"{CT}/host"  # read-only: artifacts + locks
+UV_CACHE_MOUNT = f"{CT}/uv-cache"  # read-write, shared across containers (uv locks it)
+#: Serena is resolved by ``uvx`` at run time (unpinned in headroom's spec); this pins the
+#: resolution to the freeze date so it cannot drift mid-study.
+UV_EXCLUDE_NEWER = "2026-09-25T00:00:00Z"
+
+CANARY_MAX_TOKENS = 8
+CANARY_USER_PREFIX = "cost-truth-canary-"
+
+#: Identical for every arm (protocol Amendment 1, §B): each tool's own wrap sets
+#: ENABLE_TOOL_SEARCH=true because Claude Code turns tool-search deferral OFF behind any
+#: non-first-party ANTHROPIC_BASE_URL — and the meter makes EVERY arm non-first-party.
+#: Setting it everywhere restores first-party behaviour for control/rtk instead of letting
+#: the proxy arms be credited for undoing a meter artifact. Both tools keep an existing value.
+COMMON_ENV = {
+    "ENABLE_TOOL_SEARCH": "true",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "IS_SANDBOX": "1",  # Harbor's claude-code agent: allows bypassPermissions as root
+    "FORCE_AUTO_BACKGROUND_TASKS": "1",  # Harbor's claude-code agent sets both
+    "ENABLE_BACKGROUND_TASKS": "1",
+}
 
 
 @dataclass(frozen=True)
 class Arm:
     name: str
     version: str | None
-    #: argv steps, run on the host with cwd = the arm's isolated tool dir ``{tools}``.
-    install: tuple[tuple[str, ...], ...]
-    #: how Claude Code is launched. ``{meter}`` = the neutral meter's base URL;
-    #: ``{claude}`` = the claude argv (``-p <instruction> --model M ...``).
-    launch: tuple[str, ...]
-    #: env the arm needs so ITS upstream is the meter (never the provider directly).
-    upstream_env: dict[str, str] = field(default_factory=dict)
-    #: the tool's own savings report, read from the run's isolated state after the run.
-    claim: tuple[str, ...] = ()
+    verified: bool
+    evidence: tuple[str, ...]
     claim_unit: str = ""
-    verified: bool = False
-    notes: str = ""
 
 
 ARMS: dict[str, Arm] = {
-    "control": Arm(
-        name="control",
-        version=None,
-        install=(),
-        launch=("{claude}",),
-        upstream_env={"ANTHROPIC_BASE_URL": "{meter}"},
-        verified=True,
-        notes="Claude Code direct to the meter. No compressor.",
-    ),
+    "control": Arm("control", None, True, ("Claude Code direct to the meter.",)),
     "rtk": Arm(
-        name="rtk",
-        version="0.50.0",
-        install=(
-            (
-                "curl",
-                "-fsSLo",
-                "{tools}/rtk.tar.gz",
-                "https://github.com/rtk-ai/rtk/releases/download/v0.50.0/"
-                "rtk-x86_64-unknown-linux-musl.tar.gz",
-            ),
-            (
-                "sh",
-                "-c",
-                "echo 'bc2b8902b0d9c796c82ef45f16ae2307e17757afeca5ee156235a3dc7bda5f89  "
-                "{tools}/rtk.tar.gz' | sha256sum -c -",
-            ),
-            ("tar", "-xzf", "{tools}/rtk.tar.gz", "-C", "{tools}"),
-            # inside the task container, with HOME = the run's fresh home:
-            ("{tools}/rtk", "init", "-g"),
+        "rtk",
+        "0.50.0",
+        True,
+        (
+            "release tarball rtk-x86_64-unknown-linux-musl.tar.gz sha256 bc2b8902…5f89 matches "
+            "the release's checksums.txt and our own download",
+            "README v0.50.0: Claude Code integration is `rtk init -g` (PreToolUse hook, native "
+            "binary `rtk hook claude`); `--auto-patch` is the documented non-interactive (CI) form",
+            "src/hooks/init.rs: with stdin not a TTY the settings.json patch prompt DEFAULTS TO NO, "
+            "so plain `rtk init -g` in a headless container installs no hook — `--auto-patch` is required",
+            "src/hooks/init.rs writes $HOME/.claude/settings.json (dirs::home_dir; CLAUDE_CONFIG_DIR "
+            "is not consulted) — so the harness must NOT relocate CLAUDE_CONFIG_DIR as Harbor's "
+            "stock agent does, or the hook is silently ignored",
+            "src/hooks/constants.rs: hook command is literally `rtk hook claude` -> rtk must be on PATH",
+            "src/analytics/gain.rs: `rtk gain --format json` -> {summary:{total_saved,...}}",
+            "src/main.rs: `rtk rewrite <cmd>` exists (single source of truth for hooks) -> canary check",
         ),
-        launch=("{claude}",),
-        upstream_env={"ANTHROPIC_BASE_URL": "{meter}"},
-        claim=("{tools}/rtk", "gain"),
-        claim_unit="rtk-tokens (output bytes removed / 4, per RTK's docs)",
-        verified=False,
-        notes="Claude Code PreToolUse hook rewrites Bash commands; no proxy, so claude talks "
-        "to the meter directly. Static musl binary: installing it does not perturb the task "
-        "container's Python/Node. Verify: `rtk init -g` hook flags, `rtk gain` JSON output.",
+        claim_unit="rtk tokens (output bytes removed / 4)",
     ),
     "headroom": Arm(
-        name="headroom",
-        version="0.38.0",
-        install=(
-            ("uv", "venv", "--python", "3.12", "{tools}/venv"),
-            # hashes for the full closure are generated at freeze with
-            # `uv pip compile --generate-hashes` and committed next to the protocol
-            (
-                "uv",
-                "pip",
-                "install",
-                "--python",
-                "{tools}/venv/bin/python",
-                "--require-hashes",
-                "-r",
-                "{tools}/headroom-0.38.0.requirements.txt",
-            ),
+        "headroom",
+        "0.38.0",
+        True,
+        (
+            "PyPI headroom_ai-0.38.0-cp310-abi3-manylinux_2_28_x86_64.whl sha256 941d1f0c…7db7, "
+            "unpacked and read (not executed)",
+            'README 0.38.0 install: `uv tool install --python 3.13 "headroom-ai[all]"`; integration '
+            "`headroom wrap claude`; print mode `headroom wrap claude -- -p` (click "
+            "ignore_unknown_options, claude args after `--`)",
+            "cli/wrap.py _start_proxy: proxy subprocess env = os.environ.copy(); proxy/server.py:6420 "
+            "reads ANTHROPIC_TARGET_API_URL; providers/registry.py resolves it first -> the edge meter "
+            "IS reachable: ANTHROPIC_TARGET_API_URL=<meter>. No fallback needed.",
+            "cli/wrap.py claude(): also registers the headroom MCP retrieve tool and the Serena MCP "
+            "(`uvx --from serena-agent serena start-mcp-server ...`, only if uvx is on PATH) at user "
+            "scope, writes .claude/settings.local.json in cwd, sets ENABLE_TOOL_SEARCH=true unless set",
+            "cli/savings.py: `headroom savings --json` -> report.to_dict() "
+            "(lifetime.tokens_saved, cost_effective_usd, cost_usd) from ~/.headroom/savings_events.jsonl",
+            "hash-locked closure (171 pkgs incl. torch + CUDA wheels) resolved with --no-build: "
+            "locks/headroom-ai-0.38.0-all.cp313-x86_64-manylinux_2_28.txt",
         ),
-        launch=("{tools}/venv/bin/headroom", "wrap", "{claude}"),
-        upstream_env={"ANTHROPIC_TARGET_API_URL": "{meter}"},
-        claim=("{tools}/venv/bin/headroom", "savings", "--json"),
-        claim_unit="headroom-reported tokens and USD",
-        verified=False,
-        notes="Documented integration `headroom wrap claude`. UNVERIFIED: the env/flag that "
-        "points headroom's upstream at a custom URL, wrap's argv passthrough syntax, and the "
-        "savings CLI. The chain proof fails closed if the meter sees no traffic.",
+        claim_unit="headroom tokens_saved / cost_effective_usd",
     ),
     "distil": Arm(
-        name="distil",
-        version="1.52.0",
-        install=(
-            ("uv", "venv", "--python", "3.12", "{tools}/venv"),
-            (
-                "uv",
-                "pip",
-                "install",
-                "--python",
-                "{tools}/venv/bin/python",
-                "--require-hashes",
-                "-r",
-                "{tools}/distil-1.52.0.requirements.txt",
-            ),
+        "distil",
+        "1.54.0",
+        True,
+        (
+            "PyPI distil_llm-1.54.0-py3-none-any.whl sha256 c124150f…2cb4 (the published wheel, "
+            "never the authors' tree); stdlib-only, lock has one line",
+            "distil/cli.py: `distil wrap --upstream URL -- claude ...` (argparse REMAINDER, leading "
+            "`--` stripped at cli.py:3251); proxy forwards to `_upstream + path` (http allowed)",
+            "distil/onboard.py claude preset sets ENABLE_TOOL_SEARCH=true via setdefault",
+            "API-key auth in a fresh HOME is not subscription_mode -> default digest tier (not the "
+            "subscription lossless-only default)",
+            "`distil stats --json` is the leaderboard alias (cli.py:4434), reads $DISTIL_HOME",
         ),
-        launch=("{tools}/venv/bin/distil", "wrap", "--upstream", "{meter}", "{claude}"),
-        upstream_env={"DISTIL_HOME": "{state}/distil"},
-        claim=("{tools}/venv/bin/distil", "stats", "--json"),
-        claim_unit="distil-reported tokens and USD",
-        verified=False,
-        notes="The PUBLISHED wheel (PyPI distil-llm), never the authors' working tree. "
-        "`--upstream` exists on `distil wrap` (distil/cli.py); verify it accepts an http "
-        "loopback URL and that `stats --json` reads the isolated DISTIL_HOME.",
+        claim_unit="distil tokens / USD saved",
     ),
 }
+
+CLAUDE_ARGS = (
+    "--verbose",
+    "--output-format=stream-json",
+    "--permission-mode=bypassPermissions",
+)
 
 
 def unverified() -> list[str]:
     return [a.name for a in ARMS.values() if not a.verified]
 
 
-def render(template: tuple[str, ...], claude: list[str] | None = None, **subs: str) -> list[str]:
-    """Fill ``{name}`` placeholders; a bare ``{claude}`` expands to the whole claude argv."""
-    out: list[str] = []
-    for part in template:
-        if part == "{claude}":
-            out.extend(claude or [])
-        else:
-            out.append(part.format(**subs))
-    return out
+# --------------------------------------------------------------------------- scripts
+
+
+def install_script(arm: str, root: str = CT) -> str:
+    """Bash, run as root in the container after Claude Code is installed. x86_64 only."""
+    host = f"{root}/host"
+    lines = [
+        "set -euo pipefail",
+        '[ "$(uname -m)" = x86_64 ] || { echo "cost-truth: x86_64 containers only" >&2; exit 97; }',
+        f"mkdir -p {root}/bin",
+    ]
+    if arm in ("headroom", "distil"):
+        lines += [
+            f"tar -xzf {host}/uv.tar.gz -C {root}",
+            f"install -m 0755 {root}/{UV_DIR_IN_TARBALL}/uv {root}/{UV_DIR_IN_TARBALL}/uvx {root}/bin/",
+        ]
+        py, lock = (
+            ("3.13", "headroom-ai-0.38.0-all.cp313-x86_64-manylinux_2_28.txt")
+            if arm == "headroom"
+            else ("3.12", "distil-llm-1.54.0.cp312-x86_64-manylinux_2_28.txt")
+        )
+        uv_env = f"UV_CACHE_DIR={root}/uv-cache UV_PYTHON_INSTALL_DIR={root}/python"
+        lines += [
+            f"{uv_env} {root}/bin/uv venv --python {py} {root}/{arm}",
+            f"{uv_env} {root}/bin/uv pip install --python {root}/{arm}/bin/python "
+            f"--require-hashes --no-deps -r {host}/locks/{lock}",
+            f"chmod -R a+rX {root}",
+        ]
+    elif arm == "rtk":
+        lines += [
+            f"tar -xzf {host}/rtk.tar.gz -C /usr/local/bin rtk",
+            "chmod 0755 /usr/local/bin/rtk",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def agent_setup_script(arm: str) -> str:
+    """Bash, run as the agent user before the task: per-user configuration the docs prescribe."""
+    if arm == "rtk":
+        return f"set -euo pipefail\n{_path_prefix(arm, CT)}\nrtk init -g --auto-patch\n"
+    return "true\n"
+
+
+def arm_env(arm: str, meter_url: str, root: str = CT) -> dict[str, str]:
+    """Env for the launch. Every arm's LAST hop before the provider is the meter."""
+    env = dict(COMMON_ENV)
+    if arm in ("control", "rtk"):
+        env["ANTHROPIC_BASE_URL"] = meter_url
+    elif arm == "headroom":
+        env["ANTHROPIC_TARGET_API_URL"] = meter_url
+        env["UV_EXCLUDE_NEWER"] = UV_EXCLUDE_NEWER  # pins uvx's Serena resolution
+        env["UV_CACHE_DIR"] = f"{root}/uv-cache"
+        env["UV_PYTHON_INSTALL_DIR"] = f"{root}/python"
+    elif arm == "distil":
+        env["CT_UPSTREAM"] = meter_url
+    else:
+        raise KeyError(arm)
+    return env
+
+
+def _path_prefix(arm: str, root: str) -> str:
+    extra = {"headroom": f"{root}/headroom/bin:{root}/bin:", "distil": f"{root}/distil/bin:"}.get(
+        arm, ""
+    )
+    return f'export PATH="{extra}$HOME/.local/bin:$PATH"'
+
+
+def launcher(arm: str, claude_args: list[str]) -> list[str]:
+    """The documented way each tool launches Claude Code."""
+    if arm in ("control", "rtk"):
+        return ["claude", *claude_args]
+    if arm == "headroom":
+        return ["headroom", "wrap", "claude", "--", *claude_args]
+    if arm == "distil":
+        return ["distil", "wrap", "--upstream", "$CT_UPSTREAM", "--", "claude", *claude_args]
+    raise KeyError(arm)
+
+
+def _render(argv: list[str]) -> str:
+    # "$CT_UPSTREAM" must stay a shell expansion; everything else is quoted literally.
+    return " ".join('"$CT_UPSTREAM"' if a == "$CT_UPSTREAM" else shlex.quote(a) for a in argv)
+
+
+def launch_script(arm: str, model: str, logs_dir: str, root: str = CT) -> str:
+    """Bash, run as the agent user: pipe the instruction (in $CT_INSTRUCTION) into the arm."""
+    argv = launcher(arm, [*CLAUDE_ARGS, "--model", model, "--print"])
+    return "\n".join(
+        [
+            "set -o pipefail",
+            _path_prefix(arm, root),
+            'ct_instruction="$CT_INSTRUCTION"; unset CT_INSTRUCTION',
+            f'printf "%s" "$ct_instruction" | {_render(argv)} 2>&1 | tee {shlex.quote(logs_dir)}/claude-code.txt',
+        ]
+    )
+
+
+def post_run_script(arm: str, logs_dir: str, root: str = CT) -> str:
+    """Bash, agent user, after the run: the tool's own savings claim + the session transcript."""
+    claim = {
+        "rtk": "rtk gain --format json",
+        "headroom": "headroom savings --json",
+        "distil": "distil stats --json",
+    }.get(arm)
+    q = shlex.quote(logs_dir)
+    lines = [_path_prefix(arm, root), f"mkdir -p {q}/sessions"]
+    if claim:
+        lines.append(f"{claim} > {q}/claim.json 2> {q}/claim.err || true")
+    lines.append(f"cp -r $HOME/.claude/projects {q}/sessions/ 2>/dev/null || true")
+    return "\n".join(lines) + "\n"
+
+
+def canary_script(arm: str, model: str, logs_dir: str, nonce: str, root: str = CT) -> str:
+    """Bash, agent user: prove this arm's traffic reaches the meter THROUGH the tool.
+
+    A shim named ``claude`` is put first on PATH. The tool launches it exactly as it would
+    launch Claude Code; the shim records the base URL it was handed and sends ONE tiny
+    request (``max_tokens`` = 8, a nonce in ``metadata.user_id``) to it. ``claude mcp ...``
+    (headroom registers MCP servers through the CLI) is passed to the real binary.
+    The host then requires: the meter saw the nonce, and — for proxy arms — the URL the
+    shim got is NOT the meter (so the request crossed the tool to get there).
+    """
+    q = shlex.quote(logs_dir)
+    body = json.dumps(
+        {
+            "model": model,
+            "max_tokens": CANARY_MAX_TOKENS,
+            "metadata": {"user_id": CANARY_USER_PREFIX + nonce},
+            "messages": [{"role": "user", "content": "Reply with the single word: ok"}],
+        }
+    )
+    shim = "\n".join(
+        [
+            "#!/usr/bin/env bash",
+            'case "${1:-}" in mcp|--version|doctor) exec "$HOME/.local/bin/claude" "$@";; esac',
+            f'printf \'{{"base_url": "%s"}}\' "$ANTHROPIC_BASE_URL" > {q}/canary.json',
+            'curl -sS --max-time 120 -o /dev/null -w "%{http_code}" -X POST "${ANTHROPIC_BASE_URL%/}/v1/messages" '
+            '-H "content-type: application/json" -H "anthropic-version: 2023-06-01" '
+            f'-H "x-api-key: $ANTHROPIC_API_KEY" --data {shlex.quote(body)} > {q}/canary.status',
+        ]
+    )
+    lines = [
+        "set -uo pipefail",
+        f"mkdir -p {root}/canary {q}",
+        f"cat > {root}/canary/claude <<'CT_SHIM'\n{shim}\nCT_SHIM",
+        f"chmod 0755 {root}/canary/claude",
+        _path_prefix(arm, root),
+        f'export PATH="{root}/canary:$PATH"',
+        f"{_render(launcher(arm, ['--print']))} < /dev/null > {q}/canary.out 2>&1",
+        f"echo $? > {q}/canary.exit",
+    ]
+    if arm == "rtk":
+        lines += [
+            f'grep -q "rtk hook claude" "$HOME/.claude/settings.json" && echo 1 > {q}/rtk.hook || echo 0 > {q}/rtk.hook',
+            f'rtk rewrite "git status" > {q}/rtk.rewrite 2>&1 || true',
+        ]
+    return "\n".join(lines) + "\n"

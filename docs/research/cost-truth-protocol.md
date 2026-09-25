@@ -93,10 +93,12 @@ with the frozen protocol. No task is excluded after the confirmatory run starts.
 
 ## 4. Agent, models, arms
 
-* **Agent:** Claude Code `2.1.282` (npm `@anthropic-ai/claude-code`), headless
-  `claude -p <task instruction> --model <m> --output-format json`, via Harbor's installed
-  `claude-code` agent. Auto-update and non-essential traffic disabled. No MCP servers, no
-  user CLAUDE.md, default permissions for headless Harbor runs, identical across arms.
+* **Agent:** Claude Code `2.1.282`, installed by Harbor's own `claude-code` installer and
+  run headless exactly as Harbor's stock agent runs it (`--verbose
+  --output-format=stream-json --permission-mode=bypassPermissions --model <m> --print`,
+  instruction on stdin), through the custom agent `benchmarks/cost_truth/harbor_agent.py`.
+  Auto-update and non-essential traffic disabled; no MCP servers or CLAUDE.md beyond what
+  an arm's own documented setup adds (Amendment 1).
 * **Models:** `claude-sonnet-5` (primary), `claude-haiku-4-5` (replication). Every request's
   model is priced by what the response says it was (Claude Code's own Haiku side-calls are
   billed too, and counted in $, but not in "turns").
@@ -106,24 +108,17 @@ with the frozen protocol. No task is excluded after the confirmatory run starts.
 | Arm | Version | Integration (documented) | Its upstream |
 |---|---|---|---|
 | control | — | `claude -p` direct | meter |
-| rtk | 0.50.0 (musl binary, sha256-pinned) | `rtk init -g` → Claude Code Bash hook | meter (no proxy) |
-| headroom | headroom-ai 0.38.0 (hash-locked venv) | `headroom wrap claude` | meter |
-| distil | distil-llm 1.52.0 **from PyPI** (hash-locked venv) | `distil wrap claude` | meter (`--upstream`) |
+| rtk | 0.50.0 (musl binary, sha256-pinned) | `rtk init -g --auto-patch` → Claude Code Bash hook | meter (no proxy) |
+| headroom | headroom-ai[all] 0.38.0, Python 3.13 (hash-locked, 171 pkgs) | `headroom wrap claude -- …` | meter (`ANTHROPIC_TARGET_API_URL`) |
+| distil | distil-llm 1.54.0 **from PyPI**, Python 3.12 (hash-locked) | `distil wrap --upstream … -- claude …` | meter (`--upstream`) |
 
 Distil is tested as a user would install it: the published wheel, never the authors'
 working tree. If a newer GA of any tool ships before freeze, the frozen versions are the
 latest GA on the freeze date — the same rule for all three.
 
-**Where each piece runs.** Terminal-Bench runs the agent *inside* the task container. RTK
-must be there (it rewrites commands the container executes): a static musl binary copied to
-`/opt/rtk/` so it cannot perturb the task's Python/Node. Proxy tools (headroom, distil) run on
-the host so their Python dependencies never enter the task container; their documented
-`wrap claude` is executed on the host with `claude` resolved to a shim that `docker exec`s
-Claude Code inside the container with the env and argv `wrap` gave it (loopback URLs
-rewritten to the host gateway). The **wrap capture** preflight (§6.3) records everything
-`wrap` sets (env, argv, files written under HOME). If a wrap writes a hook or config that
-refers to a host binary, the arm cannot be faithfully reproduced by the shim; it is then
-installed in-container instead, and that decision is published before freeze.
+**Where each piece runs:** every tool inside the task container, installed and launched as
+its own docs say — see Amendment 1 (which replaces the host-side shim design of the first
+draft).
 
 ## 5. Design
 
@@ -205,11 +200,13 @@ first refusal stops dispatch; the in-flight run is `budget_stop` (§10).
 
 ### 6.3 Preflight (live only; $ < 1)
 
-For each arm, before any confirmatory run: (a) **wrap capture** (§4); (b) **chain proof** —
-one canary request through the arm's full chain must appear in the meter log, else the arm
-is not metered and the run cannot start; (c) **claim readback** — the claim command returns
-parseable output from the isolated state dir. The live runner refuses to start while any arm
-spec in `arms.py` is `verified=False`. Preflight outputs are published.
+For each arm, at the start of every phase: the **canary chain proof** of Amendment 1 §D —
+one tiny request launched by the arm's own integration must reach the meter, and for proxy
+arms must have crossed the tool to get there; RTK must also show its hook and rewriter. Any
+failure aborts the phase before a task runs. Each run then records the tool's own claim
+(`claim.json`); a run whose meter saw no billed traffic is `arm_crash` (§10). The live
+runner refuses to start while any arm spec in `arms.py` is unverified. `preflight.json` is
+published.
 
 ## 7. Sample size and power
 
@@ -367,7 +364,7 @@ whether it was made before or after any arm outcome was visible. The report list
 ## 15. Threats to validity (for the reviewer)
 
 * **Host-side proxies vs in-container agent** (§4): the shim is a reproduction of `wrap`, not
-  `wrap` itself. The wrap capture is the evidence it is faithful.
+  `wrap` itself. *Superseded by Amendment 1: tools now run their real `wrap` in-container.*
 * **Network path:** proxy arms add a loopback hop the control lacks. Latency is a secondary
   outcome; it does not affect $.
 * **Cache coupling across concurrent runs** of *different* tasks (shared tools/system prefix)
@@ -377,3 +374,76 @@ whether it was made before or after any arm outcome was visible. The report list
   the replication suite.
 * **σ_w is guessed** until the pilot. If it is large, the study will be underpowered and will
   say so rather than add runs after looking.
+
+## Amendment 1 — 2026-09-25 (before any data; no live run has happened)
+
+Made after verifying every arm against its primary source. Evidence per arm is in
+`benchmarks/cost_truth/arms.py` (`Arm.evidence`) and printed by `python -m
+benchmarks.cost_truth plan`. Wheels and tarballs were downloaded, hashed, unpacked and
+read; no competitor code was executed on the host.
+
+**A. All tools run in the task container, as documented.** The first draft ran proxy tools
+on the host behind a `claude` shim. Reading `headroom wrap claude` (0.38.0) showed that its
+default setup also registers two MCP servers at user scope (Headroom's retrieve tool, and
+Serena via `uvx`), writes `.claude/settings.local.json` in the working directory, and sets
+environment for the child — none of which a host-side shim can reproduce. So every arm now
+runs its real integration inside the container:
+
+* RTK 0.50.0: musl binary to `/usr/local/bin/rtk`, then `rtk init -g --auto-patch`.
+  `--auto-patch` is required, not a tuning choice: without a TTY `rtk init` defaults the
+  settings.json patch to *no* and installs no hook (`src/hooks/init.rs`).
+* Headroom 0.38.0: its documented install, `headroom-ai[all]` on Python 3.13, via a pinned
+  `uv` 0.12.19 and a hash-locked closure (171 packages incl. torch); `uv`/`uvx` on PATH so
+  its default Serena registration happens as it does for a `uv tool install` user; Serena's
+  run-time resolution pinned with `UV_EXCLUDE_NEWER=2026-09-25`.
+* distil 1.54.0: the published wheel on Python 3.12, hash-locked.
+* Installs run from a read-only, sha256-verified host mount (`/opt/cost-truth/host`) plus a
+  shared uv cache; install time is not part of any outcome. x86_64 containers only.
+
+**B. `ENABLE_TOOL_SEARCH=true` in every arm.** Both Headroom (`cli/wrap.py`, issue #746) and
+distil (`onboard.py`) document that Claude Code turns tool-search deferral off behind any
+non-first-party `ANTHROPIC_BASE_URL`, and both wraps set it back on. The meter makes every
+arm non-first-party, so without this the control and RTK arms would load every tool schema
+eagerly — an artifact of the meter that the proxy arms would be credited for undoing.
+Setting it identically in all arms restores first-party behaviour; both tools keep an
+existing value.
+
+**C. Headroom routes through the edge meter — no fallback needed.** `headroom wrap` starts
+its proxy with `os.environ.copy()`; the proxy resolves its Anthropic upstream from
+`ANTHROPIC_TARGET_API_URL` (`proxy/server.py`, `providers/registry.py`). The canary (§D)
+proves it per run set.
+
+**D. Canary preflight replaces the wrap capture.** Before any task, per arm: a `claude`
+shim first on PATH is launched *by the arm's own integration* and sends one request
+(`max_tokens` 8, a nonce in `metadata.user_id`) to the base URL it was handed. Pass iff the
+meter saw the nonce (flagged as a boolean, never logged) AND, for proxy arms, the URL
+handed to Claude Code was not the meter (so the request crossed the tool); for RTK also the
+hook entry in `$HOME/.claude/settings.json` and a working `rtk rewrite`. Any failure aborts
+the phase. Expected cost ≈ $0.001.
+
+**E. Harbor differences, identical across arms.** The custom agent keeps Harbor's stock
+Claude Code install and flags but (i) does not relocate `CLAUDE_CONFIG_DIR` (RTK writes its
+hook to `$HOME/.claude`, which Harbor's relocation would silently disable); (ii) does not
+remap every model alias to the main model (Harbor does this behind a custom base URL;
+real users' Haiku side-calls stay Haiku); (iii) passes the arm as an agent kwarg, not agent
+env, so the arm's name is not in the environment the model's Bash tool can read.
+
+**F. distil re-pinned to 1.54.0** (released 2026-09-25), the latest GA, per §4's rule.
+
+## Running the pilot
+
+One command, from the repo root, with `ANTHROPIC_API_KEY` exported and Docker running:
+
+```
+uv run python -m benchmarks.cost_truth live --phase pilot --i-approve-spend 92.07
+```
+
+It refuses unless the approval equals the pilot cap to the cent, then: verifies and mounts
+the pinned artifacts, downloads `terminal-bench@2.1` with Harbor 0.23.0 if absent, samples
+10 tasks with the committed seed, runs the four canaries, then 10 tasks × 2 seeds × 4 arms
+(80 runs, ≤ 4 concurrent, 360 s same-task spacing) under one $92.07 hard cap. It writes
+content-free results to `benchmarks/results/cost_truth/pilot-<ts>/` (runs, per-request meter
+logs, preflight, manifest) and `pilot_summary.json` (σ_w, discordance, token-profile
+medians, 1h-cache flag — pooled over arms, no arm comparison). Transcripts stay in the
+gitignored `benchmarks/results/scratch/cost_truth/trials/`. The whole path runs offline
+against the mock with `--mock`.

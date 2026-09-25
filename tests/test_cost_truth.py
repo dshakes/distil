@@ -419,23 +419,13 @@ def test_estimate_is_consistent() -> None:
 # --------------------------------------------------------------------------- arms
 
 
-def test_arm_specs_pin_versions_and_flag_unverified() -> None:
+def test_arm_specs_are_pinned_verified_and_cite_evidence() -> None:
     assert set(arms_mod.ARMS) == set(rn.ARMS)
-    assert set(arms_mod.unverified()) == {"rtk", "headroom", "distil"}
-    d = arms_mod.ARMS["distil"]
-    assert d.version and "rc" not in d.version and "dev" not in d.version  # a published wheel
-    for a in arms_mod.ARMS.values():
-        assert "{meter}" in " ".join(a.launch) + json.dumps(a.upstream_env)  # every arm is metered
-    argv = arms_mod.render(d.launch, ["claude", "-p", "do it"], tools="/T", meter="http://m")
-    assert argv == [
-        "/T/venv/bin/distil",
-        "wrap",
-        "--upstream",
-        "http://m",
-        "claude",
-        "-p",
-        "do it",
-    ]
+    assert arms_mod.unverified() == []
+    assert arms_mod.ARMS["distil"].version == "1.54.0"  # the released wheel, not rc/dev
+    assert all(a.evidence for a in arms_mod.ARMS.values())
+    for a in rn.ARMS:  # every arm is metered
+        assert "http://m" in json.dumps(arms_mod.arm_env(a, "http://m"))
 
 
 # --------------------------------------------------------------------------- dry run end to end

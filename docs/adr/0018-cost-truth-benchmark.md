@@ -33,11 +33,12 @@ built so that we cannot tilt it.
 5. **Conflict of interest is handled structurally**: competitor versions pinned at latest GA
    with their documented default configs, distil tested from its published wheel, a 14-day
    competitor review before freeze, all raw per-run usage published regardless of outcome.
-6. **This phase is $0**: protocol, harness, dry-run (mock upstream + scripted agent) and a
-   cost estimate (hard caps: pilot $92, primary $2,048, replication $410; total $2,550).
-   The live driver (Harbor custom agent + wrap shim) is built only after the arm specs are
-   verified by preflight, and it must refuse to start while `arms.unverified()` is non-empty.
-   There is deliberately no `live` subcommand yet.
+6. **Built at $0, spent only on approval**: protocol, harness, dry run, cost estimate (hard
+   caps: pilot $92.07, primary $2,048.49, replication $409.70), arm specs verified against
+   primary sources (protocol Amendment 1), and a live driver (Harbor custom agent running
+   each tool's real integration in the task container, canary chain proof, paired dispatch)
+   exercised end to end only against the mock upstream. `live` refuses to run unless
+   `--i-approve-spend` equals the phase cap to the cent.
 
 ## Consequences
 
