@@ -1,0 +1,181 @@
+{
+  "date": "2026-09-24",
+  "source": "~/.claude/projects/**/*.jsonl (real Claude Code transcripts, provider usage)",
+  "sessions": 3585,
+  "requests": 69332,
+  "bill_input_equiv_tokens": 3004724788,
+  "calibration_billed_per_heuristic_token": 1.2762,
+  "bill_components": {
+    "input": 17047126,
+    "cache_write": 678118681,
+    "cache_read": 20031867462,
+    "output": 27368513
+  },
+  "bill_weights": {
+    "input": 1.0,
+    "cache_write": 1.25,
+    "cache_read": 0.1,
+    "output": 5.0
+  },
+  "tool_results": 70320,
+  "bash_results": 49206,
+  "bash_eligible_results": 44696,
+  "bash_eligible_tokens_p50_p90_max": [
+    112,
+    696,
+    17636
+  ],
+  "share_of_bill": {
+    "all_tool_results": 0.2198,
+    "bash_outputs": 0.158,
+    "bash_outputs_excl_file_reads": 0.1261,
+    "bash_eligible_residual_after_digest": 0.0541
+  },
+  "distil_already_removes_share_of_bill": {
+    "digest": 0.072,
+    "lossless_only": 0.0011,
+    "recency_exempt_tier0": 0.0002,
+    "note": "digest is the cache-stable first-sight rendering on clients that mark cache_control (recency is anchored to the breakpoint, so nothing is exempt); recency_exempt_tier0 applies only to clients that mark nothing"
+  },
+  "distil_already_removes_pct_of_bash_tokens": {
+    "recency_exempt_tier0": 0.001,
+    "digest": 0.6149
+  },
+  "top_families_by_bill_weight": [
+    {
+      "family": "grep",
+      "n": 9091,
+      "share_of_bill": 0.0251,
+      "raw_tokens": 3036487,
+      "digest_removes_pct": 0.619
+    },
+    {
+      "family": "python3",
+      "n": 7484,
+      "share_of_bill": 0.0211,
+      "raw_tokens": 1795413,
+      "digest_removes_pct": 0.555
+    },
+    {
+      "family": "sed",
+      "n": 2212,
+      "share_of_bill": 0.013,
+      "raw_tokens": 1298060,
+      "digest_removes_pct": 0.728
+    },
+    {
+      "family": "python",
+      "n": 4559,
+      "share_of_bill": 0.0108,
+      "raw_tokens": 973097,
+      "digest_removes_pct": 0.561
+    },
+    {
+      "family": "echo",
+      "n": 2044,
+      "share_of_bill": 0.0065,
+      "raw_tokens": 1103922,
+      "digest_removes_pct": 0.741
+    },
+    {
+      "family": "ls",
+      "n": 1385,
+      "share_of_bill": 0.005,
+      "raw_tokens": 547448,
+      "digest_removes_pct": 0.765
+    },
+    {
+      "family": "cat",
+      "n": 1350,
+      "share_of_bill": 0.005,
+      "raw_tokens": 508059,
+      "digest_removes_pct": 0.624
+    },
+    {
+      "family": "awk",
+      "n": 1067,
+      "share_of_bill": 0.0047,
+      "raw_tokens": 420673,
+      "digest_removes_pct": 0.691
+    },
+    {
+      "family": "for",
+      "n": 1264,
+      "share_of_bill": 0.004,
+      "raw_tokens": 512050,
+      "digest_removes_pct": 0.697
+    },
+    {
+      "family": "gh pr",
+      "n": 1478,
+      "share_of_bill": 0.0035,
+      "raw_tokens": 254279,
+      "digest_removes_pct": 0.352
+    },
+    {
+      "family": "pytest",
+      "n": 1113,
+      "share_of_bill": 0.0023,
+      "raw_tokens": 204150,
+      "digest_removes_pct": 0.308
+    },
+    {
+      "family": "tail",
+      "n": 446,
+      "share_of_bill": 0.0017,
+      "raw_tokens": 144968,
+      "digest_removes_pct": 0.478
+    },
+    {
+      "family": "gh run",
+      "n": 348,
+      "share_of_bill": 0.0015,
+      "raw_tokens": 106994,
+      "digest_removes_pct": 0.503
+    },
+    {
+      "family": "git show",
+      "n": 193,
+      "share_of_bill": 0.0015,
+      "raw_tokens": 159494,
+      "digest_removes_pct": 0.775
+    },
+    {
+      "family": "git diff",
+      "n": 305,
+      "share_of_bill": 0.0014,
+      "raw_tokens": 207862,
+      "digest_removes_pct": 0.674
+    }
+  ],
+  "incremental_headroom_share_of_bill": {
+    "rtk_families_90pct_net_of_digest": 0.0139,
+    "ceiling_90pct_every_shell_output_net_of_digest": 0.0422,
+    "rtk_families_90pct_if_lossless_only_session": 0.037,
+    "rtk_family_results": 15949
+  },
+  "threshold": 0.02,
+  "decision": "STOP",
+  "census_cross_check": {
+    "requests": 14332,
+    "modes": {
+      "digest": 14332
+    },
+    "bucket_share": {
+      "user_text": 0.484,
+      "tool_result_digested": 0.2033,
+      "tool_result_exact_quote": 0.1382,
+      "tool_result_shell_read": 0.0869,
+      "tool_result_short": 0.0408,
+      "assistant_text": 0.0211,
+      "image_kept": 0.0132,
+      "tool_result_html_stripped": 0.0093,
+      "tool_result_declined": 0.0024,
+      "image_elided": 0.0006,
+      "tool_result_recent": 0.0002,
+      "tool_result_expand_recovered": 0.0001,
+      "thinking_billed": 0.0
+    },
+    "note": "payload-token share per request, summed (NOT bill-weighted; content-free, has no tool-name split, so shell output is inside tool_result_* buckets)"
+  }
+}

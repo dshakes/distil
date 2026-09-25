@@ -1510,6 +1510,20 @@ prefix. Shortening over-long head and tail lines to their two ends moved corpus 
 from visible to one `distil_expand` away (retention visible 37.7% to 33.1%) and added a
 silent failure; a token saved by a round trip is not a token saved.
 
+### Why there are no per-command shell profiles
+RTK-style profiles — rewriting `git status`, `pytest`, `ls`/`grep` output with rules per
+command — were measured before being built, on real traffic only: 3,585 local Claude Code
+transcripts with the provider's own billed `usage`, and the original command and output for
+every shell result. Shell output is 15.8% of that bill (12.6% once whole-file reads, which
+stay byte-exact, are set aside), and the generic digest already removes 61.5% of those
+tokens at first sight, cache-stably. Crediting a profile with RTK's *best* claimed ratio on
+every output in the families it targets adds at most **1.4%** of the bill, because most of
+the volume is `grep`, `python` scripts and `sed`, not test runners or `git`. That is below
+the bar for a second transform surface, so nothing was built. The decision, the numbers and
+the three conditions that would reopen it are in
+[ADR 0015](docs/adr/0015-no-per-command-shell-profiles.md); the measurement is one command,
+`benchmarks/results/2026-09-24/shell_headroom.py`, and writes only its own JSON.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the

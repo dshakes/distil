@@ -83,6 +83,9 @@ pipx install distil-llm && distil onboard    # detects your agent + billing, wir
 > verbose JSON and duplicated log runs compress 25–99%, while prose and unique-line output
 > compress ~0% — a short session that never reads a big file showing near 0% is the tool working
 > correctly, not failing. [Why →](#-compression-modes--in-plain-english)
+> Shell output (`grep`, `git`, test runs, ad-hoc scripts) goes through that same generic,
+> reversible digest; there are deliberately no per-command profiles, because measured on real
+> transcripts they would add too little on top of it. [ADR 0015 →](docs/adr/0015-no-per-command-shell-profiles.md)
 
 <!-- ═══ LIVE community counter — fed by the opt-in census, re-polls every 5 min ═══ -->
 <p align="center"><sub>◉ &nbsp;<b>LIVE</b> · measured from the opt-in census on a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>, never estimated</sub></p>
