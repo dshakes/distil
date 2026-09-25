@@ -1,0 +1,54 @@
+{
+  "control": {
+    "cost_usd": 0.000108,
+    "install": {
+      "arch": "x86_64",
+      "arm": "control",
+      "exit": 0,
+      "step": "installed"
+    },
+    "ok": true,
+    "problems": [],
+    "trial_detail": "",
+    "trial_status": "failed"
+  },
+  "distil": {
+    "cost_usd": 0.00186,
+    "install": {
+      "arch": "x86_64",
+      "arm": "distil",
+      "exit": 0,
+      "step": "installed"
+    },
+    "ok": true,
+    "problems": [],
+    "trial_detail": "",
+    "trial_status": "failed"
+  },
+  "headroom": {
+    "cost_usd": 0.000108,
+    "install": {
+      "arch": "x86_64",
+      "arm": "headroom",
+      "exit": 0,
+      "step": "installed"
+    },
+    "ok": true,
+    "problems": [],
+    "trial_detail": "",
+    "trial_status": "failed"
+  },
+  "rtk": {
+    "cost_usd": 0.000108,
+    "install": {
+      "arch": "x86_64",
+      "arm": "rtk",
+      "exit": 0,
+      "step": "installed"
+    },
+    "ok": true,
+    "problems": [],
+    "trial_detail": "",
+    "trial_status": "failed"
+  }
+}
