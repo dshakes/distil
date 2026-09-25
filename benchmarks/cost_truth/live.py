@@ -37,6 +37,7 @@ import urllib.request
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -58,6 +59,8 @@ DESIGN: dict[str, dict[str, Any]] = {
 PROFILE = {"turns": 30, "prefix": 22_000, "new_per_turn": 1_800, "out_per_turn": 450}
 SAFETY = 1.25
 SCHEDULE_SEED = 20260925  # committed at freeze (protocol §5.2)
+PLATFORM = "linux/amd64"
+AGENT_SETUP_TIMEOUT_S = 3600
 
 
 class ApprovalError(RuntimeError):
@@ -114,12 +117,18 @@ def _download(url: str, dest: Path) -> None:
 def prepare_tools(
     tools_dir: Path, fetch: Callable[[str, Path], None] = _download
 ) -> dict[str, str]:
-    """Download (once) and verify every pinned artifact; copy the locks. Returns name->sha."""
-    tools_dir.mkdir(parents=True, exist_ok=True)
+    """Download (once) and verify every pinned artifact; copy the locks. Returns name->sha.
+
+    Layout: ``host/`` (artifacts + locks) is mounted READ-ONLY; ``uv-cache/`` is a sibling
+    mounted read-write. Keeping the cache out of ``host/`` keeps the read-only mount small
+    and immutable.
+    """
+    host = tools_dir / "host"
+    host.mkdir(parents=True, exist_ok=True)
     (tools_dir / "uv-cache").mkdir(exist_ok=True)
     out: dict[str, str] = {}
     for name, (url, want) in arms.ARTIFACTS.items():
-        dest = tools_dir / name
+        dest = host / name
         if not dest.exists():
             fetch(url, dest)
         got = sha256(dest)
@@ -127,7 +136,7 @@ def prepare_tools(
             dest.unlink()
             raise PreflightError(f"{name}: sha256 {got} != pinned {want}; deleted")
         out[name] = got
-    shutil.copytree(arms.LOCKS, tools_dir / "locks", dirs_exist_ok=True)
+    shutil.copytree(arms.LOCKS, host / "locks", dirs_exist_ok=True)
     return out
 
 
@@ -140,28 +149,48 @@ class Outcome:
     claim: dict[str, Any] | None = None
     agent_wall_s: float | None = None
     detail: str = ""
+    install: dict[str, Any] | None = None
+
+
+def _ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))  # py<3.11 rejects "Z"
 
 
 def classify_harbor(result: dict[str, Any]) -> Outcome:
     """Map a Harbor ``result.json`` to a protocol §10 status."""
     rewards = (result.get("verifier_result") or {}).get("rewards") or {}
     reward = rewards.get("reward", min(rewards.values()) if rewards else 0)
-    exc = (result.get("exception_info") or {}).get("exception_type") or ""
+    info = result.get("exception_info") or {}
+    exc = info.get("exception_type") or ""
+    msg = (info.get("exception_message") or "").strip().splitlines()
+    if exc and msg:  # the last line only, capped: Harbor embeds whole command outputs here
+        exc = f"{exc}: {msg[-1][:300]}"
     ex = result.get("agent_execution") or {}
     wall = None
     if ex.get("started_at") and ex.get("finished_at"):
-        from datetime import datetime
-
-        wall = (
-            datetime.fromisoformat(ex["finished_at"]) - datetime.fromisoformat(ex["started_at"])
-        ).total_seconds()
+        wall = (_ts(ex["finished_at"]) - _ts(ex["started_at"])).total_seconds()
     if reward is not None and float(reward) >= 1:
         return Outcome("solved", agent_wall_s=wall, detail=exc)
-    if exc == "AgentTimeoutError":
+    if exc.startswith("AgentTimeoutError"):
         return Outcome("timeout", agent_wall_s=wall, detail=exc)
     if not ex.get("started_at"):  # never reached the agent: build/setup/install failure
         return Outcome("infra_error", detail=exc or "agent never started")
     return Outcome("failed", agent_wall_s=wall, detail=exc)
+
+
+def read_install(logs_dir: Path) -> dict[str, Any] | None:
+    """``install.json`` from the in-container step wrapper, plus the failing step's tail."""
+    try:
+        doc = json.loads((logs_dir / "install.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    if doc.get("exit"):
+        log = logs_dir / "install" / f"{doc.get('step')}.log"
+        lines = log.read_text(errors="replace").splitlines() if log.exists() else []
+        doc["tail"] = [ln[:300] for ln in lines[-20:]]
+    return doc
 
 
 def read_claim(logs_dir: Path) -> dict[str, Any] | None:
@@ -178,6 +207,9 @@ def verify_canary(
 ) -> list[str]:
     """Reasons the chain proof failed; empty means proven."""
     problems = []
+    inst = read_install(logs_dir)
+    if inst and inst.get("exit"):
+        problems.append(f"install step {inst.get('step')!r} failed with exit {inst.get('exit')}")
     if not any(r.get("canary") and r.get("status") == 200 for r in meter_log):
         problems.append("meter never saw the canary request (or the provider refused it)")
     try:
@@ -257,11 +289,11 @@ class LocalExecutor:
                 )
 
         if mode == "canary":
-            sh(arms.agent_setup_script(spec.arm))
+            sh(arms.agent_setup_script(spec.arm, str(logs_dir)))
             sh(arms.canary_script(spec.arm, spec.model, str(logs_dir), nonce, root=str(root)))
             return Outcome("solved")
         t0 = time.monotonic()
-        sh(arms.agent_setup_script(spec.arm))
+        sh(arms.agent_setup_script(spec.arm, str(logs_dir)))
         code = sh(
             arms.launch_script(spec.arm, spec.model, str(logs_dir), root=str(root)),
             {"CT_INSTRUCTION": "solve"},
@@ -290,7 +322,7 @@ class HarborExecutor:
         mounts = [
             {
                 "type": "bind",
-                "source": str(self.tools_dir),
+                "source": str(self.tools_dir / "host"),
                 "target": arms.HOST_MOUNT,
                 "read_only": True,
             },
@@ -326,12 +358,19 @@ class HarborExecutor:
             json.dumps(mounts),
             "--allow-agent-host",
             self.url_host,
+            # installs are not an outcome; under amd64 emulation Claude Code's own install
+            # alone took 4.5 min, and Harbor's 360 s default killed two arms (2026-09-25)
+            "--agent-setup-timeout",
+            str(AGENT_SETUP_TIMEOUT_S),
         ]
 
     def run(
         self, spec: rn.RunSpec, meter_url: str, logs_dir: Path, mode: str, nonce: str
     ) -> Outcome:
-        env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
+        # Every task container is linux/amd64 for every arm: 85 of 89 Terminal-Bench 2.1
+        # images are amd64-only, and the other 4 must not run natively while the rest are
+        # emulated (Amendment 2). Harbor passes os.environ through to docker compose.
+        env = {**os.environ, "PYTHONPATH": str(REPO_ROOT), "DOCKER_DEFAULT_PLATFORM": PLATFORM}
         proc = subprocess.run(
             self.argv(spec, meter_url, mode, nonce), env=env, capture_output=True, text=True
         )
@@ -345,6 +384,7 @@ class HarborExecutor:
             shutil.copytree(agent_logs, logs_dir, dirs_exist_ok=True)
         out = classify_harbor(result)
         out.claim = read_claim(logs_dir)
+        out.install = read_install(logs_dir)
         return out
 
 
@@ -400,6 +440,9 @@ def preflight_canaries(
         report[arm] = {
             "ok": not problems,
             "problems": problems,
+            "trial_status": out.status,
+            "trial_detail": out.detail,
+            "install": out.install,
             "cost_usd": sum(r["cost_usd"] for r in log),
         }
     (cfg.out_dir / "preflight.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
@@ -409,7 +452,9 @@ def preflight_canaries(
     return report
 
 
-def run_phase(cfg: LiveConfig, executor: Executor) -> list[dict[str, Any]]:
+def run_phase(
+    cfg: LiveConfig, executor: Executor, preflight_only: bool = False
+) -> list[dict[str, Any]]:
     d = DESIGN[cfg.phase]
     tasks = cfg.tasks or []
     if cfg.phase == "pilot" and len(tasks) > d["tasks"]:
@@ -418,6 +463,8 @@ def run_phase(cfg: LiveConfig, executor: Executor) -> list[dict[str, Any]]:
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
     spend = m.SpendMeter(cfg.cap_usd)
     preflight_canaries(cfg, spend, executor, tasks[0], d["model"])
+    if preflight_only:
+        return []
 
     pending = rn.build_schedule(tasks, seeds, rn.ARMS, d["model"], SCHEDULE_SEED)
     runs: list[dict[str, Any]] = []

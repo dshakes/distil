@@ -172,6 +172,16 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--concurrency", type=int, default=4)
     lv.add_argument("--bind", default="127.0.0.1", help="meter bind address")
     lv.add_argument(
+        "--preflight-only", action="store_true", help="run only the four canaries, then stop"
+    )
+    lv.add_argument(
+        "--already-spent",
+        type=float,
+        default=0.0,
+        metavar="USD",
+        help="billed by earlier attempts of this phase; subtracted from the hard cap",
+    )
+    lv.add_argument(
         "--url-host", default="host.docker.internal", help="meter host as seen from containers"
     )
     args = ap.parse_args(argv)
@@ -282,6 +292,10 @@ def _live(args: argparse.Namespace) -> int:
         except live.ApprovalError as e:
             print(f"cost-truth: {e}", file=sys.stderr)
             return 2
+        if not 0 <= args.already_spent < cap:
+            print(f"cost-truth: --already-spent must be in [0, {cap})", file=sys.stderr)
+            return 2
+        cap = round(cap - args.already_spent, 6)  # one approval covers every attempt of the phase
         if not os.environ.get("ANTHROPIC_API_KEY"):
             print("cost-truth: ANTHROPIC_API_KEY is not set", file=sys.stderr)
             return 2
@@ -321,7 +335,15 @@ def _live(args: argparse.Namespace) -> int:
             tasks=manifest,
             logs_root=trials / "agent-logs",
         )
-        runs = live.run_phase(cfg, executor)
+        try:
+            runs = live.run_phase(cfg, executor, preflight_only=args.preflight_only)
+        except live.PreflightError as e:
+            print(f"cost-truth: {e}\nreport: {out / 'preflight.json'}", file=sys.stderr)
+            return 1
+        if args.preflight_only:
+            print((out / "preflight.json").read_text())
+            print(f"all four canaries passed; wrote {out}")
+            return 0
     summary = live.pilot_summary(runs) if args.phase == "pilot" else None
     if summary is not None:
         (out / "pilot_summary.json").write_text(

@@ -58,8 +58,12 @@ class CostTruthAgent(ClaudeCode):
 
     async def install(self, environment: BaseEnvironment) -> None:
         await super().install(environment)  # pinned Claude Code, Harbor's own installer
-        await self.exec_as_root(environment, command=arms.install_script(self.options.ct_arm))
-        await self.exec_as_agent(environment, command=arms.agent_setup_script(self.options.ct_arm))
+        await self.exec_as_root(
+            environment, command=arms.install_script(self.options.ct_arm, self._logs)
+        )
+        await self.exec_as_agent(
+            environment, command=arms.agent_setup_script(self.options.ct_arm, self._logs)
+        )
 
     def _env(self) -> dict[str, str]:
         key = self._get_env("ANTHROPIC_API_KEY") or ""

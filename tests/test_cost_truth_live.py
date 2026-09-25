@@ -92,12 +92,14 @@ def test_prepare_tools_verifies_hashes_and_copies_locks(
     monkeypatch.setattr(arms, "ARTIFACTS", {"t.tgz": ("https://example.invalid/t", good)})
     got = live.prepare_tools(tmp_path, fetch=lambda url, dest: dest.write_bytes(b"abc"))
     assert got == {"t.tgz": good}
-    assert (tmp_path / "locks" / "distil-llm-1.54.0.cp312-x86_64-manylinux_2_28.txt").exists()
+    assert (
+        tmp_path / "host" / "locks" / "distil-llm-1.54.0.cp312-x86_64-manylinux_2_28.txt"
+    ).exists()
     assert (tmp_path / "uv-cache").is_dir()
-    (tmp_path / "t.tgz").write_bytes(b"tampered")
+    (tmp_path / "host" / "t.tgz").write_bytes(b"tampered")
     with pytest.raises(live.PreflightError, match="sha256"):
         live.prepare_tools(tmp_path, fetch=lambda url, dest: dest.write_bytes(b"x"))
-    assert not (tmp_path / "t.tgz").exists()  # a bad artifact never survives to be mounted
+    assert not (tmp_path / "host" / "t.tgz").exists()  # a bad artifact never survives to be mounted
 
 
 def test_locks_are_hash_pinned_to_the_verified_wheels() -> None:
@@ -277,6 +279,10 @@ def test_harbor_argv_passes_arm_as_kwargs_not_env(tmp_path: Path) -> None:
     )
     mounts = json.loads(argv[argv.index("--mounts") + 1])
     assert mounts[0]["read_only"] is True and mounts[0]["target"] == arms.HOST_MOUNT
+    assert mounts[0]["source"].endswith("/tools/host") and mounts[1]["source"].endswith(
+        "/tools/uv-cache"
+    )
+    assert argv[argv.index("--agent-setup-timeout") + 1] == str(live.AGENT_SETUP_TIMEOUT_S)
 
 
 def test_harbor_agent_runs_the_arm_scripts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -404,3 +410,96 @@ def test_canary_catches_an_unreachable_meter(tmp_path: Path) -> None:
         with pytest.raises(live.PreflightError, match="never saw"):
             live.run_phase(cfg, live.LocalExecutor(tmp_path / "work", DISTIL_BIN))
     assert up.requests == 0
+
+
+# --------------------------------------------------------------------------- loud installs (2026-09-25)
+
+
+@needs_bash
+def test_install_step_failure_is_loud_and_reported(tmp_path: Path) -> None:
+    script = "\n".join(
+        [
+            *arms._stepper(str(tmp_path), "distil"),
+            "step ok true",
+            "step pip sh -c 'echo resolving; exit 7'",
+            "echo unreachable",
+        ]
+    )
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert proc.returncode == 7 and "unreachable" not in proc.stdout
+    assert "install step pip FAILED (exit 7)" in proc.stderr and "resolving" in proc.stderr
+    inst = live.read_install(tmp_path)
+    assert (
+        inst is not None
+        and inst["step"] == "pip"
+        and inst["exit"] == 7
+        and inst["tail"] == ["resolving"]
+    )
+    probs = live.verify_canary("distil", [], tmp_path, "http://m:1")
+    assert probs[0] == "install step 'pip' failed with exit 7"
+
+
+def test_install_script_never_chmods_the_read_only_mount() -> None:
+    for arm in ("headroom", "distil"):
+        chmod = [
+            ln
+            for ln in arms.install_script(arm).splitlines()
+            if "chmod" in ln and not ln.startswith(("ct_", "step()"))
+        ]
+        assert chmod and all(
+            arms.HOST_MOUNT not in ln and f"-R a+rX {arms.CT}\n" not in ln + "\n" for ln in chmod
+        )
+
+
+def test_harbor_executor_pins_amd64_for_every_arm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    def fake_run(argv: list[str], env: dict[str, str], **kw: Any) -> Any:
+        seen.append(env)
+        return subprocess.CompletedProcess(argv, 1, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ex = live.HarborExecutor(tmp_path, tmp_path / "trials", tmp_path / "tools", "h", ["harbor"])
+    for arm in rn.ARMS:
+        out = ex.run(
+            rn.RunSpec("t", 0, arm, "claude-sonnet-5", 0), "http://h:1", tmp_path / arm, "run", ""
+        )
+        assert out.status == "infra_error"
+    assert all(e["DOCKER_DEFAULT_PLATFORM"] == "linux/amd64" for e in seen) and len(seen) == len(
+        rn.ARMS
+    )
+
+
+def test_classify_keeps_only_the_last_line_of_harbor_messages() -> None:
+    blob = "stdout: " + "x" * 10_000 + "\nchmod: Read-only file system\nexit status 1"
+    out = live.classify_harbor(
+        {"exception_info": {"exception_type": "ApiRateLimitError", "exception_message": blob}}
+    )
+    assert out.status == "infra_error" and out.detail == "ApiRateLimitError: exit status 1"
+
+
+@needs_bash
+@pytest.mark.skipif(not DISTIL_BIN.exists(), reason="distil console script not installed")
+def test_preflight_only_runs_the_canaries_and_nothing_else(tmp_path: Path) -> None:
+    with mock.MockUpstream() as up:
+        runs = live.run_phase(
+            _cfg(tmp_path, up, ["t0", "t1"]),
+            live.LocalExecutor(tmp_path / "work", DISTIL_BIN),
+            preflight_only=True,
+        )
+        assert runs == [] and up.requests == len(rn.ARMS)  # exactly one tiny request per arm
+    pre = json.loads((tmp_path / "out" / "preflight.json").read_text())
+    assert all(pre[a]["ok"] and pre[a]["trial_status"] for a in rn.ARMS)
+
+
+def test_already_spent_must_fit_under_the_cap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    assert (
+        main(["live", "--phase", "pilot", "--i-approve-spend", "92.07", "--already-spent", "95"])
+        == 2
+    )
+    assert "--already-spent" in capsys.readouterr().err

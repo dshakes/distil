@@ -150,43 +150,73 @@ def unverified() -> list[str]:
 # --------------------------------------------------------------------------- scripts
 
 
-def install_script(arm: str, root: str = CT) -> str:
-    """Bash, run as root in the container after Claude Code is installed. x86_64 only."""
+def _stepper(logs_dir: str, arm: str) -> list[str]:
+    """Bash prelude: ``step NAME CMD...`` runs CMD with its output in a per-step log.
+
+    On failure it prints the last 20 lines to stderr, writes ``install.json`` (arm, step,
+    exit code, arch) to the logs dir Harbor syncs to the host, and exits with CMD's code —
+    so an install problem reaches the preflight report instead of a 7 MB exception blob.
+    Step logs are package-manager output only: no prompt, no task content.
+    """
+    q = shlex.quote(logs_dir)
+    return [
+        "set -uo pipefail",
+        f'ct_logs={q}/install; mkdir -p "$ct_logs"',
+        'ct_report() { printf \'{"arm": "%s", "step": "%s", "exit": %s, "arch": "%s"}\\n\' '
+        f'{shlex.quote(arm)} "$1" "$2" "$(uname -m)" > {q}/install.json; }}',
+        'step() { local name="$1"; shift; "$@" > "$ct_logs/$name.log" 2>&1 && return 0; '
+        'local rc=$?; echo "cost-truth: install step $name FAILED (exit $rc)" >&2; '
+        'tail -n 20 "$ct_logs/$name.log" >&2; ct_report "$name" "$rc"; exit "$rc"; }',
+    ]
+
+
+def install_script(arm: str, logs_dir: str = "/logs/agent", root: str = CT) -> str:
+    """Bash, run as root in the container after Claude Code is installed. x86_64 only.
+
+    Only the arm's own dirs are chmod-ed: the host mounts under ``root`` are read-only
+    (a recursive chmod over them was the first live failure, 2026-09-25).
+    """
     host = f"{root}/host"
     lines = [
-        "set -euo pipefail",
-        '[ "$(uname -m)" = x86_64 ] || { echo "cost-truth: x86_64 containers only" >&2; exit 97; }',
-        f"mkdir -p {root}/bin",
+        *_stepper(logs_dir, arm),
+        'step arch test "$(uname -m)" = x86_64',
+        f"step mkdir mkdir -p {root}/bin",
     ]
     if arm in ("headroom", "distil"):
-        lines += [
-            f"tar -xzf {host}/uv.tar.gz -C {root}",
-            f"install -m 0755 {root}/{UV_DIR_IN_TARBALL}/uv {root}/{UV_DIR_IN_TARBALL}/uvx {root}/bin/",
-        ]
         py, lock = (
             ("3.13", "headroom-ai-0.38.0-all.cp313-x86_64-manylinux_2_28.txt")
             if arm == "headroom"
             else ("3.12", "distil-llm-1.54.0.cp312-x86_64-manylinux_2_28.txt")
         )
-        uv_env = f"UV_CACHE_DIR={root}/uv-cache UV_PYTHON_INSTALL_DIR={root}/python"
+        uv_env = f"env UV_CACHE_DIR={root}/uv-cache UV_PYTHON_INSTALL_DIR={root}/python"
         lines += [
-            f"{uv_env} {root}/bin/uv venv --python {py} {root}/{arm}",
-            f"{uv_env} {root}/bin/uv pip install --python {root}/{arm}/bin/python "
+            f"step uv-unpack tar -xzf {host}/uv.tar.gz -C {root}",
+            f"step uv-install install -m 0755 {root}/{UV_DIR_IN_TARBALL}/uv {root}/{UV_DIR_IN_TARBALL}/uvx {root}/bin/",
+            f"step venv {uv_env} {root}/bin/uv venv --python {py} {root}/{arm}",
+            f"step pip {uv_env} {root}/bin/uv pip install --python {root}/{arm}/bin/python "
             f"--require-hashes --no-deps -r {host}/locks/{lock}",
-            f"chmod -R a+rX {root}",
+            f"step chmod chmod -R a+rX {root}/{arm} {root}/python {root}/bin",
         ]
     elif arm == "rtk":
         lines += [
-            f"tar -xzf {host}/rtk.tar.gz -C /usr/local/bin rtk",
-            "chmod 0755 /usr/local/bin/rtk",
+            f"step rtk-unpack tar -xzf {host}/rtk.tar.gz -C /usr/local/bin rtk",
+            "step rtk-chmod chmod 0755 /usr/local/bin/rtk",
         ]
+    lines.append("ct_report installed 0")
     return "\n".join(lines) + "\n"
 
 
-def agent_setup_script(arm: str) -> str:
+def agent_setup_script(arm: str, logs_dir: str = "/logs/agent") -> str:
     """Bash, run as the agent user before the task: per-user configuration the docs prescribe."""
     if arm == "rtk":
-        return f"set -euo pipefail\n{_path_prefix(arm, CT)}\nrtk init -g --auto-patch\n"
+        return "\n".join(
+            [
+                *_stepper(logs_dir, arm),
+                _path_prefix(arm, CT),
+                "step rtk-init rtk init -g --auto-patch",
+                "",
+            ]
+        )
     return "true\n"
 
 

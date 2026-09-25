@@ -430,6 +430,47 @@ env, so the arm's name is not in the environment the model's Bash tool can read.
 
 **F. distil re-pinned to 1.54.0** (released 2026-09-25), the latest GA, per §4's rule.
 
+## Amendment 2 — 2026-09-25 (after a failed preflight; no task has run, no arm outcome seen)
+
+The first approved pilot attempt (`benchmarks/results/cost_truth/pilot-20260925-132232/`)
+failed closed in the canary preflight at about $0.0002: control passed, the other three
+never launched. Harbor's trial logs show three distinct causes, none of them an
+architecture mismatch:
+
+* **Containers were already x86_64.** Every install script's `uname -m = x86_64` check
+  passed, and uv fetched `cpython-3.12.14-linux-x86_64-gnu`. Docker's
+  manifests show why: **85 of the 89 Terminal-Bench 2.1 images are published for amd64
+  only** (the other 4 are multi-arch). On this Apple Silicon host (Docker 28.0.1,
+  linux/aarch64) they run under amd64 emulation.
+* **rtk: Harbor's 360 s agent-setup timeout** expired inside Harbor's own Claude Code
+  install (`apt-get … nodejs npm`, then the bootstrap) — control's identical install had
+  taken 4 min 32 s. Log: `AgentSetupTimeoutError: Agent setup timed out after 360.0 seconds`.
+* **headroom: the same timeout**, during `uv pip install` of the 171-package `[all]` closure.
+* **distil: our bug.** `chmod -R a+rX /opt/cost-truth` recursed into the read-only host mount
+  (which also held the shared uv cache): `chmod: changing permissions of
+  '/opt/cost-truth/host/uv.tar.gz': Read-only file system … exit status 1`. Harbor then
+  labelled the 7 MB failure blob `ApiRateLimitError` because some line matched `rate.?limit`.
+
+Changes, identical for every arm:
+
+1. **Every task container runs `linux/amd64`** (`DOCKER_DEFAULT_PLATFORM`), so the 4
+   multi-arch images do not run natively while 85 run emulated. amd64 artifacts are
+   therefore correct; no aarch64 pins are needed. **Threat to validity:** under emulation a
+   tool with heavier in-container work (Headroom's Python + torch) pays a larger CPU tax
+   than one without. That affects wall time and possibly timeouts, not billed tokens; the
+   confirmatory run should use a native x86_64 Linux host, and the pilot reports the timeout
+   rate per arm so this can be judged.
+2. **Agent setup timeout 3600 s** for all arms (installs are not an outcome). Each task's
+   own agent timeout is unchanged.
+3. **Only the arm's own directories are `chmod`-ed**; the uv cache moved out of the
+   read-only mount (`tools/host/` read-only, `tools/uv-cache/` read-write).
+4. **Installs fail loudly:** every install step runs under a wrapper that on failure prints
+   the last 20 lines, writes `install.json` (arm, step, exit code, arch) and stops; the
+   preflight report carries that, plus the trial status and the last line of Harbor's
+   exception. Package-manager output only — no prompt or task content.
+5. `live --preflight-only` runs the four canaries alone; `--already-spent` subtracts earlier
+   attempts' spend from the phase cap so one approval covers the whole phase.
+
 ## Running the pilot
 
 One command, from the repo root, with `ANTHROPIC_API_KEY` exported and Docker running:
