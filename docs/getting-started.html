@@ -110,7 +110,14 @@
   <main class="content" id="content" tabindex="-1">
 
     <h1>Getting <span class="g">Started</span></h1>
-    <p class="lead">Install, then run <code>distil onboard</code> — one command that detects your agent (Claude Code, Codex, Gemini CLI) and billing, wires the savings status line, and hands you the exact next steps. No code change required.</p>
+    <p class="lead">Four commands. No code change required.</p>
+
+    <pre class="term">uvx --from distil-llm distil savings   <span class="d"># what your agent costs you now; no install, read-only</span>
+distil setup                           <span class="d"># status line, make distil the default, health check</span>
+distil wrap -- claude                  <span class="d"># run your agent through distil</span>
+distil savings                         <span class="d"># spent, saved, daily graph, what to fix next</span>
+distil doctor                          <span class="d"># if anything looks wrong</span></pre>
+    <p>That is the whole front door; <code>distil --help-all</code> lists everything else. <code>distil setup</code> runs <code>distil onboard</code> for you, so the rest of this page still applies.</p>
 
     <hr/>
 

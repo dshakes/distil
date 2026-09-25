@@ -180,14 +180,18 @@ TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs
 
 ## 🚀 Use it now
 
-**One command sets you up and tells you what to do next:**
+**Four commands.** `distil --help` shows only these; `distil --help-all` shows the rest.
 
 ```bash
+uvx --from distil-llm distil savings   # what your agent costs you now — no install, read-only
 pipx install distil-llm
-distil onboard      # detects your agent + billing, wires the status line, prints a guided tour
+distil setup                           # status line, make distil the default, health check
+distil wrap -- claude                  # run your agent through distil
+distil savings                         # spent, saved, daily graph, what to fix next
+distil doctor                          # if anything looks wrong
 ```
 
-It detects your environment (Claude Code · Codex · Gemini CLI; metered vs subscription) and hands you the exact commands. Or wrap your agent directly — **no config, no code change:**
+`distil setup` detects your environment (Claude Code · Codex · Gemini CLI; metered vs subscription). Or wrap your agent directly — **no config, no code change:**
 
 ```bash
 # Claude Code on a metered API key — saves real $$:
@@ -247,6 +251,7 @@ removes the pin, the service, and the shell block using nothing but `sh`.
 Then watch genuine savings from **your** traffic — measured, not estimated:
 
 ```bash
+distil savings              # billed spend vs saved, daily graph, top fixes (--since 7d / --all / --json)
 distil leaderboard          # cumulative tokens + $ saved, from the local ledger
 distil dashboard            # live terminal TUI — token-trim + decision-equiv bars, Ctrl-C to exit
 distil dissect             # per-session deep-dive: savings, digest inventory, anomalies (--html/--serve)

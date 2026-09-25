@@ -108,6 +108,20 @@
     <h1>CLI <span class="g">Reference</span></h1>
     <p class="lead">Every subcommand, its flags, and a real sample output. All commands work offline with zero API key — the bundled corpus is self-contained.</p>
 
+    <h2 id="start">Start here: four commands</h2>
+    <p><code>distil --help</code> shows only these. Everything below still works; <code>distil --help-all</code> lists it all.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The four commands">
+    <table>
+      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><a href="#setup"><code>distil setup</code></a></th><td>One guided setup: status line, make distil your agent's default, then a health check.</td></tr>
+        <tr><th scope="row"><a href="#wrap"><code>distil wrap -- claude</code></a></th><td>Run your agent through distil.</td></tr>
+        <tr><th scope="row"><a href="#savings"><code>distil savings</code></a></th><td>What you spent, what distil saved, a daily graph, and what to fix next.</td></tr>
+        <tr><th scope="row"><a href="#doctor"><code>distil doctor</code></a></th><td>Check that everything is wired and working.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
     <div class="callout">
       <b>Global flag:</b> <code>distil --version</code> prints the installed version.
       <br/>
@@ -159,7 +173,35 @@ GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; a
 
     <!-- savings -->
     <h2 id="savings">distil savings</h2>
-    <p>Price four compression strategies on a single trajectory and show per-strategy cost, savings percentage, and cache hit tokens. The key result: naive compress + cache costs <em>more</em> than baseline because it busts the prefix cache.</p>
+    <p>One screen. <b>Spent</b> is the provider's billed usage on every request distil proxied, with cache reads and writes priced at their own rates. <b>Saved</b> comes from the savings ledger, calibrated to billed tokens and priced at the input rate you actually paid. Then a daily graph, the top three fixes from <a href="#discover"><code>distil discover</code></a>, and one proof line.</p>
+    <p>Never wrapped anything? It reads your Claude Code transcripts instead (usage fields and tool-result sizes only, read-only) and shows real spend by day. What distil would save is labelled <b>ESTIMATE</b> and names its source. It works with no install: <code>uvx --from distil-llm distil savings</code>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--since</code></th><td><code>7d</code></td><td>Window: <code>24h</code>, <code>7d</code>, <code>2w</code></td></tr>
+        <tr><th scope="row"><code>--all</code></th><td>off</td><td>All history</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <pre class="term"><span class="d">$ distil savings</span>
+distil savings  ·  last 7 days
+
+  spent    $506.25
+           27 requests · cache reads 270.0M · writes 27.0M · uncached 27.0M · output 2.7M
+  saved    $34.53  (25,500,000 tokens)
+           priced at your blended input rate, $1.35/Mtok (cache reads included)
+  net      6.4% of what you would have paid
+
+  day    spent                          saved
+  09-23  █████████████████▏   $  112.50  █▍                   $   8.94
+  09-24  ███████████▍         $   75.00  ▋                    $   4.33
+  09-25  ████████████████████ $  131.25  █▊                   $  11.38</pre>
+
+    <h3 id="savings-strategies">Pricing strategies on a trajectory</h3>
+    <p>The original <code>distil savings</code>, unchanged: pass <code>--strategies</code> or any flag below. It prices four compression strategies on one trajectory and shows per-strategy cost, savings percentage, and cache hit tokens. The key result: naive compress + cache costs <em>more</em> than baseline because it busts the prefix cache.</p>
 
     <h3>Flags</h3>
     <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
@@ -1368,6 +1410,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
       <tbody>
         <tr><th scope="row"><code>--no-color</code></th><td>off</td><td>Disable ANSI colors in the check list</td></tr>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output (CI-gateable): <code>{"checks": [...], "ok": bool}</code>, one object per check with <code>name</code>/<code>status</code>/<code>detail</code>/<code>hint</code></td></tr>
+        <tr><th scope="row"><code>--deep</code></th><td>off</td><td>Also run the <a href="#validate"><code>validate</code></a> and <a href="#verify"><code>verify</code></a> gates</td></tr>
       </tbody>
     </table>
     </div>
@@ -1375,7 +1418,8 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <hr/>
 
     <h2 id="setup">distil setup</h2>
-    <p>Wire the distil savings status line into Claude Code's <code>settings.json</code> in one step. Idempotent (no-op if already wired), never clobbers an existing status line without <code>--force</code> (which backs it up first), and preserves all other settings.</p>
+    <p>One guided setup. It runs <a href="#onboard"><code>distil onboard</code></a> (status line, optional alias default, next steps), optionally <code>distil default --always-on</code>, and ends with <a href="#doctor"><code>distil doctor</code></a>. <code>--yes</code> accepts the prompts but never turns on always-on; pass <code>--always-on</code> for that.</p>
+    <p><code>--statusline-only</code> (or <code>--settings PATH</code>) runs the original command: wire the status line into Claude Code's <code>settings.json</code>. It is idempotent, never replaces an existing status line without <code>--force</code> (which backs it up first), and keeps all other settings.</p>
 
     <hr/>
 

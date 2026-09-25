@@ -7,6 +7,21 @@ All notable changes to Distil are documented here. Format loosely follows
 
 Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
+### Added
+
+- `distil savings` is one screen: billed spend with cache reads and writes priced at their own rates, calibrated savings, net %, a daily graph, the top three `discover` fixes, and one proof line. `--since 7d` (default), `--all`, `--json`.
+- With no distil ledger, `distil savings` reads your Claude Code transcripts (usage fields and tool-result sizes only, read-only). It shows real spend by day and an ESTIMATE of what distil would save, citing `benchmarks/results/2026-09-24/live_savings_decomposition.json`. Works with no install: `uvx --from distil-llm distil savings`.
+- `distil setup` is one guided setup: `onboard`, then optional `--always-on`, then `doctor`. `--yes` never implies `--always-on`.
+- `distil doctor --deep` also runs the `validate` and `verify` gates.
+- `distil --help-all` lists every command.
+- `pricing.Pricing.cache_write_1h`: 1-hour cache writes bill at 2x input.
+
+### Changed
+
+- `distil --help` shows four commands: `setup`, `wrap`, `savings`, `doctor`. Every other command still works.
+- The original `distil savings` (strategy pricing on a trajectory) runs with `--strategies` or any of its flags (`-t`, `--pricing`, `--tokenizer`, `--output-tokens-per-turn`, `--record`). Bare `distil savings` now shows the new screen.
+- The original `distil setup` (status line only) runs with `--statusline-only` or `--settings`.
+
 ### Windows: two quarantines in one clock tick, and a clock constant that is not there
 
 - A second unreadable `drift.json` quarantined within one clock tick of the first got the same `drift.json.corrupt-*` name. On Windows, where the clock ticks every ~15.6 ms, the copy then failed outright and the second corruption was never set aside; elsewhere the copy fallback overwrote the first archive. A clashing name now takes a `-N` suffix, and the no-hard-link fallback creates its copy exclusively, so no archive is ever overwritten. The cold-point clock picker looks up `CLOCK_MONOTONIC` with `getattr`, like `CLOCK_BOOTTIME` already was, so an interpreter without it (every Windows Python) falls back to `time.monotonic` instead of raising. The `sh` escape hatch's owner-copy step tolerates a Python with no `os.chown`. Tests that redirected `HOME` now redirect `USERPROFILE` too. Without it, the Windows CI runner's own `~/.claude/settings.json` was being wired. The test suite now gives every test its own `HOME` and `USERPROFILE` (and unsets `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `CLINE_DATA_DIR`), so no test can write a real agent config on any OS even if it forgets to redirect the home. A `real_home` marker opts a read-only resolution test out, and a guard test fails if any config resolver points outside the sandbox.

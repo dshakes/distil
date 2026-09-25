@@ -103,11 +103,36 @@ def cmd_compress(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_savings_screen(args: argparse.Namespace) -> int:
+    """`distil savings`: the one screen. Any strategy-pricing flag (or --strategies)
+    keeps the pre-1.55 behaviour, so existing scripts see exactly what they did."""
+    if (
+        getattr(args, "strategies", False)
+        or args.trajectory
+        or args.record
+        or args.pricing
+        or args.tokenizer
+        or args.output_tokens_per_turn is not None
+    ):
+        return cmd_savings(args)
+    from . import savings_screen as ss
+
+    try:
+        since = None if args.all else time.time() - ss.parse_since(args.since)
+    except ValueError as e:
+        print(f"distil savings: {e}", file=sys.stderr)
+        return 2
+    screen = ss.build(since)
+    print(ss.to_json(screen) if args.json else ss.render(screen))
+    return 0
+
+
 def cmd_savings(args: argparse.Namespace) -> int:
     traj = _load(args.trajectory)
-    price = pricing.get(args.pricing)
-    tok = tokenizer.resolve(args.tokenizer, model=price.name)
-    out_t = args.output_tokens_per_turn
+    price = pricing.get(args.pricing or "claude-opus-4-8")
+    tk = args.tokenizer or "heuristic"
+    tok = tokenizer.resolve(tk, model=price.name)
+    out_t = args.output_tokens_per_turn or 0
 
     runs: dict[str, dict[str, Any]] = {
         "baseline (no cache, no compress)": dict(strategy="none", caching=False),
@@ -121,11 +146,8 @@ def cmd_savings(args: argparse.Namespace) -> int:
     }
     baseline = results["baseline (no cache, no compress)"].total_dollars
 
-    tok_note = "≈, not billing-grade" if args.tokenizer == "heuristic" else "billing-grade"
-    print(
-        f"model {price.name}   |   {len(traj.turns)} turns   |   "
-        f"tokenizer={args.tokenizer} ({tok_note})\n"
-    )
+    tok_note = "≈, not billing-grade" if tk == "heuristic" else "billing-grade"
+    print(f"model {price.name}   |   {len(traj.turns)} turns   |   tokenizer={tk} ({tok_note})\n")
     print(f"{'strategy':<34}{'$ / run':>12}{'vs baseline':>14}{'cache hits':>12}")
     print("-" * 72)
     for label, r in results.items():
@@ -2261,6 +2283,73 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if n_fail else 0
 
 
+def cmd_doctor_front(args: argparse.Namespace) -> int:
+    """`distil doctor`, plus `--deep`: the adversarial validate gate and the
+    byte-fidelity verify gate after the health checks. Exit = worst of the three."""
+    if not getattr(args, "deep", False):
+        return cmd_doctor(args)
+    if getattr(args, "json", False):
+        print("distil doctor: --deep prints human output; drop --json", file=sys.stderr)
+        return 2
+    rc = cmd_doctor(args)
+    print("\n── deep: distil validate ──")
+    rc_validate = cmd_validate(argparse.Namespace(adversarial=False))
+    print("\n── deep: distil verify ──")
+    rc_verify = cmd_verify(argparse.Namespace())
+    return max(rc, rc_validate, rc_verify)
+
+
+def cmd_setup_front(args: argparse.Namespace) -> int:
+    """`distil setup`: onboard (status line, alias default, tour) → optional always-on
+    → doctor. `--settings`/`--statusline-only` keep the original status-line-only command."""
+    if args.settings or args.statusline_only:
+        return cmd_setup(args)
+    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
+    rc = cmd_onboard(
+        argparse.Namespace(
+            json=False,
+            offline=args.offline,
+            dry_run=False,
+            force=args.force,
+            upgrade=False,
+            yes=args.yes,
+            no_interactive=args.no_interactive,
+            no_color=args.no_color,
+            no_launch=True,  # setup ends on the health check, not inside the agent
+        )
+    )
+    always_on = args.always_on
+    if not always_on and interactive and not args.yes:
+        # Never implied by --yes: it installs a login service and pins ANTHROPIC_BASE_URL.
+        try:
+            always_on = input(
+                "Also run distil always-on (a background proxy every SDK routes through)? [y/N] "
+            ).strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            print()
+    if always_on:
+        print()
+        rc = max(
+            rc,
+            cmd_default(
+                argparse.Namespace(
+                    rc=None,
+                    agent=None,
+                    mode=None,
+                    port=8788,
+                    undo=False,
+                    always_on=True,
+                    no_start=False,
+                    force=False,
+                )
+            ),
+        )
+    print()
+    rc = max(rc, cmd_doctor(argparse.Namespace(no_color=args.no_color, json=False)))
+    print("\nnext:  distil wrap -- claude     then:  distil savings")
+    return rc
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     """Wire the distil status line into Claude Code settings (idempotent, safe)."""
     from pathlib import Path
@@ -2453,7 +2542,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:
             print(c("90", "  no answer recorded — enable anytime: distil census on") + "\n")
 
     # Or just route the agent once, right now.
-    if env.agents:
+    if env.agents and not getattr(args, "no_launch", False):
         first_cmd = steps[0][1]
         if ask(f"Start now — run step 1?  ({first_cmd})"):
             print()
@@ -4354,6 +4443,40 @@ research / CI internals:
 """
 
 
+#: What a newcomer sees. Everything else still parses; `--help-all` lists it.
+FRONT_DOOR = ("setup", "wrap", "savings", "doctor")
+
+
+class _FullHelp(argparse.Action):
+    def __init__(self, option_strings: list[str], dest: str, **kw: Any) -> None:
+        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS, **kw)
+
+    def __call__(self, parser: argparse.ArgumentParser, *_: Any) -> None:
+        parser.print_help()
+        parser.exit()
+
+
+class _FrontHelp(_FullHelp):
+    def __call__(self, parser: argparse.ArgumentParser, *_: Any) -> None:
+        print(front_help(parser))
+        parser.exit()
+
+
+def front_help(parser: argparse.ArgumentParser) -> str:
+    """The short help: four commands, each described by its own subparser help."""
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    helps = {a.dest: a.help for a in sub._choices_actions}
+    rows = "\n".join(f"  {name:<10}{helps[name]}" for name in FRONT_DOOR)
+    return (
+        "usage: distil <command> [options]\n\n"
+        "Compression with a quality contract.\n\n"
+        f"{rows}\n\n"
+        "  --version  print the installed version\n\n"
+        "Start: distil setup, then distil wrap -- claude. See it: distil savings.\n"
+        "More: distil --help-all"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     from . import conformal as _budget  # the one risk budget; see conformal.BUDGET_ALPHA
 
@@ -4362,7 +4485,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Compression with a quality contract.",
         epilog=_HELP_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
+    p.add_argument("-h", "--help", action=_FrontHelp, help="show the four everyday commands")
+    p.add_argument("--help-all", action=_FullHelp, help="show every command")
     p.add_argument("--version", action="version", version=f"distil {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>")
 
@@ -4419,15 +4545,36 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--json", action="store_true", help="machine-readable output")
     sim.set_defaults(func=cmd_simulate)
 
-    s = sub.add_parser("savings", help="price strategies in real dollars (technique #1)")
-    add_traj(s)
-    add_tokenizer(s)
-    s.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
-    s.add_argument("--output-tokens-per-turn", type=int, default=0)
-    s.add_argument(
-        "--record", action="store_true", help="append this run to the local savings ledger"
+    s = sub.add_parser(
+        "savings",
+        help="what you spent, what distil saved, and what to fix next",
+        description="What you spent (billed, cache-priced), what distil saved, a daily "
+        "graph, and the top things to fix. Never wrapped? It reads your Claude Code "
+        "transcripts (usage fields only) and labels its projection an ESTIMATE. "
+        "Any strategy-pricing flag below runs the original trajectory pricer instead.",
     )
-    s.set_defaults(func=cmd_savings)
+    s.add_argument("--since", default="7d", help="window, e.g. 7d, 24h, 2w (default 7d)")
+    s.add_argument("--all", action="store_true", help="all history, no window")
+    s.add_argument("--json", action="store_true", help="machine-readable output")
+    s.add_argument(
+        "--strategies",
+        action="store_true",
+        help="price 4 strategies on a trajectory in real dollars (the original `savings`)",
+    )
+    add_traj(s)
+    s.add_argument(
+        "--tokenizer",
+        choices=("heuristic", "anthropic"),
+        help="(--strategies) heuristic (default) or anthropic (billing-grade count_tokens)",
+    )
+    s.add_argument(
+        "--pricing", choices=sorted(pricing.CATALOG), help="(--strategies) default claude-opus-4-8"
+    )
+    s.add_argument("--output-tokens-per-turn", type=int, help="(--strategies) default 0")
+    s.add_argument(
+        "--record", action="store_true", help="(--strategies) append the run to the ledger"
+    )
+    s.set_defaults(func=cmd_savings_screen)
 
     lb = sub.add_parser(
         "leaderboard",
@@ -5092,14 +5239,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dr.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     dr.add_argument("--json", action="store_true", help="machine-readable output (CI-gateable)")
-    dr.set_defaults(func=cmd_doctor)
+    dr.add_argument(
+        "--deep",
+        action="store_true",
+        help="also run the adversarial `validate` and byte-fidelity `verify` gates",
+    )
+    dr.set_defaults(func=cmd_doctor_front)
 
-    su = sub.add_parser("setup", help="wire the distil status line into Claude Code settings")
+    su = sub.add_parser(
+        "setup",
+        help="one guided setup: status line, make distil the default, then a health check",
+        description="Runs `distil onboard` (status line, optional alias default, next "
+        "steps), optionally `distil default --always-on`, and finishes with `distil doctor`. "
+        "--settings or --statusline-only runs the original status-line-only setup.",
+        epilog=_YES_VS_NO_INTERACTIVE,
+    )
     su.add_argument(
         "--force", action="store_true", help="replace an existing status line (backed up first)"
     )
-    su.add_argument("--settings", help="settings.json path (default ~/.claude/settings.json)")
-    su.set_defaults(func=cmd_setup)
+    su.add_argument("--settings", help="settings.json path; implies --statusline-only")
+    su.add_argument(
+        "--statusline-only", action="store_true", help="only wire the status line (pre-1.55)"
+    )
+    su.add_argument(
+        "--yes", "-y", action="store_true", help="auto-confirm prompts (never implies --always-on)"
+    )
+    su.add_argument("--no-interactive", action="store_true", help="never prompt")
+    su.add_argument(
+        "--always-on",
+        action="store_true",
+        help="also install the background proxy (`distil default --always-on`)",
+    )
+    su.add_argument("--offline", action="store_true", help="skip the PyPI version check")
+    su.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    su.set_defaults(func=cmd_setup_front)
 
     ob = sub.add_parser(
         "onboard",
@@ -5225,7 +5398,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     wr = sub.add_parser(
         "wrap",
-        help="run a command with its API base URL transparently routed through Distil",
+        help="run your agent through distil (e.g. distil wrap -- claude)",
     )
     wr.add_argument(
         "--list",
