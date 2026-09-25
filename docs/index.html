@@ -455,7 +455,9 @@
       Two carry caveats worth reading before you rely on them: Cursor routes only its
       agent/chat panel through a custom base URL (tab-completion and ⌘K stay on its own
       backend), and CrewAI needs the LLM passed to <code>planning_llm</code> and
-      <code>function_calling_llm</code> too, not just the agents.
+      <code>function_calling_llm</code> too, not just the agents. Codex's preset is unverified: it
+      speaks the right wire shape, but whether <code>OPENAI_BASE_URL</code> reaches codex's
+      request path at all is still open — <code>distil wrap --list</code> says so.
       <a href="integrations.html">Full integration matrix →</a></p>
   </div>
 
@@ -574,7 +576,7 @@
   <div class="seyebrow p">The architecture</div>
   <h2>Under the hood <span class="g">— a cost-optimized cache hierarchy with a contract</span><a class="hlink" href="#how" aria-label="Link to section: Under the hood — a cost-optimized cache hierarchy with a contract">#</a></h2>
   <p class="lead">Most compressors optimize bytes. In an agent loop the money is somewhere else.</p>
-  <img loading="lazy" src="assets/architecture.svg" alt="Architecture: agent traffic flows through the Distil proxy (Tier-0 lossless, Tier-1 digest, causal prune, salience, cache-aware placement) to the provider, with a recovery loop and decision-equivalence certificate" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 24px"/>
+  <img loading="lazy" src="assets/architecture.svg" alt="Architecture: agent traffic flows through the Distil proxy — drift guard, cold-point planner, salience, Tier-0 lossless and Tier-1 digest, prefix replay — to the provider, with a local restore store and recovery loop, a sealed receipt chain, and the decision-equivalence contract whose live drift alarm can hold the proxy at lossless-only" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 24px"/>
   <h3 style="font-size:22px">Two highest-leverage techniques <span class="g">— and why they win</span></h3>
   <div class="grid2">
     <div class="card">
@@ -756,6 +758,12 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
     <tr><th scope="row">Query-aware salience</th><td>Sees the agent's intent in the same request and pins the line it's asking about — lexically (a grep hit, a SHA), and now <em>semantically</em>: a learned model keeps the line that <em>answers</em> the query with no shared word ("retry limit" → <code>max_attempts = 5</code>)</td><td><span class="new">1.16</span></td></tr>
     <tr><th scope="row">Columnar fold</th><td>Re-encodes JSON record arrays into a compact self-describing table — real token savings even on a flat-rate plan</td><td>lossless</td></tr>
     <tr><th scope="row">Session dissect</th><td><code>distil dissect</code> — per-session deep-dive with an anomaly list that catches silent failures automatically</td><td><span class="new">1.15</span></td></tr>
+    <tr><th scope="row">Savings discovery</th><td><code>distil discover</code> — what is still costing you across recent sessions, ranked, each with its derivation and the command to act on it; median and p10/p90 printed beside the best session, and silent where it cannot measure</td><td>report</td></tr>
+    <tr><th scope="row">Drift guard</th><td>When live paired verdicts prove decision change has crossed the one risk budget, every proxy on the machine serves lossless-only until <code>distil reset --drift-guard</code> — an alarm that acts, not a log line</td><td><span class="new">safety · rc soak</span></td></tr>
+    <tr><th scope="row">Cold-point recompression</th><td>Shrinks older tool output only on a turn the provider's cache has certainly expired for, then holds those bytes stable — <a href="cache-contract.html#cold-point">clause (h)</a>; not yet measured live</td><td><span class="new">reversible · rc soak</span></td></tr>
+    <tr><th scope="row">Sealed receipt chain</th><td>A content-free, hash-chained receipt per request, sealed into segments with Merkle-root checkpoints: hand an auditor one receipt and its inclusion proof, not the whole log (<code>distil receipts --prove</code>)</td><td>audit</td></tr>
+    <tr><th scope="row">Opaque-block passthrough</th><td>Anthropic <code>compaction</code>/<code>thinking</code> blocks and OpenAI <code>reasoning</code>/<code>compaction</code> items reach the provider byte-identical, pinned by contract tests, and are censused rather than hidden</td><td>untouched</td></tr>
+    <tr><th scope="row">Tool definitions left alone</th><td>The <code>tools</code> array is never rewritten (measured: too little to gain, ADR 0012); <code>distil wrap -- claude</code> keeps Claude Code's own MCP tool search on instead — unverified on a metered session so far</td><td>untouched</td></tr>
     </tbody>
   </table>
 </div></section>

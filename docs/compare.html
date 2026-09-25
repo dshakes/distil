@@ -215,12 +215,36 @@
           <td><span class="badge-fail">✘</span> raw score deltas, not an equivalence test</td>
           <td>— no decision risk to measure</td>
         </tr>
+        <tr>
+          <th scope="row">Live alarm that acts (stops lossy compression on a proven budget breach)</th>
+          <td><span class="badge-pass">✔</span> anytime-valid e-process over the paired verdicts; a breach holds every proxy at lossless-only until released (on by default, rc soak pending) — <a href="evals.html#exit-summary">exit summary</a></td>
+          <td><span class="badge-fail">✘</span> no shadow or dual-send path to feed one</td>
+          <td>— no decision risk to measure</td>
+          <td>not published</td>
+          <td>— no decision risk to measure</td>
+        </tr>
+        <tr>
+          <th scope="row">Audit log a third party can check one entry at a time</th>
+          <td><span class="badge-pass">✔</span> hash-chained per-request receipts, sealed segments with Merkle-root checkpoints, inclusion proofs — <a href="cli.html#receipts"><code>distil receipts</code></a></td>
+          <td>not published</td>
+          <td>not published</td>
+          <td>not published</td>
+          <td>— provider billing records</td>
+        </tr>
+        <tr>
+          <th scope="row">Per-command shell output profiles (<code>git</code>, <code>pytest</code>, …)</th>
+          <td><span class="badge-fail">✘</span> measured and deliberately not built: on real traffic the generic digest already takes most of it — <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0015-no-per-command-shell-profiles.md">ADR 0015</a></td>
+          <td>not published</td>
+          <td><span class="badge-pass">✔</span> its core design</td>
+          <td>n/a</td>
+          <td>n/a</td>
+        </tr>
 </tbody>
     </table>
     </div>
 
     <div class="callout">
-      <strong>What each does well.</strong> <strong>Headroom</strong> is a real, adopted compressor with a useful whole-conversation optimizer and a ModernBERT relevance scorer — and on the live head-to-head, the <em>cheaper</em> compute path (Distil's path has no model either, but Headroom's scorer is lighter than a full digest cycle in some configs). <strong>rtk</strong> solves a different problem well: stripping known boilerplate from wrapped CLI commands (<code>git</code>, <code>ls</code>, <code>psql</code>, <code>aws</code>…) fits shell-heavy agents, which is why it's adopted there. It doesn't compress arbitrary agent context, so it isn't a head-to-head contender (see the note on <a href="benchmark.html#live-head-to-head">Benchmark</a>). <strong>LLMLingua-2</strong> posts genuinely high raw compression ratios and is the most-cited method in this space for a reason. <strong>Provider prompt caching</strong> is zero-risk by construction — it doesn't touch what the model reads, only what you pay to re-send it — and composes cleanly with everything above, including Distil, whose cache-aware compression exists to keep that discount intact rather than compete with it.
+      <strong>What each does well.</strong> <strong>Headroom</strong> is a real, adopted compressor with a useful whole-conversation optimizer and a ModernBERT relevance scorer — and on the live head-to-head, the <em>cheaper</em> compute path (Distil's path has no model either, but Headroom's scorer is lighter than a full digest cycle in some configs). <strong>rtk</strong> solves a different problem well: stripping known boilerplate from wrapped CLI commands (<code>git</code>, <code>ls</code>, <code>psql</code>, <code>aws</code>…) fits shell-heavy agents, which is why it's adopted there. It doesn't compress arbitrary agent context, so it isn't a head-to-head contender (see the note on <a href="benchmark.html#live-head-to-head">Benchmark</a>). We measured whether distil should grow rtk-style per-command profiles on top of its digest, on real transcripts with the provider's billed usage, and it should not: most shell volume is <code>grep</code>, scripts and <code>sed</code>, not the test runners and <code>git</code> that profiles target (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0015-no-per-command-shell-profiles.md">ADR 0015</a>). <strong>LLMLingua-2</strong> posts genuinely high raw compression ratios and is the most-cited method in this space for a reason. <strong>Provider prompt caching</strong> is zero-risk by construction — it doesn't touch what the model reads, only what you pay to re-send it — and composes cleanly with everything above, including Distil, whose cache-aware compression exists to keep that discount intact rather than compete with it.
     </div>
 
     <div class="callout" style="border-color:#2a2550">

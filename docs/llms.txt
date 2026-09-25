@@ -20,7 +20,12 @@ dependencies. Four ways to use it, and they do not all reach the same tier:
     shape, and the primary doc each routing contract was verified against. The
     agents distil can NOT reach are on that same list with the reason, rather
     than given a guessed variable that would route nothing while reporting
-    success.
+    success. One preset is itself unverified: codex speaks the Responses wire
+    shape, but codex-rs reads its base URL from the `openai_base_url` config key
+    and no mapping from OPENAI_BASE_URL was found, so it may route nothing.
+    `distil wrap -- claude` also sets ENABLE_TOOL_SEARCH=true so Claude Code keeps
+    deferring MCP tool definitions behind the proxy (unverified on a metered
+    session so far); distil never rewrites the request `tools` array.
   - HTTP proxy for Anthropic Messages, OpenAI (Chat Completions + the Responses
     API), Azure OpenAI, and Google Gemini generateContent. Point any base_url
     client at it. The same provider coverage is in all three servers: the sync
@@ -63,7 +68,7 @@ best session so a best case is never read as typical, prefers the rate the
 machine itself measured over any published ratio, and stays silent where it
 cannot measure.
 
-Five properties are checked rather than asserted, and each is separately
+These properties are checked rather than asserted, and each is separately
 runnable:
 
   - Cache contract: compression is suffix-only and cache-monotonic — it may
@@ -105,6 +110,24 @@ runnable:
     row is tagged with its active levers), so shaping cannot keep itself on with
     its own shorter replies. Always off on subscription/OAuth — distil does not
     alter a flat-rate prompt.
+  - Drift guard: shadow mode's paired verdicts feed one anytime-valid
+    e-process per machine, betting against the same budget the certificate is
+    written at. A proven breach holds every proxy at lossless-only (Tier-0, no
+    digest, no shaping) across restarts until `distil reset --drift-guard`. The
+    multi-tenant gateway is exempt (ADR 0016). New since 1.53.0rc1, rc soak
+    pending.
+  - Receipts: every request appends a content-free, hash-chained receipt; the
+    chain is sealed into segments with RFC 6962-style Merkle-root checkpoints,
+    so `distil receipts --prove <request-id>` hands an auditor one receipt and
+    `--check-proof` verifies it against a pinned checkpoint hash (content,
+    segment, position) or a pinned root (membership only).
+  - Opaque provider content: Anthropic `compaction`/`thinking` blocks and OpenAI
+    `reasoning` (encrypted_content) and `compaction` items are forwarded
+    byte-identical, pinned by contract tests, and censused rather than hidden.
+
+Not yet measured live: cold-point recompression (ADR 0014) shrinks older tool
+output only on a turn the provider's cache has certainly expired for; its gate
+is an rc soak plus a live A/B. `--no-cold-point` opts out.
 
 ## Key sources
 

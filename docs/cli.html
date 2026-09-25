@@ -521,11 +521,13 @@ holdout A/B savings measurement (deterministic partition + bootstrap CI)
 
     <!-- reset -->
     <h2 id="reset">distil reset</h2>
-    <p>Archives the savings ledger to <code>savings.jsonl.reset-&lt;utc-timestamp&gt;</code> (non-destructive — history stays on disk for audit) so the statusline and <code>distil stats</code> restart from zero on current accounting (records booked only after a confirmed upstream 2xx). Use it when a ledger is dominated by pre-1.10 records, whose savings may be overstated — <code>distil stats</code> warns when that is the case. <code>--shadow</code> also archives and resets the decision-equivalence counter.</p>
+    <p>Archives the savings ledger to <code>savings.jsonl.reset-&lt;utc-timestamp&gt;</code> (non-destructive — history stays on disk for audit) so the statusline and <code>distil stats</code> restart from zero on current accounting (records booked only after a confirmed upstream 2xx). Use it when a ledger is dominated by pre-1.10 records, whose savings may be overstated — <code>distil stats</code> warns when that is the case. <code>--shadow</code> also archives and resets the decision-equivalence counter, the drift alarm and its hold.</p>
+    <p><code>--drift-guard</code> releases only a drift-alarm hold. When shadow mode's paired verdicts prove live decision change has crossed the risk budget, every proxy on the machine serves lossless-only until released (see <a href="evals.html#exit-summary">what the exit summary proves</a>); the status line shows <code>⚠ drift hold · distil reset --drift-guard</code>. The release archives the drift state (<code>drift.json.reset-*</code>) and writes a fresh one, so the next start does not re-fold the same rows into the same breach. Savings and shadow stats are untouched, and running proxies resume within 30s. If it cannot archive the old state or write the new one it says so on stderr and exits 1. Run <a href="#calibrate"><code>distil calibrate</code></a> first: the hold is the alarm doing its job.</p>
     <pre class="term"><span class="d">$ distil reset</span>
 savings ledger archived → ~/.distil/savings.jsonl.reset-20260705-213313Z
   651 runs, 114,079,320 tokens saved (643 pre-1.10 records) — kept for audit, no longer counted
 fresh start: all new records use post-1.10 accounting (booked only after upstream 2xx).</pre>
+    <pre class="term"><span class="d">$ distil reset --drift-guard</span>   <span class="d"># release a drift hold; savings + shadow stats kept</span></pre>
 
     <!-- census -->
     <h2 id="census">distil census</h2>
@@ -645,6 +647,24 @@ dependency-free — so read it as a floor on what the context window kept.</p>
 <span class="d">$ distil receipts --prove &lt;req-id&gt; &gt; proof.json</span>
 <span class="d">$ distil receipts --check-proof proof.json --checkpoint-hash &lt;sha256&gt;</span></pre>
     <p>Use it as the team's audit log. When the active file reaches the segment size it is sealed — renamed, never rewritten — into <code>receipts-segments/</code> with a checkpoint beside it: segment id, row count, first/last receipt hash and an RFC 6962-shaped Merkle root. The next receipt links to the sealed segment's last hash, so the history stays one chain. <code>--segment</code> verifies one segment without reading the others; <code>--prove</code> and <code>--check-proof</code> let an auditor check a single receipt from its inclusion proof and a pin they already hold. What passes depends on the pin: <code>--checkpoint-hash</code> (the sha256 <code>--checkpoints</code> prints for each record) proves content, segment and position; <code>--root</code> alone proves only that the receipt is in that tree, and the output then names no position; with nothing pinned the check is circular and the command warns. Keep the pins somewhere outside <code>~/.distil</code>: whoever can write there can re-seal a segment and its checkpoint together. A chain from before segments existed verifies unchanged and becomes segment 0, byte for byte, on its first rotation.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="distil receipts flags">
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">What it checks or prints</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><em>(none)</em> / <code>--verify</code></th><td>The whole history: every receipt link, every sealed segment against its checkpoint. Full pass.</td></tr>
+        <tr><th scope="row"><code>--fast</code></th><td>Resume from this machine's last verified point and re-hash only what was appended since.</td></tr>
+        <tr><th scope="row"><code>--segment N</code></th><td>One sealed segment against its checkpoint; opens no other file.</td></tr>
+        <tr><th scope="row"><code>--checkpoints</code></th><td>The checkpoint records as JSONL; each record's sha256 goes to stderr, to pin outside <code>~/.distil</code>.</td></tr>
+        <tr><th scope="row"><code>--prove &lt;request-id&gt;</code></th><td>A Merkle inclusion proof for one sealed receipt.</td></tr>
+        <tr><th scope="row"><code>--check-proof FILE</code></th><td>Re-hash the receipt from its content and walk the audit path, reading nothing but the proof. Combine with a pin:</td></tr>
+        <tr><th scope="row"><code>--checkpoint-hash &lt;sha256&gt;</code></th><td>Pins the whole checkpoint record: proves content, segment and position.</td></tr>
+        <tr><th scope="row"><code>--root &lt;hex&gt;</code></th><td>Pins only the tree: proves membership, and the output names no position.</td></tr>
+        <tr><th scope="row"><code>--export</code></th><td>Print every receipt as JSONL instead of verifying.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <img src="assets/receipt-segments.svg" alt="Receipt segments and proof pin levels: the active receipts.jsonl is sealed into numbered segments, each with a checkpoint holding its row count, first and last receipt hash and a Merkle root. An inclusion proof checked against a pinned checkpoint hash proves content, segment and position; against a pinned root alone it proves membership only; with nothing pinned it is self-consistent only." class="svg-embed"/>
+    <p>A line that is a JSON object but not a valid receipt is <b>BROKEN</b> at that line, because a torn write never produces a well-formed object. A line that is not a JSON object at all (a torn trailing write after a crash) does not invalidate the receipts around it, but the verdict reads <code>VERIFIED WITH GAPS</code> and says how many lines were skipped.</p>
     <p>The chain is also verified at the end of every <code>wrap</code> session — see <a href="evals.html#exit-summary">what the exit summary proves</a>.</p>
 
     <h2 id="mcp">distil mcp</h2>
@@ -674,6 +694,8 @@ dependency-free — so read it as a floor on what the context window kept.</p>
         <tr><th scope="row"><code>--expand</code></th><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
         <tr><th scope="row"><code>--shadow</code></th><td>off (direct use; <code>distil wrap</code> defaults to 0.02)</td><td>Shadow-mode sampling rate (0–1): re-run a fraction of requests uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — prove equivalence in minutes, then drop back).</td></tr>
         <tr><th scope="row"><code>--session-delta</code></th><td>off</td><td>Enable cross-turn cache-delta encoding (deduplicates repeated stable blocks across the session)</td></tr>
+        <tr><th scope="row"><code>--no-prefix-replay</code></th><td>off (replay on)</td><td>Opt out of forwarded-bytes prefix replay (ADR 0011) and forward exactly what the compressor produced. See <a href="cache-contract.html">the cache contract</a>, clause (f).</td></tr>
+        <tr><th scope="row"><code>--no-cold-point</code></th><td>off (cold point on)</td><td>Opt out of cold-point recompression (ADR 0014); also <code>DISTIL_COLD_POINT=0</code>. On by default wherever the recoverable digest runs, Anthropic only. Not yet measured live — see <a href="cache-contract.html#cold-point">clause (h)</a>.</td></tr>
         <tr><th scope="row"><code>--async</code></th><td>off</td><td>Use the async aiohttp backend (<code>distil/aproxy.py</code>) for high-concurrency streaming. Requires <code>pip install 'distil-llm[async]'</code>. Async event loop handles thousands of concurrent sessions. Note: the async backend supports lossless / verbatim / output-shaping, but not <code>--expand</code>, <code>--session-delta</code>, or <code>--shadow</code> yet — pass those on the standard (sync) proxy, which handles typical agent concurrency. Combining them with <code>--async</code> prints a notice and ignores them.</td></tr>
         <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model used to price the genuine dollar savings recorded to the ledger</td></tr>
         <tr><th scope="row"><code>--no-record</code></th><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
@@ -696,7 +718,7 @@ client = openai.OpenAI(base_url=<span class="g">"http://localhost:8788/v1"</span
 <span class="d"># LiteLLM</span>
 response = litellm.completion(api_base=<span class="g">"http://localhost:8788"</span>, ...)</pre>
 
-    <p>The proxy adds up to 9 response headers (not all appear on every request):</p>
+    <p>The proxy adds these response headers (not all appear on every request):</p>
     <ul>
       <li><code>x-distil-compressed: 1</code> — compression was applied</li>
       <li><code>x-distil-tokens-saved: &lt;n&gt;</code> — heuristic estimate of tokens saved</li>
@@ -707,6 +729,10 @@ response = litellm.completion(api_base=<span class="g">"http://localhost:8788"</
       <li><code>x-distil-cache-tokens-saved: &lt;n&gt;</code> — tokens saved by cache-delta (with <code>--session-delta</code>)</li>
       <li><code>x-distil-output-shaping: light|aggressive</code> — present when output shaping fired</li>
       <li><code>x-distil-shadow: sampled</code> — present when this request was sampled for shadow-mode comparison</li>
+      <li><code>x-distil-mode: &lt;mode&gt;</code> — the compression mode this request was served in (<code>lossless-only</code> while a drift hold is on)</li>
+      <li><code>x-distil-drift-guard: held</code> — the drift alarm has tripped and this request was held at lossless-only; release with <a href="#reset"><code>distil reset --drift-guard</code></a></li>
+      <li><code>x-distil-cold</code> / <code>x-distil-cold-evicted</code> — the cold-point decision for this turn and the lineage's evicted-block count</li>
+      <li><code>x-distil-replay-stop: held|client|distil|marker|cold|untracked</code> — why prefix replay stopped, so an in-window cache write can be blamed on the right side (<a href="cache-contract.html#verify">how to read it</a>)</li>
     </ul>
     <p>All other paths and HTTP methods are forwarded unchanged.</p>
 
@@ -716,7 +742,8 @@ response = litellm.completion(api_base=<span class="g">"http://localhost:8788"</
     <h2 id="wrap">distil wrap</h2>
     <p>The zero-config way to route an existing agent or CLI through Distil. <code>distil wrap</code> starts the proxy on an ephemeral local port, injects the right env var into the child process's environment, runs your command to completion, then tears the proxy down — flushing genuine savings to your ledger and printing the <strong>Proof Ledger</strong> on exit. No code change, no manual env wiring, no leftover server.</p>
 
-    <p><strong>Per-agent presets</strong> — when the command name is <code>claude</code>, <code>codex</code>, <code>gemini</code>, or <code>aider</code>, distil auto-selects the env var and upstream endpoint for that agent. A <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> line confirms the selection at startup. Explicit <code>--env-var</code> and <code>--upstream</code> always override the preset. <code>cursor-agent</code> is deliberately omitted — its env var is undocumented upstream; use <code>--env-var</code> to configure it manually.</p>
+    <p><strong>Per-agent presets</strong> — when the command name is a known agent, distil auto-selects how to route it: an environment variable (<code>claude</code>, <code>codex</code>, <code>gemini</code>, <code>aider</code>, <code>opencode</code>, <code>qwen</code>, <code>goose</code>, <code>grok</code>, <code>openhands</code>, <code>copilot</code>, <code>kimi</code>, <code>vibe</code>, <code>kilo</code>, …) or, for agents with no env-var contract, a config file distil claims for the session and restores on exit (<code>cline</code>, <code>crush</code>, <code>droid</code>, <code>omp</code>, <code>cn</code>). <code>distil wrap --list</code> prints every target with its mechanism, wire shape and the primary doc its contract was read from — and the agents it cannot reach, with the reason. A <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> line confirms the selection at startup. Explicit <code>--env-var</code> and <code>--upstream</code> always override the preset. <strong><code>codex</code> is unverified:</strong> codex-rs reads its base URL from the <code>openai_base_url</code> config key and no mapping from <code>OPENAI_BASE_URL</code> was found, so the preset may route nothing; the zero-traffic warning at exit is how you would know. Full matrix: <a href="integrations.html">Integrations</a>.</p>
+    <p><strong>Claude Code's tool search stays on.</strong> Claude Code turns off its own deferred loading of MCP tool definitions whenever <code>ANTHROPIC_BASE_URL</code> names a non-first-party host, so every connector's full schema would ride along on every turn. <code>distil wrap -- claude</code> sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (an exported <code>ENABLE_TOOL_SEARCH=false</code> still wins), and distil forwards <code>defer_loading</code> and <code>tool_reference</code> blocks untouched. Unverified on a metered session so far; see <a href="cache-contract.html#tools">the cache contract</a> for how to confirm it and ADR 0013 for why distil does not hide tools itself.</p>
 
     <pre class="term"><span class="d"># claude → ANTHROPIC_BASE_URL auto-set</span>
 $ distil <span class="c">wrap</span> -- claude -p <span class="g">"summarize this repo"</span>
@@ -752,6 +779,9 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
         <tr><th scope="row"><code>--expand</code></th><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
         <tr><th scope="row"><code>--shadow</code></th><td>0.02 (2%, opt-out)</td><td>Fraction of requests re-issued uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — proves equivalence fast, use then drop back). See <a href="#statusline">status line</a> for how to read the <code>de</code> segment.</td></tr>
         <tr><th scope="row"><code>--session-delta</code></th><td>off</td><td>Enable cross-turn cache-delta encoding</td></tr>
+        <tr><th scope="row"><code>--no-prefix-replay</code></th><td>off (replay on)</td><td>Opt out of forwarded-bytes prefix replay</td></tr>
+        <tr><th scope="row"><code>--no-cold-point</code></th><td>off (cold point on)</td><td>Opt out of cold-point recompression; also <code>DISTIL_COLD_POINT=0</code></td></tr>
+        <tr><th scope="row"><code>--list</code></th><td>—</td><td>List every agent distil can route, its mechanism and wire shape, and the ones it cannot reach and why</td></tr>
       </tbody>
     </table>
     </div>
@@ -1276,7 +1306,7 @@ distil trajectory-risk certificate
     <hr/>
 
     <h2 id="default">distil default</h2>
-    <p>Make distil the default for your agent so you don't type <code>distil wrap</code> every session. Writes a single <strong>managed, marked, backed-up, idempotent</strong> block to the shell rc distil detects for <em>this</em> machine — zsh (<code>.zshrc</code>), bash (<code>.bashrc</code>/<code>.bash_profile</code>), fish (<code>config.fish</code>), or PowerShell (<code>$PROFILE</code>) — using the correct syntax for each (alias / function / <code>export</code> / <code>set&nbsp;-gx</code>). An explicit <code>$SHELL</code> wins over file-existence guesses, and the command <strong>prints what it detected</strong> (shell, rc, agent, mode) rather than acting blind. <code>--always-on</code> instead installs a persistent proxy service (launchd / systemd) plus <code>ANTHROPIC_BASE_URL</code> so <em>every</em> base-URL-honoring SDK routes through distil — universal, but a daemon you keep alive and a single point of failure if it's down. <code>--undo</code> removes whichever is installed; <code>--agent</code>, <code>--mode</code>, <code>--rc</code> override the detected defaults. <a href="#onboard">distil onboard</a> offers it interactively.</p>
+    <p>Make distil the default for your agent so you don't type <code>distil wrap</code> every session. Writes a single <strong>managed, marked, backed-up, idempotent</strong> block to the shell rc distil detects for <em>this</em> machine — zsh (<code>.zshrc</code>), bash (<code>.bashrc</code>/<code>.bash_profile</code>), fish (<code>config.fish</code>), or PowerShell (<code>$PROFILE</code>) — using the correct syntax for each (alias / function / <code>export</code> / <code>set&nbsp;-gx</code>). An explicit <code>$SHELL</code> wins over file-existence guesses, and the command <strong>prints what it detected</strong> (shell, rc, agent, mode) rather than acting blind. <code>--always-on</code> instead installs a persistent proxy service (launchd / systemd) plus <code>ANTHROPIC_BASE_URL</code> so <em>every</em> base-URL-honoring SDK routes through distil — universal, but a daemon you keep alive and a single point of failure if it's down. <code>--always-on</code> also writes <code>ENABLE_TOOL_SEARCH=true</code> into the same Claude Code settings <code>env</code> block as the base-URL pin, but only if the key is absent — a value you set (<code>true</code>, <code>false</code>, <code>auto:N</code>) is never touched. <code>--undo</code> removes whichever is installed, and removes that key only from files distil added it to and only while it still reads <code>true</code>; <code>--agent</code>, <code>--mode</code>, <code>--rc</code> override the detected defaults. <a href="#onboard">distil onboard</a> offers it interactively.</p>
 
     <hr/>
 

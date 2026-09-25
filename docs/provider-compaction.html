@@ -165,6 +165,14 @@
 
     <hr/>
 
+    <h2 id="alongside">Running distil alongside provider compaction</h2>
+    <p>Measuring the provider's compaction is one question; not breaking it is another. Both providers return compaction output that must come back byte-identical on the next request. Anthropic re-validates a <code>compaction</code> block's <code>signature</code> and rejects the request with <code>compaction_signature_invalid</code> if it was altered, moved or even re-encoded; OpenAI's docs say to pass <code>/v1/responses/compact</code> output into the next call as-is, and a <code>reasoning</code> item's <code>encrypted_content</code> is state the provider cannot rebuild without.</p>
+    <ul>
+      <li><strong>Untouched on every path.</strong> Anthropic <code>compaction</code> blocks survive <code>compress_messages</code> in every mode, the SDK adapter, the proxy (with <code>context_management</code> and the <code>anthropic-beta</code> header forwarded) and the streaming splice, even when the tool results around them are digested. OpenAI <code>reasoning</code> and <code>compaction</code> items survive every mode as the same object; <code>/v1/responses/compact</code> is relayed byte-for-byte and never parsed. Pinned by <code>tests/test_compaction_passthrough.py</code> and <code>tests/test_openai_opaque_passthrough.py</code>.</li>
+      <li><strong>Counted, not hidden.</strong> Those tokens are billed and distil cannot reduce them, so the eligibility census books them (<code>compaction_billed</code>, <code>reasoning_billed</code>, <code>signed_block_billed</code> / <code>signed_item_billed</code>) and <code>distil dissect</code> reads them as policy holding rather than as a missed opportunity. The OpenAI counts are a heuristic over base64 ciphertext, not the provider's exact reasoning-token count.</li>
+    </ul>
+    <p>The rule is stated as a clause of the <a href="cache-contract.html#opaque">cache contract, (g)</a>.</p>
+
     <h2 id="scope">Honest scope</h2>
     <ul>
       <li><strong>Synthetic corpora, and Experiment 2's is built to be cleared.</strong> Experiment 1 bounds the regime where the manipulation fires on decision-bearing content. Experiment 2's corpus is deliberately ordered so that <code>keep=3</code> retains only routine rounds — it measures what the default policy does when the load-bearing facts are older than the three most recent tool uses, not how often that ordering arises in your traffic. It is a claim about the policy's <em>mechanism</em>, not a prevalence estimate.</li>

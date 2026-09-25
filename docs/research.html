@@ -400,17 +400,29 @@
     <!-- E13: continuous assurance under drift -->
     <h2 id="e13">E13: continuous assurance under drift</h2>
 
-    <p>The certificate is valid under <em>exchangeability</em>, so its standing operational risk is silent drift &mdash; a new model or workload pushes the true decision-change rate above the budget &alpha; the operating point was certified at. Three shipped pieces close it:</p>
+    <p>The certificate is valid under <em>exchangeability</em>, so its standing operational risk is silent drift &mdash; a new model or workload pushes the true decision-change rate above the budget &alpha; the operating point was certified at. Three pieces address it; the first now acts on the request path, the third is research-only:</p>
 
     <ul>
-      <li><strong>Anytime-valid drift monitor</strong> (<code>distil/drift.py:DriftMonitor</code>) &mdash; a betting e-process for <code>H0: risk &le; &alpha;</code> (hedged capital, Waudby-Smith &amp; Ramdas 2023) whose capital is a supermartingale under <code>H0</code>; by Ville&rsquo;s inequality the false-alarm probability is &le; &delta; <strong>however often the stream is inspected</strong>. So you can check live decision-change after <em>every turn</em> with no multiplicity penalty; crossing <code>1/&delta;</code> signals drift beyond budget &rarr; recalibrate or fall back to full context. Validated for bounded false alarms under continuous peeking + high detection power (<code>tests/test_drift.py</code>).</li>
+      <li><strong>Anytime-valid drift monitor</strong> (<code>distil/drift.py:DriftMonitor</code>) &mdash; a betting e-process for <code>H0: risk &le; &alpha;</code> (hedged capital, Waudby-Smith &amp; Ramdas 2023) whose capital is a supermartingale under <code>H0</code>; by Ville&rsquo;s inequality the false-alarm probability is &le; &delta; <strong>however often the stream is inspected</strong>. So you can check live decision-change after <em>every turn</em> with no multiplicity penalty; crossing <code>1/&delta;</code> signals drift beyond budget. Validated for bounded false alarms under continuous peeking + high detection power (<code>tests/test_drift.py</code>). <strong>It now acts:</strong> each proxy folds its paired shadow verdicts into one e-process per machine, and a breach holds every proxy at lossless-only until <code>distil reset --drift-guard</code> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>; new since 1.53.0rc1, rc soak pending).</li>
       <li><strong>Anytime-valid, variance-adaptive certificate</strong> (<code>distil/conformal.py:betting_upper_bound</code>) &mdash; the same betting bound certifies graded losses simultaneously at every <em>t</em>. Honest tradeoff: for one-shot binary losses Bentkus is already near-optimal (betting is <em>comparable</em> there); betting&rsquo;s edge is continuous monitoring and graded-loss adaptivity.</li>
-      <li><strong>Cross-family grader ensemble</strong> (<code>distil/ensemble.py:EnsembleGrader</code>) &mdash; grade with multiple model families; the default &ldquo;any-change&rdquo; aggregation is conservative (can only <em>raise</em> measured risk), so the certificate stays valid even if one grader family is unfaithful. Aggregation logic shipped + tested; multi-family validation needs a live multi-API run.</li>
+      <li><strong>Cross-family grader ensemble</strong> (<code>distil/ensemble.py:EnsembleGrader</code>, <strong>research-only</strong>, not on the request path) &mdash; grade with multiple model families; the default &ldquo;any-change&rdquo; aggregation is conservative (can only <em>raise</em> measured risk), so the certificate stays valid even if one grader family is unfaithful. Aggregation logic shipped + tested; multi-family validation needs a live multi-API run.</li>
     </ul>
 
     <div class="callout good">
       <b>First of its kind.</b> To our knowledge this is the first <strong>anytime-valid drift monitor</strong> for a context-compression decision-equivalence certificate &mdash; you can watch the guarantee hold (or break) in production, continuously, with a provably bounded false-alarm rate.
     </div>
+
+    <hr/>
+
+    <h2 id="live-bill">Where the live bill goes, and the levers measured against it</h2>
+    <p>A decomposition of one machine's live Claude Code bill by what each dollar paid for — cache reads, cache writes, output, and which content rode in the prefix — with every figure labelled measured or estimated: <a href="https://github.com/dshakes/distil/blob/main/docs/research/live-savings-gap.md">docs/research/live-savings-gap.md</a> (#189). It ranked the remaining levers, and each has since been decided by measurement rather than argument:</p>
+    <ul>
+      <li><strong>Cold-point recompression</strong> — built, on by default in the rc, not yet measured live (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>).</li>
+      <li><strong>In-window prefix breaks</strong> — the quote guard's widened pass no longer rewrites the cached prefix for nothing, and every request now records why replay stopped (<a href="cache-contract.html#quote-guard">cache contract (i)</a>).</li>
+      <li><strong>Tool definitions</strong> — measured and left alone (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0012-tool-definitions-are-left-alone.md">ADR 0012</a>); unused connectors are Claude Code's to defer (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>).</li>
+      <li><strong>Per-command shell profiles</strong> — measured on real transcripts and not built (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0015-no-per-command-shell-profiles.md">ADR 0015</a>).</li>
+      <li><strong>First-sight digest markers</strong> — a dropped run no longer than its marker is now shown inline; the gain is small and zero on the bundled corpus.</li>
+    </ul>
 
     <hr/>
 
