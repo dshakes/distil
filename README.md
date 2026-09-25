@@ -567,7 +567,7 @@ distil mcp watch                         # per-tool: tokens before→after, unlo
 Levels are explicit: **L0** lossless schema canonicalisation (on), **L1** extractive summaries,
 **L2** lazy loading that surfaces the *real* tool after its schema is fetched (not a generic
 `invoke` forever), **L3** L2 plus pins learned from your usage, and **R** recoverable result digests
-with a `<server>_expand` tool (on). L1–L3 are opt-in until the
+with a `<server>_expand` tool (`--results`). L1–L3 and R are opt-in until the
 [pre-registered accuracy protocol](docs/research/mcp-compressor-protocol.md) certifies them —
 no live run has been made yet, so every certificate reads *pending*. `distil mcp bench` runs the
 harness offline with a mock model. Details: [docs/mcp.html](https://dshakes.github.io/distil/mcp.html).

@@ -158,10 +158,9 @@ ever drops below its requirement.
 
 The shipped default is the most aggressive definition level certified on the primary
 model **and not failed** on the replication model, plus R if H5 is certified on both.
-Until a live run exists the default is **L0 + R**: L0 is validation-equivalent by
+Until a live run exists the default is **L0 only**: L0 is validation-equivalent by
 construction (`tests/test_mcp_levels.py` proves every change is an annotation keyword
-or whitespace, on all 78 real schemas); R reuses the digest distil's LLM proxy already
-ships, with byte-exact recovery. L1–L3 are opt-in and say so on every start.
+or whitespace, on all 78 real schemas). R and L1–L3 are opt-in and say so on every start.
 `distil/certificates/mcp.json` is edited only by a human, from a committed live run.
 
 ## 11. Dry-run validation (plumbing, not a result)
@@ -217,4 +216,10 @@ been given.**
 
 ## Deviations
 
-None.
+- **2026-09-25, before any live run** (security review of the first implementation):
+  1. §10's interim default changed from L0 + R to **L0 only**; R is opt-in until H5 is
+     certified. No hypothesis, metric, sample size or analysis changed.
+  2. The harness now runs **one proxy per server** — the deployment `distil mcp install`
+     produces — instead of one proxy fronting all eight, because a multi-server proxy now
+     namespaces tool names (`<server>__<tool>`), which would confound the comparison with
+     the raw arm. The dry-run outputs are unchanged by this.

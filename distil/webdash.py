@@ -268,6 +268,21 @@ def serve_webdash(
         server.server_close()
 
 
+_LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _host_allowed(header: str | None, bound: str) -> bool:
+    """Is the request's ``Host`` a name this local server legitimately answers to?"""
+    if not header:
+        return False
+    h = header.strip().lower()
+    if h.startswith("["):  # [::1]:8766
+        name = h[1 : h.find("]")] if "]" in h else h
+    else:
+        name = h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+    return name in _LOOPBACK_NAMES or name == bound.lower()
+
+
 def build_server(host: str, port: int) -> ThreadingHTTPServer:
     """The dashboard HTTP server — factored out so tests can drive it directly.
     Serves the local page and the content-free ``/data`` snapshot; nothing else."""
@@ -285,6 +300,11 @@ def build_server(host: str, port: int) -> ThreadingHTTPServer:
             self.wfile.write(body)
 
         def do_GET(self) -> None:  # noqa: N802
+            if not _host_allowed(self.headers.get("Host"), host):
+                # DNS rebinding: a page on evil.example resolving to 127.0.0.1 could
+                # otherwise read this dashboard (tool names, schemas) cross-origin.
+                self._send(403, "text/plain", b"forbidden host")
+                return
             if (
                 self.path == "/mcp"
                 or self.path.startswith("/mcp/")

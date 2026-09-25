@@ -291,7 +291,7 @@ def test_l1_surface_offers_full_description():
 
 def test_l2_index_unlock_is_append_only_and_monotonic():
     fx = FIXTURES["github"]
-    surf = levels.Surface("github", fx["tools"], "L2")
+    surf = levels.Surface("github", fx["tools"], "L2", results=True)
     first = surf.tools_list()
     assert [t["name"] for t in first] == [
         "github_get_tool_schema",
@@ -315,7 +315,7 @@ def test_l2_index_unlock_is_append_only_and_monotonic():
 
 
 def test_l2_resolution_routes_real_names_even_when_not_surfaced():
-    surf = levels.Surface("git", FIXTURES["git"]["tools"], "L2")
+    surf = levels.Surface("git", FIXTURES["git"]["tools"], "L2", results=True)
     assert surf.resolve("git_status") == ("tool", "git_status")
     assert surf.resolve("git_invoke_tool") == ("invoke", None)
     assert surf.resolve("git_expand") == ("expand", None)
@@ -336,7 +336,7 @@ def test_l3_pins_most_used_and_never_moves_mid_session():
     usage = {"create_issue": 9, "get_issue": 5, "list_issues": 2, "gone_tool": 50}
     pins = levels.choose_pins(usage, [t["name"] for t in fx["tools"]])
     assert pins == frozenset({"create_issue", "get_issue"})  # min calls + must exist
-    surf = levels.Surface("github", fx["tools"], "L3", pinned=pins)
+    surf = levels.Surface("github", fx["tools"], "L3", results=True, pinned=pins)
     names = [t["name"] for t in surf.tools_list()]
     assert names[3:] == ["create_issue", "get_issue"]
     assert surf.unlock("create_issue") is False  # pinned is already visible
@@ -345,7 +345,8 @@ def test_l3_pins_most_used_and_never_moves_mid_session():
 
 
 def test_meta_names_are_sanitised_and_bounded():
-    assert levels.meta_name("my server!", "expand") == "my_server__expand"
+    assert levels.meta_name("my server!", "expand") == "my-server_expand"
+    assert levels.safe_server("a_b.c") == "a-b-c"
     assert len(levels.meta_name("x" * 200, "get_tool_schema")) <= 64
     assert levels.safe_server("") == "mcp"
 
@@ -444,3 +445,32 @@ def test_a_handle_collision_leaves_the_block_verbatim():
     result = {"content": [{"type": "text", "text": _big_listing()}]}
     new, info = levels.compress_result("x", result, record=lambda h, t: False)
     assert new is result and info.handles == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["view", "open", "cat", "get_contents", "open_document", "git_show", "read", "file_contents"],
+)
+def test_exact_quote_covers_read_verbs(name):
+    """Review 7: the old name regex missed view/open/cat/get_contents."""
+    result = {"content": [{"type": "text", "text": _big_listing()}]}
+    new, info = levels.compress_result(name, result, record=lambda h, t: True)
+    assert new is result and info.skipped == "exact-quote"
+
+
+def test_exact_quote_from_read_only_annotation_and_description():
+    tool = {
+        "name": "fetch_thing",
+        "description": "Returns the raw contents of a document.",
+        "annotations": {"readOnlyHint": True},
+    }
+    assert levels.exact_quote("fetch_thing", tool)
+    assert not levels.exact_quote("fetch_thing", {**tool, "annotations": {}})
+    assert not levels.exact_quote(
+        "list_issues", {"description": "List issues", "annotations": {"readOnlyHint": True}}
+    )
+    result = {"content": [{"type": "text", "text": _big_listing()}]}
+    new, info = levels.compress_result(
+        "fetch_thing", result, record=lambda h, t: True, tool_def=tool
+    )
+    assert new is result and info.skipped == "exact-quote"

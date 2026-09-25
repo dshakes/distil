@@ -18,6 +18,7 @@ tool from blocking ``ping`` without needing an event loop on Windows pipes.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import json
 import os
@@ -25,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -94,6 +96,10 @@ def parse_servers(data: Any) -> tuple[list[ServerSpec], list[str]]:
         if cwd is not None and not isinstance(cwd, str):
             raise ConfigError(f'server {name!r}: "cwd" must be a string')
         specs.append(ServerSpec(str(name), command, list(args), dict(env), cwd))
+    safe = [levels.safe_server(sp.name) for sp in specs]
+    dup = sorted({n for n in safe if safe.count(n) > 1})
+    if dup:
+        raise ConfigError(f"server names collide once sanitised to [A-Za-z0-9-]: {', '.join(dup)}")
     if not specs:
         raise ConfigError(
             "no stdio MCP servers to proxy" + (f" ({'; '.join(skipped)})" if skipped else "")
@@ -261,17 +267,37 @@ def _text_result(text: str, is_error: bool = False) -> dict[str, Any]:
 
 
 _LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
-# Method families a backend advertises in its ``capabilities`` and the proxy relays.
-_FAMILY = {
-    "resources": "resources",
-    "prompts": "prompts",
-    "completion": "completions",
-    "logging": "logging",
-}
+#: ``_meta`` key naming the server a relayed server-to-client request came from.
+ORIGIN_KEY = "io.distil/server"
+#: Bounds on the id maps a misbehaving client or server could otherwise grow forever.
+MAX_SERVER_REQUESTS = 256
+MAX_INFLIGHT = 1024
+_AMBIGUOUS = "\0ambiguous"
+
+
+class _Bounded(OrderedDict):  # type: ignore[type-arg]
+    """An insertion-ordered dict that evicts its oldest entry past ``cap``."""
+
+    def __init__(self, cap: int) -> None:
+        super().__init__()
+        self.cap = cap
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        super().__setitem__(key, value)
+        while len(self) > self.cap:
+            self.popitem(last=False)
 
 
 class Proxy:
-    """One client session. ``handle`` is synchronous and thread-safe."""
+    """One client session. ``handle`` is synchronous and thread-safe.
+
+    With more than one backend every tool, meta tool and prompt is namespaced
+    ``<server>__<name>`` (``levels.safe_server`` has no ``_``, so the first ``__`` always
+    ends the server part), and calls are routed through ONE explicit name→server table
+    built in config order. No backend can claim another's names, and a
+    ``list_changed`` never reorders who owns what. A single backend keeps its tools'
+    real names: there is nothing for it to shadow.
+    """
 
     def __init__(
         self,
@@ -290,7 +316,12 @@ class Proxy:
             raise ValueError(f"unknown level {level!r}; choose one of {', '.join(levels.LEVELS)}")
         if not backends:
             raise ValueError("at least one backend is required")
+        safe = [levels.safe_server(n) for n in backends]
+        if len(set(safe)) != len(safe):
+            raise ValueError(f"server names collide once sanitised: {', '.join(backends)}")
         self.backends = backends
+        self.order = list(backends)  # config order: the only routing priority, ever
+        self.multi = len(backends) > 1
         self.level = level
         self.results = results
         self.session = session or events.new_session_id()
@@ -301,19 +332,46 @@ class Proxy:
         self.persist = persist  # False: no catalog snapshots, no learned state (the bench)
         self.emit: Callable[[dict[str, Any]], None] = lambda msg: None
         self.surfaces: dict[str, levels.Surface] = {}
+        self.routes: dict[str, tuple[str, str, str | None]] = {}
         self.caps: dict[str, dict[str, Any]] = {}
         self.list_changes = 0
-        self._raw_owner: dict[str, str] = {}
         self._unlocked: dict[str, list[str]] = {}
-        self._server_requests: dict[str, tuple[str, Any]] = {}
+        self._handles: dict[str, set[str]] = {n: set() for n in backends}
+        self._server_requests: _Bounded = _Bounded(MAX_SERVER_REQUESTS)
+        self._inflight: _Bounded = _Bounded(MAX_INFLIGHT)
+        self._res_owner: dict[str, str] = {}
+        self._tmpl_owner: dict[str, str] = {}
         self._sreq_ids = itertools.count(1)
+        self._ids = itertools.count(1)
+        # Guards surfaces/routes. Never held across backend I/O: a backend's reader
+        # thread takes it (list_changed) while a caller may be waiting on that backend.
         self._lock = threading.RLock()
+        self._maplock = threading.Lock()  # the id maps only; never held across I/O
+        self._tl = threading.local()
         self._states = {n: events.ServerState(n, state_root) for n in backends}
         for name, backend in backends.items():
             backend.on_message = self._relay_from(name)
 
     def _relay_from(self, server: str) -> Callable[[dict[str, Any]], None]:
         return lambda msg: self.on_backend_message(server, msg)
+
+    def _ns(self, server: str) -> str:
+        return f"{levels.safe_server(server)}{levels.NAMESPACE_SEP}" if self.multi else ""
+
+    def _request(
+        self, server: str, method: str, params: Any, client_id: Any = None
+    ) -> dict[str, Any]:
+        """Send to a backend under an INTERNAL id; remember it for cancellation."""
+        rid = f"distil-mcp-c{next(self._ids)}"
+        if client_id is not None:
+            with self._maplock:
+                self._inflight[client_id] = (server, rid)
+        try:
+            return self.backends[server].request(method, params, id=rid)
+        finally:
+            if client_id is not None:
+                with self._maplock:
+                    self._inflight.pop(client_id, None)
 
     # -- client -> proxy ----------------------------------------------------
 
@@ -325,10 +383,10 @@ class Proxy:
             self._route_client_response(msg)
             return []
         if msg_id is None:
-            for backend in self.backends.values():
-                backend.notify(method, msg.get("params"))
+            self._notify(method, msg.get("params"))
             return []
         params = msg.get("params")
+        self._tl.sent = False
         try:
             if method == "initialize":
                 return [self._initialize(msg_id, params)]
@@ -341,24 +399,46 @@ class Proxy:
             return [self._relay(msg_id, method, params)]
         except BackendError as exc:
             return [_error(msg_id, -32603, str(exc))]
-        except Exception as exc:  # noqa: BLE001 — fail open: the backend's own answer
+        except Exception as exc:  # noqa: BLE001 — fail open, but never twice
             self.log.emit("error", "*", err=type(exc).__name__)
+            if getattr(self._tl, "sent", False):
+                # The call already reached a server. Re-sending it could run a
+                # non-idempotent tool twice, so this is an error, not a retry.
+                return [
+                    _error(
+                        msg_id,
+                        -32603,
+                        "distil mcp: failed after the server was called; not retried",
+                    )
+                ]
             try:
                 return [self._raw(msg_id, method, params)]
             except BackendError as inner:
                 return [_error(msg_id, -32603, str(inner))]
 
+    def _notify(self, method: str, params: Any) -> None:
+        if method == "notifications/cancelled" and isinstance(params, dict):
+            with self._maplock:
+                route = self._inflight.get(params.get("requestId"))
+            if route is not None:  # only the server running it, under the id it knows
+                server, rid = route
+                self.backends[server].notify(method, {**params, "requestId": rid})
+            return
+        for backend in self.backends.values():
+            backend.notify(method, params)
+
     def _initialize(self, msg_id: Any, params: Any) -> dict[str, Any]:
         first: dict[str, Any] | None = None
         instructions: list[str] = []
         caps: dict[str, Any] = {}
-        for name, backend in list(self.backends.items()):
-            resp = backend.request("initialize", params)
+        for name in list(self.order):
+            resp = self._request(name, "initialize", params)
             if "error" in resp:
                 if len(self.backends) == 1:
                     return {"jsonrpc": "2.0", "id": msg_id, "error": resp["error"]}
                 self.log.emit("error", name, err="initialize")
                 del self.backends[name]
+                self.order.remove(name)
                 continue
             res = resp.get("result") or {}
             first = first or res
@@ -366,7 +446,8 @@ class Proxy:
             for k, v in self.caps[name].items():
                 caps.setdefault(k, v)
             if isinstance(res.get("instructions"), str):
-                instructions.append(res["instructions"])
+                text = res["instructions"]
+                instructions.append(f"[{name}] {text}" if self.multi else text)
         if first is None:
             return _error(msg_id, -32603, "no MCP server behind distil mcp initialized")
         caps["tools"] = {**(caps.get("tools") or {}), "listChanged": True}
@@ -376,7 +457,7 @@ class Proxy:
             "protocolVersion": first.get("protocolVersion") or mcp_server.DEFAULT_PROTOCOL,
             "capabilities": caps,
             "serverInfo": {
-                "name": f"distil-mcp[{','.join(self.backends)}]",
+                "name": f"distil-mcp[{','.join(self.order)}]",
                 "version": __version__,
             },
         }
@@ -386,13 +467,13 @@ class Proxy:
 
     # -- tools/list ----------------------------------------------------------
 
-    def _fetch_tools(self, backend: Backend) -> list[dict[str, Any]]:
+    def _fetch_tools(self, server: str) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []
         cursor = None
         for _ in range(100):  # a server paging forever must not hang the session
-            resp = backend.request("tools/list", {"cursor": cursor} if cursor else {})
+            resp = self._request(server, "tools/list", {"cursor": cursor} if cursor else {})
             if "error" in resp:
-                raise BackendError(f"{backend.name}: tools/list failed: {resp['error']}")
+                raise BackendError(f"{server}: tools/list failed: {resp['error']}")
             res = resp.get("result") or {}
             tools += [t for t in res.get("tools") or [] if isinstance(t, dict)]
             cursor = res.get("nextCursor")
@@ -402,38 +483,61 @@ class Proxy:
 
     def _surfaces(self) -> dict[str, levels.Surface]:
         with self._lock:
-            if all(n in self.surfaces for n in self.backends):
-                return self.surfaces
-            taken: set[str] = set()
-            for name, surf in self.surfaces.items():
-                taken |= {surf.prefix + n for n in surf.by_name}
-            for name, backend in self.backends.items():
+            missing = [n for n in self.order if n not in self.surfaces]
+            if not missing:
+                return dict(self.surfaces)
+        # Backend I/O happens OUTSIDE the lock (see ``_lock``).
+        fetched = {n: self._fetch_tools(n) for n in missing}
+        states = {n: self._states[n] for n in missing}
+        usage = {n: states[n].usage() for n in missing} if self.level == "L3" else {}
+        saved = {n: states[n].unlocked(self.session) for n in missing}
+        built: list[levels.Surface] = []
+        with self._lock:
+            for name in missing:
                 if name in self.surfaces:
-                    continue
-                tools = self._fetch_tools(backend)
+                    continue  # another thread built it meanwhile
+                tools = fetched[name]
                 names = [str(t.get("name")) for t in tools]
-                prefix = f"{levels.safe_server(name)}_" if taken & set(names) else ""
-                state = self._states[name]
-                pins = (
-                    levels.choose_pins(state.usage(), names) if self.level == "L3" else frozenset()
-                )
-                unlocked = self._unlocked.get(name) or state.unlocked(self.session)
+                pins = levels.choose_pins(usage[name], names) if self.level == "L3" else frozenset()
                 surf = levels.Surface(
                     name,
                     tools,
                     self.level,
                     self.results,
                     pinned=pins,
-                    prefix=prefix,
-                    unlocked=unlocked,
+                    prefix=self._ns(name),
+                    unlocked=self._unlocked.get(name) or saved[name],
+                    sep=levels.NAMESPACE_SEP if self.multi else "_",
                 )
                 self.surfaces[name] = surf
-                for n in names:
-                    self._raw_owner.setdefault(n, name)
-                taken |= {prefix + n for n in names}
-                if self.persist:
-                    self._snapshot(surf)
-            return self.surfaces
+                built.append(surf)
+            shadowed = self._build_routes()
+            out = dict(self.surfaces)
+        for server, tool in shadowed:
+            self.log.emit("shadowed", server, tool=tool)
+        if self.persist:
+            for surf in built:
+                self._snapshot(surf)
+        return out
+
+    def _build_routes(self) -> list[tuple[str, str]]:
+        """The name→server table, in config order. Returns every refused name."""
+        routes: dict[str, tuple[str, str, str | None]] = {}
+        refused: list[tuple[str, str]] = []
+        for name in self.order:
+            surf = self.surfaces.get(name)
+            if surf is None:
+                continue
+            refused += [(name, n) for n in surf.shadowed if (name, n) not in refused]
+            for exposed, kind, tool in surf.exposure():
+                if exposed in routes:
+                    refused.append((name, tool or exposed))
+                    if tool is not None:
+                        surf.drop(tool)
+                    continue
+                routes[exposed] = (name, kind, tool)
+        self.routes = routes
+        return refused
 
     def _snapshot(self, surf: levels.Surface) -> None:
         """Write the before/after catalog the webdash diff view reads."""
@@ -471,22 +575,24 @@ class Proxy:
 
     def _compressed_list(self) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        for surf in self._surfaces().values():
-            listed = surf.tools_list()
-            if not self.log.enabled:
-                out += listed
+        surfaces = self._surfaces()
+        for name in self.order:
+            surf = surfaces.get(name)
+            if surf is None:
                 continue
-            before = sum(levels.definition_tokens(t) for t in surf.tools)
-            after = sum(levels.definition_tokens(t) for t in listed)
-            self.log.emit(
-                "list",
-                surf.server,
-                level=surf.level,
-                tokens_before=before,
-                tokens_after=after,
-                n=len(listed),
-            )
+            listed = surf.tools_list()
             out += listed
+            if self.log.enabled:
+                before = sum(levels.definition_tokens(t) for t in surf.tools)
+                after = sum(levels.definition_tokens(t) for t in listed)
+                self.log.emit(
+                    "list",
+                    name,
+                    level=surf.level,
+                    tokens_before=before,
+                    tokens_after=after,
+                    n=len(listed),
+                )
         return out
 
     # -- tools/call ----------------------------------------------------------
@@ -495,24 +601,29 @@ class Proxy:
         name = str(params.get("name") or "")
         args = params.get("arguments")
         args = args if isinstance(args, dict) else {}
-        for server, surf in self._surfaces().items():
-            kind, tool = surf.resolve(name)
-            if kind != "unknown":
-                break
-        else:
-            if len(self.backends) == 1:  # the backend is the authority on its own tools
+        surfaces = self._surfaces()
+        with self._lock:
+            route = self.routes.get(name)
+        if route is None:
+            if not self.multi:  # the one backend is the authority on its own tools
                 return [self._raw(msg_id, "tools/call", params)]
             return [_error(msg_id, -32602, f"unknown tool: {name!r}")]
+        server, kind, tool = route
+        surf = surfaces[server]
 
         if kind == "expand":
             handle = args.get("handle")
-            text = self.expand(handle) if isinstance(handle, str) else None
+            known = isinstance(handle, str) and handle in self._handles[server]
+            text = self.expand(handle) if known and isinstance(handle, str) else None
             self.log.emit("expand", server, n=1 if text is not None else 0)
             if text is None:
                 return [
                     _result(
                         msg_id,
-                        _text_result(f"error: no original found for handle {handle!r}", True),
+                        _text_result(
+                            f"error: no original for handle {handle!r} from '{server}' in this session",
+                            True,
+                        ),
                     )
                 ]
             return [_result(msg_id, _text_result(text))]
@@ -547,11 +658,10 @@ class Proxy:
                 return []
             self._unlocked[surf.server] = list(surf.unlocked)
             self.list_changes += 1
+            unlocked = list(surf.unlocked)
         if self.persist:
-            self._states[surf.server].update(
-                self.session, unlocked=list(surf.unlocked), list_changed=True
-            )
-        self.log.emit("unlock", surf.server, tool=tool, n=len(surf.unlocked))
+            self._states[surf.server].update(self.session, unlocked=unlocked, list_changed=True)
+        self.log.emit("unlock", surf.server, tool=tool, n=len(unlocked))
         return [dict(_LIST_CHANGED)]
 
     def _call(
@@ -564,85 +674,172 @@ class Proxy:
         via: str,
     ) -> dict[str, Any]:
         t0 = time.monotonic()
-        resp = self.backends[server].request("tools/call", params, id=msg_id)
-        ms = round((time.monotonic() - t0) * 1000, 1)
-        if self.persist:
-            self._states[server].update(self.session, used=tool)
-        if "error" in resp or not self.results:
-            self.log.emit(
-                "call", server, tool=tool, ms=ms, skipped="error" if "error" in resp else None
-            )
-            return {**resp, "id": msg_id}
-        result = resp.get("result")
+        self._tl.sent = True  # from here on, a failure must not re-send this call
+        resp = self._request(server, "tools/call", params, client_id=msg_id)
+        raw = {**resp, "id": msg_id}
         try:
-            result, info = levels.compress_result(tool, result, record=self.record)
-        except Exception as exc:  # noqa: BLE001 — fail open: the uncompressed result
-            self.log.emit("error", server, tool=tool, err=type(exc).__name__)
-            return {**resp, "id": msg_id}
-        self.log.emit(
-            "call",
-            server,
-            tool=tool,
-            ms=ms,
-            tokens_before=info.tokens_before,
-            tokens_after=info.tokens_after,
-            skipped=info.skipped,
-            via=via,
-        )
-        return _result(msg_id, result)
+            ms = round((time.monotonic() - t0) * 1000, 1)
+            if self.persist:
+                self._states[server].update(self.session, used=tool)
+            if "error" in resp or not self.results:
+                self.log.emit(
+                    "call", server, tool=tool, ms=ms, skipped="error" if "error" in resp else None
+                )
+                return raw
+
+            def record(handle: str, original: str) -> bool:
+                ok = self.record(handle, original)
+                if ok:
+                    with self._maplock:
+                        self._handles[server].add(handle)
+                return ok
+
+            result, info = levels.compress_result(
+                tool, resp.get("result"), record=record, tool_def=surf.by_name.get(tool)
+            )
+            self.log.emit(
+                "call",
+                server,
+                tool=tool,
+                ms=ms,
+                tokens_before=info.tokens_before,
+                tokens_after=info.tokens_after,
+                skipped=info.skipped,
+                via=via,
+            )
+            return _result(msg_id, result)
+        except Exception as exc:  # noqa: BLE001 — fail open to the server's own answer
+            with contextlib.suppress(Exception):
+                self.log.emit("error", server, tool=tool, err=type(exc).__name__)
+            return raw
 
     # -- relays --------------------------------------------------------------
 
-    def _owner_for(self, method: str) -> Backend | None:
-        if len(self.backends) == 1:
-            return next(iter(self.backends.values()))
-        family = _FAMILY.get(method.split("/", 1)[0])
-        for name, backend in self.backends.items():
-            if family and family in self.caps.get(name, {}):
-                return backend
+    def _relay(self, msg_id: Any, method: str, params: Any) -> dict[str, Any]:
+        """Methods the proxy does not compress, routed to the server that OWNS the thing."""
+        if not self.multi:
+            server = self.order[0]
+            return {**self._request(server, method, params, client_id=msg_id), "id": msg_id}
+        p = params if isinstance(params, dict) else {}
+        if method in ("resources/list", "resources/templates/list", "prompts/list"):
+            return _result(msg_id, self._merged_list(method, params))
+        if method == "logging/setLevel":
+            for name in self.order:
+                if "logging" in self.caps.get(name, {}):
+                    self._request(name, method, params)
+            return _result(msg_id, {})
+        if method in ("resources/read", "resources/subscribe", "resources/unsubscribe"):
+            owner = self._resource_owner(str(p.get("uri", "")))
+            if owner is None:
+                return _error(msg_id, -32602, f"no single server owns resource {p.get('uri')!r}")
+            return {**self._request(owner, method, params, client_id=msg_id), "id": msg_id}
+        if method == "prompts/get":
+            split = self._split(str(p.get("name", "")))
+            if split is None:
+                return _error(msg_id, -32602, f"unknown prompt: {p.get('name')!r}")
+            server, prompt = split
+            return {
+                **self._request(server, method, {**p, "name": prompt}, client_id=msg_id),
+                "id": msg_id,
+            }
+        if method == "completion/complete":
+            raw_ref = p.get("ref")
+            ref: dict[str, Any] = raw_ref if isinstance(raw_ref, dict) else {}
+            if ref.get("type") == "ref/prompt":
+                split = self._split(str(ref.get("name", "")))
+                if split is None:
+                    return _error(msg_id, -32602, f"unknown prompt: {ref.get('name')!r}")
+                server, prompt = split
+                fwd = {**p, "ref": {**ref, "name": prompt}}
+                return {**self._request(server, method, fwd, client_id=msg_id), "id": msg_id}
+            owner = self._resource_owner(str(ref.get("uri", "")))
+            if owner is None:
+                return _error(msg_id, -32602, "no single server owns that completion target")
+            return {**self._request(owner, method, params, client_id=msg_id), "id": msg_id}
+        return _error(msg_id, -32601, f"method not found: {method!r}")
+
+    def _split(self, namespaced: str) -> tuple[str, str] | None:
+        """``<server>__<name>`` → (server, name), for a server this proxy fronts."""
+        head, sep, rest = namespaced.partition(levels.NAMESPACE_SEP)
+        if not sep:
+            return None
+        for name in self.order:
+            if levels.safe_server(name) == head:
+                return name, rest
         return None
 
-    def _relay(self, msg_id: Any, method: str, params: Any) -> dict[str, Any]:
-        """Methods the proxy does not compress. List methods merge across servers."""
-        if len(self.backends) > 1 and method in (
-            "resources/list",
-            "resources/templates/list",
-            "prompts/list",
-        ):
-            key = {
-                "resources/list": "resources",
-                "resources/templates/list": "resourceTemplates",
-                "prompts/list": "prompts",
-            }[method]
-            family = method.split("/", 1)[0]
-            merged: list[Any] = []
-            for name, b in self.backends.items():
-                if family in self.caps.get(name, {}):
-                    resp = b.request(method, params)
-                    merged += (resp.get("result") or {}).get(key) or []
-            return _result(msg_id, {key: merged})
-        backend = self._owner_for(method)
-        if backend is None:
-            return _error(msg_id, -32601, f"method not found: {method!r}")
-        return {**backend.request(method, params, id=msg_id), "id": msg_id}
+    def _merged_list(self, method: str, params: Any) -> dict[str, Any]:
+        key = {
+            "resources/list": "resources",
+            "resources/templates/list": "resourceTemplates",
+            "prompts/list": "prompts",
+        }[method]
+        family = method.split("/", 1)[0]
+        merged: list[Any] = []
+        owners: dict[str, str] = {}
+        for name in self.order:
+            if family not in self.caps.get(name, {}):
+                continue
+            items = (self._request(name, method, params).get("result") or {}).get(key) or []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if key == "prompts":
+                    item = {**item, "name": self._ns(name) + str(item.get("name", ""))}
+                else:
+                    ident = str(item.get("uri") or item.get("uriTemplate") or "")
+                    owners[ident] = (
+                        _AMBIGUOUS if ident in owners and owners[ident] != name else name
+                    )
+                merged.append(item)
+        with self._maplock:
+            if key == "resources":
+                self._res_owner.update(owners)
+            elif key == "resourceTemplates":
+                self._tmpl_owner.update(owners)
+        return {key: merged}
+
+    def _resource_owner(self, uri: str) -> str | None:
+        """The one server that listed *uri* (or a template it matches), else None."""
+        with self._maplock:
+            known = bool(self._res_owner or self._tmpl_owner)
+        if not known:
+            self._merged_list("resources/list", {})
+            self._merged_list("resources/templates/list", {})
+        with self._maplock:
+            owner = self._res_owner.get(uri)
+            if owner is None:
+                hits = {
+                    s
+                    for t, s in self._tmpl_owner.items()
+                    if t and uri.startswith(t.split("{", 1)[0])
+                }
+                owner = hits.pop() if len(hits) == 1 else None
+        return None if owner in (None, _AMBIGUOUS) else owner
 
     def _raw(self, msg_id: Any, method: str, params: Any) -> dict[str, Any]:
-        """The fail-open path: what the client would have got without distil."""
+        """The fail-open path, for requests that have NOT reached a server yet."""
         if method == "tools/list":
             tools: list[dict[str, Any]] = []
-            for b in self.backends.values():
-                tools += self._fetch_tools(b)
+            for name in self.order:
+                ns = self._ns(name)
+                tools += [{**t, "name": ns + str(t.get("name"))} for t in self._fetch_tools(name)]
             return _result(msg_id, {"tools": tools})
         if method == "tools/call" and isinstance(params, dict):
-            owner = self._raw_owner.get(str(params.get("name")))
-            backend = self.backends.get(owner) if owner else self._owner_for(method)
-            if backend is None:
-                return _error(msg_id, -32602, f"unknown tool: {params.get('name')!r}")
-            return {**backend.request(method, params, id=msg_id), "id": msg_id}
-        backend = self._owner_for(method)
-        if backend is None:
-            return _error(msg_id, -32601, f"method not found: {method!r}")
-        return {**backend.request(method, params, id=msg_id), "id": msg_id}
+            name = str(params.get("name"))
+            if self.multi:
+                split = self._split(name)
+                if split is None:
+                    return _error(msg_id, -32602, f"unknown tool: {name!r}")
+                server, tool = split
+                params = {**params, "name": tool}
+            else:
+                server = self.order[0]
+            self._tl.sent = True
+            return {**self._request(server, method, params, client_id=msg_id), "id": msg_id}
+        if not self.multi:
+            return {**self._request(self.order[0], method, params, client_id=msg_id), "id": msg_id}
+        return _error(msg_id, -32603, f"distil mcp could not route {method!r}")
 
     # -- server -> client ----------------------------------------------------
 
@@ -650,9 +847,16 @@ class Proxy:
         method = msg.get("method")
         if "id" in msg and method is not None:  # a request for the client (roots, sampling…)
             new_id = f"distil-mcp-s{next(self._sreq_ids)}"
-            with self._lock:
+            with self._maplock:
                 self._server_requests[new_id] = (server, msg["id"])
-            self.emit({**msg, "id": new_id})
+            raw_params = msg.get("params")
+            params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
+            raw_meta = params.get("_meta")
+            meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
+            params = {**params, "_meta": {**meta, ORIGIN_KEY: server}}
+            if method == "elicitation/create" and isinstance(params.get("message"), str):
+                params["message"] = f"[{server}] {params['message']}"
+            self.emit({**msg, "id": new_id, "params": params})
             return
         if method == "notifications/tools/list_changed":
             with self._lock:
@@ -664,7 +868,7 @@ class Proxy:
         self.emit(msg)
 
     def _route_client_response(self, msg: dict[str, Any]) -> None:
-        with self._lock:
+        with self._maplock:
             route = self._server_requests.pop(str(msg.get("id")), None)
         if route is None:
             return

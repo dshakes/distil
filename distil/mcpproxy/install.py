@@ -108,7 +108,7 @@ def _is_wrapped(argv: list[Any]) -> bool:
 
 
 def wrap_argv(name: str, command: list[str], level: str, results: bool) -> list[str]:
-    extra = ["--level", level] + ([] if results else ["--no-results"])
+    extra = ["--level", level] + (["--results"] if results else [])
     return ["mcp", "wrap", "--name", name, *extra, "--", *command]
 
 
@@ -383,6 +383,13 @@ def _render(c: Client, text: str, wrap: bool, level: str, results: bool) -> tupl
     return _rewrite_json(text, c.fmt, fn)
 
 
+def _has_wrapped(c: Client, text: str) -> bool:
+    try:
+        return bool(_render(c, text, False, levels.DEFAULT_LEVEL, False)[1])
+    except InstallError:
+        return False
+
+
 def install(
     client: str,
     *,
@@ -395,14 +402,20 @@ def install(
 
     status: ``ok`` | ``dry-run`` | ``exists`` (nothing left to wrap) | ``absent``.
     Raises ``InstallError`` for anything it refuses to write.
+
+    A symlinked config is written THROUGH (the link stays a link). The backup is
+    refreshed to the exact pre-image of every write that lands on a file distil did not
+    last write itself, and is marked ``restorable`` only when that pre-image carried no
+    distil entries at all — so an undo can never put back a stale or half-wrapped file.
     """
     if level not in levels.LEVELS:
         raise InstallError(f"unknown level {level!r}")
     c, target = _resolve(client, path)
     if not target.exists():
         return "absent", f"no {c.label} MCP config at {target}"
-    with _filelock.locked(target):
-        before = target.read_bytes()
+    real = target.resolve()
+    with _filelock.locked(real):
+        before = real.read_bytes()
         text, changed = _render(c, before.decode("utf-8"), True, level, results)
         if not changed:
             return (
@@ -414,20 +427,27 @@ def install(
         backup = target.with_name(target.name + BACKUP_SUFFIX)
         records = _load_records()
         rec = records.get(str(target))
-        if not backup.exists():  # the pre-distil original, written once, never overwritten
+        rec = rec if isinstance(rec, dict) else None
+        if rec is None or rec.get("sha256") != _sha(before) or not backup.exists():
+            # Someone else wrote the file last (or there is no record): its current
+            # bytes are the only honest pre-image of THIS install.
             _atomic_write_secure(backup, before)
-            rec = None
-        mode = rec.get("mode") if isinstance(rec, dict) else target.stat().st_mode & 0o777
+            restorable = not _has_wrapped(c, before.decode("utf-8"))
+            mode = real.stat().st_mode & 0o777
+        else:
+            # Re-installing on top of distil's own last write: the backup no longer
+            # sits directly before the bytes about to be written.
+            restorable = False
+            mode = rec.get("mode", real.stat().st_mode & 0o777)
         new = text.encode("utf-8")
-        _atomic_write_secure(target, new)
+        _atomic_write_secure(real, new)
         records[str(target)] = {
             "client": c.key,
             "sha256": _sha(new),
             "backup": str(backup),
+            "restorable": restorable,
             "mode": mode,
-            "servers": sorted(
-                set(changed) | set(rec.get("servers", []) if isinstance(rec, dict) else [])
-            ),
+            "servers": sorted(set(changed) | set(rec.get("servers", []) if rec else [])),
             "ts": round(time.time(), 3),
         }
         _save_records(records)
@@ -440,31 +460,39 @@ def install(
 def uninstall(client: str, *, path: Path | None = None) -> tuple[str, str]:
     """Undo ``install``. ``(status, message)``: ``restored`` | ``unwrapped`` | ``absent``.
 
-    Byte-exact restore when the file is still exactly what distil wrote; otherwise
-    distil's entries are unwrapped in place and everything else the user changed since
-    is kept (the backup is left on disk and named in the message).
+    Byte-exact restore ONLY when the file is byte-identical to what the last install
+    wrote and that install's backup is a clean pre-image (``restorable``). Every other
+    case unwraps distil's entries in place and keeps everything else, including any
+    edit made since (the backup is left on disk and named in the message).
     """
     c, target = _resolve(client, path)
     records = _load_records()
     rec = records.get(str(target))
+    rec = rec if isinstance(rec, dict) else None
     backup = target.with_name(target.name + BACKUP_SUFFIX)
     if not target.exists():
         return "absent", f"no {c.label} MCP config at {target}"
-    with _filelock.locked(target):
-        current = target.read_bytes()
-        if isinstance(rec, dict) and backup.exists() and _sha(current) == rec.get("sha256"):
-            _atomic_write_secure(target, backup.read_bytes())
+    real = target.resolve()
+    with _filelock.locked(real):
+        current = real.read_bytes()
+        if (
+            rec is not None
+            and rec.get("restorable") is True
+            and backup.exists()
+            and _sha(current) == rec.get("sha256")
+        ):
+            _atomic_write_secure(real, backup.read_bytes())
             if isinstance(rec.get("mode"), int):
-                target.chmod(rec["mode"])
+                real.chmod(rec["mode"])
             backup.unlink()
             records.pop(str(target), None)
             _save_records(records)
             return "restored", f"restored {target} byte-for-byte from before distil mcp install"
-        text, changed = _render(c, current.decode("utf-8"), False, levels.DEFAULT_LEVEL, True)
+        text, changed = _render(c, current.decode("utf-8"), False, levels.DEFAULT_LEVEL, False)
         if changed:
-            _atomic_write_secure(target, text.encode("utf-8"))
-            if isinstance(rec, dict) and isinstance(rec.get("mode"), int):
-                target.chmod(rec["mode"])
+            _atomic_write_secure(real, text.encode("utf-8"))
+            if rec is not None and isinstance(rec.get("mode"), int):
+                real.chmod(rec["mode"])
         if str(target) in records:
             records.pop(str(target))
             _save_records(records)

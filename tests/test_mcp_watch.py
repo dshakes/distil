@@ -186,3 +186,32 @@ def test_cli_watch(populated, capsys, monkeypatch):
     monkeypatch.setattr(webdash, "serve_webdash", lambda port, open_browser: served.append(port))
     ns.web, ns.port = True, 9999
     assert cli.cmd_mcp(ns) == 0 and served == [9999]
+
+
+def test_webdash_refuses_foreign_host_headers(populated):
+    """NIT: DNS rebinding — a page on another origin resolving to 127.0.0.1."""
+    import http.client
+
+    server = webdash.build_server("127.0.0.1", 0)
+    port = server.server_address[1]
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    try:
+        for host, want in (
+            ("evil.example", 403),
+            (f"evil.example:{port}", 403),
+            ("", 403),
+            (f"localhost:{port}", 200),
+            (f"[::1]:{port}", 200),
+            ("127.0.0.1", 200),
+        ):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            conn.putrequest("GET", "/mcp/data", skip_host=True)
+            if host:
+                conn.putheader("Host", host)
+            conn.endheaders()
+            assert conn.getresponse().status == want, host
+            conn.close()
+    finally:
+        server.shutdown()
+        server.server_close()

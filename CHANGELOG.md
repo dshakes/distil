@@ -43,7 +43,8 @@ names and counts. **R** digests large text results with the same recoverable dig
 LLM proxy uses and a `<server>_expand` tool to get them back; it never touches errors,
 non-text content, `structuredContent`, or file reads an agent has to quote back exactly.
 
-The default is L0 + R, and L1–L3 print their certificate status on every start, because
+The default is L0 alone — R and L1–L3 are opt-in and print their certificate status on
+every start — because
 whether a compressed tool list still gets the right tool called is a measurement nobody
 has published. `docs/research/mcp-compressor-protocol.md` pre-registers it — paired
 non-inferiority on tool selection and argument exact-match at the single risk budget,
@@ -53,6 +54,19 @@ real proxy, which is enough to show the statistics fail an injected loss; the li
 costed in `benchmarks/results/mcp_toolbench/cost_estimate.json` and has not been made.
 `distil mcp watch` and the dashboard's `/mcp` page show, per tool, what was sent before
 and after, from a content-free local log that keeps tool names on this machine.
+
+A security review before release found two blockers and closed them here. One proxy
+fronting several servers used to hand bare names to whichever server listed them first, so
+a hostile server could advertise `fs_read_file` and receive calls meant for its sibling;
+every tool, meta tool and prompt is now `<server>__<name>`, server names cannot contain
+`_`, and calls route through one table built in config order. And an undo could restore a
+backup older than the user's edits; the backup is now the pre-image of the latest write
+and is restored only when that pre-image was clean, otherwise distil unwraps its own
+entries and leaves the rest alone. The same pass stopped backend I/O under the session
+lock, stopped the fail-open path re-sending a call that had already run, kept symlinked
+configs as symlinks, scoped `<server>_expand` to its own server's results, labelled
+server-to-client requests with their origin, bounded the id maps, and made the dashboard
+refuse non-loopback `Host` headers.
 
 ### The freshest read the agent asked for came back as a pointer
 

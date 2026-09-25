@@ -57,8 +57,9 @@ such mechanism. Tool **results** are uncompressed for every client, Claude Code 
    fixed-sequence L0 → L1 → L2 → L3, one look. `distil mcp bench` is its executable form:
    dry-run by default (mock model through the real proxy, no spend), live only behind
    `--live --budget-usd` with a hard cap.
-4. **Default = L0 + R** until a live run certifies more. L1–L3 print their pending
-   certificate status to stderr on every start. `distil/certificates/mcp.json` is edited
+4. **Default = L0 only** until a live run certifies more. R is opt-in (`--results`)
+   like L1–L3 — it was on by default until the 2026-09-25 review — and every
+   uncertified level prints its pending certificate status to stderr on every start. `distil/certificates/mcp.json` is edited
    only by a human, from a committed run.
 5. **Fail open.** A compression error relays the backend's raw answer; `wrap` execs the
    server directly if the proxy cannot start.
@@ -72,6 +73,29 @@ such mechanism. Tool **results** are uncompressed for every client, Claude Code 
    unwraps only distil's entries — keeping the user's later edits — when it is not.
    Codex's TOML is patched line-level and re-parsed; anything that does not round-trip is
    refused, and without `tomllib` (Python < 3.11) Codex is refused outright.
+
+8. **Namespacing, not first-claimant.** One proxy per server (what `install` writes)
+   keeps real tool names. When one proxy fronts several servers, every tool, meta tool
+   and prompt is `<server>__<name>`; `safe_server` allows only `[A-Za-z0-9-]`, so the first
+   `__` always ends the server part and no server can mint a sibling's name. Calls route
+   through one name→server table built in config order; `list_changed` rebuilds a
+   server's surface without moving anyone's routes. A name that still collides (a tool
+   named like its server's own meta tool, a duplicate) is dropped and logged. Resources
+   route by the server that listed the URI, prompts by namespace; unknown or ambiguous is
+   an error. Server-to-client requests carry `_meta["io.distil/server"]` (elicitation
+   messages are prefixed), and merged `instructions` are labelled per server.
+9. **Hardening from the 2026-09-25 security review.** No backend I/O under the session
+   lock (a server asking `roots/list` mid-`tools/list` stalled the proxy). Backends see
+   internal request ids only; `notifications/cancelled` is translated and sent to the one
+   server running the call. A `tools/call` that has reached a server is never re-sent by
+   the fail-open path. `<server>_expand` returns only originals that server's results
+   recorded this session. The id maps are bounded. R's exact-quote exemption also covers
+   read/view/open/cat/show/contents-style names and read-only tools described as
+   returning file or source content. `install` writes through symlinks, refreshes its
+   backup to the pre-image of every write onto a file it did not last write, and restores
+   byte-for-byte only from a clean pre-image of the current bytes — otherwise it unwraps
+   distil's entries and keeps the user's. The webdash refuses non-loopback `Host`
+   headers (DNS rebinding).
 
 ## Consequences
 

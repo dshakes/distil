@@ -55,7 +55,8 @@ LEVEL_NAMES = {"L0": "lossless", "L1": "summary", "L2": "lazy", "L3": "adaptive"
 #: Until the pre-registered live run certifies a more aggressive level, the default is
 #: the only one that is equivalent by construction. See docs/adr/0017-mcp-compressor.md.
 DEFAULT_LEVEL = "L0"
-DEFAULT_RESULTS = True
+#: R (result digests) is OFF until its own certificate is issued — ADR 0017, review 2026-09-25.
+DEFAULT_RESULTS = False
 
 # ---------------------------------------------------------------------------
 # Token accounting — what a client actually shows the model
@@ -296,12 +297,19 @@ _MAX_TOOL_NAME = 64  # the tightest limit among the major clients' tool-name rul
 
 
 def safe_server(server: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_-]", "_", server) or "mcp"
+    """Letters, digits and ``-`` only. No ``_`` at all, so in a namespaced name
+    ``<server>__<tool>`` the first ``__`` always ends the server part: one server can
+    never mint a name that parses as another server's."""
+    return re.sub(r"[^A-Za-z0-9-]+", "-", server).strip("-") or "mcp"
 
 
-def meta_name(server: str, suffix: str) -> str:
-    base = safe_server(server)[: _MAX_TOOL_NAME - len(suffix) - 1]
-    return f"{base}_{suffix}"
+#: Separator between server and tool when one proxy fronts several servers.
+NAMESPACE_SEP = "__"
+
+
+def meta_name(server: str, suffix: str, sep: str = "_") -> str:
+    base = safe_server(server)[: _MAX_TOOL_NAME - len(suffix) - len(sep)]
+    return f"{base}{sep}{suffix}"
 
 
 def signature(tool: Mapping[str, Any]) -> str:
@@ -338,17 +346,31 @@ class Surface:
     level: str = DEFAULT_LEVEL
     results: bool = DEFAULT_RESULTS
     pinned: frozenset[str] = frozenset()
-    prefix: str = ""  # set when a tool name collides with another server's
+    prefix: str = ""  # "<server>__" whenever the proxy fronts more than one server
     unlocked: list[str] = field(default_factory=list)
+    sep: str = "_"  # meta-tool separator; "__" when namespaced
 
     def __post_init__(self) -> None:
         if self.level not in LEVELS:
             raise ValueError(f"unknown level {self.level!r}; choose one of {', '.join(LEVELS)}")
-        self.by_name = {str(t.get("name")): t for t in self.tools if isinstance(t, dict)}
+        self.schema_tool = meta_name(self.server, "get_tool_schema", self.sep)
+        self.invoke_tool = meta_name(self.server, "invoke_tool", self.sep)
+        self.expand_tool = meta_name(self.server, "expand", self.sep)
+        metas = {self.schema_tool, self.invoke_tool, self.expand_tool}
+        # A tool whose exposed name would equal one of our meta tools, or a second tool
+        # with a name already taken, is SHADOWED: dropped, never routed, and reported
+        # (``shadowed``) so the proxy can log it. Ours always win; first listing wins.
+        self.by_name: dict[str, dict[str, Any]] = {}
+        self.shadowed: list[str] = []
+        for t in self.tools:
+            if not isinstance(t, dict):
+                continue
+            n = str(t.get("name"))
+            if n in self.by_name or self.prefix + n in metas:
+                self.shadowed.append(n)
+                continue
+            self.by_name[n] = t
         self.unlocked = [n for n in dict.fromkeys(self.unlocked) if n in self.by_name]
-        self.schema_tool = meta_name(self.server, "get_tool_schema")
-        self.invoke_tool = meta_name(self.server, "invoke_tool")
-        self.expand_tool = meta_name(self.server, "expand")
         # Reject-if-bigger, applied to the whole surface: a server with a handful of
         # one-line tools gains nothing from an index or a summary, and the meta tools
         # would make its list LARGER. Such a server is served at L0 instead, and
@@ -387,7 +409,7 @@ class Surface:
         server = self.server
         out: list[dict[str, Any]] = []
         if self.lazy:
-            index = "\n".join(index_line(t) for t in self.tools if isinstance(t, dict))
+            index = "\n".join(index_line(t) for t in self.by_name.values())
             out.append(
                 {
                     "name": self.schema_tool,
@@ -495,6 +517,29 @@ class Surface:
                 return "tool", name
         return "unknown", None
 
+    def exposure(self) -> list[tuple[str, str, str | None]]:
+        """Every name this surface answers to: ``(exposed, kind, backend_tool)``, ours first.
+
+        Real tools are included whether or not they are currently listed, because a
+        lazily hidden tool is still routed when called by name. The proxy builds its
+        single name→server routing table from this.
+        """
+        out: list[tuple[str, str, str | None]] = []
+        if self.level != "L0":
+            out.append((self.schema_tool, "schema", None))
+        if self.lazy:
+            out.append((self.invoke_tool, "invoke", None))
+        if self.results:
+            out.append((self.expand_tool, "expand", None))
+        out += [(self.prefix + n, "tool", n) for n in self.by_name]
+        return out
+
+    def drop(self, name: str) -> None:
+        """Withdraw backend tool *name* (a shadowed name the proxy refused to route)."""
+        self.by_name.pop(name, None)
+        self.unlocked = [n for n in self.unlocked if n != name]
+        self.shadowed.append(name)
+
     def schema_text(self, name: str) -> str:
         """What ``get_tool_schema`` returns: full description + the real input schema."""
         tool = self.by_name[name]
@@ -528,13 +573,36 @@ MCP_EXACT_QUOTE_TOOLS = frozenset(
     {"read_text_file", "read_multiple_files", "get_file_contents", "read_resource"}
 )
 _READ_FILE_RE = re.compile(r"read.*file|file.*read|get_file|cat_file")
+#: Verbs whose result is content an agent may quote or edit against, as a whole word of
+#: the tool name (``view``, ``open_document``, ``get_contents``, ``git_show`` …).
+_EXACT_WORD_RE = re.compile(
+    r"(?:^|[_\-.])(read|view|open|cat|show|contents?|get_contents|file_contents|head|tail|source|blob)(?:[_\-.]|$)"
+)
+#: A read-only tool whose description says it returns file/source content.
+_CONTENT_DESC_RE = re.compile(
+    r"\b(file|files|contents?|source code|document|blob|raw text)\b", re.IGNORECASE
+)
 
 
-def exact_quote(tool: str) -> bool:
+def exact_quote(tool: str, tool_def: Mapping[str, Any] | None = None) -> bool:
+    """Is *tool*'s output something an agent may need back byte-exact? Conservative.
+
+    True for the shared ``EXACT_QUOTE_TOOLS`` names, the MCP servers' spellings, any
+    name containing a read/view/open/cat/show/contents-style word, and any tool whose
+    definition says ``readOnlyHint: true`` and describes returning file or source
+    content. Erring towards True only ever means a result is left uncompressed.
+    """
     low = tool.lower()
-    return (
-        low in EXACT_QUOTE_TOOLS or low in MCP_EXACT_QUOTE_TOOLS or bool(_READ_FILE_RE.search(low))
-    )
+    if low in EXACT_QUOTE_TOOLS or low in MCP_EXACT_QUOTE_TOOLS:
+        return True
+    if _READ_FILE_RE.search(low) or _EXACT_WORD_RE.search(low):
+        return True
+    if isinstance(tool_def, Mapping):
+        ann = tool_def.get("annotations")
+        read_only = isinstance(ann, Mapping) and ann.get("readOnlyHint") is True
+        if read_only and _CONTENT_DESC_RE.search(str(tool_def.get("description") or "")):
+            return True
+    return False
 
 
 @dataclass
@@ -561,6 +629,7 @@ def compress_result(
     *,
     record: Callable[[str, str], bool],
     min_tokens: int = RESULT_MIN_TOKENS,
+    tool_def: Mapping[str, Any] | None = None,
 ) -> tuple[Any, ResultInfo]:
     """Digest the large text blocks of a ``tools/call`` result. Input is never mutated.
 
@@ -577,7 +646,7 @@ def compress_result(
     if result.get("structuredContent") is not None:
         info.skipped = "structured"
         return result, info
-    if exact_quote(tool):
+    if exact_quote(tool, tool_def):
         info.skipped = "exact-quote"
         return result, info
     new_content: list[Any] = []

@@ -79,9 +79,9 @@ def test_install_wraps_stdio_servers_only_and_undo_is_byte_exact(tmp_path, launc
 def test_undo_after_user_edits_keeps_their_edits(tmp_path, launcher):
     cfg = tmp_path / "mcp.json"
     _write(cfg, CONFIG)
-    mi.install("custom", path=cfg, results=False)
+    mi.install("custom", path=cfg, results=True)
     data = json.loads(cfg.read_text())
-    assert "--no-results" in data["mcpServers"]["git"]["args"]
+    assert "--results" in data["mcpServers"]["git"]["args"]
     data["mcpServers"]["new"] = {"command": "added-later"}
     cfg.write_text(json.dumps(data))
     status, msg = mi.uninstall("custom", path=cfg)
@@ -120,16 +120,63 @@ def test_refusals(tmp_path, launcher):
     assert mi.uninstall("custom", path=tmp_path / "missing.json")[0] == "absent"
 
 
-def test_second_install_keeps_the_first_backup(tmp_path, launcher):
+def test_reinstall_after_user_edit_then_undo_keeps_the_edit(tmp_path, launcher):
+    """Review blocker 2: install → user adds a server → install → undo must keep it.
+
+    The old code kept the FIRST backup forever and restored it, silently deleting the
+    server the user added between the two installs.
+    """
     cfg = tmp_path / "mcp.json"
-    original = _write(cfg, {"mcpServers": {"a": {"command": "x"}}})
+    _write(cfg, {"mcpServers": {"a": {"command": "x"}}})
     mi.install("custom", path=cfg)
     data = json.loads(cfg.read_text())
-    data["mcpServers"]["b"] = {"command": "y"}
+    data["mcpServers"]["b"] = {"command": "y", "args": ["--flag"]}
     cfg.write_text(json.dumps(data))
     assert mi.install("custom", path=cfg)[0] == "ok"
-    assert cfg.with_name(cfg.name + mi.BACKUP_SUFFIX).read_bytes() == original
-    assert set(mi._load_records()[str(cfg)]["servers"]) == {"a", "b"}
+    rec = mi._load_records()[str(cfg)]
+    assert rec["restorable"] is False and set(rec["servers"]) == {"a", "b"}
+    status, _ = mi.uninstall("custom", path=cfg)
+    assert status == "unwrapped"
+    after = json.loads(cfg.read_text())["mcpServers"]
+    assert after == {"a": {"command": "x", "args": []}, "b": {"command": "y", "args": ["--flag"]}}
+
+
+def test_undo_after_edit_then_edit_install_undo_keeps_all_edits(tmp_path, launcher):
+    """Review blocker 2, second shape: a stale backup must never be restored."""
+    cfg = tmp_path / "mcp.json"
+    _write(cfg, {"mcpServers": {"a": {"command": "x"}}})
+    mi.install("custom", path=cfg)
+    data = json.loads(cfg.read_text())
+    data["mcpServers"]["e1"] = {"url": "https://1"}
+    cfg.write_text(json.dumps(data))
+    assert mi.uninstall("custom", path=cfg)[0] == "unwrapped"
+    data = json.loads(cfg.read_text())
+    data["mcpServers"]["e2"] = {"url": "https://2"}
+    cfg.write_text(json.dumps(data, indent=3))
+    before_second = cfg.read_bytes()
+    assert mi.install("custom", path=cfg)[0] == "ok"
+    assert mi.uninstall("custom", path=cfg)[0] == "restored"
+    assert cfg.read_bytes() == before_second  # both edits survive, byte-exact
+    assert set(json.loads(cfg.read_text())["mcpServers"]) == {"a", "e1", "e2"}
+
+
+def test_symlinked_config_stays_a_symlink(tmp_path, launcher):
+    """Review item 5: a dotfiles-managed config must be written through, not replaced."""
+    real = tmp_path / "dotfiles" / "mcp.json"
+    real.parent.mkdir()
+    original = _write(real, CONFIG)
+    link = tmp_path / "mcp.json"
+    link.symlink_to(real)
+    assert mi.install("custom", path=link)[0] == "ok"
+    assert link.is_symlink() and link.resolve() == real.resolve()
+    assert "/opt/bin/distil" in real.read_text()
+    assert mi.uninstall("custom", path=link)[0] == "restored"
+    assert link.is_symlink() and real.read_bytes() == original
+    mi.install("custom", path=link)
+    real.write_text(real.read_text() + " ")
+    assert mi.uninstall("custom", path=link)[0] == "unwrapped"
+    assert link.is_symlink()
+    assert json.loads(real.read_text()) == json.loads(original)
 
 
 def test_opencode_command_arrays(tmp_path, launcher):
@@ -252,7 +299,7 @@ def test_cli_install_and_undo(tmp_path, launcher, capsys):
         undo=False,
         dry_run=False,
         level="L0",
-        no_results=False,
+        results=True,
     )
     assert cli.cmd_mcp(ns) == 0
     assert "restart the client" in capsys.readouterr().out

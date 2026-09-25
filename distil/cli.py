@@ -3098,7 +3098,7 @@ def _mcp_wrap(args: argparse.Namespace) -> int:
         return 2
     name = args.name or _mcp_default_name(command)
     spec = mp.ServerSpec(name, command[0], command[1:])
-    return _mcp_run([spec], args.level, not args.no_results, command)
+    return _mcp_run([spec], args.level, args.results, command)
 
 
 def _mcp_serve(args: argparse.Namespace) -> int:
@@ -3111,7 +3111,7 @@ def _mcp_serve(args: argparse.Namespace) -> int:
         return 2
     for why in skipped:
         print(f"distil mcp serve: skipped {why}", file=sys.stderr)
-    return _mcp_run(specs, args.level, not args.no_results, None)
+    return _mcp_run(specs, args.level, args.results, None)
 
 
 def _mcp_install(args: argparse.Namespace) -> int:
@@ -3126,7 +3126,7 @@ def _mcp_install(args: argparse.Namespace) -> int:
                 args.client,
                 path=path,
                 level=args.level,
-                results=not args.no_results,
+                results=args.results,
                 dry_run=args.dry_run,
             )
     except mi.InstallError as exc:
@@ -5201,9 +5201,9 @@ def build_parser() -> argparse.ArgumentParser:
             "L3 adaptive — L1-L3 are opt-in until certified (distil mcp watch)",
         )
         p.add_argument(
-            "--no-results",
+            "--results",
             action="store_true",
-            help="do not digest tool results (R is on by default)",
+            help="also digest large tool results (R) — opt-in until its certificate is issued",
         )
 
     mw = mcs.add_parser("wrap", help="proxy one stdio MCP server: distil mcp wrap -- <command>")

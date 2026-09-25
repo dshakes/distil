@@ -1099,33 +1099,51 @@ def usage_profile(tasks: list[Task]) -> dict[str, dict[str, int]]:
     return prof
 
 
+Sessions = dict[str, proxy.Proxy]
+
+
 def _session(
     arm: str,
     fx: dict[str, dict[str, Any]],
     state_root: Path,
     results: bool = False,
     raw_results: dict[str, str] | None = None,
-) -> proxy.Proxy | None:
+) -> Sessions | None:
+    """One proxy per server — how ``distil mcp install`` deploys it — or None for raw."""
     if arm == "raw":
         return None
-    backends: dict[str, proxy.Backend] = {n: _InProc(n, f, raw_results) for n, f in fx.items()}
-    return proxy.Proxy(
-        backends,
-        level=arm,
-        results=results,
-        log=events.NullLog(),
-        state_root=state_root,
-        persist=False,
-        record=lambda h, t: True,
-    )
+    return {
+        n: proxy.Proxy(
+            {n: _InProc(n, f, raw_results)},
+            level=arm,
+            results=results,
+            log=events.NullLog(),
+            state_root=state_root,
+            persist=False,
+            record=lambda h, t: True,
+        )
+        for n, f in fx.items()
+    }
 
 
-def _list(px: proxy.Proxy | None, fx: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    if px is None:
+def _list(pxs: Sessions | None, fx: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    if pxs is None:
         return [t for f in fx.values() for t in f["tools"]]
-    return list(
-        px.handle({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})[0]["result"]["tools"]
-    )
+    out: list[dict[str, Any]] = []
+    for px in pxs.values():
+        out += px.handle({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})[0]["result"][
+            "tools"
+        ]
+    return out
+
+
+def _route(pxs: Sessions, name: str) -> tuple[proxy.Proxy | None, str, str | None]:
+    for px in pxs.values():
+        px._surfaces()
+        route = px.routes.get(name)
+        if route is not None:
+            return px, route[1], route[2]
+    return None, "unknown", None
 
 
 def _tool_tokens(tools: list[dict[str, Any]]) -> int:
@@ -1156,19 +1174,19 @@ def run_tool_arm(
             if px is None:
                 called, args = turn.name, turn.args
                 break
-            kind, backend_tool = "unknown", None
-            for surf in px._surfaces().values():
-                kind, backend_tool = surf.resolve(turn.name)
-                if kind != "unknown":
-                    break
+            target, kind, backend_tool = _route(px, turn.name)
             # Every call goes through the real proxy, final ones included.
-            out = px.handle(
-                {
-                    "jsonrpc": "2.0",
-                    "id": trips,
-                    "method": "tools/call",
-                    "params": {"name": turn.name, "arguments": turn.args},
-                }
+            out = (
+                target.handle(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": trips,
+                        "method": "tools/call",
+                        "params": {"name": turn.name, "arguments": turn.args},
+                    }
+                )
+                if target is not None
+                else []
             )
             if kind == "schema":
                 history += [
