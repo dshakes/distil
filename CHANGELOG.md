@@ -47,6 +47,50 @@ protected/missed-opportunity split now recognises `compaction_billed` and
 `signed_block_billed` alongside `thinking_billed`, so a compaction- or thinking-heavy
 session reads as policy holding rather than a broken gate.
 
+### The OpenAI adapter had no guarantee the Anthropic path had just proven
+A sibling audit proved Anthropic's server-side compaction block — the one the provider
+re-validates by `signature` on the next turn — never gets touched, moved, or re-encoded by
+`compress_messages`. The OpenAI Responses API has the exact same class of surface and no
+equivalent proof had ever been written: a `reasoning` item's `encrypted_content` (stateless
+mode / Zero Data Retention) and a `compaction` item — precisely what `POST
+/v1/responses/compact` returns, and what OpenAI's own docs say not to prune — must reach
+the next request byte-identical or the provider cannot re-derive state it never got back.
+Twenty contract tests (`tests/test_openai_opaque_passthrough.py`) found the passthrough
+itself was already correct: `_compress_response_item` dispatches by `item["type"]`, and
+neither item type is on its digest path, so both survive every mode — verbatim, digest,
+recency, the `distil_expand` re-query, and the buffered-stream re-emit — as the same
+object, never a copy. What was missing was the accounting: three tests failed before any
+fix, because these items' tokens landed in neither `count_responses_tokens` (by design —
+they join `assistant_text`/`function_call` outside the compressible-zone baseline, not a
+bug) nor the eligibility census, so a request could show near-zero savings with the real
+explanation — thousands of billed, uncompressible reasoning/compaction tokens — invisible.
+Same shape as the Anthropic gap, same fix: `_census_opaque_response_item` attributes
+`encrypted_content` (and any `summary`/`text`/`content` a future variant carries) to
+`reasoning_billed` / `compaction_billed`, generalised on the presence of `encrypted_content`
+rather than an allowlist of type strings — a future opaque item type is safe by
+construction. `/v1/responses/compact` itself was already never touched: it fails the
+`is_responses_path` regex (a distinct endpoint, not a query-string variant) and falls
+through to the byte-for-byte `_passthrough` relay, pinned here by test rather than by
+reading the regex and hoping. `context_management` and `previous_response_id` were already
+forwarded unchanged (a request body spread that never drops an unrecognised key), also now
+pinned.
+A review pass on that fix found the opaque-item guard was broader than it needed to be:
+`"encrypted_content" in item` alone, without also excluding the known compressible types,
+could in principle let a stray or future `encrypted_content` key on a `message`/
+`function_call_output`/`function_call` item shadow its own real handling. Narrowed to
+exclude those three, with a test pinning a `message` carrying a decoy `encrypted_content`
+key still compresses and censuses as `user_text`, not as an opaque passthrough. The census
+gap's mirror in `dissect`'s eligibility report is also closed: `reasoning_billed`,
+`compaction_billed`, and `signed_item_billed` are now in `_ELIGIBILITY_LABEL` and
+`_PROTECTED_REASONS`, so a reasoning-heavy session reads as "the design holding," the same
+verdict Anthropic's `thinking`/`compaction` census buckets already earn — not as a missed
+compression opportunity. And because `count_responses_tokens` deliberately does not count
+these items (documented at the function and in cache-contract.html clause (g)), the
+eligibility census total can legitimately exceed `x-distil-compressible-tokens` on a
+Responses session; both the docstring and the doc now say so, and both the census tokens
+and the report's opaque-bucket labels are marked approximate — a heuristic count of
+base64 ciphertext, not the provider's real billed reasoning-token count.
+
 ### The freshest read the agent asked for came back as a pointer
 
 ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency
