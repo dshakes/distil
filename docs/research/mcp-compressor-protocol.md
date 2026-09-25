@@ -8,7 +8,8 @@
   and that code disagree, the disagreement is a defect to be logged, not resolved
   silently in either direction.
 - **Status:** registered; **no live run has been made**. Every level's certificate in
-  `distil/certificates/mcp.json` is `pending`.
+  `distil/certificates/mcp.json` is `pending`. Amended once before data (Amendment 1,
+  under *Deviations*: $85 ceiling, `claude-haiku-4-5` only this round).
 
 ## 1. Question
 
@@ -223,3 +224,38 @@ been given.**
      produces — instead of one proxy fronting all eight, because a multi-server proxy now
      namespaces tool names (`<server>__<tool>`), which would confound the comparison with
      the raw arm. The dry-run outputs are unchanged by this.
+
+### Amendment 1 (pre-data) — 2026-09-25
+
+Made after the maintainer approved spend and **before any live model call** (no model
+output has been seen by anyone). This commit's timestamp precedes every live artifact.
+
+1. **Budget:** a **hard ceiling of $85** for this round (`--budget-usd 85`).
+2. **Models (§7):** the primary model for this round is **`claude-haiku-4-5`**. The
+   `claude-sonnet-5` run is **deferred** for budget; there is **no replication run this
+   round**. §10's "not failed on the replication model" clause therefore cannot be
+   satisfied yet: any default decided from this round is decided on the primary model
+   alone and says so.
+3. **Unchanged:** tasks and seeds, planned `n` (1000 tool tasks per level, 630 result
+   tasks), metrics, TOST at `CERT_MARGIN` with `α = BUDGET_DELTA`, the bootstrap rule, the
+   underpowering guard, fixed-sequence testing L0 → L1 → L2 → L3 stopping at the first
+   level not certified, R as its own family, one look, and §8's rule for unrecoverable API
+   errors.
+4. **Stopping rule for spend** (replaces §7's "refuses a run whose estimated upper bound
+   exceeds the cap"): the harness refuses to start unless the *expected* (cached) cost
+   is at most the budget **and** a live spend meter enforces the ceiling. The meter bills
+   every response from the provider's returned `usage` (input, cache write, cache read,
+   output × `distil.pricing` list price) and, before every call — retries included —
+   refuses to send a call whose worst case could take total spend past the ceiling.
+   Failed retryable attempts (429/5xx) are booked conservatively at their estimated
+   input cost. If the meter stops the run before the pre-registered `n` completes for a
+   family (the tool family L0–L3, or R), **that family reports NO VERDICT** — never a
+   partial or underpowered claim — and every family not yet run reports NO VERDICT too.
+5. **Execution details that do not touch outcomes:** levels run in the fixed sequence,
+   and a level after the first non-certified one is not run (it would be `not-tested`
+   regardless; this only saves spend). Tasks within an arm may be sent concurrently (each
+   task is an independent, fresh session at temperature 0); retry backoff honours the
+   provider's `retry-after`. Before the first model call, each arm's tool list is
+   validated against the provider's free token-counting endpoint (no model output is
+   produced, nothing is billed). Per-call usage (tokens and dollars, no content) is
+   recorded so spend is auditable.
