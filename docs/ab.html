@@ -106,79 +106,104 @@
 
   <main class="content" id="content" tabindex="-1">
 
-    <h1>Task-level <span class="g">A/B</span></h1>
-    <p class="lead">Every other savings number distil prints is per request: tokens removed from what was sent. That cannot tell you what a <em>task</em> cost, and it cannot survive a model change. <code>distil ab</code> can. It compares sessions distil compressed with sessions it deliberately left alone, chosen at random, running at the same time, on the same model.</p>
+    <h1>Session-level <span class="g">A/B</span></h1>
+    <p class="lead">Every other savings number distil prints is per request: tokens removed from what was sent. That cannot tell you what a session cost, and it cannot survive a model change. <code>distil ab</code> can. It compares sessions distil compressed with sessions it deliberately left alone, chosen at random, running at the same time, on the same model. <b>Individual results take months to become conclusive</b>, and the report says how many sessions it still needs.</p>
 
     <h2 id="why">Why per-request savings are not enough</h2>
-    <p>A new model version changes how an agent works. It may take more turns to finish the same task, or fewer. It may read more files, or cache differently. All of that moves your bill, and none of it is distil. If you compare last month with this month, the model change lands in the comparison as if distil had caused it. In the simulation behind this page, a model that needs about 40% more turns per task makes a before/after comparison of the distil sessions read <b>40% more cost</b>, while distil was saving 20% the whole time.</p>
+    <p>A new model version changes how an agent works. It may take more turns to finish the same work, or fewer. All of that moves your bill, and none of it is distil. If you compare last month with this month, the model change lands in the comparison as if distil had caused it. In the simulation behind this page, a model that needs about 40% more turns makes a before/after comparison of the distil sessions read <b>40% more cost</b>, while distil was saving 20% the whole time.</p>
     <p>The only comparison a model change cannot contaminate is one where both sides see the change at once. So distil holds out a small random share of sessions and compares each group only with the other, at the same time, on the same model.</p>
 
     <h2 id="holdout">The holdout</h2>
     <ul>
-      <li><b>Which sessions.</b> Each new <code>distil wrap</code> session is assigned to <code>distil</code> or <code>holdout</code> when it starts. The default holdout rate is 5%. The draw is a keyed hash of the session id with a secret that never leaves your machine. It is deterministic, so a resumed or nested session keeps its arm, and nobody can predict or steer it. It is not the census id, so turning the census off does not re-draw anyone.</li>
-      <li><b>What a holdout session gets.</b> Exactly what the agent sent. The request goes upstream as the original bytes: no compression, no output shaping, no expand tool, no cold-point, no prefix replay. That is always safe, because it is the traffic you would have sent without distil. It is safe on a subscription too.</li>
-      <li><b>What is recorded.</b> The same content-free per-request record as always, tagged <code>arm</code>. Holdout requests are not booked as savings. Each session is also folded into <code>~/.distil/ab.jsonl</code>, so it outlives the 7-day session sweep. Nothing new is sent anywhere.</li>
-      <li><b>Turning it off.</b> <code>distil ab --holdout-rate 0</code>, or <code>DISTIL_HOLDOUT_RATE=0</code>. The wrap prints a line on every held-out session, and <code>distil setup</code> states the rate.</li>
+      <li><b>Which sessions.</b> The default holdout rate is 5%. Under <code>distil wrap</code>, each new session is assigned to <code>distil</code> or <code>holdout</code> when it starts, by a keyed hash of the session id with a secret that never leaves your machine. A resumed or nested session keeps its arm. Under a managed install (<code>distil proxy</code> started by a launch agent), there is no wrap session, so the unit is the client's own conversation. For Claude Code that is the session id it sends on every request. A conversation's first assignment is stored, as a keyed hash, so a resumed conversation keeps its arm. It is not the census id.</li>
+      <li><b>What a holdout session gets.</b> Exactly what the agent sent. The request goes upstream as the original bytes: no compression, no output shaping, no expand tool, no cold-point, no prefix replay, no shadow replays. That is always safe, because it is the traffic you would have sent without distil.</li>
+      <li><b>What is recorded.</b> The same content-free per-request record as always, tagged with the arm. Holdout requests are not booked as savings. Each session is folded into <code>~/.distil/ab.jsonl</code>, so it outlives the 7-day session sweep. Nothing new is sent anywhere.</li>
+      <li><b>Turning it off.</b> <code>distil ab --holdout-rate 0</code>, or <code>DISTIL_HOLDOUT_RATE=0</code>. The wrap prints a line on every held-out session; <code>distil setup</code> and <code>distil proxy</code> state the rate.</li>
     </ul>
 
     <h2 id="outcomes">What is measured</h2>
-    <p>Per session: dollars (the provider's own usage counts priced at list, cache reads at a tenth and cache writes at 1.25 times the input rate), assistant turns, tasks, input and output tokens, errors, wall time, and how it ended (normal exit, error, or abandoned). A <b>task</b> is the stretch between two things you typed. Distil tells them apart from tool results by the message's role and block types, never its content. Sessions recorded before that marker count as one task.</p>
-    <p>The headline is the relative change in <b>cost per task</b>, distil against holdout. Beside it are the change in <b>turns per task</b>, which shows whether compression made the agent work harder, and the change in <b>cost per turn</b>.</p>
+    <p>The headline is <b>mean cost per randomised session</b>, distil against holdout: the provider's own usage priced at list, cache reads at a tenth and cache writes at 1.25 times the input rate. Every call distil made on the session's behalf counts, including a <code>distil_expand</code> re-query and a shadow replay. Every randomised session that has ended counts, including one that failed (at what it actually cost, usually nothing). A session on a model distil cannot price is counted and left out.</p>
+    <p>Beside it are the <b>mediators</b>: turns per session, tasks per session, cost per task and cost per turn. A task is the stretch between two things you typed. These are outcomes distil can change. If compression made you re-ask more often, cost per task would fall even while each session cost more, so a mediator is never the headline. In the simulation of exactly that case, distil making sessions 10% dearer with 25% more re-asks, the headline read +9.2% and cost per task read about −12%.</p>
+    <p>A <b>balance check</b> prints how each group's sessions ended: normally, in an error, or abandoned. A failure mode distil causes shows up there first.</p>
 
     <h2 id="models">Staying within one model</h2>
-    <p>Sessions are grouped by the model that carried most of their cost and by the client and its version (for example <code>claude-cli/2.1</code>). When a newer version of the same model family appears, it <em>supersedes</em> the old one. The headline then compares within the new model only, and the report says so: <em>model changed on 2026-08-05: comparing within the new model only</em>. The old model's result is kept, and the two are compared as a difference-in-differences: distil's effect after the rollout minus its effect before it. That is the question a rollout actually raises.</p>
-    <p>A model can also change behind an unchanged id. Distil watches cost per task for a sustained shift, and when one is detected it starts a new <em>era</em> and compares within that era. Estimates never mix eras.</p>
-    <p>The part that actually protects the estimate is the randomisation, not the change detection. Both groups run at the same time, so a model change moves both and cancels in the contrast. Eras exist so that the number describes the model you are running now.</p>
+    <p>Sessions are grouped by the model their agent loop runs on, which is known at the first request and cannot be affected by compression, and by the client and its version (for example <code>claude-cli/2.1</code>). When a newer version of the same model family appears, the headline compares within the new model only, and says so: <em>model changed on 2026-08-05: comparing within the new model only</em>. The old model's result is kept, and the two are compared as a difference-in-differences.</p>
+    <p>A model can also change behind an unchanged id. Distil watches the holdout group's cost per session for a sustained shift, and when one is detected it starts a new <em>era</em>. It watches the holdout group because that is the one series distil cannot move, so a distil upgrade never looks like a model change.</p>
+    <p>The part that actually protects the estimate is the randomisation, not the change detection. Both groups run at the same time, so a model change moves both and cancels in the contrast.</p>
 
     <h2 id="read">Reading the report</h2>
-<pre><code>distil ab — task-level A/B (session-randomised holdout)
-  A/B holdout: 5% of new wrap sessions run uncompressed so distil can measure what it saves per task, causally (distil ab). Opt out: distil ab --holdout-rate 0, or DISTIL_HOLDOUT_RATE=0.
-  window: all time · 7500 sessions (complete+priced: 7104 distil, 396 holdout) · 0 open · 0 unpriced
+<pre><code>distil ab — does distil lower what a session costs? (randomised holdout)
+  A/B holdout: 5% of new sessions run uncompressed so distil can measure what it saves per session, causally (distil ab). Opt out: distil ab --holdout-rate 0, or DISTIL_HOLDOUT_RATE=0.
+  Scope: this machine's own sessions only.
+  window: all time (the anytime guarantee holds within the current era) · 7500 sessions (ended+priced: 7122 distil, 378 holdout) · 0 open · 0 unpriced
 
-  cost per task   -26.6%  (95% anytime CI -40.1% … -10.2%; e-value 5.16e+03; significant)
-  turns per task  +3.7%  (95% anytime CI -2.7% … +10.7%; e-value 0.549; not significant)
-  cost per turn   -28.9%  (95% anytime CI -41.4% … -13.7%; e-value 1.3e+05; significant)
-  bootstrap cross-check (fixed-n 95%): -34.7% … -13.8%
-  CUPED (workspace pre-period cost/task): variance −14%
-  cost of the holdout: those 243 sessions cost $356.49; compressed, ≈$94.89 more (range $36.21 … $142.82)
+  mean cost per session  -11.8%  (95% anytime CI -36.2% … +33.0%; not significant)
+    the one primary claim: empirical-Bernstein CS, cost capped at $500/session; anytime-valid within this era, no normality assumed
+    Individual results take months to become conclusive: need ≈43,360 sessions (2,168 held out).
+  bootstrap cross-check (fixed-n, strata-pooled): -21.2% … +17.6%
+  efficient estimate (strata-pooled, CUPED, asymptotic)  -9.9%  (95% CI -34.3% … +23.4%; e-value 0.69; not significant)
+    CUPED variance −5%
+  mediators — outcomes distil can change, so never the headline:
+    turns per session  +0.4%  (95% CI -5.6% … +6.7%; e-value 0.0949; not significant)
+    tasks per session  —
+    cost per task      -6.2%  (95% CI -32.1% … +29.6%; e-value 0.537; not significant)
+    cost per turn      -6.6%  (95% CI -32.3% … +28.8%; e-value 0.547; not significant)
+    (secondary claims are asymptotic and not multiplicity-adjusted; only the headline spends the error budget)
+  cost of the holdout: those 227 sessions cost $38,668.18; compressed, ≈$4,550.20 more (range −$12,770.40 … $13,983.17)
   model changed on 2026-08-05 (claude-opus | claude-cli): comparing within the new model only
 
-  strata (model | client, era)                  n dist  n hold   $/task dist  $/task hold  Δ cost/task  Δ turns/task  Δ $/turn
-  claude-opus-4-8 | claude-cli/2.1 #1             2847     153         $1.09        $1.63       -27.8%         +0.1%    -27.8%
-  claude-opus-5 | claude-cli/2.1 #1*              2841     159         $1.13        $1.59       -29.4%         +1.3%    -30.3%
-  claude-sonnet-4-6 | claude-cli/2.1 #1*          1416      84         $1.02        $1.24       -18.3%         +8.1%    -24.4%
-  * = current era, in the headline (inverse-variance pooled)
+  balance check — how sessions ended, per arm:
+    distil   capped 452, ok 7122
+    holdout  capped 34, ok 378
+    capped = sessions above the $500 cap, counted at the cap
+
+  strata (model | client, era)                  n dist  n hold  $/sess dist  $/sess hold  Δ $/session  Δ turns/sess  Δ $/task
+  claude-opus-4-8 | claude-cli/2.1 #1             2849     151      $147.05      $171.81       -10.9%         +0.4%    -14.4%
+  claude-opus-5 | claude-cli/2.1 #1*              2854     146      $166.95      $184.01       -11.8%         +0.6%     -9.3%
+  claude-sonnet-4-6 | claude-cli/2.1 #1*          1419      81      $145.80      $145.71        -6.2%         +0.1%     +0.1%
+  * = current era, pooled into the headline · Δ columns are per-cell, CUPED-adjusted and asymptotic
 
   eras / change points
     2026-08-05  claude-opus | claude-cli: model changed claude-opus-4-8 → claude-opus-5
 
-  difference-in-differences across a change ((distil−holdout)_after − _before)
-    claude-opus | claude-cli: claude-opus-4-8 | claude-cli/2.1 → claude-opus-5 | claude-cli/2.1: -2.3%  (95% anytime CI -33.0% … +42.6%; e-value 0.521; not significant)</code></pre>
-    <p>That is a simulated history. Opus changes version on 5 August, and the new version needs about 40% more turns per task in both groups. The headline stays on distil's effect, and the difference-in-differences across the rollout is indistinguishable from zero, because distil's effect did not change. Below the minimum data, the report says <em>not enough data yet</em>, gives the sessions so far, and estimates how many more it needs.</p>
-    <p><b>Cost of the holdout</b> is what the held-out sessions would have saved had they been compressed. It is the price of knowing. At the default rate, and assuming a session's cost typically varies by about as much as its mean, resolving a 10% effect takes about 27,740 sessions and a 20% effect about 7,240. That spread is an assumption, not a measurement of real traffic; once there is data, the <em>need ≈</em> figure in the report is sized from your own sessions. A larger holdout gets there sooner and costs more.</p>
+  difference-in-differences across a rollout ((distil−holdout)_after − _before; asymptotic)
+    claude-opus | claude-cli: claude-opus-4-8 | claude-cli/2.1 → claude-opus-5 | claude-cli/2.1: -1.0%  (95% CI -61.6% … +155.2%; e-value 0.766; not significant)</code></pre>
+    <p>That is a simulated history at the default holdout rate, with session costs about as spread out as real ones. Opus changes version on 5 August and the new version needs 40% more turns in both groups. After 7,500 sessions the headline is still not distinguishable from zero, and the report says how many sessions it needs. That is the honest answer at a small holdout. The difference-in-differences across the rollout is near zero, because distil's effect did not change.</p>
+    <p><b>Cost of the holdout</b> is what the held-out sessions would have saved had they been compressed. It is the price of knowing. A larger holdout gets an answer sooner and costs more.</p>
 
     <h2 id="math">The math</h2>
-    <h3>The estimate</h3>
-    <p>The session is the unit, because it is what was randomised. For a ratio metric such as cost per task, each group's value is the ratio of its sums, <code>C̄/T̄</code>. The effect is the difference of the two logarithms, <code>Δ = log(C̄₁/T̄₁) − log(C̄₀/T̄₀)</code>, and <code>exp(Δ) − 1</code> is the relative change. Its variance comes from the delta method on each session's linearised contribution <code>Lᵢ = Cᵢ/C̄ − Tᵢ/T̄</code>.</p>
-    <h3>Variance reduction (CUPED)</h3>
-    <p>Much of the spread in session cost is between projects, not between arms. So each session's <code>L</code> is regressed on its workspace's mean cost per task over sessions that <em>ended before it started</em>. Those earlier sessions were assigned independently of this one, so the adjustment cannot bias the contrast. It only removes spread. A session with no history is left unadjusted. In the simulation, where workspaces differ a lot, it cut the variance by 44% and the interval width to 0.75× of what it was.</p>
-    <h3>Anytime-valid intervals</h3>
-    <p>You can run <code>distil ab</code> whenever you like, and so can every screen that shows the result. An ordinary fixed-sample interval checked again and again will eventually exclude zero by chance. In the simulation, checking one after every 20 sessions up to 400 flagged a difference that was not there 27.9% of the time. The interval here is a <em>confidence sequence</em> (the mixture sequential probability ratio test). With <code>V</code> the variance of <code>Δ</code> and a fixed mixing scale <code>τ = 0.2</code>:</p>
-<pre><code>e-value  Λ = √(V/(V+τ²)) · exp(τ²Δ² / (2V(V+τ²)))
-interval Δ ± √( V(V+τ²)/τ² · log((V+τ²)/(V·α²)) )</code></pre>
-    <p>By Ville's inequality, the chance that <code>Λ</code> ever reaches <code>1/α</code> under no effect is at most <code>α</code>, however often it is checked. <code>α</code> is distil's single failure budget, <code>distil.conformal.BUDGET_DELTA</code>, shared with every other statistical claim distil makes. Under the same repeated looks, this interval flagged a non-existent difference 1.3% of the time. The guarantee is asymptotic, since the variance is estimated from the data, which is why there is a data floor. The cost is power at any single look: a true 20% saving at 400 sessions split evenly was detected 46% of the time, and at 800 sessions 92%. A percentile bootstrap is printed beside it as a fixed-sample cross-check.</p>
-    <h3>Pooling</h3>
-    <p>Each model-and-client cell in its current era gives its own <code>Δ</code>. The headline weights them by inverse variance, so it is a precision-weighted average effect, not a traffic-weighted one.</p>
+    <h3>The headline interval</h3>
+    <p>Session costs are heavy-tailed: on the maintainer's own machine their spread on a log scale is about 1.9. An interval that assumes a bell curve fails there. So the headline makes no such assumption. Each group's per-session cost is capped at a limit fixed in advance, <b>$500</b>, and the report counts the sessions it touched. An <em>empirical-Bernstein confidence sequence</em> (Waudby-Smith and Ramdas, 2023) is built for each group's mean, each at half the error budget. The two combine into an interval on the ratio. Bounded data is all it assumes, and it is valid however often you look: the chance it ever excludes the truth is at most <code>α</code>, distil's single failure budget (<code>distil.conformal.BUDGET_DELTA</code>).</p>
+    <p>Capping has a price: the estimand becomes the capped mean. The capped group with the dearer sessions loses more, so a real saving reads smaller, never larger.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Error under repeated looks">
+    <table>
+      <thead><tr><th>Holdout</th><th>Spread (log-sd)</th><th>Headline: false alarm, 20 looks</th><th>Previous interval (mixture SPRT): false alarm</th></tr></thead>
+      <tbody>
+        <tr><td>5%</td><td>0.6</td><td>0.0%</td><td>4.0%</td></tr>
+        <tr><td>5%</td><td>1</td><td>0.0%</td><td>6.5%</td></tr>
+        <tr><td>5%</td><td>1.5</td><td>0.0%</td><td>10.5%</td></tr>
+        <tr><td>5%</td><td>2</td><td>0.0%</td><td>10.5%</td></tr>
+        <tr><td>50%</td><td>0.6</td><td>0.0%</td><td>2.0%</td></tr>
+        <tr><td>50%</td><td>1</td><td>0.0%</td><td>2.5%</td></tr>
+        <tr><td>50%</td><td>1.5</td><td>0.0%</td><td>1.0%</td></tr>
+        <tr><td>50%</td><td>2</td><td>0.0%</td><td>0.5%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>Each row is 200 simulated histories of 4,000 sessions with no real effect, checked 20 times. The previous interval, a normal-mixture sequential test, exceeded the budget once the tails got heavy at the shipped rate. The headline did not. The cost is power: a true 20% saving at the shipped rate and log-sd 1.0 was detected 1.5% of the time after 4,000 sessions and 76% after 20,000.</p>
+    <h3>Secondary estimates</h3>
+    <p>Beside the headline the report prints an <em>efficient estimate</em> of the same quantity. It pools the model-and-client cells by inverse variance, reduces variance with CUPED (each session's cost regressed on its project's cost over earlier sessions, which were assigned independently), and uses the normal-mixture sequence. It is sharper and only asymptotically valid: in the simulation, where projects differ a lot, CUPED cut its variance by 44%. The mediators, the per-cell table and the difference-in-differences use the same machinery. None of them spends the error budget, and none is adjusted for multiple comparisons. A percentile bootstrap is printed as a fixed-sample cross-check. When it and the headline disagree on whether the effect is distinguishable from zero, the report says so.</p>
+    <p>The anytime guarantee holds within the current era. <code>--window</code> slides a fixed window over time, which makes each view a fixed-sample look, and the report labels it that way.</p>
     <h3>Detecting a silent change</h3>
-    <p>A two-sided self-starting CUSUM runs on log cost per task. Each session is standardised by the mean and spread of the sessions before it in the same era (<code>k = 0.5</code>, <code>h = 12</code>). It reads both groups together, without looking at which is which. A new era starts at the first session <em>after</em> the alarm, because data after an alarm never informed the decision. The sessions between the estimated change and the alarm are dropped from both groups. With a model change hidden behind an unchanged id, the headline's bias was +0.5 points (±0.4); with an explicit version change it was +0.1 (±0.4). A silent change the detector misses only leaves two regimes averaged together; the comparison within them is still randomised. Any detector selects the data it cuts on. Measured at <code>h = 8</code>, where false eras are common enough to measure, eras closed by an alarm on the holdout group alone were biased by 6.7 points; read blind to arm, by 1.3 points. That is why it reads both groups, and why no difference-in-differences is ever taken across one of its eras.</p>
+    <p>A two-sided self-starting CUSUM runs on the holdout group's log cost per session (<code>k = 0.5</code>, <code>h = 12</code>). A new era starts at the first session <em>after</em> the alarm, and the sessions between the estimated change and the alarm are dropped. It reads the holdout group on principle: distil cannot move that series, so an upgrade to distil is never mistaken for a model change. At the shipped rate the choice barely matters. Under a silent model change, reading both groups, reading the holdout, and running no detector at all land within noise of each other. An earlier version read both groups and claimed a measured gain from it, which the tracked simulation did not reproduce. The threshold is high because at a small holdout every false era throws away scarce data. With a model change hidden behind an unchanged id, the headline read +1.5 points above the true saving (±0.5); with an explicit version change, +1.9 (±0.5). Both are the cap at work: sessions averaged $150 to $210 against the $500 limit, and capping pulls a saving toward zero.</p>
 
     <h2 id="limits">What it does not do</h2>
     <ul>
-      <li>Only <code>distil wrap</code> sessions are randomised. A managed install that runs <code>distil proxy</code> from a launch agent has no session to assign, so it is not in the experiment.</li>
+      <li>Every number is about <b>your own sessions on this machine</b>. Nothing is pooled across installs; any estimate across installs would have to treat each install as a cluster.</li>
       <li>Models distil cannot price, such as non-Claude upstreams, are counted but not estimated.</li>
-      <li>When a streamed response ran a <code>distil_expand</code> re-query, only the first request's input usage is recorded. The distil group's cost is then a lower bound. The report counts those requests.</li>
+      <li>Sessions recorded before 1.54 kept only one upstream call's usage per request. Where such a session ran a <code>distil_expand</code> re-query, its cost is a lower bound, and the report counts those requests.</li>
       <li>On a subscription the dollars are list price, not what you are billed. The report marks them as notional.</li>
-      <li>Real session costs drift with your work. Some of that drift will open an era. That costs data, never validity.</li>
+      <li>A managed conversation that spans a proxy restart is counted as two sessions in the same group.</li>
     </ul>
     <p>Every measured number on this page is reproduced offline by <code>benchmarks/abtest_montecarlo.py</code> into <code>benchmarks/results/abtest-montecarlo.json</code>. The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0019-task-level-ab-holdout.md">ADR 0019</a>.</p>
 

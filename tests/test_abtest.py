@@ -414,62 +414,106 @@ def test_cusum_false_alarm_rate_is_low_on_stationary_data():
 
 
 # --------------------------------------------------------------------------- #
-# Statistics — known answers
+# Statistics — known answers (headline = mean cost per session, robust CS)
 # --------------------------------------------------------------------------- #
 
 
+def test_eb_cs_covers_and_never_widens():
+    rng = random.Random(4)
+    xs = [min(1.0, rng.lognormvariate(math.log(0.1), 1.0)) for _ in range(2000)]
+    lo, hi = stats.eb_cs(xs, 0.05)
+    assert lo <= sum(xs) / len(xs) <= hi and hi - lo < 0.1
+    assert stats.eb_cs(xs[:100], 0.05)[1] - stats.eb_cs(xs[:100], 0.05)[0] > hi - lo
+    assert stats.eb_cs([], 0.05) == (0.0, 1.0)
+    assert stats.robust_ratio([1.0], [1.0, 2.0]) is None
+    assert stats.robust_ratio([1.0, 2.0], [0.0, 0.0]) is None
+    r = stats.robust_ratio([600.0, 100.0], [700.0, 50.0], cap=500.0, alpha=0.05)
+    assert r is not None and (r.capped1, r.capped0) == (1, 1) and r.mean1 == 300.0
+
+
 def test_known_effect_is_recovered_with_coverage():
-    s = summarize(sim(1200, effect=-0.2, seed=1), rate=0.5, now=3e9)
-    assert s.status == "ok" and s.cost is not None
+    s = summarize(sim(4000, effect=-0.2, seed=1), rate=0.5, now=3e9)
+    assert s.status == "ok" and s.cost is not None and s.cost.evalue is None
     assert s.cost.lo < -0.2 < s.cost.hi and s.cost.significant
-    assert abs(s.cost.rel + 0.2) < 0.06
-    assert s.turns is not None and s.turns.lo < 0 < s.turns.hi  # distil does not move turns
+    assert abs(s.cost.rel + 0.2) < 0.04
+    assert s.efficient is not None and s.efficient.lo < -0.2 < s.efficient.hi
+    turns = s.mediators["turns_per_session"]
+    assert turns is not None and turns.lo < 0 < turns.hi  # distil does not move turns
     assert s.bootstrap is not None and s.bootstrap[0] < -0.2 < s.bootstrap[1]
     assert s.holdout_cost is not None and s.holdout_cost[0] > 0  # holding out cost money
-    assert "cost per task" in s.message
+    assert "mean cost per session" in s.message and "this machine" in s.message
+
+
+def test_treatment_affected_denominator_does_not_fake_a_saving():
+    """distil makes sessions +10% dearer AND users re-ask 25% more (tasks/session +25%).
+
+    Cost per TASK then falls ~12% and would read as a saving; the headline, cost per
+    randomised session, reports the truth (+10%). Cost per task is a mediator."""
+    data = sim(
+        6000, seed=21, sigma=0.4, tasks=4, distil_tasks_mult=1.25, distil_cost_per_session=0.10
+    )
+    s = summarize(data, rate=0.5, now=3e9)
+    assert s.cost is not None and s.cost.lo < 0.10 < s.cost.hi and abs(s.cost.rel - 0.10) < 0.04
+    cpt = s.mediators["cost_per_task"]
+    assert cpt is not None and cpt.rel < -0.07  # the misleading figure, labelled a mediator
+    tasks = s.mediators["tasks_per_session"]
+    assert tasks is not None and tasks.lo < 0.25 < tasks.hi
+    assert "never the headline" in render(s)
 
 
 def test_silent_model_change_in_both_arms_is_not_attributed_to_distil():
-    """Same model id, +40% turns per task from session 600 on, in BOTH arms.
+    """Same model id, +40% turns from session 2000 on, in BOTH arms.
 
     A before/after on the distil arm reads it as +40% cost; the concurrent contrast
-    still reports the true −20% and CUSUM opens a new era."""
-    before = sim(600, effect=-0.2, seed=2, sigma=0.3)
-    after = sim(600, effect=-0.2, seed=3, sigma=0.3, turns_mult=1.4, t0=before[-1].start + 1000)
-    naive = (
-        sum(o.cost for o in after if o.arm == "distil") / sum(1 for o in after if o.arm == "distil")
-    ) / (
-        sum(o.cost for o in before if o.arm == "distil")
-        / sum(1 for o in before if o.arm == "distil")
-    ) - 1
-    assert naive > 0.25  # what a before/after would book to distil
+    still reports the true −20%, and the holdout-arm CUSUM opens a new era."""
+    before = sim(2000, effect=-0.2, seed=2, sigma=0.3)
+    after = sim(2000, effect=-0.2, seed=3, sigma=0.3, turns_mult=1.4, t0=before[-1].start + 1000)
+
+    def mean_d(xs):
+        return sum(o.cost for o in xs if o.arm == "distil") / sum(
+            1 for o in xs if o.arm == "distil"
+        )
+
+    assert mean_d(after) / mean_d(before) - 1 > 0.25  # what a before/after would book to distil
     s = summarize(before + after, rate=0.5, now=3e9)
-    assert s.cost is not None and s.cost.lo < -0.2 < s.cost.hi and abs(s.cost.rel + 0.2) < 0.08
+    assert s.cost is not None and s.cost.lo < -0.2 < s.cost.hi and abs(s.cost.rel + 0.2) < 0.06
     assert any(e.kind == "shift" for e in s.events)
     assert s.model_change and "behaviour changed" in s.model_change
     assert s.did == []  # a CUSUM era is not a rollout: no DiD across it
-    # Pooling across the change (no eras at all) is still unbiased — randomisation,
-    # not the change point, is what protects the contrast.
     pooled = stats.ratio_contrast(
         [stats.Unit(o.cost, 1, o.arm == "distil") for o in before + after]
     )
-    assert pooled is not None and abs(pooled.rel + 0.2) < 0.06
+    assert (
+        pooled is not None and abs(pooled.rel + 0.2) < 0.05
+    )  # randomisation, not eras, protects it
 
 
-def test_bias_under_model_change_monte_carlo():
+def test_bias_under_model_change_monte_carlo(monkeypatch):
+    monkeypatch.setenv("DISTIL_AB_COST_CAP", "1e12")  # attribution only; capping tested apart
     errs = []
     for rep in range(25):
-        a = sim(300, seed=100 + rep)
-        b = sim(300, seed=200 + rep, turns_mult=1.4, model="claude-opus-5", t0=a[-1].start + 1000)
+        a = sim(600, seed=100 + rep)
+        b = sim(600, seed=200 + rep, turns_mult=1.4, model="claude-opus-5", t0=a[-1].start + 1000)
         s = summarize(a + b, rate=0.5, now=3e9)
         assert s.cost is not None
         errs.append(s.cost.rel + 0.2)
     assert abs(sum(errs) / len(errs)) < 0.02
 
 
+def test_winsorising_biases_a_saving_toward_zero_never_away(monkeypatch):
+    """The capped mean is the estimand. Capping trims the dearer (holdout) arm more, so a
+    real saving reads SMALLER, never larger — the conservative direction."""
+    data = sim(6000, effect=-0.2, seed=31, sigma=1.2)
+    capped = summarize(data, rate=0.5, now=3e9).cost
+    monkeypatch.setenv("DISTIL_AB_COST_CAP", "1e12")
+    uncapped = summarize(data, rate=0.5, now=3e9).cost
+    assert capped is not None and uncapped is not None
+    assert uncapped.rel < capped.rel < 0
+
+
 def test_explicit_model_change_compares_within_the_new_model_only():
-    a = sim(500, effect=-0.1, seed=4)
-    b = sim(500, effect=-0.3, seed=5, turns_mult=1.4, model="claude-opus-5", t0=a[-1].start + 1000)
+    a = sim(1500, effect=-0.1, seed=4)
+    b = sim(1500, effect=-0.3, seed=5, turns_mult=1.4, model="claude-opus-5", t0=a[-1].start + 1000)
     s = summarize(a + b, rate=0.5, now=3e9)
     assert s.cost is not None and s.cost.lo < -0.3 < s.cost.hi
     assert [c.model for c in s.cells if c.current] == ["claude-opus-5"]
@@ -481,28 +525,28 @@ def test_explicit_model_change_compares_within_the_new_model_only():
 
 
 def test_change_in_one_stratum_leaves_the_other_alone():
-    a1 = sim(400, effect=-0.3, seed=6)
+    a1 = sim(1000, effect=-0.3, seed=6)
     a2 = sim(
-        400, effect=-0.3, seed=7, turns_mult=1.4, model="claude-opus-5", t0=a1[-1].start + 1000
+        1000, effect=-0.3, seed=7, turns_mult=1.4, model="claude-opus-5", t0=a1[-1].start + 1000
     )
-    b = sim(800, effect=-0.1, seed=8, model="claude-sonnet-4-6", prefix="b", t0=1_000_500.0)
+    b = sim(2000, effect=-0.1, seed=8, model="claude-sonnet-4-6", prefix="b", t0=1_000_500.0)
     s = summarize(a1 + a2 + b, rate=0.5, now=3e9)
     sonnet = [c for c in s.cells if c.model == "claude-sonnet-4-6"]
     assert len(sonnet) == 1 and sonnet[0].current and sonnet[0].cost is not None
     assert sonnet[0].cost.lo < -0.1 < sonnet[0].cost.hi
     assert {e.group for e in s.events} == {"claude-opus | claude-cli"}
     assert {c.model for c in s.cells if c.current} == {"claude-opus-5", "claude-sonnet-4-6"}
-    assert s.cost is not None and -0.3 < s.cost.rel < -0.1  # precision-weighted blend
+    assert s.cost is not None and -0.3 < s.cost.rel < -0.1  # the current sessions' mix
 
 
-def test_cuped_narrows_the_interval_on_correlated_data():
+def test_cuped_narrows_the_efficient_interval_on_correlated_data():
     data = sim(1000, seed=9, ws_sd=1.0, sigma=0.4, n_ws=40)
-    with_cov = summarize(data, rate=0.5, now=3e9)
-    no_cov = summarize([_no_ws(o) for o in data], rate=0.5, now=3e9)
-    assert with_cov.cost is not None and no_cov.cost is not None
-    assert with_cov.cost.variance_reduction > 0.3
-    assert (with_cov.cost.hi - with_cov.cost.lo) < 0.8 * (no_cov.cost.hi - no_cov.cost.lo)
-    assert with_cov.cost.lo < -0.2 < with_cov.cost.hi
+    with_cov = summarize(data, rate=0.5, now=3e9).efficient
+    no_cov = summarize([_no_ws(o) for o in data], rate=0.5, now=3e9).efficient
+    assert with_cov is not None and no_cov is not None
+    assert with_cov.variance_reduction > 0.3
+    assert (with_cov.hi - with_cov.lo) < 0.8 * (no_cov.hi - no_cov.lo)
+    assert with_cov.lo < -0.2 < with_cov.hi
 
 
 def _no_ws(o: SessionOutcome) -> SessionOutcome:
@@ -511,15 +555,31 @@ def _no_ws(o: SessionOutcome) -> SessionOutcome:
     return replace(o, ws="")
 
 
-def test_sequential_type_one_error_under_repeated_looks():
-    """Null effect, a look every 20 sessions up to 400 (19 looks), 300 replications.
+def test_headline_type_one_error_heavy_tails_repeated_looks():
+    """The SHIPPED setting: 5% holdout, session log-sd 2.0, 10 looks to N=3,000, 120 runs.
 
-    The mixture CS is anytime-valid only asymptotically (plug-in variance), so the
-    tolerance is loose: ≤ 2α. The naive fixed-n 95% interval checked at every look
-    is shown to inflate well past α on the same data — that is the failure mode the
-    sequence exists to prevent."""
-    a = 0.05
-    z = 1.959964
+    The normal-mixture sequence broke its budget here in the review's probe (10.7% at
+    log-sd 2.0); the capped empirical-Bernstein headline must not."""
+    hits = 0
+    for rep in range(120):
+        data = sim(3000, effect=0.0, p=0.05, sigma=2.0, seed=3000 + rep)
+        for n in range(300, 3001, 300):
+            part = data[:n]
+            r = stats.robust_ratio(
+                [o.cost for o in part if o.arm == "distil"],
+                [o.cost for o in part if o.arm == "holdout"],
+                alpha=0.05,
+            )
+            if r is not None and r.significant:
+                hits += 1
+                break
+    assert hits / 120 <= 0.05
+
+
+def test_secondary_sequence_controls_error_on_light_tails():
+    """The normal-mixture sequence (secondary estimates) at 50/50 and log-sd 0.8: within
+    2α under 19 looks; the naive fixed-n interval inflates past it on the same data."""
+    a, z = 0.05, 1.959964
     seq = naive = 0
     for rep in range(300):
         data = sim(400, effect=0.0, seed=1000 + rep, sigma=0.8)
@@ -538,20 +598,13 @@ def test_sequential_type_one_error_under_repeated_looks():
     assert naive / 300 > seq / 300 and naive / 300 > 1.5 * a
 
 
-def test_power_at_a_realistic_size():
-    """−20% at session-cost CV ≈ 0.75, one look, 50/50 split: ~40% power at n=400
-    (the price of anytime validity at a single look), ≥80% at n=800."""
-    hits = 0
-    for rep in range(60):
-        c = stats.ratio_contrast(
-            [
-                stats.Unit(o.cost, 1, o.arm == "distil")
-                for o in sim(800, effect=-0.2, seed=2000 + rep)
-            ],
-            cuped=False,
-        )
-        hits += bool(c and c.significant(0.05))
-    assert hits / 60 >= 0.8
+def test_bootstrap_disagreement_is_said_out_loud():
+    for seed in range(40):
+        s = summarize(sim(500, effect=-0.3, seed=500 + seed), rate=0.5, now=3e9)
+        if s.bootstrap_disagrees:
+            assert "DISAGREE" in render(s)
+            return
+    pytest.fail("no fixture seed produced a disagreement; widen the search")
 
 
 # --------------------------------------------------------------------------- #
@@ -559,11 +612,12 @@ def test_power_at_a_realistic_size():
 # --------------------------------------------------------------------------- #
 
 
-def test_not_enough_data_names_n_and_need():
+def test_not_enough_data_says_months_and_need_up_front():
     s = summarize(sim(60, p=0.05, seed=12), rate=0.05, now=3e9)
     assert s.status == "insufficient" and s.need_holdout and s.need_holdout >= stats.MIN_HOLDOUT
-    assert s.message.startswith("not enough data yet (n=") and "need ≈" in s.message
-    assert "not enough data yet" in render(s)
+    assert s.message.startswith("Individual results take months to become conclusive")
+    assert "need ≈" in s.message and s.need_sessions and s.need_sessions > s.need_holdout
+    assert "Individual results take months" in render(s)
 
 
 def test_no_data_disabled_open_and_window():
@@ -576,8 +630,10 @@ def test_no_data_disabled_open_and_window():
     data[1] = replace(data[1], cost=None)
     s = summarize(data, rate=0.5, now=data[-1].start + 10, window=(50 * 1000) / 86400)
     assert s.n_sessions <= 51 and s.n_open == 0
+    assert "fixed-n look" in render(s)
     s = summarize(data, rate=0.5, now=3e9)
     assert s.n_open == 1 and s.n_unpriced == 1
+    assert sum(b.get("open", 0) for b in s.balance.values()) == 1
 
 
 def test_rate_change_opens_an_era():
@@ -593,36 +649,52 @@ def test_family_strips_versions_not_names():
     assert family("gpt-4o-2024-08-06") == "gpt-4o"
 
 
-def test_render_full_report_and_caveats():
+def test_render_full_report_and_caveats(monkeypatch):
     from dataclasses import replace
 
-    data = sim(800, seed=16, ws_sd=0.8)
+    monkeypatch.setenv("DISTIL_AB_COST_CAP", "300")
+    data = sim(3000, seed=16, ws_sd=0.8)
+    first_d = next(i for i, o in enumerate(data) if o.arm == "distil")
     data = [
-        replace(o, billing="subscription", expanded=1) if i == 0 else o for i, o in enumerate(data)
+        replace(o, billing="subscription", expanded=1) if i == first_d else o
+        for i, o in enumerate(data)
     ]
-    out = render(summarize(data, rate=0.5, now=3e9))
+    s = summarize(data, rate=0.5, now=3e9)
+    assert s.cap == 300.0 and any(b["capped"] for b in s.balance.values())
+    out = render(s)
     for needle in (
+        "mean cost per session",
+        "the one primary claim",
+        "mediators",
         "cost per task",
-        "turns per task",
-        "cost per turn",
+        "turns per session",
         "bootstrap cross-check",
+        "efficient estimate",
         "cost of the holdout",
+        "balance check",
+        "capped = sessions above the $300 cap",
+        "Scope: this machine's own sessions only",
         "notional",
+        "recorded before 1.54",
         "strata (model | client, era)",
     ):
-        assert needle in out
+        assert needle in out, needle
+    monkeypatch.setenv("DISTIL_AB_COST_CAP", "nonsense")
+    assert summarize(data[:50], rate=0.5, now=3e9).cap == stats.COST_CAP
 
 
 def test_cli_ab_text_json_and_set_rate(capsys, monkeypatch):
     from distil.cli import main
 
-    outcomes.append(sim(300, seed=17))
+    outcomes.append(sim(1500, seed=17))
     monkeypatch.setenv(abtest.RATE_ENV, "0.5")
     assert main(["ab"]) == 0
-    assert "distil ab — task-level A/B" in capsys.readouterr().out
+    assert "distil ab — does distil lower what a session costs?" in capsys.readouterr().out
     assert main(["ab", "--json"]) == 0
     js = json.loads(capsys.readouterr().out)
-    assert js["status"] == "ok" and js["cost"]["n_holdout"] > 0
+    assert (
+        js["status"] == "ok" and js["cost"]["n_holdout"] > 0 and "cost_per_task" in js["mediators"]
+    )
     monkeypatch.delenv(abtest.RATE_ENV)
     assert main(["ab", "--holdout-rate", "0"]) == 0
     assert "off" in capsys.readouterr().out and abtest.holdout_rate() == 0.0

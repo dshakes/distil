@@ -327,7 +327,7 @@ def disclosure(rate: float | None = None) -> str:
         )
     return (
         f"A/B holdout: {r * 100:g}% of new sessions run uncompressed so distil can "
-        "measure what it saves per task, causally (distil ab). "
+        "measure what it saves per session, causally (distil ab). "
         f"Opt out: distil ab --holdout-rate 0, or {RATE_ENV}=0."
     )
 

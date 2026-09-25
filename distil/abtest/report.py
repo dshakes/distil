@@ -1,19 +1,26 @@
 """``abtest_summary`` and ``distil ab`` — the causal, model-aware answer.
 
-Cells. A session's stratum is ``(model, client)`` — the model that carried most of its
-cost (a dated snapshot or a version bump is a different model) and the client name at
-major.minor. Its GROUP is the same pair with versions stripped (``claude-opus |
-claude-cli``); a newer version appearing in a group SUPERSEDES the older one, so the
-headline compares within the new model only and the old version's last era is
-compared with the new version's first as a difference-in-differences. Inside a
-stratum, eras are cut by (a) a change in the holdout rate — the arms' mix changes —
-and (b) a CUSUM alarm on log cost per task, read across both arms (a silent change
-behind an unchanged model id). No estimate ever mixes two cells.
+Headline. Mean list-price cost per randomised session, distil ÷ holdout, over every
+randomised session in the current era that has ended — failed ones at their actual cost
+(usually $0), none dropped for being cheap. Interval: :func:`stats.robust_ratio`, an
+empirical-Bernstein betting sequence per arm on cost capped at :data:`stats.COST_CAP`,
+anytime-valid within the current era with no asymptotics. It is the ONE primary claim,
+at α = ``conformal.BUDGET_DELTA``; everything else is secondary and not
+multiplicity-adjusted: the efficient estimate (strata-pooled, CUPED, normal-mixture,
+asymptotic), the mediators (turns/tasks per session, cost per task/turn — outcomes
+distil can change), the per-cell table and the rollout DiD. A sliding ``--window`` is a
+fixed-n look and says so.
 
-Why randomisation, not the change points, is what protects the estimate: both arms
-are sampled concurrently, so a model change that moves turns per task moves them in
-both and cancels in the contrast even inside one cell. Eras exist so the number
-describes the CURRENT regime rather than an average over regimes.
+Cells. A session's stratum is ``(model, client)``: the model of its agent loop, fixed
+before treatment acts (:func:`outcomes.stratum_model`), and the client at major.minor.
+Its GROUP is the same pair without versions; a newer version SUPERSEDES the older one,
+so the headline compares within the new model only and the rollout is reported as a
+difference-in-differences. Inside a stratum, eras are cut at a holdout-rate change and
+at a CUSUM alarm on the HOLDOUT arm's log cost per session (a silent change behind an
+unchanged id) — the one series distil cannot move.
+
+Scope. Every number is about this machine's own sessions. Nothing here is pooled across
+installs; a cross-install estimate would have to cluster by install.
 """
 
 from __future__ import annotations
@@ -38,11 +45,27 @@ class Effect:
     rel: float
     lo: float
     hi: float
-    evalue: float
+    evalue: float | None  # None for the robust headline (a CS, not an e-process summary)
     significant: bool
     n_distil: int
     n_holdout: int
     variance_reduction: float = 0.0  # CUPED; 0 when not applied
+    method: str = "mixture-SPRT (asymptotic)"
+
+    @classmethod
+    def robust(cls, r: st.RobustRatio | None) -> Effect | None:
+        if r is None:
+            return None
+        return cls(
+            rel=r.rel,
+            lo=r.lo,
+            hi=r.hi,
+            evalue=None,
+            significant=r.significant,
+            n_distil=r.n1,
+            n_holdout=r.n0,
+            method=f"empirical-Bernstein CS, cost capped at ${r.cap:g}/session",
+        )
 
     @classmethod
     def of(cls, c: st.Contrast | None, alpha: float) -> Effect | None:
@@ -73,10 +96,10 @@ class Cell:
     end: float
     n_distil: int
     n_holdout: int
-    cost_per_task: dict[str, float | None]  # arm -> $ (ratio of sums)
-    cost: Effect | None
-    turns: Effect | None
-    cost_per_turn: Effect | None
+    cost_per_session: dict[str, float | None]  # arm -> mean $
+    cost: Effect | None  # per session, asymptotic (per-cell; the headline pools robustly)
+    turns: Effect | None  # turns per session (mediator)
+    cost_per_task: Effect | None  # mediator
     current: bool  # contributes to the headline
 
 
@@ -112,10 +135,14 @@ class ABSummary:
     n_expanded: int = 0  # distil-arm requests with an expand re-query (cost caveat)
     notional: bool = False  # any subscription session: $ are list-price, not billed
     need_holdout: int | None = None
-    cost: Effect | None = None
-    turns: Effect | None = None
-    cost_per_turn: Effect | None = None
+    need_sessions: int | None = None  # need_holdout at the current rate, all arms
+    cap: float = st.COST_CAP
+    cost: Effect | None = None  # THE headline: mean cost per session, robust CS
+    efficient: Effect | None = None  # same estimand, strata-pooled + CUPED, asymptotic
+    mediators: dict[str, Effect | None] = field(default_factory=dict)
     bootstrap: tuple[float, float] | None = None
+    bootstrap_disagrees: bool = False  # verdicts differ: said so in the output
+    balance: dict[str, dict[str, int]] = field(default_factory=dict)  # arm -> counts
     holdout_spend: float = 0.0
     holdout_cost: tuple[float, float, float] | None = None  # extra $ (est, lo, hi)
     model_change: str | None = None
@@ -150,9 +177,14 @@ def _client_family(client: str) -> str:
     return client.split("/", 1)[0]
 
 
-def _log_cpt(o: SessionOutcome) -> float | None:
-    c = o.cost_per_task
-    return math.log(c) if c and c > 0 else None
+def _log_cost(o: SessionOutcome) -> float | None:
+    return math.log(o.cost) if o.cost and o.cost > 0 else None
+
+
+#: CUSUM threshold for the holdout-arm detector (see split_eras). 12, not 8: at a 5%
+#: holdout every false era throws away scarce data, and h=8 false-alarmed on 12% of
+#: 1,000-point stationary series (h=12: 0%). A missed shift costs only a regime average.
+HOLDOUT_H = 12.0
 
 
 def split_eras(sessions: list[SessionOutcome]) -> list[tuple[list[SessionOutcome], str, str]]:
@@ -164,15 +196,15 @@ def split_eras(sessions: list[SessionOutcome]) -> list[tuple[list[SessionOutcome
     transition and belong to no era — they are the ones the detector selected for being
     extreme (see :func:`stats.cusum_changepoints`).
 
-    The detector reads BOTH arms, arm-blind — not the holdout arm alone. Any change
-    detector selects the data it cuts on; reading one arm puts all of that selection on
-    one side of the contrast. Measured at h=8 on 150 stationary replications (true effect
-    −20%, 1,500 sessions, 50/50; ``benchmarks/abtest_montecarlo.py``): eras closed by a
-    holdout-only alarm were biased +6.7pp, arm-blind +1.3pp; the current era was
-    unbiased either way (−0.2pp / −0.3pp). At a 5%
-    holdout the arm-blind series is also 20x denser, so a real shift is caught in tens
-    of sessions rather than hundreds. The price: a change in distil's own effect (an
-    upgrade) can open an era too, which is why it is labelled a shift, not a model change.
+    The detector reads the HOLDOUT arm only, at ``h = 12``: distil cannot move that
+    series, so the detector never mistakes a distil upgrade for a model change and its
+    own selection never lands on the treated arm. Measured at the shipped 5% holdout
+    (N=4,000, log-sd 1.0, 100 runs; ``benchmarks/abtest_montecarlo.py``), the choice
+    barely moves the headline — under a silent +40% model change every option is within
+    noise of no detector — so it is made on that principle, not on a measured gain. At a
+    small holdout it rarely fires; a missed shift costs only a regime average, which
+    randomisation keeps unbiased. Explicit model-id changes are the common case and are
+    handled by stratification, not by this detector.
     """
     segments: list[tuple[list[SessionOutcome], str, str]] = []
     for o in sessions:
@@ -185,12 +217,12 @@ def split_eras(sessions: list[SessionOutcome]) -> list[tuple[list[SessionOutcome
             segments.append(([o], kind, why))
     eras: list[tuple[list[SessionOutcome], str, str]] = []
     for members, kind, why in segments:
-        pts = [(o, _log_cpt(o)) for o in members]
+        pts = [(o, _log_cost(o)) for o in members if o.arm == HOLDOUT]
         obs = [(o, y) for o, y in pts if y is not None]
         # (transition start, alarm session start) per detected shift, in time order
         spans = [
             (obs[c][0].start, obs[a][0].start)
-            for c, a in st.cusum_changepoints([y for _, y in obs])
+            for c, a in st.cusum_changepoints([y for _, y in obs], h=HOLDOUT_H)
         ]
         cur: list[SessionOutcome] = []
         b = 0
@@ -199,7 +231,7 @@ def split_eras(sessions: list[SessionOutcome]) -> list[tuple[list[SessionOutcome
                 if cur:
                     eras.append((cur, kind, why))
                 cur, kind = [], "shift"
-                why = "shift in cost per task, both arms (CUSUM)"
+                why = "shift in the holdout arm's cost per session (CUSUM)"
                 b += 1
             if b < len(spans) and spans[b][0] <= o.start <= spans[b][1]:
                 continue  # transition: selected by the detector, estimated in no era
@@ -215,38 +247,52 @@ def split_eras(sessions: list[SessionOutcome]) -> list[tuple[list[SessionOutcome
 
 
 def _covariates(sessions: list[SessionOutcome]) -> dict[str, float]:
-    """sid → log mean cost/task of the SAME workspace's sessions that ended before it
-    started. ponytail: O(n · sessions-per-workspace); fine into the tens of thousands."""
+    """sid → log mean cost per session of the SAME workspace's sessions that ended
+    before it started. ponytail: O(n · sessions-per-workspace); fine into the tens of
+    thousands."""
     by_ws: dict[str, list[SessionOutcome]] = {}
     for o in sessions:
-        if o.ws and o.cost_per_task:
+        if o.ws and o.cost:
             by_ws.setdefault(o.ws, []).append(o)
     out: dict[str, float] = {}
     for o in sessions:
-        prior = [
-            p.cost_per_task for p in by_ws.get(o.ws, ()) if p.end < o.start and p.cost_per_task
-        ]
-        if prior:
-            out[o.sid] = math.log(sum(prior) / len(prior))  # type: ignore[arg-type]
+        prior = [p.cost or 0.0 for p in by_ws.get(o.ws, ()) if p.end < o.start]
+        if prior and sum(prior) > 0:
+            out[o.sid] = math.log(sum(prior) / len(prior))
     return out
 
 
+#: metric -> (numerator, denominator) per session. "session" is the headline's estimand;
+#: the rest are mediators — outcomes distil can change.
+_METRICS: dict[str, tuple[Callable[[SessionOutcome], float], Callable[[SessionOutcome], float]]] = {
+    "session": (lambda o: o.cost or 0.0, lambda o: 1.0),
+    "turns_per_session": (lambda o: float(o.turns), lambda o: 1.0),
+    "tasks_per_session": (lambda o: float(o.tasks), lambda o: 1.0),
+    "cost_per_task": (lambda o: o.cost or 0.0, lambda o: float(o.tasks)),
+    "cost_per_turn": (lambda o: o.cost or 0.0, lambda o: float(max(1, o.turns))),
+}
+MEDIATORS = ("turns_per_session", "tasks_per_session", "cost_per_task", "cost_per_turn")
+
+
 def _units(members: list[SessionOutcome], metric: str, cov: dict[str, float]) -> list[st.Unit]:
-    num: Callable[[SessionOutcome], float]
-    den: Callable[[SessionOutcome], float]
-    if metric == "cost":
-        num, den = (lambda o: o.cost or 0.0), (lambda o: float(o.tasks))
-    elif metric == "turns":
-        num, den = (lambda o: float(o.turns)), (lambda o: float(o.tasks))
-    else:  # cost per turn
-        num, den = (lambda o: o.cost or 0.0), (lambda o: float(max(1, o.turns)))
-    return [st.Unit(num(o), den(o), o.arm == DISTIL, cov.get(o.sid)) for o in members]
+    num, den = _METRICS[metric]
+    x = cov if metric == "session" else {}
+    return [st.Unit(num(o), den(o), o.arm == DISTIL, x.get(o.sid)) for o in members]
 
 
-def _cpt(members: list[SessionOutcome], arm: str) -> float | None:
-    xs = [o for o in members if o.arm == arm]
-    tasks = sum(o.tasks for o in xs)
-    return sum(o.cost or 0.0 for o in xs) / tasks if xs and tasks else None
+def _mean_cost(members: list[SessionOutcome], arm: str) -> float | None:
+    xs = [o.cost or 0.0 for o in members if o.arm == arm]
+    return sum(xs) / len(xs) if xs else None
+
+
+def _cap() -> float:
+    import os
+
+    try:
+        v = float(os.environ.get("DISTIL_AB_COST_CAP", "") or st.COST_CAP)
+        return v if v > 0 else st.COST_CAP
+    except ValueError:
+        return st.COST_CAP
 
 
 def _day(ts: float) -> str:
@@ -284,6 +330,18 @@ def summarize(
     s.n_holdout = sum(1 for o in use if o.arm == HOLDOUT)
     s.n_expanded = sum(o.expanded for o in use if o.arm == DISTIL)
     s.notional = any(o.billing == "subscription" for o in use)
+    s.cap = _cap()
+    # Balance check: how sessions ended, per arm. A distil-caused failure mode shows here
+    # before it shows anywhere else; unpriced and open sessions are counted, not hidden.
+    for arm in (DISTIL, HOLDOUT):
+        mine = [o for o in rows if o.arm == arm]
+        b: dict[str, int] = {}
+        for o in mine:
+            b[o.ended] = b.get(o.ended, 0) + 1
+        b["unpriced"] = sum(1 for o in mine if o.complete and o.cost is None)
+        b["capped"] = sum(1 for o in use if o.arm == arm and (o.cost or 0) > s.cap)
+        b["pre_1_54_expand_rows"] = sum(o.expanded for o in mine)
+        s.balance[arm] = b
     cov = _covariates(use)
 
     # strata → groups; a newer model/client version supersedes the older one
@@ -300,7 +358,7 @@ def summarize(
             s.events.append(Event(strata[key][0].start, g, what, f"{what} changed {old} → {new}"))
         groups.setdefault(g, []).append(key)
 
-    current_parts: dict[str, list[st.Contrast | None]] = {"cost": [], "turns": [], "cpt": []}
+    current_parts: dict[str, list[st.Contrast]] = {m: [] for m in _METRICS}
     current_cells: list[list[st.Unit]] = []
     head_members: list[SessionOutcome] = []
     for g, keys in groups.items():
@@ -317,7 +375,7 @@ def summarize(
                 enough = n1 >= st.MIN_ARM_CELL and n0 >= st.MIN_ARM_CELL
                 con = {
                     m: st.ratio_contrast(_units(members, m, cov)) if enough else None
-                    for m in ("cost", "turns", "cpt")
+                    for m in _METRICS
                 }
                 current = ki == len(keys) - 1 and ei == len(eras) - 1
                 reason = why or ("first seen" if ki == 0 else "new version")
@@ -332,22 +390,25 @@ def summarize(
                         end=max(o.end for o in members),
                         n_distil=n1,
                         n_holdout=n0,
-                        cost_per_task={
-                            DISTIL: _cpt(members, DISTIL),
-                            HOLDOUT: _cpt(members, HOLDOUT),
+                        cost_per_session={
+                            DISTIL: _mean_cost(members, DISTIL),
+                            HOLDOUT: _mean_cost(members, HOLDOUT),
                         },
-                        cost=Effect.of(con["cost"], a),
-                        turns=Effect.of(con["turns"], a),
-                        cost_per_turn=Effect.of(con["cpt"], a),
-                        current=current and con["cost"] is not None,
+                        cost=Effect.of(con["session"], a),
+                        turns=Effect.of(con["turns_per_session"], a),
+                        cost_per_task=Effect.of(con["cost_per_task"], a),
+                        current=current,
                     )
                 )
-                firsts.append(con["cost"])
-                if current and con["cost"] is not None:
-                    for m in current_parts:
-                        current_parts[m].append(con[m])
-                    current_cells.append(_units(members, "cost", cov))
+                firsts.append(con["session"])
+                if current:
+                    # The headline pools every current cell, however small: the robust
+                    # estimate is a randomised comparison over their union.
                     head_members.extend(members)
+                    for m in _METRICS:
+                        if con[m] is not None:
+                            current_parts[m].append(con[m])  # type: ignore[arg-type]
+                    current_cells.append(_units(members, "session", cov))
             ends.append(
                 (
                     f"{key[0]} | {key[1]}",
@@ -377,41 +438,59 @@ def summarize(
             f"{what} changed on {_day(e.ts)} ({e.group}): comparing within the new {within} only"
         )
 
-    pooled = {m: st.pool([c for c in v if c is not None]) for m, v in current_parts.items()}
-    n0_head = pooled["cost"].n0 if pooled["cost"] else 0
     if r <= 0 and not use:
         s.status = "disabled"
         s.message = disclosure(r)
         return s
     if not use:
-        s.message = "no randomised sessions yet — the A/B starts with the next `distil wrap`"
+        s.message = "no randomised sessions yet — the A/B starts with the next session"
         return s
-    # The per-session spread for the projection: from the data when there is some.
-    lin = [c.var_raw * (c.n1 * c.n0) / (c.n1 + c.n0) for c in current_parts["cost"] if c]
-    unit_var = sum(lin) / len(lin) if lin else 1.0
-    if pooled["cost"] is None or n0_head < st.MIN_HOLDOUT:
+    d_costs = [o.cost or 0.0 for o in head_members if o.arm == DISTIL]
+    h_costs = [o.cost or 0.0 for o in head_members if o.arm == HOLDOUT]
+    capped = [min(c, s.cap) for c in d_costs + h_costs]
+    if len(capped) >= 2 and sum(capped) > 0:
+        mu = sum(capped) / len(capped)
+        cv = math.sqrt(sum((c - mu) ** 2 for c in capped) / (len(capped) - 1)) / mu
+    else:
+        cv = 1.5  # the maintainer's own sessions measured ~1.55
+    s.need_holdout = max(st.MIN_HOLDOUT, st.robust_needed(cv, r or 0.05))
+    s.need_sessions = int(s.need_holdout / (r or 0.05))
+    headline = st.robust_ratio(d_costs, h_costs, cap=s.cap, alpha=a)
+    upfront = (
+        f"Individual results take months to become conclusive: need ≈{s.need_sessions:,} "
+        f"sessions (≈{s.need_holdout:,} held out) to resolve a "
+        f"{st.TARGET_EFFECT * 100:.0f}% effect on this machine"
+    )
+    s.message = upfront
+    if headline is None or len(h_costs) < st.MIN_HOLDOUT:
         s.status = "insufficient"
-        s.need_holdout = max(st.MIN_HOLDOUT, st.holdout_needed(unit_var, r or 0.05))
         s.message = (
-            f"not enough data yet (n={s.n_distil} distil / {s.n_holdout} holdout; "
-            f"need ≈{s.need_holdout} holdout sessions in the current model)"
+            f"{upfront}; so far {len(d_costs)} distil / {len(h_costs)} holdout sessions in "
+            "the current model"
         ) + (f" · {s.model_change}" if s.model_change else "")
         return s
     s.status = "ok"
-    s.cost = Effect.of(pooled["cost"], a)
-    s.turns = Effect.of(pooled["turns"], a)
-    s.cost_per_turn = Effect.of(pooled["cpt"], a)
+    head = Effect.robust(headline)
+    assert head is not None
+    s.cost = head
+    pooled = {m: st.pool(v) for m, v in current_parts.items()}
+    s.efficient = Effect.of(pooled["session"], a)
+    s.mediators = {m: Effect.of(pooled[m], a) for m in MEDIATORS}
     s.bootstrap = st.bootstrap_pooled(current_cells, alpha=a)
-    s.holdout_spend = sum(o.cost or 0.0 for o in head_members if o.arm == HOLDOUT)
-    assert s.cost is not None
+    if s.bootstrap is not None:
+        boot_sig = s.bootstrap[1] < 0 or s.bootstrap[0] > 0
+        s.bootstrap_disagrees = boot_sig != head.significant
+    s.holdout_spend = sum(h_costs)
     h = s.holdout_spend
-    s.holdout_cost = (-s.cost.rel * h, -s.cost.hi * h, -s.cost.lo * h)
-    verdict = "" if s.cost.significant else " (not yet distinguishable from 0)"
+    hi = head.hi if math.isfinite(head.hi) else math.inf
+    s.holdout_cost = (-head.rel * h, -hi * h, -head.lo * h)
+    verdict = "" if head.significant else " (not yet distinguishable from 0)"
     s.message = (
-        f"distil vs holdout: {s.cost.rel * 100:+.1f}% cost per task "
-        f"({(1 - a) * 100:.0f}% anytime CI {s.cost.lo * 100:+.1f}% … {s.cost.hi * 100:+.1f}%)"
-        f"{verdict}, n={pooled['cost'].n1}/{n0_head}"
+        f"distil vs holdout: {head.rel * 100:+.1f}% mean cost per session "
+        f"({(1 - a) * 100:.0f}% anytime CI {_pct(head.lo)} … {_pct(head.hi)})"
+        f"{verdict}, n={headline.n1}/{headline.n0} on this machine"
         + (f" · {s.model_change}" if s.model_change else "")
+        + ("" if head.significant else f" · {upfront}")
     )
     return s
 
@@ -428,89 +507,149 @@ def abtest_summary(window: float | None = None) -> ABSummary:
 
 
 def _pct(x: float | None) -> str:
-    return "—" if x is None else f"{x * 100:+.1f}%"
+    if x is None:
+        return "—"
+    return "+∞" if x == math.inf else f"{x * 100:+.1f}%"
 
 
-def _eff(e: Effect | None, alpha: float) -> str:
+def _eff(e: Effect | None, alpha: float, *, label: str = "anytime CI") -> str:
     if e is None:
         return "—"
     tail = "significant" if e.significant else "not significant"
+    ev = "" if e.evalue is None else f"; e-value {e.evalue:.3g}"
     return (
-        f"{_pct(e.rel)}  ({(1 - alpha) * 100:.0f}% anytime CI {_pct(e.lo)} … {_pct(e.hi)}; "
-        f"e-value {e.evalue:.3g}; {tail})"
+        f"{_pct(e.rel)}  ({(1 - alpha) * 100:.0f}% {label} {_pct(e.lo)} … {_pct(e.hi)}{ev}; {tail})"
     )
 
 
 def _money(x: float | None) -> str:
     if x is None:
         return "—"
+    if x == math.inf:
+        return "∞"
     sign = "−" if x < 0 else ""
     return f"{sign}${abs(x):,.4f}" if abs(x) < 1 else f"{sign}${abs(x):,.2f}"
 
 
+_MED_LABEL = {
+    "turns_per_session": "turns per session",
+    "tasks_per_session": "tasks per session",
+    "cost_per_task": "cost per task",
+    "cost_per_turn": "cost per turn",
+}
+
+
 def render(s: ABSummary) -> str:
-    L = ["distil ab — task-level A/B (session-randomised holdout)", f"  {s.disclosure}"]
-    win = "all time" if s.window_days is None else f"last {s.window_days:g} days"
+    L = ["distil ab — does distil lower what a session costs? (randomised holdout)"]
+    L.append(f"  {s.disclosure}")
+    L.append("  Scope: this machine's own sessions only.")
+    if s.window_days is None:
+        win = "all time (the anytime guarantee holds within the current era)"
+    else:
+        win = f"last {s.window_days:g} days (a sliding window is a fixed-n look, not anytime-valid)"
     L.append(
-        f"  window: {win} · {s.n_sessions} sessions (complete+priced: {s.n_distil} distil, "
+        f"  window: {win} · {s.n_sessions} sessions (ended+priced: {s.n_distil} distil, "
         f"{s.n_holdout} holdout) · {s.n_open} open · {s.n_unpriced} unpriced"
     )
     L.append("")
     if s.status != "ok":
         L.append(f"  {s.message}")
     else:
-        L.append(f"  cost per task   {_eff(s.cost, s.alpha)}")
-        L.append(f"  turns per task  {_eff(s.turns, s.alpha)}")
-        L.append(f"  cost per turn   {_eff(s.cost_per_turn, s.alpha)}")
+        assert s.cost is not None
+        L.append(f"  mean cost per session  {_eff(s.cost, s.alpha)}")
+        L.append(
+            f"    the one primary claim: {s.cost.method}; anytime-valid within this era, "
+            "no normality assumed"
+        )
+        if not s.cost.significant and s.need_sessions:
+            L.append(
+                f"    Individual results take months to become conclusive: need ≈"
+                f"{s.need_sessions:,} sessions ({s.need_holdout:,} held out)."
+            )
         if s.bootstrap:
             L.append(
-                f"  bootstrap cross-check (fixed-n {(1 - s.alpha) * 100:.0f}%): "
+                f"  bootstrap cross-check (fixed-n, strata-pooled): "
                 f"{_pct(s.bootstrap[0])} … {_pct(s.bootstrap[1])}"
             )
-        if s.cost and s.cost.variance_reduction:
-            L.append(
-                f"  CUPED (workspace pre-period cost/task): variance "
-                f"−{s.cost.variance_reduction * 100:.0f}%"
-            )
+            if s.bootstrap_disagrees:
+                L.append(
+                    "    ⚠ the bootstrap and the anytime interval DISAGREE on whether this is "
+                    "distinguishable from 0 — trust the anytime interval; a fixed-n "
+                    "interval re-checked over time overstates certainty, and heavy tails "
+                    "make it worse"
+                )
+        L.append(
+            f"  efficient estimate (strata-pooled, CUPED, asymptotic)  "
+            f"{_eff(s.efficient, s.alpha, label='CI')}"
+        )
+        if s.efficient and s.efficient.variance_reduction:
+            L.append(f"    CUPED variance −{s.efficient.variance_reduction * 100:.0f}%")
+        L.append("  mediators — outcomes distil can change, so never the headline:")
+        for m in MEDIATORS:
+            L.append(f"    {_MED_LABEL[m]:<18} {_eff(s.mediators.get(m), s.alpha, label='CI')}")
+        L.append(
+            "    (secondary claims are asymptotic and not multiplicity-adjusted; only the "
+            "headline spends the error budget)"
+        )
         if s.holdout_cost:
             est, lo, hi = s.holdout_cost
             more = "more" if est >= 0 else "less"
             L.append(
-                f"  cost of the holdout: those {s.cost.n_holdout if s.cost else 0} sessions cost "
+                f"  cost of the holdout: those {s.cost.n_holdout} sessions cost "
                 f"{_money(s.holdout_spend)}; compressed, ≈{_money(abs(est))} {more} "
                 f"(range {_money(lo)} … {_money(hi)})"
             )
         if s.model_change:
             L.append(f"  {s.model_change}")
+    if s.balance:
+        L.append("")
+        L.append("  balance check — how sessions ended, per arm:")
+        for arm, b in s.balance.items():
+            parts = ", ".join(f"{k} {v}" for k, v in sorted(b.items()) if v)
+            L.append(f"    {arm:<8} {parts or '—'}")
+        if any(b.get("capped") for b in s.balance.values()):
+            L.append(f"    capped = sessions above the ${s.cap:g} cap, counted at the cap")
     if s.notional:
         L.append("  $ are list price; subscription sessions are not billed per token (notional)")
     if s.n_expanded:
         L.append(
-            f"  caveat: {s.n_expanded} distil-arm requests ran a distil_expand re-query "
-            "whose own input tokens are not metered — the distil arm's cost is a lower bound"
+            f"  caveat: {s.n_expanded} distil-arm requests recorded before 1.54 ran a "
+            "distil_expand re-query whose own usage was not kept — those sessions' cost is "
+            "a lower bound"
         )
     if s.cells:
         L += [
             "",
-            "  strata (model | client, era)                  n dist  n hold   $/task dist  "
-            "$/task hold  Δ cost/task  Δ turns/task  Δ $/turn",
+            "  strata (model | client, era)                  n dist  n hold  $/sess dist  "
+            "$/sess hold  Δ $/session  Δ turns/sess  Δ $/task",
         ]
         for c in s.cells:
             name = f"{c.model} | {c.client} #{c.era}{'*' if c.current else ''}"
             L.append(
                 f"  {name[:45]:<45} {c.n_distil:>6}  {c.n_holdout:>6}  "
-                f"{_money(c.cost_per_task.get(DISTIL)):>12}  {_money(c.cost_per_task.get(HOLDOUT)):>11}"
+                f"{_money(c.cost_per_session.get(DISTIL)):>11}  "
+                f"{_money(c.cost_per_session.get(HOLDOUT)):>11}"
                 f"  {_pct(c.cost.rel if c.cost else None):>11}  "
                 f"{_pct(c.turns.rel if c.turns else None):>12}  "
-                f"{_pct(c.cost_per_turn.rel if c.cost_per_turn else None):>8}"
+                f"{_pct(c.cost_per_task.rel if c.cost_per_task else None):>8}"
             )
-        L.append("  * = current era, in the headline (inverse-variance pooled)")
+        L.append(
+            "  * = current era, pooled into the headline · Δ columns are per-cell, "
+            "CUPED-adjusted and asymptotic"
+        )
     if s.events:
         L += ["", "  eras / change points"]
         L += [f"    {_day(e.ts)}  {e.group}: {e.text}" for e in s.events]
     if s.did:
-        L += ["", "  difference-in-differences across a change ((distil−holdout)_after − _before)"]
-        L += [f"    {d.group}: {d.before} → {d.after}: {_eff(d.effect, s.alpha)}" for d in s.did]
+        L += [
+            "",
+            "  difference-in-differences across a rollout ((distil−holdout)_after − _before; "
+            "asymptotic)",
+        ]
+        L += [
+            f"    {d.group}: {d.before} → {d.after}: {_eff(d.effect, s.alpha, label='CI')}"
+            for d in s.did
+        ]
     return "\n".join(L)
 
 

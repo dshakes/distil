@@ -1,6 +1,24 @@
 """The statistics behind ``distil ab`` — small, stdlib-only, and each piece standard.
 
-Effect. For a ratio metric (cost per task = Σcost/Σtasks, turns per task, cost per
+Headline (since the 2026-09-25 statistical review). The primary estimand is the MEAN
+LIST-PRICE COST PER RANDOMISED SESSION, distil ÷ holdout, over every randomised session
+that has ended (failed ones at their actual cost, zero-cost ones at 0). Its interval is
+:func:`robust_ratio`: one empirical-Bernstein betting confidence sequence per arm
+(Waudby-Smith & Ramdas, JRSS-B 2023, "PrPl-EB") on per-session cost WINSORISED at a cap
+fixed in advance (:data:`COST_CAP`), each at α/2, combined into an interval on the
+ratio. It is anytime-valid with no asymptotics: bounded data is all it assumes. The
+normal-mixture sequence below was validated on light tails, but at a 5% holdout with
+session log-sd 1.5 it rejected a true null 8.3% of the time against a 5% budget (10.7%
+at log-sd 2.0), and real sessions sit at log-sd ~1.9. It remains for the SECONDARY
+estimates (strata-pooled with CUPED, the mediators, the rollout DiD), labelled
+asymptotic.
+
+Mediators. Cost per task, turns per session, tasks per session and cost per turn have
+denominators distil can move (compression can change how often a user re-asks). They are
+reported beside the headline, never as it: +10% cost per session with +25% tasks reads
+as −12% cost per task.
+
+Effect (secondary). For a ratio metric (cost per task = Σcost/Σtasks, turns per task, cost per
 turn) the per-arm estimate is ``log(C̄/T̄)`` over SESSIONS, the randomisation unit, and
 the effect is the difference of the two logs: ``exp(Δ) − 1`` is the relative change in
 the arm's mean cost per task. Its variance is the delta method on the per-session
@@ -66,6 +84,12 @@ MIN_ARM_CELL = 5
 MIN_HOLDOUT = 20
 #: Effect size the "need ≈ N" projection is sized to resolve.
 TARGET_EFFECT = 0.10
+#: Per-session cost cap (USD) for the robust headline, fixed in advance and disclosed.
+#: The maintainer's own wrap sessions have a median around $80 and log-sd ~1.9; $500 caps
+#: the extreme tail without touching a typical session. Winsorising changes the estimand
+#: to the capped mean — the report prints how many sessions the cap touched per arm.
+#: Changing it is a change of estimand; ``DISTIL_AB_COST_CAP`` overrides it.
+COST_CAP = 500.0
 
 
 def default_alpha() -> float:
@@ -300,6 +324,111 @@ def cusum_changepoints(
         cuts.append(found)
         start = found[1] + 1
     return cuts
+
+
+def eb_cs(xs: Sequence[float], alpha: float) -> tuple[float, float]:
+    """Running-intersection empirical-Bernstein CS for the mean of ``xs`` ⊂ [0, 1].
+
+    PrPl-EB (Waudby-Smith & Ramdas 2023, Thm 2): predictable λ_t, capital-free closed
+    form. Valid uniformly over time at level ``alpha`` (two-sided), so the running
+    intersection over every prefix is valid too — and never widens. Processed in
+    arrival order; ``(0, 1)`` for an empty sequence.
+    """
+    lo, hi = 0.0, 1.0
+    log2a = math.log(2.0 / alpha)
+    s = sum_l = sum_lx = sum_vpsi = 0.0
+    sq = 0.25
+    mu_prev, sig2_prev = 0.5, 0.25
+    for t, x in enumerate(xs, start=1):
+        lam = min(math.sqrt(2.0 * log2a / (sig2_prev * t * math.log(1.0 + t))), 0.5)
+        v = 4.0 * (x - mu_prev) ** 2
+        psi = (-math.log(1.0 - lam) - lam) / 4.0
+        sum_l += lam
+        sum_lx += lam * x
+        sum_vpsi += v * psi
+        centre = sum_lx / sum_l
+        half = (log2a + sum_vpsi) / sum_l
+        lo, hi = max(lo, centre - half), min(hi, centre + half)
+        s += x
+        mu_prev = (0.5 + s) / (t + 1)
+        sq += (x - mu_prev) ** 2
+        sig2_prev = sq / (t + 1)
+    return lo, min(hi, 1.0) if hi >= lo else lo
+
+
+@dataclass(frozen=True)
+class RobustRatio:
+    """Headline: capped mean cost per session, distil ÷ holdout, with its anytime CS."""
+
+    rel: float  # point estimate of mean_distil/mean_holdout − 1 (capped means)
+    lo: float
+    hi: float  # may be +inf when the holdout interval reaches 0
+    n1: int
+    n0: int
+    mean1: float
+    mean0: float
+    capped1: int  # sessions the cap touched
+    capped0: int
+    cap: float
+
+    @property
+    def significant(self) -> bool:
+        return self.hi < 0.0 or self.lo > 0.0
+
+
+def robust_ratio(
+    distil_costs: Sequence[float],
+    holdout_costs: Sequence[float],
+    *,
+    cap: float = COST_CAP,
+    alpha: float | None = None,
+) -> RobustRatio | None:
+    """The shipped headline method. Costs in arrival order, one per session."""
+    a = default_alpha() if alpha is None else alpha
+    if len(distil_costs) < 2 or len(holdout_costs) < 2 or cap <= 0:
+        return None
+    x1 = [min(max(c, 0.0), cap) / cap for c in distil_costs]
+    x0 = [min(max(c, 0.0), cap) / cap for c in holdout_costs]
+    m1, m0 = sum(x1) / len(x1), sum(x0) / len(x0)
+    if m0 <= 0:
+        return None
+    lo1, hi1 = eb_cs(x1, a / 2)
+    lo0, hi0 = eb_cs(x0, a / 2)
+    return RobustRatio(
+        rel=m1 / m0 - 1.0,
+        lo=lo1 / hi0 - 1.0 if hi0 > 0 else -1.0,
+        hi=hi1 / lo0 - 1.0 if lo0 > 0 else math.inf,
+        n1=len(x1),
+        n0=len(x0),
+        mean1=m1 * cap,
+        mean0=m0 * cap,
+        capped1=sum(1 for c in distil_costs if c > cap),
+        capped0=sum(1 for c in holdout_costs if c > cap),
+        cap=cap,
+    )
+
+
+def robust_needed(
+    cv: float, rate: float, *, target: float = TARGET_EFFECT, alpha: float | None = None
+) -> int:
+    """Holdout sessions for :func:`robust_ratio`'s interval to resolve ``target``.
+
+    Planning approximation, not a guarantee: each arm's EB half-width is ≈
+    ``cv·√(2·log(4/α)/n)`` relative to its mean (its asymptotic width), and the ratio's
+    log-interval is about the sum of the two. ``cv`` is the per-session coefficient of
+    variation of capped cost.
+    """
+    a = default_alpha() if alpha is None else alpha
+    p = min(max(rate, 1e-3), 0.5)
+    goal = math.log1p(target)
+    k = cv * math.sqrt(2.0 * math.log(4.0 / a))
+    n = 2
+    while n < 10_000_000:
+        n1 = n * (1 - p) / p
+        if k / math.sqrt(n) + k / math.sqrt(n1) <= goal:
+            break
+        n = int(n * 1.25) + 1
+    return n
 
 
 def holdout_needed(
