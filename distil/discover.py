@@ -411,6 +411,10 @@ def _tools_rate_mult(r: dict[str, Any]) -> float:
     cache read covers, then a cache write, then uncached input. Pricing them at the
     flat input rate would overstate a well-cached connector ~10x. 1.0 when the
     provider did not report the split — unmeasured, so not assumed cheap.
+
+    Writes price at the blend of their TTLs: a 1-hour write bills 2x input, a
+    5-minute one 1.25x. Rows from before the proxy recorded ``usage_cache_create_1h``
+    price every write at 1.25x, as they always did.
     """
     tools = int(r.get("tools_tokens") or 0)
     rd, wr = r.get("usage_cache_read"), r.get("usage_cache_create")
@@ -419,7 +423,9 @@ def _tools_rate_mult(r: dict[str, Any]) -> float:
     a = min(tools, int(rd))
     b = min(tools - a, int(wr))
     c = tools - a - b
-    return (a * 0.10 + b * 1.25 + c * 1.0) / tools
+    share_1h = min(1.0, int(r.get("usage_cache_create_1h") or 0) / int(wr)) if int(wr) else 0.0
+    write_mult = 2.0 * share_1h + 1.25 * (1.0 - share_1h)
+    return (a * 0.10 + b * write_mult + c * 1.0) / tools
 
 
 def _d_unused_connectors(w: _Window) -> Action | None:
