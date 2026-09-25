@@ -1429,7 +1429,7 @@ def test_busy_message_names_the_holder_and_the_way_out():
     """The refusal's content, asserted where it is now produced rather than
     where it used to be printed."""
     rendered = config_wrap.busy_message(Path("/tmp/crush.json"), 4242)
-    assert "/tmp/crush.json" in rendered
+    assert str(Path("/tmp/crush.json")) in rendered  # the OS's separator, not a literal "/"
     assert "pid 4242" in rendered, "must name who holds it"
     assert "distil default" in rendered, "must name the way to run several agents at once"
 
@@ -1666,6 +1666,7 @@ def test_cline_ignores_flags_after_a_bare_separator(monkeypatch):
     somewhere arbitrary."""
     monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
     monkeypatch.setenv("HOME", "/tmp/home")
+    monkeypatch.setenv("USERPROFILE", "/tmp/home")  # Windows resolves ~ from USERPROFILE
     resolved = config_wrap._cline_providers_path(["cline", "--", "explain", "--config", "/nope"])
     assert resolved == Path("/tmp/home/.cline/data/settings/providers.json")
 
