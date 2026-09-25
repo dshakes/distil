@@ -592,3 +592,26 @@ def test_session_single_digest_label(tmp_path, monkeypatch):
     # Singular form when exactly 1 digest
     assert "1 digest," in text or "1 digest " in text
     assert "1 digests" not in text
+
+
+def test_exactly_one_reply_length_row(tmp_path, monkeypatch):
+    """The reply-length line renders ONCE.
+
+    The adaptive output-shaping branch and #185 each added a reply-length row to this
+    block (`replies` and `output`) at nearby points in the same function — the shape
+    git merges cleanly and wrongly. A ledger that prints the reply estimate twice,
+    under two different estimators, is worse than one that prints it never. This is
+    the merge guard: it fails the moment a second row appears.
+    """
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    sid = "s-replies-once"
+    _write_ledger_row(tmp_path, sid)
+    from distil.proof_ledger import build_ledger_text
+
+    text = build_ledger_text(sid, time.time() - 60)
+    assert text is not None
+    labels = [ln.split()[0] for ln in text.splitlines() if ln.strip()]
+    assert labels.count("output") == 1 and "replies" not in labels, labels
+    # Below the reporting floor the row states the shortfall, never a number.
+    row = next(ln for ln in text.splitlines() if ln.strip().startswith("output"))
+    assert "not enough samples yet" in row

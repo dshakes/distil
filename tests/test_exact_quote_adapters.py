@@ -121,6 +121,109 @@ def test_a_plain_reread_still_supersedes_the_older_copy() -> None:
     assert _result(out, "r2") == SRC
 
 
+UNREAD = "def written_by_the_agent():\n    return 'never read back'"
+
+
+def test_an_edit_no_read_carried_keeps_the_narrow_pass() -> None:
+    """Widening only helps a quote some read carried. One the agent `Write`-ed itself is
+    lost either way, so the widened pass must not be adopted: it would re-verbatim the
+    superseded copy (a cached-prefix rewrite) and rescue nothing."""
+    msgs = _anthropic_session("cat /app/handlers.py") + [
+        _bash_call("r2", "cat /app/handlers.py"),
+        _tool_result("r2", SRC),
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "e1",
+                    "name": "Edit",
+                    "input": {"file_path": "/app/new.py", "old_string": UNREAD, "new_string": ""},
+                }
+            ],
+        },
+        _tool_result("e1", "applied"),
+    ]
+    out, _store = compress_messages(msgs)
+    assert "handle=" in _result(out, "r1"), "a widen that rescued nothing was forwarded"
+    assert take_quote_hazard() == {"survived": 0, "lost": 1}
+
+
+@pytest.mark.parametrize(
+    ("narrow", "wide", "adopt"),
+    [
+        (["a", "b"], ["a"], True),  # rescued one, lost nothing new
+        (["a"], [], True),
+        (["a"], ["a"], False),  # rescued nothing
+        (["a"], ["b"], False),  # same count, different quote: not an improvement
+        (["a", "b"], ["c"], False),  # fewer lost, but lost one the narrow pass kept
+    ],
+)
+def test_the_widened_pass_must_lose_a_strict_subset(narrow, wide, adopt) -> None:
+    from distil.adapters.anthropic import _widen_rescued
+
+    assert _widen_rescued(narrow, wide) is adopt
+
+
+def test_a_non_monotone_widened_pass_is_not_forwarded() -> None:
+    """Driven through the guard itself with a widened walk that rescues one quote and
+    drops another the narrow pass kept: a count tie that a count comparison could get
+    wrong in either direction. The narrow pass must be what goes out."""
+    from distil.adapters.anthropic import RestoreStore, _guard_quotes
+
+    def edit(tid: str, quote: str) -> dict:
+        return {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": tid,
+                    "name": "Edit",
+                    "input": {"file_path": "/f", "old_string": quote, "new_string": ""},
+                }
+            ],
+        }
+
+    msgs = [edit("e1", "QUOTE_A"), edit("e2", "QUOTE_B")]
+    narrow = [{"role": "user", "content": "QUOTE_A"}]
+    widened = [{"role": "user", "content": "QUOTE_B"}]
+    out, _ = _guard_quotes(
+        msgs, narrow, RestoreStore(), lambda *_: (widened, RestoreStore()), False
+    )
+    assert out is narrow
+    assert take_quote_hazard() == {"survived": 1, "lost": 1}
+
+
+def test_responses_keeps_the_narrow_pass_when_widening_rescues_nothing() -> None:
+    def call(cid: str, command: str) -> dict:
+        return {
+            "type": "function_call",
+            "call_id": cid,
+            "name": "shell",
+            "arguments": json.dumps({"command": command}),
+        }
+
+    items: list[dict] = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]},
+        call("f1", "cat /app/handlers.py"),
+        {"type": "function_call_output", "call_id": "f1", "output": SRC},
+        call("f2", "cat /app/handlers.py"),
+        {"type": "function_call_output", "call_id": "f2", "output": SRC},
+        {
+            "type": "function_call",
+            "call_id": "e1",
+            "name": "str_replace_editor",
+            "arguments": json.dumps({"path": "/app/new.py", "old_str": UNREAD, "new_str": ""}),
+        },
+        {"type": "function_call_output", "call_id": "e1", "output": "ok"},
+    ]
+    before, _ = compress_responses_input(items[:5])  # the turn before the Edit arrived
+    out, _store = compress_responses_input(items)
+    assert out[:5] == before, "an unrescuable Edit rewrote the already-sent prefix"
+    assert out[2]["output"] == SRC == out[4]["output"]
+    assert take_quote_hazard() == {"survived": 0, "lost": 1}
+
+
 def test_a_cd_prefixed_read_is_still_a_read() -> None:
     """`cd /repo && cat main.py` is the commonest way an agent reads a file. Requiring
     every stage to be a reader refused it, which digested the quote."""

@@ -41,7 +41,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from distil import _filelock
 
@@ -100,6 +100,18 @@ def floor_note(n_ab: int, n_aa: int) -> str:
     return (
         f"below reporting floor (n={n_ab} A/B, {n_aa} A/A; need {VERDICT_MIN_AB}/{VERDICT_MIN_AA})"
     )
+
+
+def lever(rec: dict[str, Any], name: str) -> str | None:
+    """State of one request-path lever when *rec* was measured, or None if unknown.
+
+    Rows carry ``"levers": {"compression": <mode>, "shape": <level>}`` — every knob
+    that changes the replayed B arm. A gate that decides whether to turn a lever on
+    must read only rows where that lever was off, or it measures itself. Rows
+    written before the tag existed return None: their state is unknown, not "off".
+    """
+    levers = rec.get("levers")
+    return levers.get(name) if isinstance(levers, dict) else None
 
 
 # ---------------------------------------------------------------------------
@@ -1004,6 +1016,7 @@ class ShadowLedger:
         *,
         current_only: bool = False,
         since_ts: float | None = None,
+        where: Callable[[dict[str, Any]], bool] | None = None,
     ) -> ShadowLedger:
         """Read the shadow ledger.
 
@@ -1011,14 +1024,18 @@ class ShadowLedger:
         ``SIG_VERSION`` — old-algorithm signatures are not comparable and must not
         drag a live verdict (a wording-jitter fix bumps the version, see ADR). Rows
         without a ``sig`` (pre-v2/legacy) are excluded when scoped. ``since_ts``
-        drops rows older than a rolling window. Unscoped (default) reads everything,
-        for auditing and backward compatibility with the certificate path.
+        drops rows older than a rolling window. ``where`` keeps only rows it accepts —
+        e.g. rows measured with a given lever off (see :func:`lever`). Unscoped
+        (default) reads everything, for auditing and backward compatibility with the
+        certificate path.
         """
         led = cls()
         for rec in _rows(path):
             if current_only and rec.get("sig") != SIG_VERSION:
                 continue  # v1/legacy row — not comparable to current signatures
             if since_ts is not None and _row_ts(rec) < since_ts:
+                continue
+            if where is not None and not where(rec):
                 continue
             led._ingest(rec)
         return led

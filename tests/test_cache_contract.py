@@ -582,6 +582,56 @@ def test_a_semantic_edit_breaks_the_prefix_at_exactly_that_index() -> None:
     assert _key(out[target]) == _key(fresh[target]), (
         "the edited message was overlaid with older bytes"
     )
+    assert stats.stop == "client"
+    prefixreplay.reset()
+
+
+def test_the_replay_names_which_side_broke_the_prefix() -> None:
+    """An in-window cache write is either the client's rewrite or distil's re-decision,
+    and only one of them is distil's to fix. The ledger can tell them apart only if replay
+    says where it stopped and why."""
+    prefixreplay.reset()
+    base = _anthropic(4, "moving")
+    _, first = prefixreplay.replay("who", base, _fwd_anthropic(base))
+    assert first.stop == "cold"
+
+    grown = _anthropic(5, "moving")
+    _, held = prefixreplay.replay("who", grown, _fwd_anthropic(grown))
+    assert held.stop == "held"
+
+    _, dropped = prefixreplay.replay("who", base, _fwd_anthropic(base))
+    assert dropped.stop == "client", "a history that shrank was the client's doing"
+
+    # Same client items, a different compression decision on one of them.
+    fwd = _fwd_anthropic(grown)
+    fwd[2] = {**fwd[2], "content": [{"type": "text", "text": "re-decided"}]}
+    _, ours = prefixreplay.replay("who", grown, fwd)
+    assert (ours.stop, ours.hits) == ("distil", 2)
+    prefixreplay.reset()
+
+
+def test_a_walk_cut_short_by_our_own_forwarded_list_is_not_called_held() -> None:
+    """The walk runs to the shortest of four lists. When the one that ran out is a
+    FORWARDED list, not the client's, the prefix was not held, and the side that
+    shortened it is distil's."""
+    prefixreplay.reset()
+    base, grown = _anthropic(4, "moving"), _anthropic(5, "moving")
+    # Last turn we forwarded fewer items than the client sent.
+    prefixreplay.replay("short", base, _fwd_anthropic(base)[:-1])
+    _, stats = prefixreplay.replay("short", grown, _fwd_anthropic(grown))
+    assert (stats.stop, stats.hits) == ("distil", len(base) - 1)
+
+    # This turn we forward fewer items than last turn's history.
+    prefixreplay.reset()
+    prefixreplay.replay("short", base, _fwd_anthropic(base))
+    _, stats = prefixreplay.replay("short", grown, _fwd_anthropic(grown)[: len(base) - 1])
+    assert stats.stop == "distil"
+
+    # Control: the full previous turn replayed is still "held".
+    prefixreplay.reset()
+    prefixreplay.replay("short", base, _fwd_anthropic(base))
+    _, stats = prefixreplay.replay("short", grown, _fwd_anthropic(grown))
+    assert (stats.stop, stats.hits) == ("held", len(base))
     prefixreplay.reset()
 
 
@@ -1107,6 +1157,29 @@ def test_replay_never_overlays_a_stub_the_compressor_has_taken_back() -> None:
     assert quote in _key(second[4]).replace("\\n", "\n"), "the withdrawn lines did not come back"
     # ...and it stopped at exactly that message: the base read before it still replays.
     assert _key(second[2]) == _key(first[2]), "the divergence was applied to the wrong index"
+
+
+def test_an_edit_no_read_could_have_carried_does_not_rewrite_the_cached_prefix() -> None:
+    """The in-window break the quote guard used to cause on almost every Claude Code
+    session. An Edit whose `old_string` no read ever carried byte-exact — text the agent
+    `Write`-ed itself, or a multi-line quote against line-numbered `Read` output — is lost
+    under the narrow pass AND the widened one. Adopting the widened pass anyway rewrote the
+    cached re-read stub back to verbatim for zero rescued quotes: a whole-prefix re-write
+    at 1.25x, then the delta stayed off for the rest of the session. The pass that rescues
+    nothing must not be the pass that is forwarded.
+    """
+    from distil.adapters.anthropic import take_quote_hazard
+
+    quote = "def never_read_anywhere():\n    return 'written by the agent itself'"
+    first, second = _through_the_proxy(_reread_body(1), _reread_body(2, edit=quote))
+
+    assert "«distil-reread" in _key(first[4]), "the re-read delta never fired — fixture is stale"
+    prefix = [hashlib.sha256(_key(_strip_marks(m)).encode()).hexdigest() for m in first]
+    again = [hashlib.sha256(_key(_strip_marks(m)).encode()).hexdigest() for m in second[:5]]
+    assert again == prefix, "an unrescuable Edit re-billed the cached prefix"
+    # Same history, adapter-level: the miss is still booked, not hidden by the choice.
+    compress_messages(_reread_body(2, edit=quote)["messages"])
+    assert take_quote_hazard() == {"survived": 0, "lost": 1}
 
 
 def test_the_plain_proxy_never_shares_a_lineage_between_two_credentials() -> None:
