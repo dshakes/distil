@@ -125,7 +125,11 @@ will not drop a customer's request to protect its own bookkeeping.
 - **OpenTelemetry** — GenAI semantic-convention spans plus distil's own
   attributes, via the `[otel]` extra.
 - **Audit** — hash-chained receipts, `distil receipts` to verify, `--export` for a
-  SIEM.
+  SIEM. The chain is sealed into segments with a Merkle-root checkpoint each:
+  `--segment N` verifies one segment alone, `--checkpoints` prints the records (and
+  their sha256) to pin, and `--prove` / `--check-proof --checkpoint-hash` hand an auditor
+  one receipt with an inclusion proof — membership and position — instead of the whole
+  log. A bare `--root` pin proves membership only.
 
 One alert deserves explanation before it pages someone: `DistilCompressionIneffective`
 fires at under 2% savings over six hours. That is often **not** a fault — traffic
