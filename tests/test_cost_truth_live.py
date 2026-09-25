@@ -492,7 +492,9 @@ def test_preflight_only_runs_the_canaries_and_nothing_else(tmp_path: Path) -> No
             live.LocalExecutor(tmp_path / "work", DISTIL_BIN),
             preflight_only=True,
         )
-        assert runs == [] and up.requests == len(rn.ARMS)  # exactly one tiny request per arm
+        # No task ran; each arm sent its one canary. The distil arm runs on its defaults
+        # (protocol §B), which include 2% paired shadow replays, so it may add a couple more.
+        assert runs == [] and len(rn.ARMS) <= up.requests <= len(rn.ARMS) + 4
     pre = json.loads((tmp_path / "out" / "preflight.json").read_text())
     assert all(pre[a]["ok"] and pre[a]["trial_status"] for a in rn.ARMS)
 
