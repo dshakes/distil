@@ -333,7 +333,8 @@ def test_dockerfile_entrypoint_is_a_real_console_script() -> None:
     cmd = re.search(r'^CMD\s+\[\s*"([^"]+)"', text, re.M)
     if cmd:  # CMD is the default subcommand handed to that entrypoint
         help_text = subprocess.run(
-            [sys.executable, "-m", "distil.cli", "--help"],
+            # --help-all: `--help` is the four-command front door, not the full listing
+            [sys.executable, "-m", "distil.cli", "--help-all"],
             capture_output=True,
             text=True,
             cwd=ROOT,

@@ -8,7 +8,9 @@ what the code does — `distil wrap --list` prints the same thing in your termin
 
 (The GitHub **Copilot CLI** and **Kimi CLI** terminal agents are different tools
 from the VS Code Copilot extension below — they have a documented base-URL
-contract and a real `distil wrap` preset; see the first table.)
+contract and a real `distil wrap` preset; see the first table. The VS Code
+extension itself is reachable through a running proxy — see
+[VS Code Copilot Chat](#vs-code-copilot-chat-extension-specifically).)
 
 ## Why `wrap` does not work here
 
@@ -96,7 +98,7 @@ lying.
 | **Sourcegraph Cody** | site config → modelConfiguration.providerOverrides (server-side) | the override is an admin setting on the Sourcegraph instance, not on the client — a distil gateway in front of that instance is the fit, not wrap | [source](https://sourcegraph.com/docs/cody/enterprise/model-configuration) (2026-09-16) |
 | **Tabnine** | — | clients point at a Tabnine server, not at an LLM endpoint; the CLI docs publish no model base-URL override | [source](https://docs.tabnine.com/main/getting-started/tabnine-cli) (2026-09-16) |
 | **Trae** | Settings → Models → custom model | custom models exist, but every docs path returns the same client-rendered shell over a plain fetch — the config shape could not be verified against an authoritative source | [source](https://docs.trae.ai/ide/model) (2026-09-16) |
-| **VS Code Copilot (extension)** | — | the extension terminates at GitHub's own service and exposes no endpoint override; BYOK is a Copilot CLI feature, and that CLI IS wrapped | [source](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models) (2026-09-16) |
+| **VS Code Copilot Chat (extension)** | chatLanguageModels.json → vendor customendpoint → models[].url | BYOK 'Custom Endpoint' takes a full per-model URL (Chat Completions, Responses or Anthropic Messages), so point it at a running distil proxy — `distil setup --vscode` prints the entry. The extension is editor-launched, so there is nothing to wrap; chat only (inline completions, embeddings and semantic search stay on GitHub), and a Business/Enterprise admin can disable BYOK | [source](https://code.visualstudio.com/docs/copilot/customization/language-models) (2026-09-25) |
 | **Warp** | Settings → custom inference endpoint (public HTTPS URL only) | Warp DOES publish an endpoint override now (the older 'no override at all' note was stale) — but the agent harness runs on Warp's servers and the docs reject localhost and private addresses, so a local distil proxy cannot be the target | [source](https://docs.warp.dev/agents/inference/custom-inference-endpoint) (2026-09-16) |
 | **Windsurf** | Settings → Cascade → custom endpoint | BYOK accepts a provider API KEY only (Claude 4 family), with no endpoint field in the documented flow | [source](https://docs.windsurf.com/windsurf/models) (2026-09-16) |
 | **ZCode (z.ai)** | Settings → Providers → Base URL (Anthropic or OpenAI protocol) | z.ai's own page calls it an Agentic Development Environment, a desktop app with no CLI — the Base URL field is verified and does take a local proxy, but there is no process for wrap to launch or scope a config change to | [source](https://zcode.z.ai/en/docs/configuration) (2026-09-16) |
@@ -253,15 +255,51 @@ If `doctor` reports routing but savings stay at zero, that is usually genuine:
 savings come from **large** tool output, and a short editor completion has little
 to fold. See the `<1% smaller` note in the status-line docs.
 
-## VS Code Copilot extension, specifically
+## VS Code Copilot Chat (extension), specifically
 
-There is no supported interception point. The VS Code extension does not honour
-a base URL override, and working around that would mean intercepting TLS to a
-service you do not control — which distil will not ship and you should not run.
-If that extension is your only agent, distil has nothing to offer you today;
-that is an honest no rather than a configuration you will fight for an
-afternoon. This does **not** apply to the separate GitHub Copilot **CLI**
-below, which has a documented BYOK base-URL contract.
+**Re-checked 2026-09-25 — this used to be an honest "no", and it is now a yes.**
+VS Code's bring-your-own-key **Custom Endpoint** provider (which replaced the
+deprecated `github.copilot.chat.customOAIModels` setting) takes a full URL per
+model and speaks Chat Completions, Responses or the Anthropic Messages API
+([source](https://code.visualstudio.com/docs/copilot/customization/language-models)).
+Point that URL at a distil proxy:
+
+```bash
+distil setup --always-on     # a persistent proxy on 127.0.0.1:8788
+distil setup --vscode        # prints the chatLanguageModels.json entry below
+```
+
+In VS Code: **Chat: Manage Language Models → Add Models → Custom Endpoint**, API
+type **Messages**; VS Code opens `chatLanguageModels.json`, where the entry is:
+
+```json
+[
+  {
+    "name": "distil",
+    "vendor": "customendpoint",
+    "apiKey": "${input:anthropicApiKey}",
+    "apiType": "messages",
+    "models": [
+      {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6 (via distil)",
+        "url": "http://127.0.0.1:8788/v1/messages",
+        "toolCalling": true,
+        "vision": true,
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 64000
+      }
+    ]
+  }
+]
+```
+
+The key stays a VS Code `${input:…}` variable, so VS Code prompts for it and
+stores it; distil never sees it on disk. What this does **not** cover, per the same
+page: inline completions, embeddings and semantic search still go to GitHub, and a
+Copilot Business/Enterprise admin can switch BYOK off by policy. distil does not
+write VS Code's file for you — its location is VS Code's to manage — and `distil
+wrap -- code` still routes nothing, because there is no process of its own to wrap.
 
 ## Editors that are also CLIs
 

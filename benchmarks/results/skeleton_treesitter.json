@@ -1,0 +1,170 @@
+{
+  "summary": {
+    "files": 11,
+    "chars": 372439,
+    "heuristic_reduction_pct": 25.97,
+    "treesitter_reduction_pct": 40.35
+  },
+  "files": [
+    {
+      "lang": "go",
+      "source": "https://raw.githubusercontent.com/golang/go/go1.23.0/src/strings/builder.go",
+      "sha256": "4a56398bd112ca7f8b629aae5ca6c065f69e2b6c9d019fbe44a3d671570ecd3a",
+      "chars": 3254,
+      "functions": 11,
+      "heuristic_chars": 2266,
+      "treesitter_chars": 2377,
+      "heuristic_reduction_pct": 30.36,
+      "treesitter_reduction_pct": 26.95,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "rust",
+      "source": "https://raw.githubusercontent.com/rust-lang/rust/1.80.0/library/alloc/src/string.rs",
+      "sha256": "c9ca04f9d7ee72660960d8f03798a3415c4b4d810307568b0ded7049998ecc48",
+      "chars": 95862,
+      "functions": 130,
+      "heuristic_chars": 95862,
+      "treesitter_chars": 83921,
+      "heuristic_reduction_pct": 0.0,
+      "treesitter_reduction_pct": 12.46,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "java",
+      "source": "https://raw.githubusercontent.com/google/guava/v33.0.0/guava/src/com/google/common/base/Strings.java",
+      "sha256": "925db75c815f7489adbf91e38644ade61ae52bfeba328f9689095f4f462abc9d",
+      "chars": 12900,
+      "functions": 12,
+      "heuristic_chars": 4782,
+      "treesitter_chars": 8873,
+      "heuristic_reduction_pct": 62.93,
+      "treesitter_reduction_pct": 31.22,
+      "heuristic_signatures_kept": 0.5833,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "ruby",
+      "source": "https://raw.githubusercontent.com/rails/rails/v7.1.0/activesupport/lib/active_support/inflector/methods.rb",
+      "sha256": "9263d1ba780f7181e841afb96b42532026ea8471038a2a62959ae075eaf389c4",
+      "chars": 15271,
+      "functions": 20,
+      "heuristic_chars": 15271,
+      "treesitter_chars": 12468,
+      "heuristic_reduction_pct": 0.0,
+      "treesitter_reduction_pct": 18.36,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "c",
+      "source": "https://raw.githubusercontent.com/redis/redis/7.2.0/src/sds.c",
+      "sha256": "4b62779bfe7591b95c713e6f74b876affec9b9f9f264c9374f460df79062461c",
+      "chars": 49783,
+      "functions": 52,
+      "heuristic_chars": 23641,
+      "treesitter_chars": 22019,
+      "heuristic_reduction_pct": 52.51,
+      "treesitter_reduction_pct": 55.77,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "cpp",
+      "source": "https://raw.githubusercontent.com/google/leveldb/1.23/db/db_impl.cc",
+      "sha256": "52453d1fb693010797cf299b76d204e53ebbd80568b5fd6a95727f787c4ef2cd",
+      "chars": 49072,
+      "functions": 52,
+      "heuristic_chars": 18537,
+      "treesitter_chars": 11117,
+      "heuristic_reduction_pct": 62.22,
+      "treesitter_reduction_pct": 77.35,
+      "heuristic_signatures_kept": 0.8077,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "typescript",
+      "source": "https://raw.githubusercontent.com/microsoft/TypeScript/v5.4.5/src/compiler/core.ts",
+      "sha256": "df3ac7cd2458a7a179835a967afdcfc33bc708f6bc4ddfa76580934d8ab9aa06",
+      "chars": 93482,
+      "functions": 182,
+      "heuristic_chars": 80978,
+      "treesitter_chars": 55490,
+      "heuristic_reduction_pct": 13.38,
+      "treesitter_reduction_pct": 40.64,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "javascript",
+      "source": "https://raw.githubusercontent.com/expressjs/express/4.19.2/lib/router/index.js",
+      "sha256": "19c5ca9b025396612dbe464d07fbe7104ff9170c4d6a1c7e5507df4dbbf4d5cb",
+      "chars": 15123,
+      "functions": 14,
+      "heuristic_chars": 9399,
+      "treesitter_chars": 5946,
+      "heuristic_reduction_pct": 37.85,
+      "treesitter_reduction_pct": 60.68,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "rust",
+      "source": "rust/distil-core/src/lib.rs",
+      "sha256": "7a3bb38655bbe01cd5b165e30f38e029649571cb80a3248223c48715fb704450",
+      "chars": 12964,
+      "functions": 36,
+      "heuristic_chars": 12964,
+      "treesitter_chars": 6746,
+      "heuristic_reduction_pct": 0.0,
+      "treesitter_reduction_pct": 47.96,
+      "heuristic_signatures_kept": 1.0,
+      "treesitter_signatures_kept": 1.0
+    },
+    {
+      "lang": "typescript",
+      "source": "examples/js_ai_sdk_middleware.ts",
+      "sha256": "83ebd7cbd5166167d8c12731ac8df9e144892e83156148b5dd7f08db09f529a0",
+      "chars": 1797,
+      "functions": 0,
+      "heuristic_chars": 1402,
+      "treesitter_chars": 1797,
+      "heuristic_reduction_pct": 21.98,
+      "treesitter_reduction_pct": 0.0,
+      "heuristic_signatures_kept": null,
+      "treesitter_signatures_kept": null
+    },
+    {
+      "lang": "javascript",
+      "source": "docs/site.js",
+      "sha256": "5e9c07cca074d550ec2a397cb40c1c3444a799c3bd034c152019ed1ad40b246b",
+      "chars": 22931,
+      "functions": 22,
+      "heuristic_chars": 10633,
+      "treesitter_chars": 11418,
+      "heuristic_reduction_pct": 53.63,
+      "treesitter_reduction_pct": 50.21,
+      "heuristic_signatures_kept": 0.9091,
+      "treesitter_signatures_kept": 1.0
+    }
+  ],
+  "corpus_gates": {
+    "note": "distil bench/verify/validate/retention --max-lost 0 on corpus/, isolated HOME+DISTIL_HOME, py3.12, run 2026-09-25 with and without the [code] extra",
+    "without_extra": {
+      "bench": "PASS 48.4% cheaper",
+      "verify": "PASS",
+      "validate": "PASS 175/175",
+      "retention": "recall 100.0%, 0 lost"
+    },
+    "with_extra": {
+      "bench": "PASS 48.4% cheaper",
+      "verify": "PASS",
+      "validate": "PASS 175/175",
+      "retention": "recall 100.0%, 0 lost"
+    },
+    "outputs_identical": true,
+    "why_identical": "the corpus trajectories contain no non-Python source blocks, so the skeleton path is not exercised there; the per-file table above is the measurement of the change"
+  }
+}

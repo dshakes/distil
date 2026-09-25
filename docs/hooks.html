@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Post-tool Hooks — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Post-tool Hooks — Distil"/>
+<meta property="og:description" content="Compress an agent's tool output before it enters the history, in Claude Code, Cursor, Gemini CLI and Codex CLI — no proxy, every digest recoverable."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/hooks.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Post-tool Hooks — Distil"/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+          <ul class="sidebar-sub">
+            <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+            <li><a href="learn-compression.html">2. Compression</a></li>
+            <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+          </ul></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html">Cache Contract <span class="nav-badge">New</span></a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Live Benchmark</a></li>
+        <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html" class="active" aria-current="page">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="autogen.html">AutoGen</a></li>
+            <li><a href="llamaindex.html">LlamaIndex</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+            <li><a href="asgi.html">ASGI Middleware</a></li>
+          </ul></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html">Threat Model <span class="nav-badge">New</span></a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Post-tool hooks <span class="g">for agents a proxy cannot reach</span></h1>
+    <p class="lead">Some agents let you set a base URL and some do not. A post-tool hook needs none: the client hands distil a tool result the moment it is produced, and uses what distil hands back instead. Same digest as the proxy, the original kept on this machine, and nothing touches your credentials.</p>
+
+<pre class="term"><span class="d">$ distil setup --hooks</span>                 <span class="d"># every client found on this machine</span>
+<span class="d">$ distil hook install --client gemini</span>  <span class="d"># or one: claude | cursor | gemini | codex | all</span>
+<span class="d">$ distil hook status</span>
+<span class="d">$ distil hook --selftest</span>               <span class="d"># the adapters, proven offline</span></pre>
+
+    <h2 id="tier">Which tier runs: the proxy's billing policy</h2>
+    <ul>
+      <li><strong>Subscription</strong> (a Claude Pro/Max login, detected exactly as the proxy detects it; <code>DISTIL_SUBSCRIPTION</code> overrides): <strong>lossless-only by default.</strong> Opt in to the digest explicitly with <code>distil hook install --digest</code> or <code>distil setup --hooks --digest</code>. The opt-in is written into the hook's own command and recorded with a timestamp; re-installing without the flag returns to the default.</li>
+      <li><strong>Metered API key:</strong> the digest runs by default, as on the proxy.</li>
+      <li><strong>Hooks installed before this release</strong> keep the lossless-only behaviour they were installed with, whatever the billing, until you re-install.</li>
+    </ul>
+    <p><code>distil hook status</code> shows, per client, which tier is active and why.</p>
+
+    <h2 id="what">What the hook does</h2>
+    <p>Tier-0 first (JSON minified, exact repeats collapsed), then — when the tier above allows it — for verbose line output the same decision-aware Tier-1 digest the proxy uses: head, tail, every error and verdict line kept, the quiet middle folded behind a handle. A digest is emitted only after the full original is written to distil's encrypted restore store <em>and read back byte-exact</em>; the stub ends with the command that recovers it:</p>
+<pre class="term">&lt;&lt; +412 lines, handle=3f9a1c2e &gt;&gt;
+=== 12 passed in 3.2s ===
+&lt;&lt; full output: `distil expand 3f9a1c2e` &gt;&gt;</pre>
+    <p>The agent can run that in its own shell, or call <code>distil_expand</code> if the <a href="cli.html#mcp">distil MCP server</a> is connected. Output under 2 KB is left alone, and anything that would not come out smaller in tokens is left alone.</p>
+
+    <h2 id="never">What it never touches</h2>
+    <ul>
+      <li><strong>Results the agent must quote back.</strong> File reads (<code>Read</code>, <code>read_file</code>, <code>grep</code>, …, including as the tail of an MCP tool name) and shell whole-file reads (<code>cat app.py</code>, <code>sed -n '1,80p' app.py</code>): an <code>Edit</code> lifted from a digest would not apply. Same provenance rule as the proxy.</li>
+      <li><strong><code>distil_expand</code> results</strong>, which would otherwise fold straight back into the stub they escaped.</li>
+      <li><strong>Failures.</strong> A Claude Code command with stderr or an interrupt, a Gemini result carrying <code>error</code>, an MCP result flagged <code>isError</code>.</li>
+      <li><strong>Spans you mark.</strong> Anything between <code>&lt;distil:keep&gt;</code> and <code>&lt;/distil:keep&gt;</code> passes through byte-exact, tags included — on every proxy path too.</li>
+    </ul>
+
+    <h2 id="clients">Per client</h2>
+    <p>Each contract was read from the client's own documentation on the date shown. A client whose hook cannot replace a result is listed as unsupported, not approximated.</p>
+    <div class="table-scroll">
+    <table>
+      <thead><tr><th scope="col">Client</th><th scope="col">Event → how the result is replaced</th><th scope="col">What is compressed</th><th scope="col">Config written</th><th scope="col">Source</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Claude Code</th><td><code>PostToolUse</code> → <code>hookSpecificOutput.updatedToolOutput</code></td><td>Bash, MCP tools</td><td><code>~/.claude/settings.json</code></td><td><a href="https://code.claude.com/docs/en/hooks">docs</a> (2026-09-25)</td></tr>
+        <tr><th scope="row">Cursor</th><td><code>postToolUse</code> → <code>updated_mcp_tool_output</code></td><td>MCP tools only: the docs scope the override to MCP, and <code>afterShellExecution</code> is observe-only</td><td><code>~/.cursor/hooks.json</code></td><td><a href="https://cursor.com/docs/agent/hooks">docs</a> (2026-09-25)</td></tr>
+        <tr><th scope="row">Gemini CLI</th><td><code>AfterTool</code> → <code>decision: "deny"</code> + <code>reason</code>, which "replaces the tool result sent back to the model"</td><td><code>run_shell_command</code>, MCP tools</td><td><code>~/.gemini/settings.json</code></td><td><a href="https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md">docs</a> (2026-09-25)</td></tr>
+        <tr><th scope="row">Codex CLI</th><td><code>PostToolUse</code> → <code>decision: "block"</code> + <code>reason</code>: Codex "replaces the tool result with that feedback"</td><td>Bash, all-text MCP results</td><td><code>$CODEX_HOME/hooks.json</code> (default <code>~/.codex</code>)</td><td><a href="https://developers.openai.com/codex/hooks">docs</a> (2026-09-25)</td></tr>
+        <tr><th scope="row">Windsurf</th><td colspan="3"><strong>Unsupported.</strong> <code>post_run_command</code> and <code>post_mcp_tool_use</code> are observe-only: only pre-hooks can act (exit code 2 blocks), no output field replaces a result, and <code>post_run_command</code> does not receive the command's output.</td><td><a href="https://docs.windsurf.com/windsurf/cascade/hooks">docs</a> (2026-09-25)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="callout">
+      <b>Two things to know.</b> Gemini CLI and Codex deliver a replacement through their block/deny channel, so distil opens it with one line saying the output was compacted, not refused. Codex runs a new or changed hook only after you trust it: open <code>/hooks</code> in Codex once after installing. (Codex documents <code>updatedMCPToolOutput</code> as parsed but unsupported and marks the hook failed, so distil never emits it.)
+    </div>
+
+    <h2 id="install">How the config is written</h2>
+    <p>Atomically: a <code>0600</code> temp file, fsynced, renamed over the original with its mode and owner kept; a symlinked config is written through, not replaced. Unreadable JSON, or a <code>hooks</code> entry in a shape distil does not recognise, is refused rather than overwritten. What distil created — the file, the <code>hooks</code> object, the event list — is recorded only after the write succeeds, and <code>uninstall</code> removes only distil's entry and the containers distil itself created. Your other hooks are never touched.</p>
+
+    <h2 id="receipts">What it saved</h2>
+    <p><code>distil hook --stats</code> reads the hook's content-free receipts (client, tool, characters before and after). <code>--selftest</code> writes none.</p>
+
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

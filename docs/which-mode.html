@@ -69,6 +69,8 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
@@ -158,12 +160,13 @@
     sent. This is the mode most people want.</p>
 
     <p><strong>On a subscription</strong> &mdash; a different mechanism entirely:</p>
-    <pre><code>distil hook --install     # then restart Claude Code</code></pre>
-    <p>Claude Code compresses its <em>own</em> tool output before reading it, using an extension point
-    Anthropic built and documents. Nothing sits in between and nothing touches your login &mdash;
+    <pre><code>distil setup --hooks      # then restart your agent</code></pre>
+    <p>Your agent compresses its <em>own</em> tool output before reading it, using an extension point
+    its vendor built and documents. Nothing sits in between and nothing touches your login &mdash;
     which matters, because Anthropic&rsquo;s terms restrict intercepting subscription traffic, and
-    distil won&rsquo;t risk your account for a few percent. Claude Code only, for now: Codex
-    doesn&rsquo;t allow output rewriting and Gemini only partly does.</p>
+    distil won&rsquo;t risk your account for a few percent. On a subscription it is lossless-only
+    unless you opt in with <code>--digest</code>. Claude Code, Gemini CLI and Codex CLI, plus
+    Cursor&rsquo;s MCP tools: <a href="hooks.html">which clients and why</a>.</p>
 
     <h3>🧱 An app you&rsquo;re building</h3>
     <p>Two options, same engine.</p>

@@ -96,6 +96,15 @@ def _has_recoverable_stub(body: dict) -> bool:
     return _HANDLE_STUB_RE.search(blob) is not None
 
 
+def _cache_ttl(usage: dict[str, Any], key: str) -> int | None:
+    """One TTL bucket of the cache write, flat (``scan_usage``) or nested under
+    ``usage.cache_creation`` (a parsed body). None when the provider did not report it."""
+    if key in usage:
+        return int(usage[key] or 0)
+    split = usage.get("cache_creation")
+    return int(split[key] or 0) if isinstance(split, dict) and key in split else None
+
+
 def _upstream_error_type(status: int, rbody: bytes) -> str | None:
     """The provider's error `type` for a failed request — content-free.
 
@@ -1964,6 +1973,10 @@ def build_handler(
                         if "cache_creation_input_tokens" in _u
                         else None
                     ),
+                    # The same write split by TTL: 1h bills at 2x input, 5m at 1.25x.
+                    # None (not 0) when the provider did not report the split.
+                    "usage_cache_create_1h": _cache_ttl(_u, "ephemeral_1h_input_tokens"),
+                    "usage_cache_create_5m": _cache_ttl(_u, "ephemeral_5m_input_tokens"),
                     # Content-free fingerprint of the stable prefix we actually sent. Lets
                     # `distil cache` say WHERE a prefix broke between two turns instead of
                     # only that the provider re-billed it.

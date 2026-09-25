@@ -1773,3 +1773,16 @@ class TestUnusedConnectors:
     def test_records_without_mcp_fields_stay_silent(self, seeded: Path) -> None:
         # Pre-existing records (no `mcp_servers`) are "not recorded", never "unused".
         assert "unused_connectors" not in _ids(dv.scan())
+
+
+def test_tools_rate_mult_prices_1h_writes_at_2x():
+    """A 1-hour write bills 2x input, not the 5-minute 1.25x; old rows keep 1.25x."""
+    from distil.discover import _tools_rate_mult
+
+    base = {"tools_tokens": 1000, "usage_cache_read": 0, "usage_cache_create": 1000}
+    assert _tools_rate_mult(base) == pytest.approx(1.25)
+    assert _tools_rate_mult({**base, "usage_cache_create_1h": 1000}) == pytest.approx(2.0)
+    assert _tools_rate_mult({**base, "usage_cache_create_1h": 500}) == pytest.approx(1.625)
+    assert _tools_rate_mult({**base, "usage_cache_create_1h": 10**6}) == pytest.approx(2.0)
+    zero_write = {"tools_tokens": 10, "usage_cache_read": 0, "usage_cache_create": 0}
+    assert _tools_rate_mult({**zero_write, "usage_cache_create_1h": 0}) == pytest.approx(1.0)

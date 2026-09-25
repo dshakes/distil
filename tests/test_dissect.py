@@ -288,6 +288,10 @@ class TestRequestDetailLogging:
                     "output_tokens": 10,
                     "cache_read_input_tokens": 0,
                     "cache_creation_input_tokens": 0,
+                    "cache_creation": {
+                        "ephemeral_1h_input_tokens": 0,
+                        "ephemeral_5m_input_tokens": 0,
+                    },
                 },
             }
         ).encode()
@@ -319,6 +323,9 @@ class TestRequestDetailLogging:
             rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
             assert rec["usage_cache_read"] == 0
             assert rec["usage_cache_create"] == 0
+            # The TTL split is a measurement too: 0, not None, when reported.
+            assert rec["usage_cache_create_1h"] == 0
+            assert rec["usage_cache_create_5m"] == 0
         finally:
             proxy.shutdown()
             upstream.shutdown()

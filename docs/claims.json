@@ -99,8 +99,8 @@
       "status": "verified",
       "page": "subscription.html",
       "anchor": null,
-      "snippet": "16/16 checks passed",
-      "claim": "distil hook --selftest verifies the schema adapters offline: 16/16 checks passed.",
+      "snippet": "21/21 checks passed",
+      "claim": "distil hook --selftest verifies the schema adapters offline (Claude Code, Cursor, Gemini CLI and Codex CLI envelopes): 21/21 checks passed.",
       "note": "Deterministic offline check, reproducible by running the command shown."
     },
     {
@@ -873,6 +873,22 @@
       "claim": "Output shaping defaults to --shape-output auto on a metered session and is ON only when all three hold: the paired decision-equivalence verdict is at or above the shared reporting floor (50 A/B + 30 A/A), its harm bound (lower end of the paired difference interval) is inside the pre-registered +/-2pp certification margin, and the shadow output-token delta excludes zero on the saving side over at least 50 priced samples. Otherwise OFF with a stated reason. Turn-on evidence comes only from shadow rows tagged levers.shape == off, so shaped rows cannot keep shaping on; shaped rows at or above the floor whose harm bound is outside the budget turn it off; both sets are read over the last 7 days. Always off on subscription/OAuth. The last published live sample (398 A/B, 399 A/A) predates the lever tag and counts as zero rows; its harm bound (-4.5pp) is outside the 2pp budget regardless, so auto resolves to OFF.",
       "artifact": "distil/output.py",
       "note": "Mechanism is resolve_shape_output; the live-sample figures are from benchmarks/results/shadow-live-2026-09-15.json. The rule is covered by the decision matrix in tests/test_output.py; the thresholds are read from shadow.VERDICT_MIN_AB/VERDICT_MIN_AA and certify.gate.CERT_MARGIN (via output.SHAPE_HARM_MARGIN), not re-declared. Reply LENGTH cannot be measured offline (the deterministic oracle decides from blocks and emits no prose), so there is no corpus number for shaping and none is claimed: the n=6 output_pairs.jsonl A/B is a hand-written mechanism check, already labelled illustrative on the page. The README paragraph in the savings section restates this entry and originates no fact of its own."
+    },
+    {
+      "id": "v-treesitter-skeletons",
+      "status": "verified",
+      "page": [
+        "code-skeletons.html"
+      ],
+      "anchor": "measured",
+      "snippet": "26.0% to 40.4%",
+      "claim": "Tree-sitter code skeletons ([code] extra) cut 11 real source files by 40.4% vs 26.0% for the brace heuristic, with every named function signature kept; corpus gates identical with and without the extra.",
+      "note": "benchmarks/skeleton_treesitter.py, run 2026-09-25 on py3.12 with the [code] extra; summary.heuristic_reduction_pct 25.97 and treesitter_reduction_pct 40.35 round to the page's 26.0% and 40.4%.",
+      "values": [
+        "25.97",
+        "40.35"
+      ],
+      "artifact": "benchmarks/results/skeleton_treesitter.json"
     }
   ]
 }

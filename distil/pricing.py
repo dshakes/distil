@@ -21,6 +21,7 @@ class Pricing:
     output_per_mtok: float
     cache_write_mult: float = 1.25  # 5-minute TTL cache write
     cache_read_mult: float = 0.10  # cache hit
+    cache_write_1h_mult: float = 2.0  # 1-hour TTL cache write (what Claude Code asks for)
 
     # per-token USD
     @property
@@ -34,6 +35,10 @@ class Pricing:
     @property
     def cache_write(self) -> float:
         return self.input * self.cache_write_mult
+
+    @property
+    def cache_write_1h(self) -> float:
+        return self.input * self.cache_write_1h_mult
 
     @property
     def cache_read(self) -> float:

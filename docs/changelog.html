@@ -69,6 +69,8 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
@@ -127,6 +129,27 @@
 </ul>
 <p>The full story, change by change:</p>
 <p>Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is <code>distil wrap</code> measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.</p>
+<h3>Added</h3>
+<ul>
+<li><code>distil savings</code> is one screen: billed spend with cache reads and writes priced at their own rates, calibrated savings, net %, a daily graph, the top three <code>discover</code> fixes, and one proof line. <code>--since 7d</code> (default), <code>--all</code>, <code>--json</code>.</li>
+<li>With no distil ledger, <code>distil savings</code> reads your Claude Code transcripts (usage fields and tool-result sizes only, read-only). It shows real spend by day and an ESTIMATE of what distil would save, citing <code>benchmarks/results/2026-09-24/live_savings_decomposition.json</code>. Works with no install: <code>uvx --from distil-llm distil savings</code>.</li>
+<li><code>distil setup</code> is one guided setup: <code>onboard</code>, then optional <code>--always-on</code>, then <code>doctor</code>. <code>--yes</code> never implies <code>--always-on</code>.</li>
+<li><code>distil doctor --deep</code> also runs the <code>validate</code> and <code>verify</code> gates.</li>
+<li><code>distil --help-all</code> lists every command.</li>
+<li><code>pricing.Pricing.cache_write_1h</code>: 1-hour cache writes bill at 2x input.</li>
+<li>Post-tool hooks for Claude Code, Cursor (MCP output only), Gemini CLI and Codex CLI: <code>distil setup --hooks</code>, <code>distil hook install|uninstall|status --client …</code>. They follow the proxy's billing policy: lossless-only on a subscription unless you opt in with <code>--digest</code> (recorded; <code>distil hook status</code> shows the tier and why), the recoverable digest by default on a metered key. Hooks installed before this release stay lossless-only until re-installed. Exact-quote reads are never touched. Windsurf's post hooks cannot replace output, so it is documented as unsupported.</li>
+<li><code>distil discover</code> prices 1-hour cache writes of tool definitions at 2x (older rows at 1.25x, as before).</li>
+<li>The proxy records 1-hour and 5-minute cache writes separately (<code>usage_cache_create_1h</code> / <code>_5m</code>); <code>distil savings</code> and <code>distil dissect</code> price 1-hour writes at 2x. Older rows price as before.</li>
+<li>Optional <code>distil-llm[code]</code> extra: tree-sitter code skeletons for Go, Rust, Java, C, C++, Ruby, TypeScript and JavaScript. Falls back to the brace heuristic without it.</li>
+<li><code>&lt;distil:keep&gt;…&lt;/distil:keep&gt;</code> spans are never compressed; the tags pass through.</li>
+<li><code>distil setup --vscode</code>: VS Code Copilot Chat can use a distil proxy through its BYOK Custom Endpoint.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li><code>distil --help</code> shows four commands: <code>setup</code>, <code>wrap</code>, <code>savings</code>, <code>doctor</code>. Every other command still works.</li>
+<li>The original <code>distil savings</code> (strategy pricing on a trajectory) runs with <code>--strategies</code> or any of its flags (<code>-t</code>, <code>--pricing</code>, <code>--tokenizer</code>, <code>--output-tokens-per-turn</code>, <code>--record</code>). Bare <code>distil savings</code> now shows the new screen.</li>
+<li>The original <code>distil setup</code> (status line only) runs with <code>--statusline-only</code> or <code>--settings</code>.</li>
+</ul>
 <h3>Windows: two quarantines in one clock tick, and a clock constant that is not there</h3>
 <ul>
 <li>A second unreadable <code>drift.json</code> quarantined within one clock tick of the first got the same <code>drift.json.corrupt-*</code> name. On Windows, where the clock ticks every ~15.6 ms, the copy then failed outright and the second corruption was never set aside; elsewhere the copy fallback overwrote the first archive. A clashing name now takes a <code>-N</code> suffix, and the no-hard-link fallback creates its copy exclusively, so no archive is ever overwritten. The cold-point clock picker looks up <code>CLOCK_MONOTONIC</code> with <code>getattr</code>, like <code>CLOCK_BOOTTIME</code> already was, so an interpreter without it (every Windows Python) falls back to <code>time.monotonic</code> instead of raising. The <code>sh</code> escape hatch's owner-copy step tolerates a Python with no <code>os.chown</code>. Tests that redirected <code>HOME</code> now redirect <code>USERPROFILE</code> too. Without it, the Windows CI runner's own <code>~/.claude/settings.json</code> was being wired. The test suite now gives every test its own <code>HOME</code> and <code>USERPROFILE</code> (and unsets <code>CLAUDE_CONFIG_DIR</code>, <code>XDG_CONFIG_HOME</code>, <code>CLINE_DATA_DIR</code>), so no test can write a real agent config on any OS even if it forgets to redirect the home. A <code>real_home</code> marker opts a read-only resolution test out, and a guard test fails if any config resolver points outside the sandbox.</li>

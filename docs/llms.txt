@@ -209,6 +209,12 @@ the PostToolUse hook does instead, and what "savings" means when the bill is
 fixed):
 https://dshakes.github.io/distil/subscription.html
 
+Post-tool hooks (Claude Code, Cursor MCP output, Gemini CLI, Codex CLI: compress
+tool output before it enters the history; lossless-only on a subscription unless
+the user opts in with --digest, digest by default on a metered key, every digest
+recoverable with `distil expand <handle>`; Windsurf documented as unsupported):
+https://dshakes.github.io/distil/hooks.html
+
 Evals (every probe distil runs on itself, including the three bugs these probes
 found in distil's OWN harness — published, not hidden):
 https://dshakes.github.io/distil/evals.html
