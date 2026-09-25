@@ -710,3 +710,57 @@ def test_a_checkpoint_with_another_schema_is_a_segment_mismatch(home, small_segm
     path.write_text(json.dumps({**json.loads(path.read_text()), "v": 2}))
     v = R.verify()
     assert not v.ok and "no readable checkpoint" in v.reason, v.statement
+
+
+# ---------------------------------------------------------------------------
+# Review follow-ups (#191): incomplete pins, proof version, naming, dead seals
+# ---------------------------------------------------------------------------
+
+
+def test_checkpoints_exits_nonzero_when_a_segment_has_no_checkpoint(home, small_segments, capsys):
+    from distil.cli import main
+
+    _fill(12)
+    segs = R.sealed_segments()
+    assert len(segs) >= 2
+    R.segment_path(segs[0]).with_suffix(".checkpoint.json").unlink()
+    assert main(["receipts", "--checkpoints"]) == 1  # an incomplete pin set is not success
+    _, err = capsys.readouterr()
+    assert f"segment {segs[0]}: checkpoint missing" in err
+
+
+def test_a_proof_of_another_version_is_malformed(home, small_segments):
+    _fill(12)
+    proof = json.loads(json.dumps(R.prove("req3")))
+    ck = R.load_segment_checkpoint(proof["checkpoint"]["segment"])
+    assert R.verify_proof(proof, checkpoint_hash=ck.digest())[0]
+    for v in (2, 0, 1.0, "1", True, None):
+        ok, why = R.verify_proof(dict(proof, v=v), checkpoint_hash=ck.digest())
+        assert not ok and "version" in why, (v, why)
+
+
+def test_a_missing_checkpoint_names_the_segment_not_a_sentinel(home, small_segments):
+    _fill(12)
+    seg = R.sealed_segments()[0]
+    v = R.verify_segment(R.segment_path(seg), None)
+    assert not v.ok and f"segment {seg}" in v.statement and "-1" not in v.statement
+
+
+def test_duplicate_segment_names_list_once(home, small_segments):
+    _fill(12)
+    seg = R.sealed_segments()[0]
+    src = R.segment_path(seg)
+    (src.parent / f"{seg}.jsonl").write_bytes(src.read_bytes())  # unpadded twin
+    assert R.sealed_segments().count(seg) == 1
+
+
+def test_a_full_active_file_with_no_receipt_backs_off(home, monkeypatch):
+    monkeypatch.setattr(R, "SEGMENT_BYTES", 1024)
+    R.receipts_path().parent.mkdir(parents=True, exist_ok=True)
+    R.receipts_path().write_bytes(b"x" * 2048 + b"\n")  # full-size, nothing sealable
+    calls = []
+    real = R._seal
+    monkeypatch.setattr(R, "_seal", lambda p: calls.append(p) or real(p))
+    for i in range(20):
+        R.append(_mk(i))
+    assert len(calls) == 1  # no re-read of the active file on every append

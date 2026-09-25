@@ -1083,20 +1083,26 @@ def cmd_receipts(args: argparse.Namespace) -> int:
         return 0
 
     if getattr(args, "checkpoints", False):
+        missing = 0
         for seg in _r.sealed_segments():
             ck = _r.load_segment_checkpoint(seg)
             if ck is None:
                 print(f"# segment {seg}: checkpoint missing or unreadable", file=sys.stderr)
+                missing += 1
                 continue
             print(ck.canonical())
             # The pin, on stderr so stdout stays exactly the records it is the hash of.
             print(f"# segment {seg} checkpoint sha256 {ck.digest()}", file=sys.stderr)
-        return 0
+        # An incomplete set is what gets pinned externally — never report it as success.
+        return 1 if missing else 0
 
     if getattr(args, "segment", None) is not None:
         seg = int(args.segment)
         if not _r.segment_path(seg).exists():
-            print(f"no sealed segment {seg} (sealed: {_r.sealed_segments() or 'none'})")
+            print(
+                f"no sealed segment {seg} (sealed: {_r.sealed_segments() or 'none'})",
+                file=sys.stderr,
+            )
             return 1
         verdict = _r.verify_segment(_r.segment_path(seg), _r.load_segment_checkpoint(seg))
         print(f"segment {seg}: {verdict.statement}")

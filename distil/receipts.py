@@ -86,7 +86,7 @@ def sealed_segments() -> list[int]:
         names = os.listdir(segments_dir())
     except OSError:
         return []
-    return sorted(int(n[:-6]) for n in names if n.endswith(".jsonl") and n[:-6].isdigit())
+    return sorted({int(n[:-6]) for n in names if n.endswith(".jsonl") and n[:-6].isdigit()})
 
 
 @dataclass
@@ -302,7 +302,7 @@ def _receipt_from_dict(d: Any) -> Receipt:
         r = Receipt(**{k: v for k, v in d.items() if k in known})
     except TypeError as exc:
         raise ValueError(f"receipt fields: {exc}") from exc
-    if isinstance(r.ts, bool) or not isinstance(r.ts, int | float):
+    if isinstance(r.ts, bool) or not isinstance(r.ts, (int, float)):
         raise ValueError("receipt ts must be a number")
     for name in _STR_FIELDS:
         if not isinstance(getattr(r, name), str):
@@ -707,8 +707,10 @@ def _maybe_rotate(active: Path) -> None:
     if size < SEGMENT_BYTES:
         return
     try:
-        _seal(active)
-        _seal_retry_at = 0.0
+        sealed = _seal(active)
+        # A full-size active file with no receipt in it (all foreign/garbage) can't be
+        # sealed; back off like a failure instead of re-reading it on every append.
+        _seal_retry_at = 0.0 if sealed is not None else time.monotonic() + SEAL_RETRY_SECONDS
     except OSError:
         # Rotation is housekeeping; the receipt being written is the record. A seal that
         # failed half-way is retried later (see _seal's crash ordering).
@@ -904,7 +906,10 @@ def verify_segment(seg_path: Path, checkpoint: Checkpoint | None) -> Verdict:
             bad = (idx, "prev-hash does not match the preceding receipt")
         prev = r.hash
     if bad is None:
-        seg = checkpoint.segment if checkpoint is not None else -1
+        if checkpoint is not None:
+            seg = checkpoint.segment
+        else:  # name the segment the caller asked about, not a sentinel
+            seg = int(seg_path.stem) if seg_path.stem.isdigit() else -1
         why = _segment_mismatch(checkpoint, seg, leaves, first, last)
         if why:
             bad = (0, why)
@@ -960,6 +965,9 @@ def verify_proof(
     try:
         if not isinstance(bundle, dict):
             raise ValueError("proof is not an object")
+        v = bundle.get("v", 1)
+        if type(v) is not int or v != 1:  # a future/foreign proof shape is not a v1 proof
+            raise ValueError(f"unsupported proof version {v!r}")
         ck = Checkpoint.from_dict(bundle["checkpoint"])
         r = _receipt_from_dict(bundle["receipt"])
         index = bundle["index"]
