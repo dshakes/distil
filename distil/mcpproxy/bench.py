@@ -22,7 +22,6 @@ tool results against ``R``.
 
 from __future__ import annotations
 
-import inspect
 import json
 import math
 import os
@@ -40,17 +39,13 @@ from typing import Any
 from .. import conformal as _conformal
 from .. import pricing
 from ..certify.stats import mcnemar_noninferiority, tost
-from ..drift import BUDGET_DELTA
 from . import events, fakeserver, levels, proxy
 
-#: The single risk budget's equivalence margin: ``conformal.CERT_MARGIN`` where the
-#: risk-budget work has landed, otherwise the identical value ``certify.stats.tost``
-#: defaults to. One number, never a second copy of it.
-CERT_MARGIN: float = float(
-    getattr(_conformal, "CERT_MARGIN", inspect.signature(tost).parameters["margin"].default)
-)
-#: One-sided test size: the single risk budget's ``BUDGET_DELTA`` (``distil.drift``).
-ALPHA: float = BUDGET_DELTA
+#: The single risk budget (``distil.conformal``, ADR 0016): the equivalence margin and
+#: the one-sided test size are read from it, never a second copy of either number.
+CERT_MARGIN: float = float(_conformal.CERT_MARGIN)
+#: One-sided test size: the single risk budget's ``BUDGET_DELTA``.
+ALPHA: float = float(_conformal.BUDGET_DELTA)
 #: Pre-registered sample sizes (see ``required_n`` and the protocol's power section).
 N_TOOL_TASKS = 1000
 N_RESULT_TASKS = 630
