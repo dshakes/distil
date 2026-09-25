@@ -413,7 +413,7 @@ def _check_proxy_selftest() -> Check:
         threading.Thread(target=up.serve_forever, daemon=True).start()
         up_url = f"http://127.0.0.1:{up.server_address[1]}"
 
-        px = ThreadingHTTPServer(("127.0.0.1", 0), build_handler(up_url))
+        px = ThreadingHTTPServer(("127.0.0.1", 0), build_handler(up_url, diagnostic=True))
         threading.Thread(target=px.serve_forever, daemon=True).start()
         px_url = f"http://127.0.0.1:{px.server_address[1]}"
 
