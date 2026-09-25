@@ -80,10 +80,15 @@ def test_agent_preset_env_var_contract():
         assert ide not in AGENT_PRESETS, f"{ide} has no published env contract to honour"
 
 
-def test_grok_upstream_carries_its_own_version_suffix():
-    """Grok's default endpoint is https://api.x.ai/v1 — the /v1 is part of the base
-    URL, not appended by the SDK the way the OpenAI client does it. Dropping it here
-    would send every request to a 404 that looks like a distil bug."""
-    from distil.onboard import AGENT_PRESETS
+def test_grok_upstream_has_v1_stripped_for_the_proxy_forward():
+    """Grok's own client (xai-org/grok-build) uses its base URL LITERALLY and its
+    default already carries /v1 (verified 2026-09-24 against grok-build's
+    resolve_inference_base_url()). distil's proxy forwards `upstream + request_path`
+    unchanged, and the request path it receives already includes /v1 (supplied via
+    AGENT_ENV_TEMPLATES["grok"]'s "$BASE/v1" on the exported env var) — so the
+    upstream base here must NOT also carry /v1, or the forward doubles it into a
+    404 that looks like a distil bug."""
+    from distil.onboard import AGENT_ENV_TEMPLATES, AGENT_PRESETS
 
-    assert AGENT_PRESETS["grok"][1].endswith("/v1")
+    assert not AGENT_PRESETS["grok"][1].endswith("/v1")
+    assert AGENT_ENV_TEMPLATES["grok"] == "$BASE/v1"

@@ -1055,11 +1055,10 @@ def test_always_on_does_not_wire_the_pin_when_the_service_did_not_start(
     monkeypatch.setattr(setup_mod, "log_dir", lambda: tmp_path)
     monkeypatch.setattr(setup_mod, "service_reload", lambda port: (False, "bootstrap failed"))
     # If the guard regresses, these are what would silently strand the machine.
-    monkeypatch.setattr(
-        setup_mod,
-        "wire_settings_env",
-        lambda *a, **k: pytest.fail("wired the pin despite a dead service"),
-    )
+    for fn in ("wire_settings_env", "wire_always_on_settings"):
+        monkeypatch.setattr(
+            setup_mod, fn, lambda *a, **k: pytest.fail("wired the pin despite a dead service")
+        )
     monkeypatch.setattr(
         setup_mod,
         "probe_routing",

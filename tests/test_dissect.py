@@ -9,6 +9,7 @@ the *artifact* — sessions/<sid>.requests.jsonl — not on internals.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -347,6 +348,64 @@ class TestWrapManifest:
         write_session_manifest({"sid": "x"})
         append_session_request({"ts": 1})
 
+    def test_last_ts_follows_unbooked_request_activity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A session's only *in-window* traffic can be a failed (unbooked) request:
+        no ledger row (the ledger only ever gets booked rows) and a manifest
+        `started_ts` that still points at the session's birth, long before the
+        window. `--since` used to read that as "nothing recent" and drop the
+        session. The requests file is appended on every proxied request
+        regardless of outcome, so its mtime is what should carry `last_ts`
+        forward."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        monkeypatch.delenv("DISTIL_SESSION", raising=False)
+        write_session_manifest({"sid": "s1", "tool": "codex", "started_ts": 1000.0}, sid="s1")
+        append_session_request({"ts": 6000.0, "booked": False}, sid="s1")
+        req_path = session_requests_path("s1")
+        assert req_path is not None
+        os.utime(req_path, (6000.0, 6000.0))  # the write itself races the clock in CI
+
+        sessions = dz.list_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].sid == "s1"
+        assert sessions[0].last_ts == pytest.approx(6000.0)
+        assert sessions[0].last_ts > sessions[0].started  # manifest start alone is not enough
+
+    def test_last_ts_follows_a_recent_failure_even_with_an_old_booked_row(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The previous test's session had *no* booked row at all. A session that
+        was booked once, long ago, and has since only seen a recent failure is the
+        more realistic shape: an old ledger row must not mask a fresh requests-file
+        mtime — the fold-in has to be unconditional, not "only when the ledger has
+        nothing for this sid"."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        monkeypatch.delenv("DISTIL_SESSION", raising=False)
+        (tmp_path / "savings.jsonl").write_text(
+            json.dumps(
+                {
+                    "session": "s1",
+                    "ts": 1000.0,  # a booked row from 30 (simulated) days ago
+                    "turns": 1,
+                    "baseline_input_tokens": 100,
+                    "distil_input_tokens": 90,
+                }
+            )
+            + "\n"
+        )
+        write_session_manifest({"sid": "s1", "tool": "codex", "started_ts": 900.0}, sid="s1")
+        append_session_request({"ts": 6000.0, "booked": False}, sid="s1")
+        req_path = session_requests_path("s1")
+        assert req_path is not None
+        os.utime(req_path, (6000.0, 6000.0))  # the write itself races the clock in CI
+
+        sessions = dz.list_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].sid == "s1"
+        # The old booked row (ts=1000.0) must not win over the recent failure.
+        assert sessions[0].last_ts == pytest.approx(6000.0)
+
 
 # ----------------------------------------------------------------- report math
 def _seed_state(home: Path) -> None:
@@ -506,6 +565,11 @@ def _seed_state(home: Path) -> None:
         },
     ]
     (sess / "s200-1.requests.jsonl").write_text("\n".join(json.dumps(r) for r in details) + "\n")
+    # list_sessions() folds this file's mtime into last_ts unconditionally, so it
+    # must match the fixture's synthetic clock (details' own `ts` values) rather
+    # than "now" (when the test happened to run), or a real-time mtime would
+    # swamp every other timestamp in this fixture.
+    os.utime(sess / "s200-1.requests.jsonl", (1700.0, 1700.0))
     (sess / "s200-1").write_text("1")
     (sess / "s300-9.exit").write_text("rc=0")
     restore = home / "restore"
@@ -1611,6 +1675,54 @@ class TestEligibility:
         monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
         sid = self._session(tmp_path, [{"assistant_text": 80_000, "tool_result_digested": 20_000}])
         text = dz.render_text(dz.dissect(sid), color=False)
+        assert "the design holding" in text
+        assert "compressor's to explain" not in text
+
+    def test_compaction_and_signed_blocks_count_as_protected_not_missed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """thinking/compaction/signed-block bytes are provider-signature-pinned — distil
+        cannot rewrite them even in principle, so a session dominated by them must read
+        as policy holding, not as a broken compressor leaving savings on the table."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path,
+            [
+                {
+                    "thinking_billed": 30_000,
+                    "compaction_billed": 40_000,
+                    "signed_block_billed": 10_000,
+                    "tool_result_digested": 20_000,
+                }
+            ],
+        )
+        d = dz.dissect(sid)
+        assert d.protected_share("m") == pytest.approx(80.0)
+        text = dz.render_text(d, color=False)
+        assert "the design holding" in text
+
+    def test_openai_reasoning_and_signed_items_count_as_protected_not_missed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A reasoning-heavy OpenAI session must read as "working as designed", not
+        as a missed opportunity distil should have compressed — its census buckets
+        are billed, provider-signed bytes distil cannot touch, same as Anthropic's
+        thinking/compaction blocks."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path,
+            [
+                {
+                    "reasoning_billed": 60_000,
+                    "compaction_billed": 15_000,
+                    "signed_item_billed": 5_000,
+                    "tool_result_digested": 20_000,
+                }
+            ],
+        )
+        d = dz.dissect(sid)
+        assert (d.protected_share("m") or 0) > 50.0
+        text = dz.render_text(d, color=False)
         assert "the design holding" in text
         assert "compressor's to explain" not in text
 

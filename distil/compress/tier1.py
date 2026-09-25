@@ -132,6 +132,19 @@ def digest(
             if shape_seen[s] <= max_repeats:
                 keep_idx.add(i)
 
+    # A dropped run shorter than the marker that would replace it is shown inline
+    # instead: more faithful AND fewer tokens. Compared against the exact marker
+    # emitted below, and applied before the flywheel so shown lines are not "dropped".
+    marker_tail = f" lines, handle={_handle(text)} >>"
+    i = 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and j not in keep_idx:
+            j += 1
+        if j > i and sum(len(x) + 1 for x in lines[i:j]) <= len(f"<< +{j - i}{marker_tail}"):
+            keep_idx.update(range(i, j))
+        i = j + 1
+
     # Phase-2 dark collection: record the *dropped* lines' numeric query-features so a future
     # retrain can learn semantic relevance from real expands. Content-free, gated + sampled,
     # fail-open — a no-op unless the live proxy enabled it (offline/cert/tests untouched).

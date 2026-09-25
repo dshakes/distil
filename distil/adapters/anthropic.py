@@ -29,7 +29,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from types import MappingProxyType
-from typing import Mapping
+from typing import Iterable, Mapping
 from typing import Any
 
 from ..compress.tier0 import collapse_runs, minify_json
@@ -42,6 +42,11 @@ from ..tokenizer import DEFAULT as _tokenizer
 
 # Minimum line count for a tool_result to be digested (matches Tier1Reversible default).
 _MIN_LINES = 6
+
+# Block types with their own dedicated handling in _compress_content_item. The
+# provider-signed-opaque fallback below must never fire for one of these even if it
+# happens to carry a stray `signature` key — see that guard for why.
+_COMPRESSIBLE_BLOCK_TYPES = frozenset({"text", "tool_result", "tool_use", "image"})
 
 # Recency exemption: tool_result blocks in the last K user/tool turns are NEVER
 # digested — an agent must always see its most recent tool outputs byte-exact to
@@ -295,6 +300,69 @@ def _apply_reread(text: str, elision: _rereaddelta.Elision, store: RestoreStore)
         return text
     kept_tail = "".join(lines[elision.end :])
     return "".join(lines[: elision.start]) + stub + ("\n" if kept_tail else "") + kept_tail
+
+
+# Cold-point eviction (ADR 0014). A block below this many tokens is left alone: the stub
+# costs ~25 tokens and a round trip to recover, so a short block is cheaper kept.
+_EVICT_MIN_TOKENS = 128
+
+
+def evicted_stub(text: str, handle: str) -> str:
+    """The stub an evicted tool_result becomes. A pure function of the content (its handle
+    and line count), so the bytes are identical on every turn that forwards it."""
+    return (
+        f"<<distil evicted older tool output ({text.count(chr(10)) + 1} lines); "
+        f"distil_expand handle={handle} recovers it>>"
+    )
+
+
+def cold_candidates(
+    messages: list[dict[str, Any]],
+    *,
+    keep: Any = None,
+    exclude_handles: frozenset[str] = frozenset(),
+) -> frozenset[str]:
+    """tool_use ids of the tool_results a cold turn may evict.
+
+    Every protection the digest honours, and then some — an eviction outlives the turn:
+
+    * never the freshest ``RECENCY_KEEP_TURNS`` tool-bearing turns, counted from the END
+      whatever the client caches (the agent reasons over those to choose its next action);
+    * never an exact-quote result (file reads an ``Edit`` quotes back, ``distil_expand``
+      results) — ``exact_quote_tool_use_ids`` is the one keep policy for Edit safety;
+    * never a block holding an ``old_string`` some Edit in the history already quotes;
+    * never learned-keep content, nor a block the model has expanded before;
+    * only a single-text result big enough that the stub is a real saving.
+    """
+    idxs = [
+        i
+        for i, m in enumerate(messages)
+        if isinstance(m, dict) and m.get("role") in ("user", "tool")
+    ]
+    recent = set(idxs[-_RECENCY_KEEP_TURNS:]) if _RECENCY_KEEP_TURNS > 0 else set()
+    exact = exact_quote_tool_use_ids(messages)
+    quotes = _provenance.edit_quotes(messages)
+    out: set[str] = set()
+    for idx, msg in enumerate(messages):
+        if idx in recent or not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict) or blk.get("type") != "tool_result":
+                continue
+            tid = blk.get("tool_use_id")
+            if not isinstance(tid, str) or not tid or tid in exact:
+                continue
+            text = _result_text(blk.get("content"))
+            if text is None or _handle(text) in exclude_handles:
+                continue
+            if (keep is not None and keep(text)) or any(q in text for q in quotes):
+                continue
+            if _tokenizer.count(text) >= _EVICT_MIN_TOKENS:
+                out.add(tid)
+    return frozenset(out)
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -648,6 +716,26 @@ def _census_tool_result(bucket: str, content: Any) -> None:
             _census(bucket, sub["text"])
 
 
+def _census_opaque_block(bucket: str, item: dict[str, Any]) -> None:
+    """Attribute a provider-signed opaque block's billed text to *bucket*.
+
+    Reads the same two keys (``text``, ``content``; string or list-of-text-parts) that
+    ``proxy._count_messages`` already reads generically for a block type it has no
+    bespoke knowledge of. Deliberately not guessing at a real field name beyond that:
+    matching the baseline's own extraction keeps census and baseline in lockstep on
+    whatever field the wire actually uses, rather than risking a name that makes one
+    side see tokens the other does not.
+    """
+    for key in ("text", "content"):
+        val = item.get(key)
+        if isinstance(val, str):
+            _census(bucket, val)
+        elif isinstance(val, list):
+            for sub in val:
+                if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                    _census(bucket, sub["text"])
+
+
 def _compress_content_item(
     item: dict[str, Any],
     store: RestoreStore,
@@ -656,6 +744,7 @@ def _compress_content_item(
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
     reread: Mapping[str, _rereaddelta.Elision] = MappingProxyType({}),
+    evict: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) content block after compression.
 
@@ -682,6 +771,28 @@ def _compress_content_item(
         # turn, so it belongs in the census — otherwise the one context cost distil
         # cannot reduce is also the one it never shows you.
         _census("thinking_billed", str(item.get("thinking") or item.get("data") or ""))
+        return item
+
+    if btype == "compaction" or (btype not in _COMPRESSIBLE_BLOCK_TYPES and "signature" in item):
+        # Provider-signed opaque blocks: same contract as thinking/redacted_thinking just
+        # above, generalised so a signed block type we don't yet have a name for is safe
+        # by construction rather than by an updated allowlist. Anthropic's server-side
+        # compaction (beta `compact-2026-01-12` / `compact-2026-09-04`) emits exactly this
+        # shape — a `compaction` block whose `signature` the provider re-validates on the
+        # next request — and REJECTS the call (`compaction_signature_invalid`) if the
+        # block moved, was dropped, or its bytes changed even via a lossless re-encode. We
+        # never touch it (`item` is returned unchanged, same object), only census it so a
+        # billed cost distil cannot reduce is not also one it hides from the savings %.
+        #
+        # The generic `"signature" in item` branch is gated OUT of `_COMPRESSIBLE_BLOCK_TYPES`
+        # (tool_result/text/tool_use/image, the last two already returned above): a stray
+        # `signature` key on one of those is not this shape, and must not short-circuit
+        # past a tool_result's exact-quote exemption + digestion or an image's pixel-area
+        # census — either would silently drift the census from the baseline it is checked
+        # against. `compaction` itself stays an explicit, unconditional match.
+        _census_opaque_block(
+            "compaction_billed" if btype == "compaction" else "signed_block_billed", item
+        )
         return item
 
     if btype == "text":
@@ -730,6 +841,26 @@ def _compress_content_item(
                     return _replace_result_text(item, new_text)
             _census_tool_result(bucket, content)
             return item
+
+        if tid in evict and not is_recent:
+            # Cold-point eviction (ADR 0014): chosen on a turn the provider cache had
+            # already expired, then re-applied identically on every later turn. Placed
+            # AFTER the exact-quote check on purpose — if an Edit later comes to depend on
+            # this block, the exemption wins and the block goes back to verbatim. That
+            # un-eviction rewrites a prefix that may still be warm: one cache write,
+            # accepted, because the agent's edit is worth more than the read.
+            #
+            # Reject-if-bigger holds here too: the set can outlive the content it was
+            # chosen for (a client that rewrites an old result in place), and a stub that
+            # is not smaller is never worth sending. Both sides are a pure function of the
+            # block's text, so the decision is the same on every turn — stable either way.
+            text = _result_text(content)
+            if text is not None:
+                h = _handle(text)
+                stub = evicted_stub(text, h)
+                if _tokenizer.count(stub) < _tokenizer.count(text) and store._record(h, text):
+                    _census("tool_result_evicted", text)
+                    return _replace_result_text(item, stub)
 
         if isinstance(content, str):
             new_content = _compress_tool_result_text(content, store, verbatim, is_recent)
@@ -785,6 +916,7 @@ def _compress_message(
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
     reread: Mapping[str, _rereaddelta.Elision] = MappingProxyType({}),
+    evict: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) message dict after compressing its content."""
     role = msg.get("role", "")
@@ -813,7 +945,7 @@ def _compress_message(
         for item in content:
             if isinstance(item, dict):
                 new_item = _compress_content_item(
-                    item, store, role, verbatim, is_recent, exact_ids, reread
+                    item, store, role, verbatim, is_recent, exact_ids, reread, evict
                 )
                 if isinstance(new_item, list):
                     # A block may expand into a PAIR (a downscaled image plus the
@@ -851,8 +983,10 @@ def _guard_quotes(
 
     The guarantee is only worth what it measures. This asks the question directly — for
     each ``Edit``/``MultiEdit`` in the history, does its ``old_string`` still occur in the
-    payload we are about to forward? — and books the two counts. A miss means some
-    provenance class we digested was in fact quotable, so the whole class stops digesting:
+    payload we are about to forward? — and books the two counts. A miss that the widened
+    pass repairs means some provenance class we digested was in fact quotable, so the whole
+    class stops digesting (a miss it cannot repair keeps the narrow pass, see
+    :func:`_widen_rescued`):
     supersession is dropped, every whole-file read stays verbatim, and the re-read delta is
     turned off so that even a quote straddling one of its cuts is put back.
 
@@ -864,12 +998,34 @@ def _guard_quotes(
     quotes = _provenance.edit_quotes(messages)
     if not quotes or verbatim:
         return compressed, store
-    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    if lost:
-        compressed, store = walk(exact_quote_tool_use_ids(messages, widen=True), {})
-        survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    _hazard_tls.counts = {"survived": survived, "lost": lost}
+    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
+    if missing:
+        wide, wide_store = walk(exact_quote_tool_use_ids(messages, widen=True), {})
+        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
+        if _widen_rescued(missing, w_missing):
+            compressed, store, missing = wide, wide_store, w_missing
+    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
     return compressed, store
+
+
+def _widen_rescued(lost: Iterable[str], widened_lost: Iterable[str]) -> bool:
+    """Adopt the widened pass only if it put back a quote the narrow pass had lost, and
+    lost none the narrow pass kept: its lost quotes are a STRICT SUBSET of the narrow
+    pass's. Compared as sets, not counts, so the choice does not rest on the widened pass
+    being monotone — one that rescued a quote and dropped another would tie on count and
+    still be the wrong pass to forward.
+
+    A quote that no read ever carried byte-exact — the agent ``Write``-ing a file and then
+    editing it, or a multi-line ``old_string`` against Claude Code's line-numbered ``Read``
+    output — is lost under either pass, so widening fixes nothing. Adopting it anyway was
+    not free: the first such Edit flipped every re-read elision and superseded read already
+    in the provider's cached prefix back to verbatim (a whole-prefix re-write at 1.25x),
+    and, because the history only grows, kept the class off for the rest of the session.
+    Measured on local Claude Code transcripts, the widened pass rescued nothing on every
+    request it ran on. Still sticky where it does help: the rescued quote stays in the
+    history, so it is re-detected, and re-rescued, on every later turn.
+    """
+    return set(widened_lost) < set(lost)
 
 
 def compress_messages(
@@ -877,6 +1033,7 @@ def compress_messages(
     *,
     verbatim: bool = False,
     keep: Any = None,
+    evict: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -893,6 +1050,10 @@ def compress_messages(
         When *False* (the default), large tool results are replaced by reversible
         Tier-1 digests — decision-equivalent by the certificate, recoverable via the
         RestoreStore / ``distil_expand`` — for far higher savings.
+    evict:
+        tool_use ids whose results become a recoverable eviction stub (ADR 0014,
+        chosen by :mod:`distil.coldpoint`). Ignored in verbatim mode, on recent
+        turns, and for any exact-quote result.
 
     Returns
     -------
@@ -954,6 +1115,7 @@ def compress_messages(
                         is_recent=idx in recent,
                         exact_ids=exact_ids,
                         reread=reread,
+                        evict=frozenset() if verbatim else evict,
                     )
                 )
             return new_messages, store
