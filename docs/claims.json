@@ -741,6 +741,61 @@
       "note": "Flagged rather than removed: the mechanism and the fix are real and tested, the incident's own live numbers were never committed."
     },
     {
+      "id": "v-in-window-breaks-ledger",
+      "status": "verified",
+      "page": [
+        "cache-contract.html"
+      ],
+      "anchor": "verify",
+      "snippet": "or 1.28% of billed",
+      "claim": "On the maintainer's ledger (16,093 requests, $2,793.40 billed) in-window prefix breaks of every cause cost $35.83 = 1.28% of billed: $10.42 after a system/tools change (client), $0.16 with replay fully held, $25.26 unattributed (records predate replay_stop).",
+      "artifact": "benchmarks/results/2026-09-24/in_window_prefix_breaks.json",
+      "values": [
+        "16093",
+        "2793.4",
+        "35.83",
+        "0.0128",
+        "10.42",
+        "0.16",
+        "25.26"
+      ],
+      "note": "benchmarks/in_window_prefix_breaks.py, ledger half. Priced at cache_write - cache_read per excess token; warm pair = same lineage within the 300 s TTL whose history the later request extends; 2,000-token slack. The ledger is live, so a re-run moves these numbers."
+    },
+    {
+      "id": "v-quote-guard-widen-transcripts",
+      "status": "verified",
+      "page": [
+        "cache-contract.html"
+      ],
+      "anchor": "quote-guard",
+      "snippet": "rescued a quote on none",
+      "claim": "Before the fix, replaying 12 local Claude Code transcripts (4,658 append-only requests) through compress_messages + prefix replay: the quote guard's widened pass ran on 2,625 requests and rescued 0 quotes, and the replay found 1 in-window break (176,944 bytes of prefix rewritten).",
+      "artifact": "benchmarks/results/2026-09-24/in_window_prefix_breaks.pre-fix.json",
+      "values": [
+        "4658",
+        "2625",
+        "176944"
+      ],
+      "note": "benchmarks/in_window_prefix_breaks.py run against git archive origin/main distil (the commit before the quote-guard change). The after-fix half is v-quote-guard-widen-transcripts-after."
+    },
+    {
+      "id": "v-quote-guard-widen-transcripts-after",
+      "status": "verified",
+      "page": [
+        "cache-contract.html"
+      ],
+      "anchor": "quote-guard",
+      "snippet": "After it, none.",
+      "claim": "After the fix, the same replay (4,658 requests, widened pass ran on 2,625) finds 0 in-window breaks and 0 bytes of prefix rewritten.",
+      "artifact": "benchmarks/results/2026-09-24/in_window_prefix_breaks.json",
+      "values": [
+        "4658",
+        "2625",
+        "0"
+      ],
+      "note": "benchmarks/in_window_prefix_breaks.py on this branch; transcript_replay.distil_breaks and distil_break_bytes are both 0."
+    },
+    {
       "id": "u-live-cache-saving",
       "status": "unsourced",
       "page": [

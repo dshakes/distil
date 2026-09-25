@@ -244,6 +244,34 @@ turn, so the smaller prefix is what gets cached for the rest of the session (ADR
   read/write totals, and neither has been run. The ADR names two soak gates: the
   distribution of `cold` reasons, and zero `cold` turns that still read history from cache.
 
+### An Edit no read could have carried re-wrote the cached prefix
+The quote guard checks that every `Edit`'s `old_string` still occurs in the payload about to
+be forwarded, and on a miss re-compresses with the exact-quote exemption widened. It then
+forwarded the widened pass whether or not the pass found the quote. On Claude Code it almost
+never can. A multi-line quote does not occur in line-numbered `Read` output, and text the
+agent `Write`-ed itself was never in a tool result at all. So the first such Edit in a
+session turned every re-read stub and superseded read already in the provider's cached
+prefix back into verbatim text. That was a whole-prefix re-write at the write rate, inside
+the cache window, for nothing. And because the history only grows, it kept the class off for
+the rest of the session. This is the "provenance re-expand" the live-savings research counted
+among in-window breaks, and it is a different bug from #184's expand re-digest.
+The widened pass is now forwarded only when it rescues at least one quote and loses none
+the narrow pass kept, on both the Messages and the Responses paths (`_widen_rescued`). The
+lost quotes are compared as sets, not counts, so the choice does not assume the widened
+pass is monotone. The miss is still booked in `quotes`. Replay now calls a walk "held" only
+when it reached the end of the previous turn on both the client's list and the forwarded
+list, so a stop caused by distil's own forwarded list can't be labelled "held".
+Replayed offline over 12 local Claude Code transcripts (4,658 append-only requests), the
+widened pass ran on 2,625 requests and rescued a quote on none. The same replay found one
+in-window break before the change (176,944 bytes of prefix) and none after it.
+Prefix replay now also records **why** it stopped: `replay_stop` in the request ledger,
+`x-distil-replay-stop` on the response. The values are `held`, `client`, `distil`, `marker`,
+`cold` and `untracked`. Before this, an in-window cache write could not be blamed on either
+side. On the maintainer's ledger, $25.26 of the $35.83 in-window break cost (1.28% of billed)
+sits on turns where replay diverged with no record of whose rewrite it was.
+`benchmarks/in_window_prefix_breaks.py` produces both halves as content-free JSON under
+`benchmarks/results/2026-09-24/`. `docs/cache-contract.html` gains clause (g).
+
 ### The freshest read the agent asked for came back as a pointer
 
 ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency

@@ -29,7 +29,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from types import MappingProxyType
-from typing import Mapping
+from typing import Iterable, Mapping
 from typing import Any
 
 from ..compress.tier0 import collapse_runs, minify_json
@@ -983,8 +983,10 @@ def _guard_quotes(
 
     The guarantee is only worth what it measures. This asks the question directly — for
     each ``Edit``/``MultiEdit`` in the history, does its ``old_string`` still occur in the
-    payload we are about to forward? — and books the two counts. A miss means some
-    provenance class we digested was in fact quotable, so the whole class stops digesting:
+    payload we are about to forward? — and books the two counts. A miss that the widened
+    pass repairs means some provenance class we digested was in fact quotable, so the whole
+    class stops digesting (a miss it cannot repair keeps the narrow pass, see
+    :func:`_widen_rescued`):
     supersession is dropped, every whole-file read stays verbatim, and the re-read delta is
     turned off so that even a quote straddling one of its cuts is put back.
 
@@ -996,12 +998,34 @@ def _guard_quotes(
     quotes = _provenance.edit_quotes(messages)
     if not quotes or verbatim:
         return compressed, store
-    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    if lost:
-        compressed, store = walk(exact_quote_tool_use_ids(messages, widen=True), {})
-        survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    _hazard_tls.counts = {"survived": survived, "lost": lost}
+    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
+    if missing:
+        wide, wide_store = walk(exact_quote_tool_use_ids(messages, widen=True), {})
+        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
+        if _widen_rescued(missing, w_missing):
+            compressed, store, missing = wide, wide_store, w_missing
+    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
     return compressed, store
+
+
+def _widen_rescued(lost: Iterable[str], widened_lost: Iterable[str]) -> bool:
+    """Adopt the widened pass only if it put back a quote the narrow pass had lost, and
+    lost none the narrow pass kept: its lost quotes are a STRICT SUBSET of the narrow
+    pass's. Compared as sets, not counts, so the choice does not rest on the widened pass
+    being monotone — one that rescued a quote and dropped another would tie on count and
+    still be the wrong pass to forward.
+
+    A quote that no read ever carried byte-exact — the agent ``Write``-ing a file and then
+    editing it, or a multi-line ``old_string`` against Claude Code's line-numbered ``Read``
+    output — is lost under either pass, so widening fixes nothing. Adopting it anyway was
+    not free: the first such Edit flipped every re-read elision and superseded read already
+    in the provider's cached prefix back to verbatim (a whole-prefix re-write at 1.25x),
+    and, because the history only grows, kept the class off for the rest of the session.
+    Measured on local Claude Code transcripts, the widened pass rescued nothing on every
+    request it ran on. Still sticky where it does help: the rescued quote stays in the
+    history, so it is re-detected, and re-rescued, on every later turn.
+    """
+    return set(widened_lost) < set(lost)
 
 
 def compress_messages(

@@ -81,6 +81,7 @@ from .anthropic import (
     _census_tokens,
     _census_tool_result,
     _hazard_tls,
+    _widen_rescued,
     RestoreStore,
     _compress_text_content,
     _compress_tool_result_text,
@@ -569,18 +570,21 @@ def _guard_response_quotes(
     the same guarantee went unmeasured. ``distil dissect`` reads one counter for every
     provider; wiring this one means Codex traffic stops being reported as "no edit here".
 
-    Same reaction as the Messages path: on a miss, supersession is dropped for the rest of
-    the session (the history only grows, so the miss is re-detected every turn).
+    Same reaction as the Messages path: on a miss that widening repairs, supersession is
+    dropped for the rest of the session (the history only grows, so the miss is re-detected
+    every turn). A miss widening cannot repair keeps the narrow pass — see ``_widen_rescued``.
     """
     _hazard_tls.counts = None
     quotes = _provenance.response_edit_quotes(items)
     if not quotes or verbatim:
         return compressed, store
-    survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    if lost:
-        compressed, store = walk(exact_quote_call_ids(items, widen=True))
-        survived, lost = _provenance.quote_hazard(quotes, _provenance.observed_view(compressed))
-    _hazard_tls.counts = {"survived": survived, "lost": lost}
+    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
+    if missing:
+        wide, wide_store = walk(exact_quote_call_ids(items, widen=True))
+        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
+        if _widen_rescued(missing, w_missing):
+            compressed, store, missing = wide, wide_store, w_missing
+    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
     return compressed, store
 
 
