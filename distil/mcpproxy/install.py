@@ -414,7 +414,8 @@ def install(
     if not target.exists():
         return "absent", f"no {c.label} MCP config at {target}"
     real = target.resolve()
-    with _filelock.locked(real):
+    # Lock order, everywhere: the config, then the records file.
+    with _filelock.locked(real), _filelock.locked(_records_path()):
         before = real.read_bytes()
         text, changed = _render(c, before.decode("utf-8"), True, level, results)
         if not changed:
@@ -432,12 +433,14 @@ def install(
             # Someone else wrote the file last (or there is no record): its current
             # bytes are the only honest pre-image of THIS install.
             _atomic_write_secure(backup, before)
+            backup_sha = _sha(before)
             restorable = not _has_wrapped(c, before.decode("utf-8"))
             mode = real.stat().st_mode & 0o777
         else:
             # Re-installing on top of distil's own last write: the backup no longer
             # sits directly before the bytes about to be written.
             restorable = False
+            backup_sha = str(rec.get("backup_sha256", ""))
             mode = rec.get("mode", real.stat().st_mode & 0o777)
         new = text.encode("utf-8")
         _atomic_write_secure(real, new)
@@ -445,6 +448,7 @@ def install(
             "client": c.key,
             "sha256": _sha(new),
             "backup": str(backup),
+            "backup_sha256": backup_sha,
             "restorable": restorable,
             "mode": mode,
             "servers": sorted(set(changed) | set(rec.get("servers", []) if rec else [])),
@@ -466,22 +470,24 @@ def uninstall(client: str, *, path: Path | None = None) -> tuple[str, str]:
     edit made since (the backup is left on disk and named in the message).
     """
     c, target = _resolve(client, path)
-    records = _load_records()
-    rec = records.get(str(target))
-    rec = rec if isinstance(rec, dict) else None
     backup = target.with_name(target.name + BACKUP_SUFFIX)
     if not target.exists():
         return "absent", f"no {c.label} MCP config at {target}"
     real = target.resolve()
-    with _filelock.locked(real):
+    with _filelock.locked(real), _filelock.locked(_records_path()):
+        records = _load_records()  # read under the lock, like every other writer
+        rec = records.get(str(target))
+        rec = rec if isinstance(rec, dict) else None
         current = real.read_bytes()
+        saved = backup.read_bytes() if backup.exists() else None
         if (
             rec is not None
             and rec.get("restorable") is True
-            and backup.exists()
+            and saved is not None
+            and _sha(saved) == rec.get("backup_sha256")  # the backup is still ours
             and _sha(current) == rec.get("sha256")
         ):
-            _atomic_write_secure(real, backup.read_bytes())
+            _atomic_write_secure(real, saved)
             if isinstance(rec.get("mode"), int):
                 real.chmod(rec["mode"])
             backup.unlink()

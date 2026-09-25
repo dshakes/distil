@@ -66,7 +66,12 @@ entries and leaves the rest alone. The same pass stopped backend I/O under the s
 lock, stopped the fail-open path re-sending a call that had already run, kept symlinked
 configs as symlinks, scoped `<server>_expand` to its own server's results, labelled
 server-to-client requests with their origin, bounded the id maps, and made the dashboard
-refuse non-loopback `Host` headers.
+refuse non-loopback `Host` headers. A re-review then closed three more: a server could
+list another server's file URI exactly and win the read over that server's template (every
+claim now counts, and two claims are an error); merged lists read only their first page;
+and two long server names could truncate to the same meta tool (truncated names now carry
+a hash). Cancellation and progress from a server now only reach the client for that
+server's own requests, and undo only restores a backup whose hash still matches.
 
 ### The freshest read the agent asked for came back as a pointer
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import itertools
 import json
+import re
 import os
 import subprocess
 import sys
@@ -100,6 +101,9 @@ def parse_servers(data: Any) -> tuple[list[ServerSpec], list[str]]:
     dup = sorted({n for n in safe if safe.count(n) > 1})
     if dup:
         raise ConfigError(f"server names collide once sanitised to [A-Za-z0-9-]: {', '.join(dup)}")
+    clash = levels.exposed_names_clash([sp.name for sp in specs], len(specs) > 1)
+    if clash:
+        raise ConfigError(f"server names would share tool names: {', '.join(sorted(set(clash)))}")
     if not specs:
         raise ConfigError(
             "no stdio MCP servers to proxy" + (f" ({'; '.join(skipped)})" if skipped else "")
@@ -272,6 +276,11 @@ ORIGIN_KEY = "io.distil/server"
 #: Bounds on the id maps a misbehaving client or server could otherwise grow forever.
 MAX_SERVER_REQUESTS = 256
 MAX_INFLIGHT = 1024
+MAX_HANDLES = 4096  # per server: originals its expand tool may return this session
+#: Pages followed per server when a list is merged server-side.
+MAX_PAGES = 100
+# A resource template routes only if its literal prefix names at least a scheme.
+_ROUTABLE_PREFIX = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _AMBIGUOUS = "\0ambiguous"
 
 
@@ -286,6 +295,26 @@ class _Bounded(OrderedDict):  # type: ignore[type-arg]
         super().__setitem__(key, value)
         while len(self) > self.cap:
             self.popitem(last=False)
+
+
+def _params(msg: dict[str, Any]) -> dict[str, Any]:
+    raw = msg.get("params")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _label_sampling(params: dict[str, Any], server: str) -> dict[str, Any]:
+    """Prefix the first text a sampling request would show with the server it came from."""
+    msgs = params.get("messages")
+    if not isinstance(msgs, list):
+        return params
+    out = list(msgs)
+    for i, m in enumerate(out):
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, dict) and content.get("type") == "text":
+            label = f"[sampling request from MCP server '{server}'] "
+            out[i] = {**m, "content": {**content, "text": label + str(content.get("text", ""))}}
+            break
+    return {**params, "messages": out}
 
 
 class Proxy:
@@ -319,6 +348,8 @@ class Proxy:
         safe = [levels.safe_server(n) for n in backends]
         if len(set(safe)) != len(safe):
             raise ValueError(f"server names collide once sanitised: {', '.join(backends)}")
+        if levels.exposed_names_clash(backends, len(backends) > 1):
+            raise ValueError("server names would share meta-tool names")
         self.backends = backends
         self.order = list(backends)  # config order: the only routing priority, ever
         self.multi = len(backends) > 1
@@ -336,7 +367,8 @@ class Proxy:
         self.caps: dict[str, dict[str, Any]] = {}
         self.list_changes = 0
         self._unlocked: dict[str, list[str]] = {}
-        self._handles: dict[str, set[str]] = {n: set() for n in backends}
+        self._handles: dict[str, _Bounded] = {n: _Bounded(MAX_HANDLES) for n in backends}
+        self._progress: _Bounded = _Bounded(MAX_INFLIGHT)  # progressToken -> server
         self._server_requests: _Bounded = _Bounded(MAX_SERVER_REQUESTS)
         self._inflight: _Bounded = _Bounded(MAX_INFLIGHT)
         self._res_owner: dict[str, str] = {}
@@ -363,15 +395,28 @@ class Proxy:
     ) -> dict[str, Any]:
         """Send to a backend under an INTERNAL id; remember it for cancellation."""
         rid = f"distil-mcp-c{next(self._ids)}"
-        if client_id is not None:
-            with self._maplock:
-                self._inflight[client_id] = (server, rid)
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        token = meta.get("progressToken") if isinstance(meta, dict) else None
+        with self._maplock:
+            if client_id is not None:
+                # A list per client id: a client reusing an id concurrently must not make
+                # one call's entry overwrite (or its cleanup delete) the other's.
+                routes = self._inflight.get(client_id) or []
+                self._inflight[client_id] = [*routes, (server, rid)]
+            if isinstance(token, (str, int)):
+                self._progress[token] = server
         try:
             return self.backends[server].request(method, params, id=rid)
         finally:
-            if client_id is not None:
-                with self._maplock:
-                    self._inflight.pop(client_id, None)
+            with self._maplock:
+                if client_id is not None:
+                    left = [r for r in self._inflight.get(client_id) or [] if r[1] != rid]
+                    if left:
+                        self._inflight[client_id] = left
+                    else:
+                        self._inflight.pop(client_id, None)
+                if isinstance(token, (str, int)):
+                    self._progress.pop(token, None)
 
     # -- client -> proxy ----------------------------------------------------
 
@@ -419,9 +464,8 @@ class Proxy:
     def _notify(self, method: str, params: Any) -> None:
         if method == "notifications/cancelled" and isinstance(params, dict):
             with self._maplock:
-                route = self._inflight.get(params.get("requestId"))
-            if route is not None:  # only the server running it, under the id it knows
-                server, rid = route
+                routes = list(self._inflight.get(params.get("requestId")) or [])
+            for server, rid in routes:  # only the server(s) running it, under their ids
                 self.backends[server].notify(method, {**params, "requestId": rid})
             return
         for backend in self.backends.values():
@@ -613,7 +657,8 @@ class Proxy:
 
         if kind == "expand":
             handle = args.get("handle")
-            known = isinstance(handle, str) and handle in self._handles[server]
+            with self._maplock:
+                known = isinstance(handle, str) and handle in self._handles[server]
             text = self.expand(handle) if known and isinstance(handle, str) else None
             self.log.emit("expand", server, n=1 if text is not None else 0)
             if text is None:
@@ -691,7 +736,7 @@ class Proxy:
                 ok = self.record(handle, original)
                 if ok:
                     with self._maplock:
-                        self._handles[server].add(handle)
+                        self._handles[server][handle] = True
                 return ok
 
             result, info = levels.compress_result(
@@ -769,53 +814,75 @@ class Proxy:
         return None
 
     def _merged_list(self, method: str, params: Any) -> dict[str, Any]:
+        """Every capable server's COMPLETE list, merged here (all pages followed).
+
+        The merge is server-side, so the client never gets a cursor from this proxy; a
+        client cursor is therefore not one of ours, and gets an empty page rather than
+        being forwarded to servers it means nothing to.
+        """
         key = {
             "resources/list": "resources",
             "resources/templates/list": "resourceTemplates",
             "prompts/list": "prompts",
         }[method]
+        if isinstance(params, dict) and params.get("cursor"):
+            return {key: []}
         family = method.split("/", 1)[0]
         merged: list[Any] = []
         owners: dict[str, str] = {}
         for name in self.order:
             if family not in self.caps.get(name, {}):
                 continue
-            items = (self._request(name, method, params).get("result") or {}).get(key) or []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                if key == "prompts":
-                    item = {**item, "name": self._ns(name) + str(item.get("name", ""))}
-                else:
-                    ident = str(item.get("uri") or item.get("uriTemplate") or "")
-                    owners[ident] = (
-                        _AMBIGUOUS if ident in owners and owners[ident] != name else name
-                    )
-                merged.append(item)
+            cursor = None
+            for _ in range(MAX_PAGES):
+                page = self._request(name, method, {"cursor": cursor} if cursor else {})
+                res = page.get("result") or {}
+                for item in res.get(key) or []:
+                    if not isinstance(item, dict):
+                        continue
+                    if key == "prompts":
+                        item = {**item, "name": self._ns(name) + str(item.get("name", ""))}
+                    elif key == "resourceTemplates":
+                        prefix = str(item.get("uriTemplate") or "").split("{", 1)[0]
+                        if not _ROUTABLE_PREFIX.match(prefix):
+                            # A catch-all template ("{uri}") would claim every URI.
+                            self.log.emit("shadowed", name, tool="resource-template")
+                            continue
+                        owners[prefix] = _AMBIGUOUS if owners.get(prefix, name) != name else name
+                    else:
+                        uri = str(item.get("uri") or "")
+                        owners[uri] = _AMBIGUOUS if owners.get(uri, name) != name else name
+                    merged.append(item)
+                cursor = res.get("nextCursor")
+                if not cursor:
+                    break
         with self._maplock:
             if key == "resources":
-                self._res_owner.update(owners)
+                self._res_owner = owners
             elif key == "resourceTemplates":
-                self._tmpl_owner.update(owners)
+                self._tmpl_owner = owners
         return {key: merged}
 
     def _resource_owner(self, uri: str) -> str | None:
-        """The one server that listed *uri* (or a template it matches), else None."""
+        """The ONE server that can own *uri*, else None.
+
+        Every claim counts — an exact listing AND every template whose literal prefix
+        matches. No kind of claim outranks another: if two servers claim the URI in any
+        combination, it is ambiguous. (An exact listing used to win outright, which let
+        one server list another's file URI and receive the reads.)
+        """
         with self._maplock:
             known = bool(self._res_owner or self._tmpl_owner)
         if not known:
             self._merged_list("resources/list", {})
             self._merged_list("resources/templates/list", {})
         with self._maplock:
-            owner = self._res_owner.get(uri)
-            if owner is None:
-                hits = {
-                    s
-                    for t, s in self._tmpl_owner.items()
-                    if t and uri.startswith(t.split("{", 1)[0])
-                }
-                owner = hits.pop() if len(hits) == 1 else None
-        return None if owner in (None, _AMBIGUOUS) else owner
+            claims = {s for p, s in self._tmpl_owner.items() if uri.startswith(p)}
+            if uri in self._res_owner:
+                claims.add(self._res_owner[uri])
+        if _AMBIGUOUS in claims or len(claims) != 1:
+            return None
+        return claims.pop()
 
     def _raw(self, msg_id: Any, method: str, params: Any) -> dict[str, Any]:
         """The fail-open path, for requests that have NOT reached a server yet."""
@@ -856,8 +923,36 @@ class Proxy:
             params = {**params, "_meta": {**meta, ORIGIN_KEY: server}}
             if method == "elicitation/create" and isinstance(params.get("message"), str):
                 params["message"] = f"[{server}] {params['message']}"
+            if method == "sampling/createMessage":
+                params = _label_sampling(params, server)
             self.emit({**msg, "id": new_id, "params": params})
             return
+        if method == "notifications/cancelled":
+            # A server may only cancel ITS OWN request to the client, under our id for it.
+            p = _params(msg)
+            with self._maplock:
+                ours = next(
+                    (
+                        k
+                        for k, v in self._server_requests.items()
+                        if v == (server, p.get("requestId"))
+                    ),
+                    None,
+                )
+            if ours is not None:
+                self.emit({**msg, "params": {**p, "requestId": ours}})
+            return
+        if method == "notifications/progress":
+            p = _params(msg)
+            with self._maplock:
+                owner = self._progress.get(p.get("progressToken"))
+            if owner == server:  # progress for somebody else's call is dropped
+                self.emit(msg)
+            return
+        if method == "notifications/resources/list_changed":
+            with self._maplock:  # re-derive every owner on the next read
+                self._res_owner = {}
+                self._tmpl_owner = {}
         if method == "notifications/tools/list_changed":
             with self._lock:
                 old = self.surfaces.pop(server, None)

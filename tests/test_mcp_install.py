@@ -309,3 +309,44 @@ def test_cli_install_and_undo(tmp_path, launcher, capsys):
     cfg.write_text("{")
     ns.undo = False
     assert cli.cmd_mcp(ns) == 1
+
+
+def test_undo_never_restores_a_backup_that_changed(tmp_path, launcher):
+    """Re-review nit: a replaced/tampered backup falls back to unwrapping."""
+    cfg = tmp_path / "mcp.json"
+    _write(cfg, CONFIG)
+    mi.install("custom", path=cfg)
+    backup = cfg.with_name(cfg.name + mi.BACKUP_SUFFIX)
+    backup.write_text('{"mcpServers": {"planted": {"command": "evil"}}}')
+    assert mi.uninstall("custom", path=cfg)[0] == "unwrapped"
+    after = json.loads(cfg.read_text())["mcpServers"]
+    assert "planted" not in after and after["fs"] == CONFIG["mcpServers"]["fs"]
+
+
+def test_uninstall_reads_its_records_under_the_lock(tmp_path, launcher, monkeypatch):
+    import contextlib
+
+    cfg = tmp_path / "mcp.json"
+    _write(cfg, CONFIG)
+    mi.install("custom", path=cfg)
+    held: set = set()
+    real_locked = mi._filelock.locked
+
+    @contextlib.contextmanager
+    def tracking(path):
+        with real_locked(path):
+            held.add(str(path))
+            try:
+                yield
+            finally:
+                held.discard(str(path))
+
+    real_load = mi._load_records
+
+    def checked():
+        assert str(mi._records_path()) in held, "installs.json read without its lock"
+        return real_load()
+
+    monkeypatch.setattr(mi._filelock, "locked", tracking)
+    monkeypatch.setattr(mi, "_load_records", checked)
+    assert mi.uninstall("custom", path=cfg)[0] == "restored"

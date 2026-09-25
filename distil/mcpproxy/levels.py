@@ -39,6 +39,7 @@ call) and results (what a call returned) are compressed independently:
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping
@@ -307,9 +308,35 @@ def safe_server(server: str) -> str:
 NAMESPACE_SEP = "__"
 
 
+META_SUFFIXES = ("get_tool_schema", "invoke_tool", "expand")
+
+
 def meta_name(server: str, suffix: str, sep: str = "_") -> str:
-    base = safe_server(server)[: _MAX_TOOL_NAME - len(suffix) - len(sep)]
+    """``<server><sep><suffix>``, at most ``_MAX_TOOL_NAME`` characters.
+
+    A name that has to be truncated keeps a short stable hash of the FULL server name,
+    so two long names sharing a prefix can never truncate to the same meta tool.
+    """
+    base = safe_server(server)
+    room = _MAX_TOOL_NAME - len(suffix) - len(sep)
+    if len(base) > room:
+        digest = hashlib.sha256(base.encode()).hexdigest()[:8]
+        base = f"{base[: room - len(digest) - 1]}-{digest}"
     return f"{base}{sep}{suffix}"
+
+
+def exposed_names_clash(servers: Iterable[str], multi: bool) -> list[str]:
+    """Meta-tool names two of *servers* would share (empty when all are unique)."""
+    sep = NAMESPACE_SEP if multi else "_"
+    seen: dict[str, str] = {}
+    clash: list[str] = []
+    for s in servers:
+        for suffix in META_SUFFIXES:
+            name = meta_name(s, suffix, sep)
+            if name in seen and seen[name] != s:
+                clash.append(name)
+            seen[name] = s
+    return clash
 
 
 def signature(tool: Mapping[str, Any]) -> str:

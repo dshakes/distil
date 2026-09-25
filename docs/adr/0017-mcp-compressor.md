@@ -97,6 +97,20 @@ such mechanism. Tool **results** are uncompressed for every client, Claude Code 
    distil's entries and keeps the user's. The webdash refuses non-loopback `Host`
    headers (DNS rebinding).
 
+10. **Re-review (same day).** Resource routing counts every claim: an exact listing and
+    every template whose literal prefix matches the URI are equal claims, so two servers
+    claiming one URI in any combination is ambiguous (-32602) — an exact listing no longer
+    outranks another server's template. Lists are merged server-side with every page
+    followed (bounded); the client is never handed, and never forwards, a cursor. A
+    template whose literal prefix is not at least `scheme://` is un-routable and dropped in
+    multi-server mode. A meta-tool name that must be truncated carries a stable hash of the
+    full server name, and configs whose meta names would still coincide are refused. A
+    server may only cancel its own client-bound requests and report progress for its own
+    calls; in-flight routes are kept per call, not per client id. `_handles` is bounded;
+    `resources/list_changed` forgets owners; sampling requests carry the origin in their
+    first visible message text. `install` records the backup's SHA-256 and restores only
+    a backup that still matches it, and reads `installs.json` under its lock.
+
 ## Consequences
 
 - distil now spawns and relays third-party MCP servers. It adds no capability they did
