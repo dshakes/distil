@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and the connector search distil was switching off, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and a digest that stops pointing at what it could just show, and the connector search distil was switching off, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
 
 Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -1454,6 +1454,27 @@ published live sample (398 A/B, 399 A/A) predates the lever tag and so counts as
 rows; its harm bound of −4.5pp is outside the 2pp budget in any case. `auto` resolves to
 off and prints why, which is the feature working rather than a number being withheld.
 Reply length itself is #185's `output` verdict line; this change adds no second one.
+
+### A digest that stops pointing at what it could just show
+A dropped run of lines no longer than the `<< +N lines, handle=… >>` marker that would
+replace it is now shown inline. The marker format is unchanged and every marker still
+names its handle; the only difference is that the digest no longer spends a pointer on
+something cheaper to show. It is more faithful and never more expensive, and the inlined
+lines are no longer reported to the query flywheel as dropped.
+The gain is small and it is stated as such. On the corpus it is zero: none of the 51
+markers the corpus produces replaces a run that short
+(`benchmarks/first_sight_digest.py`, artifact
+`benchmarks/results/2026-09-24/first_sight_digest.json`), and `bench`, `verify`,
+`validate`, `retention`, `fidelity` and `suite` all read exactly as before. It exists for
+the short gaps between pinned lines that real tool output has and the corpus does not.
+Two other ways to shrink the markers were measured and not shipped. Dropping the handle
+from every marker after the first in a block saved a little more, but the
+`distil_expand` description tells the model every marker carries one, a kept line that
+itself contains `handle=…` could then sit between a bare marker and its real handle,
+and correcting the description would have cost every user one cache miss on their tools
+prefix. Shortening over-long head and tail lines to their two ends moved corpus facts
+from visible to one `distil_expand` away (retention visible 37.7% to 33.1%) and added a
+silent failure; a token saved by a round trip is not a token saved.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
