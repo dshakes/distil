@@ -694,6 +694,15 @@ def build_handler(
     # (see the first branch of _handle_compressible); receipts and the per-request
     # record still run, tagged arm=holdout. Always safe: it is exactly the traffic the
     # agent would have sent without distil.
+    # arm="auto" (the managed `distil proxy`, which has no wrap session): the arm is
+    # drawn per client CONVERSATION instead, request by request (distil.abtest
+    # ConversationArms). Build-time levers stay on; a held-out conversation's requests
+    # take the verbatim branch below and skip shadow sampling.
+    _conv_arms: Any = None
+    if arm == "auto":
+        from .abtest import ConversationArms
+
+        _conv_arms, arm = ConversationArms(), ""
     _holdout = arm == "holdout"
     if _holdout:
         verbatim, expand, session_delta, prefix_replay, cold_point = (
@@ -900,7 +909,9 @@ def build_handler(
             file=_sys.stderr,
         )
 
-    def _book_overhead(kind: str, model: str | None, calls: list[dict[str, int]]) -> None:
+    def _book_overhead(
+        kind: str, model: str | None, calls: list[dict[str, int]], conv: str = ""
+    ) -> None:
         """Book upstream calls distil made on the user's key that no client asked for
         (shadow replays): net them out of the savings ledger, and append their usage to
         ``sessions/<sid>.overhead.jsonl`` so per-session cost (``distil ab``) includes
@@ -930,6 +941,7 @@ def build_handler(
                                 "kind": kind,
                                 "model": model,
                                 "calls": len(calls),
+                                "conv": conv or None,
                                 **total,
                             },
                             sort_keys=True,
@@ -1178,6 +1190,8 @@ def build_handler(
             # Savings are booked only after a confirmed 2xx (P0-1): (before, after, model).
             _pending_savings: tuple[int, int, str | None] | None = None
 
+            # Reset per request: a keep-alive connection reuses this handler instance.
+            self._distil_arm, self._distil_conv, self._distil_rate = arm, "", None
             try:
                 body: dict[str, Any] = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
@@ -1185,6 +1199,16 @@ def build_handler(
                 status, rhdrs, rbody = self._post_upstream(self.path, raw, headers)
                 self._relay(status, rhdrs, rbody)
                 return
+            _hold = _holdout
+            if _conv_arms is not None:
+                try:
+                    from .abtest import CONV_HEADER, HOLDOUT
+
+                    _a, self._distil_conv = _conv_arms.assign(self.headers.get(CONV_HEADER), body)
+                    self._distil_arm, self._distil_rate = _a.arm, _a.rate
+                    _hold = _a.arm == HOLDOUT
+                except Exception:  # noqa: BLE001 — an unassigned request is served normally
+                    log.debug("A/B conversation assignment failed", exc_info=True)
 
             # Tag any flywheel rows this request produces with the SAME digest shadow
             # records its verdict under, so a later retrain can join "this block was
@@ -1204,10 +1228,10 @@ def build_handler(
             # Gemini paths    → Gemini adapter (contents branch, below)
             _path = strip_query(self.path)
 
-            if _holdout:
+            if _hold:
                 # Control arm: the original bytes go upstream untouched (body is not
                 # reassigned, so _serialize_if_changed returns `raw`), nothing is booked.
-                extras = {"x-distil-mode": _req_mode, "x-distil-arm": "holdout"}
+                extras = {"x-distil-mode": "verbatim", "x-distil-arm": "holdout"}
             elif is_responses_path(_path) and isinstance(body.get("input"), list):
                 # OpenAI Responses API: compress ``function_call_output`` items
                 # (Tier-1 reversible digest) and user ``message`` items (Tier-0).
@@ -1528,7 +1552,9 @@ def build_handler(
 
             # Decide shadow sampling BEFORE relaying so the marker header can be
             # sent on the streaming path too (headers go out before the body).
-            shadow_sampled = _shadow_sampler is not None and _shadow_sampler.should_sample()
+            shadow_sampled = (
+                _shadow_sampler is not None and not _hold and _shadow_sampler.should_sample()
+            )
             if _shadow_sampler is not None and _shadow_counters is not None:
                 _shadow_counters.note_seen()
             if shadow_sampled and _shadow_counters is not None:
@@ -2053,7 +2079,10 @@ def build_handler(
                     # ("" when not randomised), the client as name/major.minor from the
                     # User-Agent, and whether this request opens a user turn (roles and
                     # block types only) — which is what delimits a task.
-                    "arm": arm,
+                    "arm": getattr(self, "_distil_arm", arm),
+                    # Keyed hash of the client conversation (managed installs only).
+                    "conv": getattr(self, "_distil_conv", "") or None,
+                    "arm_rate": getattr(self, "_distil_rate", None),
                     "client": client_tag((getattr(self, "headers", None) or {}).get("User-Agent")),
                     "user_turn": is_user_turn(body),
                     "stream": stream,
@@ -2202,6 +2231,9 @@ def build_handler(
             import random as _random
 
             paired = _os.environ.get("DISTIL_SHADOW_PAIRED", "1") != "0"
+            # Captured now, on the request thread: a keep-alive connection's next request
+            # re-sets it before the replay thread finishes.
+            _conv = getattr(self, "_distil_conv", "") or ""
             # ponytail: the unpaired fallback keeps v4's 1/3 split; the paired path
             # ignores it entirely, since every sample now feeds both arms.
             is_aa = _random.random() < 1 / 3
@@ -2248,7 +2280,7 @@ def build_handler(
                     finally:
                         # The replays are billed to the user's key: book them as spend
                         # distil caused, whatever the verdict turns out to be.
-                        _book_overhead("shadow", rb_a.model, list(usage.values()))
+                        _book_overhead("shadow", rb_a.model, list(usage.values()), _conv)
                     # "none" means no decision could be extracted (transient upstream
                     # error or empty/unparseable body). Recording it as agreement or
                     # change would inflate the decision-equivalence rate on noise.
@@ -2547,9 +2579,14 @@ def serve(
         session_delta=session_delta,
         prefix_replay=prefix_replay,
         cold_point=cold_point,
+        # No wrap session here: the A/B arm is drawn per client conversation.
+        arm="auto",
     )
     server, activated = _listen(host, port, handler)
     print(f"distil proxy listening on http://{host}:{port}")
+    from .abtest import disclosure as _ab_disclosure
+
+    print(f"  → {_ab_disclosure()}")
     if activated:
         # Worth saying out loud: it is the difference between "a crash is a
         # blip" and "a crash is every session on this machine failing".

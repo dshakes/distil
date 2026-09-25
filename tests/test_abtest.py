@@ -149,7 +149,7 @@ def test_fold_prices_cache_inclusive_and_counts_tasks():
         _row(11, user_turn=True, inp=1_000_000, cr=1_000_000, cw=1_000_000, out=1_000_000),
         _row(12, user_turn=False),
         _row(13, user_turn=True),
-        _row(14, model="claude-haiku-4-5", user_turn=True),  # side call, not a task
+        _row(14, model="claude-haiku-4-5", user_turn=True),  # tasks count on every model
         _row(15, status=529),
         {"ts": 16, "model": "gemini-2.5-pro", "status": 200, "usage_input_tokens": 5},
     ]
@@ -164,7 +164,7 @@ def test_fold_prices_cache_inclusive_and_counts_tasks():
         "claude-opus-4-8",
         "claude-cli/2.1",
         5,
-        2,
+        3,
         1,
         1,
     )
@@ -177,8 +177,12 @@ def test_fold_end_states_and_unrandomised():
     assert fold_session(man, [_row(1)], exit_text="child signal SIGKILL", now=2).ended == "error"
     assert fold_session(man, [_row(1)], now=2).ended == "open"
     assert fold_session(man, [_row(1)], now=1 + outcomes.ABANDON_S + 1).ended == "abandoned"
-    o = fold_session(man, [], now=5)
-    assert o is not None and o.cost is None and o.tasks == 1 and o.turns == 0
+    o = fold_session(man, [], now=5)  # nothing answered: billed nothing, KEPT at $0
+    assert o is not None and o.cost == 0.0 and o.tasks == 1 and o.turns == 0
+    failed = fold_session(man, [_row(1, status=529), _row(2, status=500)], now=5)
+    assert failed is not None and failed.cost == 0.0 and failed.errors == 2
+    gem = {"ts": 1, "model": "gemini-2.5-pro", "status": 200, "usage_input_tokens": 5}
+    assert fold_session(man, [gem], now=5).cost is None  # billed, but not priceable
     assert fold_session({"sid": "s2"}, [_row(1)]) is None
     assert fold_session({"sid": "s2", "ab": {"arm": ""}}, [_row(1)]) is None
 
@@ -624,3 +628,109 @@ def test_cli_ab_text_json_and_set_rate(capsys, monkeypatch):
     assert "off" in capsys.readouterr().out and abtest.holdout_rate() == 0.0
     assert main(["ab", "--holdout-rate", "0.9"]) == 2
     assert abtest.abtest_summary().status == "ok"
+
+
+# --------------------------------------------------------------------------- #
+# Managed installs: per-conversation assignment
+# --------------------------------------------------------------------------- #
+
+
+def test_stratum_is_the_agent_loops_model_fixed_before_treatment():
+    from distil.abtest.outcomes import stratum_model
+
+    rows = [
+        {"model": "claude-haiku-4-5"},  # quota probe / title: no tools
+        {"model": "claude-opus-4-8", "tools_tokens": 900},
+        {"model": "claude-haiku-4-5", "tools_tokens": 10},
+    ]
+    assert stratum_model(rows) == "claude-opus-4-8"
+    assert stratum_model([{"model": "m1"}, {"model": "m2"}]) == "m1"
+    assert stratum_model([]) == ""
+
+
+def test_conversation_key_prefers_the_clients_own_session_id():
+    from distil.abtest import conversation_key
+
+    uid = json.dumps({"device_id": "d", "account_uuid": "a", "session_id": "0f8e-5b1c-uuid-1234"})
+    body = {
+        "model": "m",
+        "metadata": {"user_id": uid},
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    assert conversation_key("5a1b2c3d-aaaa-bbbb", body) == ("header", "5a1b2c3d-aaaa-bbbb")
+    assert conversation_key(None, body) == ("metadata", "0f8e-5b1c-uuid-1234")
+    assert conversation_key("bad id!", body)[0] == "metadata"  # a malformed header is ignored
+    plain = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    src, key = conversation_key(None, plain)
+    later = {**plain, "messages": [*plain["messages"], {"role": "assistant", "content": "x"}]}
+    assert src == "lineage" and conversation_key(None, later) == (src, key)  # stable over turns
+    assert conversation_key(None, {"model": "m", "metadata": {"user_id": "{not json"}}) == ("", "")
+    assert conversation_key(None, None) == ("", "")
+
+
+def test_conversation_arms_persist_across_restart_and_rate_change(monkeypatch):
+    from distil.abtest import ConversationArms, conversations_path
+
+    monkeypatch.setenv(abtest.RATE_ENV, "0.5")
+    arms = ConversationArms()
+    got = {f"conv-{i:04d}": arms.assign(f"conv-{i:04d}", None) for i in range(60)}
+    assert {a.arm for a, _ in got.values()} == {"distil", "holdout"}
+    stored = json.loads(conversations_path().read_text())
+    assert len(stored) == 60 and all(
+        set(v) == {"arm", "rate", "ts", "src"} for v in stored.values()
+    )
+    assert not any("conv-" in k for k in stored)  # keyed hashes only, never the raw id
+    monkeypatch.setenv(abtest.RATE_ENV, "0")  # rate changed; a fresh process resumes
+    again = ConversationArms()
+    for key, (a, conv) in got.items():
+        assert again.assign(key, None) == (a, conv)
+    assert again.assign("brand-new-conv", None)[0].arm == ""  # disabled for NEW ones
+    assert ConversationArms().assign(None, None) == (abtest.Assignment("", 0.0), "")
+    conversations_path().write_text("[1,2]")
+    assert ConversationArms().assign("conv-0000", None)[0].arm == ""  # corrupt → fresh, rate 0
+
+
+def _holdout_conv(rate: str = "0.5") -> tuple[str, str]:
+    """(holdout id, distil id) under the current install secret."""
+    os.environ[abtest.RATE_ENV] = rate
+    ids = {abtest.bucket("conv:" + f"sess-{i:05d}") < 0.5: f"sess-{i:05d}" for i in range(40)}
+    return ids[True], ids[False]
+
+
+def test_managed_proxy_assigns_per_conversation(monkeypatch):
+    from distil.proxy import build_handler
+
+    monkeypatch.setenv("DISTIL_SESSION", "s8-8")
+    monkeypatch.setenv(abtest.RATE_ENV, "0.5")
+    hold_id, dist_id = _holdout_conv()
+    _Echo.seen = []
+    up = _serve(_Echo)
+    proxy = _serve(build_handler(f"http://127.0.0.1:{up.server_address[1]}", arm="auto"))
+    try:
+        for sid in (hold_id, dist_id, hold_id):
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{proxy.server_address[1]}/v1/messages",
+                data=_payload(),
+                headers={"Content-Type": "application/json", abtest.CONV_HEADER: sid},
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as resp:
+                resp.read()
+    finally:
+        proxy.shutdown()
+        up.shutdown()
+    assert _Echo.seen[0] == _payload() and _Echo.seen[2] == _payload()  # holdout: verbatim
+    assert _Echo.seen[1] != _payload()  # the other conversation is compressed
+    home = Path(os.environ["DISTIL_HOME"])
+    recs = [
+        json.loads(x) for x in (home / "sessions" / "s8-8.requests.jsonl").read_text().splitlines()
+    ]
+    assert [r["arm"] for r in recs] == ["holdout", "distil", "holdout"]
+    assert recs[0]["conv"] == recs[2]["conv"] != recs[1]["conv"] and recs[0]["arm_rate"] == 0.5
+    assert hold_id not in json.dumps(recs)  # content-free: the raw session id is not stored
+    # Manifest-less: harvest folds one outcome per conversation, then skips the file.
+    assert outcomes.harvest(now=time.time() + 2 * outcomes.ABANDON_S) == 2
+    got = {o.sid.split("@")[0]: o for o in outcomes.load().values()}
+    assert {o.arm for o in got.values()} == {"holdout", "distil"}
+    assert got[recs[0]["conv"]].turns == 2 and got[recs[0]["conv"]].ended == "abandoned"
+    assert outcomes.harvest(now=time.time() + 2 * outcomes.ABANDON_S) == 0

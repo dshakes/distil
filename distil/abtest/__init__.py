@@ -25,7 +25,10 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -184,6 +187,136 @@ def assign(sid: str | None, previous: dict[str, object] | None = None) -> Assign
     return Assignment(HOLDOUT if bucket(sid) < rate else DISTIL, rate)
 
 
+# --------------------------------------------------------------------------- #
+# Managed installs: no wrap, so no session — assign per client CONVERSATION
+# --------------------------------------------------------------------------- #
+
+#: What Claude Code sends on every request (verified in the 2.1.282 bundle: the default
+#: headers set ``X-Claude-Code-Session-Id: <session uuid>``, and the same id is the
+#: ``session_id`` field of the JSON string in ``metadata.user_id``, alongside
+#: ``device_id`` and ``account_uuid``). A resumed conversation re-sends the same id.
+CONV_HEADER = "X-Claude-Code-Session-Id"
+_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+#: Persisted assignments older than this are pruned when the file is rewritten.
+CONV_KEEP_S = 120 * 86400.0
+
+
+def conversation_key(header: str | None, body: object) -> tuple[str, str]:
+    """``(source, key)`` identifying the client conversation a request belongs to.
+
+    ``source`` is ``"header"`` (the client's own session id), ``"metadata"`` (the
+    ``session_id`` inside Claude Code's ``metadata.user_id``), ``"lineage"`` (model +
+    system + tools + first item, hashed: the same conversation seed ``prefixreplay``
+    uses, minus the proxy-process id, so a proxy restart does not re-key it), or
+    ``""`` when there is nothing to key on. Only the caller's keyed hash of *key* is
+    ever stored; the raw value never leaves memory.
+    """
+    if header and _ID.match(header.strip()):
+        return "header", header.strip()
+    if not isinstance(body, dict):
+        return "", ""
+    md = body.get("metadata")
+    uid = md.get("user_id") if isinstance(md, dict) else None
+    if isinstance(uid, str) and uid.startswith("{"):
+        try:
+            sid = json.loads(uid).get("session_id")
+        except (ValueError, AttributeError):
+            sid = None
+        if isinstance(sid, str) and _ID.match(sid):
+            return "metadata", sid
+    for k in ("messages", "input", "contents"):
+        items = body.get(k)
+        if isinstance(items, list) and items:
+            from ..prefixreplay import canonical
+
+            seed = {
+                "model": body.get("model"),
+                "system": body.get("system")
+                or body.get("instructions")
+                or body.get("systemInstruction"),
+                "tools": body.get("tools") or body.get("toolConfig"),
+                "head": canonical(items[0]),
+            }
+            blob = json.dumps(seed, sort_keys=True, separators=(",", ":"), default=str)
+            return "lineage", hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()
+    return "", ""
+
+
+def conversations_path() -> Path:
+    return _home() / "ab-conversations.json"
+
+
+class ConversationArms:
+    """Per-conversation arms for a proxy that serves many conversations (``distil proxy``).
+
+    The draw is the same keyed hash as a wrap session's, on ``"conv:" + key``. The first
+    assignment is persisted (keyed hash → arm, rate, first-seen), so a conversation that
+    resumes after the rate changed — or after the proxy restarted — keeps its arm.
+    Content-free: the file holds keyed hashes, arms, rates and timestamps.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or conversations_path()
+        self._lock = threading.Lock()
+        self._mem: dict[str, dict[str, object]] = {}
+
+    def _load(self) -> dict[str, dict[str, object]]:
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            log.warning("distil ab: unreadable %s (%s); starting fresh", self.path, exc)
+            return {}
+        return (
+            {k: v for k, v in raw.items() if isinstance(v, dict)} if isinstance(raw, dict) else {}
+        )
+
+    def assign(self, header: str | None, body: object) -> tuple[Assignment, str]:
+        """``(assignment, conv)`` — *conv* is the keyed hash recorded on the request."""
+        source, key = conversation_key(header, body)
+        if not source:
+            return Assignment("", 0.0), ""
+        conv = keyed_hash("conv:" + key)
+        with self._lock:
+            hit = self._mem.get(conv)
+            if hit is None:
+                hit = self._load().get(conv)
+            if hit is not None and hit.get("arm") in (DISTIL, HOLDOUT):
+                self._mem[conv] = hit
+                return Assignment(str(hit["arm"]), float(hit.get("rate") or 0.0)), conv  # type: ignore[arg-type]
+            rate = holdout_rate()
+            if rate <= 0.0:
+                return Assignment("", 0.0), conv
+            a = Assignment(HOLDOUT if bucket("conv:" + key) < rate else DISTIL, rate)
+            rec: dict[str, object] = {"arm": a.arm, "rate": rate, "ts": time.time(), "src": source}
+            self._mem[conv] = rec
+            self._persist(conv, rec)
+            return a, conv
+
+    def _persist(self, conv: str, rec: dict[str, object]) -> None:
+        from .. import _filelock, atrest
+
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with _filelock.locked(self.path):
+                cur = self._load()  # re-read under the lock: other proxies write too
+                if conv in cur:
+                    return  # another process assigned it first; its record stands
+                now = time.time()
+                cur = {
+                    k: v
+                    for k, v in cur.items()
+                    if now - float(v.get("ts") or 0) < CONV_KEEP_S  # type: ignore[arg-type]
+                }
+                cur[conv] = rec
+                tmp = self.path.with_name(self.path.name + ".tmp")
+                atrest.write_owner_only(tmp, json.dumps(cur, sort_keys=True).encode())
+                _filelock.replace_retrying(tmp, self.path)
+        except OSError as exc:
+            log.warning("distil ab: could not persist a conversation arm (%s)", exc)
+
+
 def disclosure(rate: float | None = None) -> str:
     """The one sentence every surface that mentions the holdout prints."""
     r = holdout_rate() if rate is None else rate
@@ -193,7 +326,7 @@ def disclosure(rate: float | None = None) -> str:
             f"(re-enable: distil ab --holdout-rate {DEFAULT_RATE:g})."
         )
     return (
-        f"A/B holdout: {r * 100:g}% of new wrap sessions run uncompressed so distil can "
+        f"A/B holdout: {r * 100:g}% of new sessions run uncompressed so distil can "
         "measure what it saves per task, causally (distil ab). "
         f"Opt out: distil ab --holdout-rate 0, or {RATE_ENV}=0."
     )
@@ -211,7 +344,10 @@ __all__ = [
     "DISTIL",
     "HOLDOUT",
     "RATE_ENV",
+    "CONV_HEADER",
     "Assignment",
+    "ConversationArms",
+    "conversation_key",
     "abtest_summary",
     "assign",
     "bucket",

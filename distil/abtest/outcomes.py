@@ -122,13 +122,14 @@ def is_user_turn(body: dict[str, Any] | None) -> bool | None:
 
 def _price(row: dict[str, Any]) -> float | None:
     p = pricing.resolve(str(row.get("model") or ""))
-    if p is None or row.get("usage_input_tokens") is None:
+    if p is None or (row.get("usage_input_tokens") is None and row.get("input_tokens") is None):
         return None
+    g = row.get
     return (
-        int(row.get("usage_input_tokens") or 0) * p.input
-        + int(row.get("usage_cache_read") or 0) * p.cache_read
-        + int(row.get("usage_cache_create") or 0) * p.cache_write
-        + int(row.get("usage_output_tokens") or 0) * p.output
+        int(g("usage_input_tokens") or g("input_tokens") or 0) * p.input
+        + int(g("usage_cache_read") or g("cache_read_input_tokens") or 0) * p.cache_read
+        + int(g("usage_cache_create") or g("cache_creation_input_tokens") or 0) * p.cache_write
+        + int(g("usage_output_tokens") or g("output_tokens") or 0) * p.output
     )
 
 
@@ -139,6 +140,22 @@ def _ended(exit_text: str | None, last_activity: float, now: float) -> str:
     return "abandoned" if now - last_activity > ABANDON_S else "open"
 
 
+def stratum_model(rows: list[dict[str, Any]]) -> str:
+    """The session's model for stratification, fixed BEFORE treatment can act.
+
+    The first request that carries tool definitions is the agent's own loop, so its
+    model is the configured one. Claude Code's first requests are Haiku side calls (a
+    quota probe, a title), so "the first request's model" would file nearly every
+    session under Haiku. The model that carried most of the COST (this used until
+    1.54) is chosen after treatment: compression can change which calls dominate the
+    bill. Falls back to the first request's model.
+    """
+    for r in rows:
+        if r.get("tools") or int(r.get("tools_tokens") or 0) > 0:
+            return str(r.get("model") or "")
+    return str(rows[0].get("model") or "") if rows else ""
+
+
 def fold_session(
     manifest: dict[str, Any],
     rows: Iterable[dict[str, Any]],
@@ -146,37 +163,41 @@ def fold_session(
     exit_text: str | None = None,
     src: float = 0.0,
     now: float | None = None,
+    overhead: Iterable[dict[str, Any]] = (),
 ) -> SessionOutcome | None:
-    """One session's outcome, or None if it was never randomised."""
+    """One session's outcome, or None if it was never randomised.
+
+    Cost is everything the session was billed at list price, including spend distil
+    caused on its behalf (expand re-queries, since 1.54 summed into each request's
+    usage; shadow replays, from *overhead*). A session whose requests all failed cost
+    $0 and is KEPT at $0 — dropping it would make distil-caused failures vanish from
+    the distil arm. ``None`` only when the session was billed on models that cannot be
+    priced (a Gemini/OpenAI upstream).
+    """
     ab = manifest.get("ab")
     if not isinstance(ab, dict) or ab.get("arm") not in (DISTIL, HOLDOUT):
         return None
     now = time.time() if now is None else now
     rows = sorted((r for r in rows if isinstance(r, dict)), key=lambda r: r.get("ts") or 0)
     ok = [r for r in rows if isinstance(r.get("status"), int) and 200 <= r["status"] < 300]
-    by_model: dict[str, list[float]] = {}  # model -> [cost, requests]
     clients: dict[str, int] = {}
     cost, unpriced, priced = 0.0, 0, 0
     for r in ok:
         c = _price(r)
-        agg = by_model.setdefault(str(r.get("model") or "unknown"), [0.0, 0])
-        agg[1] += 1
         if c is None:
             unpriced += 1
         else:
             priced += 1
             cost += c
-            agg[0] += c
         tag = str(r.get("client") or "")
         if tag:
             clients[tag] = clients.get(tag, 0) + 1
-    model = max(by_model, key=lambda m: (by_model[m][0], by_model[m][1])) if by_model else ""
+    for o in overhead:
+        c = _price(o) if isinstance(o, dict) else None
+        if c is not None:
+            cost += c
     marked = [r for r in ok if "user_turn" in r]
-    tasks = (
-        sum(1 for r in marked if r.get("user_turn") and str(r.get("model") or "unknown") == model)
-        if marked
-        else 1
-    )
+    tasks = sum(1 for r in marked if r.get("user_turn")) if marked else 1
     client = max(clients, key=lambda k: clients[k]) if clients else str(manifest.get("tool") or "")
     ts = [float(r.get("ts") or 0.0) for r in rows if r.get("ts")]
     start = float(manifest.get("started_ts") or (min(ts) if ts else 0.0))
@@ -187,11 +208,11 @@ def fold_session(
         rate=float(ab.get("rate") or 0.0),
         start=start,
         end=end,
-        model=model,
+        model=stratum_model(rows),
         client=client,
         ws=keyed_hash(str(manifest.get("cwd") or "")) if manifest.get("cwd") else "",
         billing=str(manifest.get("billing") or "unknown"),
-        cost=cost if priced else None,
+        cost=None if ok and not priced else cost,
         turns=len(ok),
         tasks=max(1, tasks),
         in_tokens=sum(
@@ -202,7 +223,8 @@ def fold_session(
         ),
         out_tokens=sum(int(r.get("usage_output_tokens") or 0) for r in ok),
         errors=len(rows) - len(ok),
-        expanded=sum(1 for r in ok if r.get("expanded_handles")),
+        # Rows written before 1.54 kept one call's usage: an expand there is under-counted.
+        expanded=sum(1 for r in ok if r.get("expanded_handles") and "upstream_calls" not in r),
         wall_s=max(0.0, end - start),
         ended=_ended(exit_text, max([end, src]), now),
         unpriced=unpriced,
@@ -276,17 +298,68 @@ def _mtime(p: Path) -> float:
         return 0.0
 
 
+def _harvest_index_path() -> Path:
+    return store_path().parent / "ab-harvest.json"
+
+
+def _fold_conversations(
+    rp: Path, known: dict[str, SessionOutcome], index: dict[str, Any], now: float
+) -> list[SessionOutcome]:
+    """A managed proxy's request file (no wrap manifest): one outcome per conversation.
+
+    Rows carry ``conv`` (keyed hash of the client conversation) and ``arm``. A
+    conversation that spans two proxy processes becomes two outcomes with the same arm.
+    ponytail: symmetric across arms; merge across files if restarts turn out frequent.
+    """
+    file_sid = rp.name[: -len(".requests.jsonl")]
+    op = rp.with_name(file_sid + ".overhead.jsonl")
+    src = max(_mtime(rp), _mtime(op))
+    seen = index.get(file_sid)
+    if isinstance(seen, list) and len(seen) == 2 and seen[0] == src and seen[1]:
+        return []  # unchanged since a fold that found every conversation complete
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for r in _read_rows(rp):
+        if r.get("conv") and r.get("arm") in (DISTIL, HOLDOUT):
+            groups.setdefault(str(r["conv"]), []).append(r)
+    over: dict[str, list[dict[str, Any]]] = {}
+    for ov in _read_rows(op):
+        if ov.get("conv"):
+            over.setdefault(str(ov["conv"]), []).append(ov)
+    out, complete = [], True
+    for conv, rows in groups.items():
+        first = min(rows, key=lambda r: float(r.get("ts") or 0))
+        man = {
+            "sid": f"{conv}@{file_sid}",
+            "ab": {"arm": first["arm"], "rate": first.get("arm_rate") or 0.0},
+            "started_ts": float(first.get("ts") or 0.0),
+            "billing": "unknown",
+        }
+        o = fold_session(man, rows, src=src, now=now, overhead=over.get(conv, ()))
+        if o is None:
+            continue
+        complete = complete and o.complete
+        prev = known.get(o.sid)
+        if prev is None or asdict(prev) != asdict(o):
+            out.append(o)
+    index[file_sid] = [src, complete]
+    return out
+
+
 def harvest(only: str | None = None, *, now: float | None = None) -> int:
     """Fold every randomised session on disk (or just *only*) into the store.
 
-    Re-folds a session only when its inputs changed or it was still "open" last time.
-    Returns the number of rows written. Never raises: bookkeeping must not stop a wrap.
+    Wrap sessions come from their manifest; a managed proxy's conversations come from
+    its manifest-less request file, grouped by ``conv``. Re-folds only what changed or
+    was still "open" last time. Returns rows written. Never raises: bookkeeping must
+    not stop a wrap.
     """
     try:
+        now = time.time() if now is None else now
         known = load()
         todo: list[SessionOutcome] = []
         d = _sessions_dir()
         manifests = [d / f"{only}.json"] if only else sorted(d.glob("*.json"))
+        wrapped: set[str] = set()
         for mp in manifests:
             try:
                 man = json.loads(mp.read_text(encoding="utf-8"))
@@ -296,8 +369,10 @@ def harvest(only: str | None = None, *, now: float | None = None) -> int:
                 continue
             sid = str(man.get("sid") or mp.stem)
             man["sid"] = sid
+            wrapped.add(sid)
             req, ex = mp.with_name(sid + ".requests.jsonl"), mp.with_name(sid + ".exit")
-            src = max(_mtime(req), _mtime(ex))
+            op = mp.with_name(sid + ".overhead.jsonl")
+            src = max(_mtime(req), _mtime(ex), _mtime(op))
             prev = known.get(sid)
             if prev is not None and prev.src == src and prev.complete:
                 continue
@@ -307,9 +382,27 @@ def harvest(only: str | None = None, *, now: float | None = None) -> int:
                     exit_text = ex.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     exit_text = None
-            o = fold_session(man, _read_rows(req), exit_text=exit_text, src=src, now=now)
+            o = fold_session(
+                man, _read_rows(req), exit_text=exit_text, src=src, now=now, overhead=_read_rows(op)
+            )
             if o is not None and (prev is None or asdict(prev) != asdict(o)):
                 todo.append(o)
+        if not only:
+            ip = _harvest_index_path()
+            try:
+                index = json.loads(ip.read_text(encoding="utf-8"))
+                index = index if isinstance(index, dict) else {}
+            except (OSError, ValueError):
+                index = {}
+            for rp in sorted(d.glob("*.requests.jsonl")):
+                if rp.name[: -len(".requests.jsonl")] not in wrapped:
+                    todo += _fold_conversations(rp, known, index, now)
+            try:
+                from .. import atrest
+
+                atrest.write_owner_only(ip, json.dumps(index, sort_keys=True).encode())
+            except OSError:
+                pass
         append(todo)
         return len(todo)
     except Exception:  # noqa: BLE001 — the A/B record must never break a wrap
