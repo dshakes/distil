@@ -5554,11 +5554,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     from .abtest.report import register as _register_ab
 
-    # `distil ab` — the causal task-level A/B (distil/abtest/). INTEGRATION NOTE for
-    # feat/front-door: this is NOT a front-door command. When merged there, hide it from
-    # the default help (help=argparse.SUPPRESS on this parser, or front-door's own
-    # mechanism) and list it under --help-all. The savings screen should render
-    # distil.abtest.abtest_summary(window) rather than send users here.
+    # `distil ab` — the causal task-level A/B (distil/abtest/). Not in FRONT_DOOR, so
+    # `--help` leaves it out and `--help-all` lists it (tests/test_front_door.py).
+    # ponytail: the savings screen does not render abtest_summary() yet — it calls
+    # harvest(), which folds session files on every call; add it with its own test.
     _register_ab(sub)
 
     dash = sub.add_parser(
