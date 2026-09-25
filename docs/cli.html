@@ -1424,9 +1424,10 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <p><code>--statusline-only</code> (or <code>--settings PATH</code>) runs the original command: wire the status line into Claude Code's <code>settings.json</code>. It is idempotent, never replaces an existing status line without <code>--force</code> (which backs it up first), and keeps all other settings.</p>
 
     <h3 id="setup-hooks">distil setup --hooks</h3>
-    <p>For agents a proxy cannot reach: install a post-tool hook in every detected client — Claude Code, Cursor (MCP output only), Gemini CLI, Codex CLI — that runs distil's digest on tool output before it enters the agent's history, with the original kept for <code>distil expand &lt;handle&gt;</code>. Only this runs; nothing else in <code>setup</code> does. Per client and to undo: <code>distil hook install|uninstall|status --client claude|cursor|gemini|codex|all</code>. Details, sources and what is not supported: <a href="hooks.html">Post-tool hooks</a>.</p>
+    <p>For agents a proxy cannot reach: install a post-tool hook in every detected client — Claude Code, Cursor (MCP output only), Gemini CLI, Codex CLI — that compresses tool output before it enters the agent's history. On a subscription it is lossless-only unless you add <code>--digest</code>; on a metered key the recoverable digest runs by default, with the original kept for <code>distil expand &lt;handle&gt;</code>. Only this runs; nothing else in <code>setup</code> does. Per client and to undo: <code>distil hook install|uninstall|status --client claude|cursor|gemini|codex|all</code>. Details, sources and what is not supported: <a href="hooks.html">Post-tool hooks</a>.</p>
     <pre class="term"><span class="d">$ distil setup --hooks</span>                      <span class="d"># every detected client</span>
-<span class="d">$ distil hook status</span>                        <span class="d"># where it is installed, and what each client allows</span>
+<span class="d">$ distil setup --hooks --digest</span>             <span class="d"># subscription: opt in to the digest</span>
+<span class="d">$ distil hook status</span>                        <span class="d"># where it is installed, which tier, and why</span>
 <span class="d">$ distil hook uninstall --client all</span>        <span class="d"># removes only what distil added</span>
 <span class="d">$ distil expand 3f9a1c2e</span>                    <span class="d"># the original behind a digest handle</span></pre>
 

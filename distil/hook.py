@@ -10,8 +10,12 @@ OAuth interception, no credential bridging.
 
 What it does
 ------------
-Tier-0 (JSON minification, exact-run collapse) always; then, for verbose
-line-oriented output, the same Tier-1 decision-aware digest the proxy uses. A
+Tier-0 (JSON minification, exact-run collapse) always. The Tier-1 decision-aware
+digest the proxy uses follows the proxy's billing policy (``policy.may_digest`` over
+``doctor.subscription_mode``): on a metered API key it runs by default; on a
+subscription (Claude Pro/Max login) the hook stays **lossless-only** unless the user
+opted in with ``--digest``. An entry written before tiers existed (no ``--tier`` on
+its command line) keeps the lossless-only behaviour it was installed with. A
 digest is only emitted after the full original is persisted in the RestoreStore
 and read back byte-exact, so every elided line is recoverable with
 ``distil expand <handle>`` (shell) or the ``distil_expand`` MCP tool. Reject-if-
@@ -67,6 +71,28 @@ _MIN_CHARS = 2048
 # Same floor as Tier1Reversible: shorter text has no droppable middle.
 _MIN_DIGEST_LINES = 6
 
+#: The tier the running hook was installed with — the ``--tier`` on its command line:
+#: ``auto`` (billing policy decides), ``digest`` (explicit opt-in), or ``lossless``
+#: (no ``--tier`` at all: an entry from before tiers existed keeps its behaviour).
+_TIER = "auto"
+
+
+def tier_decision(tier: str | None) -> tuple[bool, str]:
+    """``(digest_enabled, why)`` for an installed tier. One policy, shared with the
+    proxy: ``policy.may_digest`` over the proxy's own ``subscription_mode``."""
+    from .doctor import subscription_mode
+    from .policy import AuthMode, may_digest
+
+    if tier in (None, "lossless"):
+        return False, "lossless-only: installed before hook tiers; re-install to choose"
+    if tier == "digest":
+        return True, "digest: opted in with --digest"
+    mode = AuthMode.SUBSCRIPTION if subscription_mode() else AuthMode.PAYG
+    if may_digest(mode):
+        return True, "digest: metered API key (the default off a subscription)"
+    return False, "lossless-only: subscription login detected (opt in with --digest)"
+
+
 #: First line of a replacement delivered through a block/deny channel (Gemini, Codex),
 #: so the model reads it as output rather than as a refusal.
 _BLOCK_NOTE = "[distil: tool output compacted, not an error]\n"
@@ -111,6 +137,8 @@ def _compress_plain(text: str) -> str:
     from .tokenizer import resolve
 
     best = _tier0(text)
+    if not tier_decision(_TIER)[0]:
+        return best
     # JSON is structured: its lossless minified form stays parseable, a line digest
     # of it would not. The proxy routes it to the structured folds for the same reason.
     if minify_json(text) is not None or text.count("\n") + 1 < _MIN_DIGEST_LINES:
@@ -381,8 +409,10 @@ def _codex(event: dict[str, Any]) -> tuple[str, Any, Any, dict[str, Any]] | None
 _ADAPTERS = {"claude": _claude, "cursor": _cursor, "gemini": _gemini, "codex": _codex}
 
 
-def run(stdin_text: str, client: str = "claude") -> str:
+def run(stdin_text: str, client: str = "claude", tier: str | None = "auto") -> str:
     """Map one hook invocation to its stdout. Never raises."""
+    global _TIER
+    prev, _TIER = _TIER, tier or "lossless"
     try:
         event = json.loads(stdin_text)
         if not isinstance(event, dict):
@@ -397,21 +427,29 @@ def run(stdin_text: str, client: str = "claude") -> str:
         # A hook that crashes must not break the user's session, and a hook that
         # emits garbage must not corrupt a tool result. Both resolve to "do nothing".
         return "{}"
+    finally:
+        _TIER = prev
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if "--selftest" in argv:
         return _selftest()
-    client = "claude"
-    if "--client" in argv:
-        i = argv.index("--client")
-        client = argv[i + 1] if i + 1 < len(argv) else ""
-    if client not in _ADAPTERS:
-        sys.stdout.write("{}")  # an unknown client must still be a no-op, never an error
+    client = _flag(argv, "--client") or "claude"
+    # No --tier = an entry written before tiers existed: it keeps lossless-only.
+    tier = _flag(argv, "--tier") if "--tier" in argv else "lossless"
+    if client not in _ADAPTERS or tier not in ("auto", "digest", "lossless"):
+        sys.stdout.write("{}")  # an unknown value must still be a no-op, never an error
         return 0
-    sys.stdout.write(run(sys.stdin.read(), client))
+    sys.stdout.write(run(sys.stdin.read(), client, tier))
     return 0
+
+
+def _flag(argv: list[str], name: str) -> str:
+    if name not in argv:
+        return ""
+    i = argv.index(name)
+    return argv[i + 1] if i + 1 < len(argv) else ""
 
 
 def _selftest() -> int:
@@ -642,21 +680,24 @@ def _settings_path() -> Path:  # 1.x name, kept for callers/tests
     return config_path("claude")
 
 
-def _hook_command(client: str = "claude") -> str:
+def _hook_command(client: str = "claude", tier: str = "auto") -> str:
     """The exact command the client will run.
 
     Uses the *current* interpreter rather than a bare ``distil``: a pipx install puts
     distil on PATH but an editor may not inherit that PATH, and the failure would be
     silent (hook not found -> original output used, no error surfaced). Claude Code's
-    command carries no ``--client`` so entries written by earlier releases still match.
+    command carries no ``--client``, like entries written by earlier releases. ``--tier``
+    is always written: its absence is what marks a pre-tier entry as lossless-only.
     """
     exe = f'"{sys.executable}"' if " " in sys.executable else sys.executable
     cmd = f"{exe} -m distil.hook"
-    return cmd if client == "claude" else f"{cmd} --client {client}"
+    if client != "claude":
+        cmd += f" --client {client}"
+    return f"{cmd} --tier {tier}"
 
 
-def _entry(client: str = "claude") -> dict[str, Any]:
-    cmd = _hook_command(client)
+def _entry(client: str = "claude", tier: str = "auto") -> dict[str, Any]:
+    cmd = _hook_command(client, tier)
     if client == "cursor":
         # Flat entry; the matcher is a regex over the tool type, MCP tools as MCP:<name>.
         return {"command": cmd, "matcher": "MCP:"}
@@ -711,9 +752,16 @@ def _load(path: Path) -> tuple[dict[str, Any] | None, str]:
     return _load_settings(path)
 
 
-def install_hook(client: str = "claude") -> int:
+def install_hook(client: str = "claude", *, digest: bool = False) -> int:
+    """Install (or re-install) distil's hook for *client*.
+
+    ``digest`` is the explicit opt-in to the Tier-1 digest on a subscription login; it
+    is written into the hook's own command (``--tier digest``) and recorded with a
+    timestamp. Without it the tier is ``auto``: the proxy's billing policy decides
+    per call (metered key → digest, subscription → lossless-only)."""
     from .setup import _write_settings
 
+    tier = "digest" if digest else "auto"
     meta = CLIENTS[client]
     path = config_path(client)
     existed = path.exists()
@@ -740,7 +788,7 @@ def install_hook(client: str = "claude") -> int:
 
     # Idempotent: replace our own entry, never duplicate it, never touch anyone else's.
     kept = [e for e in event_list if not _ours(e)]
-    kept.append(_entry(client))
+    kept.append(_entry(client, tier))
     new = {**_scaffold(client), **data} if not existed else data
     new["hooks"] = {**hooks, meta.event: kept}
     try:
@@ -753,15 +801,18 @@ def install_hook(client: str = "claude") -> int:
     owned = _read_owned()
     prior = owned.get(key, {}).get("created", [])
     # A re-install must not forget that an earlier install created the file.
-    owned[key] = {"client": client, "created": sorted(set(prior) | set(created))}
+    owned[key] = {"client": client, "created": sorted(set(prior) | set(created)), "tier": tier}
+    if digest:
+        owned[key]["digest_opt_in_ts"] = time.time()
     try:
         _write_owned(owned)
     except OSError as exc:
         print(f"distil: hook installed, but the ownership record was not updated ({exc})")
 
     print(f"distil: {meta.label} hook installed in {path}")
-    print(f"  command: {_hook_command(client)}")
-    print(f"  scope:   {meta.scope}, results >= 2 KB; digests recoverable via `distil expand`")
+    print(f"  command: {_hook_command(client, tier)}")
+    print(f"  scope:   {meta.scope}, results >= 2 KB")
+    print(f"  tier:    {tier_decision(tier)[1]}")
     print(f"  verify:  distil hook --selftest     (contract: {meta.doc_url})")
     if client == "codex":
         print("\n  Codex runs a new hook only after you trust it: open /hooks in Codex.")
@@ -830,6 +881,22 @@ def hook_status(client: str) -> tuple[bool, Path]:
     return (isinstance(entries, list) and any(_ours(e) for e in entries)), path
 
 
+def installed_tier(client: str) -> str | None:
+    """The ``--tier`` distil's installed entry runs with; ``lossless`` for an entry
+    written before tiers existed; None when no distil entry is installed."""
+    import re
+
+    path = config_path(client)
+    data, _ = _load(path) if path.is_file() else (None, "")
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    entries = hooks.get(CLIENTS[client].event) if isinstance(hooks, dict) else None
+    for e in entries if isinstance(entries, list) else []:
+        if _ours(e):
+            m = re.search(r"--tier (\w+)", json.dumps(e))
+            return m.group(1) if m else "lossless"
+    return None
+
+
 def detected_clients() -> list[str]:
     """Clients whose config directory exists on this machine (Claude Code always)."""
     found = ["claude"]
@@ -845,6 +912,8 @@ def print_status() -> int:
         mark = "✓ installed" if installed else "· not installed"
         print(f"  {meta.label:<12} {mark:<16} {path}")
         print(f"  {'':<12} scope: {meta.scope}")
+        if installed:
+            print(f"  {'':<12} tier:  {tier_decision(installed_tier(key))[1]}")
     for label, why, url, date in UNSUPPORTED.values():
         print(f"  {label:<12} ✗ unsupported: {why} ({url}, checked {date})")
     return 0

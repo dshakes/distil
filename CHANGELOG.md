@@ -15,7 +15,8 @@ Three threads, and the same shape keeps recurring below. The first is the re-rea
 - `distil doctor --deep` also runs the `validate` and `verify` gates.
 - `distil --help-all` lists every command.
 - `pricing.Pricing.cache_write_1h`: 1-hour cache writes bill at 2x input.
-- Post-tool hooks for Claude Code, Cursor (MCP output only), Gemini CLI and Codex CLI: `distil setup --hooks`, `distil hook install|uninstall|status --client …`. Tier-0 then the Tier-1 digest, original kept for `distil expand <handle>`; exact-quote reads never touched. Windsurf's post hooks cannot replace output, so it is documented as unsupported.
+- Post-tool hooks for Claude Code, Cursor (MCP output only), Gemini CLI and Codex CLI: `distil setup --hooks`, `distil hook install|uninstall|status --client …`. They follow the proxy's billing policy: lossless-only on a subscription unless you opt in with `--digest` (recorded; `distil hook status` shows the tier and why), the recoverable digest by default on a metered key. Hooks installed before this release stay lossless-only until re-installed. Exact-quote reads are never touched. Windsurf's post hooks cannot replace output, so it is documented as unsupported.
+- `distil discover` prices 1-hour cache writes of tool definitions at 2x (older rows at 1.25x, as before).
 - The proxy records 1-hour and 5-minute cache writes separately (`usage_cache_create_1h` / `_5m`); `distil savings` and `distil dissect` price 1-hour writes at 2x. Older rows price as before.
 - Optional `distil-llm[code]` extra: tree-sitter code skeletons for Go, Rust, Java, C, C++, Ruby, TypeScript and JavaScript. Falls back to the brace heuristic without it.
 - `<distil:keep>…</distil:keep>` spans are never compressed; the tags pass through.

@@ -67,6 +67,13 @@ def may_compress_lossy(mode: AuthMode) -> bool:
 # and ADR 0006 records why. Do not reintroduce this without a call site.
 
 
+def may_digest(mode: AuthMode, *, opted_in: bool = False) -> bool:
+    """May the recoverable Tier-1 digest run? The rule above, stated once for callers
+    outside the proxy (the post-tool hooks): on by default on PAYG; on a subscription
+    only after an explicit, recorded opt-in."""
+    return mode is AuthMode.PAYG or opted_in
+
+
 def guard(mode: AuthMode, strategy: str) -> None:
     """Raise PolicyError if `strategy` is not permitted under `mode`."""
     if strategy not in allowed_strategies(mode):

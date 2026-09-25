@@ -58,8 +58,9 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
 - **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands · AutoGen · LlamaIndex, in-process, no network hop — plus an **ASGI middleware** for any Starlette/FastAPI app that hosts its own LLM endpoint, and the [npm package](https://www.npmjs.com/package/distil-llm) for the Vercel AI SDK.
 - **Where a proxy can't reach** — `distil setup --hooks`: Claude Code, Cursor (MCP output), Gemini CLI
-  and Codex CLI compress tool output through their documented post-tool hooks, every digest recoverable
-  with `distil expand <handle>`. No proxy, no credentials touched. `distil quota` shows the rate-limit
+  and Codex CLI compress tool output through their documented post-tool hooks. Lossless-only on a
+  subscription unless you add `--digest`; every digest recoverable with `distil expand <handle>`.
+  No proxy, no credentials touched. `distil quota` shows the rate-limit
   window it buys back. [Hooks →](https://dshakes.github.io/distil/hooks.html)
 - **VS Code Copilot Chat** — its BYOK Custom Endpoint can point at a distil proxy: `distil setup --vscode`.
 - **Keep a span verbatim** — `<distil:keep>…</distil:keep>` in a prompt or tool output is never compressed.

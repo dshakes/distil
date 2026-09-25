@@ -2305,7 +2305,7 @@ def cmd_setup_front(args: argparse.Namespace) -> int:
     if args.settings or args.statusline_only:
         return cmd_setup(args)
     if getattr(args, "hooks", False):
-        return cmd_hook(argparse.Namespace(action="install", client="auto"))
+        return cmd_hook(argparse.Namespace(action="install", client="auto", digest=args.digest))
     if getattr(args, "vscode", False):
         return _print_vscode_entry(args.port)
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
@@ -3148,12 +3148,14 @@ def cmd_hook(args: argparse.Namespace) -> int:
             if client == "auto"
             else [client]
         )
-        fn = install_hook if action == "install" else uninstall_hook
+        digest = bool(getattr(args, "digest", False))
         rc = 0
         for i, key in enumerate(keys):
             if i:
                 print()
-            rc = max(rc, fn(key))
+            rc = max(
+                rc, install_hook(key, digest=digest) if action == "install" else uninstall_hook(key)
+            )
         return rc
     if getattr(args, "stats", False):
         return _hook_stats()
@@ -3260,7 +3262,11 @@ def _hook_stats(out: Any = None) -> int:
         by_tool[str(r.get("tool") or "?")] = by_tool.get(str(r.get("tool") or "?"), 0) + int(
             r.get("chars_saved") or 0
         )
-    print("distil hook — tool-output compression via first-party hooks (no proxy)\n", file=stream)
+    print(
+        "distil hook — tool-output compression via first-party hooks "
+        "(lossless-only on a subscription unless you opted in)\n",
+        file=stream,
+    )
     print(f"  compressed results : {len(rows):,}", file=stream)
     print(f"  characters before  : {before:,}", file=stream)
     print(f"  characters after   : {after:,}", file=stream)
@@ -5365,6 +5371,12 @@ def build_parser() -> argparse.ArgumentParser:
         "Gemini CLI, Codex) — for agents a proxy cannot reach",
     )
     su.add_argument(
+        "--digest",
+        action="store_true",
+        help="with --hooks: opt a subscription login into the recoverable digest (metered keys "
+        "get it by default; subscriptions stay lossless-only without this)",
+    )
+    su.add_argument(
         "--vscode",
         action="store_true",
         help="print the VS Code Copilot Chat custom-endpoint entry that routes it via distil",
@@ -5495,6 +5507,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="what the hook actually saved, from its append-only receipts",
     )
     hk.add_argument("--uninstall", action="store_true", help="same as `distil hook uninstall`")
+    hk.add_argument(
+        "--digest",
+        action="store_true",
+        help="install: opt a subscription login into the recoverable digest (recorded; "
+        "metered keys get it by default, subscriptions stay lossless-only without it)",
+    )
     hk.set_defaults(func=cmd_hook)
 
     ex = sub.add_parser(

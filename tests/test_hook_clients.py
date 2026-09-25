@@ -29,6 +29,14 @@ VARIED = (
 REPEATED = "ERROR connection refused\n" * 400
 
 
+@pytest.fixture(autouse=True)
+def _metered(monkeypatch):
+    """These tests exercise the digest, which a subscription login keeps off by default
+    (tests/test_hook_tiers.py covers that branch); pin the billing so the developer's
+    own environment cannot flip them."""
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
+
+
 def _handle(text: str) -> str:
     import re
 
@@ -190,7 +198,7 @@ class TestMain:
 
         ev = json.dumps({"tool_name": "Bash", "tool_response": VARIED})
         monkeypatch.setattr("sys.stdin", io.StringIO(ev))
-        assert hook.main(["--client", "codex"]) == 0
+        assert hook.main(["--client", "codex", "--tier", "auto"]) == 0
         assert json.loads(capsys.readouterr().out)["decision"] == "block"
         monkeypatch.setattr("sys.stdin", io.StringIO(ev))
         assert hook.main(["--client", "nope"]) == 0
@@ -395,12 +403,17 @@ class TestCli:
 def test_end_to_end_big_output_through_the_hook_process(tmp_path):
     """A real subprocess, exactly as a client runs it: big output in, smaller out,
     and the handle in the stub recovers the original byte-exact via `distil expand`."""
-    env = {**os.environ, "HOME": str(tmp_path), "DISTIL_HOME": str(tmp_path / "dh")}
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "DISTIL_HOME": str(tmp_path / "dh"),
+        "DISTIL_SUBSCRIPTION": "0",
+    }
     big = VARIED + "\n" + "\n".join(f"row {i}: value={i * i}" for i in range(2000))
     ev = {"tool_name": "run_shell_command", "tool_input": {"command": "make"}}
     ev["tool_response"] = {"llmContent": big}
     proc = subprocess.run(
-        [sys.executable, "-m", "distil.hook", "--client", "gemini"],
+        [sys.executable, "-m", "distil.hook", "--client", "gemini", "--tier", "auto"],
         input=json.dumps(ev),
         capture_output=True,
         text=True,

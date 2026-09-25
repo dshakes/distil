@@ -21,6 +21,14 @@ KEPT = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _metered(monkeypatch):
+    """These tests exercise the digest, which a subscription login keeps off by default
+    (tests/test_hook_tiers.py covers that branch); pin the billing so the developer's
+    own environment cannot flip them."""
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
+
+
 def _upper(s: str) -> str:
     return s.upper()
 

@@ -156,13 +156,16 @@ distil quota              # see the window it is saving</code></pre>
     is produced, and <em>no</em> hook event can rewrite history. Compression is append-only because
     the platform makes it so &mdash; not because we remembered to be careful.</p>
 
-    <p>No hook can rewrite history, so a digest stub is only worth emitting if the agent can get the
-    original back some other way. It can now: before a stub is emitted, the original is written to
-    distil&rsquo;s local restore store and read back byte-exact, and the stub ends with
-    <code>distil expand &lt;handle&gt;</code>, which the agent runs in its own shell. No tool is injected
-    into the request and nothing is intercepted. So the hook applies Tier-0 first and, for verbose
-    line output, the same Tier-1 digest as the proxy &mdash; see <a href="hooks.html">Post-tool
-    hooks</a> for the rules, including what it never touches.</p>
+    <p>The same policy as the proxy sets the tier: <strong>on a subscription the hook is
+    lossless-only by default.</strong> Lossless-only is both the correct tier and the compliant one.
+    If you want more, you can opt in explicitly &mdash; <code>distil hook install --digest</code> (or
+    <code>distil setup --hooks --digest</code>) &mdash; and the hook adds the proxy&rsquo;s Tier-1 digest
+    for verbose line output. Each stub is emitted only after the original is written to distil&rsquo;s
+    local restore store and read back byte-exact, and it names the <code>distil expand
+    &lt;handle&gt;</code> command that recovers it; no tool is injected and nothing is intercepted. The
+    opt-in is recorded, and <code>distil hook status</code> shows which tier is active and why. On a
+    metered API key the digest is on by default, as it is on the proxy. See <a href="hooks.html">Post-tool
+    hooks</a>.</p>
 
     <h2 id="setup">Set it up &mdash; three commands</h2>
 
@@ -334,10 +337,10 @@ Subscription quota (the currency a flat-rate plan actually spends):
     <h2 id="scope">Honest scope</h2>
 
     <ul>
-      <li><strong>Lossless first, digest only when recoverable.</strong> Tier-0 always; the Tier-1
-      digest only for verbose line output, only after the original is stored and read back, each stub
-      naming the <code>distil expand</code> command that recovers it. No injected recall tool, no
-      summarization. The shape table above measures Tier-0 alone.</li>
+      <li><strong>Lossless only, by default.</strong> No digest stubs, no injected recall tool, no
+      summarization. The recoverable digest is an explicit opt-in (<code>--digest</code>), recorded and
+      shown by <code>distil hook status</code>. Hooks installed before this release stay
+      lossless-only until you re-install.</li>
       <li><strong>Bash and MCP tool results only</strong>, at or above 2&nbsp;KB. Other built-in tools
       have undocumented output shapes and a near-miss is silently ignored, so distil declines them
       rather than guessing.</li>

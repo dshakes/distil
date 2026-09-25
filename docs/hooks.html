@@ -112,8 +112,16 @@
 <span class="d">$ distil hook status</span>
 <span class="d">$ distil hook --selftest</span>               <span class="d"># the adapters, proven offline</span></pre>
 
+    <h2 id="tier">Which tier runs: the proxy's billing policy</h2>
+    <ul>
+      <li><strong>Subscription</strong> (a Claude Pro/Max login, detected exactly as the proxy detects it; <code>DISTIL_SUBSCRIPTION</code> overrides): <strong>lossless-only by default.</strong> Opt in to the digest explicitly with <code>distil hook install --digest</code> or <code>distil setup --hooks --digest</code>. The opt-in is written into the hook's own command and recorded with a timestamp; re-installing without the flag returns to the default.</li>
+      <li><strong>Metered API key:</strong> the digest runs by default, as on the proxy.</li>
+      <li><strong>Hooks installed before this release</strong> keep the lossless-only behaviour they were installed with, whatever the billing, until you re-install.</li>
+    </ul>
+    <p><code>distil hook status</code> shows, per client, which tier is active and why.</p>
+
     <h2 id="what">What the hook does</h2>
-    <p>Tier-0 first (JSON minified, exact repeats collapsed), then for verbose line output the same decision-aware Tier-1 digest the proxy uses: head, tail, every error and verdict line kept, the quiet middle folded behind a handle. A digest is emitted only after the full original is written to distil's encrypted restore store <em>and read back byte-exact</em>; the stub ends with the command that recovers it:</p>
+    <p>Tier-0 first (JSON minified, exact repeats collapsed), then — when the tier above allows it — for verbose line output the same decision-aware Tier-1 digest the proxy uses: head, tail, every error and verdict line kept, the quiet middle folded behind a handle. A digest is emitted only after the full original is written to distil's encrypted restore store <em>and read back byte-exact</em>; the stub ends with the command that recovers it:</p>
 <pre class="term">&lt;&lt; +412 lines, handle=3f9a1c2e &gt;&gt;
 === 12 passed in 3.2s ===
 &lt;&lt; full output: `distil expand 3f9a1c2e` &gt;&gt;</pre>
