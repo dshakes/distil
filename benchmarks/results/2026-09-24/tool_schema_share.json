@@ -1,0 +1,29 @@
+{
+  "source": "~/.distil/sessions/*.requests.jsonl (status 200, provider usage present)",
+  "requests": 12722,
+  "requests_with_tools": 12722,
+  "billed_input_tokens": 3103148309,
+  "tool_tokens_billed_scale": 1228509824,
+  "tool_share_of_input_tokens": 0.3959,
+  "tool_share_per_request_median": 0.088,
+  "tool_tokens_cache_read_fraction": 0.9856,
+  "tool_tokens_cache_write_fraction": 0.0144,
+  "tool_tokens_uncached_fraction": 0.0,
+  "usd_total": 2440.71,
+  "usd_input": 2297.75,
+  "usd_tools": 869.8,
+  "tool_share_of_billed_usd": 0.3564,
+  "ev_share_of_billed_usd_at_x": {
+    "5%": 0.0178,
+    "10%": 0.0356,
+    "20%": 0.0713,
+    "30%": 0.1069
+  },
+  "lossless_headroom": {
+    "tools": 173,
+    "tool_tokens": 115088,
+    "tool_tokens_after_lossless_compaction": 111442,
+    "lossless_reduction": 0.0317
+  },
+  "ev_share_of_billed_usd_lossless": 0.0113
+}

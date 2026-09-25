@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any
 
 DEFAULT_COMMAND = "distil statusline"
 
@@ -29,10 +31,52 @@ def _atomic_write(path: Path, text: str) -> None:
     edits stop taking effect and ours vanish on the next `stow`/`chezmoi` run.
     Writing through the link keeps the file the user actually version-controls.
     """
-    target = path.resolve() if path.is_symlink() else path
-    tmp = target.with_name(target.name + ".distil.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, target)
+    import tempfile
+
+    try:
+        target = path.resolve() if path.is_symlink() else path
+    except RuntimeError as exc:  # a symlink loop (py<3.13) — an I/O error to callers
+        raise OSError(f"{path}: symlink loop ({exc})") from exc
+    # mkstemp: O_EXCL, mode 0600, unique name. A settings file can carry API keys in
+    # its env block, so the copy must never exist readable by others, not even for
+    # the moment between writing it and fixing its mode.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".distil.tmp"
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        # os.replace installs the tmp file's inode, so carry the target's mode (and,
+        # best-effort, owner) across. A new file stays 0600.
+        try:
+            st = target.stat()
+        except FileNotFoundError:
+            st = None
+        if st is not None:
+            os.chmod(tmp, stat.S_IMODE(st.st_mode))
+            if hasattr(os, "chown"):
+                try:
+                    os.chown(tmp, st.st_uid, st.st_gid)
+                except OSError:
+                    pass  # not ours to give away (non-root); the mode still holds
+        os.replace(tmp, target)
+    except BaseException:
+        # Never leave a copy of the user's settings (or rc file) lying next to it.
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _write_settings(settings_path: Path, data: object) -> None:
+    """Every Claude Code settings write: atomic, symlink-following, mode-preserving.
+
+    ``write_text`` truncates in place, so a reader (Claude Code re-reads the file on
+    launch and rewrites it itself) could see an empty or half-written file.
+    """
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(settings_path, json.dumps(data, indent=2) + "\n")
 
 
 def default_settings_path() -> Path:
@@ -153,7 +197,7 @@ def unwire_base_url(settings_path: Path) -> tuple[str, str]:
     del env["ANTHROPIC_BASE_URL"]
     if not env:
         del data["env"]
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_settings(settings_path, data)
     return ("ok", f"removed ANTHROPIC_BASE_URL ({existing}) from {settings_path}")
 
 
@@ -191,8 +235,48 @@ def wire_statusline(
 
     data["statusLine"] = {"type": "command", "command": command, "padding": 0}
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_settings(settings_path, data)
     return ("ok", f"wired the distil status line into {settings_path}")
+
+
+def _load_settings(settings_path: Path) -> tuple[dict[str, Any] | None, str]:
+    """``(data, "")`` for a readable JSON object (``{}`` when the file is absent), else
+    ``(None, why)``. Nothing that fails here is ever written back."""
+    if not settings_path.exists():
+        return {}, ""
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return None, f"{settings_path} is not valid JSON ({exc}) — fix it or edit by hand"
+    if not isinstance(data, dict):
+        return None, f"{settings_path} is not a JSON object"
+    return data, ""
+
+
+def _set_env(
+    data: dict[str, Any], settings_path: Path, env_var: str, value: str, force: bool
+) -> tuple[str, str, bool]:
+    """Apply ``{env_var: value}`` to *data* in memory: ``(status, message, replaced)``,
+    where *replaced* means a different existing value was overwritten (back it up)."""
+    env = data.get("env")
+    existing = env.get(env_var) if isinstance(env, dict) else None
+    if existing == value:
+        return ("exists", f"distil's {env_var} already wired", False)
+    if existing and not force:
+        return (
+            "conflict",
+            f"{env_var} is already set to {existing!r} in {settings_path}; "
+            "re-run with --force to replace it (it'll be backed up first)",
+            False,
+        )
+    data["env"] = {**env, env_var: value} if isinstance(env, dict) else {env_var: value}
+    return ("ok", f"wired {env_var} into {settings_path}", bool(existing))
+
+
+def _backup(settings_path: Path) -> None:
+    settings_path.with_name(settings_path.name + ".bak").write_text(
+        settings_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
 
 def wire_settings_env(
@@ -210,34 +294,44 @@ def wire_settings_env(
 
     Returns ``(status, message)``: ``ok`` | ``exists`` | ``conflict`` | ``error``.
     """
-    data: object = {}
-    if settings_path.exists():
+    data, why = _load_settings(settings_path)
+    if data is None:
+        return ("error", why)
+    status, msg, replaced = _set_env(data, settings_path, env_var, value, force)
+    if status == "ok":
+        if replaced:
+            _backup(settings_path)
+        _write_settings(settings_path, data)
+    return (status, msg)
+
+
+def wire_always_on_settings(
+    settings_path: Path, base_url: str, *, force: bool = False
+) -> tuple[tuple[str, str], tuple[str, str] | None]:
+    """The always-on pin AND the tool-search key, in ONE read-modify-write.
+
+    Two back-to-back writes doubled the window in which Claude Code's own rewrite of
+    the file could interleave with ours and lose one side. Returns the base-URL
+    result (as :func:`wire_settings_env`) and the tool-search result (as
+    :func:`wire_tool_search`), the latter ``None`` when the pin was not wired — the
+    key only matters behind distil's own base URL.
+    """
+    data, why = _load_settings(settings_path)
+    if data is None:
+        return ("error", why), None
+    base = _set_env(data, settings_path, "ANTHROPIC_BASE_URL", base_url, force)
+    if base[0] not in ("ok", "exists"):
+        return base[:2], None
+    ts_status, ts_msg, record = _plan_tool_search(data, settings_path)
+    if base[0] == "ok" or ts_status == "ok":
+        if base[2]:
+            _backup(settings_path)
         try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            return ("error", f"{settings_path} is not valid JSON ({exc}) — fix it or edit by hand")
-    if not isinstance(data, dict):
-        return ("error", f"{settings_path} is not a JSON object")
-
-    env = data.get("env")
-    existing = env.get(env_var) if isinstance(env, dict) else None
-    if existing == value:
-        return ("exists", f"distil's {env_var} already wired")
-    if existing and not force:
-        return (
-            "conflict",
-            f"{env_var} is already set to {existing!r} in {settings_path}; "
-            "re-run with --force to replace it (it'll be backed up first)",
-        )
-    if existing:  # force: back up the current settings before replacing
-        settings_path.with_name(settings_path.name + ".bak").write_text(
-            settings_path.read_text(encoding="utf-8"), encoding="utf-8"
-        )
-
-    data["env"] = {**env, env_var: value} if isinstance(env, dict) else {env_var: value}
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return ("ok", f"wired {env_var} into {settings_path}")
+            _write_settings(settings_path, data)
+        except OSError as exc:  # neither key landed; record nothing
+            return ("error", f"could not write {settings_path} ({exc}) — left untouched"), None
+    _commit_tool_search(settings_path, record)
+    return base[:2], (ts_status, ts_msg)
 
 
 def unwire_settings_env(settings_path: Path, env_var: str, value: str) -> tuple[str, str]:
@@ -269,8 +363,229 @@ def unwire_settings_env(settings_path: Path, env_var: str, value: str) -> tuple[
     del env[env_var]
     if not env:
         del data["env"]
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_settings(settings_path, data)
     return ("ok", f"removed distil's {env_var} from {settings_path}")
+
+
+#: Claude Code switches its MCP tool search OFF behind a non-first-party
+#: ANTHROPIC_BASE_URL, so the always-on pin above would load every connector's full
+#: schema on every turn (ADR 0013). Wired beside the pin, only where absent.
+TOOL_SEARCH_VAR = "ENABLE_TOOL_SEARCH"
+TOOL_SEARCH_VALUE = "true"
+
+
+def settings_added_path() -> Path:
+    """Where distil records the settings keys IT added, so undo removes only those.
+
+    ``{"ENABLE_TOOL_SEARCH": {"owned": [paths], "declined": [paths]}}``: *owned* are
+    files distil wrote the key into (and it is still distil's value there);
+    *declined* are files where the user deleted distil's key, which distil never
+    re-adds. Lives in distil's home, not the settings file, so Claude Code never sees
+    a key it does not know.
+    """
+    return log_dir() / "settings-added.json"
+
+
+def _settings_key(settings_path: Path) -> str:
+    return os.path.abspath(settings_path)
+
+
+def _read_state() -> dict[str, list[str]]:
+    try:
+        data = json.loads(settings_added_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"owned": [], "declined": []}
+    entry = data.get(TOOL_SEARCH_VAR) if isinstance(data, dict) else None
+    entry = entry if isinstance(entry, dict) else {}
+    return {
+        k: [str(p) for p in entry.get(k) or [] if isinstance(p, str)] for k in ("owned", "declined")
+    }
+
+
+def _write_state(state: dict[str, list[str]]) -> None:
+    path = settings_added_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, json.dumps({TOOL_SEARCH_VAR: state}, indent=2) + "\n")
+
+
+def tool_search_added_to() -> list[str]:
+    """Absolute settings paths where distil owns an ``ENABLE_TOOL_SEARCH`` it added."""
+    return list(_read_state()["owned"])
+
+
+def _plan_tool_search(data: dict[str, Any], settings_path: Path) -> tuple[str, str, str | None]:
+    """Decide the tool-search key for *data* (mutating it only to ADD the key):
+    ``(status, message, record)`` where *record* is the ownership change to commit
+    AFTER the settings write succeeds — ``"own"``, ``"decline"``, ``"forget"`` or None.
+
+    Status: ``ok`` (added) | ``exists`` (distil's, still there) | ``user`` (a value
+    the user set; kept) | ``declined`` (the user removed distil's key; not re-added)
+    | ``error`` (``env`` is not an object — nothing changed).
+    """
+    env = data.get("env", {})
+    if not isinstance(env, dict):
+        return ("error", f"{settings_path}: `env` is not an object — left untouched", None)
+    key = _settings_key(settings_path)
+    state = _read_state()
+    owned, declined = key in state["owned"], key in state["declined"]
+    if TOOL_SEARCH_VAR in env:
+        if owned and env[TOOL_SEARCH_VAR] == TOOL_SEARCH_VALUE:
+            return ("exists", f"distil's {TOOL_SEARCH_VAR} already wired", None)
+        msg = f"{TOOL_SEARCH_VAR}={env[TOOL_SEARCH_VAR]!r} is yours — left as-is"
+        return ("user", msg, "forget" if owned else None)
+    if owned or declined:
+        # distil added it and it is gone: the user removed it. Never resurrect.
+        msg = f"you removed distil's {TOOL_SEARCH_VAR} from {settings_path} — not re-added"
+        return ("declined", msg, "decline" if owned else None)
+    data["env"] = {**env, TOOL_SEARCH_VAR: TOOL_SEARCH_VALUE}
+    return ("ok", f"wired {TOOL_SEARCH_VAR}={TOOL_SEARCH_VALUE} into {settings_path}", "own")
+
+
+def _commit_tool_search(settings_path: Path, record: str | None) -> None:
+    """Apply an ownership change. Called only after the settings write it describes
+    succeeded, so the record can never claim a key that is not in the file."""
+    if record is None:
+        return
+    key = _settings_key(settings_path)
+    state = _read_state()
+    owned = [p for p in state["owned"] if p != key]
+    declined = [p for p in state["declined"] if p != key]
+    if record == "own":
+        owned.append(key)
+    elif record == "decline":
+        declined.append(key)
+    _write_state({"owned": owned, "declined": declined})
+
+
+def wire_tool_search(settings_path: Path) -> tuple[str, str]:
+    """Set ``ENABLE_TOOL_SEARCH=true`` in *settings_path*'s env block — only if the key
+    is ABSENT and distil has never added it there before. A user value (``true``,
+    ``false``, ``auto:5``, anything) is never touched, and a key the user deleted is
+    never re-added. Ownership is recorded only AFTER the settings write succeeds, so
+    a failed write leaves no record and undo can never delete a key distil did not
+    write.
+
+    Known ceiling: if the user deletes distil's key and re-adds the identical value
+    with no distil command running in between, the two are indistinguishable and undo
+    will remove it. Any distil run that observes the deletion (a re-run of
+    ``--always-on`` included) records it and closes that gap.
+
+    Returns ``(status, message)``: see :func:`_plan_tool_search`.
+    """
+    data, why = _load_settings(settings_path)
+    if data is None:
+        return ("error", f"{why} — left untouched")
+    status, msg, record = _plan_tool_search(data, settings_path)
+    if status == "ok":
+        try:
+            _write_settings(settings_path, data)
+        except OSError as exc:  # nothing written, so nothing may be recorded as ours
+            return ("error", f"could not write {settings_path} ({exc}) — left untouched")
+    _commit_tool_search(settings_path, record)
+    return (status, msg)
+
+
+def _take_tool_search(
+    data: dict[str, Any], settings_path: Path
+) -> tuple[str, str, str | None, bool]:
+    """Remove distil's key from *data* in memory: ``(status, message, record, changed)``.
+    The key goes only if distil owns it here AND it still holds exactly distil's value;
+    *record* (``"forget"``) is committed by the caller only after its write succeeds."""
+    if _settings_key(settings_path) not in _read_state()["owned"]:
+        return ("absent", f"distil added no {TOOL_SEARCH_VAR} to {settings_path}", None, False)
+    env = data.get("env")
+    value = env.get(TOOL_SEARCH_VAR) if isinstance(env, dict) else None
+    if value is None:
+        return ("absent", f"no {TOOL_SEARCH_VAR} left in {settings_path}", "forget", False)
+    if value != TOOL_SEARCH_VALUE:
+        msg = f"{TOOL_SEARCH_VAR}={value!r} was changed by you — left as-is"
+        return ("user", msg, "forget", False)
+    assert isinstance(env, dict)
+    del env[TOOL_SEARCH_VAR]
+    if not env:
+        del data["env"]
+    return ("ok", f"removed distil's {TOOL_SEARCH_VAR} from {settings_path}", "forget", True)
+
+
+def unwire_tool_search(settings_path: Path, *, backup: bool = True) -> tuple[str, str]:
+    """Remove ``ENABLE_TOOL_SEARCH`` from *settings_path* only if distil owns it there
+    AND its current value is still exactly what distil wrote. A key distil never
+    added, or one the user has since changed, is left as-is. Ownership is forgotten
+    only after the key is actually gone (or was never there / is theirs now).
+    ``backup=False`` when the caller already took this run's ``.bak`` of the file —
+    a second backup would overwrite the original with an already-edited copy.
+
+    Returns ``(status, message)``: ``ok`` | ``absent`` | ``user`` | ``error``.
+    """
+    if _settings_key(settings_path) not in _read_state()["owned"]:
+        return ("absent", f"distil added no {TOOL_SEARCH_VAR} to {settings_path}")
+    data, why = _load_settings(settings_path)
+    if data is None:
+        return ("error", f"{why} — left untouched")
+    status, msg, record, changed = _take_tool_search(data, settings_path)
+    if changed:
+        try:
+            if backup:
+                _backup(settings_path)
+            _write_settings(settings_path, data)
+        except OSError as exc:
+            return ("error", f"could not write {settings_path} ({exc}) — left untouched")
+    _commit_tool_search(settings_path, record)
+    return (status, msg)
+
+
+def unwire_always_on_settings(
+    settings_path: Path,
+) -> tuple[tuple[str, str], tuple[str, str]]:
+    """Undo both always-on keys in ONE read-modify-write with ONE backup.
+
+    The loopback ``ANTHROPIC_BASE_URL`` pin is decided FIRST and independently: it
+    is the key that kills every session once the proxy is gone, so nothing about the
+    tool-search key (an unreadable ownership record, say) may stand in its way.
+    Returns ``(pin_result, tool_search_result)`` shaped like :func:`unwire_base_url`
+    and :func:`unwire_tool_search`.
+    """
+    from urllib.parse import urlparse
+
+    if not settings_path.exists():
+        msg = f"no settings file at {settings_path}"
+        return ("absent", msg), ("absent", msg)
+    data, why = _load_settings(settings_path)
+    if data is None:
+        return ("error", why), ("error", why)
+    env = data.get("env")
+    url = env.get("ANTHROPIC_BASE_URL") if isinstance(env, dict) else None
+    changed = False
+    if not url:
+        pin = ("absent", f"no ANTHROPIC_BASE_URL in {settings_path}")
+    elif urlparse(str(url)).hostname not in ("127.0.0.1", "localhost", "::1"):
+        pin = ("foreign", f"ANTHROPIC_BASE_URL is {url!r} (not loopback) — left as-is")
+    else:
+        assert isinstance(env, dict)
+        del env["ANTHROPIC_BASE_URL"]
+        if not env:
+            del data["env"]
+        changed = True
+        pin = ("ok", f"removed ANTHROPIC_BASE_URL ({url}) from {settings_path}")
+    record: str | None = None
+    try:
+        st, msg, record, ts_changed = _take_tool_search(data, settings_path)
+        ts: tuple[str, str] = (st, msg)
+        changed = changed or ts_changed
+    except (OSError, RuntimeError, ValueError) as exc:
+        ts = ("error", f"{TOOL_SEARCH_VAR} not checked in {settings_path} ({exc})")
+    if changed:
+        try:
+            _backup(settings_path)
+            _write_settings(settings_path, data)
+        except OSError as exc:
+            err = ("error", f"could not write {settings_path} ({exc}) — left untouched")
+            return (err if pin[0] == "ok" else pin), (err if ts[0] == "ok" else ts)
+    try:
+        _commit_tool_search(settings_path, record)
+    except OSError as exc:
+        ts = ("error", f"{ts[1]} (ownership record not updated: {exc})")
+    return pin, ts
 
 
 def unwire_statusline(settings_path: Path) -> tuple[str, str]:
@@ -298,7 +613,7 @@ def unwire_statusline(settings_path: Path) -> tuple[str, str]:
         settings_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
     del data["statusLine"]
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_settings(settings_path, data)
     return ("ok", f"removed the distil status line from {settings_path}")
 
 
@@ -561,7 +876,8 @@ def escape_hatch_spec(port: int, rc: "Path | None" = None) -> tuple[Path, str]:
 # `distil offboard` while distil is still installed; use this when it isn't.
 #
 # Removes: the managed shell block, the always-on proxy service, and any loopback
-# ANTHROPIC_BASE_URL pinned in a Claude Code settings file. Leaves your savings data.
+# ANTHROPIC_BASE_URL pinned in a Claude Code settings file, plus the ENABLE_TOOL_SEARCH
+# distil added beside it (never one you set). Leaves your savings data.
 set -u
 echo "distil escape hatch — removing machine wiring"
 changed=0
@@ -603,49 +919,116 @@ if [ -f "$unit" ] || [ -f "$sock" ]; then
     systemctl --user daemon-reload 2>/dev/null
 fi
 
-# 3 · loopback ANTHROPIC_BASE_URL in Claude Code settings (JSON — needs python3).
+# 3 · loopback ANTHROPIC_BASE_URL (+ distil-added ENABLE_TOOL_SEARCH) in Claude Code
+#     settings (JSON — needs python3).
 # Extra settings paths may be passed as arguments, for project-scoped files this
 # script could not know about when it was written.
 for s in "$HOME/.claude/settings.json" "$HOME/.claude/settings.local.json" "$@"; do
     [ -f "$s" ] || continue
     if command -v python3 >/dev/null 2>&1; then
         python3 - "$s" <<'PY'
-import json, sys
+import json, os, sys
 from urllib.parse import urlparse
 p = sys.argv[1]
+MARKER = {str(settings_added_path())!r}
 try:
-    with open(p) as fh:
+    with open(p, encoding="utf-8") as fh:
         d = json.load(fh)
 except Exception as exc:
     print(f"  ! could not read {{p}}: {{exc}}")
     sys.exit(0)
 env = d.get("env") if isinstance(d, dict) else None
-url = env.get("ANTHROPIC_BASE_URL") if isinstance(env, dict) else None
-if not url or not isinstance(url, str):
+if not isinstance(env, dict):
     sys.exit(0)
-# Parse the host; do NOT substring-match. "127.0.0.1" appearing anywhere in a URL
-# is not evidence that it IS loopback: a corporate gateway at
-# https://gw.corp.example.com/pools/127.0.0.1 would be silently deleted by a
-# substring test, and http://127.1:8788 — a valid loopback shorthand — would be
-# kept. This mirrors loopback_base_url() in distil/setup.py.
+removed = []
+# ENABLE_TOOL_SEARCH: only where distil owns it, and only while it still holds exactly
+# distil's value. A user's own setting is never touched. Ownership is forgotten only
+# AFTER the settings write succeeds. Mirrors unwire_tool_search() in distil/setup.py.
 try:
-    host = urlparse(url).hostname or ""
-except ValueError:
-    host = ""
-if host not in ("127.0.0.1", "127.1", "localhost", "::1", "0.0.0.0"):
-    print(f"  · kept ANTHROPIC_BASE_URL={{url}} in {{p}} (not a local proxy — not ours)")
+    with open(MARKER, encoding="utf-8") as fh:
+        state = json.load(fh)
+except Exception:
+    state = {{}}
+entry = state.get("{TOOL_SEARCH_VAR}") if isinstance(state, dict) else None
+owned = entry.get("owned") if isinstance(entry, dict) else None
+key = os.path.abspath(p)
+ours = isinstance(owned, list) and key in owned
+if ours and env.get("{TOOL_SEARCH_VAR}") == "{TOOL_SEARCH_VALUE}":
+    del env["{TOOL_SEARCH_VAR}"]
+    removed.append("{TOOL_SEARCH_VAR}={TOOL_SEARCH_VALUE}")
+
+
+def forget():
+    if not ours:
+        return
+    entry["owned"] = [x for x in owned if x != key]
+    tmp = MARKER + ".distil.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, indent=2)
+        os.replace(tmp, MARKER)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+url = env.get("ANTHROPIC_BASE_URL")
+if url and isinstance(url, str):
+    # Parse the host; do NOT substring-match. "127.0.0.1" appearing anywhere in a URL
+    # is not evidence that it IS loopback: a corporate gateway at
+    # https://gw.corp.example.com/pools/127.0.0.1 would be silently deleted by a
+    # substring test, and http://127.1:8788 — a valid loopback shorthand — would be
+    # kept. This mirrors loopback_base_url() in distil/setup.py.
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        host = ""
+    if host in ("127.0.0.1", "127.1", "localhost", "::1", "0.0.0.0"):
+        del env["ANTHROPIC_BASE_URL"]
+        removed.append(f"ANTHROPIC_BASE_URL={{url}}")
+    else:
+        print(f"  · kept ANTHROPIC_BASE_URL={{url}} in {{p}} (not a local proxy — not ours)")
+if not removed:
+    forget()  # owned but absent/changed: nothing of ours left in this file
     sys.exit(0)
-del env["ANTHROPIC_BASE_URL"]
 if not env:
     d.pop("env", None)
+# Atomic, through a symlink, keeping mode and owner — as _atomic_write does. The temp
+# copy is created 0600 (mkstemp) because settings can carry API keys, and it is
+# removed on any failure so no copy of the file is left behind.
+import tempfile
+tmp = None
 try:
-    with open(p, "w") as fh:
+    target = os.path.realpath(p)
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(target), prefix="." + os.path.basename(target) + ".",
+        suffix=".distil.tmp",
+    )
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(d, fh, indent=2)
         fh.write("\\n")
-except OSError as exc:
-    print(f"  ! could not write {{p}}: {{exc}} — remove ANTHROPIC_BASE_URL by hand")
+        fh.flush()
+        os.fsync(fh.fileno())
+    st = os.stat(target)
+    os.chmod(tmp, st.st_mode & 0o7777)
+    try:
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except (OSError, AttributeError):  # AttributeError: no os.chown (Windows Python)
+        pass
+    os.replace(tmp, target)
+except (OSError, RuntimeError) as exc:
+    if tmp is not None:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    print(f"  ! could not write {{p}}: {{exc}} — remove {{', '.join(removed)}} by hand")
     sys.exit(0)
-print(f"  removed ANTHROPIC_BASE_URL={{url}} from {{p}}")
+forget()
+for r in removed:
+    print(f"  removed {{r}} from {{p}}")
 sys.exit(10)  # 10 = "I changed something", so the summary below cannot overclaim
 PY
         [ $? -eq 10 ] && changed=1

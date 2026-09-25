@@ -13,14 +13,10 @@ import math
 import random
 import statistics
 
-from distil.drift import (
-    BUDGET_ALPHA,
-    BUDGET_DELTA,
-    DriftMonitor,
-    LiveDrift,
-    live_monitor,
-    paired_loss,
-)
+import pytest
+
+from distil.conformal import BUDGET_ALPHA, BUDGET_DELTA
+from distil.drift import DriftGuard, DriftMonitor, LiveDrift, _bootstrap, fold, paired_loss, release
 
 NULL_MEAN = (1.0 + BUDGET_ALPHA) / 2.0
 
@@ -117,140 +113,159 @@ def test_detects_an_alternative_ten_points_over_budget():
 
 
 # ---------------------------------------------------------------------------
+# One e-process: restarts and hot-swaps continue it, they never re-branch it
+# ---------------------------------------------------------------------------
+
+
+def test_restarts_continue_one_capital_path_exactly(tmp_path, monkeypatch):
+    """The same rows folded by one long-lived proxy, or by a proxy that restarts (or is
+    hot-swapped) every few rows, must produce the SAME capital, bit for bit. Anything else
+    means a restart took a fresh look at the evidence — an extra look Ville does not cover."""
+    rng = random.Random(7)
+    diffs = [_draw(rng, BUDGET_ALPHA, 0.26) for _ in range(400)]
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "one"))
+    for d in diffs:
+        fold([d])
+    single = LiveDrift.load()
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "many"))
+    for chunk in range(0, len(diffs), 7):
+        guard = DriftGuard.start(watch=False)  # a restart / hot-swap worker
+        for d in diffs[chunk : chunk + 7]:
+            guard.observe(d)
+    restarted = LiveDrift.load()
+
+    assert restarted.monitor.n == single.monitor.n == len(diffs)
+    assert restarted.monitor.capital == single.monitor.capital
+    assert restarted.monitor.tripped == single.monitor.tripped
+
+
+def test_null_false_alarm_stays_under_delta_across_restarts(tmp_path, monkeypatch):
+    """REGRESSION GUARD, not a δ-level check. Under the null, a proxy restarts every 20
+    samples. When each restart re-branched from stale capital, the rate grew as (k+1)·δ
+    — far above this bound. With 150 trials (file I/O per fold) the tolerance is
+    δ + 2σ ≈ 0.086, loose by construction; the exact-capital test above is the sharp
+    check that restarts add no looks, and the in-memory gate is the δ-level one."""
+    trials, horizon, every = 150, 300, 20
+    tolerance = BUDGET_DELTA + 2 * math.sqrt(BUDGET_DELTA * (1 - BUDGET_DELTA) / trials)
+    alarms = 0
+    for tr in range(trials):
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path / str(tr)))
+        rng = random.Random(0x5EED ^ tr)
+        guard = DriftGuard.start(watch=False)
+        for i in range(horizon):
+            if i and i % every == 0:
+                guard = DriftGuard.start(watch=False)
+            guard.observe(_draw(rng, BUDGET_ALPHA, 0.26))
+            if guard.engaged:
+                break
+        alarms += guard.engaged
+    assert alarms / trials <= tolerance, f"false-alarm {alarms / trials:.4f} > {tolerance:.4f}"
+
+
+# ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
 
 
-def test_state_round_trips_and_never_double_counts(tmp_path, monkeypatch):
+def test_every_folded_row_is_counted_once(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    diffs = [0] * 60
-    first = live_monitor(diffs)
-    assert first.consumed == 60
-    # Same history again: nothing new to bet on, so capital must not move.
-    again = live_monitor(diffs)
-    assert again.consumed == 60
-    assert again.monitor.capital == first.monitor.capital
-    # Two more rows advance it by exactly two.
-    more = live_monitor(diffs + [0, 0])
-    assert more.consumed == 62
+    fold([0] * 60)
+    assert LiveDrift.load().monitor.n == 60
+    assert LiveDrift.load().monitor.n == 60  # reading is not folding
+    assert fold([0, 0]).monitor.n == 62
 
 
 def test_breach_is_sticky_and_names_the_sample(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    state = live_monitor([-1] * 200)
+    state = fold([-1] * 200)
     assert state.monitor.tripped
-    assert 0 < state.tripped_at <= 200
+    assert 0 < state.tripped_at <= 200 and state.tripped_ts > 0
     line = state.line()
-    assert line is not None and line.startswith("BREACHED at sample ")
-    assert "distil calibrate" in line
-    # A clean run afterwards does not un-breach it — the reset is explicit.
-    healed = live_monitor([-1] * 200 + [1] * 500)
+    assert line.startswith("BREACHED at sample ")
+    assert "distil calibrate" in line and "distil reset --drift-guard" in line
+    # A clean run afterwards does not un-breach it — the release is explicit.
+    healed = fold([1] * 500)
     assert healed.monitor.tripped
-    assert healed.line().startswith("BREACHED")
+    assert LiveDrift.load().line().startswith("BREACHED")
 
 
-# ---------------------------------------------------------------------------
-# Provenance — the count is bound to the stream it counted
-# ---------------------------------------------------------------------------
-
-
-def test_a_truncated_stream_rebuilds_instead_of_ignoring_every_new_row(tmp_path, monkeypatch):
-    """The failure a bare index hides: archive shadow.jsonl outside `reset --shadow` and
-    `consumed` outruns the file, so `diffs[consumed:]` is empty and the alarm reports a
-    stale n while ignoring live traffic until the new file outgrows the old count."""
-    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    live_monitor([0] * 200)
-    fresh = live_monitor([0] * 60)  # the archived file, regrown to 60 rows
-    assert fresh.rebuilt
-    assert fresh.consumed == 60
-    assert fresh.line() == (
-        f"intact (e-value {fresh.monitor.evalue:.2f}, n=60)"
-        " — restarted: the shadow stream was replaced"
-    )
-
-
-def test_a_rewritten_stream_of_the_same_length_is_still_detected(tmp_path, monkeypatch):
-    """The case a length check cannot see, and the reason the fingerprint exists: the file
-    was replaced by a different one that happens to hold the same number of rows."""
-    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    first = live_monitor([0] * 80)
-    second = live_monitor([-1] * 80)  # same count, entirely different evidence
-    assert second.rebuilt
-    assert second.consumed == 80
-    assert second.monitor.capital != first.monitor.capital
-
-
-def test_a_signature_bump_rebuilds_and_does_not_carry_a_breach(tmp_path, monkeypatch):
-    """A SIG_VERSION bump filters the old rows out of the ledger. Capital bet on evidence
-    the ledger no longer returns is not evidence about the stream that replaced it."""
-    import distil.shadow as _shadow
+def test_bootstrap_rebuilds_a_pre_schema_state_from_the_ledger_once(tmp_path, monkeypatch):
+    """Upgrading: the old e-process was folded from shadow.jsonl at wrap exit. The first
+    proxy start rebuilds it from that file once; after that only fold() writes."""
+    from distil.shadow import SIG_VERSION
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    breached = live_monitor([-1] * 200)
-    assert breached.monitor.tripped
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(60):
+            row = {"equivalent": True, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    old = {"alpha": NULL_MEAN, "delta": BUDGET_DELTA, "n": 10, "consumed": 10, "stream": "x"}
+    (tmp_path / "drift.json").write_text(json.dumps(old))
 
-    monkeypatch.setattr(_shadow, "SIG_VERSION", _shadow.SIG_VERSION + 1)
-    after = live_monitor([0] * 60)
-    assert after.rebuilt
-    assert not after.monitor.tripped and after.consumed == 60
-    assert json.loads((tmp_path / "drift.json").read_text())["sig"] == _shadow.SIG_VERSION
+    assert _bootstrap().monitor.n == 60
+    fold([0])
+    assert _bootstrap().monitor.n == 61  # schema 2 now: no second rebuild
 
 
-def test_a_plain_append_carries_capital_and_does_not_rebuild(tmp_path, monkeypatch):
-    """The common path must stay the common path — provenance is a guard, not a reset."""
+def test_release_leaves_a_fresh_state_that_bootstrap_does_not_refold(tmp_path, monkeypatch):
+    """Otherwise the next proxy start would fold the rows that caused the trip straight
+    back into the same breach, and the release would last until the first restart."""
+    from distil.shadow import SIG_VERSION
+
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    diffs = [0] * 60
-    first = live_monitor(diffs)
-    assert not first.rebuilt
-    grown = live_monitor(diffs + [0] * 40)
-    assert not grown.rebuilt
-    assert grown.consumed == 100
-    assert grown.monitor.capital != first.monitor.capital  # it kept betting, from where it was
-    assert grown.monitor.n == 100
-
-
-def test_a_state_file_without_provenance_rebuilds_once(tmp_path, monkeypatch):
-    """Upgrading over a pre-provenance state file: the prefix cannot be checked, so it
-    cannot be claimed. Rebuild rather than carry an unverifiable number."""
-    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    live_monitor([0] * 60)
-    p = tmp_path / "drift.json"
-    raw = json.loads(p.read_text())
-    del raw["stream"], raw["sig"]  # what 1.53.0 wrote
-    p.write_text(json.dumps(raw))
-    upgraded = live_monitor([0] * 60)
-    assert upgraded.rebuilt and upgraded.consumed == 60
-    assert not live_monitor([0] * 60).rebuilt  # and only once
-
-
-def test_reset_clears_the_alarm(tmp_path, monkeypatch):
-    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    live_monitor([-1] * 200)
-    (tmp_path / "drift.json").unlink()
-    fresh = LiveDrift.load()
-    assert fresh.consumed == 0 and not fresh.monitor.tripped
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    old = {"alpha": NULL_MEAN, "delta": BUDGET_DELTA, "n": 0, "consumed": 0, "stream": "x"}
+    (tmp_path / "drift.json").write_text(json.dumps(old))  # a pre-schema-2 file: migrates
+    assert _bootstrap().monitor.tripped
+    assert release("t1")
+    assert (tmp_path / "drift.json.reset-t1").exists()
+    after = _bootstrap()
+    assert not after.monitor.tripped and after.monitor.n == 0
 
 
 def test_budget_change_discards_stale_capital(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    live_monitor([-1] * 100)
+    fold([-1] * 100)
     p = tmp_path / "drift.json"
     raw = json.loads(p.read_text())
     raw["alpha"] = 0.99  # capital was bet against a different null
     p.write_text(json.dumps(raw))
-    assert LiveDrift.load().consumed == 0
+    assert LiveDrift.load().monitor.n == 0
 
 
-def test_corrupt_state_degrades_to_a_fresh_monitor(tmp_path, monkeypatch):
+@pytest.mark.parametrize("junk", ["", "{not json", "[]", '"a string"'])
+def test_an_unreadable_state_file_is_held_and_quarantined_not_overwritten(
+    tmp_path, monkeypatch, junk
+):
+    """Zero-length, garbage, parseable-but-wrong: the file may have held a breach, so it
+    is held (fail-safe), moved aside rather than overwritten, and the hold says how to
+    release it. Before, it loaded as fresh and the next fold destroyed it."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    for junk in ("{not json", "[]", '"a string"'):  # unparseable, and parseable-but-wrong
-        (tmp_path / "drift.json").write_text(junk)
-        assert LiveDrift.load().consumed == 0, junk
+    (tmp_path / "drift.json").write_text(junk)
+    assert LiveDrift.load().held  # a reader holds without touching the file
+    assert (tmp_path / "drift.json").read_text() == junk
+
+    state = fold([0])
+    assert state.held and not state.monitor.tripped
+    moved = list(tmp_path.glob("drift.json.corrupt-*"))
+    assert len(moved) == 1 and moved[0].read_text() == junk
+    line = LiveDrift.load().line()
+    assert line.startswith("HELD") and moved[0].name in line
+    assert "distil reset --drift-guard" in line
+    assert DriftGuard.start(watch=False).engaged
+
+    release("t")
+    assert not LiveDrift.load().held
 
 
 def test_below_floor_says_so_and_prints_no_evalue(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    line = live_monitor([0] * 10).line()
+    line = fold([0] * 10).line()
     assert line == "not enough samples yet (10/50)"
     assert "e-value" not in line
 
@@ -265,25 +280,187 @@ def test_capital_is_floored_at_zero_for_an_aggressive_stake():
     assert not mon.tripped
 
 
-def test_a_wrongly_typed_field_degrades_to_a_fresh_monitor(tmp_path, monkeypatch):
-    """Corrupt JSON is one failure; well-formed JSON with a junk value is the other.
-    Either way the answer is a fresh monitor, never a capital number nobody can explain."""
+def test_a_failed_held_write_during_quarantine_still_holds(tmp_path, monkeypatch):
+    """Quarantine copies, then writes the held state over the corrupt file. If that write
+    fails (disk full, EACCES), drift.json must still be the corrupt file — never missing,
+    which the watcher, the status line and a start beside a .reset-* archive would all
+    read as released."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    live_monitor([0] * 10)
+    (tmp_path / "drift.json.reset-earlier").write_text("{}")  # the user released once
+    (tmp_path / "drift.json").write_text("{torn")
+    monkeypatch.setattr(LiveDrift, "_write", lambda self, p: False)
+
+    guard = DriftGuard.start(watch=False)  # bootstrap's quarantine branch
+    fold([0])  # fold's quarantine path
+    assert (tmp_path / "drift.json").read_text() == "{torn"
+    assert len(list(tmp_path.glob("drift.json.corrupt-*"))) == 2  # copies, never moves
+    assert LiveDrift.load().held  # reader
+    guard._seen = None
+    guard.refresh()  # watcher
+    assert guard.engaged
+    assert DriftGuard.start(watch=False).engaged  # next start, archive present
+
+
+def test_two_quarantines_in_one_clock_tick_keep_both_archives(tmp_path, monkeypatch):
+    """Windows' clock ticks every ~15.6 ms, so two quarantines back to back got the SAME
+    archive name: the link failed, the copy fallback hit the first archive, and the second
+    corruption was never set aside. Frozen clock = the Windows tick, on any host."""
+    import time
+
+    monkeypatch.setattr(time, "time_ns", lambda: 1790323656722728000)
+    monkeypatch.setattr(time, "strftime", lambda fmt, *a: "20260925-080736")
     p = tmp_path / "drift.json"
-    raw = json.loads(p.read_text())
-    raw["capital"] = "not a number"
-    p.write_text(json.dumps(raw))
-    fresh = LiveDrift.load()
-    assert fresh.consumed == 0 and fresh.monitor.capital == 1.0
+    p.write_text("{torn")
+    from distil.drift import _load_for_write
+
+    first = _load_for_write(p).quarantined
+    p.unlink()  # a new file, as the atomic writer makes: the archive is a hard link
+    p.write_text("{torn again")
+    second = _load_for_write(p).quarantined
+    assert first and second and first != second
+    assert (tmp_path / first).read_text() == "{torn"  # the first is never overwritten
+    assert (tmp_path / second).read_text() == "{torn again"
+
+
+def test_quarantine_copies_where_hard_links_are_unsupported(tmp_path, monkeypatch):
+    """FAT / some network shares refuse os.link: fall back to an exclusive copy, which
+    still refuses to overwrite an existing archive."""
+    import os
+
+    from distil.drift import _copy_aside
+
+    def no_links(*a, **k):
+        raise OSError("hard links not supported")
+
+    monkeypatch.setattr(os, "link", no_links)  # only _copy_aside runs under the stub
+    src, dest = tmp_path / "drift.json", tmp_path / "drift.json.corrupt-x"
+    src.write_text("{torn")
+    _copy_aside(src, dest)
+    assert dest.read_text() == "{torn"
+    src.write_text("other")
+    with pytest.raises(FileExistsError):
+        _copy_aside(src, dest)
+    assert dest.read_text() == "{torn"
+
+
+def test_quarantine_copy_failure_never_overwrites_the_only_copy(tmp_path, monkeypatch):
+    import distil.drift as d
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    (tmp_path / "drift.json").write_text("{torn")
+
+    def _no(*a, **k):
+        raise OSError("no space")
+
+    # the module-local seam, not d.os.link: that is the GLOBAL os for the whole process
+    monkeypatch.setattr(d, "_copy_aside", _no)
+    assert fold([0]).held
+    assert (tmp_path / "drift.json").read_text() == "{torn"
+
+
+def test_a_second_corruption_never_overwrites_the_first_quarantine(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    for junk in ("{first", "{second"):
+        (tmp_path / "drift.json").write_text(junk)
+        fold([0])
+    kept = sorted(q.read_text() for q in tmp_path.glob("drift.json.corrupt-*"))
+    assert kept == ["{first", "{second"]
+
+
+def test_a_wrongly_typed_field_is_held_as_corrupt(tmp_path, monkeypatch):
+    """Well-formed JSON with a junk value is still a state nobody can vouch for."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    fold([0] * 10)
+    p = tmp_path / "drift.json"
+    for field, junk in (("capital", "not a number"), ("n", "bad"), ("n", -5)):
+        raw = json.loads(p.read_text())
+        raw[field] = junk
+        p.write_text(json.dumps(raw))
+        assert LiveDrift.load().held, (field, junk)
+        release(field + str(junk))
+        fold([0] * 10)
+
+
+def test_a_missing_state_is_fresh_and_never_refolds_released_history(tmp_path, monkeypatch):
+    """The review's blocker: release, then lose drift.json (deleted, or the fresh write
+    failed). The next start must NOT re-fold the shadow history into the same breach."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    fold([-1] * 200)
+    assert release("t")
+    (tmp_path / "drift.json").unlink()
+    guard = DriftGuard.start(watch=False)  # a restart
+    assert not guard.engaged
+    assert LiveDrift.load().monitor.n == 0
+
+
+def test_a_first_start_folds_existing_shadow_evidence(tmp_path, monkeypatch):
+    """Fresh install / first upgrade: no drift.json and no release archive. The harm the
+    machine already measured must count — starting from zero would discard it."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    assert DriftGuard.start(watch=False).engaged
+    assert LiveDrift.load().monitor.n > 0
+    assert DriftGuard.start(watch=False).engaged  # and only once: schema 2 from here
+
+
+def test_a_quarantined_file_is_not_a_release(tmp_path, monkeypatch):
+    """Only drift.json.reset-* marks a release; a .corrupt-* leftover must not suppress
+    the first-ever bootstrap."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    (tmp_path / "drift.json.corrupt-20260101-000000").write_text("{torn")
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    assert _bootstrap().monitor.tripped
+
+
+def test_deleting_the_state_and_every_release_archive_rebootstraps(tmp_path, monkeypatch):
+    """Documented, accepted: with the release archive gone too, nothing tells this machine
+    apart from a first install, so the shadow evidence is folded again (and holds)."""
+    from distil.shadow import SIG_VERSION
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    with (tmp_path / "shadow.jsonl").open("w", encoding="utf-8") as f:
+        for _ in range(200):
+            row = {"equivalent": False, "aa_equal": True, "kind": "paired", "sig": SIG_VERSION}
+            f.write(json.dumps(row) + "\n")
+    assert DriftGuard.start(watch=False).engaged  # first start folds the evidence
+    assert release("t")
+    assert not DriftGuard.start(watch=False).engaged
+    (tmp_path / "drift.json").unlink()
+    for a in tmp_path.glob("drift.json.reset-*"):
+        a.unlink()
+    assert DriftGuard.start(watch=False).engaged
+
+
+def test_release_raises_when_the_fresh_state_cannot_be_written(tmp_path, monkeypatch):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    fold([-1] * 200)
+    monkeypatch.setattr(LiveDrift, "_write", lambda self, p: False)
+    with pytest.raises(OSError):
+        release("t")
 
 
 def test_an_unwritable_state_path_still_returns_a_verdict(tmp_path, monkeypatch):
-    """The alarm is bookkeeping: it must never be the reason a wrap session raises."""
+    """The alarm is bookkeeping: it must never be the reason a proxy raises."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "blocked"))
     (tmp_path / "blocked").write_text("this is a file, not a directory")
-    state = live_monitor([0] * 60)
-    assert state.consumed == 60
+    state = fold([0] * 60)
+    assert state.monitor.n == 60
     assert state.line() == f"intact (e-value {state.monitor.evalue:.2f}, n=60)"
 
 
@@ -294,36 +471,17 @@ def test_an_interrupted_write_leaves_the_previous_state_intact(tmp_path, monkeyp
     import distil._filelock as _fl
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    breached = live_monitor([-1] * 200)
-    assert breached.monitor.tripped
+    assert fold([-1] * 200).monitor.tripped
     before = (tmp_path / "drift.json").read_text()
 
     def _die(src, dst):  # the crash lands after the temp file exists, before the rename
         raise OSError("interrupted")
 
     monkeypatch.setattr(_fl, "replace_retrying", _die)
-    live_monitor([-1] * 200 + [0] * 5)  # must not raise
+    fold([0] * 5)  # must not raise
 
     assert (tmp_path / "drift.json").read_text() == before, "the live state was damaged"
     assert not (tmp_path / "drift.json.tmp").exists(), "the torn temp file was left behind"
     # Loaded by explicit path: undoing the monkeypatch here would also undo DISTIL_HOME
     # and point this assertion at the developer's real ~/.distil.
     assert LiveDrift.load(tmp_path / "drift.json").monitor.tripped, "the breach was lost"
-
-
-def test_a_corrupt_but_well_formed_state_file_starts_a_fresh_monitor(tmp_path):
-    """`"consumed": "bad"` is valid JSON and an invalid state; load() must not raise."""
-    import json
-
-    from distil.drift import BUDGET_ALPHA, BUDGET_DELTA, LiveDrift
-
-    p = tmp_path / "drift.json"
-    p.write_text(
-        json.dumps({"alpha": (1.0 + BUDGET_ALPHA) / 2.0, "delta": BUDGET_DELTA, "consumed": "bad"})
-    )
-    live = LiveDrift.load(p)
-    assert live.consumed == 0 and live.tripped_at == 0
-    p.write_text(
-        json.dumps({"alpha": (1.0 + BUDGET_ALPHA) / 2.0, "delta": BUDGET_DELTA, "consumed": -5})
-    )
-    assert LiveDrift.load(p).consumed == 0

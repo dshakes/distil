@@ -272,7 +272,7 @@ distil trajectory-risk certificate
     <div class="callout warn">
       <b>Honest scope — the assumptions ship inside the certificate, not as fine print.</b>
       <ul>
-        <li><strong>Exchangeability.</strong> The bound holds for future trajectories exchangeable with the calibration set. Agent workloads drift; pair the certificate with the built-in anytime-valid <strong>drift monitor</strong> and recalibrate when it alarms — a static certificate silently loses coverage under shift.</li>
+        <li><strong>Exchangeability.</strong> The bound holds for future trajectories exchangeable with the calibration set. Agent workloads drift; pair the certificate with the built-in anytime-valid <strong>drift monitor</strong> and recalibrate when it alarms — a static certificate silently loses coverage under shift. The live alarm bets against the same budget the certificate is written at (<code>distil.conformal.BUDGET_ALPHA</code>), and on the proxy it acts: a breach holds compression at lossless-only, across restarts, until <code>distil calibrate</code> then <code>distil reset --drift-guard</code> (opt out: <code>DISTIL_NO_DRIFT_GUARD=1</code>).</li>
         <li><strong>The loss is the task outcome you measured.</strong> <code>compressed_success</code> should come from a real end-to-end evaluation (test suite passed, task rubric met), not a proxy metric — proxies are exactly the failure this certificate exists to fix.</li>
         <li><strong>No adaptivity.</strong> Trajectories used to tune the compressor must not be reused as calibration data — that breaks exchangeability a second way. Keep a held-out calibration stream.</li>
       </ul>
