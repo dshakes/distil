@@ -114,8 +114,9 @@ _MANAGERS = ("pipx", "uv", "brew", "scoop", "pip")
 #                  user and project TOML layers. So this preset's value is a JSON
 #                  provider array rather than a URL — see AGENT_ENV_TEMPLATES.
 #
-# DELIBERATELY ABSENT: cursor, cline, continue, windsurf. These are IDE
-# extensions, not CLIs — there is no argv to wrap and no documented env-var
+# DELIBERATELY ABSENT: cursor, the Cline and Continue editor extensions, windsurf.
+# These are IDE extensions, not CLIs (the Cline CLI and Continue's `cn` ARE wrapped,
+# via config_wrap.CONFIG_PRESETS) — there is no argv to wrap and no documented env-var
 # contract, so `wrap` cannot reach them and a guessed variable would silently
 # route nothing while reporting success. Their supported path is the always-on
 # proxy plus the editor's own "custom base URL"/OpenAI-compatible setting; see
