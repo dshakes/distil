@@ -41,7 +41,11 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     h = tmp_path / "home"
     (h / ".claude").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(h))
+    # Windows' Path.home() reads USERPROFILE, not HOME: without it `distil default`
+    # wired the CI runner's REAL C:\Users\runneradmin\.claude\settings.json.
+    monkeypatch.setenv("USERPROFILE", str(h))
     monkeypatch.setenv("DISTIL_HOME", str(h / ".distil"))
+    assert Path.home() == h, "the sandbox HOME is not what this platform resolves ~ from"
     return h
 
 

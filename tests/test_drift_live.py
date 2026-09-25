@@ -301,9 +301,49 @@ def test_a_failed_held_write_during_quarantine_still_holds(tmp_path, monkeypatch
     assert DriftGuard.start(watch=False).engaged  # next start, archive present
 
 
-def test_quarantine_copy_failure_never_overwrites_the_only_copy(tmp_path, monkeypatch):
-    import shutil
+def test_two_quarantines_in_one_clock_tick_keep_both_archives(tmp_path, monkeypatch):
+    """Windows' clock ticks every ~15.6 ms, so two quarantines back to back got the SAME
+    archive name: the link failed, the copy fallback hit the first archive, and the second
+    corruption was never set aside. Frozen clock = the Windows tick, on any host."""
+    import time
 
+    monkeypatch.setattr(time, "time_ns", lambda: 1790323656722728000)
+    monkeypatch.setattr(time, "strftime", lambda fmt, *a: "20260925-080736")
+    p = tmp_path / "drift.json"
+    p.write_text("{torn")
+    from distil.drift import _load_for_write
+
+    first = _load_for_write(p).quarantined
+    p.unlink()  # a new file, as the atomic writer makes: the archive is a hard link
+    p.write_text("{torn again")
+    second = _load_for_write(p).quarantined
+    assert first and second and first != second
+    assert (tmp_path / first).read_text() == "{torn"  # the first is never overwritten
+    assert (tmp_path / second).read_text() == "{torn again"
+
+
+def test_quarantine_copies_where_hard_links_are_unsupported(tmp_path, monkeypatch):
+    """FAT / some network shares refuse os.link: fall back to an exclusive copy, which
+    still refuses to overwrite an existing archive."""
+    import os
+
+    from distil.drift import _copy_aside
+
+    def no_links(*a, **k):
+        raise OSError("hard links not supported")
+
+    monkeypatch.setattr(os, "link", no_links)  # only _copy_aside runs under the stub
+    src, dest = tmp_path / "drift.json", tmp_path / "drift.json.corrupt-x"
+    src.write_text("{torn")
+    _copy_aside(src, dest)
+    assert dest.read_text() == "{torn"
+    src.write_text("other")
+    with pytest.raises(FileExistsError):
+        _copy_aside(src, dest)
+    assert dest.read_text() == "{torn"
+
+
+def test_quarantine_copy_failure_never_overwrites_the_only_copy(tmp_path, monkeypatch):
     import distil.drift as d
 
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
@@ -312,8 +352,8 @@ def test_quarantine_copy_failure_never_overwrites_the_only_copy(tmp_path, monkey
     def _no(*a, **k):
         raise OSError("no space")
 
-    monkeypatch.setattr(d.os, "link", _no)
-    monkeypatch.setattr(shutil, "copy2", _no)
+    # the module-local seam, not d.os.link: that is the GLOBAL os for the whole process
+    monkeypatch.setattr(d, "_copy_aside", _no)
     assert fold([0]).held
     assert (tmp_path / "drift.json").read_text() == "{torn"
 

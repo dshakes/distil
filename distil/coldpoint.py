@@ -83,7 +83,9 @@ def _pick_clock(
     is ``CLOCK_BOOTTIME``. Anything else falls back to ``time.monotonic``. *gettime* is
     injectable so a test can simulate a sleep without patching the process-global clock.
     """
-    cid = time.CLOCK_MONOTONIC if platform == "darwin" else getattr(time, "CLOCK_BOOTTIME", None)
+    # getattr for both: an interpreter may lack either constant (Windows has no CLOCK_*
+    # at all), and a missing clock means the fallback, never an AttributeError.
+    cid = getattr(time, "CLOCK_MONOTONIC" if platform == "darwin" else "CLOCK_BOOTTIME", None)
     if cid is None or gettime is None:
         return time.monotonic
     try:
