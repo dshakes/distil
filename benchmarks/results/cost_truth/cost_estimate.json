@@ -1,0 +1,82 @@
+{
+  "generated": "2026-09-25",
+  "basis": "list price from distil.pricing (cache read 0.1x, 5m write 1.25x); token profile is an ASSUMPTION, not a measurement - replace with pilot medians before the confirmatory run",
+  "profile_per_attempt": {
+    "turns": 30,
+    "prefix": 22000,
+    "new_per_turn": 1800,
+    "out_per_turn": 450,
+    "tokens": {
+      "cache_read_input_tokens": 1443000,
+      "cache_creation_input_tokens": 76000,
+      "input_tokens": 90,
+      "output_tokens": 13500
+    }
+  },
+  "cross_check": "Quesma (2026-09-11): Claude Code + Fable 5.0 on Terminal-Bench 2.1 baseline $731 / 425 attempts = $1.72/attempt at $10/$50 per Mtok; the same token mix at Sonnet 5 prices is roughly $0.52/attempt, so this profile (~$0.92) is ~1.8x conservative",
+  "arm_assumption": "every arm priced at the control profile; a cache-busting arm can cost up to ~2x its control (distil measured this on itself, 2026-08); that would exhaust the cap, which stops the run and the study is reported as truncated, not extended",
+  "safety_multiplier": 1.25,
+  "phases": {
+    "pilot": {
+      "model": "claude-sonnet-5",
+      "tasks": 10,
+      "seeds": 2,
+      "arms": [
+        "control",
+        "rtk",
+        "headroom",
+        "distil"
+      ],
+      "runs_per_arm": 20,
+      "runs_total": 80,
+      "usd_per_attempt_cached": 0.9207,
+      "usd_per_attempt_if_no_cache": 4.7598,
+      "per_arm_usd_cached": 18.41,
+      "per_arm_usd_if_no_cache": 95.2,
+      "phase_usd_cached": 73.65,
+      "phase_usd_if_no_cache": 380.78,
+      "hard_cap_usd": 92.07
+    },
+    "primary": {
+      "model": "claude-sonnet-5",
+      "tasks": 89,
+      "seeds": 5,
+      "arms": [
+        "control",
+        "rtk",
+        "headroom",
+        "distil"
+      ],
+      "runs_per_arm": 445,
+      "runs_total": 1780,
+      "usd_per_attempt_cached": 0.9207,
+      "usd_per_attempt_if_no_cache": 4.7598,
+      "per_arm_usd_cached": 409.7,
+      "per_arm_usd_if_no_cache": 2118.1,
+      "phase_usd_cached": 1638.79,
+      "phase_usd_if_no_cache": 8472.39,
+      "hard_cap_usd": 2048.49
+    },
+    "replication": {
+      "model": "claude-haiku-4-5",
+      "tasks": 89,
+      "seeds": 3,
+      "arms": [
+        "control",
+        "rtk",
+        "headroom",
+        "distil"
+      ],
+      "runs_per_arm": 267,
+      "runs_total": 1068,
+      "usd_per_attempt_cached": 0.3069,
+      "usd_per_attempt_if_no_cache": 1.5866,
+      "per_arm_usd_cached": 81.94,
+      "per_arm_usd_if_no_cache": 423.62,
+      "phase_usd_cached": 327.76,
+      "phase_usd_if_no_cache": 1694.48,
+      "hard_cap_usd": 409.7
+    }
+  },
+  "total_hard_cap_usd": 2550.26
+}
