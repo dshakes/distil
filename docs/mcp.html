@@ -131,7 +131,7 @@ distil dashboard --web                      # then open /mcp for the before/afte
       </tbody>
     </table>
     </div>
-    <p>The default is L0 alone. Everything else, R included, is opt-in until the live run below certifies it.</p>
+    <p>The default is L0 alone. L1–L3 and R passed the pre-registered live accuracy run below on <code>claude-haiku-4-5</code> and are still opt-in: the protocol's default rule also needs a replication model, and that run has not been made.</p>
     <p>No level is ever larger than L0: a server whose index or summary would not be smaller (a two-tool server, say) is served at L0, and the watch view says so. R never touches errors, images or other non-text content, results carrying <code>structuredContent</code> your client parses, or anything an agent may quote back byte-exact: tools named like read / view / open / cat / show / contents, and read-only tools whose description says they return file or source content. <code>&lt;server&gt;_expand</code> only returns originals that same server's results produced in the current session.</p>
 
     <h2 id="namespacing">Several servers behind one proxy</h2>
@@ -150,9 +150,29 @@ distil dashboard --web                      # then open /mcp for the before/afte
       <li><b>Publishes accuracy, not just tokens</b> — below.</li>
     </ul>
 
-    <h2 id="accuracy">Accuracy: pre-registered, pending</h2>
-    <p>The protocol fixes everything before a live run: tool-selection accuracy and argument exact-match against the uncompressed tool list, paired, on generated tasks over the real reference-server catalog; non-inferiority by TOST and a paired bootstrap at distil's single risk budget; sample sizes from a power calculation; levels tested in a fixed sequence, one look, no rescue re-runs. <code>distil mcp bench</code> is its executable form and runs offline by default with a scripted mock model — which checks the plumbing and shows the statistics catch an injected loss, and is never presented as evidence about a real model.</p>
-    <p><b>No live run has been made</b>, so every level's certificate reads <em>pending</em> — in <code>distil mcp watch</code>, on the <code>/mcp</code> dashboard, and on stderr whenever an uncertified level starts. That is why L1–L3 are opt-in. A live run is a paid run: it needs <code>--live</code>, a hard <code>--budget-usd</code> cap, and a maintainer's approval.</p>
+    <h2 id="accuracy">Accuracy: pre-registered, measured</h2>
+    <p>The protocol fixes everything before a live run: tool-selection accuracy and argument exact-match against the uncompressed tool list, paired, on generated tasks over the real reference-server catalog; non-inferiority by TOST and a paired bootstrap at distil's single risk budget; sample sizes from a power calculation; levels tested in a fixed sequence, one look, no rescue re-runs. <code>distil mcp bench</code> is its executable form. Offline it runs a scripted mock model that checks the plumbing and is never presented as evidence about a real model. With <code>--live</code> it needs a hard <code>--budget-usd</code> ceiling, which a spend meter enforces before every API call.</p>
+    <p>The first live run, on <code>claude-haiku-4-5</code> (2026-09-25, $21.68 spent of an $85 ceiling), <b>certified every level</b>: 1,000 tool tasks per level and 630 result tasks, all eight servers exposed at once.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Live accuracy results">
+    <table>
+      <thead><tr><th>Arm</th><th>Right tool</th><th>Right tool and arguments</th><th>Extra round trips per task</th><th>Billed on this suite</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>raw (uncompressed)</td><td>94.4%</td><td>91.2%</td><td>0</td><td>$2.17</td><td>reference</td></tr>
+        <tr><td><b>L0</b></td><td>95.2%</td><td>92.1%</td><td>0</td><td>$2.00</td><td>certified</td></tr>
+        <tr><td><b>L1</b></td><td>95.4%</td><td>95.4%</td><td>0</td><td>$1.90</td><td>certified</td></tr>
+        <tr><td><b>L2</b></td><td>99.8%</td><td>96.3%</td><td>1.006</td><td>$8.79</td><td>certified</td></tr>
+        <tr><td><b>L3</b></td><td>98.8%</td><td>95.4%</td><td>0.088</td><td>$1.82</td><td>certified</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>R, on results: answers were right 99.7% of the time from raw results and 99.5% from R's digests, with the <code>_expand</code> tool available. Billed $3.08 raw vs $1.92 with R. <b>Certified.</b></p>
+    <p>Three things to read with these numbers:</p>
+    <ul>
+      <li><b>Compressed levels scored higher than raw.</b> The protocol tests non-inferiority, not superiority, so that is an observation, not a claim.</li>
+      <li><b>L2 cost more, not less.</b> Its short index was never written to the prompt cache on this model, and every task took a second round trip, so in this benchmark (one fresh session per task) it billed $8.79 against raw's $2.17. Its value is context-window headroom. L3 was cheaper than raw only because its pins had already been learned; a fresh L3 install starts as L2.</li>
+      <li><b>Scope.</b> One model, the eight reference servers, synthetic single-call tasks. No replication model was run, so the default stays L0 and L1–L3 and R stay opt-in. <code>distil mcp watch</code> and the <code>/mcp</code> dashboard show them as certified.</li>
+    </ul>
+    <p>Results: <code>benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json</code>, per-call billing in <code>live_calls_claude-haiku-4-5.jsonl</code>, the analysis in the <a href="https://github.com/dshakes/distil/blob/main/docs/research/mcp-compressor-protocol.md">protocol</a>.</p>
 
     <h2 id="watch">See how it compressed</h2>
 <pre><code>[github] level L2 (lazy)  results on  cache 3 list change(s)

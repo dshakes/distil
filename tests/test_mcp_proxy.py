@@ -669,6 +669,11 @@ def test_cli_wrap_runs_and_warns_about_uncertified_levels(monkeypatch, capsys):
         cli.cmd_mcp(_ns(level="L2", command=["npx", "-y", "@modelcontextprotocol/server-git"])) == 0
     )
     assert seen["specs"][0].name == "git" and seen["level"] == "L2" and seen["served"] == "PX"
+    assert "accuracy certificate" not in capsys.readouterr().err  # shipped: all certified
+    from distil.mcpproxy import watch
+
+    monkeypatch.setattr(watch, "certificate", lambda: dict.fromkeys(("L0", "L2", "R"), "pending"))
+    assert cli.cmd_mcp(_ns(level="L2", results=True, command=["x"])) == 0
     assert "L2, R accuracy certificate is pending" in capsys.readouterr().err
 
 

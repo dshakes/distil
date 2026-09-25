@@ -62,8 +62,12 @@ has published. `docs/research/mcp-compressor-protocol.md` pre-registers it — p
 non-inferiority on tool selection and argument exact-match at the single risk budget,
 sample sizes from a power calculation, a fixed testing sequence, one look — and `distil
 mcp bench` is its executable form. It runs offline against a scripted model through the
-real proxy, which is enough to show the statistics fail an injected loss; the live run is
-costed in `benchmarks/results/mcp_toolbench/cost_estimate.json` and has not been made.
+real proxy, which is enough to show the statistics fail an injected loss. The first live
+run (`claude-haiku-4-5`, $21.68 of an $85 ceiling enforced by a per-call spend meter)
+certified L0, L1, L2, L3 and R for that model
+(`benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json`). The default stays L0
+until a replication model runs. On that run L2 billed more than the raw list, because its
+short index missed the prompt cache.
 `distil mcp watch` and the dashboard's `/mcp` page show, per tool, what was sent before
 and after, from a content-free local log that keeps tool names on this machine.
 

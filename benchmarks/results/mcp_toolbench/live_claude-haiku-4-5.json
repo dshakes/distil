@@ -1,0 +1,379 @@
+{
+ "stopped": null,
+ "protocol": "docs/research/mcp-compressor-protocol.md",
+ "protocol_version": 1,
+ "seed": 0,
+ "n_tool_tasks": 1000,
+ "n_result_tasks": 630,
+ "margin": 0.02,
+ "alpha": 0.05,
+ "summary": {
+  "arms": {
+   "raw": {
+    "n": 1000,
+    "selection": 0.944,
+    "args": 0.912,
+    "success": 0.912,
+    "mean_round_trips": 1.0,
+    "extra_round_trips": 0.0,
+    "tools_tokens": 20022,
+    "mean_input_tokens": 20409.338
+   },
+   "L0": {
+    "n": 1000,
+    "selection": 0.952,
+    "args": 0.921,
+    "success": 0.921,
+    "mean_round_trips": 1.0,
+    "extra_round_trips": 0.0,
+    "tools_tokens": 17495,
+    "mean_input_tokens": 17882.338
+   },
+   "L1": {
+    "n": 1000,
+    "selection": 0.954,
+    "args": 0.954,
+    "success": 0.954,
+    "mean_round_trips": 1.0,
+    "extra_round_trips": 0.0,
+    "tools_tokens": 16405,
+    "mean_input_tokens": 16792.338
+   },
+   "L2": {
+    "n": 1000,
+    "selection": 0.998,
+    "args": 0.963,
+    "success": 0.963,
+    "mean_round_trips": 2.006,
+    "extra_round_trips": 1.006,
+    "tools_tokens": 4599,
+    "mean_input_tokens": 10621.828
+   },
+   "L3": {
+    "n": 1000,
+    "selection": 0.988,
+    "args": 0.954,
+    "success": 0.954,
+    "mean_round_trips": 1.087,
+    "extra_round_trips": 0.088,
+    "tools_tokens": 10076,
+    "mean_input_tokens": 11438.17
+   }
+  },
+  "results": {
+   "raw": {
+    "n": 630,
+    "correct": 0.9968253968253968,
+    "mean_expands": 0.0,
+    "mean_input_tokens": 6243.374603174603
+   },
+   "R": {
+    "n": 630,
+    "correct": 0.9952380952380953,
+    "mean_expands": 0.3333333333333333,
+    "mean_input_tokens": 2784.474603174603
+   }
+  }
+ },
+ "verdicts": {
+  "L0": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 0.944,
+    "arm_rate": 0.952,
+    "mean_diff": 0.008,
+    "losses": 0,
+    "gains": 8,
+    "discordant_rate": 0.008,
+    "tost_p": 1.5236220894366123e-22,
+    "boot_lower": 0.004,
+    "boot_ci95": [
+     0.003,
+     0.014
+    ],
+    "mcnemar_ci95": [
+     0.0024786036910009277,
+     0.013521396308999073
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 0.912,
+    "arm_rate": 0.921,
+    "mean_diff": 0.009,
+    "losses": 0,
+    "gains": 9,
+    "discordant_rate": 0.009,
+    "tost_p": 1.206701910909589e-21,
+    "boot_lower": 0.004,
+    "boot_ci95": [
+     0.003,
+     0.015
+    ],
+    "mcnemar_ci95": [
+     0.003146627363496245,
+     0.014853372636503753
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "L1": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 0.944,
+    "arm_rate": 0.954,
+    "mean_diff": 0.01,
+    "losses": 0,
+    "gains": 10,
+    "discordant_rate": 0.01,
+    "tost_p": 5.762021462252809e-21,
+    "boot_lower": 0.005,
+    "boot_ci95": [
+     0.004,
+     0.017
+    ],
+    "mcnemar_ci95": [
+     0.0038331172927586954,
+     0.016166882707241304
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 0.912,
+    "arm_rate": 0.954,
+    "mean_diff": 0.042,
+    "losses": 0,
+    "gains": 42,
+    "discordant_rate": 0.042,
+    "tost_p": 6.803609865456834e-22,
+    "boot_lower": 0.032,
+    "boot_ci95": [
+     0.03,
+     0.055
+    ],
+    "mcnemar_ci95": [
+     0.02956758522613371,
+     0.054432414773866296
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "L2": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 0.944,
+    "arm_rate": 0.998,
+    "mean_diff": 0.054,
+    "losses": 1,
+    "gains": 55,
+    "discordant_rate": 0.056,
+    "tost_p": 2.061026763610503e-23,
+    "boot_lower": 0.042,
+    "boot_ci95": [
+     0.039,
+     0.069
+    ],
+    "mcnemar_ci95": [
+     0.039719943976379964,
+     0.06828005602362004
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 0.912,
+    "arm_rate": 0.963,
+    "mean_diff": 0.051,
+    "losses": 4,
+    "gains": 55,
+    "discordant_rate": 0.059,
+    "tost_p": 1.1693606420825116e-20,
+    "boot_lower": 0.038,
+    "boot_ci95": [
+     0.036,
+     0.066
+    ],
+    "mcnemar_ci95": [
+     0.03628081401611054,
+     0.06571918598388946
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "L3": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 0.944,
+    "arm_rate": 0.988,
+    "mean_diff": 0.044,
+    "losses": 1,
+    "gains": 45,
+    "discordant_rate": 0.046,
+    "tost_p": 2.236942985254275e-21,
+    "boot_lower": 0.033,
+    "boot_ci95": [
+     0.031,
+     0.058
+    ],
+    "mcnemar_ci95": [
+     0.03098961793508484,
+     0.057010382064915155
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 0.912,
+    "arm_rate": 0.954,
+    "mean_diff": 0.042,
+    "losses": 3,
+    "gains": 45,
+    "discordant_rate": 0.048,
+    "tost_p": 2.131561790182549e-19,
+    "boot_lower": 0.031,
+    "boot_ci95": [
+     0.029,
+     0.056
+    ],
+    "mcnemar_ci95": [
+     0.02867282137759032,
+     0.055327178622409684
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "R": {
+   "status": "certified",
+   "correct": {
+    "n": 630,
+    "base_rate": 0.9968253968253968,
+    "arm_rate": 0.9952380952380953,
+    "mean_diff": -0.0015873015873015873,
+    "losses": 2,
+    "gains": 1,
+    "discordant_rate": 0.004761904761904762,
+    "tost_p": 2.411440208076157e-11,
+    "boot_lower": -0.006349206349206349,
+    "boot_ci95": [
+     -0.006349206349206349,
+     0.0031746031746031746
+    ],
+    "mcnemar_ci95": [
+     -0.006974379364265041,
+     0.003799776189661866
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  }
+ },
+ "mode": "live",
+ "model": "claude-haiku-4-5",
+ "budget_usd": 85.0,
+ "expected_usd": 26.36,
+ "preflight_input_tokens": {
+  "raw": 13518,
+  "L0": 11917,
+  "L1": 10993,
+  "L2": 4332,
+  "L3": 7838,
+  "R": 631
+ },
+ "spent_usd": 21.6812,
+ "usage_totals": {
+  "in": 14195752,
+  "cw": 313715,
+  "cr": 44560407,
+  "out": 527443
+ },
+ "api_attempts": 7564,
+ "failed_attempts": 0,
+ "spend_by_arm": {
+  "tools:raw": {
+   "attempts": 1000,
+   "in": 378154,
+   "cw": 52620,
+   "cr": 13102380,
+   "out": 82751,
+   "usd": 2.1681
+  },
+  "tools:L0": {
+   "attempts": 1000,
+   "in": 378154,
+   "cw": 46216,
+   "cr": 11507784,
+   "out": 82769,
+   "usd": 2.0001
+  },
+  "tools:L1": {
+   "attempts": 1000,
+   "in": 378154,
+   "cw": 42520,
+   "cr": 10587480,
+   "out": 82532,
+   "usd": 1.9027
+  },
+  "tools:L2": {
+   "attempts": 2006,
+   "in": 7748814,
+   "cw": 66618,
+   "cr": 1325063,
+   "out": 165299,
+   "usd": 8.7911
+  },
+  "tools:L3": {
+   "attempts": 1088,
+   "in": 436355,
+   "cw": 105741,
+   "cr": 8037700,
+   "out": 89257,
+   "usd": 1.8187
+  },
+  "results:raw": {
+   "attempts": 630,
+   "in": 3063611,
+   "cw": 0,
+   "cr": 0,
+   "out": 3993,
+   "usd": 3.0836
+  },
+  "results:R": {
+   "attempts": 840,
+   "in": 1812510,
+   "cw": 0,
+   "cr": 0,
+   "out": 20842,
+   "usd": 1.9167
+  }
+ },
+ "provenance": {
+  "protocol_commit": "54ea03d7774a22ab520189d378a51394c20a56af",
+  "protocol_amendment": "Amendment 1 (pre-data), committed 2026-09-25T08:26:11-04:00",
+  "harness_commit": "fe40c2b",
+  "run_window": "2026-09-25 ~08:33-09:08 America/New_York",
+  "note": "provenance and spend_by_arm added after the run from git log and live_calls_claude-haiku-4-5.jsonl (bench.spend_by_arm); no measured value changed"
+ }
+}

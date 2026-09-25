@@ -59,7 +59,7 @@ def test_render_text_screenshot(populated):
     text = watch.render_text(watch.load_summary(populated), width=140)
     assert "[git] level L2 (lazy)" in text and "cache 2 list change(s)" in text
     assert "[time] level L0 (lossless)" in text and "cache stable" in text
-    assert "certificate  L0:pending" in text
+    assert "certificate  L0:certified" in text
     lines = [ln for ln in text.splitlines() if ln.strip().startswith("git_log")]
     assert lines and "unlocked" in lines[0]
     assert all(len(ln) <= 140 for ln in text.splitlines())
@@ -123,7 +123,8 @@ def test_run_watch_once_and_loop(populated, monkeypatch):
 
 
 def test_certificate_parsing(tmp_path):
-    assert set(watch.certificate().values()) == {"pending"}  # the shipped file: nothing certified
+    # the shipped file: every level certified by the committed live run
+    assert set(watch.certificate().values()) == {"certified"}
     p = tmp_path / "c.json"
     p.write_text(
         json.dumps(

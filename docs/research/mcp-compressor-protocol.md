@@ -7,9 +7,9 @@
 - **Executable form:** `distil/mcpproxy/bench.py` (`distil mcp bench`). Where this text
   and that code disagree, the disagreement is a defect to be logged, not resolved
   silently in either direction.
-- **Status:** registered; **no live run has been made**. Every level's certificate in
-  `distil/certificates/mcp.json` is `pending`. Amended once before data (Amendment 1,
-  under *Deviations*: $85 ceiling, `claude-haiku-4-5` only this round).
+- **Status:** live run 1 made 2026-09-25 on `claude-haiku-4-5` ($21.68 of an $85
+  ceiling): L0, L1, L2, L3 and R all **certified** for that model. See *Results* at the
+  end. Amended once before data (Amendment 1, under *Deviations*).
 
 ## 1. Question
 
@@ -214,6 +214,70 @@ been given.**
 - **Heuristic tokenizer** for token counts and the cost estimate (±, hence the ×1.25).
 - **Templated prompts** share phrasing within a template; tasks are not independent
   draws from real usage. The bootstrap resamples tasks, not templates.
+
+## Results — live run 1 (2026-09-25, `claude-haiku-4-5`)
+
+Artifacts: `benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json` (verdicts,
+paired statistics, per-arm tokens and dollars) and `live_calls_claude-haiku-4-5.jsonl`
+(one content-free line per API attempt: arm, task id, attempt, status, input / cache
+write / cache read / output tokens, dollars). Harness at `fe40c2b`, after Amendment 1
+(`54ea03d`, committed 2026-09-25T08:26:11-04:00, before the first model call).
+
+**Spend:** $21.6812 of the $85 ceiling (expected before the run: $26.36). 7,564 API
+attempts, 0 failed, 0 retries. The run completed; nothing was stopped by the meter.
+
+**Tool family** (n = 1000 per arm, same tasks, fixed sequence L0 → L1 → L2 → L3). Every
+level was certified, so the sequence never stopped.
+
+| arm | selection | args | Δ selection (boot. 95% lower) | Δ args (boot. 95% lower) | losses / gains (args) | extra round trips / task | verdict |
+|---|---|---|---|---|---|---|---|
+| raw | 0.944 | 0.912 | — | — | — | 0.0 | reference |
+| L0 | 0.952 | 0.921 | +0.008 (+0.004) | +0.009 (+0.004) | 0 / 9 | 0.0 | **certified** |
+| L1 | 0.954 | 0.954 | +0.010 (+0.005) | +0.042 (+0.032) | 0 / 42 | 0.0 | **certified** |
+| L2 | 0.998 | 0.963 | +0.054 (+0.042) | +0.051 (+0.038) | 4 / 55 | 1.006 | **certified** |
+| L3 | 0.988 | 0.954 | +0.044 (+0.033) | +0.042 (+0.031) | 3 / 45 | 0.088 | **certified** |
+
+The non-inferiority bound is −0.02. Every TOST p-value is below 1e-18. The largest
+observed discordance was 0.059 (L2 args), under the design's 0.06, so no level is
+`inconclusive`.
+
+**R** (n = 630): answer accuracy 0.9968 raw vs 0.9952 R, Δ −0.0016, 2 losses / 1 gain,
+bootstrap 95% lower bound −0.0063 > −0.02, TOST p 2.4e-11: **certified**. 0.33 expand
+calls per result task.
+
+**Read these carefully.**
+
+- Every compressed level scored *higher* than raw. The protocol tests non-inferiority
+  only, so this is reported as observed, **not** as a superiority claim. Why the
+  uncompressed 78-tool list did worse was not investigated.
+- The certificates cover `claude-haiku-4-5` on the eight reference servers with
+  synthetic, single-call tasks (§13). There was no replication model this round
+  (Amendment 1).
+- **Cost is not accuracy.** Billed dollars on the tool suite, from `spend_by_arm`: raw
+  $2.17, L0 $2.00, L1 $1.90, **L2 $8.79**, L3 $1.82. On the result suite: raw $3.08,
+  R $1.92. L2 was billed 7,748,814 uncached input tokens against raw's 378,154, because
+  its short session-start prompt was never written to the prompt cache on this model
+  (cache writes on 0 of its 1,000 first turns, per the call log), and every L2 task took
+  a second round trip. Every task here is a fresh session. In a long session the unlocked
+  set persists and the cache can warm up, but that was not measured. L3 was cheaper
+  than raw only because its pins were learned in advance (§4). A fresh L3 install has
+  no usage yet and starts as L2.
+
+**Default decision (§10).** The rule designates the most aggressive certified level
+that has not failed on the replication model, plus R if it is certified on *both*
+models. There is no replication model this round, so the R clause cannot be met and the
+level clause is met only vacuously. **The shipped default stays L0.** L1–L3 and R stay
+opt-in, now shown as `certified` for `claude-haiku-4-5` in `distil mcp watch`, on the
+dashboard, and in `distil/certificates/mcp.json`, so the pending-certificate warning no
+longer prints for them. Making L3 (and/or R) the default is a maintainer decision. It
+should wait for the replication model and a measurement of L2's cached cost in long
+sessions.
+
+- **Deviation (logged after the run):** the header says a live result file records the git SHA
+  of this document. The harness did not write it. The SHAs above were added to the
+  artifact's `provenance` block after the run, from `git log`, along with
+  `spend_by_arm` (computed by `bench.spend_by_arm` from the committed call log). No
+  measured value changed.
 
 ## Deviations
 

@@ -119,7 +119,28 @@ such mechanism. Tool **results** are uncompressed for every client, Claude Code 
 - Streamable-HTTP transport (front or back) is **not** built: stdio covers every installer
   target, and a correct HTTP frontend needs session ids, SSE resumption and auth. Remote
   (`url`) servers are skipped by `serve` and never touched by `install`.
-- With prompt caching, the cost estimate suggests L2's extra round trip can cost more
-  than the cached tool list it saves on this benchmark; L2's value there is context-window
-  headroom, not dollars. The live run measures both.
-- Until the live run is approved and made, only the token numbers are measurements.
+- With prompt caching, the cost estimate suggested L2's extra round trip could cost more
+  than the cached tool list it saves. **The live run confirmed it** (below): on the tool
+  suite L2 billed $8.79 to raw's $2.17. L2's value is context-window headroom, not
+  dollars, at least for short sessions on `claude-haiku-4-5`.
+
+## Live result (2026-09-25, amended protocol, `claude-haiku-4-5`)
+
+Pre-registered run, one look, $21.68 spent of an $85 ceiling that the harness's spend
+meter enforced before every call (Amendment 1). Artifact:
+`benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json`.
+
+- **All of L0, L1, L2, L3 and R are certified** for `claude-haiku-4-5`: n=1000 tool
+  tasks per level, n=630 result tasks, TOST plus a paired bootstrap at margin 0.02,
+  α 0.05. Selection went from 0.944 (raw) to 0.952 / 0.954 / 0.998 / 0.988 (L0–L3).
+  Argument match went from 0.912 to 0.921 / 0.954 / 0.963 / 0.954. R answer accuracy
+  went from 0.9968 to 0.9952.
+- Every compressed level beat raw, but that was **not** a pre-registered hypothesis and
+  is not claimed as superiority.
+- **Default unchanged: L0.** §10's rule needs a replication model (for R, a certificate
+  on both models). None was run this round, so L1–L3 and R stay opt-in, now marked
+  certified. Promoting L3 or R is a maintainer decision. It should wait for the
+  replication model and for L2's cost to be measured in long sessions, because a fresh
+  L3 install starts as L2.
+- Scope of a certificate: one model, eight reference servers, synthetic single-call
+  tasks (protocol §13).
