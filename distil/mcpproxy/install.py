@@ -14,7 +14,8 @@ SHA-256 of the bytes distil wrote and the file's original mode — so undo can t
 from "edited since" (unwrap distil's entries only, keep the user's later edits, and
 leave the backup where it is).
 
-Client config locations (verified 2026-09-24 against each client's docs):
+Client config locations (each client's documented default as of 2026-09; NOT re-fetched
+from the docs when this was written — confirm before a release):
 Cursor ``~/.cursor/mcp.json``; Claude Desktop ``claude_desktop_config.json``; Gemini
 CLI ``~/.gemini/settings.json``; Windsurf ``~/.codeium/windsurf/mcp_config.json``
 (all ``mcpServers``); opencode ``~/.config/opencode/opencode.json`` (``mcp``, local
