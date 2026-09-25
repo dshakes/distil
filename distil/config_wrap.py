@@ -1016,9 +1016,8 @@ def _cline_providers_path(argv: Sequence[str] = ()) -> Path:
     ]
     supplied = [
         (label, resolve)
-        for (label, resolve), value in zip(
-            given, (config_dir, data_dir_flag, data_dir_env), strict=True
-        )
+        # ponytail: no zip(strict=) — 3.9 is the supported floor; both sides are 3 literals.
+        for (label, resolve), value in zip(given, (config_dir, data_dir_flag, data_dir_env))
         if value
     ]
     if len(supplied) > 1:
