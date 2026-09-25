@@ -791,6 +791,20 @@
         "7%"
       ],
       "note": "Kept because it is reader-facing and numeric; it belongs with the re-read-delta ceiling work."
+    },
+    {
+      "id": "v-mcp-definition-tokens",
+      "status": "verified",
+      "page": "mcp.html",
+      "anchor": "measured",
+      "snippet": "L0 sends <b>12.6%</b> fewer model-facing definition tokens and L2 <b>77.0%</b> fewer",
+      "claim": "On the eight vendored MCP reference-server tool lists (78 tools), L0 sends 12.6% fewer model-facing definition tokens than the raw lists and L2 77.0% fewer at session start (distil heuristic tokenizer). Deterministic counts over fixed inputs; not an accuracy claim.",
+      "artifact": "benchmarks/results/mcp_toolbench/definitions.json",
+      "note": "Regenerate with `distil mcp bench` (writes definitions.json); computed by distil.mcpproxy.bench.definition_table.",
+      "values": [
+        "12.6%",
+        "77.0%"
+      ]
     }
   ]
 }

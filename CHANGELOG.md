@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the other MCP servers' tools, compressed at a level you can name and a test that decides whether you should
 
 The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -19,6 +19,40 @@ cannot be relied on to surface — the shapes below are invisible under `distil 
 Claude Code, and that is the only traffic the soak has.
 
 Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
+
+### `distil mcp`: the other MCP servers' tools, compressed at a level you can name
+
+`distil mcp wrap -- <server>` and `distil mcp serve --config mcp.json` put a transparent
+stdio proxy in front of any MCP server. It rewrites `tools/list` and `tools/call` and relays
+everything else — resources, prompts, notifications, and server-to-client requests with
+their ids remapped — so it drops into Codex, Cursor, Gemini CLI, opencode, Claude Desktop,
+Windsurf or a custom agent unchanged. `distil mcp install <client>` rewrites that client's
+config to route through it, with a byte-exact backup, 0600 atomic writes and an undo that
+restores the original bytes when the file is untouched and unwraps only distil's entries
+when it is not. Claude Code is deliberately not a target for definitions: its own tool
+search defers unused tools better (ADR 0017, building on 0013).
+
+Every level is a named mode and none is ever larger than L0. **L0** removes only
+JSON-Schema annotation keywords — proven, on all 78 vendored reference-server schemas,
+to leave every validation keyword in place. **L1** keeps each description's first
+sentence and its constraint sentences, verbatim. **L2** is lazy loading that hands the
+model the *real* tool once it fetches the schema, instead of routing every call through a
+generic `invoke` forever; unlocks are append-only and persisted per session so a cached
+prefix survives them. **L3** pins what a server is actually used for, learned locally from
+names and counts. **R** digests large text results with the same recoverable digest the
+LLM proxy uses and a `<server>_expand` tool to get them back; it never touches errors,
+non-text content, `structuredContent`, or file reads an agent has to quote back exactly.
+
+The default is L0 + R, and L1–L3 print their certificate status on every start, because
+whether a compressed tool list still gets the right tool called is a measurement nobody
+has published. `docs/research/mcp-compressor-protocol.md` pre-registers it — paired
+non-inferiority on tool selection and argument exact-match at the single risk budget,
+sample sizes from a power calculation, a fixed testing sequence, one look — and `distil
+mcp bench` is its executable form. It runs offline against a scripted model through the
+real proxy, which is enough to show the statistics fail an injected loss; the live run is
+costed in `benchmarks/results/mcp_toolbench/cost_estimate.json` and has not been made.
+`distil mcp watch` and the dashboard's `/mcp` page show, per tool, what was sent before
+and after, from a content-free local log that keeps tool names on this machine.
 
 ### The freshest read the agent asked for came back as a pointer
 

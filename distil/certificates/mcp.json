@@ -1,0 +1,12 @@
+{
+  "protocol": "docs/research/mcp-compressor-protocol.md",
+  "protocol_version": 1,
+  "note": "No live run has been made. Every level is pending until the pre-registered run is approved, executed, and its results committed under benchmarks/results/mcp_toolbench/. Only a human edits this file, from a committed run.",
+  "levels": {
+    "L0": {"status": "pending", "why": "validation-equivalent by construction (tests/test_mcp_levels.py); model behaviour not yet measured"},
+    "L1": {"status": "pending"},
+    "L2": {"status": "pending"},
+    "L3": {"status": "pending"},
+    "R": {"status": "pending"}
+  }
+}

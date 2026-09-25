@@ -551,6 +551,29 @@ client knows `distil_expand` is a safe, repeatable, offline read without having 
 
 ---
 
+## 🗜️ MCP compressor — shrink other servers' tools and results
+
+`distil mcp` with a subcommand is a transparent proxy in front of your *other* MCP servers, for
+Codex, Cursor, Gemini CLI, opencode, Claude Desktop, Windsurf and custom agents. (Claude Code's own
+tool search already defers unused tools — see [ADR 0017](docs/adr/0017-mcp-compressor.md).)
+
+```bash
+distil mcp wrap -- npx -y @modelcontextprotocol/server-filesystem ~/work   # one server
+distil mcp serve --config mcp.json       # every stdio server in an mcpServers file
+distil mcp install cursor                # route Cursor's servers through distil (…--undo restores byte-exact)
+distil mcp watch                         # per-tool: tokens before→after, unlocks, fetches, expands
+```
+
+Levels are explicit: **L0** lossless schema canonicalisation (on), **L1** extractive summaries,
+**L2** lazy loading that surfaces the *real* tool after its schema is fetched (not a generic
+`invoke` forever), **L3** L2 plus pins learned from your usage, and **R** recoverable result digests
+with a `<server>_expand` tool (on). L1–L3 are opt-in until the
+[pre-registered accuracy protocol](docs/research/mcp-compressor-protocol.md) certifies them —
+no live run has been made yet, so every certificate reads *pending*. `distil mcp bench` runs the
+harness offline with a mock model. Details: [docs/mcp.html](https://dshakes.github.io/distil/mcp.html).
+
+---
+
 ## 📦 Install your way
 
 **New here?** `pipx install distil-llm`, then `distil onboard` — it sets you up and guides you (see [Use it now](#-use-it-now)). Want to see it prove itself first instead? `distil bench` runs the certified gate in ~10s, no API key. The matrix below is for picking an *install format* — everything in it is an alternative, not a requirement.

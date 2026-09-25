@@ -3015,10 +3015,232 @@ def _hook_stats(out: Any = None) -> int:
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
-    """Run the zero-dependency distil MCP server over stdio (compress/expand/savings)."""
-    from .mcp_server import serve
+    """``distil mcp`` — distil's own MCP server; with a subcommand, the MCP proxy."""
+    sub = getattr(args, "mcp_cmd", None)
+    if sub is None:
+        from .mcp_server import serve
 
-    serve()
+        serve()
+        return 0
+    handlers = {
+        "wrap": _mcp_wrap,
+        "serve": _mcp_serve,
+        "install": _mcp_install,
+        "watch": _mcp_watch,
+        "bench": _mcp_bench,
+    }
+    return handlers[sub](args)
+
+
+def _mcp_default_name(command: list[str]) -> str:
+    """A server name from its command line: ``npx -y @scope/server-git`` → ``git``."""
+    target = next((a for a in command[1:] if not a.startswith("-")), command[0])
+    base = Path(target).name.split("@", 1)[-1] if target.startswith("@") else Path(target).name
+    for prefix in ("mcp-server-", "server-", "mcp-"):
+        if base.startswith(prefix):
+            base = base[len(prefix) :]
+    return base or "mcp"
+
+
+def _mcp_level_notice(level: str, results: bool) -> None:
+    """One stderr line (the client's MCP log) when an uncertified level is in use."""
+    from .mcpproxy import watch
+
+    cert = watch.certificate()
+    pending = [
+        lv
+        for lv in ([level] if level != "L0" else []) + (["R"] if results else [])
+        if cert.get(lv) != "certified"
+    ]
+    if pending:
+        print(
+            f"distil mcp: {', '.join(pending)} accuracy certificate is {cert.get(pending[0])} — "
+            "see `distil mcp watch`; L0 is lossless by construction",
+            file=sys.stderr,
+        )
+
+
+def _mcp_run(specs: list, level: str, results: bool, fallback: list[str] | None) -> int:
+    from .mcpproxy import proxy as mp
+
+    try:
+        px = mp.build(specs, level=level, results=results)
+    except FileNotFoundError as exc:
+        print(f"distil mcp: cannot start server: {exc}", file=sys.stderr)
+        return 127
+    except Exception as exc:  # noqa: BLE001 — fail open: run the server without the proxy
+        if fallback is None:
+            raise
+        import os
+
+        print(
+            f"distil mcp: proxy unavailable ({type(exc).__name__}); running the server directly",
+            file=sys.stderr,
+        )
+        os.execvp(fallback[0], fallback)
+        return 127  # only reached when exec itself is stubbed out
+    _mcp_level_notice(level, results)
+    mp.serve(px)
+    return 0
+
+
+def _mcp_wrap(args: argparse.Namespace) -> int:
+    from .mcpproxy import proxy as mp
+
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        print(
+            "usage: distil mcp wrap [--name N] [--level L0..L3] -- <server command>",
+            file=sys.stderr,
+        )
+        return 2
+    name = args.name or _mcp_default_name(command)
+    spec = mp.ServerSpec(name, command[0], command[1:])
+    return _mcp_run([spec], args.level, not args.no_results, command)
+
+
+def _mcp_serve(args: argparse.Namespace) -> int:
+    from .mcpproxy import proxy as mp
+
+    try:
+        specs, skipped = mp.load_config(Path(args.config))
+    except mp.ConfigError as exc:
+        print(f"distil mcp serve: {exc}", file=sys.stderr)
+        return 2
+    for why in skipped:
+        print(f"distil mcp serve: skipped {why}", file=sys.stderr)
+    return _mcp_run(specs, args.level, not args.no_results, None)
+
+
+def _mcp_install(args: argparse.Namespace) -> int:
+    from .mcpproxy import install as mi
+
+    path = Path(args.path).expanduser() if args.path else None
+    try:
+        if args.undo:
+            status, msg = mi.uninstall(args.client, path=path)
+        else:
+            status, msg = mi.install(
+                args.client,
+                path=path,
+                level=args.level,
+                results=not args.no_results,
+                dry_run=args.dry_run,
+            )
+    except mi.InstallError as exc:
+        print(f"distil mcp install: {exc}", file=sys.stderr)
+        return 1
+    print(msg)
+    if status == "ok":
+        print("restart the client so it relaunches its MCP servers through distil")
+    return 0
+
+
+def _mcp_watch(args: argparse.Namespace) -> int:
+    if args.web:
+        from .webdash import serve_webdash
+
+        print(f"MCP compression view → http://127.0.0.1:{args.port}/mcp")
+        serve_webdash(args.port, open_browser=False)
+        return 0
+    from .mcpproxy import watch
+
+    return watch.run_watch(interval=args.interval, once=args.once)
+
+
+def _mcp_bench(args: argparse.Namespace) -> int:
+    from .mcpproxy import bench
+
+    out = Path(args.out)
+    if args.live:
+        return _mcp_bench_live(args, bench, out)
+    degrade = {"L2": 0.08, "L3": 0.08} if args.behavior == "degraded" else None
+    model = bench.scripted(args.behavior, seed=args.seed, degrade=degrade)
+    res = bench.run(model=model, n_tools=args.n, n_results=args.n_results, seed=args.seed)
+    runs = res.pop("_runs")
+    res["mode"] = (
+        f"dry-run ({args.behavior} mock model — verdicts validate the plumbing, not a model)"
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"dryrun-{args.behavior}.json").write_text(json.dumps(res, indent=1) + "\n")
+    print(
+        f"dry run ({args.behavior} mock model, no API calls) → {out / f'dryrun-{args.behavior}.json'}"
+    )
+    _print_bench(res)
+    if args.behavior == "oracle":
+        cost = bench.estimate_cost(runs["tools"], runs["results"])
+        cost["n_tool_tasks"], cost["n_result_tasks"] = res["n_tool_tasks"], res["n_result_tasks"]
+        (out / "cost_estimate.json").write_text(json.dumps(cost, indent=1) + "\n")
+        (out / "definitions.json").write_text(json.dumps(bench.definition_table(), indent=1) + "\n")
+        print("\nlive-run cost estimate (nothing spent):")
+        for m, row in cost["models"].items():
+            print(
+                f"  {m:<20} ${row['usd_cached']:>9,.2f} with prompt caching   ${row['usd_no_cache']:>9,.2f} upper bound"
+            )
+    return 0
+
+
+def _print_bench(res: dict) -> None:
+    print(
+        f"\n  {'arm':<6}{'select':>9}{'args':>9}{'success':>9}{'+trips':>8}{'tools tok':>11}   verdict"
+    )
+    cert = res["verdicts"]
+    for arm, s in res["summary"]["arms"].items():
+        v = cert.get(arm, {}).get("status", "reference" if arm == "raw" else "")
+        print(
+            f"  {arm:<6}{s['selection']:>9.3f}{s['args']:>9.3f}{s['success']:>9.3f}"
+            f"{s['extra_round_trips']:>8.2f}{s['tools_tokens']:>11,}   {v}"
+        )
+    for arm, s in res["summary"]["results"].items():
+        v = cert.get("R", {}).get("status", "") if arm == "R" else "reference"
+        print(
+            f"  {arm:<6} answer {s['correct']:.3f}  expands/task {s['mean_expands']:.2f}  in-tok/task {s['mean_input_tokens']:,.0f}   {v}"
+        )
+
+
+def _mcp_bench_live(args: argparse.Namespace, bench: Any, out: Path) -> int:
+    if args.budget_usd is None or args.model is None:
+        print(
+            "distil mcp bench --live needs --model and --budget-usd (a hard spend cap)",
+            file=sys.stderr,
+        )
+        return 2
+    if args.model not in bench.LIVE_MODELS:
+        print(f"--model must be one of {', '.join(bench.LIVE_MODELS)}", file=sys.stderr)
+        return 2
+    dry = bench.run(
+        model=bench.scripted("oracle"), n_tools=args.n, n_results=args.n_results, seed=args.seed
+    )
+    est = bench.estimate_cost(dry["_runs"]["tools"], dry["_runs"]["results"], (args.model,))
+    need = est["models"][args.model]["usd_no_cache"]
+    if need > args.budget_usd:
+        print(
+            f"estimated upper bound ${need:,.2f} exceeds --budget-usd {args.budget_usd:,.2f}; "
+            "nothing was sent",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        model = bench.AnthropicModel(args.model, args.budget_usd)
+        res = bench.run(model=model, n_tools=args.n, n_results=args.n_results, seed=args.seed)
+    except bench.BudgetExceeded as exc:
+        print(
+            f"stopped at the budget cap ({exc}); by protocol §6 no level is certified",
+            file=sys.stderr,
+        )
+        return 1
+    except RuntimeError as exc:
+        print(f"distil mcp bench --live: {exc}", file=sys.stderr)
+        return 1
+    res.pop("_runs")
+    res["mode"], res["model"], res["spent_usd"] = "live", args.model, round(model.spent, 4)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"live-{args.model}.json"
+    path.write_text(json.dumps(res, indent=1) + "\n")
+    print(f"live run → {path} (spent ${model.spent:,.2f})")
+    _print_bench(res)
     return 0
 
 
@@ -4963,9 +5185,72 @@ def build_parser() -> argparse.ArgumentParser:
     sl.set_defaults(func=cmd_statusline)
 
     mc = sub.add_parser(
-        "mcp", help="run the zero-dep MCP server over stdio (distil_compress/expand/savings)"
+        "mcp",
+        help="run the zero-dep MCP server over stdio (distil_compress/expand/savings); "
+        "with a subcommand, compress other MCP servers' tools (wrap/serve/install/watch/bench)",
     )
     mc.set_defaults(func=cmd_mcp)
+    mcs = mc.add_subparsers(dest="mcp_cmd")
+
+    def _level_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--level",
+            choices=["L0", "L1", "L2", "L3"],
+            default="L0",
+            help="definition compression: L0 lossless (default), L1 summary, L2 lazy, "
+            "L3 adaptive — L1-L3 are opt-in until certified (distil mcp watch)",
+        )
+        p.add_argument(
+            "--no-results",
+            action="store_true",
+            help="do not digest tool results (R is on by default)",
+        )
+
+    mw = mcs.add_parser("wrap", help="proxy one stdio MCP server: distil mcp wrap -- <command>")
+    mw.add_argument("--name", help="server name for tool prefixes and the watch view")
+    _level_flags(mw)
+    mw.add_argument("command", nargs=argparse.REMAINDER, help="the server command, after --")
+    ms = mcs.add_parser("serve", help="proxy every stdio server in an mcpServers JSON config")
+    ms.add_argument("--config", required=True, help="Claude Desktop/Cursor-style mcpServers JSON")
+    _level_flags(ms)
+    mi = mcs.add_parser("install", help="route a client's MCP servers through distil (exact undo)")
+    mi.add_argument(
+        "client",
+        choices=["cursor", "claude-desktop", "gemini", "windsurf", "opencode", "codex", "custom"],
+    )
+    mi.add_argument("--path", help="config file (required for custom; overrides the default)")
+    mi.add_argument(
+        "--undo", action="store_true", help="restore the config (byte-exact if untouched)"
+    )
+    mi.add_argument(
+        "--dry-run", action="store_true", help="print the rewritten config, write nothing"
+    )
+    _level_flags(mi)
+    mwt = mcs.add_parser(
+        "watch", help="live view: per-server/per-tool compression, fetches, expands"
+    )
+    mwt.add_argument("--once", action="store_true", help="print one snapshot and exit")
+    mwt.add_argument("--interval", type=float, default=1.0, help="refresh seconds (default 1)")
+    mwt.add_argument("--web", action="store_true", help="serve the webdash /mcp page instead")
+    mwt.add_argument("--port", type=int, default=8766)
+    mb = mcs.add_parser("bench", help="tool-use accuracy harness (dry run by default; no spend)")
+    mb.add_argument(
+        "--live", action="store_true", help="call the Anthropic API (needs --budget-usd)"
+    )
+    mb.add_argument(
+        "--model", help="live model (claude-haiku-4-5 | claude-sonnet-5 | claude-opus-5)"
+    )
+    mb.add_argument("--budget-usd", type=float, help="hard spend cap for --live")
+    mb.add_argument(
+        "--behavior",
+        choices=["oracle", "invoke", "noisy", "degraded", "no-expand"],
+        default="oracle",
+        help="dry-run mock model behaviour",
+    )
+    mb.add_argument("--n", type=int, default=1000, help="tool-selection tasks (protocol: 1000)")
+    mb.add_argument("--n-results", type=int, default=630, help="result tasks (protocol: 630)")
+    mb.add_argument("--seed", type=int, default=0)
+    mb.add_argument("--out", default="benchmarks/results/mcp_toolbench", help="results directory")
 
     mem = sub.add_parser(
         "memory",
