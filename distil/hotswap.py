@@ -91,7 +91,7 @@ class WorkerConfig:
     upstream: str
     lossless_only: bool = False
     verbatim: bool = False
-    shape_output: str = "off"
+    shape_output: str = "auto"
     record: bool = True
     pricing_model: str = "claude-opus-4-8"
     expand: bool = False

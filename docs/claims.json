@@ -396,9 +396,9 @@
       "status": "verified",
       "page": "assets/integration-surface.svg",
       "anchor": null,
-      "snippet": "zero config · 11 agents",
-      "claim": "Architecture diagram's \"Agent wrap\" card: distil wrap has zero-config presets for 11 agents.",
-      "note": "len(distil.onboard.AGENT_PRESETS) == 11 (claude, codex, gemini, aider, opencode, qwen, goose, grok, openhands, copilot, kimi); bumped from 9 with the copilot/kimi presets, tested by tests/test_wrap_presets.py."
+      "snippet": "zero config · 18 agents",
+      "claim": "Architecture diagram's \"Agent wrap\" card: distil wrap has zero-config presets for 18 agents.",
+      "note": "Counts BOTH registries, which is what `distil wrap` actually reaches: 12 env-var presets in distil.onboard.AGENT_PRESETS (claude, codex, gemini, aider, opencode, qwen, goose, grok, openhands, copilot, kimi, vibe) plus 6 config-file presets in distil.config_wrap.CONFIG_PRESETS (cn, droid, omp, crush, cline, kilo). Counting only the first undersold it by a quarter from 1.53.0, when the config-file mechanism landed. Enforced against distil.targets.catalog() by tests/test_svg_assets.py, and each contract's source is in tests/test_wrap_targets.py."
     },
     {
       "id": "v-benchmark-corpus-warm",
@@ -714,14 +714,31 @@
       ],
       "anchor": null,
       "snippet": null,
-      "claim": "On the ops/sre trajectory, cache-aware lossless cuts cost 33% while naive compress+cache costs 11% MORE than the uncompressed baseline: a compressor that rewrites an already-cached prefix pays more in re-billed prefix than it saves. distil shipped that bug once on the live adapter before 1.45 and measured it at 2x the cost of direct; the invariant is now enforced.",
-      "artifact": "docs/CACHE.md",
+      "claim": "On the ops/sre trajectory, cache-aware lossless cuts cost 33% while naive compress+cache costs 11% MORE than the uncompressed baseline: a compressor that rewrites an already-cached prefix pays more in re-billed prefix than it saves.",
+      "artifact": "benchmarks/results/cache-aware-vs-naive-2026-09-24.json",
       "values": [
         "33%",
-        "11%",
+        "11%"
+      ],
+      "note": "docs/CACHE.md, the prior artifact, states neither of these numbers -- it describes the invariant, not a measurement. Repointed to a real run of `distil savings --trajectory corpus/sample_trajectory.json --pricing claude-opus-4-8` (32.8% / -11.3% vs baseline, matching the terminal sample on architecture.html/concepts.html/index.html/README.md byte for byte). The '2x' figure previously bundled into this entry is a separate live-adapter incident, not this artifact's measurement -- split out to u-live-cache-naive-2x."
+    },
+    {
+      "id": "u-live-cache-naive-2x",
+      "status": "unsourced",
+      "page": [
+        "cache-contract.html",
+        "benchmark.html",
+        "changelog.html"
+      ],
+      "anchor": null,
+      "snippet": null,
+      "claim": "distil shipped the naive-recompression-busts-the-cache bug once on the live adapter before 1.45: a recency carve-out that rewrote an already-committed prefix one turn late produced zero cache reads on every turn and cost 2x the price of compressing nothing at all, measured against the real Anthropic API in a 4-arm live A/B (direct / digest / lossless_only / naive). The invariant (suffix-only, cache-monotonic compression) is now enforced by tests/test_cache_contract.py.",
+      "check": "manual",
+      "check_reason": "No committed artifact holds the live A/B's raw numbers. benchmarks/results/cache-aware-vs-naive-2026-09-24.json is a `distil savings` run of the unrelated trajectory simulation above and must hold only what that run measured -- it does not, and must not, carry this figure. Searched benchmarks/results/ and docs/ for anything else backing '2x', 'zero cache reads' or 'four arms'; only the narrative writeup on docs/cache-contract.html and its retelling in CHANGELOG.md/benchmark.html exist. The regression is now covered by a passing test (test_cache_contract.py), not a re-run of the original incident.",
+      "values": [
         "2×"
       ],
-      "note": "Same incident as the cache-contract page and README's cache-busting disclosure; the 2x figure is the 4-arm live A/B recorded in docs/cache-contract.html."
+      "note": "Flagged rather than removed: the mechanism and the fix are real and tested, the incident's own live numbers were never committed."
     },
     {
       "id": "u-live-cache-saving",
@@ -791,6 +808,16 @@
         "7%"
       ],
       "note": "Kept because it is reader-facing and numeric; it belongs with the re-read-delta ceiling work."
+    },
+    {
+      "id": "v-output-shaping-auto",
+      "status": "verified",
+      "page": "output.html",
+      "anchor": "adaptive",
+      "snippet": "below the reporting floor",
+      "claim": "Output shaping defaults to --shape-output auto on a metered session and is ON only when all three hold: the paired decision-equivalence verdict is at or above the shared reporting floor (50 A/B + 30 A/A), its harm bound (lower end of the paired difference interval) is inside the pre-registered +/-2pp certification margin, and the shadow output-token delta excludes zero on the saving side over at least 50 priced samples. Otherwise OFF with a stated reason. Turn-on evidence comes only from shadow rows tagged levers.shape == off, so shaped rows cannot keep shaping on; shaped rows at or above the floor whose harm bound is outside the budget turn it off; both sets are read over the last 7 days. Always off on subscription/OAuth. The last published live sample (398 A/B, 399 A/A) predates the lever tag and counts as zero rows; its harm bound (-4.5pp) is outside the 2pp budget regardless, so auto resolves to OFF.",
+      "artifact": "distil/output.py",
+      "note": "Mechanism is resolve_shape_output; the live-sample figures are from benchmarks/results/shadow-live-2026-09-15.json. The rule is covered by the decision matrix in tests/test_output.py; the thresholds are read from shadow.VERDICT_MIN_AB/VERDICT_MIN_AA and certify.gate.CERT_MARGIN (via output.SHAPE_HARM_MARGIN), not re-declared. Reply LENGTH cannot be measured offline (the deterministic oracle decides from blocks and emits no prose), so there is no corpus number for shaping and none is claimed: the n=6 output_pairs.jsonl A/B is a hand-written mechanism check, already labelled illustrative on the page. The README paragraph in the savings section restates this entry and originates no fact of its own."
     }
   ]
 }
