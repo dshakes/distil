@@ -33,6 +33,7 @@ from pathlib import Path
 
 
 from distil.certify.stats import Z_95, mcnemar_noninferiority
+from distil.conformal import BUDGET_ALPHA
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,7 @@ def paired_discordant(
 
 
 def calibrate_operating_point(
-    points: Sequence[OperatingPoint], *, margin: float = 0.05, z: float = Z_95
+    points: Sequence[OperatingPoint], *, margin: float = BUDGET_ALPHA, z: float = Z_95
 ) -> CalibrationCertificate:
     """Select the most aggressive operating point still non-inferior to full; else fail safe.
 

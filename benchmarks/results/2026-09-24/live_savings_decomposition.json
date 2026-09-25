@@ -1,0 +1,196 @@
+{
+  "source": "~/.distil/sessions/*.requests.jsonl",
+  "since": "2026-09-01",
+  "pricing": "distil.pricing list prices; write 1.25x, read 0.10x",
+  "until": "2026-09-24T20:20:00",
+  "requests_priced": 13191,
+  "requests_unpriced_model": 0,
+  "modes": {
+    "digest": 13191
+  },
+  "billed_usd_total": 2510.45,
+  "by_tier_measured": {
+    "uncached_input": {
+      "usd": 7.67,
+      "share": 0.0031,
+      "tokens": 1825483
+    },
+    "cache_write": {
+      "usd": 541.65,
+      "share": 0.2158,
+      "tokens": 76498895
+    },
+    "cache_read": {
+      "usd": 1813.53,
+      "share": 0.7224,
+      "tokens": 3150653592
+    },
+    "output": {
+      "usd": 147.6,
+      "share": 0.0588,
+      "tokens": 5379123
+    }
+  },
+  "by_content_estimated": {
+    "tools": {
+      "usd": 960.9,
+      "share": 0.3828,
+      "tokens_billed_scale": 1309385652
+    },
+    "user_text": {
+      "usd": 603.32,
+      "share": 0.2403,
+      "tokens_billed_scale": 868080229
+    },
+    "tool_result_digested": {
+      "usd": 255.54,
+      "share": 0.1018,
+      "tokens_billed_scale": 297618157
+    },
+    "tool_result_exact_quote": {
+      "usd": 182.96,
+      "share": 0.0729,
+      "tokens_billed_scale": 222150577
+    },
+    "output": {
+      "usd": 147.6,
+      "share": 0.0588,
+      "tokens_billed_scale": 0
+    },
+    "tool_result_shell_read": {
+      "usd": 103.84,
+      "share": 0.0414,
+      "tokens_billed_scale": 142056463
+    },
+    "system": {
+      "usd": 102.83,
+      "share": 0.041,
+      "tokens_billed_scale": 229711453
+    },
+    "tool_result_short": {
+      "usd": 64.84,
+      "share": 0.0258,
+      "tokens_billed_scale": 66236169
+    },
+    "assistant_text": {
+      "usd": 48.5,
+      "share": 0.0193,
+      "tokens_billed_scale": 49204472
+    },
+    "image_kept": {
+      "usd": 26.36,
+      "share": 0.0105,
+      "tokens_billed_scale": 24709849
+    },
+    "tool_result_html_stripped": {
+      "usd": 8.22,
+      "share": 0.0033,
+      "tokens_billed_scale": 13532920
+    },
+    "tool_result_declined": {
+      "usd": 4.22,
+      "share": 0.0017,
+      "tokens_billed_scale": 4991334
+    },
+    "image_elided": {
+      "usd": 1.22,
+      "share": 0.0005,
+      "tokens_billed_scale": 1109652
+    },
+    "tool_result_recent": {
+      "usd": 0.11,
+      "share": 0.0,
+      "tokens_billed_scale": 171862
+    },
+    "tool_result_expand_recovered": {
+      "usd": 0.01,
+      "share": 0.0,
+      "tokens_billed_scale": 19174
+    },
+    "thinking_billed": {
+      "usd": 0.0,
+      "share": 0.0,
+      "tokens_billed_scale": 0
+    }
+  },
+  "census_original_tokens_heuristic": {
+    "user_text": 653688179,
+    "tool_result_digested": 264460602,
+    "tool_result_exact_quote": 177750049,
+    "tool_result_shell_read": 117531524,
+    "tool_result_short": 54067277,
+    "assistant_text": 27969290,
+    "image_kept": 17272849,
+    "tool_result_html_stripped": 11916124,
+    "tool_result_declined": 3347271,
+    "image_elided": 759696,
+    "tool_result_recent": 204023,
+    "tool_result_expand_recovered": 30620,
+    "thinking_billed": 0
+  },
+  "realized": {
+    "saved_usd_estimated": 286.26,
+    "saved_share_of_counterfactual_bill": 0.1024,
+    "note": "tokens_saved rescaled to billed scale, priced at each request's own blended input rate"
+  },
+  "tool_results": {
+    "share_of_billed_usd_post_compression": 0.2469,
+    "fresh_tr_fraction_of_new_billed_tokens_clean_pairs": 0.4131,
+    "fresh_growth_fraction_of_new_billed_tokens_clean_pairs": 0.518,
+    "clean_pairs": 7949,
+    "fresh_growth_by_bucket_share": {
+      "tool_result_digested": 0.1679,
+      "tool_result_exact_quote": 0.1267,
+      "user_text": 0.0977,
+      "tool_result_shell_read": 0.0924,
+      "tool_result_short": 0.0416,
+      "assistant_text": 0.0131,
+      "tool_result_html_stripped": 0.0113,
+      "tool_result_declined": 0.009,
+      "image_kept": 0.0086,
+      "tool_result_recent": 0.0067,
+      "image_elided": 0.0002,
+      "tool_result_expand_recovered": 0.0001
+    },
+    "excluded_pairs": 4918,
+    "fresh_first_appearance_usd_estimated": 129.8,
+    "fresh_first_appearance_share": 0.0517,
+    "lifetime_over_first_appearance_multiplier": 4.77,
+    "note": "first appearance = f_tr x (write+uncached $ on warm requests); lifetime = the tool_result buckets' post-compression $ share; the multiplier is what a first-sight byte saved is worth relative to its write"
+  },
+  "cache_breaks": {
+    "warm_requests": 12867,
+    "cold_requests_gap_gt_ttl": 244,
+    "cold_write_tokens": 29494256,
+    "cold_write_usd": 234.95,
+    "cold_write_share": 0.0936,
+    "cold_by_gap": {
+      "5-15min": {
+        "requests": 159,
+        "write_usd": 100.11,
+        "share": 0.0399
+      },
+      "15-60min": {
+        "requests": 47,
+        "write_usd": 29.26,
+        "share": 0.0117
+      },
+      ">60min": {
+        "requests": 38,
+        "write_usd": 105.58,
+        "share": 0.0421
+      }
+    },
+    "cold_point_tool_result_pool_usd": 460.86,
+    "cold_point_tool_result_pool_share": 0.1836,
+    "warm_excess_write_tokens_clean_pairs": 8224085,
+    "warm_excess_write_usd_vs_read": 51.44,
+    "warm_excess_write_share": 0.0205,
+    "note": "excess = write beyond the lineage's message growth (+2k slack) on clean warm pairs; $ lost to prefix breaks of ANY cause (client, distil) relative to reading those tokens. Lower bound: dirty pairs excluded"
+  },
+  "expand_round_trips": {
+    "requests": 169,
+    "usd": 9.2,
+    "share": 0.0037
+  }
+}

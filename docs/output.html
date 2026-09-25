@@ -124,7 +124,7 @@
       <div class="card">
         <div class="tag">Output side</div>
         <h3>Generation shaping</h3>
-        <p>A gated <code>role:"system"</code> directive shapes verbosity before generation. A/B measured: <strong>−72.5% output tokens</strong> (95% CI 67.5–77.1%), answer preserved 100%. Lossy, opt-in, <abbr title="pay-as-you-go">PAYG</abbr>-only.</p>
+        <p>A gated <code>role:"system"</code> directive shapes verbosity before generation. Lossy, so it is <strong>adaptive</strong>: on only while the live shadow referee says it is safe and paying, off with a stated reason otherwise, and never on a subscription. <abbr title="pay-as-you-go">PAYG</abbr>-only.</p>
       </div>
     </div>
 
@@ -139,23 +139,52 @@
 
     <p>Two mechanisms work together, with different fidelity guarantees:</p>
 
-    <h3>Generation-side shaping (<code>--shape-output</code>)</h3>
-    <p>Before forwarding the request, the proxy injects a verbosity-control directive instructing the model to be concise — routed the way each provider accepts it. The Anthropic Messages API rejects a <code>role:"system"</code> entry inside <code>messages</code> (400), so the directive is appended to the top-level <code>system</code> field there instead; the OpenAI chat shape takes an appended <code>role:"system"</code> message. Two verbosity modes:</p>
+    <h3 id="adaptive">Generation-side shaping (<code>--shape-output</code>)</h3>
+    <p>Before forwarding the request, the proxy injects a verbosity-control directive instructing the model to be concise — routed the way each provider accepts it. The Anthropic Messages API rejects a <code>role:"system"</code> entry inside <code>messages</code> (400), so the directive is appended to the top-level <code>system</code> field there instead; the OpenAI chat shape takes an appended <code>role:"system"</code> message, and Gemini takes a <code>systemInstruction</code> part.</p>
 
-    <ul>
-      <li><strong><code>light</code></strong> — trims preamble and padding. Typical reduction: 20–35%.</li>
-      <li><strong><code>aggressive</code></strong> — strong brevity constraint; omits elaboration and hedging. Measured reduction: 72.5% (95% CI 67.5–77.1%), answer preserved 100% in A/B.</li>
-    </ul>
+    <p>This changes the model&rsquo;s own words, so unlike input compression it cannot be justified by construction — it has to be justified by evidence. That is what <code>auto</code> is. It is the default on a metered session, and it decides once, at session start, from the same live referee every other surface reports.</p>
+
+    <h4>The rule</h4>
+    <p>Shaping is <strong>on</strong> only when all three of these hold:</p>
+    <ol>
+      <li>the paired decision-equivalence verdict is at or above the one reporting floor the whole product shares — 50 A/B and 30 A/A shadow samples;</li>
+      <li>its harm bound (the lower end of the paired difference interval) is inside the pre-registered certification budget of 2 percentage points — the same margin <code>distil certify</code> tests against, read from the same constant; and</li>
+      <li>the shadow output-token delta excludes zero on the saving side, over at least as many samples as the verdict floor.</li>
+    </ol>
+    <p>Miss any one and shaping is <strong>off</strong>, with the reason printed at startup, written into the session manifest, and shown by <code>distil dissect</code>. There is no silent state: &ldquo;off&rdquo; always comes with why.</p>
+
+    <p><strong>All three are read from rows measured with shaping off.</strong> Once shaping is on, the shadow replay of the served request carries the directive, so &ldquo;replies got shorter&rdquo; on those rows is shaping measuring itself — a gate that counted them would keep itself on by construction. Every shadow row now records the levers that were active when it was measured (<code>"levers": {"compression": …, "shape": …}</code>), and <code>auto</code> turns shaping on only from <code>shape: off</code> rows. Rows written before the tag existed are excluded too: their shaping state is unknown, not off.</p>
+    <p><strong>Shaped rows can still turn it off.</strong> They are the only rows that measure the directive's own effect on decisions, so once they clear the reporting floor their harm bound has to sit inside the same 2pp budget — if it does not, <code>auto</code> resolves off. And all of this is read over the last 7 days only, so an &ldquo;on&rdquo; decision never rests on traffic that has since changed.</p>
+
+    <p>Condition 3 deserves a caveat, because it is not a measurement of shaping. It measures what <em>input</em> compression already does to reply length on your traffic, which is the only live output-side evidence that exists before the session runs. Read it as an enabling signal — replies on this traffic move shorter when the prompt changes — not as a forecast of what shaping itself will save. A shaping A/B needs a live model and is what <code>distil output-savings</code> measures after the fact.</p>
+
+    <p>Two things <code>auto</code> never does. It never picks <code>aggressive</code>: an automatic decision gets the conservative directive, and the strongest lossy setting stays something you ask for. And it never runs on a subscription or OAuth session — that is a policy boundary (<code>policy.may_compress_lossy</code>), not a preference, so an explicit <code>--shape-output aggressive</code> there is suppressed and says so.</p>
 
     <div class="callout warn">
-      <b>Lossy and opt-in.</b> Generation shaping is not lossless — it shortens real model output. It is gated solely by <code>--lossless-only</code>: shaping runs when <code>--shape-output</code> is set and <code>--lossless-only</code> is not. There is no subscription key detection or key-tier verification in the proxy.
+      <b>What the evidence says today.</b> The last published live sample — 398 A/B and 399 A/A, <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/shadow-live-2026-09-15.json">benchmarks/results/shadow-live-2026-09-15.json</a> — predates the lever tag, so for this gate it counts as zero rows and the verdict is below the reporting floor. It would not turn shaping on even if it counted: its harm bound, &minus;4.5pp, is outside the 2pp budget. So <code>auto</code> resolves to <strong>off</strong> and prints why. That is the feature working: the referee has not been given evidence to say yes, so the answer is no.
     </div>
 
-    <pre class="term"><span class="d"># Start the proxy with aggressive output shaping</span>
-<span class="d">$ distil proxy --port 8788 --shape-output aggressive</span>
+    <p>Explicit levels override the evidence, on a metered session:</p>
+    <ul>
+      <li><strong><code>light</code></strong> — trims preamble, restatement and closing recaps. What <code>auto</code> turns on.</li>
+      <li><strong><code>aggressive</code></strong> — strong brevity constraint; omits elaboration and hedging.</li>
+      <li><strong><code>off</code></strong> — never shape, whatever the evidence says.</li>
+    </ul>
+
+    <pre class="term"><span class="d"># Default: the referee decides, and says why</span>
+<span class="d">$ distil proxy --port 8788</span>
 distil proxy listening on http://127.0.0.1:8788
   → upstream: https://api.anthropic.com
-  → output shaping: <span class="g">aggressive</span></pre>
+
+<span class="d"># Forced on, metered session</span>
+<span class="d">$ distil proxy --port 8788 --shape-output aggressive</span>
+  → output shaping: <span class="g">aggressive</span> (explicitly requested)
+
+<span class="d"># Forced on, subscription session — refused, with the reason</span>
+<span class="d">$ distil proxy --lossless-only --shape-output aggressive</span>
+  ⚠ --shape-output aggressive SUPPRESSED: subscription/OAuth session — distil never alters a flat-rate prompt</pre>
+
+    <p>Reply length is reported on its own line — the <code>output</code> verdict in the proof ledger, <code>distil stats</code> and <code>distil dissect</code> — never folded into the input-token saving: a shorter reply has no per-request counterfactual, so the only honest figure is the shadow estimate with its interval.</p>
 
     <h3>Lossless re-entry digest</h3>
     <p>When a long model response is about to re-enter history on the next turn, Distil compresses it using the same Tier-1 digest mechanism used for input blocks: the full output is stored in the local RestoreStore under an 8-hex handle, and only the handle travels as history. The model never re-reads the full prior output.</p>
@@ -173,7 +202,7 @@ output-token A/B — n=8 turns
   answer preserved: <span class="g">100%</span>  (semantic match gate, n=8)</pre>
 
     <div class="callout">
-      <b>Honest scope:</b> the 72.5% figure above is illustrative. <code>distil output-savings</code> reads a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs (default: bundled fixture); pass <code>--input &lt;file&gt;</code> to measure your own traffic. Always verify output savings with a live run against your own workload, since verbosity shaping interacts with prompt design.
+      <b>Honest scope:</b> the 72.5% figure above is illustrative — it is a hand-written n=6 fixture that checks the measurement path, not a corpus result. Reply length cannot be measured offline at all: the offline oracle decides from context blocks and emits no prose, so there is no reply to count. The gate above is therefore live evidence, not a benchmark number. <code>distil output-savings</code> reads a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs (default: bundled fixture); pass <code>--input &lt;file&gt;</code> to measure your own traffic. Always verify output savings with a live run against your own workload, since verbosity shaping interacts with prompt design.
     </div>
 
     <hr/>
@@ -257,7 +286,7 @@ distil performance benchmark
       <thead><tr><th>Command / Flag</th><th>What it does</th></tr></thead>
       <tbody>
         <tr><td><code>distil output-savings</code></td><td>Measure realized output-token reduction via live A/B</td></tr>
-        <tr><td><code>proxy --shape-output light|aggressive</code></td><td>Enable generation-side verbosity shaping (PAYG-only, lossy)</td></tr>
+        <tr><td><code>proxy --shape-output auto|light|aggressive</code></td><td>Generation-side verbosity shaping (PAYG-only, lossy). <code>auto</code> is the default and decides from the live shadow evidence</td></tr>
         <tr><td><code>distil ingest --input &lt;file&gt; --out &lt;dir&gt;</code></td><td>Convert production API logs into a Distil corpus</td></tr>
         <tr><td><code>bench --corpus &lt;dir&gt; --savings-only</code></td><td>Savings gate on a real-trace corpus (no labels required)</td></tr>
         <tr><td><code>distil perf</code></td><td>Throughput and latency benchmark</td></tr>

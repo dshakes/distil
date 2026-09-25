@@ -1,0 +1,93 @@
+{
+ "after": {
+  "by_class": {
+   "ALL": {
+    "n": 72,
+    "orig_tokens": 34097,
+    "out_tokens": 17689,
+    "reduction": 0.4812
+   },
+   "diff": {
+    "n": 1,
+    "orig_tokens": 273,
+    "out_tokens": 222,
+    "reduction": 0.1868
+   },
+   "file-read": {
+    "n": 1,
+    "orig_tokens": 278,
+    "out_tokens": 213,
+    "reduction": 0.2338
+   },
+   "html": {
+    "n": 4,
+    "orig_tokens": 15079,
+    "out_tokens": 789,
+    "reduction": 0.9477
+   },
+   "other": {
+    "n": 65,
+    "orig_tokens": 18256,
+    "out_tokens": 16271,
+    "reduction": 0.1087
+   },
+   "test/build": {
+    "n": 1,
+    "orig_tokens": 211,
+    "out_tokens": 194,
+    "reduction": 0.0806
+   }
+  },
+  "line_markers": {
+   "count": 51,
+   "tokens": 765
+  }
+ },
+ "baseline_ref": "origin/main",
+ "before": {
+  "by_class": {
+   "ALL": {
+    "n": 72,
+    "orig_tokens": 34097,
+    "out_tokens": 17689,
+    "reduction": 0.4812
+   },
+   "diff": {
+    "n": 1,
+    "orig_tokens": 273,
+    "out_tokens": 222,
+    "reduction": 0.1868
+   },
+   "file-read": {
+    "n": 1,
+    "orig_tokens": 278,
+    "out_tokens": 213,
+    "reduction": 0.2338
+   },
+   "html": {
+    "n": 4,
+    "orig_tokens": 15079,
+    "out_tokens": 789,
+    "reduction": 0.9477
+   },
+   "other": {
+    "n": 65,
+    "orig_tokens": 18256,
+    "out_tokens": 16271,
+    "reduction": 0.1087
+   },
+   "test/build": {
+    "n": 1,
+    "orig_tokens": 211,
+    "out_tokens": 194,
+    "reduction": 0.0806
+   }
+  },
+  "line_markers": {
+   "count": 51,
+   "tokens": 765
+  }
+ },
+ "source": "corpus tool-output/retrieved blocks (corpus)",
+ "tokenizer": "heuristic"
+}

@@ -65,6 +65,7 @@ __all__ = [
     "command_text",
     "edit_quotes",
     "exact_quote_ids",
+    "missing_quotes",
     "observed_view",
     "quote_hazard",
     "read_span",
@@ -681,11 +682,20 @@ def quote_hazard(quotes: Sequence[str], view: str) -> tuple[int, int]:
     *view* is the serialised forwarded payload (see :func:`observed_view`), so the quotes
     are compared in their JSON-escaped form. Content-free: only the two counts leave here.
     """
-    survived = lost = 0
+    lost = len(missing_quotes(quotes, view))
+    return len(quotes) - lost, lost
+
+
+def missing_quotes(quotes: Sequence[str], view: str) -> list[str]:
+    """The required quotes that do NOT occur verbatim in *view* (duplicates kept).
+
+    :func:`quote_hazard` is its count. The quote guard compares these between its narrow
+    and widened passes: a count alone would call a pass that rescues one quote and loses
+    another a tie, and one that loses a kept quote while rescuing two an improvement.
+    """
+    out: list[str] = []
     for quote in quotes:
         needle = json.dumps(quote)[1:-1]
-        if needle and needle in view:
-            survived += 1
-        else:
-            lost += 1
-    return survived, lost
+        if not (needle and needle in view):
+            out.append(quote)
+    return out
