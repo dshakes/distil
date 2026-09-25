@@ -29,8 +29,11 @@ ESTIMATE = (
     / "cost_estimate.json"
 )
 DISTIL_BIN = Path(sys.executable).parent / "distil"
+# The arm scripts run inside Linux containers. On a Windows runner `bash` is the WSL
+# launcher, which answers in UTF-16 when no distro is installed, so it can't check them.
 needs_bash = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("curl") is None, reason="bash+curl"
+    sys.platform == "win32" or shutil.which("bash") is None or shutil.which("curl") is None,
+    reason="POSIX bash+curl (the scripts run in Linux containers)",
 )
 
 # --------------------------------------------------------------------------- approval gate
@@ -280,9 +283,8 @@ def test_harbor_argv_passes_arm_as_kwargs_not_env(tmp_path: Path) -> None:
     )
     mounts = json.loads(argv[argv.index("--mounts") + 1])
     assert mounts[0]["read_only"] is True and mounts[0]["target"] == arms.HOST_MOUNT
-    assert mounts[0]["source"].endswith("/tools/host") and mounts[1]["source"].endswith(
-        "/tools/uv-cache"
-    )
+    assert mounts[0]["source"] == str(tmp_path / "tools" / "host")
+    assert mounts[1]["source"] == str(tmp_path / "tools" / "uv-cache")
     assert argv[argv.index("--agent-setup-timeout") + 1] == str(live.AGENT_SETUP_TIMEOUT_S)
 
 

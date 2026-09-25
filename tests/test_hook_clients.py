@@ -229,7 +229,8 @@ class TestInstaller:
     def test_install_uninstall_round_trip_on_fresh_home(self, client):
         path = hook.config_path(client)
         assert hook.install_hook(client) == 0
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        if sys.platform != "win32":  # Windows reads back 0o666 whatever we ask for
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
         assert sum(hook._ours(e) for e in _entries(client)) == 1
         assert hook.hook_status(client)[0]
         assert hook.install_hook(client) == 0  # idempotent
@@ -248,7 +249,8 @@ class TestInstaller:
         path.write_text(json.dumps(original))
         os.chmod(path, 0o640)
         assert hook.install_hook(client) == 0
-        assert stat.S_IMODE(path.stat().st_mode) == 0o640, "mode kept"
+        if sys.platform != "win32":  # no POSIX mode bits to keep on Windows
+            assert stat.S_IMODE(path.stat().st_mode) == 0o640, "mode kept"
         got = json.loads(path.read_text())
         assert got["model"] == "x" and got["hooks"]["Other"] == [{"command": "o"}]
         assert theirs in got["hooks"][event]
