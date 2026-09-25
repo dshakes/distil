@@ -278,7 +278,8 @@ def test_soak_badge_reflects_the_real_pyproject_version():
     if re.match(r"^\d+(\.\d+)*(a|b|rc)\d+$", version):
         assert f"soaking as {version}" in page
     else:
-        assert "not yet on PyPI" not in page
+        # The badge markup, not the phrase: an old entry says "not yet on PyPI" in prose.
+        assert 'nav-badge">soaking as' not in page
 
 
 def test_changelog_tables_are_in_a_scroll_region():

@@ -3,7 +3,22 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and a digest that stops pointing at what it could just show, and the connector search distil was switching off, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
+## [Unreleased]
+
+## [1.54.0] — 2026-09-25 — measured, enforced, verifiable
+
+**In short**
+
+- **Added — MCP tool search stays on.** `distil wrap` / `--always-on` set `ENABLE_TOOL_SEARCH`, so Claude Code defers MCP tool definitions behind the proxy (verified live). `distil discover` names connectors you pay for and never call.
+- **Added — cold-point recompression.** Older tool output is re-stubbed only when the prompt cache has certainly expired (`--no-cold-point` to opt out).
+- **Added — one risk budget and a drift alarm that acts.** A proven decision-drift breach holds the proxy at lossless-only; release with `distil reset --drift-guard`.
+- **Added — sealed receipt segments with Merkle checkpoints.** One receipt can be proven to an auditor without the whole log (`distil receipts --prove/--check-proof`).
+- **Added — agent presets fixed and contract-tested** (Kilo, aider, opencode, qwen, openhands, grok, kimi; Cline CLI).
+- **Fixed — receipts no longer re-read the whole chain per request**; an in-window prefix-cache break; Anthropic compaction / OpenAI encrypted items are now counted; `discover --since` keeps recently-failed sessions; auto output-shaping can no longer keep itself on; Windows fixes.
+- **Research** — where the live bill goes (#189); measured decisions not to compress tool schemas (ADR 0012) or add per-command shell profiles (ADR 0015).
+
+The full story, change by change:
+
 
 Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -1174,10 +1189,9 @@ measured.
   tools. To remove it by hand, delete the `"ENABLE_TOOL_SEARCH": "true"` line from
   the `env` block of your Claude Code user settings. Or run
   `distil default --always-on --undo` before downgrading.
-- **UNVERIFIED live.** No metered Claude Code session has run with tool search on
-  through distil yet. The passthrough test uses a stub upstream. It is confirmed when
-  a wrapped or always-on session that uses an MCP tool records `tools_deferred > 0`
-  in its `sessions/<sid>.requests.jsonl`, with no request failures. If it breaks,
+- **Verified live (2026-09-25).** A wrapped Claude Code session that called an MCP tool
+  recorded `tools_deferred` of 4–5 on every request (tool payload 9,733 tokens, versus
+  ~390k-token arrays before), prompt-cache reads intact, no request failures. If it breaks,
   there are two ways to revert:
   - Per user: `export ENABLE_TOOL_SEARCH=false` (wrap) or set it to `false` in the
     settings env block (always-on). Both win over distil's default.
