@@ -175,6 +175,7 @@ def test_install_scripts_use_only_hash_locked_mounted_inputs() -> None:
             and f"{arms.HOST_MOUNT}/locks/" in s
             and "uname -m" in s
         )
+        assert "uv venv --managed-python" in s  # never the task image's own interpreter
     assert f"{arms.HOST_MOUNT}/rtk.tar.gz" in arms.install_script("rtk")
     assert "tar" not in arms.install_script("control")
 

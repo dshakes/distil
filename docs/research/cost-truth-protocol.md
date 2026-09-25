@@ -468,7 +468,13 @@ Changes, identical for every arm:
    the last 20 lines, writes `install.json` (arm, step, exit code, arch) and stops; the
    preflight report carries that, plus the trial status and the last line of Harbor's
    exception. Package-manager output only — no prompt or task content.
-5. `live --preflight-only` runs the four canaries alone; `--already-spent` subtracts earlier
+5. **Tool venvs use uv-managed Python only** (`uv venv --managed-python`). The second
+   preflight (`pilot-20260925-135931`) passed control, rtk and distil, and showed that on a
+   `python:3.13` task image uv had linked Headroom's venv to the *task's* interpreter
+   (`/opt/cost-truth/python` was never created, so the chmod step failed loudly as designed:
+   `chmod: cannot access '/opt/cost-truth/python': No such file or directory`). A tool must
+   not depend on the task image's Python.
+6. `live --preflight-only` runs the four canaries alone; `--already-spent` subtracts earlier
    attempts' spend from the phase cap so one approval covers the whole phase.
 
 ## Running the pilot
