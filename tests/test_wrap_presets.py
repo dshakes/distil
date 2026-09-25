@@ -110,9 +110,12 @@ def test_preset_grok(monkeypatch, capsys):
     rc = cmd_wrap(_ns(command=["grok"]))
     assert rc == 0
     assert captured["env_var"] == "GROK_MODELS_BASE_URL"
-    # The /v1 belongs to the base URL here — unlike the OpenAI SDK, which appends
-    # it. Dropping it sends every request to a 404 that reads like a distil bug.
-    assert captured["upstream"] == "https://api.x.ai/v1"
+    # Grok's client (xai-org/grok-build) uses the base URL LITERALLY, and its own
+    # default already carries /v1 — so the upstream distil forwards to must have
+    # it stripped (the proxy's own path already supplies /v1/chat/completions;
+    # leaving it here would double it into a 404). The /v1 the client needs is
+    # supplied via AGENT_ENV_TEMPLATES["grok"] on the exported env var instead.
+    assert captured["upstream"] == "https://api.x.ai"
     out = capsys.readouterr().out
     assert "Grok CLI" in out and "GROK_MODELS_BASE_URL" in out
 
@@ -136,7 +139,10 @@ def test_preset_kimi(monkeypatch, capsys):
     rc = cmd_wrap(_ns(command=["kimi"]))
     assert rc == 0
     assert captured["env_var"] == "KIMI_BASE_URL"
-    assert captured["upstream"] == "https://api.moonshot.ai/v1"
+    # Same literal-base_url convention as grok (kimi hands KIMI_BASE_URL straight
+    # to the openai SDK) — /v1 stripped from upstream, supplied on the exported
+    # env var via AGENT_ENV_TEMPLATES["kimi"] instead.
+    assert captured["upstream"] == "https://api.moonshot.ai"
     out = capsys.readouterr().out
     assert "Kimi CLI" in out and "KIMI_BASE_URL" in out
 

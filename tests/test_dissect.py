@@ -1617,6 +1617,29 @@ class TestEligibility:
     def test_compaction_and_signed_blocks_count_as_protected_not_missed(
         self, tmp_path, monkeypatch
     ) -> None:
+        """thinking/compaction/signed-block bytes are provider-signature-pinned — distil
+        cannot rewrite them even in principle, so a session dominated by them must read
+        as policy holding, not as a broken compressor leaving savings on the table."""
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        sid = self._session(
+            tmp_path,
+            [
+                {
+                    "thinking_billed": 30_000,
+                    "compaction_billed": 40_000,
+                    "signed_block_billed": 10_000,
+                    "tool_result_digested": 20_000,
+                }
+            ],
+        )
+        d = dz.dissect(sid)
+        assert d.protected_share("m") == pytest.approx(80.0)
+        text = dz.render_text(d, color=False)
+        assert "the design holding" in text
+
+    def test_openai_reasoning_and_signed_items_count_as_protected_not_missed(
+        self, tmp_path, monkeypatch
+    ) -> None:
         """A reasoning-heavy OpenAI session must read as "working as designed", not
         as a missed opportunity distil should have compressed — its census buckets
         are billed, provider-signed bytes distil cannot touch, same as Anthropic's
