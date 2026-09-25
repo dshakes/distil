@@ -28,10 +28,12 @@ import os
 import random
 import re
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -915,10 +917,67 @@ def scripted(
     return model
 
 
+#: The meter reserves this multiple of a call's heuristic worst case before sending it,
+#: so a tokenizer under-count cannot carry actual spend past the ceiling.
+RESERVE_SAFETY = 2.0
+
+
+class BudgetExceeded(RuntimeError):
+    pass
+
+
+class SpendMeter:
+    """The hard spend ceiling (protocol Amendment 1). Thread-safe.
+
+    Before every attempt — retries included — the caller reserves the attempt's worst
+    case; the meter refuses (``BudgetExceeded``) if billed spend plus every in-flight
+    reservation plus this one could pass the ceiling. On completion the reservation is
+    replaced by the provider's billed ``usage`` × list price. Each attempt is recorded
+    content-free (ids, token counts, dollars) so the spend is auditable.
+    """
+
+    def __init__(self, price: pricing.Pricing, ceiling_usd: float) -> None:
+        self.price = price
+        self.ceiling = ceiling_usd
+        self.spent = 0.0
+        self.reserved = 0.0
+        self.calls: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+
+    def cost(self, usage: dict[str, Any]) -> float:
+        p = self.price
+        return float(
+            usage.get("input_tokens", 0) * p.input
+            + usage.get("cache_creation_input_tokens", 0) * p.cache_write
+            + usage.get("cache_read_input_tokens", 0) * p.cache_read
+            + usage.get("output_tokens", 0) * p.output
+        )
+
+    def reserve(self, worst_usd: float) -> None:
+        with self._lock:
+            if self.spent + self.reserved + worst_usd > self.ceiling:
+                raise BudgetExceeded(
+                    f"spent ${self.spent:.4f} (+${self.reserved:.4f} in flight) of "
+                    f"${self.ceiling:.2f}; the next call's worst case ${worst_usd:.4f} "
+                    "could pass the ceiling"
+                )
+            self.reserved += worst_usd
+
+    def settle(self, worst_usd: float, actual_usd: float, record: dict[str, Any]) -> None:
+        with self._lock:
+            self.reserved -= worst_usd
+            self.spent += actual_usd
+            self.calls.append({**record, "usd": round(actual_usd, 6)})
+
+
 class AnthropicModel:
-    """The live model: Anthropic Messages API over stdlib HTTP, with a hard spend cap."""
+    """The live model: Anthropic Messages API over stdlib HTTP, behind a ``SpendMeter``."""
 
     URL = "https://api.anthropic.com/v1/messages"
+    COUNT_URL = "https://api.anthropic.com/v1/messages/count_tokens"
+    MAX_TOKENS = 1024
+    ATTEMPTS = 4  # protocol §8: four failed attempts on a retryable error abort the run
+    RETRYABLE = (429, 500, 502, 503, 504, 529)
 
     def __init__(
         self,
@@ -929,18 +988,21 @@ class AnthropicModel:
     ) -> None:
         self.model = model
         self.price = pricing.get(model)
-        self.budget = budget_usd
-        self.spent = 0.0
+        self.meter = SpendMeter(self.price, budget_usd)
         self.api_key: str = api_key or os.environ.get("ANTHROPIC_API_KEY") or ""
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not set — a live run needs it")
         self._open = opener or urllib.request.urlopen
 
-    def __call__(
-        self, tools: list[dict[str, Any]], history: list[dict[str, Any]], ctx: Any
-    ) -> Turn:
-        if self.spent >= self.budget:
-            raise BudgetExceeded(f"spent ${self.spent:.2f} of ${self.budget:.2f}")
+    @property
+    def spent(self) -> float:
+        return self.meter.spent
+
+    @property
+    def budget(self) -> float:
+        return self.meter.ceiling
+
+    def _body(self, tools: list[dict[str, Any]], history: list[dict[str, Any]]) -> dict[str, Any]:
         api_tools = [
             {
                 "name": t["name"],
@@ -951,23 +1013,22 @@ class AnthropicModel:
         ]
         if api_tools:
             api_tools[-1] = {**api_tools[-1], "cache_control": {"type": "ephemeral"}}
-        body = {
+        return {
             "model": self.model,
-            "max_tokens": 1024,
+            "max_tokens": self.MAX_TOKENS,
             "temperature": 0,
             "system": SYSTEM,
             "tools": api_tools,
             "messages": _to_messages(history),
         }
-        data = self._post(body)
+
+    def __call__(
+        self, tools: list[dict[str, Any]], history: list[dict[str, Any]], ctx: Any
+    ) -> Turn:
+        body = self._body(tools, history)
+        arm, task = ctx if isinstance(ctx, tuple) else ("", None)
+        data = self._post(body, {"arm": arm, "task": getattr(task, "id", "")})
         u = data.get("usage") or {}
-        p = self.price
-        self.spent += (
-            u.get("input_tokens", 0) * p.input
-            + u.get("cache_creation_input_tokens", 0) * p.cache_write
-            + u.get("cache_read_input_tokens", 0) * p.cache_read
-            + u.get("output_tokens", 0) * p.output
-        )
         for block in data.get("content") or []:
             if block.get("type") == "tool_use":
                 return Turn(name=block.get("name"), args=block.get("input") or {}, usage=u)
@@ -976,9 +1037,24 @@ class AnthropicModel:
         )
         return Turn(text=text, usage=u)
 
-    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
-        req = urllib.request.Request(
-            self.URL,
+    def preflight(self, tool_lists: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        """Validate every arm's tool list on the free token-counting endpoint.
+
+        No model output is produced and nothing is billed; a list the API would reject
+        fails here, before the one look is spent. Returns provider input-token counts.
+        """
+        out: dict[str, int] = {}
+        for arm, tools in tool_lists.items():
+            body = self._body(tools, [{"role": "user", "text": "ping"}])
+            for k in ("max_tokens", "temperature"):
+                body.pop(k)
+            with self._open(self._request(self.COUNT_URL, body), timeout=60) as resp:
+                out[arm] = int(json.loads(resp.read()).get("input_tokens", 0))
+        return out
+
+    def _request(self, url: str, body: dict[str, Any]) -> urllib.request.Request:
+        return urllib.request.Request(
+            url,
             data=json.dumps(body).encode(),
             headers={
                 "x-api-key": self.api_key,
@@ -986,20 +1062,64 @@ class AnthropicModel:
                 "content-type": "application/json",
             },
         )
-        for attempt in range(4):
+
+    def _post(self, body: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+        req = self._request(self.URL, body)
+        p = self.price
+        in_est = (levels.tokens(json.dumps(body)) + TOOL_SYSTEM_TOKENS) * RESERVE_SAFETY
+        worst = in_est * p.cache_write + self.MAX_TOKENS * p.output
+        for attempt in range(self.ATTEMPTS):
+            self.meter.reserve(worst)  # before every attempt, retries included
+            rec = {**record, "attempt": attempt}
             try:
                 with self._open(req, timeout=120) as resp:
                     parsed: dict[str, Any] = json.loads(resp.read())
-                    return parsed
             except urllib.error.HTTPError as exc:
-                if exc.code not in (429, 500, 502, 503, 529) or attempt == 3:
+                # A failed attempt is booked at its estimated input cost (Amendment 1).
+                self.meter.settle(
+                    worst,
+                    in_est / RESERVE_SAFETY * p.input,
+                    {**rec, "status": exc.code, "estimated": True},
+                )
+                if exc.code not in self.RETRYABLE or attempt == self.ATTEMPTS - 1:
                     raise
-                time.sleep(2**attempt)
+                time.sleep(_retry_after(exc, attempt))
+                continue
+            except OSError as exc:  # timeouts, resets: retryable, same booking
+                self.meter.settle(
+                    worst,
+                    in_est / RESERVE_SAFETY * p.input,
+                    {**rec, "status": type(exc).__name__, "estimated": True},
+                )
+                if attempt == self.ATTEMPTS - 1:
+                    raise
+                time.sleep(2 ** (attempt + 1))
+                continue
+            u = parsed.get("usage") or {}
+            self.meter.settle(
+                worst,
+                self.meter.cost(u),
+                {
+                    **rec,
+                    "status": 200,
+                    "in": u.get("input_tokens", 0),
+                    "cw": u.get("cache_creation_input_tokens", 0),
+                    "cr": u.get("cache_read_input_tokens", 0),
+                    "out": u.get("output_tokens", 0),
+                },
+            )
+            return parsed
         raise RuntimeError("unreachable")  # pragma: no cover
 
 
-class BudgetExceeded(RuntimeError):
-    pass
+def _retry_after(exc: urllib.error.HTTPError, attempt: int) -> float:
+    """Honour the provider's ``retry-after`` (seconds), never shorter than the backoff."""
+    raw = exc.headers.get("retry-after") if exc.headers is not None else None
+    try:
+        hinted = float(raw) if raw is not None else 0.0
+    except ValueError:
+        hinted = 0.0
+    return min(60.0, max(hinted, float(2 ** (attempt + 1))))
 
 
 def _to_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1145,13 +1265,25 @@ def _tool_tokens(tools: list[dict[str, Any]]) -> int:
     return sum(levels.definition_tokens(t) for t in tools)
 
 
+def _map(fn: Callable[[Any], Any], items: list[Any], workers: int) -> list[Any]:
+    """``map`` in task order; concurrent when ``workers > 1``. The first error re-raises."""
+    if workers <= 1:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, items))
+
+
 def run_tool_arm(
-    arm: str, tasks: list[Task], model: Model, fx: dict[str, dict[str, Any]], state_root: Path
+    arm: str,
+    tasks: list[Task],
+    model: Model,
+    fx: dict[str, dict[str, Any]],
+    state_root: Path,
+    workers: int = 1,
 ) -> dict[str, Any]:
     """Run every task through one arm. Returns per-task metrics and token counts."""
-    per: dict[str, list[int]] = {"selection": [], "args": [], "success": [], "round_trips": []}
-    in_tok: list[int] = []
-    for task in tasks:
+
+    def one(task: Task) -> tuple[dict[str, int], int, int, int]:
         px = _session(arm, fx, state_root)
         tools = _list(px, fx)
         history: list[dict[str, Any]] = [{"role": "user", "text": task.prompt}]
@@ -1200,12 +1332,16 @@ def run_tool_arm(
             break
         s = score(task, called, args)
         valid = int(s["args"] == 1 and _schema_ok(fx[task.server], called, args))
-        per["selection"].append(s["selection"])
-        per["args"].append(s["args"])
-        per["success"].append(valid)
-        per["round_trips"].append(trips)
-        in_tok.append(tok)
-    return {**per, "input_tokens": in_tok}
+        return s, valid, trips, tok
+
+    rows = _map(one, tasks, workers)
+    return {
+        "selection": [r[0]["selection"] for r in rows],
+        "args": [r[0]["args"] for r in rows],
+        "success": [r[1] for r in rows],
+        "round_trips": [r[2] for r in rows],
+        "input_tokens": [r[3] for r in rows],
+    }
 
 
 def _schema_ok(fixture: dict[str, Any], tool: str | None, args: Any) -> bool:
@@ -1221,12 +1357,12 @@ def _schema_ok(fixture: dict[str, Any], tool: str | None, args: Any) -> bool:
     )
 
 
-def run_result_arm(arm: str, tasks: list[ResultTask], model: Model) -> dict[str, Any]:
+def run_result_arm(
+    arm: str, tasks: list[ResultTask], model: Model, workers: int = 1
+) -> dict[str, Any]:
     """``raw`` vs ``R``: the model sees a tool result and must answer from it."""
-    correct: list[int] = []
-    expands: list[int] = []
-    in_tok: list[int] = []
-    for task in tasks:
+
+    def one(task: ResultTask) -> tuple[int, int, int]:
         text = task.result
         tools: list[dict[str, Any]] = []
         store: dict[str, str] = {}
@@ -1259,10 +1395,14 @@ def run_result_arm(arm: str, tasks: list[ResultTask], model: Model) -> dict[str,
                 {"role": "call", "name": turn.name, "args": turn.args},
                 {"role": "tool", "text": original or "error: no original found"},
             ]
-        correct.append(int(task.answer.lower() in answer.lower()))
-        expands.append(n_exp)
-        in_tok.append(tok)
-    return {"correct": correct, "expands": expands, "input_tokens": in_tok}
+        return int(task.answer.lower() in answer.lower()), n_exp, tok
+
+    rows = _map(one, tasks, workers)
+    return {
+        "correct": [r[0] for r in rows],
+        "expands": [r[1] for r in rows],
+        "input_tokens": [r[2] for r in rows],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1364,22 +1504,45 @@ def run(
     n_results: int = N_RESULT_TASKS,
     arms: tuple[str, ...] = ("raw", *SEQUENCE),
     seed: int = 0,
+    workers: int = 1,
+    stop_at_failure: bool = False,
 ) -> dict[str, Any]:
+    """The whole protocol: the tool family (raw, then L0 → L3), then R.
+
+    ``stop_at_failure`` skips levels after the first non-certified one (they are
+    ``not-tested`` either way; the live run sets it to save spend). A ``BudgetExceeded``
+    from the model ends the run: the family it interrupted and every later family report
+    ``no-verdict`` (Amendment 1) — nothing is concluded from a partial arm.
+    """
     tasks = generate_tasks(n_tools, seed)
     rtasks = generate_result_tasks(n_results, seed)
     fx = fixtures()
     tool_runs: dict[str, dict[str, Any]] = {}
-    with tempfile.TemporaryDirectory(prefix="distil-mcp-bench-") as tmp:
-        root = Path(tmp)
-        for server, counts in usage_profile(tasks).items():
-            _seed_usage(root, server, counts)
-        for arm in arms:
-            px = _session(arm, fx, root)
-            listed = _list(px, fx)
-            run_ = run_tool_arm(arm, tasks, model, fx, root)
-            run_["tools_tokens"] = _tool_tokens(listed)
-            tool_runs[arm] = run_
-    result_runs = {arm: run_result_arm(arm, rtasks, model) for arm in ("raw", "R")}
+    result_runs: dict[str, dict[str, Any]] = {}
+    stopped: dict[str, str] = {}
+    try:
+        with tempfile.TemporaryDirectory(prefix="distil-mcp-bench-") as tmp:
+            root = Path(tmp)
+            for server, counts in usage_profile(tasks).items():
+                _seed_usage(root, server, counts)
+            for arm in arms:
+                px = _session(arm, fx, root)
+                listed = _list(px, fx)
+                run_ = run_tool_arm(arm, tasks, model, fx, root, workers)
+                run_["tools_tokens"] = _tool_tokens(listed)
+                tool_runs[arm] = run_
+                if stop_at_failure and arm in SEQUENCE and "raw" in tool_runs:
+                    if _tool_verdicts(tool_runs)[arm]["status"] != "certified":
+                        break
+    except BudgetExceeded as exc:
+        stopped = {"family": "tools", "why": str(exc)}
+    if not stopped:
+        try:
+            for arm in ("raw", "R"):
+                result_runs[arm] = run_result_arm(arm, rtasks, model, workers)
+        except BudgetExceeded as exc:
+            stopped = {"family": "R", "why": str(exc)}
+            result_runs = {}
     summary: dict[str, Any] = {"arms": {}, "results": {}}
     for arm, r in tool_runs.items():
         n = len(r["selection"])
@@ -1401,18 +1564,35 @@ def run(
             "mean_expands": sum(r["expands"]) / n,
             "mean_input_tokens": sum(r["input_tokens"]) / n,
         }
-    cert = (
-        verdicts({a: {m: tool_runs[a][m] for m in ("selection", "args")} for a in tool_runs})
-        if "raw" in tool_runs
-        else {}
-    )
-    r_comp = compare(result_runs["raw"]["correct"], result_runs["R"]["correct"])
-    r_ok = r_comp["non_inferior"] and r_comp["discordant_rate"] <= P_DISCORDANT_R
-    cert["R"] = {
-        "status": "certified" if r_ok else ("inconclusive" if r_comp["non_inferior"] else "failed"),
-        "correct": r_comp,
+    no_verdict = {
+        "status": "no-verdict",
+        "why": f"the spend ceiling stopped the run in the {stopped.get('family')} family "
+        "before its pre-registered n completed (Amendment 1)",
     }
+    cert: dict[str, Any]
+    if stopped.get("family") == "tools":
+        cert = {lv: dict(no_verdict) for lv in SEQUENCE if lv in arms}
+    else:
+        cert = _tool_verdicts(tool_runs) if "raw" in tool_runs else {}
+        for lv in SEQUENCE:
+            if lv in arms and lv not in cert:
+                cert[lv] = {
+                    "status": "not-tested",
+                    "why": "an earlier level in the fixed sequence failed",
+                }
+    if stopped:
+        cert["R"] = dict(no_verdict)
+    else:
+        r_comp = compare(result_runs["raw"]["correct"], result_runs["R"]["correct"])
+        r_ok = r_comp["non_inferior"] and r_comp["discordant_rate"] <= P_DISCORDANT_R
+        cert["R"] = {
+            "status": "certified"
+            if r_ok
+            else ("inconclusive" if r_comp["non_inferior"] else "failed"),
+            "correct": r_comp,
+        }
     return {
+        "stopped": stopped or None,
         "protocol": "docs/research/mcp-compressor-protocol.md",
         "protocol_version": 1,
         "seed": seed,
@@ -1426,6 +1606,22 @@ def run(
         "verdicts": cert,
         "_runs": {"tools": tool_runs, "results": result_runs},
     }
+
+
+def initial_tool_lists(n_tools: int = N_TOOL_TASKS, seed: int = 0) -> dict[str, Any]:
+    """Every arm's session-start tool list (L3 with its pre-registered usage) plus R's."""
+    fx = fixtures()
+    with tempfile.TemporaryDirectory(prefix="distil-mcp-bench-") as tmp:
+        root = Path(tmp)
+        for server, counts in usage_profile(generate_tasks(n_tools, seed)).items():
+            _seed_usage(root, server, counts)
+        lists = {arm: _list(_session(arm, fx, root), fx) for arm in ("raw", *SEQUENCE)}
+    lists["R"] = levels.Surface("bench", [], "L0", True).meta_tools()
+    return lists
+
+
+def _tool_verdicts(tool_runs: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return verdicts({a: {m: tool_runs[a][m] for m in ("selection", "args")} for a in tool_runs})
 
 
 def _seed_usage(root: Path, server: str, counts: dict[str, int]) -> None:

@@ -3303,34 +3303,62 @@ def _mcp_bench_live(args: argparse.Namespace, bench: Any, out: Path) -> int:
         model=bench.scripted("oracle"), n_tools=args.n, n_results=args.n_results, seed=args.seed
     )
     est = bench.estimate_cost(dry["_runs"]["tools"], dry["_runs"]["results"], (args.model,))
-    need = est["models"][args.model]["usd_no_cache"]
-    if need > args.budget_usd:
+    expected = est["models"][args.model]["usd_cached"]
+    if expected > args.budget_usd:
         print(
-            f"estimated upper bound ${need:,.2f} exceeds --budget-usd {args.budget_usd:,.2f}; "
+            f"expected cost ${expected:,.2f} exceeds --budget-usd {args.budget_usd:,.2f}; "
             "nothing was sent",
             file=sys.stderr,
         )
         return 1
     try:
         model = bench.AnthropicModel(args.model, args.budget_usd)
-        res = bench.run(model=model, n_tools=args.n, n_results=args.n_results, seed=args.seed)
-    except bench.BudgetExceeded as exc:
-        print(
-            f"stopped at the budget cap ({exc}); by protocol §6 no level is certified",
-            file=sys.stderr,
-        )
-        return 1
     except RuntimeError as exc:
         print(f"distil mcp bench --live: {exc}", file=sys.stderr)
         return 1
-    res.pop("_runs")
-    res["mode"], res["model"], res["spent_usd"] = "live", args.model, round(model.spent, 4)
+    meter = getattr(model, "meter", None)
+    if not isinstance(meter, bench.SpendMeter) or meter.ceiling != args.budget_usd:
+        print("refusing: no spend meter enforces --budget-usd; nothing was sent", file=sys.stderr)
+        return 1
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"live-{args.model}.json"
-    path.write_text(json.dumps(res, indent=1) + "\n")
-    print(f"live run → {path} (spent ${model.spent:,.2f})")
-    _print_bench(res)
-    return 0
+    rec: dict[str, Any] = {"mode": "live", "model": args.model, "budget_usd": args.budget_usd}
+    rec["expected_usd"] = expected
+    rc = 0
+    try:
+        rec["preflight_input_tokens"] = model.preflight(bench.initial_tool_lists(args.n, args.seed))
+        res = bench.run(
+            model=model,
+            n_tools=args.n,
+            n_results=args.n_results,
+            seed=args.seed,
+            workers=args.workers,
+            stop_at_failure=True,
+        )
+        res.pop("_runs")
+        rec = {**res, **rec}
+        if res["stopped"]:
+            print(f"stopped by the spend ceiling: {res['stopped']['why']}", file=sys.stderr)
+            rc = 1
+    except (RuntimeError, OSError) as exc:  # §8: an unrecoverable API error aborts the run
+        rec["aborted"] = f"{type(exc).__name__}: {exc}"
+        print(f"distil mcp bench --live aborted (no verdict): {exc}", file=sys.stderr)
+        rc = 1
+    calls = meter.calls
+    rec["spent_usd"] = round(meter.spent, 4)
+    rec["usage_totals"] = {
+        k: sum(int(c.get(k, 0)) for c in calls) for k in ("in", "cw", "cr", "out")
+    }
+    rec["api_attempts"] = len(calls)
+    rec["failed_attempts"] = sum(1 for c in calls if c.get("status") != 200)
+    path = out / f"live_{args.model}.json"
+    path.write_text(json.dumps(rec, indent=1) + "\n")
+    (out / f"live_calls_{args.model}.jsonl").write_text(
+        "".join(json.dumps(c, separators=(",", ":")) + "\n" for c in calls)
+    )
+    print(f"live run → {path} (spent ${meter.spent:,.4f} of ${args.budget_usd:,.2f})")
+    if "verdicts" in rec:
+        _print_bench(rec)
+    return rc
 
 
 #: Agents that read distil's base-URL variable only when an extra flag is passed.
@@ -5454,6 +5482,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--model", help="live model (claude-haiku-4-5 | claude-sonnet-5 | claude-opus-5)"
     )
     mb.add_argument("--budget-usd", type=float, help="hard spend cap for --live")
+    mb.add_argument(
+        "--workers", type=int, default=4, help="concurrent tasks per arm for --live (default 4)"
+    )
     mb.add_argument(
         "--behavior",
         choices=["oracle", "invoke", "noisy", "degraded", "no-expand"],
