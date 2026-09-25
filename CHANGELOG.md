@@ -5,6 +5,14 @@ All notable changes to Distil are documented here. Format loosely follows
 
 ## [Unreleased]
 
+- **Added — agentic operating routines.** `scripts/ops/adoption_report.py` (external-only
+  signals: stars, forks, traffic, external issues/PRs, PyPI downloads by OS — no census,
+  no maintainer activity), `ops/routines/*.md` (the six weekly/event-driven maintenance
+  prompts: adoption report, issue triage, claims/docs drift, cost-truth refresh, release
+  train, launch-calendar nudge), `.github/workflows/ops-adoption-report.yml` (weekly
+  artifact only), and `docs/ops.md`. Every routine drafts; none posts, merges, releases,
+  or spends without the maintainer's explicit go-ahead.
+
 ## [1.54.0] — 2026-09-25 — measured, enforced, verifiable
 
 **In short**
