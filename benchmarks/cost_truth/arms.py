@@ -192,7 +192,9 @@ def install_script(arm: str, logs_dir: str = "/logs/agent", root: str = CT) -> s
         lines += [
             f"step uv-unpack tar -xzf {host}/uv.tar.gz -C {root}",
             f"step uv-install install -m 0755 {root}/{UV_DIR_IN_TARBALL}/uv {root}/{UV_DIR_IN_TARBALL}/uvx {root}/bin/",
-            f"step venv {uv_env} {root}/bin/uv venv --python {py} {root}/{arm}",
+            f"step pydir mkdir -p {root}/python",
+            # managed Python only: never link the tool's venv to the task image's interpreter
+            f"step venv {uv_env} {root}/bin/uv venv --managed-python --python {py} {root}/{arm}",
             f"step pip {uv_env} {root}/bin/uv pip install --python {root}/{arm}/bin/python "
             f"--require-hashes --no-deps -r {host}/locks/{lock}",
             f"step chmod chmod -R a+rX {root}/{arm} {root}/python {root}/bin",
