@@ -33,6 +33,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
+from . import config_wrap
 from ._log import log
 from .adapters.anthropic import compress_messages
 from .adapters.gemini import compress_generate_request
@@ -2226,6 +2227,25 @@ def serve(
         server.server_close()
 
 
+#: ``$BASE`` / ``${BASE}`` in a preset's env template, wherever it appears in
+#: the value. The negative lookahead is what keeps ``$BASE`` from swallowing a
+#: passthrough variable that merely starts with those letters (``$BASEBOARD``
+#: stays a variable name); ``${BASE}`` is accepted for anyone who wants to be
+#: explicit about the boundary.
+_BASE_TOKEN = re.compile(r"\$\{BASE\}|\$BASE(?![A-Za-z0-9_])")
+
+
+def _render_base_template(template: str, base: str) -> str:
+    """Substitute this wrap's proxy URL into ``template``.
+
+    Shared by the primary variable (``env_value_template``) and by
+    ``extra_env`` so the two can't drift: an agent whose knob wants
+    ``$BASE/v1``, or a JSON document with the URL somewhere in the middle,
+    behaves identically whichever slot it is declared in.
+    """
+    return _BASE_TOKEN.sub(lambda _: base, template)
+
+
 def wrap_run(
     command: list[str],
     *,
@@ -2243,7 +2263,8 @@ def wrap_run(
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
     extra_env: dict[str, str] | None = None,
-    config_ctx: Callable[[str, str], contextlib.AbstractContextManager[list[str]]] | None = None,
+    env_value_template: str | None = None,
+    config_ctx: Callable[..., contextlib.AbstractContextManager[list[str]]] | None = None,
 ) -> int:
     """Run *command* with its API base URL transparently pointed at a Distil proxy.
 
@@ -2252,6 +2273,11 @@ def wrap_run(
     any base-url-honoring SDK routes through compression with no code change,
     runs the command to completion, then tears the proxy down — flushing genuine
     savings to the local ledger. Returns the child process's exit code.
+
+    ``env_value_template``, when given, is the literal value to export for
+    ``env_var`` with ``$BASE`` replaced by the proxy URL — for an agent whose
+    variable takes a document containing the endpoint rather than the endpoint
+    itself (see ``onboard.AGENT_ENV_TEMPLATES``).
 
     ``config_ctx``, when given, is a ``(upstream, base) -> contextmanager``
     factory for a tool whose only routing knob is a config file rather than
@@ -2409,18 +2435,31 @@ def wrap_run(
         threading.Thread(target=_serve_resilient, daemon=True).start()
 
     child_env = dict(os.environ)
-    child_env[env_var] = base
+    # Most presets' variable takes the proxy URL verbatim. A few take a document
+    # that CONTAINS it — Mistral Vibe's VIBE_PROVIDERS is a JSON provider array —
+    # so a template (``$BASE`` anywhere inside it) renders the value instead.
+    # Exporting a bare URL where the agent expects JSON routes nothing while
+    # reporting success, which is the one failure `wrap` must never ship.
+    env_value = _render_base_template(env_value_template, base) if env_value_template else base
+    child_env[env_var] = env_value
     print(f"distil wrap → proxy {base} (upstream {upstream})")
-    print(f"  → {env_var}={base}")
+    print(f"  → {env_var}={env_value if len(env_value) <= 120 else env_value[:117] + '…'}")
     # Some presets need more than one env var wired (e.g. goose reads a
     # separate Anthropic-flavoured host var; Copilot CLI needs a provider
     # type alongside its base URL). "$BASE" mirrors this wrap's proxy URL,
-    # "$VARNAME" passes an existing environment value through (skipped if
-    # unset/empty — never invent a credential), anything else is literal.
-    # setdefault so a user's own exported override always wins.
+    # "$BASE"/"${BASE}" ANYWHERE in the value interpolates this wrap's proxy
+    # URL, "$VARNAME" alone passes an existing environment value through
+    # (skipped if unset/empty — never invent a credential), anything else is
+    # literal. setdefault so a user's own exported override always wins.
+    #
+    # The BASE check has to come FIRST. Ordered after the "$VARNAME" branch, a
+    # template like "$BASE/v1" matched `startswith("$")`, was looked up as an
+    # environment variable literally named "BASE/v1", came back empty, and hit
+    # the `continue` — so the variable was not merely un-interpolated, it was
+    # dropped entirely and the preset exported nothing at all.
     for name, template in (extra_env or {}).items():
-        if template == "$BASE":
-            value = base
+        if _BASE_TOKEN.search(template):
+            value = _render_base_template(template, base)
         elif template.startswith("$"):
             value = os.environ.get(template[1:], "")
             if not value:
@@ -2461,19 +2500,8 @@ def wrap_run(
     except Exception:  # noqa: BLE001 — never fail wrap over terminal bookkeeping
         _saved_tty = None
 
-    # Config-file wrap targets (tools with no env-var contract, e.g. Continue,
-    # Factory Droid, Oh My Pi — see distil/config_wrap.py): entered here so
-    # its cleanup rides the SAME finally block SIGTERM/SIGHUP already funnel
-    # into below, and exited there too — no separate signal handling needed.
     config_argv: list[str] = []
     _config_cm: contextlib.AbstractContextManager[list[str]] | None = None
-    if config_ctx is not None:
-        _config_cm = config_ctx(upstream, base)
-        try:
-            config_argv = _config_cm.__enter__()
-        except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
-            log.warning("config-file injection failed; running without it", exc_info=True)
-            config_argv, _config_cm = [], None
 
     code = 0
     proc_holder: list = []
@@ -2508,6 +2536,32 @@ def wrap_run(
         except (ValueError, AttributeError):
             pass  # not the main thread, or platform without SIGUSR1
     try:
+        # Config-file wrap targets (tools with no env-var contract, e.g.
+        # Continue, Factory Droid, Oh My Pi — see distil/config_wrap.py).
+        # Entered INSIDE this try so both halves ride the same finally that
+        # SIGTERM/SIGHUP already funnel into: its cleanup on the way out, and —
+        # the reason it moved here — the proxy/supervisor teardown if entering
+        # it raises. A ConfigTargetBusy escaping from further up would
+        # otherwise leave a listening proxy, and in hot-swap mode an orphaned
+        # worker process, behind it.
+        if config_ctx is not None:
+            _config_cm = config_ctx(upstream, base, command)
+            try:
+                config_argv = _config_cm.__enter__()
+            except config_wrap.ConfigWrapRefused:
+                # NOT swallowed, unlike every other injection failure below.
+                # Both refusals say the agent would read a DIFFERENT config
+                # than the one distil can write — another live session's, or a
+                # path the child's own flags moved — so carrying on means
+                # running unrouted, or worse, through someone else's proxy and
+                # into their ledger. `_own_config`'s in-lock recheck exists for
+                # the race cmd_wrap's pre-check cannot close, so it has to be
+                # able to stop the wrap.
+                _config_cm = None  # never entered; the finally must not exit it
+                raise
+            except Exception:  # noqa: BLE001 — a config-injection bug must never block the wrap
+                log.warning("config-file injection failed; running without it", exc_info=True)
+                config_argv, _config_cm = [], None
         # Reserve the slot before Popen so a SIGTERM in the spawn window still
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.

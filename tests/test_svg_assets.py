@@ -118,13 +118,15 @@ def _svg_text(path: Path) -> str:
 def test_no_diagram_claims_a_stale_agent_count():
     import re as _re
 
-    from distil.onboard import AGENT_PRESETS
+    from distil.targets import catalog
 
-    actual = len(AGENT_PRESETS)
+    # Both registries: `wrap` reaches env-var AND config-file agents, and a
+    # diagram counting only the first undersells by a quarter.
+    actual = sum(1 for t in catalog() if t.wrappable)
     for path in ASSETS:
         for claimed in _re.findall(r"(\d+)\s+agents\b", _svg_text(path)):
             assert int(claimed) == actual, (
-                f"{path.name} says '{claimed} agents' but AGENT_PRESETS has {actual}"
+                f"{path.name} says '{claimed} agents' but wrap reaches {actual}"
             )
 
 
@@ -132,9 +134,9 @@ def test_no_diagram_names_an_agent_that_has_no_preset():
     """A diagram promising an agent distil cannot route is a support ticket."""
     import re as _re
 
-    from distil.onboard import AGENT_PRESETS
+    from distil.targets import catalog
 
-    known = set(AGENT_PRESETS) | {
+    known = {t.key for t in catalog() if t.wrappable} | {
         # Named in diagrams as clients/providers rather than as wrap targets.
         "cursor",
         "copilot",
