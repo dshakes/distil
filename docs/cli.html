@@ -58,6 +58,7 @@
         <li><a href="research.html">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -653,6 +654,20 @@ distil discover — where your remaining savings are
                20 session(s) ...
      do        disable the MCP servers / tools you do not use in your agent's config</pre>
     <pre class="term"><span class="d">$ distil discover --since 7 --json</span>   <span class="d"># last week, machine-readable</span></pre>
+
+    <h2 id="ab">distil ab</h2>
+    <p>What distil saves <strong>per task</strong>, measured causally rather than per request. A small random share of new <code>wrap</code> sessions is held out and forwarded uncompressed. <code>distil ab</code> compares cost per task, turns per task and cost per turn between the two groups, within the same model and client, with an anytime-valid interval. A model change starts a fresh comparison and is reported as a difference-in-differences. Design and math: <a href="ab.html">Task-level A/B</a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="distil ab">
+    <table>
+      <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>--window</code></td><td>all time</td><td>Only sessions started in the last N days</td></tr>
+      <tr><td><code>--json</code></td><td>off</td><td>Machine-readable: headline, per-stratum cells, eras, difference-in-differences</td></tr>
+      <tr><td><code>--holdout-rate</code></td><td>unset</td><td>Set the holdout share for new sessions and exit; <code>0</code> turns it off (also <code>DISTIL_HOLDOUT_RATE</code>)</td></tr>
+    </table>
+    </div>
+    <pre class="term"><span class="d">$ distil ab</span>
+<span class="d">$ distil ab --window 30 --json</span>
+<span class="d">$ distil ab --holdout-rate 0</span>   <span class="d"># opt out</span></pre>
 
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while

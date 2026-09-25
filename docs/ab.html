@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Task-level A/B — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Task-level A/B — Distil"/>
+<meta property="og:description" content="How distil measures what it saves per task, causally: a small randomised holdout of sessions forwarded uncompressed, compared within the same model, with an anytime-valid interval that stays honest across model changes."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/ab.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Task-level A/B — Distil"/>
+<meta name="twitter:description" content="How distil measures what it saves per task, causally: a small randomised holdout of sessions forwarded uncompressed, compared within the same model, with an anytime-valid interval that stays honest across model changes."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+          <ul class="sidebar-sub">
+            <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+            <li><a href="learn-compression.html">2. Compression</a></li>
+            <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+          </ul></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html">Cache Contract <span class="nav-badge">New</span></a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html" class="active" aria-current="page">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Live Benchmark</a></li>
+        <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="autogen.html">AutoGen</a></li>
+            <li><a href="llamaindex.html">LlamaIndex</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+            <li><a href="asgi.html">ASGI Middleware</a></li>
+          </ul></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html">Threat Model <span class="nav-badge">New</span></a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Session-level <span class="g">A/B</span></h1>
+    <p class="lead">Every other savings number distil prints is per request: tokens removed from what was sent. That cannot tell you what a session cost, and it cannot survive a model change. <code>distil ab</code> can. It compares sessions distil compressed with sessions it deliberately left alone, chosen at random, running at the same time, on the same model. <b>Individual results take months to become conclusive</b>, and the report says how many sessions it still needs.</p>
+
+    <h2 id="why">Why per-request savings are not enough</h2>
+    <p>A new model version changes how an agent works. It may take more turns to finish the same work, or fewer. All of that moves your bill, and none of it is distil. If you compare last month with this month, the model change lands in the comparison as if distil had caused it. In the simulation behind this page, a model that needs about 40% more turns makes a before/after comparison of the distil sessions read <b>40% more cost</b>, while distil was saving 20% the whole time.</p>
+    <p>The only comparison a model change cannot contaminate is one where both sides see the change at once. So distil holds out a small random share of sessions and compares each group only with the other, at the same time, on the same model.</p>
+
+    <h2 id="holdout">The holdout</h2>
+    <ul>
+      <li><b>Which sessions.</b> The default holdout rate is 5%. Under <code>distil wrap</code>, each new session is assigned to <code>distil</code> or <code>holdout</code> when it starts, by a keyed hash of the session id with a secret that never leaves your machine. A resumed or nested session keeps its arm. Under a managed install (<code>distil proxy</code> started by a launch agent), there is no wrap session, so the unit is the client's own conversation. For Claude Code that is the session id it sends on every request. A conversation's first assignment is stored, as a keyed hash, so a resumed conversation keeps its arm. It is not the census id.</li>
+      <li><b>What a holdout session gets.</b> Exactly what the agent sent. The request goes upstream as the original bytes: no compression, no output shaping, no expand tool, no cold-point, no prefix replay, no shadow replays. That is always safe, because it is the traffic you would have sent without distil.</li>
+      <li><b>What is recorded.</b> The same content-free per-request record as always, tagged with the arm. Holdout requests are not booked as savings. Each session is folded into <code>~/.distil/ab.jsonl</code>, so it outlives the 7-day session sweep. Nothing new is sent anywhere.</li>
+      <li><b>Turning it off.</b> <code>distil ab --holdout-rate 0</code>, or <code>DISTIL_HOLDOUT_RATE=0</code>. The wrap prints a line on every held-out session; <code>distil setup</code> and <code>distil proxy</code> state the rate.</li>
+    </ul>
+
+    <h2 id="outcomes">What is measured</h2>
+    <p>The headline is <b>mean cost per randomised session</b>, distil against holdout: the provider's own usage priced at list, cache reads at a tenth and cache writes at 1.25 times the input rate. Every call distil made on the session's behalf counts, including a <code>distil_expand</code> re-query and a shadow replay. Every randomised session that has ended counts, including one that failed (at what it actually cost, usually nothing). A session on a model distil cannot price is counted and left out.</p>
+    <p>Beside it are the <b>mediators</b>: turns per session, tasks per session, cost per task and cost per turn. A task is the stretch between two things you typed. These are outcomes distil can change. If compression made you re-ask more often, cost per task would fall even while each session cost more, so a mediator is never the headline. In the simulation of exactly that case, distil making sessions 10% dearer with 25% more re-asks, the headline read +9.2% and cost per task read about −12%.</p>
+    <p>A <b>balance check</b> prints how each group's sessions ended: normally, in an error, or abandoned. A failure mode distil causes shows up there first.</p>
+
+    <h2 id="models">Staying within one model</h2>
+    <p>Sessions are grouped by the model their agent loop runs on, which is known at the first request and cannot be affected by compression, and by the client and its version (for example <code>claude-cli/2.1</code>). When a newer version of the same model family appears, the headline compares within the new model only, and says so: <em>model changed on 2026-08-05: comparing within the new model only</em>. The old model's result is kept, and the two are compared as a difference-in-differences.</p>
+    <p>A model can also change behind an unchanged id. Distil watches the holdout group's cost per session for a sustained shift, and when one is detected it starts a new <em>era</em>. It watches the holdout group because that is the one series distil cannot move, so a distil upgrade never looks like a model change.</p>
+    <p>The part that actually protects the estimate is the randomisation, not the change detection. Both groups run at the same time, so a model change moves both and cancels in the contrast.</p>
+
+    <h2 id="read">Reading the report</h2>
+<pre><code>distil ab — does distil lower what a session costs? (randomised holdout)
+  A/B holdout: 5% of new sessions run uncompressed so distil can measure what it saves per session, causally (distil ab). Opt out: distil ab --holdout-rate 0, or DISTIL_HOLDOUT_RATE=0.
+  Scope: this machine's own sessions only.
+  window: all time (the anytime guarantee holds within the current era) · 7500 sessions (ended+priced: 7122 distil, 378 holdout) · 0 open · 0 unpriced
+
+  mean cost per session  -11.8%  (95% anytime CI -36.2% … +33.0%; not significant)
+    the one primary claim: empirical-Bernstein CS, cost capped at $500/session; anytime-valid within this era, no normality assumed
+    Individual results take months to become conclusive: need ≈43,360 sessions (2,168 held out).
+  bootstrap cross-check (fixed-n, strata-pooled): -21.2% … +17.6%
+  efficient estimate (strata-pooled, CUPED, asymptotic)  -9.9%  (95% CI -34.3% … +23.4%; e-value 0.69; not significant)
+    CUPED variance −5%
+  mediators — outcomes distil can change, so never the headline:
+    turns per session  +0.4%  (95% CI -5.6% … +6.7%; e-value 0.0949; not significant)
+    tasks per session  —
+    cost per task      -6.2%  (95% CI -32.1% … +29.6%; e-value 0.537; not significant)
+    cost per turn      -6.6%  (95% CI -32.3% … +28.8%; e-value 0.547; not significant)
+    (secondary claims are asymptotic and not multiplicity-adjusted; only the headline spends the error budget)
+  cost of the holdout: those 227 sessions cost $38,668.18; compressed, ≈$4,550.20 more (range −$12,770.40 … $13,983.17)
+  model changed on 2026-08-05 (claude-opus | claude-cli): comparing within the new model only
+
+  balance check — how sessions ended, per arm:
+    distil   capped 452, ok 7122
+    holdout  capped 34, ok 378
+    capped = sessions above the $500 cap, counted at the cap
+
+  strata (model | client, era)                  n dist  n hold  $/sess dist  $/sess hold  Δ $/session  Δ turns/sess  Δ $/task
+  claude-opus-4-8 | claude-cli/2.1 #1             2849     151      $147.05      $171.81       -10.9%         +0.4%    -14.4%
+  claude-opus-5 | claude-cli/2.1 #1*              2854     146      $166.95      $184.01       -11.8%         +0.6%     -9.3%
+  claude-sonnet-4-6 | claude-cli/2.1 #1*          1419      81      $145.80      $145.71        -6.2%         +0.1%     +0.1%
+  * = current era, pooled into the headline · Δ columns are per-cell, CUPED-adjusted and asymptotic
+
+  eras / change points
+    2026-08-05  claude-opus | claude-cli: model changed claude-opus-4-8 → claude-opus-5
+
+  difference-in-differences across a rollout ((distil−holdout)_after − _before; asymptotic)
+    claude-opus | claude-cli: claude-opus-4-8 | claude-cli/2.1 → claude-opus-5 | claude-cli/2.1: -1.0%  (95% CI -61.6% … +155.2%; e-value 0.766; not significant)</code></pre>
+    <p>That is a simulated history at the default holdout rate, with session costs about as spread out as real ones. Opus changes version on 5 August and the new version needs 40% more turns in both groups. After 7,500 sessions the headline is still not distinguishable from zero, and the report says how many sessions it needs. That is the honest answer at a small holdout. The difference-in-differences across the rollout is near zero, because distil's effect did not change.</p>
+    <p><b>Cost of the holdout</b> is what the held-out sessions would have saved had they been compressed. It is the price of knowing. A larger holdout gets an answer sooner and costs more.</p>
+
+    <h2 id="math">The math</h2>
+    <h3>The headline interval</h3>
+    <p>Session costs are heavy-tailed: on the maintainer's own machine their spread on a log scale is about 1.9. An interval that assumes a bell curve fails there. So the headline makes no such assumption. Each group's per-session cost is capped at a limit fixed in advance, <b>$500</b>, and the report counts the sessions it touched. An <em>empirical-Bernstein confidence sequence</em> (Waudby-Smith and Ramdas, 2023) is built for each group's mean, each at half the error budget. The two combine into an interval on the ratio. Bounded data is all it assumes, and it is valid however often you look: the chance it ever excludes the truth is at most <code>α</code>, distil's single failure budget (<code>distil.conformal.BUDGET_DELTA</code>).</p>
+    <p>Capping has a price: the estimand becomes the capped mean. The capped group with the dearer sessions loses more, so a real saving reads smaller, never larger.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Error under repeated looks">
+    <table>
+      <thead><tr><th>Holdout</th><th>Spread (log-sd)</th><th>Headline: false alarm, 20 looks</th><th>Previous interval (mixture SPRT): false alarm</th></tr></thead>
+      <tbody>
+        <tr><td>5%</td><td>0.6</td><td>0.0%</td><td>4.0%</td></tr>
+        <tr><td>5%</td><td>1</td><td>0.0%</td><td>6.5%</td></tr>
+        <tr><td>5%</td><td>1.5</td><td>0.0%</td><td>10.5%</td></tr>
+        <tr><td>5%</td><td>2</td><td>0.0%</td><td>10.5%</td></tr>
+        <tr><td>50%</td><td>0.6</td><td>0.0%</td><td>2.0%</td></tr>
+        <tr><td>50%</td><td>1</td><td>0.0%</td><td>2.5%</td></tr>
+        <tr><td>50%</td><td>1.5</td><td>0.0%</td><td>1.0%</td></tr>
+        <tr><td>50%</td><td>2</td><td>0.0%</td><td>0.5%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>Each row is 200 simulated histories of 4,000 sessions with no real effect, checked 20 times. The previous interval, a normal-mixture sequential test, exceeded the budget once the tails got heavy at the shipped rate. The headline did not. The cost is power: a true 20% saving at the shipped rate and log-sd 1.0 was detected 1.5% of the time after 4,000 sessions and 76% after 20,000.</p>
+    <h3>Secondary estimates</h3>
+    <p>Beside the headline the report prints an <em>efficient estimate</em> of the same quantity. It pools the model-and-client cells by inverse variance, reduces variance with CUPED (each session's cost regressed on its project's cost over earlier sessions, which were assigned independently), and uses the normal-mixture sequence. It is sharper and only asymptotically valid: in the simulation, where projects differ a lot, CUPED cut its variance by 44%. The mediators, the per-cell table and the difference-in-differences use the same machinery. None of them spends the error budget, and none is adjusted for multiple comparisons. A percentile bootstrap is printed as a fixed-sample cross-check. When it and the headline disagree on whether the effect is distinguishable from zero, the report says so.</p>
+    <p>The anytime guarantee holds within the current era. <code>--window</code> slides a fixed window over time, which makes each view a fixed-sample look, and the report labels it that way.</p>
+    <h3>Detecting a silent change</h3>
+    <p>A two-sided self-starting CUSUM runs on the holdout group's log cost per session (<code>k = 0.5</code>, <code>h = 12</code>). A new era starts at the first session <em>after</em> the alarm, and the sessions between the estimated change and the alarm are dropped. It reads the holdout group on principle: distil cannot move that series, so an upgrade to distil is never mistaken for a model change. At the shipped rate the choice barely matters. Under a silent model change, reading both groups, reading the holdout, and running no detector at all land within noise of each other. An earlier version read both groups and claimed a measured gain from it, which the tracked simulation did not reproduce. The threshold is high because at a small holdout every false era throws away scarce data. With a model change hidden behind an unchanged id, the headline read +1.5 points above the true saving (±0.5); with an explicit version change, +1.9 (±0.5). Both are the cap at work: sessions averaged $150 to $210 against the $500 limit, and capping pulls a saving toward zero.</p>
+
+    <h2 id="limits">What it does not do</h2>
+    <ul>
+      <li>Every number is about <b>your own sessions on this machine</b>. Nothing is pooled across installs; any estimate across installs would have to treat each install as a cluster.</li>
+      <li>Models distil cannot price, such as non-Claude upstreams, are counted but not estimated.</li>
+      <li>Sessions recorded before 1.54 kept only one upstream call's usage per request. Where such a session ran a <code>distil_expand</code> re-query, its cost is a lower bound, and the report counts those requests.</li>
+      <li>On a subscription the dollars are list price, not what you are billed. The report marks them as notional.</li>
+      <li>A managed conversation that spans a proxy restart is counted as two sessions in the same group.</li>
+    </ul>
+    <p>Every measured number on this page is reproduced offline by <code>benchmarks/abtest_montecarlo.py</code> into <code>benchmarks/results/abtest-montecarlo.json</code>. The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0019-task-level-ab-holdout.md">ADR 0019</a>.</p>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

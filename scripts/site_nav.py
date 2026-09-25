@@ -38,6 +38,7 @@ LEARN: list[tuple[str, str, str | None]] = [
     ("research.html", "Research &amp; Frontier", None),
     ("provider-compaction.html", "Provider Compaction", "New"),
     ("evals.html", "Evaluation", None),
+    ("ab.html", "Task-level A/B", "New"),
     ("benchmark-independent.html", "Independent Benchmark", "New"),
     ("benchmark.html", "Live Benchmark", None),
     ("benchmarks.html", "Reproduce Benchmarks", None),

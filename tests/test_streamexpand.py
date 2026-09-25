@@ -255,7 +255,10 @@ def test_output_token_usage_is_summed_across_the_splice():
     out = bytes(h.wfile.buf).decode()
     assert '"output_tokens": 16' in out
     assert sink.get("output_tokens") == 16
-    assert sink.get("input_tokens") == 100
+    # Both upstream messages are billed their input (100 each). This asserted 100 until
+    # 1.54 — i.e. it pinned the under-count that dropped every re-query's input.
+    assert sink.get("input_tokens") == 200
+    assert sink.get("requery_input_tokens") == 100
 
 
 def test_max_iters_is_bounded_on_a_model_that_always_expands():

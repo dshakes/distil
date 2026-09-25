@@ -924,6 +924,50 @@
         "99.7%",
         "99.5%"
       ]
+    },
+    {
+      "id": "v-abtest-montecarlo",
+      "status": "verified",
+      "page": [
+        "ab.html"
+      ],
+      "anchor": "math",
+      "snippet": "a true 20% saving at the shipped rate and log-sd 1.0 was detected",
+      "claim": "Known-answer Monte Carlo for distil ab at the shipped settings: false-alarm rate of the capped empirical-Bernstein headline under 20 looks is 0.0% at every tail weight (log-sd 0.6-2.0) and holdout (5%, 50%), against up to 10.5% for the normal-mixture mSPRT it replaced (4.0/6.5/10.5/10.5% at a 5% holdout; 2.0/2.5/1.0/0.5% at 50%); power for a true 20% saving at a 5% holdout and log-sd 1.0 is 1.5% at 4,000 sessions and 76% at 20,000; with distil 10% dearer per session and 25% more re-asks the headline reads +9.2% while cost per task reads about -12%; a model change adding 40% turns in both arms reads as 40% more cost before/after; CUPED cuts the efficient estimate's variance 44%.",
+      "note": "Simulated sessions, seeds fixed, offline. Reproduce: python -m benchmarks.abtest_montecarlo --write-tracked.",
+      "artifact": "benchmarks/results/abtest-montecarlo.json",
+      "values": [
+        "0.0%",
+        "4.0%",
+        "6.5%",
+        "10.5%",
+        "2.0%",
+        "2.5%",
+        "1.0%",
+        "0.5%",
+        "1.5%",
+        "76%",
+        "9.2%",
+        "12%",
+        "40%",
+        "44%",
+        "20%",
+        "10%",
+        "25%",
+        "50%"
+      ]
+    },
+    {
+      "id": "v-abtest-default-rate",
+      "status": "verified",
+      "page": [
+        "ab.html"
+      ],
+      "anchor": "holdout",
+      "snippet": "The default holdout rate is 5%.",
+      "claim": "distil ab holds out 5% of new wrap sessions by default (DEFAULT_RATE), overridable by DISTIL_HOLDOUT_RATE or distil ab --holdout-rate; 0 disables.",
+      "note": "A configured constant, not a measurement; tests/test_abtest.py pins the precedence and the opt-out.",
+      "artifact": "distil/abtest/__init__.py"
     }
   ]
 }

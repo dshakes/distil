@@ -189,6 +189,42 @@ def _mcp_record(body: Any, tool_tokens: dict[str, int]) -> dict[str, Any]:
     return {"mcp_servers": servers, "mcp_called": sorted(called)}
 
 
+def billed_input_equiv(usage: dict[str, int] | None, model: str | None, *, prefix: str = "") -> int:
+    """Billed usage expressed in base-input tokens — the savings ledger's unit.
+
+    The ledger prices a token at the model's base input rate, so spend distil CAUSES
+    (an expand re-query, a shadow replay) is converted into that unit before it is
+    added to the distil side: uncached input at 1x, cache read at 0.1x, cache write at
+    1.25x, output at output/input. Then tokens-saved and dollars-saved both net it out.
+    An unpriceable model adds the input tokens it sent, unweighted.
+    """
+    u = usage or {}
+    inp = int(u.get(prefix + "input_tokens", 0) or 0)
+    cr = int(u.get(prefix + "cache_read_input_tokens", 0) or 0)
+    cw = int(u.get(prefix + "cache_creation_input_tokens", 0) or 0)
+    out = int(u.get(prefix + "output_tokens", 0) or 0)
+    from . import pricing as _pricing
+
+    p = _pricing.resolve(model)
+    if p is None:
+        return inp + cr + cw
+    return round(
+        (inp * p.input + cr * p.cache_read + cw * p.cache_write + out * p.output) / p.input
+    )
+
+
+def requery_input_equiv(usage: dict[str, int] | None, model: str | None) -> int:
+    """What this request's ``distil_expand`` re-queries cost, in base-input tokens.
+
+    A re-query is spend distil caused: without compression there would have been one
+    call, not several. Added to the distil side of the savings ledger, so a request
+    whose expand cost more than its compression saved books a negative saving.
+    """
+    if not (usage or {}).get("requeries"):
+        return 0
+    return billed_input_equiv(usage, model, prefix="requery_")
+
+
 def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
     """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
 
@@ -640,6 +676,7 @@ def build_handler(
     prefix_replay: bool = True,
     diagnostic: bool = False,
     cold_point: bool = True,
+    arm: str = "",
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
 
@@ -660,6 +697,31 @@ def build_handler(
     """
 
     _upstream = upstream.rstrip("/")
+    # A/B holdout (distil.abtest): this session is the control arm, so every lever is
+    # off — no compression (not even Tier-0), no shaping, no expand tool, no cold-point,
+    # no prefix replay, no shadow replays. The request body is forwarded as received
+    # (see the first branch of _handle_compressible); receipts and the per-request
+    # record still run, tagged arm=holdout. Always safe: it is exactly the traffic the
+    # agent would have sent without distil.
+    # arm="auto" (the managed `distil proxy`, which has no wrap session): the arm is
+    # drawn per client CONVERSATION instead, request by request (distil.abtest
+    # ConversationArms). Build-time levers stay on; a held-out conversation's requests
+    # take the verbatim branch below and skip shadow sampling.
+    _conv_arms: Any = None
+    if arm == "auto":
+        from .abtest import ConversationArms
+
+        _conv_arms, arm = ConversationArms(), ""
+    _holdout = arm == "holdout"
+    if _holdout:
+        verbatim, expand, session_delta, prefix_replay, cold_point = (
+            True,
+            False,
+            False,
+            False,
+            False,
+        )
+        shape_output, shadow_rate, retention_rate = "off", 0.0, 0.0
     # A human-readable mode label, echoed on every compressed response as
     # x-distil-mode so a user seeing ▼0 can tell *why*: verbatim disables the
     # reversible digest (savings come only from lossless whitespace/JSON), so
@@ -855,6 +917,48 @@ def build_handler(
             f"then release: {_RELEASE_CMD}. Opt out: DISTIL_NO_DRIFT_GUARD=1.",
             file=_sys.stderr,
         )
+
+    def _book_overhead(
+        kind: str, model: str | None, calls: list[dict[str, int]], conv: str = ""
+    ) -> None:
+        """Book upstream calls distil made on the user's key that no client asked for
+        (shadow replays): net them out of the savings ledger, and append their usage to
+        ``sessions/<sid>.overhead.jsonl`` so per-session cost (``distil ab``) includes
+        them. Content-free, fail-open."""
+        if not calls:
+            return
+        try:
+            from .streamrelay import add_usage
+
+            total: dict[str, int] = {}
+            for c in calls:
+                add_usage(total, c)
+            if savings is not None:
+                savings.record(0, billed_input_equiv(total, model), model=model)
+            from . import ledger as _ledger
+
+            rp = _ledger.session_requests_path()
+            if rp is not None:
+                from . import _filelock
+
+                op = rp.with_name(rp.name.replace(".requests.jsonl", ".overhead.jsonl"))
+                with _filelock.locked(op), op.open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "ts": time.time(),
+                                "kind": kind,
+                                "model": model,
+                                "calls": len(calls),
+                                "conv": conv or None,
+                                **total,
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+        except Exception:  # noqa: BLE001 — bookkeeping must never break a replay
+            log.debug("overhead booking failed", exc_info=True)
 
     # First-POST latch for the session traffic marker: only the 0→1 transition
     # matters, so after one write the check is a single list lookup.
@@ -1095,6 +1199,8 @@ def build_handler(
             # Savings are booked only after a confirmed 2xx (P0-1): (before, after, model).
             _pending_savings: tuple[int, int, str | None] | None = None
 
+            # Reset per request: a keep-alive connection reuses this handler instance.
+            self._distil_arm, self._distil_conv, self._distil_rate = arm, "", None
             try:
                 body: dict[str, Any] = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
@@ -1102,6 +1208,16 @@ def build_handler(
                 status, rhdrs, rbody = self._post_upstream(self.path, raw, headers)
                 self._relay(status, rhdrs, rbody)
                 return
+            _hold = _holdout
+            if _conv_arms is not None:
+                try:
+                    from .abtest import CONV_HEADER, HOLDOUT
+
+                    _a, self._distil_conv = _conv_arms.assign(self.headers.get(CONV_HEADER), body)
+                    self._distil_arm, self._distil_rate = _a.arm, _a.rate
+                    _hold = _a.arm == HOLDOUT
+                except Exception:  # noqa: BLE001 — an unassigned request is served normally
+                    log.debug("A/B conversation assignment failed", exc_info=True)
 
             # Tag any flywheel rows this request produces with the SAME digest shadow
             # records its verdict under, so a later retrain can join "this block was
@@ -1121,7 +1237,11 @@ def build_handler(
             # Gemini paths    → Gemini adapter (contents branch, below)
             _path = strip_query(self.path)
 
-            if is_responses_path(_path) and isinstance(body.get("input"), list):
+            if _hold:
+                # Control arm: the original bytes go upstream untouched (body is not
+                # reassigned, so _serialize_if_changed returns `raw`), nothing is booked.
+                extras = {"x-distil-mode": "verbatim", "x-distil-arm": "holdout"}
+            elif is_responses_path(_path) and isinstance(body.get("input"), list):
                 # OpenAI Responses API: compress ``function_call_output`` items
                 # (Tier-1 reversible digest) and user ``message`` items (Tier-0).
                 from .adapters.openai import compress_responses_input, count_responses_tokens
@@ -1441,7 +1561,9 @@ def build_handler(
 
             # Decide shadow sampling BEFORE relaying so the marker header can be
             # sent on the streaming path too (headers go out before the body).
-            shadow_sampled = _shadow_sampler is not None and _shadow_sampler.should_sample()
+            shadow_sampled = (
+                _shadow_sampler is not None and not _hold and _shadow_sampler.should_sample()
+            )
             if _shadow_sampler is not None and _shadow_counters is not None:
                 _shadow_counters.note_seen()
             if shadow_sampled and _shadow_counters is not None:
@@ -1586,7 +1708,7 @@ def build_handler(
                     _learn_stats.save()
                 if savings is not None and _pending_savings is not None and 200 <= status_x < 300:
                     _bt, _at, _m = _pending_savings
-                    savings.record(_bt, _at, model=_m)
+                    savings.record(_bt, _at + requery_input_equiv(_usage_x, _m), model=_m)
                     savings.maybe_flush(every=flush_every)
                 self._emit_detail(
                     extras=extras,
@@ -1678,6 +1800,19 @@ def build_handler(
                     shadow_sampled=shadow_sampled,
                 )
 
+            # Billed usage of EVERY upstream call this client request costs: the first
+            # response now, each expand re-query in `_post` below. Scanning only the
+            # final body (as this did until 1.54) recorded the last call and dropped the
+            # first one and every intermediate re-query, so a request that expanded
+            # looked cheaper than it was — biasing every savings figure toward distil.
+            from .streamrelay import add_usage, scan_usage
+
+            _usage_b: dict[str, int] = {}
+            try:
+                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
+            except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                pass
+
             # Transparent expand loop: resolve any distil_expand tool calls against
             # the local store and re-query, invisibly, before returning to the agent.
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
@@ -1697,6 +1832,13 @@ def build_handler(
 
                     def _post(b: dict[str, Any]) -> dict[str, Any]:
                         _s, _h, rb = self._post_upstream(_fwd_path, json.dumps(b).encode(), headers)
+                        _usage_b["requeries"] = _usage_b.get("requeries", 0) + 1
+                        try:
+                            _u = scan_usage(rb[:16384] + b"\n" + rb[-16384:])
+                            add_usage(_usage_b, _u)
+                            add_usage(_usage_b, _u, prefix="requery_")
+                        except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                            pass
                         return json.loads(rb)
 
                     if "contents" in body and isinstance(body.get("contents"), list):
@@ -1729,13 +1871,6 @@ def build_handler(
             # signal on real traffic. Never blocks the client's response.
             if shadow_sampled:
                 self._spawn_shadow(raw, headers, new_raw)
-            _usage_b: dict[str, int] = {}
-            try:
-                from .streamrelay import scan_usage
-
-                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
-            except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
-                pass
             # Per-request detail written synchronously before the relay: this guarantees
             # a record for every request (deterministic, none lost on abrupt shutdown) —
             # the property dissect relies on. The write is a bounded ~5-15ms of local disk
@@ -1761,7 +1896,7 @@ def build_handler(
             # upstream calls must not be counted as savings.
             if savings is not None and _pending_savings is not None and 200 <= status < 300:
                 _bt, _at, _m = _pending_savings
-                savings.record(_bt, _at, model=_m)
+                savings.record(_bt, _at + requery_input_equiv(_usage_b, _m), model=_m)
                 savings.maybe_flush(every=flush_every)
             if _sse_shape is not None and 200 <= status < 300:
                 # The client asked for a stream and we buffered to run the expand
@@ -1915,7 +2050,17 @@ def build_handler(
                 _billed_full = int(_u.get("input_tokens") or 0) + _cache
                 # A+C: feed the (heuristic estimate, full billed) pairing into the token calibrator
                 # so reported counts converge to the real tokenizer. Content-free, fail-open.
-                if _billed_full > 0:
+                # The estimate describes the FIRST call's prompt; expand re-queries (summed
+                # into `usage` since 1.54) re-send a longer one and must not skew the factor.
+                _first_billed = _billed_full - sum(
+                    int(_u.get("requery_" + k, 0) or 0)
+                    for k in (
+                        "input_tokens",
+                        "cache_read_input_tokens",
+                        "cache_creation_input_tokens",
+                    )
+                )
+                if _first_billed > 0:
                     _est = overhead + max(
                         0,
                         int(extras.get("x-distil-compressible-tokens", 0) or 0)
@@ -1923,7 +2068,7 @@ def build_handler(
                     )
                     from . import calibration
 
-                    calibration.record(str(model or "unknown"), _est, _billed_full)
+                    calibration.record(str(model or "unknown"), _est, _first_billed)
                 _prefix_hash, _prefix_bytes = "", 0
                 if isinstance(body, dict):
                     try:
@@ -1934,9 +2079,21 @@ def build_handler(
                         _prefix_hash, _prefix_bytes = _rep.stable_hash, _rep.stable_bytes
                     except Exception:  # noqa: BLE001 — a diagnostic must not drop the record
                         pass
+                from .abtest.outcomes import client_tag, is_user_turn
+
                 rec = {
                     "ts": time.time(),
                     "model": model,
+                    # Task-level A/B (distil.abtest), content-free: the session's arm
+                    # ("" when not randomised), the client as name/major.minor from the
+                    # User-Agent, and whether this request opens a user turn (roles and
+                    # block types only) — which is what delimits a task.
+                    "arm": getattr(self, "_distil_arm", arm),
+                    # Keyed hash of the client conversation (managed installs only).
+                    "conv": getattr(self, "_distil_conv", "") or None,
+                    "arm_rate": getattr(self, "_distil_rate", None),
+                    "client": client_tag((getattr(self, "headers", None) or {}).get("User-Agent")),
+                    "user_turn": is_user_turn(body),
                     "stream": stream,
                     "client_stream": client_stream,
                     "status": status,
@@ -1953,6 +2110,18 @@ def build_handler(
                     "usage_input_tokens": (usage or {}).get("input_tokens"),
                     "usage_output_tokens": (usage or {}).get("output_tokens"),
                     "usage_cache_tokens": _cache or None,
+                    # usage_* above are the SUM over every upstream call this request cost
+                    # (since 1.54). `upstream_calls` says how many; `expand_requery_usage`
+                    # is the re-queries' share, which the savings ledger nets out. Absent
+                    # on rows written before the fix: those recorded the first (streaming)
+                    # or last (buffered) call only.
+                    "upstream_calls": 1 + int(_u.get("requeries", 0) or 0),
+                    "expand_requery_usage": {
+                        k[len("requery_") :]: int(v)
+                        for k, v in _u.items()
+                        if k.startswith("requery_")
+                    }
+                    or None,
                     # Split, because the sum cannot tell a working cache from a thrashing
                     # one: a write is a 25% surcharge, a read a ~90% discount, and a prefix
                     # that drifts every turn writes forever and never reads — which looks
@@ -2075,6 +2244,9 @@ def build_handler(
             import random as _random
 
             paired = _os.environ.get("DISTIL_SHADOW_PAIRED", "1") != "0"
+            # Captured now, on the request thread: a keep-alive connection's next request
+            # re-sets it before the replay thread finishes.
+            _conv = getattr(self, "_distil_conv", "") or ""
             # ponytail: the unpaired fallback keeps v4's 1/3 split; the paired path
             # ignores it entirely, since every sample now feeds both arms.
             is_aa = _random.random() < 1 / 3
@@ -2107,16 +2279,21 @@ def build_handler(
                     _attempted = True
                     sigs: dict[str, str] = {}
                     usage: dict[str, dict[str, int]] = {}
-                    for _name, _body in arms:
-                        _st, _h, _rbody = self._post_upstream(self.path, _body, headers)
-                        if not (200 <= _st < 300):
-                            _failed = True
-                            _fail_reason = str(_st)
-                        # decision_signature_from_body handles both JSON and streamed
-                        # (SSE / chunk-array) bodies, so this works for Claude Code /
-                        # Codex / Gemini sessions, which stream their responses.
-                        sigs[_name] = decision_signature_from_body(_rbody)
-                        usage[_name] = scan_usage(_rbody[:16384] + b"\n" + _rbody[-16384:])
+                    try:
+                        for _name, _body in arms:
+                            _st, _h, _rbody = self._post_upstream(self.path, _body, headers)
+                            if not (200 <= _st < 300):
+                                _failed = True
+                                _fail_reason = str(_st)
+                            # decision_signature_from_body handles both JSON and streamed
+                            # (SSE / chunk-array) bodies, so this works for Claude Code /
+                            # Codex / Gemini sessions, which stream their responses.
+                            sigs[_name] = decision_signature_from_body(_rbody)
+                            usage[_name] = scan_usage(_rbody[:16384] + b"\n" + _rbody[-16384:])
+                    finally:
+                        # The replays are billed to the user's key: book them as spend
+                        # distil caused, whatever the verdict turns out to be.
+                        _book_overhead("shadow", rb_a.model, list(usage.values()), _conv)
                     # "none" means no decision could be extracted (transient upstream
                     # error or empty/unparseable body). Recording it as agreement or
                     # change would inflate the decision-equivalence rate on noise.
@@ -2415,9 +2592,14 @@ def serve(
         session_delta=session_delta,
         prefix_replay=prefix_replay,
         cold_point=cold_point,
+        # No wrap session here: the A/B arm is drawn per client conversation.
+        arm="auto",
     )
     server, activated = _listen(host, port, handler)
     print(f"distil proxy listening on http://{host}:{port}")
+    from .abtest import disclosure as _ab_disclosure
+
+    print(f"  → {_ab_disclosure()}")
     if activated:
         # Worth saying out loud: it is the difference between "a crash is a
         # blip" and "a crash is every session on this machine failing".
@@ -2545,6 +2727,11 @@ def wrap_run(
     from .ledger import session_marker_path
 
     marker = session_marker_path()
+    # Fold every randomised session into the durable A/B store BEFORE the TTL sweep
+    # below can delete its files (distil.abtest.outcomes). Never raises.
+    from .abtest import outcomes as _ab_outcomes
+
+    _ab_outcomes.harvest()
     if marker is not None:
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
@@ -2574,6 +2761,21 @@ def wrap_run(
     if shape.on or shape.requested not in ("auto", "off"):
         print(f"distil: {shape.line}", file=sys.stderr)
 
+    # Task-level A/B (distil.abtest): draw this session's arm ONCE, before anything is
+    # spawned, so the manifest, the worker and the notice below all agree. A nested or
+    # resumed wrap that inherits the session id keeps the arm its manifest records.
+    from . import abtest as _abtest
+
+    try:
+        from .ledger import session_manifest_path
+
+        _mp = session_manifest_path()
+        _prev = json.loads(_mp.read_text(encoding="utf-8")) if _mp and _mp.exists() else None
+        _ab = _abtest.assign(os.environ.get("DISTIL_SESSION"), _prev)
+    except Exception:  # noqa: BLE001 — an unassigned session is served normally
+        log.debug("A/B assignment failed; session not randomised", exc_info=True)
+        _ab = _abtest.Assignment("", 0.0)
+
     # Session manifest: what this wrap *is* (tool, argv, flags, billing) — the
     # header `distil dissect` reads. Best-effort, like the marker above.
     try:
@@ -2598,6 +2800,7 @@ def wrap_run(
                 "started_ts": time.time(),
                 "distil_version": _ver,
                 "billing": _billing,
+                "ab": _ab.manifest(),
                 "flags": {
                     "upstream": upstream,
                     "env_var": env_var,
@@ -2645,6 +2848,7 @@ def wrap_run(
                     cold_point=cold_point,
                     shadow_rate=shadow_rate,
                     retention_rate=retention_rate,
+                    arm=_ab.arm,
                 ),
                 host=host,
             )
@@ -2675,6 +2879,7 @@ def wrap_run(
             cold_point=cold_point,
             shadow_rate=shadow_rate,
             retention_rate=retention_rate,
+            arm=_ab.arm,
         )
         server = QuietHTTPServer((host, 0), handler)  # port 0 → OS picks a free port
         base = f"http://{host}:{server.server_address[1]}"
@@ -2734,6 +2939,10 @@ def wrap_run(
         child_env.setdefault(name, value)
         shown = "••••••" if "KEY" in name else value
         print(f"  → {name}={shown}")
+    if _ab.arm == _abtest.HOLDOUT:
+        # Disclosed every time it happens, not only at setup: the user is owed knowing
+        # that THIS session is the uncompressed control, and how to stop it.
+        print(f"  → A/B holdout: this session runs uncompressed. {_abtest.disclosure(_ab.rate)}")
     if lossless_only:
         print("  → lossless-only (no shaping / no tool injection)")
     if verbatim:
@@ -2900,6 +3109,9 @@ def wrap_run(
                 )
     except OSError:
         pass
+    # Fold this session's A/B outcome now that its exit breadcrumb exists. Never raises.
+    if _ab.arm:
+        _ab_outcomes.harvest(only=os.environ.get("DISTIL_SESSION"))
     # Proof Ledger — printed on clean exit and Ctrl-C; fail-open (must not alter exit code).
     try:
         from .proof_ledger import print_proof_ledger as _print_proof_ledger

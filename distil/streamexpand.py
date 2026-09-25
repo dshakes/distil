@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any, Callable
 
 from .expand import EXPAND_TOOL_NAME, record_signal, resolve_expands
+from .streamrelay import TTL_KEYS, USAGE_KEYS, add_usage
 
 _EVENT_SEP = re.compile(rb"\r?\n\r?\n")
 _CHUNK = 8192
@@ -159,7 +160,7 @@ def stream_with_expand(
     usage_out = 0
     resp = first
     try:
-        for _ in range(max_iters + 1):
+        for it in range(max_iters + 1):
             blocks, expand_ids, ui_input, index_map, final_delta = {}, set(), {}, {}, None
             saw_expand = False
             saw_client_tool_use = False  # a tool_use the CLIENT must execute
@@ -170,19 +171,19 @@ def stream_with_expand(
                 if etype == "message_start":
                     if client.start_once():
                         client.write(evt)  # only the FIRST message_start reaches the client
-                        if usage_sink is not None:  # input/cache usage is billed on turn 1
-                            u = (evt.get("message") or {}).get("usage") or {}
-                            for k in (
-                                "input_tokens",
-                                "cache_read_input_tokens",
-                                "cache_creation_input_tokens",
-                            ):
-                                if k in u:
-                                    usage_sink.setdefault(k, int(u[k] or 0))
-                            cc = u.get("cache_creation")
-                            for k in ("ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"):
-                                if isinstance(cc, dict) and k in cc:
-                                    usage_sink.setdefault(k, int(cc[k] or 0))
+                    if usage_sink is not None:
+                        # EVERY upstream message is billed, not only the first: each
+                        # re-query re-sends the whole prompt plus the expanded block.
+                        # Recording only turn 1's input (as this did until 1.54) made
+                        # the distil arm look cheaper than it was whenever expand fired.
+                        u = (evt.get("message") or {}).get("usage") or {}
+                        part = {k: int(u[k] or 0) for k in USAGE_KEYS[:3] if k in u}
+                        cc = u.get("cache_creation")  # the write split by TTL, nested here
+                        if isinstance(cc, dict):
+                            part.update({k: int(cc[k] or 0) for k in TTL_KEYS if k in cc})
+                        add_usage(usage_sink, part)
+                        if it:
+                            add_usage(usage_sink, part, prefix="requery_")
                     continue
                 if etype == "content_block_start":
                     ui = evt.get("index", 0)
@@ -220,7 +221,10 @@ def stream_with_expand(
                     client.write({**evt, "index": index_map.get(ui, ui)})
                     continue
                 if etype == "message_delta":
-                    usage_out += int(((evt.get("usage") or {}).get("output_tokens")) or 0)
+                    _o = int(((evt.get("usage") or {}).get("output_tokens")) or 0)
+                    usage_out += _o
+                    if it and usage_sink is not None:
+                        add_usage(usage_sink, {"output_tokens": _o}, prefix="requery_")
                     final_delta = evt  # relayed only if this turn is terminal (no expand)
                     continue
                 if etype == "message_stop":
@@ -265,6 +269,8 @@ def stream_with_expand(
                 ],
             }
             resp = send(body)
+            if usage_sink is not None:
+                usage_sink["requeries"] = usage_sink.get("requeries", 0) + 1
             if not (200 <= getattr(resp, "status", 200) < 300):
                 # Re-query failed mid-stream. Terminate the SSE message properly before
                 # closing: a stream that ends without message_delta/message_stop is a

@@ -100,6 +100,7 @@ class WorkerConfig:
     cold_point: bool = True
     shadow_rate: float = 0.0
     retention_rate: float = 0.0
+    arm: str = ""  # A/B arm (distil.abtest); "holdout" forwards verbatim
 
     def to_env(self) -> str:
         return json.dumps(asdict(self), separators=(",", ":"))
@@ -205,6 +206,7 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
         cold_point=cfg.cold_point,
         shadow_rate=cfg.shadow_rate,
         retention_rate=cfg.retention_rate,
+        arm=cfg.arm,
     )
 
     class _WorkerServer(QuietHTTPServer):

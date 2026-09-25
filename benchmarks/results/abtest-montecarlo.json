@@ -1,0 +1,275 @@
+{
+  "alpha": 0.05,
+  "cost_cap_usd": 500.0,
+  "cuped": {
+    "reps": 20,
+    "variance_reduction": 0.44082620769540176,
+    "width_ratio": 0.7501436038727651
+  },
+  "cusum": {
+    "false_alarm_h12_1000": 0.0,
+    "false_alarm_h12_150": 0.0,
+    "false_alarm_h8_1000": 0.12,
+    "false_alarm_h8_150": 0.015,
+    "reps": 200
+  },
+  "denominator": {
+    "cost_per_task_mean": -0.11954969133562131,
+    "headline_bias": -0.007582253885194401,
+    "headline_bias_se": 0.0041633057526054935,
+    "headline_mean": 0.0924177461148056,
+    "reps": 40,
+    "true_cost_per_session": 0.1,
+    "true_tasks_per_session": 0.25
+  },
+  "detector": {
+    "distil_upgrade_-20_to_-40/arm_blind": {
+      "headline_mean": -0.3072513721184824,
+      "mean_eras": 1.11,
+      "n": 100
+    },
+    "distil_upgrade_-20_to_-40/holdout_only": {
+      "headline_mean": -0.297086113854126,
+      "mean_eras": 1,
+      "n": 100
+    },
+    "distil_upgrade_-20_to_-40/none": {
+      "headline_mean": -0.297086113854126,
+      "mean_eras": 1,
+      "n": 100
+    },
+    "silent_model_+40pct/arm_blind": {
+      "bias": 0.01069167791942957,
+      "bias_se": 0.00926664727293547,
+      "headline_mean": -0.18930832208057044,
+      "mean_eras": 1.16,
+      "n": 100
+    },
+    "silent_model_+40pct/holdout_only": {
+      "bias": 0.0023542274173047606,
+      "bias_se": 0.008454783785897585,
+      "headline_mean": -0.19764577258269525,
+      "mean_eras": 1.02,
+      "n": 100
+    },
+    "silent_model_+40pct/none": {
+      "bias": 0.0036119328700509046,
+      "bias_se": 0.007783602971678705,
+      "headline_mean": -0.1963880671299491,
+      "mean_eras": 1,
+      "n": 100
+    },
+    "stationary/arm_blind": {
+      "bias": 0.003055563094306435,
+      "bias_se": 0.007425706911253184,
+      "headline_mean": -0.19694443690569358,
+      "mean_eras": 1,
+      "n": 100
+    },
+    "stationary/holdout_only": {
+      "bias": 0.003055563094306435,
+      "bias_se": 0.007425706911253184,
+      "headline_mean": -0.19694443690569358,
+      "mean_eras": 1,
+      "n": 100
+    },
+    "stationary/none": {
+      "bias": 0.003055563094306435,
+      "bias_se": 0.007425706911253184,
+      "headline_mean": -0.19694443690569358,
+      "mean_eras": 1,
+      "n": 100
+    }
+  },
+  "model_change": {
+    "explicit": {
+      "before_after_distil_arm": 0.39611226078936507,
+      "bias": 0.018851179195325155,
+      "bias_se": 0.004575925402817122,
+      "coverage": 1.0,
+      "cusum_era_opened": 0,
+      "estimated": 100,
+      "reps": 100,
+      "sd": 0.04575925402817122,
+      "sessions_per_model": 600,
+      "true_effect": -0.2,
+      "turns_shift": 0.4
+    },
+    "silent": {
+      "before_after_distil_arm": 0.39611226078936507,
+      "bias": 0.01466828766379858,
+      "bias_se": 0.0045491413722979065,
+      "coverage": 0.99,
+      "cusum_era_opened": 27,
+      "estimated": 100,
+      "reps": 100,
+      "sd": 0.04549141372297907,
+      "sessions_per_model": 600,
+      "true_effect": -0.2,
+      "turns_shift": 0.4
+    }
+  },
+  "note": "distil/abtest known-answer Monte Carlo; seeds fixed, reproducible offline",
+  "power": [
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "log_sd": 1.0,
+      "n": 4000,
+      "p": 0.05,
+      "power": 0.015151515151515152
+    },
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "log_sd": 1.0,
+      "n": 20000,
+      "p": 0.05,
+      "power": 0.7575757575757576
+    },
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "log_sd": 1.5,
+      "n": 4000,
+      "p": 0.05,
+      "power": 0.0
+    },
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "log_sd": 1.5,
+      "n": 20000,
+      "p": 0.05,
+      "power": 0.18181818181818182
+    }
+  ],
+  "robust_needed": [
+    {
+      "cv": 1.0,
+      "effect": 0.1,
+      "holdout": 1734,
+      "sessions": 34680.0
+    },
+    {
+      "cv": 1.5,
+      "effect": 0.1,
+      "holdout": 3389,
+      "sessions": 67780.0
+    },
+    {
+      "cv": 1.0,
+      "effect": 0.2,
+      "holdout": 453,
+      "sessions": 9060.0
+    },
+    {
+      "cv": 1.5,
+      "effect": 0.2,
+      "holdout": 1109,
+      "sessions": 22180.0
+    },
+    {
+      "cv": 1.0,
+      "effect": 0.3,
+      "holdout": 231,
+      "sessions": 4620.0
+    },
+    {
+      "cv": 1.5,
+      "effect": 0.3,
+      "holdout": 453,
+      "sessions": 9060.0
+    }
+  ],
+  "type_one": [
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 0.6,
+      "looks": 20,
+      "msprt_coverage": 0.995,
+      "msprt_type_one": 0.04,
+      "n": 4000,
+      "p": 0.05,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 1.0,
+      "looks": 20,
+      "msprt_coverage": 1.0,
+      "msprt_type_one": 0.065,
+      "n": 4000,
+      "p": 0.05,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 1.5,
+      "looks": 20,
+      "msprt_coverage": 0.99,
+      "msprt_type_one": 0.105,
+      "n": 4000,
+      "p": 0.05,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 2.0,
+      "looks": 20,
+      "msprt_coverage": 0.985,
+      "msprt_type_one": 0.105,
+      "n": 4000,
+      "p": 0.05,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 0.6,
+      "looks": 20,
+      "msprt_coverage": 1.0,
+      "msprt_type_one": 0.02,
+      "n": 4000,
+      "p": 0.5,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 1.0,
+      "looks": 20,
+      "msprt_coverage": 1.0,
+      "msprt_type_one": 0.025,
+      "n": 4000,
+      "p": 0.5,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 1.5,
+      "looks": 20,
+      "msprt_coverage": 1.0,
+      "msprt_type_one": 0.01,
+      "n": 4000,
+      "p": 0.5,
+      "reps": 200
+    },
+    {
+      "headline_coverage": 1.0,
+      "headline_type_one": 0.0,
+      "log_sd": 2.0,
+      "looks": 20,
+      "msprt_coverage": 1.0,
+      "msprt_type_one": 0.005,
+      "n": 4000,
+      "p": 0.5,
+      "reps": 200
+    }
+  ]
+}
