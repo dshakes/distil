@@ -373,6 +373,8 @@ class Proxy:
         self._inflight: _Bounded = _Bounded(MAX_INFLIGHT)
         self._res_owner: dict[str, str] = {}
         self._tmpl_owner: dict[str, str] = {}
+        self._res_known = False  # has resources/list been merged from every server?
+        self._tmpl_known = False  # has resources/templates/list?
         self._sreq_ids = itertools.count(1)
         self._ids = itertools.count(1)
         # Guards surfaces/routes. Never held across backend I/O: a backend's reader
@@ -859,8 +861,10 @@ class Proxy:
         with self._maplock:
             if key == "resources":
                 self._res_owner = owners
+                self._res_known = True
             elif key == "resourceTemplates":
                 self._tmpl_owner = owners
+                self._tmpl_known = True
         return {key: merged}
 
     def _resource_owner(self, uri: str) -> str | None:
@@ -871,10 +875,15 @@ class Proxy:
         combination, it is ambiguous. (An exact listing used to win outright, which let
         one server list another's file URI and receive the reads.)
         """
+        # BOTH kinds of claim, from ALL servers, before deciding. Populated-ness is tracked
+        # per list type: a client that asked for templates first must not leave exact
+        # listings unknown (a broad template would then capture a URI another server
+        # listed explicitly), and an empty listing is still a fetched one.
         with self._maplock:
-            known = bool(self._res_owner or self._tmpl_owner)
-        if not known:
+            need_res, need_tmpl = not self._res_known, not self._tmpl_known
+        if need_res:
             self._merged_list("resources/list", {})
+        if need_tmpl:
             self._merged_list("resources/templates/list", {})
         with self._maplock:
             claims = {s for p, s in self._tmpl_owner.items() if uri.startswith(p)}
@@ -953,6 +962,8 @@ class Proxy:
             with self._maplock:  # re-derive every owner on the next read
                 self._res_owner = {}
                 self._tmpl_owner = {}
+                self._res_known = False
+                self._tmpl_known = False
         if method == "notifications/tools/list_changed":
             with self._lock:
                 old = self.surfaces.pop(server, None)
@@ -1001,7 +1012,7 @@ def serve(
     dst = stdout if stdout is not None else sys.stdout.buffer
     wlock = threading.Lock()
 
-    def write(msg: dict[str, Any]) -> None:
+    def write(msg: Any) -> None:
         data = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")
         with wlock:
             try:
@@ -1010,40 +1021,65 @@ def serve(
             except (OSError, ValueError):
                 pass  # the client went away; nothing left to tell it
 
-    def run(msg: dict[str, Any]) -> None:
+    def outcome(msg: Any) -> list[dict[str, Any]]:
+        if not isinstance(msg, dict):
+            return [_error(None, -32600, "Invalid Request")]
         try:
-            outs = proxy.handle(msg)
+            return proxy.handle(msg)
         except Exception as exc:  # noqa: BLE001 — never let one message end the session
-            outs = (
-                [_error(msg.get("id"), -32603, f"distil mcp: {type(exc).__name__}")]
-                if msg.get("id") is not None
-                else []
-            )
-        for out in outs:
+            if msg.get("id") is None:
+                return []
+            return [_error(msg.get("id"), -32603, f"distil mcp: {type(exc).__name__}")]
+
+    def run(msg: Any) -> None:
+        for out in outcome(msg):
+            write(out)
+
+    def run_batch(batch: list[Any]) -> None:
+        """JSON-RPC 2.0 batch: ONE array holding every response, in request order.
+
+        Notifications (and client responses) produce no entry; an all-notification batch
+        produces no reply at all. Server notifications a call triggered (``list_changed``)
+        are not responses, so they follow the array as ordinary lines.
+        """
+        replies: list[dict[str, Any]] = []
+        extra: list[dict[str, Any]] = []
+        for msg in batch:
+            for out in outcome(msg):
+                (replies if "method" not in out else extra).append(out)
+        if replies:
+            write(replies)
+        for out in extra:
             write(out)
 
     proxy.emit = write
     pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="distil-mcp")
     try:
         for raw in src:
+            if not raw.strip():
+                continue
             try:
                 parsed = json.loads(raw)
             except ValueError:
+                write(_error(None, -32700, "Parse error"))
                 continue
-            batch = parsed if isinstance(parsed, list) else [parsed]
-            for msg in batch:
-                if not isinstance(msg, dict):
-                    continue
-                # initialize and notifications run inline so ordering is preserved
-                # (`notifications/initialized` must reach a backend after initialize).
-                if (
-                    msg.get("method") == "initialize"
-                    or msg.get("id") is None
-                    or "method" not in msg
-                ):
-                    run(msg)
+            if isinstance(parsed, list):
+                if not parsed:  # the spec's answer to an empty batch
+                    write(_error(None, -32600, "Invalid Request"))
+                elif any(isinstance(m, dict) and m.get("method") == "initialize" for m in parsed):
+                    run_batch(parsed)
                 else:
-                    pool.submit(run, msg)
+                    pool.submit(run_batch, parsed)
+                continue
+            msg = parsed
+            # initialize and notifications run inline so ordering is preserved
+            # (`notifications/initialized` must reach a backend after initialize).
+            if not isinstance(msg, dict) or (
+                msg.get("method") == "initialize" or msg.get("id") is None or "method" not in msg
+            ):
+                run(msg)
+            else:
+                pool.submit(run, msg)
     finally:
         pool.shutdown(wait=True)
         proxy.close()

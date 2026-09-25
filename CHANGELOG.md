@@ -87,7 +87,11 @@ list another server's file URI exactly and win the read over that server's templ
 claim now counts, and two claims are an error); merged lists read only their first page;
 and two long server names could truncate to the same meta tool (truncated names now carry
 a hash). Cancellation and progress from a server now only reach the client for that
-server's own requests, and undo only restores a backup whose hash still matches.
+server's own requests, and undo only restores a backup whose hash still matches. The PR
+review then found the owner cache counted as populated once EITHER list had been fetched,
+so a client that listed templates first left exact listings unknown and a broad template
+could still capture an explicitly listed URI; both lists are now always fetched before a
+read is routed. JSON-RPC batches get one array response, as the spec requires.
 
 ### Anthropic server-side compaction: census gap fixed, passthrough pinned by contract tests
 Anthropic's Messages API now compacts context server-side (beta `compact-2026-01-12` /

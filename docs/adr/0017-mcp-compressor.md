@@ -110,6 +110,9 @@ such mechanism. Tool **results** are uncompressed for every client, Claude Code 
     `resources/list_changed` forgets owners; sampling requests carry the origin in their
     first visible message text. `install` records the backup's SHA-256 and restores only
     a backup that still matches it, and reads `installs.json` under its lock.
+    Resolution always has BOTH exact listings and templates from every server in hand:
+    populated-ness is tracked per list type (an empty listing counts as fetched), so the
+    order in which a client listed things cannot change who owns a URI.
 
 ## Consequences
 
