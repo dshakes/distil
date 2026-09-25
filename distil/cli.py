@@ -2304,6 +2304,8 @@ def cmd_setup_front(args: argparse.Namespace) -> int:
     → doctor. `--settings`/`--statusline-only` keep the original status-line-only command."""
     if args.settings or args.statusline_only:
         return cmd_setup(args)
+    if getattr(args, "hooks", False):
+        return cmd_hook(argparse.Namespace(action="install", client="auto"))
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
     rc = cmd_onboard(
         argparse.Namespace(
@@ -3074,16 +3076,55 @@ def cmd_quota(args: argparse.Namespace) -> int:
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
-    """Run, install, verify, or report on the Claude Code PostToolUse hook."""
-    from .hook import install_hook, main as hook_main, uninstall_hook
+    """Run, install, verify, or report on the post-tool hooks (Claude Code, Cursor,
+    Gemini CLI, Codex CLI)."""
+    from .hook import (
+        CLIENTS,
+        detected_clients,
+        install_hook,
+        main as hook_main,
+        print_status,
+        uninstall_hook,
+    )
 
+    action = getattr(args, "action", None)
     if getattr(args, "install", False):
-        return install_hook()
-    if getattr(args, "uninstall", False):
-        return uninstall_hook()
+        action = "install"
+    elif getattr(args, "uninstall", False):
+        action = "uninstall"
+    if action == "status":
+        return print_status()
+    if action in ("install", "uninstall"):
+        client = getattr(args, "client", None) or "claude"
+        keys = (
+            list(CLIENTS)
+            if client == "all"
+            else detected_clients()
+            if client == "auto"
+            else [client]
+        )
+        fn = install_hook if action == "install" else uninstall_hook
+        rc = 0
+        for i, key in enumerate(keys):
+            if i:
+                print()
+            rc = max(rc, fn(key))
+        return rc
     if getattr(args, "stats", False):
         return _hook_stats()
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
+def cmd_expand(args: argparse.Namespace) -> int:
+    """Print the byte-exact original behind a digest handle (hook or proxy)."""
+    from .mcp_server import _tool_expand
+
+    out = _tool_expand({"handle": args.handle})
+    if out.startswith("error: "):
+        print(f"distil: {out[7:]}", file=sys.stderr)
+        return 1
+    sys.stdout.write(out)
+    return 0
 
 
 def cmd_memory(args: argparse.Namespace) -> int:
@@ -5272,6 +5313,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     su.add_argument("--offline", action="store_true", help="skip the PyPI version check")
     su.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    su.add_argument(
+        "--hooks",
+        action="store_true",
+        help="only install post-tool hooks for every detected client (Claude Code, Cursor, "
+        "Gemini CLI, Codex) — for agents a proxy cannot reach",
+    )
     su.set_defaults(func=cmd_setup_front)
 
     ob = sub.add_parser(
@@ -5367,7 +5414,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     hk = sub.add_parser(
         "hook",
-        help="Claude Code PostToolUse hook: losslessly shrink tool output in-process",
+        help="post-tool hooks (Claude Code, Cursor, Gemini CLI, Codex): shrink tool "
+        "output before it enters the agent's history",
+    )
+    hk.add_argument(
+        "action",
+        nargs="?",
+        choices=("install", "uninstall", "status"),
+        help="install/uninstall the hook, or show where it is installed",
+    )
+    hk.add_argument(
+        "--client",
+        choices=("claude", "cursor", "gemini", "codex", "all", "auto"),
+        help="which client to (un)install for (default claude; auto = every detected one)",
     )
     hk.add_argument(
         "--selftest",
@@ -5377,17 +5436,21 @@ def build_parser() -> argparse.ArgumentParser:
     hk.add_argument(
         "--install",
         action="store_true",
-        help="write the hook into ~/.claude/settings.json (idempotent)",
+        help="same as `distil hook install`",
     )
     hk.add_argument(
         "--stats",
         action="store_true",
         help="what the hook actually saved, from its append-only receipts",
     )
-    hk.add_argument(
-        "--uninstall", action="store_true", help="remove the distil hook from settings.json"
-    )
+    hk.add_argument("--uninstall", action="store_true", help="same as `distil hook uninstall`")
     hk.set_defaults(func=cmd_hook)
+
+    ex = sub.add_parser(
+        "expand", help="print the original behind a digest handle (`<< … handle=XXXXXXXX >>`)"
+    )
+    ex.add_argument("handle", help="the 8-hex handle from a digest marker")
+    ex.set_defaults(func=cmd_expand)
 
     qt = sub.add_parser(
         "quota",
