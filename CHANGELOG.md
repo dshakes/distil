@@ -3,9 +3,17 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the blog.
+
 ## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and a digest that stops pointing at what it could just show, and the connector search distil was switching off, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
 
 Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
+
+### First impression
+
+- **Added** `docs/install.sh` and `docs/install.ps1`, served at `https://dshakes.github.io/distil/install.sh` (and `.ps1`): install uv if missing, then `uv tool install --upgrade distil-llm`; `DISTIL_VERSION` pins a version.
+- **Changed** the README first screen and the landing hero to lead with what distil does, one measured number (10.2% off the maintainer's own bill, with its source) and one install line, `uv tool install distil-llm && distil setup`. The provider-compaction study and the certificate material moved below the fold, unchanged.
+- **Changed** Getting Started to four steps: install, `distil setup`, `distil wrap -- claude`, `distil savings`.
 
 ### Windows: two quarantines in one clock tick, and a clock constant that is not there
 

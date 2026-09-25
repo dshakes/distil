@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Distil — Compression with a quality contract</title>
+<title>Distil — cut what your coding agent costs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
@@ -307,15 +307,15 @@
 </style>
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
-<meta property="og:title" content="Distil — Compression with a quality contract"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:title" content="Distil — cut what your coding agent costs"/>
+<meta property="og:description" content="Distil cuts what Claude Code and other coding agents cost you — and shows you the real bill, cache included. Cache-safe, and every compressed byte is recoverable."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<meta name="twitter:title" content="Distil — Compression with a quality contract"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:title" content="Distil — cut what your coding agent costs"/>
+<meta name="twitter:description" content="Distil cuts what Claude Code and other coding agents cost you — and shows you the real bill, cache included. Cache-safe, and every compressed byte is recoverable."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 </head>
@@ -369,28 +369,49 @@
     <ellipse cx="278" cy="448" rx="14" ry="19" fill="#eef2ff" fill-opacity=".08"/>
   </svg>
   <div class="wrap">
-  <div class="eyebrow">The certified context layer for agents</div>
-  <h1>Compress your agent's context.<br><b class="g">Prove</b> <b>its decisions don't change.</b></h1>
-  <p class="sub"><b>Every other compressor asks you to <em>trust</em> it won't break your agent. Distil is the only one that <b>proves</b> it won't.</b></p>
-  <p class="sub" style="font-size:17px">On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b> —
-    <b>42.0% vs 39.2% tasks solved</b>
-    <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference).
-    That pair is <em>task success</em>, not a compression ratio — how much smaller the context got is a
-    separate number, and it depends on your traffic: see <a href="research.html">the measured savings</a>.</small></p>
-  <p class="sub" style="font-size:15px;margin-top:26px">Four things are proven rather than promised, and each has its own page:
-    a <a href="cache-contract.html"><b>cache contract</b></a> (compression may never rewrite bytes the provider already cached),
-    a <a href="threat-model.html"><b>COMA-class adversarial gate</b></a> (with the two cases that don't come back clean published),
-    a <a href="benchmark.html#degradation-curve"><b>degradation curve</b></a> across every rung of the dial,
-    and an <a href="benchmark.html#coding-agent"><b>exact-quote guarantee</b></a> so an <code>Edit</code> still matches the file the agent read.</p>
-  <p class="sub" style="font-size:15px;margin-top:16px">New to this? <a href="#plain"><b>See how it works in plain English →</b></a></p>
+  <div class="eyebrow">Open source · for Claude Code, Codex, Gemini CLI and more</div>
+  <h1>Cut what your coding agent costs.<br><b class="g">See the real bill</b> <b>— cache included.</b></h1>
+  <p class="sub">Distil trims the tool output, logs and history your agent re-sends every turn,
+    without breaking your prompt cache, and keeps every byte it trims so the agent can get it back.</p>
+  <p class="sub" style="font-size:17px"><b>About a tenth off the real bill:</b> on the maintainer's own
+    Claude Code traffic — 13,191 requests, 1–24 September 2026 — distil saved an estimated <b>10.2%</b>
+    of what the bill would otherwise have been, <b>$286 on $2,510</b>, cache reads and writes priced in.
+    <small>Your share depends on how much large, repetitive tool output your agent reads.
+    <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/2026-09-24/live_savings_decomposition.json">Source data &rarr;</a></small></p>
 
-  <!-- Install, above the fold. A visitor's first question is "how do I get this", and it
-       used to be answerable only by scrolling into a terminal card whose first line is a
-       benchmark, not an install. One copyable line costs nothing and answers it. -->
-  <pre class="installpill"><code>uvx --from distil-llm distil onboard</code></pre>
-  <p class="installalt">Sets up everything, including a permanent install — and it is the
-    same command <a href="getting-started.html">Install &amp; Quickstart</a> leads with.
-    Prefer pipx? <code>pipx install distil-llm &amp;&amp; distil onboard</code>.</p>
+  <!-- One install line, the same one README, getting-started and llms.txt use. -->
+  <pre class="installpill"><code>uv tool install distil-llm &amp;&amp; distil setup</code></pre>
+  <p class="installalt">Or <code>curl -LsSf https://dshakes.github.io/distil/install.sh | sh</code>
+    · <code>brew install dshakes/tap/distil</code>
+    · Windows: <code>powershell -ExecutionPolicy ByPass -c "irm https://dshakes.github.io/distil/install.ps1 | iex"</code></p>
+
+  <div class="heroterm">
+    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="bartitle">~/your-project — distil</span></div>
+    <pre class="term"><span class="d">$</span> distil setup            <span class="d"># detects your agent + billing, wires everything</span>
+<span class="d">$</span> distil wrap -- claude    <span class="d"># or let setup make it always-on</span>
+<span class="d">$</span> distil savings           <span class="d"># what it saved you, from your own traffic</span>
+<span class="d">$</span> distil doctor            <span class="d"># if something looks off</span></pre>
+    <!-- TODO(first-impression): replace with a real `distil savings` screenshot once that
+         screen ships. No mock output on purpose: a made-up savings screen is a made-up number. -->
+    <div class="cap"><code>distil wrap -- claude</code> also keeps Claude Code's MCP tool search switched on,
+      which Claude Code otherwise turns off behind a proxy, so unused connectors can stay deferred
+      (tested against a stub; not yet confirmed on a live metered session;
+      <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>).</div>
+  </div>
+
+  <div class="herofoot" style="display:block">
+    <p class="sub" style="font-size:15px"><b>Why trust the number</b></p>
+    <ul style="font-size:14px;color:var(--mut);margin:8px 0 12px;padding-left:20px;line-height:1.6;max-width:760px">
+      <li><b>It doesn't break your prompt cache.</b> Distil never rewrites bytes the provider still has
+        cached; older context changes only once that cache has already expired — an enforced invariant. <a href="cache-contract.html">The cache contract &rarr;</a></li>
+      <li><b>Every compressed byte is recoverable.</b> Folded content stays in a local store; the agent calls
+        <code>distil_expand</code> to get the exact original back mid-task. <a href="techniques.html#skeleton-digest">How &rarr;</a></li>
+      <li><b>It's measured on your own bill.</b> Savings are calibrated against the <code>usage</code> your provider
+        actually bills, not estimated from a benchmark. <a href="benchmark.html">How it's measured &rarr;</a></li>
+    </ul>
+    <p class="sub" style="font-size:14px">New to this? <a href="#plain"><b>How it works in plain English &rarr;</b></a>
+      · <a href="#proof-first"><b>The proof, in depth &darr;</b></a></p>
+  </div>
 
   <div class="doors">
     <a class="door" href="getting-started.html">
@@ -402,30 +423,6 @@
       <span class="door-body"><span class="door-t"><a href="compare.html">See the proof</a></span><span class="door-d">Benchmarks &amp; <a href="subscription.html">Subscription <span class="nav-badge">New</span></a>
         <a href="research.html">full research</a></span></span>
     </div>
-  </div>
-
-  <div class="heroterm">
-    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="bartitle">~/your-project — distil</span></div>
-    <pre class="term"><span class="d">$</span> uvx --from distil-llm distil bench   <span class="d"># ~10s, no API key</span>
-<span class="g">GATE: PASS</span> <span class="d">— every trajectory certified non-inferior; aggressive rejected.</span>
-<span class="d">$</span> distil wrap -- claude   <span class="d"># route your agent, zero config</span>
-<span style="color:#8b91a1">distil</span> · <span style="color:#5ad19a;font-weight:600">▼75.0K</span> · <span class="d">62% smaller</span> · <span class="g">$0.31</span> · <span style="color:#5ad1c9">total ▼27.0M</span> · <span style="color:var(--warn)">⚠de 97.5%</span><span style="color:#5ad1c9"> (398)</span><span class="hc"></span></pre>
-    <div class="cap">Real commands, real output shape — you run the exact same commands. The session
-      figures are illustrative; the equivalence segment is the maintainer's live shadow sample
-      (<a href="#proof">97.5% [95.5, 99.5], n=398 A/B, 2026-09-15</a>), which the status line flags
-      <span style="color:var(--warn)">⚠</span> because it is under 99%.</div>
-  </div>
-
-  <div class="herofoot">
-    <p class="sub" style="font-size:13px;opacity:.85">Honest scope: the certificate covers
-      <b>decision-equivalence on a trajectory corpus</b>, not end-to-end task success — on real SWE-bench
-      Verified the proxy <b>does not transfer</b> once compression gets aggressive, and we publish that.
-      Relevance-gated reversible compression is the one condition proven non-inferior to full context —
-      <a href="concepts.html#honest-scope">full statement, CIs and ablations &rarr;</a></p>
-
-    <p class="sub" style="font-size:13.5px">One command sets you up — <code>distil onboard</code> detects your agent + billing, wires the status line, and hands you the exact next steps:<br>
-      <code>pipx install distil-llm &amp;&amp; distil onboard</code><br>
-      <span style="opacity:.8">…or route Claude Code directly, no code change: <code>distil wrap --expand -- claude</code></span></p>
   </div>
 
   <!-- "Is this for me?" answered above the stats. Previously the only place a visitor
@@ -459,29 +456,6 @@
       speaks the right wire shape, but whether <code>OPENAI_BASE_URL</code> reaches codex's
       request path at all is still open — <code>distil wrap --list</code> says so.
       <a href="integrations.html">Full integration matrix →</a></p>
-  </div>
-
-  <div class="stats">
-    <div class="stat hl">
-      <div class="n">83<s>%</s></div>
-      <div class="l">Certified savings, <b>live</b></div>
-      <div class="foot">graded by claude-opus-4-8 · decision-determined corpus</div>
-    </div>
-    <div class="stat hl">
-      <div class="n">0<s>%</s></div>
-      <div class="l">Live decision change</div>
-      <div class="foot">≤5% guaranteed at 95% confidence — Learn-Then-Test</div>
-    </div>
-    <div class="stat">
-      <div class="n">~1000<s>×</s></div>
-      <div class="l">Faster compression</div>
-      <div class="foot">0.026 ms/turn · no model in the path</div>
-    </div>
-    <div class="stat">
-      <div class="n">0</div>
-      <div class="l">Runtime dependencies</div>
-      <div class="foot">stdlib-only · 700+ tests · pip · docker · pyz</div>
-    </div>
   </div>
 
   <script>
@@ -524,6 +498,50 @@
 </div></header>
 
 <main>
+<section id="proof-first"><div class="wrap">
+  <div class="seyebrow p">The proof, in depth</div>
+  <p class="sub"><b>Every other compressor asks you to <em>trust</em> it won't break your agent. Distil is the only one that <b>proves</b> it won't.</b></p>
+  <p class="sub" style="font-size:17px">On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b> —
+    <b>42.0% vs 39.2% tasks solved</b>
+    <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference).
+    That pair is <em>task success</em>, not a compression ratio — how much smaller the context got is a
+    separate number, and it depends on your traffic: see <a href="research.html">the measured savings</a>.</small></p>
+  <p class="sub" style="font-size:15px;margin-top:26px">Four things are proven rather than promised, and each has its own page:
+    a <a href="cache-contract.html"><b>cache contract</b></a> (compression may never rewrite bytes the provider already cached),
+    a <a href="threat-model.html"><b>COMA-class adversarial gate</b></a> (with the two cases that don't come back clean published),
+    a <a href="benchmark.html#degradation-curve"><b>degradation curve</b></a> across every rung of the dial,
+    and an <a href="benchmark.html#coding-agent"><b>exact-quote guarantee</b></a> so an <code>Edit</code> still matches the file the agent read.</p>
+  <p class="sub" style="font-size:13px;opacity:.85">Honest scope: the certificate covers
+      <b>decision-equivalence on a trajectory corpus</b>, not end-to-end task success — on real SWE-bench
+      Verified the proxy <b>does not transfer</b> once compression gets aggressive, and we publish that.
+      Relevance-gated reversible compression is the one condition proven non-inferior to full context —
+      <a href="concepts.html#honest-scope">full statement, CIs and ablations &rarr;</a></p>
+
+  <div class="stats">
+    <div class="stat hl">
+      <div class="n">83<s>%</s></div>
+      <div class="l">Certified savings, <b>live</b></div>
+      <div class="foot">graded by claude-opus-4-8 · decision-determined corpus</div>
+    </div>
+    <div class="stat hl">
+      <div class="n">0<s>%</s></div>
+      <div class="l">Live decision change</div>
+      <div class="foot">≤5% guaranteed at 95% confidence — Learn-Then-Test</div>
+    </div>
+    <div class="stat">
+      <div class="n">~1000<s>×</s></div>
+      <div class="l">Faster compression</div>
+      <div class="foot">0.026 ms/turn · no model in the path</div>
+    </div>
+    <div class="stat">
+      <div class="n">0</div>
+      <div class="l">Runtime dependencies</div>
+      <div class="foot">stdlib-only · 700+ tests · pip · docker · pyz</div>
+    </div>
+  </div>
+
+</div></section>
+
 <section id="why"><div class="wrap">
   <div class="seyebrow p">The difference</div>
   <h2 style="margin-top:0">Every other compressor <b class="w">trusts</b>.<br>Distil <b class="g">proves</b>.</h2>

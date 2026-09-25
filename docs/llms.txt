@@ -1,10 +1,28 @@
-# Distil — compression with a quality contract
+# Distil — cut what your coding agent costs
 
-Distil is a cache-aware, causally-pruned context compressor for LLM agentic
-runtimes. It compresses input and output context, certifies that the agent's
-decisions are statistically unchanged (non-inferiority test), and is the only
-compressor that proves its guarantees rather than assuming them. Zero runtime
-dependencies. Four ways to use it, and they do not all reach the same tier:
+Distil cuts what Claude Code and other coding agents cost, and shows the real
+bill, cache included. It trims the tool output, logs and history an agent
+re-sends every turn, never rewrites bytes the provider still has cached, and
+keeps every byte it trims recoverable through a `distil_expand` tool. On the
+maintainer's own Claude Code traffic (13,191 requests, 2026-09-01..24) it saved
+an estimated 10.2% of the bill, cache reads and writes priced in
+(benchmarks/results/2026-09-24/live_savings_decomposition.json); results depend
+on how much large, repetitive tool output the agent reads.
+
+Install (one line; the PyPI package is distil-llm, the command is distil):
+
+  uv tool install distil-llm && distil setup
+
+Alternatives: `curl -LsSf https://dshakes.github.io/distil/install.sh | sh`
+(installs uv if missing), `brew install dshakes/tap/distil`, or on Windows
+`powershell -ExecutionPolicy ByPass -c "irm https://dshakes.github.io/distil/install.ps1 | iex"`.
+Then `distil wrap -- claude` to run an agent through it, `distil savings` to
+see what it saved, `distil doctor` if something looks off.
+
+Beyond cost, distil also checks itself: it certifies that the agent's
+decisions are statistically unchanged (non-inferiority test) rather than
+assuming it. Zero runtime dependencies. Four ways to use it, and they do not
+all reach the same tier:
 
   - Agent wrap: `distil wrap -- <agent>` for claude, codex, gemini, aider,
     opencode, qwen, goose, grok, openhands, copilot (GitHub Copilot CLI, BYOK
