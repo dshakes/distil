@@ -2275,6 +2275,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print("\nNext — route an agent through distil so the line fills in:")
         print("  distil wrap --shadow 0.1 -- claude")
         print("Verify your setup anytime with:  distil doctor")
+        from .abtest import disclosure
+
+        print(disclosure())
         return 0
     return 1
 
@@ -5058,6 +5061,10 @@ def build_parser() -> argparse.ArgumentParser:
     dv.add_argument("--json", action="store_true", help="machine-readable output")
     dv.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     dv.set_defaults(func=cmd_discover)
+
+    from .abtest.report import register as _register_ab
+
+    _register_ab(sub)  # `distil ab` — the causal task-level A/B (distil/abtest/)
 
     dash = sub.add_parser(
         "dashboard",

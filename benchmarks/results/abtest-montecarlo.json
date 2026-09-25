@@ -1,0 +1,140 @@
+{
+  "cuped": {
+    "reps": 50,
+    "variance_reduction": 0.43719414159454195,
+    "width_ratio": 0.7538352109361537
+  },
+  "cusum": {
+    "false_alarm_1000": 0.0,
+    "false_alarm_150": 0.0,
+    "reps": 300
+  },
+  "era_selection": {
+    "arm_blind": {
+      "closed_era_bias": 0.012681010038586137,
+      "closed_eras": 27,
+      "current_era_bias": -0.0028227606282097907,
+      "h": 8.0,
+      "mean_eras": 1.1866666666666668
+    },
+    "holdout_only": {
+      "closed_era_bias": 0.06723420855687923,
+      "closed_eras": 13,
+      "current_era_bias": -0.0018556232842415195,
+      "h": 8.0,
+      "mean_eras": 1.0866666666666667
+    }
+  },
+  "holdout_needed": [
+    {
+      "cv2": 0.5,
+      "effect": 0.1,
+      "holdout": 709,
+      "sessions": 14180.0
+    },
+    {
+      "cv2": 1.0,
+      "effect": 0.1,
+      "holdout": 1387,
+      "sessions": 27740.0
+    },
+    {
+      "cv2": 2.0,
+      "effect": 0.1,
+      "holdout": 2711,
+      "sessions": 54220.0
+    },
+    {
+      "cv2": 0.5,
+      "effect": 0.2,
+      "holdout": 147,
+      "sessions": 2940.0
+    },
+    {
+      "cv2": 1.0,
+      "effect": 0.2,
+      "holdout": 362,
+      "sessions": 7240.0
+    },
+    {
+      "cv2": 2.0,
+      "effect": 0.2,
+      "holdout": 709,
+      "sessions": 14180.0
+    },
+    {
+      "cv2": 0.5,
+      "effect": 0.3,
+      "holdout": 74,
+      "sessions": 1480.0
+    },
+    {
+      "cv2": 1.0,
+      "effect": 0.3,
+      "holdout": 147,
+      "sessions": 2940.0
+    },
+    {
+      "cv2": 2.0,
+      "effect": 0.3,
+      "holdout": 289,
+      "sessions": 5780.0
+    }
+  ],
+  "model_change": {
+    "explicit": {
+      "before_after_distil_arm": 0.4000089300526971,
+      "bias": 0.0013137221097446888,
+      "bias_se": 0.0040873537375217765,
+      "coverage": 1.0,
+      "cusum_era_opened": 0,
+      "estimated": 300,
+      "reps": 300,
+      "sd": 0.07079504341894262,
+      "sessions_per_model": 300,
+      "true_effect": -0.2,
+      "turns_shift": 0.4
+    },
+    "silent": {
+      "before_after_distil_arm": 0.4000089300526971,
+      "bias": 0.004846534496758121,
+      "bias_se": 0.0037296080684839365,
+      "coverage": 1.0,
+      "cusum_era_opened": 74,
+      "estimated": 297,
+      "reps": 300,
+      "sd": 0.064274901589319,
+      "sessions_per_model": 300,
+      "true_effect": -0.2,
+      "turns_shift": 0.4
+    }
+  },
+  "note": "distil/abtest known-answer Monte Carlo; seeds fixed, reproducible offline",
+  "power": [
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "n": 400,
+      "power": 0.45666666666666667
+    },
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "n": 800,
+      "power": 0.9166666666666666
+    },
+    {
+      "coverage": 1.0,
+      "effect": -0.2,
+      "n": 1600,
+      "power": 0.9966666666666667
+    }
+  ],
+  "type_one_error": {
+    "alpha": 0.05,
+    "looks": 19,
+    "naive": 0.279,
+    "reps": 1000,
+    "sequential": 0.013
+  }
+}

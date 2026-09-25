@@ -873,6 +873,41 @@
       "claim": "Output shaping defaults to --shape-output auto on a metered session and is ON only when all three hold: the paired decision-equivalence verdict is at or above the shared reporting floor (50 A/B + 30 A/A), its harm bound (lower end of the paired difference interval) is inside the pre-registered +/-2pp certification margin, and the shadow output-token delta excludes zero on the saving side over at least 50 priced samples. Otherwise OFF with a stated reason. Turn-on evidence comes only from shadow rows tagged levers.shape == off, so shaped rows cannot keep shaping on; shaped rows at or above the floor whose harm bound is outside the budget turn it off; both sets are read over the last 7 days. Always off on subscription/OAuth. The last published live sample (398 A/B, 399 A/A) predates the lever tag and counts as zero rows; its harm bound (-4.5pp) is outside the 2pp budget regardless, so auto resolves to OFF.",
       "artifact": "distil/output.py",
       "note": "Mechanism is resolve_shape_output; the live-sample figures are from benchmarks/results/shadow-live-2026-09-15.json. The rule is covered by the decision matrix in tests/test_output.py; the thresholds are read from shadow.VERDICT_MIN_AB/VERDICT_MIN_AA and certify.gate.CERT_MARGIN (via output.SHAPE_HARM_MARGIN), not re-declared. Reply LENGTH cannot be measured offline (the deterministic oracle decides from blocks and emits no prose), so there is no corpus number for shaping and none is claimed: the n=6 output_pairs.jsonl A/B is a hand-written mechanism check, already labelled illustrative on the page. The README paragraph in the savings section restates this entry and originates no fact of its own."
+    },
+    {
+      "id": "v-abtest-montecarlo",
+      "status": "verified",
+      "page": [
+        "ab.html"
+      ],
+      "anchor": "math",
+      "snippet": "this interval flagged a non-existent difference 1.3% of the time",
+      "claim": "Known-answer Monte Carlo for distil ab: the anytime-valid interval's type-I error under 19 repeated looks (1.3%, vs 27.9% for a naive fixed-n interval), power for a true 20% effect (46% at 400 sessions, 92% at 800), CUPED variance reduction (44%, width 0.75×), a model change adding 40% turns per task in both arms read as 40% more cost before/after, and the sessions a 5% holdout needs to resolve a 10% or 20% effect.",
+      "note": "Simulated sessions with a known true effect; seeds fixed; offline. Reproduce: python -m benchmarks.abtest_montecarlo --write-tracked. Session-count figures (27,740 / 7,240) assume CV^2 = 1 and are labelled as an assumption on the page.",
+      "artifact": "benchmarks/results/abtest-montecarlo.json",
+      "values": [
+        "1.3%",
+        "27.9%",
+        "46%",
+        "92%",
+        "44%",
+        "0.75×",
+        "40%",
+        "20%",
+        "10%"
+      ]
+    },
+    {
+      "id": "v-abtest-default-rate",
+      "status": "verified",
+      "page": [
+        "ab.html"
+      ],
+      "anchor": "holdout",
+      "snippet": "The default holdout rate is 5%.",
+      "claim": "distil ab holds out 5% of new wrap sessions by default (DEFAULT_RATE), overridable by DISTIL_HOLDOUT_RATE or distil ab --holdout-rate; 0 disables.",
+      "note": "A configured constant, not a measurement; tests/test_abtest.py pins the precedence and the opt-out.",
+      "artifact": "distil/abtest/__init__.py"
     }
   ]
 }

@@ -631,6 +631,7 @@ def build_handler(
     prefix_replay: bool = True,
     diagnostic: bool = False,
     cold_point: bool = True,
+    arm: str = "",
 ) -> type[BaseHTTPRequestHandler]:
     """Return a ``BaseHTTPRequestHandler`` subclass configured for *upstream*.
 
@@ -651,6 +652,22 @@ def build_handler(
     """
 
     _upstream = upstream.rstrip("/")
+    # A/B holdout (distil.abtest): this session is the control arm, so every lever is
+    # off — no compression (not even Tier-0), no shaping, no expand tool, no cold-point,
+    # no prefix replay, no shadow replays. The request body is forwarded as received
+    # (see the first branch of _handle_compressible); receipts and the per-request
+    # record still run, tagged arm=holdout. Always safe: it is exactly the traffic the
+    # agent would have sent without distil.
+    _holdout = arm == "holdout"
+    if _holdout:
+        verbatim, expand, session_delta, prefix_replay, cold_point = (
+            True,
+            False,
+            False,
+            False,
+            False,
+        )
+        shape_output, shadow_rate, retention_rate = "off", 0.0, 0.0
     # A human-readable mode label, echoed on every compressed response as
     # x-distil-mode so a user seeing ▼0 can tell *why*: verbatim disables the
     # reversible digest (savings come only from lossless whitespace/JSON), so
@@ -1112,7 +1129,11 @@ def build_handler(
             # Gemini paths    → Gemini adapter (contents branch, below)
             _path = strip_query(self.path)
 
-            if is_responses_path(_path) and isinstance(body.get("input"), list):
+            if _holdout:
+                # Control arm: the original bytes go upstream untouched (body is not
+                # reassigned, so _serialize_if_changed returns `raw`), nothing is booked.
+                extras = {"x-distil-mode": _req_mode, "x-distil-arm": "holdout"}
+            elif is_responses_path(_path) and isinstance(body.get("input"), list):
                 # OpenAI Responses API: compress ``function_call_output`` items
                 # (Tier-1 reversible digest) and user ``message`` items (Tier-0).
                 from .adapters.openai import compress_responses_input, count_responses_tokens
@@ -1925,9 +1946,18 @@ def build_handler(
                         _prefix_hash, _prefix_bytes = _rep.stable_hash, _rep.stable_bytes
                     except Exception:  # noqa: BLE001 — a diagnostic must not drop the record
                         pass
+                from .abtest.outcomes import client_tag, is_user_turn
+
                 rec = {
                     "ts": time.time(),
                     "model": model,
+                    # Task-level A/B (distil.abtest), content-free: the session's arm
+                    # ("" when not randomised), the client as name/major.minor from the
+                    # User-Agent, and whether this request opens a user turn (roles and
+                    # block types only) — which is what delimits a task.
+                    "arm": arm,
+                    "client": client_tag((getattr(self, "headers", None) or {}).get("User-Agent")),
+                    "user_turn": is_user_turn(body),
                     "stream": stream,
                     "client_stream": client_stream,
                     "status": status,
@@ -2532,6 +2562,11 @@ def wrap_run(
     from .ledger import session_marker_path
 
     marker = session_marker_path()
+    # Fold every randomised session into the durable A/B store BEFORE the TTL sweep
+    # below can delete its files (distil.abtest.outcomes). Never raises.
+    from .abtest import outcomes as _ab_outcomes
+
+    _ab_outcomes.harvest()
     if marker is not None:
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
@@ -2561,6 +2596,21 @@ def wrap_run(
     if shape.on or shape.requested not in ("auto", "off"):
         print(f"distil: {shape.line}", file=sys.stderr)
 
+    # Task-level A/B (distil.abtest): draw this session's arm ONCE, before anything is
+    # spawned, so the manifest, the worker and the notice below all agree. A nested or
+    # resumed wrap that inherits the session id keeps the arm its manifest records.
+    from . import abtest as _abtest
+
+    try:
+        from .ledger import session_manifest_path
+
+        _mp = session_manifest_path()
+        _prev = json.loads(_mp.read_text(encoding="utf-8")) if _mp and _mp.exists() else None
+        _ab = _abtest.assign(os.environ.get("DISTIL_SESSION"), _prev)
+    except Exception:  # noqa: BLE001 — an unassigned session is served normally
+        log.debug("A/B assignment failed; session not randomised", exc_info=True)
+        _ab = _abtest.Assignment("", 0.0)
+
     # Session manifest: what this wrap *is* (tool, argv, flags, billing) — the
     # header `distil dissect` reads. Best-effort, like the marker above.
     try:
@@ -2585,6 +2635,7 @@ def wrap_run(
                 "started_ts": time.time(),
                 "distil_version": _ver,
                 "billing": _billing,
+                "ab": _ab.manifest(),
                 "flags": {
                     "upstream": upstream,
                     "env_var": env_var,
@@ -2632,6 +2683,7 @@ def wrap_run(
                     cold_point=cold_point,
                     shadow_rate=shadow_rate,
                     retention_rate=retention_rate,
+                    arm=_ab.arm,
                 ),
                 host=host,
             )
@@ -2662,6 +2714,7 @@ def wrap_run(
             cold_point=cold_point,
             shadow_rate=shadow_rate,
             retention_rate=retention_rate,
+            arm=_ab.arm,
         )
         server = QuietHTTPServer((host, 0), handler)  # port 0 → OS picks a free port
         base = f"http://{host}:{server.server_address[1]}"
@@ -2721,6 +2774,10 @@ def wrap_run(
         child_env.setdefault(name, value)
         shown = "••••••" if "KEY" in name else value
         print(f"  → {name}={shown}")
+    if _ab.arm == _abtest.HOLDOUT:
+        # Disclosed every time it happens, not only at setup: the user is owed knowing
+        # that THIS session is the uncompressed control, and how to stop it.
+        print(f"  → A/B holdout: this session runs uncompressed. {_abtest.disclosure(_ab.rate)}")
     if lossless_only:
         print("  → lossless-only (no shaping / no tool injection)")
     if verbatim:
@@ -2887,6 +2944,9 @@ def wrap_run(
                 )
     except OSError:
         pass
+    # Fold this session's A/B outcome now that its exit breadcrumb exists. Never raises.
+    if _ab.arm:
+        _ab_outcomes.harvest(only=os.environ.get("DISTIL_SESSION"))
     # Proof Ledger — printed on clean exit and Ctrl-C; fail-open (must not alter exit code).
     try:
         from .proof_ledger import print_proof_ledger as _print_proof_ledger
