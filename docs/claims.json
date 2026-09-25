@@ -172,7 +172,6 @@
       "page": [
         "changelog.html",
         "faq.html",
-        "getting-started.html",
         "../README.md"
       ],
       "anchor": "v1-51-1",
@@ -185,15 +184,6 @@
         "84.8%",
         "100%"
       ]
-    },
-    {
-      "id": "u-cache-hero-example",
-      "status": "unsourced",
-      "page": "index.html",
-      "anchor": null,
-      "snippet": "▼75.0K",
-      "claim": "Hero terminal session figures (▼75.0K, 62% smaller, $0.31, total ▼27.0M) are illustrative: no linked command, log or artifact backs those specific figures, and the caption now says so.",
-      "note": "The equivalence segment used to read '✓eq 99.5%' under a caption claiming real output — a verdict distil/cli.py:1826 would only print at eq>=0.99 and which the maintainer's own traffic has never reached. It now renders the real live reading, covered by v-shadow-live-paired."
     },
     {
       "id": "u-corpus-domain-percentages",
@@ -512,7 +502,6 @@
       "page": [
         "index.html",
         "faq.html",
-        "getting-started.html",
         "integrations.html",
         "llms.txt",
         "../README.md",
@@ -851,20 +840,6 @@
       "check_reason": "a ratio of two latency columns rather than a figure the log prints; the columns themselves are in docs/paper/results/derc_live_compare.2026-07-05.log and the 2026-09-04 codebench output"
     },
     {
-      "id": "u-getting-started-short-session-win",
-      "status": "unsourced",
-      "page": "getting-started.html",
-      "anchor": null,
-      "snippet": null,
-      "claim": "Digest mode on short coding sessions is described as a modest ~7% win, because the agent re-expands most of what it edits within the same session.",
-      "check": "manual",
-      "check_reason": "an order-of-magnitude statement about session length with no run behind it",
-      "values": [
-        "7%"
-      ],
-      "note": "Kept because it is reader-facing and numeric; it belongs with the re-read-delta ceiling work."
-    },
-    {
       "id": "v-output-shaping-auto",
       "status": "verified",
       "page": "output.html",
@@ -889,6 +864,27 @@
         "40.35"
       ],
       "artifact": "benchmarks/results/skeleton_treesitter.json"
+    },
+    {
+      "id": "v-live-bill-decomposition",
+      "status": "verified",
+      "page": [
+        "../README.md",
+        "index.html",
+        "getting-started.html",
+        "llms.txt"
+      ],
+      "anchor": null,
+      "snippet": "13,191 requests",
+      "claim": "On the maintainer's own Claude Code traffic (13,191 priced requests, 2026-09-01 to 2026-09-24, all in digest mode), distil saved an estimated 10.2% of the counterfactual bill: $286 saved against $2,510 billed, with cache reads and writes priced at list rates.",
+      "artifact": "benchmarks/results/2026-09-24/live_savings_decomposition.json",
+      "values": [
+        "10.2%",
+        "286",
+        "2,510",
+        "13,191"
+      ],
+      "note": "realized.saved_share_of_counterfactual_bill = 0.1024, realized.saved_usd_estimated = 286.26, billed_usd_total = 2510.45, requests_priced = 13191. One machine, one user, one mode: it is a real bill, not a population estimate, and every surface that quotes it says whose traffic it is. 'Estimated' because tokens saved are rescaled to billed scale and priced at each request's own blended input rate (the artifact's realized.note). Regenerate with benchmarks/live_savings_decomposition.py --since 2026-09-01."
     }
   ]
 }

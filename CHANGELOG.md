@@ -3,24 +3,9 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the blog.
+
 ## [Unreleased]
-
-## [1.54.0] — 2026-09-25 — measured, enforced, verifiable
-
-**In short**
-
-- **Added — MCP tool search stays on.** `distil wrap` / `--always-on` set `ENABLE_TOOL_SEARCH`, so Claude Code defers MCP tool definitions behind the proxy (verified live). `distil discover` names connectors you pay for and never call.
-- **Added — cold-point recompression.** Older tool output is re-stubbed only when the prompt cache has certainly expired (`--no-cold-point` to opt out).
-- **Added — one risk budget and a drift alarm that acts.** A proven decision-drift breach holds the proxy at lossless-only; release with `distil reset --drift-guard`.
-- **Added — sealed receipt segments with Merkle checkpoints.** One receipt can be proven to an auditor without the whole log (`distil receipts --prove/--check-proof`).
-- **Added — agent presets fixed and contract-tested** (Kilo, aider, opencode, qwen, openhands, grok, kimi; Cline CLI).
-- **Fixed — receipts no longer re-read the whole chain per request**; an in-window prefix-cache break; Anthropic compaction / OpenAI encrypted items are now counted; `discover --since` keeps recently-failed sessions; auto output-shaping can no longer keep itself on; Windows fixes.
-- **Research** — where the live bill goes (#189); measured decisions not to compress tool schemas (ADR 0012) or add per-command shell profiles (ADR 0015).
-
-The full story, change by change:
-
-
-Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
 ### Added
 
@@ -42,6 +27,29 @@ Three threads, and the same shape keeps recurring below. The first is the re-rea
 - `distil --help` shows four commands: `setup`, `wrap`, `savings`, `doctor`. Every other command still works.
 - The original `distil savings` (strategy pricing on a trajectory) runs with `--strategies` or any of its flags (`-t`, `--pricing`, `--tokenizer`, `--output-tokens-per-turn`, `--record`). Bare `distil savings` now shows the new screen.
 - The original `distil setup` (status line only) runs with `--statusline-only` or `--settings`.
+
+### First impression
+
+- **Added** `docs/install.sh` and `docs/install.ps1`, served at `https://dshakes.github.io/distil/install.sh` (and `.ps1`): install uv if missing, then `uv tool install --upgrade distil-llm`; `DISTIL_VERSION` pins a version.
+- **Changed** the README first screen and the landing hero to lead with what distil does, one measured number (10.2% off the maintainer's own bill, with its source) and one install line, `uv tool install distil-llm && distil setup`. The provider-compaction study and the certificate material moved below the fold, unchanged.
+- **Changed** Getting Started to four steps: install, `distil setup`, `distil wrap -- claude`, `distil savings`.
+
+## [1.54.0] — 2026-09-25 — measured, enforced, verifiable
+
+**In short**
+
+- **Added — MCP tool search stays on.** `distil wrap` / `--always-on` set `ENABLE_TOOL_SEARCH`, so Claude Code defers MCP tool definitions behind the proxy (verified live). `distil discover` names connectors you pay for and never call.
+- **Added — cold-point recompression.** Older tool output is re-stubbed only when the prompt cache has certainly expired (`--no-cold-point` to opt out).
+- **Added — one risk budget and a drift alarm that acts.** A proven decision-drift breach holds the proxy at lossless-only; release with `distil reset --drift-guard`.
+- **Added — sealed receipt segments with Merkle checkpoints.** One receipt can be proven to an auditor without the whole log (`distil receipts --prove/--check-proof`).
+- **Added — agent presets fixed and contract-tested** (Kilo, aider, opencode, qwen, openhands, grok, kimi; Cline CLI).
+- **Fixed — receipts no longer re-read the whole chain per request**; an in-window prefix-cache break; Anthropic compaction / OpenAI encrypted items are now counted; `discover --since` keeps recently-failed sessions; auto output-shaping can no longer keep itself on; Windows fixes.
+- **Research** — where the live bill goes (#189); measured decisions not to compress tool schemas (ADR 0012) or add per-command shell profiles (ADR 0015).
+
+The full story, change by change:
+
+
+Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
 ### Windows: two quarantines in one clock tick, and a clock constant that is not there
 
