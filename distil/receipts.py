@@ -143,12 +143,61 @@ def append(receipt: Receipt) -> Receipt:
     return receipt
 
 
+_TAIL_BLOCK_SIZE = 64 * 1024  # generous for one JSON receipt line; a longer line just
+# costs another block, never a wrong answer — see _reverse_lines.
+
+
+def _reverse_lines(p: Path) -> Iterator[bytes]:
+    """Yield raw lines from ``p``, last line first, reading backward in blocks.
+
+    Cost is bounded by the trailing bytes actually inspected, not by the file: a
+    multi-GB chain and a 200-byte one cost the same when the tail is healthy. A line
+    longer than one block is held whole, but each block is searched once and the
+    pieces are joined once — linear in the line, never quadratic. That matters for
+    the unhealthy tail: a crash can leave megabytes of garbage with no newline, and
+    this runs inside the append lock on every request.
+    """
+    try:
+        with p.open("rb") as fh:
+            pos = fh.seek(0, os.SEEK_END)
+            parts: list[bytes] = []  # the line being assembled, last piece first
+            while pos > 0:
+                read_size = min(_TAIL_BLOCK_SIZE, pos)
+                pos -= read_size
+                fh.seek(pos)
+                block = fh.read(read_size)
+                end = len(block)
+                nl = block.rfind(b"\n", 0, end)
+                while nl != -1:
+                    parts.append(block[nl + 1 : end])
+                    yield b"".join(reversed(parts))
+                    parts = []
+                    end = nl
+                    nl = block.rfind(b"\n", 0, end)
+                parts.append(block[:end])
+            head = b"".join(reversed(parts))
+            if head:
+                yield head
+    except OSError:
+        return
+
+
 def head_hash() -> str:
-    """Hash of the last receipt, or GENESIS when the chain is empty."""
-    last = None
-    for last in read():  # noqa: B007 — we want the final element
-        pass
-    return last.hash if last is not None else GENESIS
+    """Hash of the last receipt, or GENESIS when the chain is empty.
+
+    Reads backward from the end of the file rather than the whole chain: this runs
+    inside the append lock on every successful request (see ``append`` above), so an
+    O(chain) scan here serializes every request behind however large the chain has
+    grown — 0.53 s per request on a 94 MB, 102,767-row chain. A malformed or torn
+    trailing line — a write cut short by a crash or a full disk — is skipped exactly
+    as ``read()`` skips it going forward; this just walks backward to find the first
+    line that parses instead of the last line forward that does.
+    """
+    for raw in _reverse_lines(receipts_path()):
+        r = _parse(raw)
+        if r is not None:
+            return r.hash
+    return GENESIS
 
 
 def _parse(raw: bytes) -> Receipt | None:

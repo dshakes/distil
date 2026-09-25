@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and one hash that cost the whole chain to answer
 
 The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -781,6 +781,22 @@ is running on defaults. Seven research modules (`gist`, `speculative`, `ensemble
 `trajectory_risk.drift_monitor`) now open their docstrings with **RESEARCH-ONLY — not on
 the request path**. Nothing was deleted and nothing changed behaviour; an inert module
 that reads as shipped is a claim, and it is now labelled as what it is.
+
+### Every receipt now costs one write and one read of the last line, not the chain
+
+Appending a receipt reads the current head hash first — it has to, the chain links
+each receipt to the one before it — and that read held the same lock the append
+itself takes, so it serialized every request behind it. It was also an O(chain) scan:
+`head_hash()` walked the file from byte zero looking for its last line. On the
+maintainer's own 94 MB, 102,767-row chain that is 0.53 s spent per request holding a
+lock every other in-flight request is waiting on, growing without bound as the file
+does. `head_hash()` now reads backward from the end of the file in blocks instead of
+forward from the start, stopping at the first line that parses — a torn trailing line
+(a write cut short by a crash or a full disk) is skipped exactly as `read()` already
+skips it going the other direction, and a line longer than one block just costs
+another block, never a wrong answer. Chain format, lock scope, and every caller's
+semantics are unchanged. On a synthetic 100,000-row chain the lookup goes from 325 ms
+to 0.18 ms.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
