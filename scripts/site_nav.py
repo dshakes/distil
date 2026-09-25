@@ -61,6 +61,7 @@ REFERENCE: list[tuple[str, str, str | None]] = [
     ("adapters.html", "Adapters", None),
     ("metrics.html", "Metrics &amp; Observability", None),
     ("cache.html", "Prompt Caching", "New"),
+    ("mcp.html", "MCP Compressor", "New"),
     ("corpus.html", "Corpus", None),
     ("output.html", "Output &amp; I/O", None),
 ]

@@ -1,0 +1,179 @@
+{
+ "tokenizer": "distil heuristic (calibrate against a provider count)",
+ "note": "lazy levels at session start; L3 equals L2 until usage has been learned",
+ "servers": {
+  "everything": {
+   "tools": 13,
+   "raw": 2268,
+   "L0": {
+    "tokens": 1852,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 1852,
+    "level": "L0"
+   },
+   "L2": {
+    "tokens": 669,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 669,
+    "level": "L3"
+   }
+  },
+  "fetch": {
+   "tools": 1,
+   "raw": 458,
+   "L0": {
+    "tokens": 402,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 402,
+    "level": "L0"
+   },
+   "L2": {
+    "tokens": 344,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 344,
+    "level": "L3"
+   }
+  },
+  "filesystem": {
+   "tools": 14,
+   "raw": 3201,
+   "L0": {
+    "tokens": 2754,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 2308,
+    "level": "L1"
+   },
+   "L2": {
+    "tokens": 682,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 682,
+    "level": "L3"
+   }
+  },
+  "git": {
+   "tools": 12,
+   "raw": 2402,
+   "L0": {
+    "tokens": 1943,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 1885,
+    "level": "L1"
+   },
+   "L2": {
+    "tokens": 548,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 548,
+    "level": "L3"
+   }
+  },
+  "github": {
+   "tools": 26,
+   "raw": 7943,
+   "L0": {
+    "tokens": 7114,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 7114,
+    "level": "L0"
+   },
+   "L2": {
+    "tokens": 1157,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 1157,
+    "level": "L3"
+   }
+  },
+  "memory": {
+   "tools": 9,
+   "raw": 2000,
+   "L0": {
+    "tokens": 1712,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 1712,
+    "level": "L0"
+   },
+   "L2": {
+    "tokens": 485,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 485,
+    "level": "L3"
+   }
+  },
+  "sequential-thinking": {
+   "tools": 1,
+   "raw": 1313,
+   "L0": {
+    "tokens": 1281,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 695,
+    "level": "L1"
+   },
+   "L2": {
+    "tokens": 372,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 372,
+    "level": "L3"
+   }
+  },
+  "time": {
+   "tools": 2,
+   "raw": 437,
+   "L0": {
+    "tokens": 437,
+    "level": "L0"
+   },
+   "L1": {
+    "tokens": 437,
+    "level": "L0"
+   },
+   "L2": {
+    "tokens": 342,
+    "level": "L2"
+   },
+   "L3": {
+    "tokens": 342,
+    "level": "L3"
+   }
+  }
+ },
+ "total": {
+  "raw": 20022,
+  "L0": 17495,
+  "L1": 16405,
+  "L2": 4599,
+  "L3": 4599
+ },
+ "pct_smaller_than_raw": {
+  "L0": 12.6,
+  "L1": 18.1,
+  "L2": 77.0,
+  "L3": 77.0
+ }
+}

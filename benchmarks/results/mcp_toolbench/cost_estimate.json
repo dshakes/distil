@@ -1,0 +1,167 @@
+{
+ "assumptions": {
+  "output_tokens_per_turn": 120,
+  "tool_system_tokens": 346,
+  "safety": 1.25
+ },
+ "models": {
+  "claude-haiku-4-5": {
+   "arms": {
+    "raw": {
+     "input_tokens": 20409338,
+     "output_tokens": 120000,
+     "usd_no_cache": 26.26,
+     "usd_cached": 3.79
+    },
+    "L0": {
+     "input_tokens": 17882338,
+     "output_tokens": 120000,
+     "usd_no_cache": 23.1,
+     "usd_cached": 3.47
+    },
+    "L1": {
+     "input_tokens": 16792338,
+     "output_tokens": 120000,
+     "usd_no_cache": 21.74,
+     "usd_cached": 3.33
+    },
+    "L2": {
+     "input_tokens": 10596463,
+     "output_tokens": 240000,
+     "usd_no_cache": 14.75,
+     "usd_cached": 4.41
+    },
+    "L3": {
+     "input_tokens": 12583422,
+     "output_tokens": 142920,
+     "usd_no_cache": 16.62,
+     "usd_cached": 3.15
+    },
+    "results:raw": {
+     "input_tokens": 3933326,
+     "output_tokens": 75600,
+     "usd_no_cache": 5.39,
+     "usd_cached": 5.39
+    },
+    "results:R": {
+     "input_tokens": 1754219,
+     "output_tokens": 100800,
+     "usd_no_cache": 2.82,
+     "usd_cached": 2.82
+    }
+   },
+   "usd_no_cache": 110.69,
+   "usd_cached": 26.36,
+   "price_per_mtok": {
+    "input": 1.0,
+    "output": 5.0
+   }
+  },
+  "claude-sonnet-5": {
+   "arms": {
+    "raw": {
+     "input_tokens": 20409338,
+     "output_tokens": 120000,
+     "usd_no_cache": 78.79,
+     "usd_cached": 11.37
+    },
+    "L0": {
+     "input_tokens": 17882338,
+     "output_tokens": 120000,
+     "usd_no_cache": 69.31,
+     "usd_cached": 10.4
+    },
+    "L1": {
+     "input_tokens": 16792338,
+     "output_tokens": 120000,
+     "usd_no_cache": 65.22,
+     "usd_cached": 9.99
+    },
+    "L2": {
+     "input_tokens": 10596463,
+     "output_tokens": 240000,
+     "usd_no_cache": 44.24,
+     "usd_cached": 13.23
+    },
+    "L3": {
+     "input_tokens": 12583422,
+     "output_tokens": 142920,
+     "usd_no_cache": 49.87,
+     "usd_cached": 9.45
+    },
+    "results:raw": {
+     "input_tokens": 3933326,
+     "output_tokens": 75600,
+     "usd_no_cache": 16.17,
+     "usd_cached": 16.17
+    },
+    "results:R": {
+     "input_tokens": 1754219,
+     "output_tokens": 100800,
+     "usd_no_cache": 8.47,
+     "usd_cached": 8.47
+    }
+   },
+   "usd_no_cache": 332.06,
+   "usd_cached": 79.08,
+   "price_per_mtok": {
+    "input": 3.0,
+    "output": 15.0
+   }
+  },
+  "claude-opus-5": {
+   "arms": {
+    "raw": {
+     "input_tokens": 20409338,
+     "output_tokens": 120000,
+     "usd_no_cache": 131.31,
+     "usd_cached": 18.95
+    },
+    "L0": {
+     "input_tokens": 17882338,
+     "output_tokens": 120000,
+     "usd_no_cache": 115.51,
+     "usd_cached": 17.34
+    },
+    "L1": {
+     "input_tokens": 16792338,
+     "output_tokens": 120000,
+     "usd_no_cache": 108.7,
+     "usd_cached": 16.64
+    },
+    "L2": {
+     "input_tokens": 10596463,
+     "output_tokens": 240000,
+     "usd_no_cache": 73.73,
+     "usd_cached": 22.05
+    },
+    "L3": {
+     "input_tokens": 12583422,
+     "output_tokens": 142920,
+     "usd_no_cache": 83.11,
+     "usd_cached": 15.75
+    },
+    "results:raw": {
+     "input_tokens": 3933326,
+     "output_tokens": 75600,
+     "usd_no_cache": 26.95,
+     "usd_cached": 26.95
+    },
+    "results:R": {
+     "input_tokens": 1754219,
+     "output_tokens": 100800,
+     "usd_no_cache": 14.11,
+     "usd_cached": 14.11
+    }
+   },
+   "usd_no_cache": 553.43,
+   "usd_cached": 131.79,
+   "price_per_mtok": {
+    "input": 5.0,
+    "output": 25.0
+   }
+  }
+ },
+ "n_tool_tasks": 1000,
+ "n_result_tasks": 630
+}

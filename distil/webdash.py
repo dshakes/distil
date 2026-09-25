@@ -136,7 +136,7 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <div class="m"><div class="mv a" id="eq" aria-labelledby="eqlab">–</div><div class="ml" id="eqlab">decision-equivalence</div></div>
     <div class="m"><div class="mv" id="runs" aria-labelledby="runslab">–</div><div class="ml" id="runslab">requests</div></div>
   </div>
-  <div class="foot"><span>◉ local only · nothing leaves this machine</span>
+  <div class="foot"><span>◉ local only · nothing leaves this machine · <a href="/mcp" style="color:inherit">MCP compression →</a></span>
     <button type="button" id="pause-btn" class="pause-btn" aria-pressed="false">Pause</button>
     <span id="stamp"></span></div>
 </div></div>
@@ -268,6 +268,21 @@ def serve_webdash(
         server.server_close()
 
 
+_LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _host_allowed(header: str | None, bound: str) -> bool:
+    """Is the request's ``Host`` a name this local server legitimately answers to?"""
+    if not header:
+        return False
+    h = header.strip().lower()
+    if h.startswith("["):  # [::1]:8766
+        name = h[1 : h.find("]")] if "]" in h else h
+    else:
+        name = h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+    return name in _LOOPBACK_NAMES or name == bound.lower()
+
+
 def build_server(host: str, port: int) -> ThreadingHTTPServer:
     """The dashboard HTTP server — factored out so tests can drive it directly.
     Serves the local page and the content-free ``/data`` snapshot; nothing else."""
@@ -285,10 +300,42 @@ def build_server(host: str, port: int) -> ThreadingHTTPServer:
             self.wfile.write(body)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path.startswith("/data"):
+            if not _host_allowed(self.headers.get("Host"), host):
+                # DNS rebinding: a page on evil.example resolving to 127.0.0.1 could
+                # otherwise read this dashboard (tool names, schemas) cross-origin.
+                self._send(403, "text/plain", b"forbidden host")
+                return
+            if (
+                self.path == "/mcp"
+                or self.path.startswith("/mcp/")
+                or self.path.startswith("/mcp?")
+            ):
+                self._mcp()
+            elif self.path.startswith("/data"):
                 self._send(200, "application/json", json.dumps(_snapshot()).encode())
             elif self.path in ("/", "/index.html"):
                 self._send(200, "text/html; charset=utf-8", _PAGE.encode())
+            else:
+                self._send(404, "text/plain", b"not found")
+
+        def _mcp(self) -> None:
+            """``distil mcp``'s section: the page, its snapshot, one tool's diff."""
+            from urllib.parse import parse_qs, urlparse
+
+            from .mcpproxy import watch
+
+            url = urlparse(self.path)
+            if url.path in ("/mcp", "/mcp/"):
+                self._send(200, "text/html; charset=utf-8", watch.PAGE.encode())
+            elif url.path == "/mcp/data":
+                self._send(200, "application/json", json.dumps(watch.load_summary()).encode())
+            elif url.path == "/mcp/tool":
+                q = parse_qs(url.query)
+                detail = watch.tool_detail(q.get("server", [""])[0], q.get("tool", [""])[0])
+                if detail is None:
+                    self._send(404, "application/json", b'{"error":"no such tool"}')
+                else:
+                    self._send(200, "application/json", json.dumps(detail).encode())
             else:
                 self._send(404, "text/plain", b"not found")
 

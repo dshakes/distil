@@ -1,0 +1,66 @@
+{
+ "server": "time",
+ "source": "PyPI mcp-server-time",
+ "serverInfo": {
+  "name": "mcp-time",
+  "version": "1.30.0"
+ },
+ "license": "MIT — github.com/modelcontextprotocol/servers; see fixtures/NOTICE.md",
+ "captured": "2026-09-24 via tools/list over stdio, verbatim",
+ "tools": [
+  {
+   "name": "get_current_time",
+   "description": "Get current time in a specific timezone",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "timezone": {
+      "type": "string",
+      "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Use 'America/New_York' as local timezone if no timezone provided by the user."
+     }
+    },
+    "required": [
+     "timezone"
+    ]
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "convert_time",
+   "description": "Convert time between timezones",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "source_timezone": {
+      "type": "string",
+      "description": "Source IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Use 'America/New_York' as local timezone if no source timezone provided by the user."
+     },
+     "time": {
+      "type": "string",
+      "description": "Time to convert in 24-hour format (HH:MM)"
+     },
+     "target_timezone": {
+      "type": "string",
+      "description": "Target IANA timezone name (e.g., 'Asia/Tokyo', 'America/San_Francisco'). Use 'America/New_York' as local timezone if no target timezone provided by the user."
+     }
+    },
+    "required": [
+     "source_timezone",
+     "time",
+     "target_timezone"
+    ]
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+   }
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+{
+  "protocol": "docs/research/mcp-compressor-protocol.md",
+  "protocol_version": 1,
+  "note": "Issued from the committed live run benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json (protocol v1 + Amendment 1: claude-haiku-4-5 only, no replication model this round; $85 ceiling, $21.68 spent). Every level passed TOST and the paired bootstrap at CERT_MARGIN 0.02, alpha 0.05, n=1000 tool tasks per level and n=630 result tasks. A certificate covers that model and the eight reference servers only. Only a human edits this file, from a committed run.",
+  "model": "claude-haiku-4-5",
+  "run": "benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json",
+  "levels": {
+    "L0": {"status": "certified", "selection": [0.944, 0.952], "args": [0.912, 0.921], "why": "raw vs L0 on n=1000; both primary metrics non-inferior"},
+    "L1": {"status": "certified", "selection": [0.944, 0.954], "args": [0.912, 0.954], "why": "raw vs L1 on n=1000; both primary metrics non-inferior"},
+    "L2": {"status": "certified", "selection": [0.944, 0.998], "args": [0.912, 0.963], "why": "raw vs L2 on n=1000; both primary metrics non-inferior; 1.006 extra round trips per task"},
+    "L3": {"status": "certified", "selection": [0.944, 0.988], "args": [0.912, 0.954], "why": "raw vs L3 on n=1000; both primary metrics non-inferior; 0.088 extra round trips per task"},
+    "R": {"status": "certified", "correct": [0.9968, 0.9952], "why": "raw vs R on n=630 result tasks; answer accuracy non-inferior"}
+  }
+}

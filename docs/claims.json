@@ -885,6 +885,45 @@
         "13,191"
       ],
       "note": "realized.saved_share_of_counterfactual_bill = 0.1024, realized.saved_usd_estimated = 286.26, billed_usd_total = 2510.45, requests_priced = 13191. One machine, one user, one mode: it is a real bill, not a population estimate, and every surface that quotes it says whose traffic it is. 'Estimated' because tokens saved are rescaled to billed scale and priced at each request's own blended input rate (the artifact's realized.note). Regenerate with benchmarks/live_savings_decomposition.py --since 2026-09-01."
+    },
+    {
+      "id": "v-mcp-definition-tokens",
+      "status": "verified",
+      "page": "mcp.html",
+      "anchor": "measured",
+      "snippet": "L0 sends <b>12.6%</b> fewer model-facing definition tokens and L2 <b>77.0%</b> fewer",
+      "claim": "On the eight vendored MCP reference-server tool lists (78 tools), L0 sends 12.6% fewer model-facing definition tokens than the raw lists and L2 77.0% fewer at session start (distil heuristic tokenizer). Deterministic counts over fixed inputs; not an accuracy claim.",
+      "artifact": "benchmarks/results/mcp_toolbench/definitions.json",
+      "note": "Regenerate with `distil mcp bench` (writes definitions.json); computed by distil.mcpproxy.bench.definition_table.",
+      "values": [
+        "12.6%",
+        "77.0%"
+      ]
+    },
+    {
+      "id": "v-mcp-live-accuracy",
+      "status": "verified",
+      "page": [
+        "mcp.html",
+        "../README.md"
+      ],
+      "anchor": "accuracy",
+      "snippet": "<b>certified every level</b>",
+      "claim": "Pre-registered live run of distil mcp on claude-haiku-4-5 (2026-09-25, protocol v1 + Amendment 1): n=1000 tool tasks per level, n=630 result tasks. Right tool 94.4% raw vs 95.2% / 95.4% / 99.8% / 98.8% (L0-L3); right tool and arguments 91.2% raw vs 92.1% / 95.4% / 96.3% / 95.4%; R answer accuracy 99.7% raw vs 99.5%. Every level and R certified non-inferior (TOST + paired bootstrap, margin 0.02, alpha 0.05). Billed on the tool suite: raw $2.17, L0 $2.00, L1 $1.90, L2 $8.79, L3 $1.82; result suite raw $3.08, R $1.92; total $21.68 of an $85 ceiling. One model, eight reference servers, synthetic single-call tasks; no replication model.",
+      "artifact": "benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json",
+      "note": "Produced by `distil mcp bench --live --model claude-haiku-4-5 --budget-usd 85`; per-call billing in live_calls_claude-haiku-4-5.jsonl; spend_by_arm computed by distil.mcpproxy.bench.spend_by_arm.",
+      "values": [
+        "94.4%",
+        "95.2%",
+        "95.4%",
+        "99.8%",
+        "98.8%",
+        "91.2%",
+        "92.1%",
+        "96.3%",
+        "99.7%",
+        "99.5%"
+      ]
     }
   ]
 }
