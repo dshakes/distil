@@ -27,6 +27,7 @@ import math
 import os
 import random
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -968,6 +969,13 @@ class SpendMeter:
             self.reserved -= worst_usd
             self.spent += actual_usd
             self.calls.append({**record, "usd": round(actual_usd, 6)})
+            if len(self.calls) % 250 == 0:  # progress for a watched live run, no content
+                print(
+                    f"[meter] {len(self.calls)} attempts, ${self.spent:.4f} of "
+                    f"${self.ceiling:.2f}, last arm {record.get('arm')}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
 
 class AnthropicModel:
