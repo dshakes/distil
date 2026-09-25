@@ -3260,7 +3260,7 @@ def _hook_stats(out: Any = None) -> int:
         by_tool[str(r.get("tool") or "?")] = by_tool.get(str(r.get("tool") or "?"), 0) + int(
             r.get("chars_saved") or 0
         )
-    print("distil hook — lossless tool-output compression (subscription-safe)\n", file=stream)
+    print("distil hook — tool-output compression via first-party hooks (no proxy)\n", file=stream)
     print(f"  compressed results : {len(rows):,}", file=stream)
     print(f"  characters before  : {before:,}", file=stream)
     print(f"  characters after   : {after:,}", file=stream)

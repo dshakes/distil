@@ -15,6 +15,11 @@ Three threads, and the same shape keeps recurring below. The first is the re-rea
 - `distil doctor --deep` also runs the `validate` and `verify` gates.
 - `distil --help-all` lists every command.
 - `pricing.Pricing.cache_write_1h`: 1-hour cache writes bill at 2x input.
+- Post-tool hooks for Claude Code, Cursor (MCP output only), Gemini CLI and Codex CLI: `distil setup --hooks`, `distil hook install|uninstall|status --client …`. Tier-0 then the Tier-1 digest, original kept for `distil expand <handle>`; exact-quote reads never touched. Windsurf's post hooks cannot replace output, so it is documented as unsupported.
+- The proxy records 1-hour and 5-minute cache writes separately (`usage_cache_create_1h` / `_5m`); `distil savings` and `distil dissect` price 1-hour writes at 2x. Older rows price as before.
+- Optional `distil-llm[code]` extra: tree-sitter code skeletons for Go, Rust, Java, C, C++, Ruby, TypeScript and JavaScript. Falls back to the brace heuristic without it.
+- `<distil:keep>…</distil:keep>` spans are never compressed; the tags pass through.
+- `distil setup --vscode`: VS Code Copilot Chat can use a distil proxy through its BYOK Custom Endpoint.
 
 ### Changed
 

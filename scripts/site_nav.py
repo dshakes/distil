@@ -56,6 +56,8 @@ COURSE_MODULES: list[tuple[str, str]] = [
 REFERENCE: list[tuple[str, str, str | None]] = [
     ("library.html", "Library API", "New"),
     ("cli.html", "CLI Reference", None),
+    ("hooks.html", "Post-tool Hooks", "New"),
+    ("code-skeletons.html", "Code Skeletons", "New"),
     ("adapters.html", "Adapters", None),
     ("metrics.html", "Metrics &amp; Observability", None),
     ("cache.html", "Prompt Caching", "New"),

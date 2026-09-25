@@ -69,6 +69,8 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html" class="active" aria-current="page">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
@@ -1420,6 +1422,16 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <h2 id="setup">distil setup</h2>
     <p>One guided setup. It runs <a href="#onboard"><code>distil onboard</code></a> (status line, optional alias default, next steps), optionally <code>distil default --always-on</code>, and ends with <a href="#doctor"><code>distil doctor</code></a>. <code>--yes</code> accepts the prompts but never turns on always-on; pass <code>--always-on</code> for that.</p>
     <p><code>--statusline-only</code> (or <code>--settings PATH</code>) runs the original command: wire the status line into Claude Code's <code>settings.json</code>. It is idempotent, never replaces an existing status line without <code>--force</code> (which backs it up first), and keeps all other settings.</p>
+
+    <h3 id="setup-hooks">distil setup --hooks</h3>
+    <p>For agents a proxy cannot reach: install a post-tool hook in every detected client — Claude Code, Cursor (MCP output only), Gemini CLI, Codex CLI — that runs distil's digest on tool output before it enters the agent's history, with the original kept for <code>distil expand &lt;handle&gt;</code>. Only this runs; nothing else in <code>setup</code> does. Per client and to undo: <code>distil hook install|uninstall|status --client claude|cursor|gemini|codex|all</code>. Details, sources and what is not supported: <a href="hooks.html">Post-tool hooks</a>.</p>
+    <pre class="term"><span class="d">$ distil setup --hooks</span>                      <span class="d"># every detected client</span>
+<span class="d">$ distil hook status</span>                        <span class="d"># where it is installed, and what each client allows</span>
+<span class="d">$ distil hook uninstall --client all</span>        <span class="d"># removes only what distil added</span>
+<span class="d">$ distil expand 3f9a1c2e</span>                    <span class="d"># the original behind a digest handle</span></pre>
+
+    <h3 id="setup-vscode">distil setup --vscode</h3>
+    <p>Prints the VS Code Copilot Chat <code>chatLanguageModels.json</code> entry (BYOK Custom Endpoint, Anthropic Messages) that sends chat through a running distil proxy. <code>--port</code> picks the proxy port (default 8788). VS Code keeps the key; distil writes nothing. See <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md">IDE agents</a>.</p>
 
     <hr/>
 

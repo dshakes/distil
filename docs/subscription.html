@@ -69,6 +69,8 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
@@ -154,9 +156,13 @@ distil quota              # see the window it is saving</code></pre>
     is produced, and <em>no</em> hook event can rewrite history. Compression is append-only because
     the platform makes it so &mdash; not because we remembered to be careful.</p>
 
-    <p>The same property forces the tier: with no way to rewrite history, a digest stub could never be
-    expanded back, so a recall tool would be useless even if we wanted one. <strong>Lossless-only is
-    both the correct tier and the compliant one.</strong></p>
+    <p>No hook can rewrite history, so a digest stub is only worth emitting if the agent can get the
+    original back some other way. It can now: before a stub is emitted, the original is written to
+    distil&rsquo;s local restore store and read back byte-exact, and the stub ends with
+    <code>distil expand &lt;handle&gt;</code>, which the agent runs in its own shell. No tool is injected
+    into the request and nothing is intercepted. So the hook applies Tier-0 first and, for verbose
+    line output, the same Tier-1 digest as the proxy &mdash; see <a href="hooks.html">Post-tool
+    hooks</a> for the rules, including what it never touches.</p>
 
     <h2 id="setup">Set it up &mdash; three commands</h2>
 
@@ -187,7 +193,7 @@ distil quota              # see the window it is saving</code></pre>
   PASS  bash preserves unknown keys
   PASS  bash refuses: stderr present
   ...
-16/16 checks passed</code></pre>
+21/21 checks passed</code></pre>
 
     <p>Then run something with big, repetitive output in a real session &mdash; <code>cat</code> a
     large JSON file, or a verbose test run &mdash; and check the window before and after with
@@ -312,19 +318,26 @@ Subscription quota (the currency a flat-rate plan actually spends):
       <thead><tr><th>Agent</th><th>Can a hook rewrite tool output?</th><th>Status</th></tr></thead>
       <tbody>
         <tr><td>Claude Code</td><td><code>PostToolUse</code> &rarr; <code>updatedToolOutput</code></td><td><strong>Supported today</strong></td></tr>
-        <tr><td>Gemini CLI</td><td><code>AfterTool</code> exists, but replacement is indirect</td><td>Under evaluation</td></tr>
-        <tr><td>Codex CLI</td><td>Hooks are observe-only; <code>updatedMCPToolOutput</code> is rejected</td><td>Blocked upstream</td></tr>
+        <tr><td>Cursor</td><td><code>postToolUse</code> &rarr; <code>updated_mcp_tool_output</code>, MCP tools only</td><td><strong>Supported</strong> (MCP output)</td></tr>
+        <tr><td>Gemini CLI</td><td><code>AfterTool</code> &rarr; <code>decision: "deny"</code> + <code>reason</code> replaces the result</td><td><strong>Supported</strong></td></tr>
+        <tr><td>Codex CLI</td><td><code>PostToolUse</code> &rarr; <code>decision: "block"</code> + <code>reason</code> replaces the result (<code>updatedMCPToolOutput</code> is still unsupported)</td><td><strong>Supported</strong></td></tr>
+        <tr><td>Windsurf</td><td>Post hooks are observe-only</td><td>Unsupported</td></tr>
       </tbody>
     </table>
     </div>
 
-    <p>For agents without a rewrite hook, the proxy and the in-process library remain the paths, and on
+    <p>Re-checked 2026-09-25; sources and install commands are on <a href="hooks.html">Post-tool
+    hooks</a> (<code>distil setup --hooks</code> installs every detected one). For agents without a
+    rewrite hook, the proxy and the in-process library remain the paths, and on
     a metered key both reach the full reversible digest tier.</p>
 
     <h2 id="scope">Honest scope</h2>
 
     <ul>
-      <li><strong>Lossless only.</strong> No digest stubs, no injected recall tool, no summarization.</li>
+      <li><strong>Lossless first, digest only when recoverable.</strong> Tier-0 always; the Tier-1
+      digest only for verbose line output, only after the original is stored and read back, each stub
+      naming the <code>distil expand</code> command that recovers it. No injected recall tool, no
+      summarization. The shape table above measures Tier-0 alone.</li>
       <li><strong>Bash and MCP tool results only</strong>, at or above 2&nbsp;KB. Other built-in tools
       have undocumented output shapes and a near-miss is silently ignored, so distil declines them
       rather than guessing.</li>

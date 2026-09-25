@@ -57,9 +57,14 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
 - **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands · AutoGen · LlamaIndex, in-process, no network hop — plus an **ASGI middleware** for any Starlette/FastAPI app that hosts its own LLM endpoint, and the [npm package](https://www.npmjs.com/package/distil-llm) for the Vercel AI SDK.
-- **On a subscription** — `distil hook --install`: Claude Code compresses its own tool output through
-  the documented `PostToolUse` extension point. No proxy, no credentials touched. `distil quota` shows
-  the rate-limit window it buys back. [Details →](https://dshakes.github.io/distil/subscription.html)
+- **Where a proxy can't reach** — `distil setup --hooks`: Claude Code, Cursor (MCP output), Gemini CLI
+  and Codex CLI compress tool output through their documented post-tool hooks, every digest recoverable
+  with `distil expand <handle>`. No proxy, no credentials touched. `distil quota` shows the rate-limit
+  window it buys back. [Hooks →](https://dshakes.github.io/distil/hooks.html)
+- **VS Code Copilot Chat** — its BYOK Custom Endpoint can point at a distil proxy: `distil setup --vscode`.
+- **Keep a span verbatim** — `<distil:keep>…</distil:keep>` in a prompt or tool output is never compressed.
+- **Real code skeletons** — `pip install 'distil-llm[code]'` adds tree-sitter parses for Go, Rust, Java,
+  C/C++, Ruby and TS/JS. [Code skeletons →](https://dshakes.github.io/distil/code-skeletons.html)
 - **See what it did** — live status line, session dissect, per-request headers, OTel spans, Prometheus metrics.
 
 ```bash

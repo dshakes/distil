@@ -69,6 +69,8 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
@@ -119,6 +121,11 @@
 <li><code>distil doctor --deep</code> also runs the <code>validate</code> and <code>verify</code> gates.</li>
 <li><code>distil --help-all</code> lists every command.</li>
 <li><code>pricing.Pricing.cache_write_1h</code>: 1-hour cache writes bill at 2x input.</li>
+<li>Post-tool hooks for Claude Code, Cursor (MCP output only), Gemini CLI and Codex CLI: <code>distil setup --hooks</code>, <code>distil hook install|uninstall|status --client …</code>. Tier-0 then the Tier-1 digest, original kept for <code>distil expand &lt;handle&gt;</code>; exact-quote reads never touched. Windsurf's post hooks cannot replace output, so it is documented as unsupported.</li>
+<li>The proxy records 1-hour and 5-minute cache writes separately (<code>usage_cache_create_1h</code> / <code>_5m</code>); <code>distil savings</code> and <code>distil dissect</code> price 1-hour writes at 2x. Older rows price as before.</li>
+<li>Optional <code>distil-llm[code]</code> extra: tree-sitter code skeletons for Go, Rust, Java, C, C++, Ruby, TypeScript and JavaScript. Falls back to the brace heuristic without it.</li>
+<li><code>&lt;distil:keep&gt;…&lt;/distil:keep&gt;</code> spans are never compressed; the tags pass through.</li>
+<li><code>distil setup --vscode</code>: VS Code Copilot Chat can use a distil proxy through its BYOK Custom Endpoint.</li>
 </ul>
 <h3>Changed</h3>
 <ul>
