@@ -33,7 +33,7 @@ distil savings             # what it saved you, from your own traffic
 distil doctor              # if something looks off
 ```
 
-`distil wrap -- claude` also keeps Claude Code's MCP tool search switched on, which Claude Code otherwise turns off behind a proxy, so unused connectors can stay deferred instead of riding along on every turn. Tested against a stub upstream; not yet confirmed on a live metered session. ([ADR 0013](docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md))
+`distil wrap -- claude` also keeps Claude Code's MCP tool search switched on, which Claude Code otherwise turns off behind a proxy, so unused connectors can stay deferred instead of riding along on every turn. Verified live on 1.54.0 (2026-09-25): a wrapped Claude Code session recorded `tools_deferred` of 4–5 on every request, tool payload 9,733 tokens, prompt-cache reads intact, no request failures. ([ADR 0013](docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md))
 
 **Why trust the number**
 

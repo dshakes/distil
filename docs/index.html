@@ -395,7 +395,7 @@
          screen ships. No mock output on purpose: a made-up savings screen is a made-up number. -->
     <div class="cap"><code>distil wrap -- claude</code> also keeps Claude Code's MCP tool search switched on,
       which Claude Code otherwise turns off behind a proxy, so unused connectors can stay deferred
-      (tested against a stub; not yet confirmed on a live metered session;
+      (verified live on 1.54.0: <code>tools_deferred</code> 4–5 on every request, tool payload 9,733 tokens, no request failures;
       <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>).</div>
   </div>
 
@@ -781,7 +781,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
     <tr><th scope="row">Cold-point recompression</th><td>Shrinks older tool output only on a turn the provider's cache has certainly expired for, then holds those bytes stable — <a href="cache-contract.html#cold-point">clause (h)</a>; not yet measured live</td><td><span class="new">reversible · rc soak</span></td></tr>
     <tr><th scope="row">Sealed receipt chain</th><td>A content-free, hash-chained receipt per request, sealed into segments with Merkle-root checkpoints: hand an auditor one receipt and its inclusion proof, not the whole log (<code>distil receipts --prove</code>)</td><td>audit</td></tr>
     <tr><th scope="row">Opaque-block passthrough</th><td>Anthropic <code>compaction</code>/<code>thinking</code> blocks and OpenAI <code>reasoning</code>/<code>compaction</code> items reach the provider byte-identical, pinned by contract tests, and are censused rather than hidden</td><td>untouched</td></tr>
-    <tr><th scope="row">Tool definitions left alone</th><td>The <code>tools</code> array is never rewritten (measured: too little to gain, ADR 0012); <code>distil wrap -- claude</code> keeps Claude Code's own MCP tool search on instead — unverified on a metered session so far</td><td>untouched</td></tr>
+    <tr><th scope="row">Tool definitions left alone</th><td>The <code>tools</code> array is never rewritten (measured: too little to gain, ADR 0012); <code>distil wrap -- claude</code> keeps Claude Code's own MCP tool search on instead — verified live on 1.54.0 (<code>tools_deferred</code> 4–5, tool payload 9,733 tokens)</td><td>untouched</td></tr>
     </tbody>
   </table>
 </div></section>
