@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="rsTitle rsDesc">
+  <title id="rsTitle">Receipt segments, Merkle checkpoints, and what each proof pin proves</title>
+  <desc id="rsDesc">The active receipts.jsonl is sealed, by rename and never rewritten, into receipts-segments when it reaches the segment size. Each sealed segment gets a checkpoint written first: segment id, row count, first and last receipt hash, and an RFC 6962 Merkle root over its receipt hashes. The next receipt links to the sealed segment's last hash, so the history stays one chain. An inclusion proof from distil receipts --prove is checked with --check-proof against a pin. Pinning the checkpoint hash proves the receipt's content, segment and position. Pinning only the Merkle root proves membership in that tree, not position. With nothing pinned the check is circular and reports SELF-CONSISTENT ONLY. Pin checkpoint hashes outside ~/.distil, because whoever can write there can re-seal a segment and its checkpoint together.</desc>
+  <defs>
+    <linearGradient id="rsbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+    <linearGradient id="rsg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
+    <linearGradient id="rscard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+    <pattern id="rsdots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.02"/></pattern>
+    <marker id="rsar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7d8cff"/></marker>
+    <marker id="rsarg" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad19a"/></marker>
+    <style>
+      @keyframes flow{to{stroke-dashoffset:-140}}
+      @keyframes puls{0%,100%{opacity:.45}50%{opacity:1}}
+      .fwd{animation:flow 2.6s linear infinite}
+      .dot{animation:puls 2.4s ease-in-out infinite}
+      @media(prefers-reduced-motion:reduce){.fwd,.dot{animation:none}}
+    </style>
+  </defs>
+  <rect width="1200" height="460" fill="url(#rsbg)"/><rect width="1200" height="460" fill="url(#rsdots)"/>
+
+  <text x="48" y="50" font-size="24" font-weight="800" letter-spacing="-0.4" fill="#f2f3f7">The receipt chain <tspan fill="#9aa0b2" font-weight="500" font-size="15">— sealed segments, one chain, checkable one receipt at a time</tspan></text>
+
+  <!-- sealed segments, oldest first, each with its checkpoint -->
+  <g font-size="12">
+    <g transform="translate(48,84)"><rect width="236" height="118" rx="12" fill="url(#rscard)" stroke="#2c344a"/>
+      <text x="16" y="26" font-size="13.5" font-weight="700" fill="#bcacff">segment 0</text><text x="220" y="26" text-anchor="end" font-size="10.5" fill="#727a92">sealed · 0600</text>
+      <rect x="16" y="40" width="204" height="62" rx="8" fill="#0e1320" stroke="#343f63"/>
+      <text x="28" y="58" font-size="10.5" fill="#9aa0b2">checkpoint (written first)</text>
+      <text x="28" y="75" font-size="11" fill="#dbe0ee">id · rows · first/last hash</text>
+      <text x="28" y="92" font-size="11" fill="#6fe0aa" font-weight="700">Merkle root</text>
+    </g>
+    <g transform="translate(332,84)"><rect width="236" height="118" rx="12" fill="url(#rscard)" stroke="#2c344a"/>
+      <text x="16" y="26" font-size="13.5" font-weight="700" fill="#bcacff">segment 1</text><text x="220" y="26" text-anchor="end" font-size="10.5" fill="#727a92">sealed · 0600</text>
+      <rect x="16" y="40" width="204" height="62" rx="8" fill="#0e1320" stroke="#343f63"/>
+      <text x="28" y="58" font-size="10.5" fill="#9aa0b2">checkpoint (written first)</text>
+      <text x="28" y="75" font-size="11" fill="#dbe0ee">id · rows · first/last hash</text>
+      <text x="28" y="92" font-size="11" fill="#6fe0aa" font-weight="700">Merkle root</text>
+    </g>
+    <g transform="translate(616,84)"><rect width="236" height="118" rx="12" fill="url(#rscard)" stroke="#2a3650" stroke-dasharray="5 4"/>
+      <text x="16" y="26" font-size="13.5" font-weight="700" fill="#5ad1c9">receipts.jsonl</text><text x="220" y="26" text-anchor="end" font-size="10.5" fill="#727a92">active</text>
+      <text x="16" y="52" font-size="11" fill="#9aa0b2">one content-free receipt</text>
+      <text x="16" y="68" font-size="11" fill="#9aa0b2">per request, hash-linked</text>
+      <text x="16" y="94" font-size="11" fill="#dbe0ee">at segment size: <tspan fill="#bcacff" font-weight="700">seal</tspan></text>
+      <text x="16" y="109" font-size="10.5" fill="#727a92">rename — no byte rewritten</text>
+    </g>
+  </g>
+  <!-- chain links across segment boundaries -->
+  <g stroke="#5ad19a" stroke-width="2" fill="none">
+    <path class="fwd" d="M284,143 L328,143" stroke-dasharray="5 9" marker-end="url(#rsarg)"/>
+    <path class="fwd" d="M568,143 L612,143" stroke-dasharray="5 9" marker-end="url(#rsarg)"/>
+  </g>
+  <text x="306" y="134" text-anchor="middle" font-size="9.5" fill="#7fe6ad">links</text>
+  <text x="590" y="134" text-anchor="middle" font-size="9.5" fill="#7fe6ad">links</text>
+
+  <g transform="translate(888,84)"><rect width="264" height="118" rx="12" fill="url(#rscard)" stroke="#2c344a"/>
+    <text x="16" y="26" font-size="13.5" font-weight="700" fill="#eef0f5">What an auditor gets</text>
+    <text x="16" y="50" font-size="11" fill="#9aa0b2"><tspan fill="#dbe0ee" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">--prove &lt;req-id&gt;</tspan></text>
+    <text x="16" y="66" font-size="11" fill="#9aa0b2">one receipt + its audit path</text>
+    <text x="16" y="90" font-size="11" fill="#9aa0b2"><tspan fill="#dbe0ee" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">--check-proof</tspan></text>
+    <text x="16" y="106" font-size="11" fill="#9aa0b2">reads nothing but the proof</text>
+  </g>
+
+  <text x="48" y="248" font-size="12" letter-spacing="2" font-weight="700" fill="#7b8298">WHAT A PASS PROVES — EXACTLY WHAT WAS PINNED</text>
+
+  <g transform="translate(48,264)"><rect width="352" height="116" rx="14" fill="url(#rscard)" stroke="#2a5740"/>
+    <circle class="dot" cx="24" cy="29" r="6" fill="#5ad19a"/>
+    <text x="40" y="34" font-size="13" font-weight="700" fill="#eef0f5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">--checkpoint-hash</text>
+    <text x="18" y="62" font-size="12" fill="#6fe0aa" font-weight="700">content + segment + position</text>
+    <text x="18" y="82" font-size="11" fill="#9aa0b2">pins the whole checkpoint record:</text>
+    <text x="18" y="98" font-size="11" fill="#9aa0b2">segment, row count, first/last hash, root</text>
+  </g>
+  <g transform="translate(424,264)"><rect width="352" height="116" rx="14" fill="url(#rscard)" stroke="#5a4a2a"/>
+    <circle class="dot" cx="24" cy="29" r="6" fill="#febc2e"/>
+    <text x="40" y="34" font-size="13" font-weight="700" fill="#eef0f5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">--root</text>
+    <text x="18" y="62" font-size="12" fill="#f2cf7a" font-weight="700">membership only — no position</text>
+    <text x="18" y="82" font-size="11" fill="#9aa0b2">the row count comes from the proof, unpinned;</text>
+    <text x="18" y="98" font-size="11" fill="#9aa0b2">paths for different (index, size) can coincide</text>
+  </g>
+  <g transform="translate(800,264)"><rect width="352" height="116" rx="14" fill="url(#rscard)" stroke="#5a3a4a"/>
+    <circle class="dot" cx="24" cy="29" r="6" fill="#ff6b6b"/>
+    <text x="40" y="34" font-size="13" font-weight="700" fill="#eef0f5">nothing pinned</text>
+    <text x="18" y="62" font-size="12" fill="#ff9a9a" font-weight="700">SELF-CONSISTENT ONLY</text>
+    <text x="18" y="82" font-size="11" fill="#9aa0b2">checked against its own checkpoint —</text>
+    <text x="18" y="98" font-size="11" fill="#9aa0b2">circular, and the CLI warns on stderr</text>
+  </g>
+
+  <rect x="48" y="400" width="1104" height="36" rx="10" fill="#0e1320" stroke="#343f63"/>
+  <text x="600" y="423" text-anchor="middle" font-size="12" fill="#dbe0ee">Pin checkpoint hashes <tspan font-weight="700">outside</tspan> <tspan font-family="ui-monospace,SFMono-Regular,Menlo,monospace">~/.distil</tspan> — whoever can write there can re-seal a segment and its checkpoint together.</text>
+</svg>

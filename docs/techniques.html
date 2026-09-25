@@ -180,6 +180,10 @@ cache only                             0.01115         26.8%       1,028
 naive compress + cache                 0.01696        <span class="w">-11.3%</span>           0  <span class="d">← busts cache</span>
 distil (cache-aware lossless)          0.01023         <span class="g">32.8%</span>       1,028</pre>
 
+    <h3 id="cold-point">Cold-point recompression</h3>
+    <p><strong>Module:</strong> <code>distil/coldpoint.py</code> &middot; <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a> &middot; Loss profile: reversible &middot; <strong>not yet measured live</strong></p>
+    <p>Keeping the prefix byte-stable means an old tool result, once sent, is billed at the cache-read rate on every later turn for the rest of the session. The one moment it can shrink for free is a turn that arrives after the provider's cache entry has already expired: the whole prefix is re-written then anyway. On such a turn distil replaces older tool output with a <code>distil_expand</code>-recoverable stub and forwards those same stubs on every later turn, so the smaller prefix is what gets cached from then on. It acts only when expiry is certain from distil's own clock and the lineage is unambiguously one conversation; the freshest turns, exact-quote reads, expanded blocks and anything an <code>Edit</code> quotes are never touched. Anthropic only, wherever the recoverable digest runs. <code>--no-cold-point</code> opts out. Its gate is an rc soak plus a live A/B on the provider's own cache read/write totals, and neither has run yet. Contract: <a href="cache-contract.html#cold-point">clause (h)</a>.</p>
+
     <hr/>
 
     <!-- Technique 2 -->
@@ -295,6 +299,7 @@ tokens provably free to drop: 615 across 2 block(s).</pre>
           <li>Large tool results (≥ 6 lines) digested</li>
           <li>Handle → original in local RestoreStore</li>
           <li>Reject-if-bigger invariant enforced</li>
+          <li>A dropped run no longer than its marker is shown inline instead of pointed at (a small gain — zero on the bundled corpus)</li>
         </ul>
         <p style="margin-top:10px;font-size:12px">Module: <code>compress/tier1.py</code></p>
       </div>
@@ -437,10 +442,10 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
     <hr/>
 
     <!-- Gist caching -->
-    <h2>Gist caching</h2>
-    <p><strong>Module:</strong> <code>distil/gist.py</code> &middot; Loss profile: lossless</p>
+    <h2>Gist caching <span class="g">(research-only)</span></h2>
+    <p><strong>Module:</strong> <code>distil/gist.py</code> &middot; <strong>Not on the request path</strong></p>
 
-    <p>Tool schemas are verbose and change rarely within a session. Gist caching detects when the same tool schema has been sent before (by content hash) and replaces subsequent occurrences with a compact reference handle. The model sees the full schema once; subsequent turns pay only for the reference token. Implemented as a content-addressed local cache — no network calls, no external state.</p>
+    <p>A content-addressed cache that replaces a tool schema already sent with a compact reference. It exists as a module and is not wired into any server: the request <code>tools</code> array is forwarded untouched. On real traffic tool definitions bill almost entirely at the cache-read rate and a lossless compactor could remove little, so rewriting the head of the cached prefix is not worth the risk — <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0012-tool-definitions-are-left-alone.md">ADR 0012</a>. The lever that does move tool cost is Claude Code's own MCP tool search, which <code>distil wrap -- claude</code> keeps on (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>; unverified on a metered session so far), and removing connectors <code>distil discover</code> shows you never call.</p>
 
     <hr/>
 
@@ -453,8 +458,8 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
     <hr/>
 
     <!-- BM25 -->
-    <h2>BM25 partial retrieval</h2>
-    <p><strong>Module:</strong> <code>distil/retrieval.py</code></p>
+    <h2>BM25 partial retrieval <span class="g">(research-only)</span></h2>
+    <p><strong>Module:</strong> <code>distil/retrieval.py</code> &middot; <strong>Not on the request path</strong> — nothing in the proxy or <code>distil_expand</code> calls it today; expansion returns the whole original.</p>
 
     <p>When a context block is digested (Tier 1) and represented by a handle, BM25 partial retrieval lets the agent query the most relevant chunks of the original without re-expanding the entire block. This keeps the context window focused while preserving access to the full original content — useful for large tool outputs, retrieved documents, or log dumps where only a fraction is decision-relevant.</p>
 
@@ -561,7 +566,7 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
 
     <p>This is what makes recoverable compression compound. Every <code>distil_expand</code> call is ground truth that a digested block was load-bearing. Distil tallies these by a coarse, <strong>content-free signature</strong> (content class × size bucket, e.g. <code>json:l</code> — never the content itself) and learns which signatures your agents keep expanding. Those it stops digesting, keeping them byte-exact. Because the policy only ever makes Distil <em>more</em> conservative, it is <strong>never-regressing by construction</strong> — it can reduce savings on an expand-prone signature, never reduce decision-equivalence — so it needs no gate to be safe. The stats live locally (atomic writes, content-free); inspect the learned policy with <code>distil learn</code>. The more your agents run, the better the fit to <em>your</em> workload.</p>
 
-    <p><strong>Module:</strong> <code>distil/compress/guideline.py</code> &middot; a second flywheel learns from the coarser signal that actually matters at the task level: the <strong>trajectory outcome</strong>. Every matched full/compressed run fed to <code>distil certify-trajectories</code> is evidence — when a task the full context solved fails under compression, the content-free signatures digested in that run are suspects; signatures whose digestion keeps co-occurring with regressions get protected, kept byte-exact, automatically. It is never-regressing by the same construction as the expand flywheel above, just driven by end-to-end task success instead of a per-step expand request. See <a href="concepts.html#trajectory-certificate">Concepts &rarr; The trajectory-level certificate</a>.</p>
+    <p><strong>Module:</strong> <code>distil/compress/guideline.py</code> &middot; <strong>written, not yet fed</strong> — <code>record_trajectory_outcome</code> has no callers, so this policy runs on its defaults, and <code>distil doctor</code> says so. What it is built to do: a second flywheel learns from the coarser signal that actually matters at the task level: the <strong>trajectory outcome</strong>. Every matched full/compressed run fed to <code>distil certify-trajectories</code> is evidence — when a task the full context solved fails under compression, the content-free signatures digested in that run are suspects; signatures whose digestion keeps co-occurring with regressions get protected, kept byte-exact, automatically. It is never-regressing by the same construction as the expand flywheel above, just driven by end-to-end task success instead of a per-step expand request. See <a href="concepts.html#trajectory-certificate">Concepts &rarr; The trajectory-level certificate</a>.</p>
 
     <p>Salience protection's fourth signal, <strong>surprise</strong> (<a href="#salience-protection">above</a>), applies this same intuition ahead of time: error, failure, timeout, and anomaly lines are over-retained by default, because a lossy compressor drops the incongruent detail first — and that detail is what decides the next action.</p>
 

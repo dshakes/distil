@@ -489,7 +489,7 @@ def serve(
     port:       Port to listen on.
     upstream:   Real LLM API base URL (no trailing slash).
     lossless_only:
-        Policy mode: no lossy output-shaping, no tool injection (digest still runs).
+        Policy mode: no lossy output-shaping, no tool injection, Tier-0 lossless only.
     verbatim:
         When *True*, skip the Tier-1 digest (Tier-0 only) — interactive-safe.
     shape_output:

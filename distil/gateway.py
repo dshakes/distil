@@ -731,7 +731,7 @@ def build_gateway_handler(
     price:
         ``Pricing`` used for dollar calculations in stats / dashboard.
     lossless_only:
-        Policy mode (no tool injection). The reversible digest still runs.
+        Policy mode (no tool injection): Tier-0 lossless only; no Tier-1 digest runs.
     verbatim:
         When *True*, skip the Tier-1 digest (Tier-0 only) — interactive-safe.
     admin_token:
@@ -1624,7 +1624,7 @@ def serve_gateway(
     port:           Port to listen on.
     upstream:       Real LLM API base URL (no trailing slash).
     pricing_model:  Model key from ``distil.pricing.CATALOG`` for dollar accounting.
-    lossless_only:  Policy mode (no tool injection); the reversible digest still runs.
+    lossless_only:  Policy mode (no tool injection); Tier-0 lossless only, no Tier-1 digest.
     verbatim:       When *True*, skip the Tier-1 digest (Tier-0 only) — interactive-safe.
     admin_token:    Bearer token required for /distil/stats and /distil/dashboard.
                     Mandatory for those routes on non-loopback binds.
