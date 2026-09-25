@@ -978,6 +978,28 @@ class SpendMeter:
                 )
 
 
+def spend_by_arm(calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Billed tokens and dollars per suite:arm, from the meter's content-free call log.
+
+    Tool tasks have ids ``t…`` and result tasks ``r…``, so ``raw`` splits into
+    ``tools:raw`` and ``results:raw``.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for c in calls:
+        suite = "results" if str(c.get("task", "")).startswith("r") else "tools"
+        row = out.setdefault(
+            f"{suite}:{c.get('arm')}",
+            {"attempts": 0, "in": 0, "cw": 0, "cr": 0, "out": 0, "usd": 0.0},
+        )
+        row["attempts"] += 1
+        for k in ("in", "cw", "cr", "out"):
+            row[k] += int(c.get(k, 0))
+        row["usd"] += float(c.get("usd", 0.0))
+    for row in out.values():
+        row["usd"] = round(row["usd"], 4)
+    return out
+
+
 class AnthropicModel:
     """The live model: Anthropic Messages API over stdlib HTTP, behind a ``SpendMeter``."""
 

@@ -426,6 +426,9 @@ def test_cli_live_run_with_a_mock_api(tmp_path, monkeypatch, capsys):
     assert res["mode"] == "live" and res["stopped"] is None and "_runs" not in res
     assert res["api_attempts"] == len(calls) > 0 and res["preflight_input_tokens"]["raw"] == 1234
     assert res["spent_usd"] == pytest.approx(sum(json.loads(c)["usd"] for c in calls), abs=1e-3)
+    by_arm = res["spend_by_arm"]
+    assert {"tools:raw", "tools:L0", "results:raw", "results:R"} <= set(by_arm)
+    assert sum(r["attempts"] for r in by_arm.values()) == len(calls)
     # the ceiling: a run it stops still writes its (content-free) spend record
     monkeypatch.setattr(
         bench, "estimate_cost", lambda *a: {"models": {"claude-haiku-4-5": {"usd_cached": 0}}}

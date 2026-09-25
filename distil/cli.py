@@ -3348,6 +3348,7 @@ def _mcp_bench_live(args: argparse.Namespace, bench: Any, out: Path) -> int:
     rec["usage_totals"] = {
         k: sum(int(c.get(k, 0)) for c in calls) for k in ("in", "cw", "cr", "out")
     }
+    rec["spend_by_arm"] = bench.spend_by_arm(calls)
     rec["api_attempts"] = len(calls)
     rec["failed_attempts"] = sum(1 for c in calls if c.get("status") != 200)
     path = out / f"live_{args.model}.json"
@@ -5439,12 +5440,12 @@ def build_parser() -> argparse.ArgumentParser:
             choices=["L0", "L1", "L2", "L3"],
             default="L0",
             help="definition compression: L0 lossless (default), L1 summary, L2 lazy, "
-            "L3 adaptive — L1-L3 are opt-in until certified (distil mcp watch)",
+            "L3 adaptive — L1-L3 are opt-in (certificates: distil mcp watch)",
         )
         p.add_argument(
             "--results",
             action="store_true",
-            help="also digest large tool results (R) — opt-in until its certificate is issued",
+            help="also digest large tool results (R) — opt-in (certificate: distil mcp watch)",
         )
 
     mw = mcs.add_parser("wrap", help="proxy one stdio MCP server: distil mcp wrap -- <command>")
