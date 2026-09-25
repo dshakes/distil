@@ -651,24 +651,26 @@ def test_two_sessions_in_one_process_never_share_a_registry_entry(tmp_path, monk
     the inner session exited; on a fast clock it never reproduces at all.
 
     The name now comes from the filesystem, so the clock installed here — one
-    that never moves — cannot collide."""
+    that never moves — cannot collide.
+
+    Exercised against `_claim_session` directly rather than through two nested
+    `preset.apply` blocks, because a second LIVE wrap of one config is refused
+    outright now (see ConfigTargetBusy). The naming property still has to hold:
+    `_release_session` and `restore_stale_backups` both decide who is left by
+    enumerating these entries, and a claim that silently lands on someone
+    else's filename would corrupt that count wherever two claims do coexist."""
     monkeypatch.setattr(time, "monotonic_ns", lambda: 1_000)
     path = tmp_path / "crush.json"
-    original = '{"providers": {"spark": {"id": "spark"}}}'
-    path.write_text(original)
-    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    preset = config_wrap.CONFIG_PRESETS["crush"]
+    path.write_text('{"providers": {"spark": {"id": "spark"}}}')
 
-    with preset.apply("https://api.anthropic.com", "http://a"):
-        with preset.apply("https://api.anthropic.com", "http://b"):
-            entries = list(config_wrap._registry_dir(path).iterdir())
-            assert len(entries) == 2, f"two sessions collided on one entry: {entries}"
-        assert '"id": "distil"' in path.read_text(), (
-            "the first session to exit restored the config out from under its live sibling"
-        )
+    registry_a, id_a = config_wrap._claim_session(path)
+    registry_b, id_b = config_wrap._claim_session(path)
+    assert registry_a == registry_b
+    assert id_a != id_b, "two claims inside one clock tick collided on a single entry"
+    assert len(list(config_wrap._registry_dir(path).iterdir())) == 2
 
-    assert path.read_text() == original
+    assert config_wrap._release_session(registry_a, id_a) is False, "b is still registered"
+    assert config_wrap._release_session(registry_b, id_b) is True, "b is the last one out"
     assert not config_wrap._registry_dir(path).exists()
 
 
@@ -677,28 +679,99 @@ def test_patching_an_already_patched_config_never_appends_a_second_entry(
     tool, tmp_path, monkeypatch
 ):
     """A config can legitimately arrive already carrying a `distil` entry — a
-    concurrent sibling session put it there, or a crash left one behind — and
-    a second patch must REPLACE it. Appending a second entry survives the
-    restore (only one can be undone) and, for the YAML splice, writes a
-    duplicate key. droid drops-and-re-appends its customModels entry and crush
-    assigns a dict key, so both were already safe; omp appended."""
+    crash killed the session that wrote it before its restore ran — and the
+    next patch must REPLACE it. Appending a second entry survives the restore
+    (only one can be undone) and, for the YAML splice, writes a duplicate key.
+    droid drops-and-re-appends its customModels entry and crush assigns a dict
+    key, so both were already safe; omp appended.
+
+    Sequential rather than nested: two live wraps of one config are refused
+    now, so the surviving way to meet an already-patched file is the crash,
+    reproduced here by writing the patched bytes back after the session that
+    produced them has exited."""
     target = _PATCH_TARGETS[tool]
     path = tmp_path / target.filename
-    path.write_text(target.original)
+    # write_bytes, not write_text: text mode translates "\n" into "\r\n" on
+    # Windows, so the fixture this test reasons about would differ by platform.
+    path.write_bytes(target.original.encode())
     monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
     monkeypatch.setenv(target.key_var, "sk-test")
     preset = config_wrap.CONFIG_PRESETS[tool]
 
     with preset.apply(target.upstream, "http://a"):
-        with preset.apply(target.upstream, "http://b"):  # patches over our own patch
-            text = path.read_text()
-            assert text.count(target.ours) == 1, f"a second distil entry was appended:\n{text}"
-            assert target.theirs in text, "the user's own entry must survive the re-patch"
-        assert path.read_text().count(target.ours) == 1
+        leftover = path.read_bytes()
+    path.write_bytes(leftover)  # what a `kill -9` before the restore leaves behind
 
-    assert path.read_text() == target.original, "the true original must come back byte-for-byte"
+    with preset.apply(target.upstream, "http://b"):  # patches over that leftover
+        text = path.read_text()
+        assert text.count(target.ours) == 1, f"a second distil entry was appended:\n{text}"
+        assert target.theirs in text, "the user's own entry must survive the re-patch"
+
+    # Bytes on BOTH sides. `read_text()` decodes with universal newlines, so it
+    # silently folds CRLF to LF; comparing that against raw bytes fails on any
+    # file with Windows line endings, which is how this surfaced as a
+    # whitespace-only diff on the Windows gate and nowhere else. The contract
+    # being asserted is byte-exact restore, so the assertion must be in bytes.
+    assert path.read_bytes() == leftover, (
+        "this session's backup was the file as it found it — leftover and all"
+    )
     assert not config_wrap._backup_path(path).exists()
     assert not config_wrap._registry_dir(path).exists()
+
+
+@pytest.mark.parametrize("tool", sorted(_PATCH_TARGETS))
+def test_a_crlf_config_is_restored_byte_for_byte(tool, tmp_path, monkeypatch):
+    """Line endings are part of "byte-exact", and only Windows CI ever noticed.
+
+    Restore copies the backup's bytes verbatim, so what this really pins is
+    that the BACKUP captured the file as it was — CRLF and all — rather than a
+    re-serialization of it. Exercised on whatever platform this is, instead of
+    waiting for the Windows runner to report it in whitespace markers.
+
+    What a patched file looks like mid-session is a separate question with a
+    per-renderer answer, and is covered for the text splice below; the two JSON
+    renderers legitimately reformat, since they rebuild the document."""
+    target = _PATCH_TARGETS[tool]
+    path = tmp_path / target.filename
+    crlf = target.original.replace("\n", "\r\n").encode()
+    path.write_bytes(crlf)
+    monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
+    monkeypatch.setenv(target.key_var, "sk-test")
+
+    with config_wrap.CONFIG_PRESETS[tool].apply(target.upstream, "http://a"):
+        assert target.ours.encode() in path.read_bytes(), "the patch did not land"
+        assert config_wrap._backup_path(path).read_bytes() == crlf, (
+            "the backup must hold the file's original bytes, line endings included"
+        )
+
+    assert path.read_bytes() == crlf, "restore converted the user's line endings"
+
+
+def test_the_yaml_splice_keeps_the_users_crlf_lines_while_patched(tmp_path, monkeypatch):
+    """Oh My Pi's renderer is a text splice, not a re-serialization: it decodes
+    the file, inserts a marker-fenced block, and re-encodes. So unlike the JSON
+    renderers it must hand the user's own lines back unchanged — a normalizing
+    pass (or a rebuild from `splitlines()`) would rewrite every line in a CRLF
+    file, and Oh My Pi would be reading a wholly rewritten config for the
+    length of the session even though the restore afterwards looked clean.
+
+    Restore alone cannot catch that, because restore copies the backup verbatim
+    whatever the renderer did in between — which is why this asserts on the
+    patched bytes rather than the restored ones."""
+    target = _PATCH_TARGETS["omp"]
+    path = tmp_path / target.filename
+    crlf = target.original.replace("\n", "\r\n").encode()
+    path.write_bytes(crlf)
+    monkeypatch.setattr(config_wrap, target.path_attr, lambda: path)
+    monkeypatch.setenv(target.key_var, "sk-test")
+
+    with config_wrap.CONFIG_PRESETS["omp"].apply(target.upstream, "http://a"):
+        patched = path.read_bytes()
+        for line in crlf.split(b"\r\n"):
+            if line:
+                assert line + b"\r\n" in patched, (
+                    f"the splice rewrote the user's line ending on {line!r}"
+                )
 
 
 def test_wrapping_leaves_only_the_lock_sidecar_beside_the_config(tmp_path, monkeypatch):
@@ -978,37 +1051,39 @@ def test_restore_stale_backups_does_not_reclaim_a_live_pid(tmp_path, monkeypatch
 def test_overlapping_sessions_on_the_same_config_restore_to_the_true_original(
     tmp_path, monkeypatch
 ):
-    """Two `distil wrap` sessions patching the SAME config concurrently must
-    both end up restoring the true pre-either-session bytes once BOTH have
-    exited, regardless of which one happens to exit first. Before per-session
-    ownership, the second session's own "existed=True" snapshot already
-    included the first session's injected entry, so it silently overwrote
-    the shared backup — an early exit then restored an intermediate,
-    already-modified state instead of the real original."""
+    """Two `distil wrap` sessions can no longer overlap on one config at all —
+    B is refused — and A must be completely undisturbed by the attempt.
+
+    This used to assert that both sessions restored the true pre-either-session
+    bytes whichever exited first, and the ownership registry does still deliver
+    that. What it could never deliver is a config that names two proxies: B's
+    patch repointed A's agent at B's port, so A's traffic ran through B's
+    session and whichever survived the other was left aimed at a dead one. The
+    property worth keeping is the one below: the refusal costs A nothing, and
+    A's own restore is still byte-exact."""
     path = tmp_path / "crush.json"
     true_original = '{"providers": {"spark": {"id": "spark"}}}'
+    path.write_text(true_original)
     monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
-    for exit_order in ("a_first", "b_first"):
-        path.write_text(true_original)  # reset between the two sub-cases
+    gen_a = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://a")
+    gen_a.__enter__()
+    patched_by_a = path.read_bytes()
+    assert json.loads(patched_by_a)["providers"]["distil"]["base_url"] == "http://a"
 
-        gen_a = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://a")
-        gen_b = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://b")
-        gen_a.__enter__()
+    gen_b = config_wrap.CONFIG_PRESETS["crush"].apply("https://api.anthropic.com", "http://b")
+    with pytest.raises(config_wrap.ConfigTargetBusy):
         gen_b.__enter__()
-        assert json.loads(path.read_text())["providers"].get("distil") is not None
+    assert path.read_bytes() == patched_by_a, "the refused session repointed A's config"
+    assert config_wrap._backup_path(path).read_text() == true_original, (
+        "the refused session must not have touched the shared backup either"
+    )
 
-        first, second = (gen_a, gen_b) if exit_order == "a_first" else (gen_b, gen_a)
-        first.__exit__(None, None, None)
-        # The non-last exit must NOT touch the shared file — the surviving
-        # sibling session still depends on it staying injected.
-        assert json.loads(path.read_text())["providers"].get("distil") is not None, exit_order
-
-        second.__exit__(None, None, None)
-        assert path.read_text() == true_original, f"exit order {exit_order} lost the true original"
-        assert not config_wrap._backup_path(path).exists()
-        assert not config_wrap._registry_dir(path).exists()
+    gen_a.__exit__(None, None, None)
+    assert path.read_text() == true_original
+    assert not config_wrap._backup_path(path).exists()
+    assert not config_wrap._registry_dir(path).exists()
 
 
 def test_session_lock_serializes_a_release_against_a_concurrent_claim(tmp_path):
@@ -1097,7 +1172,7 @@ def test_cmd_wrap_resolves_config_preset_for_droid(monkeypatch, capsys):
         return 0
 
     monkeypatch.setattr("distil.proxy.wrap_run", fake)
-    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
     rc = cmd_wrap(_ns(command=["droid"]))
     assert rc == 0
     assert captured["config_ctx"] is config_wrap.CONFIG_PRESETS["droid"].apply
@@ -1123,7 +1198,7 @@ def test_cmd_wrap_gives_droid_its_own_default_upstream_and_it_actually_writes(
         return 0
 
     monkeypatch.setattr("distil.proxy.wrap_run", fake)
-    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     path = tmp_path / "settings.local.json"
     monkeypatch.setattr(config_wrap, "_factory_settings_path", lambda: path)
@@ -1150,7 +1225,547 @@ def test_cmd_wrap_leaves_config_ctx_none_for_a_normal_preset(monkeypatch):
         return 0
 
     monkeypatch.setattr("distil.proxy.wrap_run", fake)
-    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda: None)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
     rc = cmd_wrap(_ns(command=["claude"]))
     assert rc == 0
     assert captured["config_ctx"] is None
+
+
+# ---------------------------------------------------------------------------
+# Cline CLI (`cline`) — patch strategy: ~/.cline/data/settings/providers.json.
+#
+# Cline was declined as a target on the grounds that its schema was not
+# published. It is — in cline/cline's own zod types and a committed fixture of
+# this exact file — so these hold the preset to the same bar every other one
+# meets: the entry Cline would actually load, and byte-exact restore.
+# ---------------------------------------------------------------------------
+
+
+def test_cline_apply_creates_and_deletes_when_absent(tmp_path, monkeypatch):
+    path = tmp_path / "settings" / "providers.json"
+    path.parent.mkdir()
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda *a: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+        doc = json.loads(path.read_text())
+        assert doc["version"] == 1, "the schema pins version to the literal 1"
+        entry = doc["providers"]["distil"]
+        assert entry["settings"]["baseUrl"] == "http://127.0.0.1:1234"
+        assert entry["settings"]["apiKey"] == "sk-ant-test"
+        assert entry["settings"]["protocol"] == "anthropic"
+        assert entry["tokenSource"] == "manual"
+        # Required by StoredProviderSettingsEntrySchema (z.string().datetime()).
+        # Omitting it would make Cline reject the whole file, the user's own
+        # providers included.
+        assert entry["updatedAt"].endswith("Z") and "T" in entry["updatedAt"]
+        assert doc["lastUsedProvider"] == "distil", "present but unselected routes nothing"
+
+    assert not path.exists(), "a providers.json we created must not survive the wrap"
+    assert not config_wrap._created_marker(path).exists()
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_cline_apply_merges_and_restores_when_present(tmp_path, monkeypatch):
+    path = tmp_path / "providers.json"
+    original = json.dumps(
+        {
+            "version": 1,
+            "lastUsedProvider": "cline",
+            "providers": {"cline": {"settings": {"provider": "cline"}}},
+        }
+    )
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda *a: path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-test")
+
+    with config_wrap._cline_apply("https://api.openai.com", "http://127.0.0.1:1234"):
+        doc = json.loads(path.read_text())
+        assert set(doc["providers"]) == {"cline", "distil"}, "must ADD, not replace"
+        assert doc["providers"]["distil"]["settings"]["client"] == "openai-compatible"
+
+    assert path.read_text() == original, "restore must be byte-for-byte, not a re-serialization"
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_cline_apply_is_idempotent(tmp_path, monkeypatch):
+    """A `distil` entry left behind by a killed session is replaced, not stacked.
+
+    Sequential, not nested: two live sessions on one config are refused now (see
+    the ConfigTargetBusy tests below), so the case idempotency actually has to
+    survive is a wrap starting against a config that still carries the previous
+    session's entry."""
+    path = tmp_path / "providers.json"
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda *a: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        leftover = path.read_bytes()
+    path.write_bytes(leftover)  # as a `kill -9` before the restore would leave it
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:2"):
+        doc = json.loads(path.read_text())
+        assert list(doc["providers"]) == ["distil"], "must replace, not stack"
+        assert doc["providers"]["distil"]["settings"]["baseUrl"] == "http://127.0.0.1:2"
+
+
+def test_cline_apply_skips_without_a_credential(tmp_path, monkeypatch):
+    path = tmp_path / "providers.json"
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda *a: path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1234") as argv:
+        assert argv == []
+    assert not path.exists()
+
+
+def test_cline_path_follows_its_documented_data_dir_override(tmp_path, monkeypatch):
+    """CLINE_DATA_DIR replaces ~/.cline/data wholesale. Ignoring it would write
+    a patch to a file that user's CLI never reads — a wrap reporting success
+    while routing nothing, which is the failure this module exists to avoid."""
+    monkeypatch.setenv("CLINE_DATA_DIR", str(tmp_path / "elsewhere"))
+    assert (
+        config_wrap._cline_providers_path()
+        == tmp_path / "elsewhere" / "settings" / "providers.json"
+    )
+    monkeypatch.delenv("CLINE_DATA_DIR")
+    assert config_wrap._cline_providers_path().parts[-4:] == (
+        ".cline",
+        "data",
+        "settings",
+        "providers.json",
+    )
+
+
+def test_cmd_wrap_resolves_the_cline_config_preset(monkeypatch):
+    """Reaches cmd_wrap by argv[0], the same path droid/crush take."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
+    for cmd in ("cline",):
+        captured: dict = {}
+
+        def fake(command, *, config_ctx=None, **kw):
+            captured["config_ctx"] = config_ctx
+            return 0
+
+        monkeypatch.setattr("distil.proxy.wrap_run", fake)
+        assert cmd_wrap(_ns(command=[cmd])) == 0
+        assert captured["config_ctx"] is config_wrap.CONFIG_PRESETS[cmd].apply
+
+
+def test_cline_apply_treats_unparseable_json_as_empty(tmp_path, monkeypatch):
+    """Cline would reject a providers.json it cannot parse too, so the patch
+    starts from empty rather than aborting the wrap — and the original bytes
+    still come back untouched."""
+    path = tmp_path / "providers.json"
+    path.write_text("not json")
+    monkeypatch.setattr(config_wrap, "_cline_providers_path", lambda *a: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._cline_apply("https://api.anthropic.com", "http://127.0.0.1:1234"):
+        assert list(json.loads(path.read_text())["providers"]) == ["distil"]
+
+    assert path.read_text() == "not json", "original garbage bytes are still restored exactly"
+
+
+# ---------------------------------------------------------------------------
+# A second LIVE wrap of the same config target is refused.
+#
+# The registry made the shared backup safe; it never made the patch safe. Every
+# preset writes the same active provider entry pointing at its OWN proxy port,
+# and one file cannot name two ports — so the second session used to silently
+# repoint the first session's agent at its proxy, and whichever outlived the
+# other was left aimed at a dead port. These hold the refusal to the three
+# things that matter: sequential wraps still work, a live one blocks, and a
+# dead one does not.
+# ---------------------------------------------------------------------------
+
+
+def test_two_sequential_wraps_of_one_config_both_work(tmp_path, monkeypatch):
+    """The refusal must not turn into 'you may only ever wrap this once'."""
+    path = tmp_path / "crush.json"
+    original = json.dumps({"providers": {"openai": {"id": "openai"}}})
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    for port in ("1", "2"):
+        with config_wrap._crush_apply("https://api.anthropic.com", f"http://127.0.0.1:{port}"):
+            doc = json.loads(path.read_text())
+            assert doc["providers"]["distil"]["base_url"] == f"http://127.0.0.1:{port}"
+        assert path.read_text() == original, "each session restores before the next starts"
+
+
+def test_a_second_live_wrap_is_refused_and_changes_nothing(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "crush.json"
+    original = json.dumps({"providers": {"openai": {"id": "openai"}}})
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        first = path.read_bytes()
+        with pytest.raises(config_wrap.ConfigTargetBusy) as excinfo:
+            with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:2"):
+                pass
+        assert excinfo.value.pid == os.getpid(), "must carry who holds it"
+        assert excinfo.value.path == path, "...and which file"
+        assert path.read_bytes() == first, (
+            "the refused session must not have touched the live session's config"
+        )
+        # This module never prints the refusal; it raises and lets the caller
+        # render it, so that the CLI's pre-check and its except handler cannot
+        # both put the same seven-line message on screen.
+        captured = capsys.readouterr()
+        assert "distil default" not in captured.err + captured.out
+
+    assert path.read_text() == original, "the holder still restores cleanly afterwards"
+
+
+def test_busy_message_names_the_holder_and_the_way_out():
+    """The refusal's content, asserted where it is now produced rather than
+    where it used to be printed."""
+    rendered = config_wrap.busy_message(Path("/tmp/crush.json"), 4242)
+    assert str(Path("/tmp/crush.json")) in rendered  # the OS's separator, not a literal "/"
+    assert "pid 4242" in rendered, "must name who holds it"
+    assert "distil default" in rendered, "must name the way to run several agents at once"
+
+
+def test_a_dead_registrant_does_not_block_a_new_wrap(tmp_path, monkeypatch):
+    """A SIGKILLed session leaves its registry entry behind. Treating that as a
+    live holder would make the config unwrappable until someone deleted a
+    directory by hand — a worse failure than the one this guard prevents."""
+    path = tmp_path / "crush.json"
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    registry = config_wrap._registry_dir(path)
+    registry.mkdir(parents=True)
+    (registry / "999999.deadbeef").touch()
+    monkeypatch.setattr(config_wrap, "_pid_is_alive", lambda pid: False)
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1") as argv:
+        assert argv == []
+        assert json.loads(path.read_text())["providers"]["distil"]
+    assert not path.exists()
+
+
+def test_busy_holder_reports_the_live_pid_and_reaps_the_dead(tmp_path, monkeypatch):
+    path = tmp_path / "crush.json"
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    preset = config_wrap.CONFIG_PRESETS["crush"]
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    assert config_wrap.busy_holder(preset) is None
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        held = config_wrap.busy_holder(preset)
+        assert held is not None and held[0] == path and held[1] == os.getpid()
+    assert config_wrap.busy_holder(preset) is None, "released on exit"
+
+
+def test_busy_holder_ignores_a_flag_strategy_preset(monkeypatch):
+    """`cn` writes only a temp file, so it declares no stable paths and can
+    never be busy — several Continue sessions at once are genuinely fine."""
+    assert config_wrap.busy_holder(config_wrap.CONFIG_PRESETS["cn"]) is None
+
+
+def test_cmd_wrap_refuses_a_busy_target_before_starting_a_proxy(tmp_path, monkeypatch, capsys):
+    """The user-facing half: exit non-zero, say who holds it, and never reach
+    wrap_run — no proxy started, nothing written."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    path = tmp_path / "crush.json"
+    original = "{}"
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    def boom(*a, **kw):
+        raise AssertionError("wrap_run must not be reached for a busy target")
+
+    monkeypatch.setattr("distil.proxy.wrap_run", boom)
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        held = path.read_bytes()
+        assert cmd_wrap(_ns(command=["crush"])) == 1
+        captured = capsys.readouterr()
+        err = captured.err
+        assert f"pid {os.getpid()}" in err
+        assert "distil default" in err
+        assert (err + captured.out).count("distil default --always-on") == 1, (
+            "the refusal was rendered more than once"
+        )
+        assert path.read_bytes() == held
+
+    assert path.read_text() == original
+
+
+def test_cmd_wrap_still_runs_when_the_target_is_free(tmp_path, monkeypatch):
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: tmp_path / "crush.json")
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
+    captured: dict = {}
+
+    def fake(command, *, config_ctx=None, **kw):
+        captured["config_ctx"] = config_ctx
+        return 0
+
+    monkeypatch.setattr("distil.proxy.wrap_run", fake)
+    assert cmd_wrap(_ns(command=["crush"])) == 0
+    assert captured["config_ctx"] is config_wrap.CONFIG_PRESETS["crush"].apply
+
+
+def test_the_in_lock_recheck_can_actually_stop_the_wrap(tmp_path, monkeypatch, capsys):
+    """The race `busy_holder()` cannot close, driven through the real path.
+
+    `cmd_wrap`'s pre-check is advisory: a sibling can claim the config in the
+    gap between it and the claim inside `_own_config`. That recheck runs under
+    the lock and raises — but `wrap_run` wrapped its `__enter__` in a broad
+    `except Exception` that swallowed everything, so the second wrap carried on
+    running against the config the FIRST session had patched. Its agent would
+    have talked to the first session's proxy and its tokens landed in the first
+    session's ledger, which is the very corruption the recheck exists to stop.
+
+    Simulated exactly as it happens: a live session A really holds the config,
+    and `busy_holder` is stubbed to miss it (as it would when A claims a
+    microsecond later). Nothing else is faked — the raise comes from
+    `_own_config` itself."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    path = tmp_path / "crush.json"
+    original = '{"providers": {"spark": {"id": "spark"}}}'
+    path.write_text(original)
+    monkeypatch.setattr(config_wrap, "_crush_config_path", lambda: path)
+    monkeypatch.setattr("distil.config_wrap.restore_stale_backups", lambda *a: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / "home"))
+
+    def never(*a, **kw):
+        raise AssertionError("the refused wrap launched a child anyway")
+
+    with config_wrap._crush_apply("https://api.anthropic.com", "http://127.0.0.1:1"):
+        patched_by_a = path.read_bytes()
+        # The pre-check misses it — the exact race.
+        monkeypatch.setattr(config_wrap, "busy_holder", lambda preset, argv=(): None)
+        monkeypatch.setattr(subprocess, "Popen", never)
+
+        assert cmd_wrap(_ns(command=["crush"])) == 1, "swallowed the refusal and ran on"
+        captured = capsys.readouterr()
+        err = captured.err
+        assert f"pid {os.getpid()}" in err
+        assert "distil default" in err
+        # On THIS path the refusal travels as an exception through wrap_run, so
+        # it is the one most at risk of being rendered twice — once where it is
+        # raised and once where it is caught.
+        assert (err + captured.out).count("distil default --always-on") == 1, (
+            "the refusal was rendered more than once"
+        )
+        assert path.read_bytes() == patched_by_a, "B disturbed A's config"
+
+    assert path.read_text() == original, "A still restores its own bytes afterwards"
+    assert not config_wrap._backup_path(path).exists()
+
+
+def test_an_ordinary_injection_failure_is_still_swallowed(tmp_path, monkeypatch):
+    """The narrowing must not turn every config bug into a dead wrap. Anything
+    that is NOT ConfigTargetBusy still degrades to running without injection —
+    the long-standing contract — because a preset bug should cost savings, not
+    the user's session."""
+    import contextlib as _contextlib
+
+    from distil import proxy
+
+    @_contextlib.contextmanager
+    def exploding(upstream, base, argv=()):
+        raise RuntimeError("preset bug")
+        yield []  # pragma: no cover - unreachable, satisfies the generator shape
+
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    code = proxy.wrap_run(
+        [sys.executable, "-c", "import sys; sys.exit(7)"],
+        upstream="http://127.0.0.1:9",
+        record=False,
+        config_ctx=exploding,
+    )
+    assert code == 7, "the child must still have run"
+
+
+# ---------------------------------------------------------------------------
+# The child was told another path.
+#
+# Cline publishes THREE ways to move its providers.json, each rooted at a
+# different depth. Patching the default while the child reads elsewhere is the
+# Kilo shadowing bug in another costume: a wrap that reports success and routes
+# nothing. cmd_wrap now hands the command's argv to the target.
+# ---------------------------------------------------------------------------
+
+
+def test_cline_path_follows_the_config_flag(monkeypatch):
+    """`--config <path>` IS the settings directory (default
+    ~/.cline/data/settings), so providers.json sits directly inside it."""
+    monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
+    resolved = config_wrap._cline_providers_path(["cline", "--config", "/tmp/cfg"])
+    assert resolved == Path("/tmp/cfg/providers.json")
+    # The `--flag=value` spelling is the same flag.
+    assert config_wrap._cline_providers_path(["cline", "--config=/tmp/cfg"]) == resolved
+
+
+def test_cline_path_follows_the_data_dir_flag(monkeypatch):
+    """`--data-dir <path>` replaces ~/.cline, which is two levels further up
+    than --config — getting the depth wrong writes a real file that the child
+    still never reads."""
+    monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
+    assert config_wrap._cline_providers_path(["cline", "--data-dir", "/tmp/state"]) == Path(
+        "/tmp/state/data/settings/providers.json"
+    )
+
+
+def test_cline_path_falls_back_to_the_env_then_the_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLINE_DATA_DIR", "/tmp/envdir")
+    assert config_wrap._cline_providers_path(["cline"]) == Path(
+        "/tmp/envdir/settings/providers.json"
+    )
+    monkeypatch.delenv("CLINE_DATA_DIR")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert config_wrap._cline_providers_path(["cline"]).parts[-4:] == (
+        ".cline",
+        "data",
+        "settings",
+        "providers.json",
+    )
+
+
+def test_cline_refuses_when_two_location_knobs_disagree(monkeypatch):
+    """Cline's reference documents all three knobs and NO precedence between
+    them. Picking a winner would be a guess, and a wrong guess is the silent
+    failure this module exists to prevent — so the combination is named and
+    refused."""
+    monkeypatch.setenv("CLINE_DATA_DIR", "/tmp/envdir")
+    with pytest.raises(config_wrap.ConfigPathUnresolved) as excinfo:
+        config_wrap._cline_providers_path(["cline", "--data-dir", "/tmp/state"])
+    rendered = excinfo.value.render()
+    assert "--data-dir /tmp/state" in rendered and "CLINE_DATA_DIR=/tmp/envdir" in rendered
+    assert "distil default" in rendered, "must name the path that always works"
+
+    monkeypatch.delenv("CLINE_DATA_DIR")
+    with pytest.raises(config_wrap.ConfigPathUnresolved):
+        config_wrap._cline_providers_path(["cline", "--config", "/a", "--data-dir", "/b"])
+
+
+def test_cline_ignores_flags_after_a_bare_separator(monkeypatch):
+    """Everything past `--` is the agent's own payload. Reading a prompt that
+    happens to contain `--config` as a location knob would send the patch
+    somewhere arbitrary."""
+    monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
+    monkeypatch.setenv("HOME", "/tmp/home")
+    monkeypatch.setenv("USERPROFILE", "/tmp/home")  # Windows resolves ~ from USERPROFILE
+    resolved = config_wrap._cline_providers_path(["cline", "--", "explain", "--config", "/nope"])
+    assert resolved == Path("/tmp/home/.cline/data/settings/providers.json")
+
+
+def test_cline_patches_the_flagged_file_and_leaves_the_default_alone(tmp_path, monkeypatch):
+    """The whole point, end to end through cmd_wrap: the file the child was
+    told to read is the one patched, and restored."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    home = tmp_path / "home"
+    default = home / ".cline" / "data" / "settings" / "providers.json"
+    default.parent.mkdir(parents=True)
+    default.write_text('{"version": 1, "providers": {}}')
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    flagged_dir = tmp_path / "elsewhere"
+    flagged_dir.mkdir()
+
+    captured: dict = {}
+
+    def fake(command, *, config_ctx=None, upstream=None, **kw):
+        captured["config_ctx"] = config_ctx
+        captured["upstream"] = upstream
+        return 0
+
+    monkeypatch.setattr("distil.proxy.wrap_run", fake)
+    assert cmd_wrap(_ns(command=["cline", "--config", str(flagged_dir)])) == 0
+
+    flagged = flagged_dir / "providers.json"
+    with captured["config_ctx"](
+        "https://api.anthropic.com", "http://127.0.0.1:9", ["cline", "--config", str(flagged_dir)]
+    ):
+        assert flagged.exists(), "patched the default while the child reads elsewhere"
+        assert json.loads(flagged.read_text())["providers"]["distil"]
+        assert json.loads(default.read_text())["providers"] == {}, "default must be untouched"
+    assert not flagged.exists(), "created-from-nothing, so removed on exit"
+    assert json.loads(default.read_text())["providers"] == {}
+
+
+def test_cmd_wrap_refuses_a_cline_command_it_cannot_resolve(tmp_path, monkeypatch, capsys):
+    """Exit 1 before a proxy starts, naming both knobs."""
+    from distil.cli import cmd_wrap
+    from tests.test_wrap_presets import _ns
+
+    monkeypatch.setenv("CLINE_DATA_DIR", str(tmp_path / "envdir"))
+
+    def boom(*a, **kw):
+        raise AssertionError("wrap_run must not be reached")
+
+    monkeypatch.setattr("distil.proxy.wrap_run", boom)
+    rc = cmd_wrap(_ns(command=["cline", "--data-dir", str(tmp_path / "flag")]))
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "--data-dir" in err and "CLINE_DATA_DIR" in err
+    assert err.count("distil default --always-on") == 1
+
+
+def test_continue_refuses_to_fight_the_users_own_config_flag(monkeypatch):
+    """`cn`'s preset works by APPENDING its own --config. If the user passed
+    one, distil would either override the configuration they chose or lose to
+    it silently — and which is not documented. Refuse instead."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    with pytest.raises(config_wrap.ConfigPathUnresolved):
+        with config_wrap._continue_apply(
+            "https://api.anthropic.com", "http://127.0.0.1:1", ["cn", "--config", "mine.yaml"]
+        ):
+            pass
+    # ...and without one it still works.
+    with config_wrap._continue_apply(
+        "https://api.anthropic.com", "http://127.0.0.1:1", ["cn"]
+    ) as argv:
+        assert argv[0] == "--config"
+
+
+def test_crush_path_follows_xdg_config_home(monkeypatch, tmp_path):
+    """Crush's README says it respects the XDG Base Directory Specification,
+    so a user with XDG_CONFIG_HOME set reads somewhere else entirely."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert config_wrap._crush_config_path() == tmp_path / "xdg" / "crush" / "crush.json"
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert config_wrap._crush_config_path().parts[-3:] == (".config", "crush", "crush.json")
+
+
+def test_restore_sweeps_the_flagged_path_too(tmp_path, monkeypatch):
+    """A crash under `--data-dir` leaves its backup beside THAT file. Re-running
+    the same command has to clean it up; sweeping only the default would leave
+    the user's real config patched forever."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLINE_DATA_DIR", raising=False)
+    settings = tmp_path / "state" / "data" / "settings"
+    settings.mkdir(parents=True)
+    target = settings / "providers.json"
+    target.write_text("patched-by-a-dead-session")
+    config_wrap._backup_path(target).write_text("the true original")
+
+    config_wrap.restore_stale_backups(["cline", "--data-dir", str(tmp_path / "state")])
+
+    assert target.read_text() == "the true original"
+    assert not config_wrap._backup_path(target).exists()

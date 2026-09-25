@@ -19,12 +19,15 @@ MAX_BODY_BYTES = 8 * 1024 * 1024  # 8 MiB
 
 # Azure OpenAI serves the SAME two request bodies distil already compresses, under a
 # different path prefix — the deployment name (classic data plane) or a ``v1`` segment
-# (the v1 preview API) sits where OpenAI has nothing:
+# (the v1 API) sits where OpenAI has nothing:
 #   POST {endpoint}/openai/deployments/{deployment}/chat/completions?api-version=…
-#   POST {endpoint}/openai/v1/chat/completions?api-version=preview
+#   POST {endpoint}/openai/v1/chat/completions
 #   POST {endpoint}/openai/responses?api-version=…
-#   POST {endpoint}/openai/v1/responses?api-version=preview
-# Source: Azure OpenAI REST API reference (data plane, authoring + inference).
+#   POST {endpoint}/openai/v1/responses
+# Source: Azure OpenAI REST API reference (data plane, authoring + inference) plus the
+# API-version lifecycle page, re-checked 2026-09-16 — the ``v1`` surface is GA now,
+# not preview, and ``api-version`` is no longer required on it. Both shapes match
+# either way: the query string is stripped before these patterns run.
 # Matched here rather than in each server so all three agree on one definition —
 # three hand-maintained frozensets is how the Responses API ended up compressible
 # in one server and forwarded raw by the other two.
