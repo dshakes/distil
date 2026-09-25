@@ -231,13 +231,14 @@ class Tier1Reversible:
                     out.append(b.copy_with(compact))
                     continue
                 # 1b) code skeleton: keep signatures + structure, elide bodies behind
-                #     the expand handle. Python via ast, other languages via the
+                #     the expand handle. Python via ast, other languages via a real
+                #     tree-sitter parse when the [code] extra is installed, else the
                 #     zero-dep brace skeleton. API path only (this restore dict IS the
                 #     expand source) — never on the lossless/subscription fold, where
                 #     an elided body has no handle to recover it.
-                from ..skeleton import code_skeleton, generic_code_skeleton
+                from ..skeleton import best_code_skeleton
 
-                sk = code_skeleton(b.text) or generic_code_skeleton(b.text)
+                sk = best_code_skeleton(b.text)
                 if sk is not None:
                     h = _handle(b.text)
                     restore[h] = b.text

@@ -28,6 +28,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+from typing import Any
 
 # Markers an agent (or a human) can grep for; kept short to not eat the savings.
 _ELIDED = "..."  # body placeholder, emitted at the body's indentation
@@ -238,6 +239,204 @@ def generic_code_skeleton(text: str, min_run: int = 3) -> str | None:
     return skeleton if changed and len(skeleton) < len(text) else None
 
 
+# --------------------------------------------------------------------------- #
+# Real parses, when the optional ``distil-llm[code]`` extra is installed. The
+# brace heuristic above cannot see Ruby at all (no braces) and gives up on any
+# file whose braces it cannot balance; a grammar can. Uses the official
+# per-language tree-sitter grammar wheels — bundled, offline, no download at
+# parse time — and falls back to the heuristic whenever they are absent, the
+# language is not recognised, or the parse has errors. Python keeps ``ast``: it is
+# already a real parser and needs no extra. Deterministic: same text, same output.
+# --------------------------------------------------------------------------- #
+
+#: language -> (grammar module, language function). ``tsx`` is left out on purpose:
+#: the TypeScript grammar parses plain JS too, and JSX-heavy files fall back.
+_TS_GRAMMARS: dict[str, tuple[str, str]] = {
+    "go": ("tree_sitter_go", "language"),
+    "rust": ("tree_sitter_rust", "language"),
+    "java": ("tree_sitter_java", "language"),
+    "cpp": ("tree_sitter_cpp", "language"),
+    "c": ("tree_sitter_c", "language"),
+    "ruby": ("tree_sitter_ruby", "language"),
+    "typescript": ("tree_sitter_typescript", "language_typescript"),
+    "javascript": ("tree_sitter_javascript", "language"),
+}
+
+#: Cheap text hints deciding which grammars are worth trying, in this order. A hint
+#: only nominates a candidate; the parse (error-free) is what accepts it.
+_TS_HINTS: dict[str, re.Pattern[str]] = {
+    "go": re.compile(r"^package \w+\s*$(?s:.*)^func ", re.M),
+    "rust": re.compile(r"^\s*(?:pub(?:\([\w:]+\))? )?(?:async )?fn \w+", re.M),
+    "java": re.compile(
+        r"^\s*(?:public |private |protected )?(?:abstract |final |static )*"
+        r"(?:class|interface|enum|record) \w+",
+        re.M,
+    ),
+    "cpp": re.compile(r"^\s*#include\b|\bnamespace \w+|\btemplate\s*<|\bstd::", re.M),
+    "c": re.compile(r"^\s*#(?:include|define|ifndef)\b", re.M),
+    "ruby": re.compile(r"^\s*def \w+[?!]?(?:\(.*\))?\s*$(?s:.*)^\s*end\s*$", re.M),
+    "typescript": re.compile(
+        r"\binterface \w+|\btype \w+ =|:\s*(?:string|number|boolean|void|any)\b"
+    ),
+    "javascript": re.compile(
+        r"\bfunction\b|=>|\bconst \w+ =|\brequire\(|module\.exports|^export ", re.M
+    ),
+}
+
+#: Node types whose ``body`` field is a function body (elided); everything else —
+#: classes, modules, namespaces, impl blocks — is structure and stays.
+_TS_FUNCTIONS = frozenset(
+    {
+        "function_declaration",  # js/ts/go
+        "generator_function_declaration",
+        "function_expression",
+        "arrow_function",
+        "method_definition",
+        "method_declaration",  # go/java
+        "constructor_declaration",
+        "func_literal",
+        "function_item",  # rust
+        "function_definition",  # c/cpp
+        "method",  # ruby
+        "singleton_method",
+    }
+)
+
+_TS_MAX_BYTES = 1_000_000  # a parse is linear, but a pathological blob is not code
+_ts_parsers: dict[str, Any] = {}
+
+
+def _ts_parser(lang: str) -> Any:
+    """A cached parser for *lang*, or None when tree-sitter or that grammar is absent."""
+    if lang in _ts_parsers:
+        return _ts_parsers[lang]
+    parser = None
+    try:
+        import importlib
+
+        from tree_sitter import Language, Parser
+
+        mod_name, fn = _TS_GRAMMARS[lang]
+        parser = Parser(Language(getattr(importlib.import_module(mod_name), fn)()))
+    except (ImportError, AttributeError, TypeError, ValueError):
+        parser = None  # extra not installed, or an incompatible tree-sitter API
+    _ts_parsers[lang] = parser
+    return parser
+
+
+def treesitter_available() -> bool:
+    """True when at least one grammar of the ``[code]`` extra is importable."""
+    return any(_ts_parser(lang) is not None for lang in _TS_GRAMMARS)
+
+
+def _ts_body_span(node: Any) -> tuple[int, int] | None:
+    """0-based inclusive rows strictly inside *node*'s function body, or None."""
+    body = node.child_by_field_name("body")
+    if body is None:
+        return None
+    if body.text[:1] == b"{":
+        lo, hi = body.start_point[0] + 1, body.end_point[0] - 1
+    elif body.start_point[0] > node.start_point[0] and body.end_point[0] < node.end_point[0]:
+        lo, hi = body.start_point[0], body.end_point[0]  # ruby: def … end
+    else:
+        return None
+    # Two or more lines, or the "..." costs what it saves.
+    return (lo, hi) if hi - lo >= 1 else None
+
+
+#: Anonymous functions. A body holding only these (callbacks, closures) is elided
+#: whole; a body holding a NAMED function stays open so that name stays visible.
+_TS_ANONYMOUS = frozenset({"arrow_function", "function_expression", "func_literal"})
+
+
+def _ts_elisions(node: Any) -> tuple[list[tuple[int, int]], bool]:
+    """``(row spans to elide under node, whether a named function lies under it)``.
+
+    A function body is elided whole unless it contains a named function — then its
+    named children are elided instead, which is what keeps a factory closure, a
+    ``describe``-style wrapper or an IIFE module from swallowing every signature in
+    the file. Subtrees with parse errors are never elided: we save less, never cut a
+    body we could not delimit."""
+    if node.type == "ERROR":
+        return [], False
+    inner: list[tuple[int, int]] = []
+    named = False
+    for child in node.children:
+        spans, child_named = _ts_elisions(child)
+        inner += spans
+        named = named or child_named
+    kind = node.type
+    if kind not in _TS_FUNCTIONS:
+        return inner, named
+    is_named = named or kind not in _TS_ANONYMOUS
+    if named or node.has_error:
+        return inner, is_named
+    span = _ts_body_span(node)
+    return ([span] if span else inner), is_named
+
+
+def _ts_error_bytes(node: Any) -> int:
+    if node.type == "ERROR" or node.is_missing:
+        return max(1, node.end_byte - node.start_byte)
+    if not node.has_error:
+        return 0
+    return sum(_ts_error_bytes(c) for c in node.children)
+
+
+#: A parse more than this share ERROR is the wrong grammar (or not code), not a file
+#: with a few macros the grammar cannot see through.
+_TS_MAX_ERROR_SHARE = 0.05
+
+
+def treesitter_skeleton(text: str) -> str | None:
+    """Signatures and structure kept, function bodies elided to ``...`` — from a real
+    parse. None when the extra is absent, no grammar parses the text cleanly, or the
+    skeleton would not be smaller (the caller then falls back to the heuristic)."""
+    if len(text) > _TS_MAX_BYTES or "\n" not in text:
+        return None
+    data = text.encode("utf-8", "surrogatepass")
+    for lang, hint in _TS_HINTS.items():
+        if not hint.search(text):
+            continue
+        parser = _ts_parser(lang)
+        if parser is None:
+            continue
+        try:
+            tree = parser.parse(data)
+        except (ValueError, TypeError):
+            continue
+        root = tree.root_node
+        try:
+            if _ts_error_bytes(root) > _TS_MAX_ERROR_SHARE * len(data):
+                continue  # a guessed language that does not parse is not this language
+            spans = sorted(_ts_elisions(root)[0])
+        except RecursionError:
+            continue  # nesting deeper than the stack: leave it to the heuristic
+        if not spans:
+            continue
+        lines = text.split("\n")
+        out: list[str] = []
+        i = 0
+        for lo, hi in spans:
+            if lo < i:
+                continue
+            out.extend(lines[i:lo])
+            first = lines[lo]
+            out.append(first[: len(first) - len(first.lstrip())] + _ELIDED)
+            i = hi + 1
+        out.extend(lines[i:])
+        skeleton = "\n".join(out)
+        if len(skeleton) < len(text):
+            return skeleton
+    return None
+
+
+def best_code_skeleton(text: str) -> str | None:
+    """The best skeleton available: Python ``ast``, then a tree-sitter parse (when the
+    ``[code]`` extra is installed), then the zero-dependency brace heuristic."""
+    return code_skeleton(text) or treesitter_skeleton(text) or generic_code_skeleton(text)
+
+
 def _info(line: str) -> int:
     """Lexical informativeness proxy: count of distinct alphanumeric tokens (len>2).
     A stand-in for the self-information score extractive compressors rank lines by."""
@@ -303,7 +502,7 @@ def smart_digest(text: str, *, head: int = 400, tail: int = 200) -> str:
     caller (which records that same handle) can recover it. If nothing is elided the
     text is returned unchanged — no marker, no empty recoverability promise.
     """
-    sk = code_skeleton(text) or generic_code_skeleton(text)
+    sk = best_code_skeleton(text)
     base = sk if sk is not None else text
     body = text_window(base, head=head, tail=tail)
     if body == text:
