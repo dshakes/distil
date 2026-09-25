@@ -44,6 +44,10 @@ OVERHEAD_SHARE_PCT = 30.0
 #: than noise — with three tools there is nothing to triage.
 MIN_TOOLS = 4
 
+#: Requests an MCP server's definitions must ride along on before "never called"
+#: means anything — a server added mid-session has not had its chance yet.
+MIN_UNUSED_REQUESTS = 20
+
 #: Prefix-drift ratio at which a broken cache prefix is worth reporting, and the
 #: minimum comparable turns before a ratio means anything at all.
 DRIFT_RATIO = 0.25
@@ -391,10 +395,91 @@ def _d_tool_overhead(w: _Window) -> Action | None:
         basis=(
             f"each tool definition's size x the requests that carried it, summed over "
             f"{len(w.ds)} session(s); the figure is what dropping those three would stop "
-            f"resending. distil cannot see which tools your agent never CALLED — "
-            f"`distil dissect <session> --transcript` joins the agent's own log and names them"
+            f"resending. For MCP servers the proxy now records which ones the conversation "
+            f"called (see the unused-connectors line, when it fires); for individual and "
+            f"built-in tools it still cannot — `distil dissect <session> --transcript` "
+            f"joins the agent's own log and names them"
         ),
         command="disable the MCP servers / tools you do not use in your agent's config",
+    )
+
+
+def _tools_rate_mult(r: dict[str, Any]) -> float:
+    """Price multiplier (vs base input) for the tool-definition span of one request.
+
+    Definitions are the first thing in the prompt, so they are the first tokens a
+    cache read covers, then a cache write, then uncached input. Pricing them at the
+    flat input rate would overstate a well-cached connector ~10x. 1.0 when the
+    provider did not report the split — unmeasured, so not assumed cheap.
+    """
+    tools = int(r.get("tools_tokens") or 0)
+    rd, wr = r.get("usage_cache_read"), r.get("usage_cache_create")
+    if tools <= 0 or rd is None or wr is None:
+        return 1.0
+    a = min(tools, int(rd))
+    b = min(tools - a, int(wr))
+    c = tools - a - b
+    return (a * 0.10 + b * 1.25 + c * 1.0) / tools
+
+
+def _d_unused_connectors(w: _Window) -> Action | None:
+    """MCP servers whose full tool definitions rode along on every request of the
+    window while the agent never called a single one of their tools.
+
+    Reads the proxy's content-free ``mcp_servers`` (definition tokens per server)
+    and ``mcp_called`` (servers the conversation history shows a tool_use for).
+    A server counts as used if ANY session in the window called it. Deferred
+    definitions (tool search) are not in ``mcp_servers`` at all — they were not
+    billed — so a connector already behind tool search never shows up here.
+    """
+    sent: dict[str, int] = {}
+    reqs: dict[str, int] = {}
+    weighted: dict[str, float] = {}
+    called: set[str] = set()
+    for d in w.ds:
+        for r in d.booked_detail:
+            servers = r.get("mcp_servers")
+            if not isinstance(servers, dict):
+                continue
+            called.update(str(s) for s in r.get("mcp_called") or [])
+            mult = _tools_rate_mult(r)
+            for s, n in servers.items():
+                tok = int(n or 0)
+                sent[s] = sent.get(s, 0) + tok
+                reqs[s] = reqs.get(s, 0) + 1
+                weighted[s] = weighted.get(s, 0.0) + tok * mult
+    unused = sorted(
+        (s for s in sent if s not in called and reqs[s] >= MIN_UNUSED_REQUESTS),
+        key=lambda s: -sent[s],
+    )
+    tokens = sum(sent[s] for s in unused)
+    if not tokens:
+        return None
+    mult = sum(weighted[s] for s in unused) / tokens
+    shown = ", ".join(
+        f"{s.removeprefix('mcp__')} ({_human(sent[s])} over {reqs[s]:,} requests)"
+        for s in unused[:3]
+    )
+    more = f" and {len(unused) - 3} more" if len(unused) > 3 else ""
+    return Action(
+        id="unused_connectors",
+        kind="savings",
+        title=f"{len(unused)} MCP server(s) sent on every turn and never called: {shown}{more}",
+        tokens_per_week=w.per_week(tokens),
+        dollars_per_week=w.usd_per_week(tokens, rate_mult=mult),
+        basis=(
+            f"each server's definition tokens x the requests that carried them, over "
+            f"{len(w.ds)} session(s), with no tool_use for that server anywhere in the "
+            f"window's conversation history; priced where they sit in the prompt — "
+            f"cache read first, then write, then uncached — a blended {mult:.2f}x input"
+        ),
+        command=(
+            "Claude Code: let it defer them — `distil wrap -- claude` and "
+            "`distil default --always-on` now keep its tool search on "
+            "(ENABLE_TOOL_SEARCH=true, unless you set it yourself); re-run the one you "
+            "use if these sessions predate that. Or disconnect the server (claude.ai "
+            "connectors: Settings > Connectors; local ones: `claude mcp remove <name>`)"
+        ),
     )
 
 
@@ -712,6 +797,7 @@ def _d_calibration(w: _Window) -> Action | None:
 
 DETECTORS = (
     _d_tool_overhead,
+    _d_unused_connectors,
     _d_digest_off,
     _d_prefix_drift,
     _d_churn,

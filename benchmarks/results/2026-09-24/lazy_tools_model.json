@@ -1,0 +1,87 @@
+{
+  "source": "~/.distil/sessions/*.requests.jsonl (names+token counts+usage) and ~/.claude/projects/*/*.jsonl (tool_use NAMES only, assistant lines in the window)",
+  "window_utc": [
+    "2026-09-16T03:40:40+00:00",
+    "2026-09-24T20:34:27+00:00"
+  ],
+  "dollars": "list-price (distil.pricing); notional on a flat-rate plan",
+  "requests": 14253,
+  "requests_priced": 14253,
+  "sessions_with_mcp_definitions": 15,
+  "billed_usd": 2617.6,
+  "mcp_definition_tokens_billed": {
+    "low": 323010853,
+    "high": 1010355816
+  },
+  "mcp_definition_usd": {
+    "low": 198.88,
+    "high": 641.84
+  },
+  "mcp_definition_share_of_bill_pct": {
+    "low": 7.598,
+    "high": 24.52
+  },
+  "server_names": "anonymized (server_NN, ranked by tokens)",
+  "mcp_tokens_by_server_named": {
+    "server_01": 273761641,
+    "server_02": 19690560,
+    "server_03": 10725371,
+    "server_04": 8222240,
+    "server_05": 4139484,
+    "server_06": 2767248,
+    "server_07": 2217556,
+    "server_08": 1229146,
+    "server_09": 698031,
+    "server_10": 241956,
+    "server_11": 1228,
+    "server_12": 927
+  },
+  "transcripts": {
+    "assistant_turns": 7158,
+    "mcp_calls": 321,
+    "distinct_mcp_tools_per_transcript_summed": 42,
+    "discovery_events_per_turn": 0.00587,
+    "mcp_calls_per_turn": 0.04484,
+    "calls_by_server": {
+      "server_07": 290,
+      "server_13": 12,
+      "server_10": 6,
+      "server_01": 5,
+      "server_03": 4,
+      "server_14": 3,
+      "server_11": 1
+    }
+  },
+  "costs_usd": {
+    "name_index": 2.38,
+    "discovery_round_trips": 5.42,
+    "distil_lazy_prefix_rewrites": 59.3,
+    "per_call_sensitivity_x": 7.64
+  },
+  "net_saving_pct_of_bill": {
+    "native_tool_search": {
+      "low": 7.3,
+      "high": 24.222
+    },
+    "distil_lazy_tools": {
+      "low": 5.034,
+      "high": 21.957
+    }
+  },
+  "net_saving_usd": {
+    "native_tool_search": {
+      "low": 191.08,
+      "high": 634.04
+    },
+    "distil_lazy_tools": {
+      "low": 131.78,
+      "high": 574.74
+    }
+  },
+  "assumptions": {
+    "search_output_tokens": 300,
+    "name_index_tokens_per_tool": 15,
+    "discovery": "one extra round-trip per distinct MCP tool per transcript, spread over every MCP-carrying request; multiply discovery and rewrite costs by per_call_sensitivity_x for the one-event-per-call worst case",
+    "low_vs_high": "low counts only named (top-24) mcp__ definitions per request; high also counts the unnamed remainder past the 24 largest"
+  }
+}

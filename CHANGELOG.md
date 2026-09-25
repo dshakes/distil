@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and the connector search distil was switching off, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
 
 Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -1030,6 +1030,76 @@ entry spelled with forward slashes, and the new coverage gate reported every num
 as uncovered. Keys are now normalised to posix on both sides — the scan list and the `page`
 fields read out of `docs/claims.json` — so the gate compares the same spelling everywhere,
 with a unit test that feeds it a backslash path.
+
+### Claude Code's connector search was switched off by distil
+
+Claude Code defers MCP tool definitions by default and loads one only when the model
+searches for it. It turns that off whenever `ANTHROPIC_BASE_URL` names a
+non-first-party host, "since most proxies don't forward `tool_reference` blocks". Every
+`distil wrap -- claude` is exactly that, so every connector's full schema rode along
+on every turn. On the maintainer's machine that meant a tools array of roughly 390k tokens per
+request, nearly all of it one connector the agent called 5 times in the nine days
+measured.
+
+- `distil wrap -- claude` now sets `ENABLE_TOOL_SEARCH=true` for the child, through
+  `setdefault`, so an exported `ENABLE_TOOL_SEARCH=false` still wins. distil forwards
+  `defer_loading`, `tool_reference` blocks and the beta header byte-identical. A new
+  test pins all three with the digest path active. This is Claude Code's own
+  first-party default, not a distil transform, so it applies on subscription
+  traffic as well.
+- The request record no longer counts a `defer_loading: true` definition as overhead
+  (it is not billed) and records how many there were (`tools_deferred`). It also
+  records, by name only, the definition tokens per MCP server (`mcp_servers`) and
+  which servers the conversation has called (`mcp_called`).
+- `distil discover` gains `unused_connectors`: MCP servers whose definitions were
+  sent on 20 or more requests and never called anywhere in the window. Each one is
+  priced where it sits in the prompt (cache read first), not at the flat input rate.
+- An mcp-compressor-style "hide unused tools behind a meta-tool" was modelled on real
+  traffic and **not built**. distil is not the MCP server, so every unlock would
+  rewrite the cached prefix, and the native mechanism removes the same tokens
+  without that cost. Numbers, and the conditions for reopening, are in
+  `docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md`
+  (`benchmarks/results/2026-09-24/lazy_tools_model.json`).
+- `distil default --always-on` writes `ENABLE_TOOL_SEARCH=true` into the same
+  Claude Code settings env block as its `ANTHROPIC_BASE_URL` pin, but only if the
+  key is absent: a value you set (`true`, `false`, `auto:N`) is never touched.
+  distil records the files it added the key to (`settings-added.json` in the distil
+  home). `--undo`, `distil offboard` and the `uninstall.sh` escape hatch remove the
+  key only from those files, and only while it still reads `true`. If you have
+  changed it since, it is yours and stays. If you delete it, the next distil run
+  that sees it gone records that, and distil never adds it back.
+- Ownership is recorded only *after* the settings write succeeds, so a failed write
+  can never make undo delete a key distil did not write. The pin and the key go in
+  as one read-modify-write, and `--undo` takes both out the same way: one write and
+  one `.bak` of the original per file. The pin is removed first and independently,
+  so trouble with the tool-search key can never leave behind the base URL that kills
+  sessions.
+- Every Claude Code settings write distil makes, and every rc-file write, is now
+  atomic. This includes the existing `ANTHROPIC_BASE_URL` and status-line paths.
+  - The temporary file is created `0600` (settings can hold API keys), fsynced, then
+    given the target's mode and, best-effort, its owner before the rename.
+  - It is removed if anything fails, so no copy of the file is left behind.
+  - The write goes through a symlink to its target.
+  - A brand-new file is created `0600`.
+  - A malformed settings file, or a symlink loop, is reported and left untouched.
+- Known limit: if you delete distil's key and re-add the identical `"true"` by hand
+  with no distil command run in between, the two are indistinguishable, and undo
+  removes it.
+- Downgrading distil below this release leaves `ENABLE_TOOL_SEARCH` set. That is
+  harmless against Anthropic's API, since it is Claude Code's own default there.
+  Behind a gateway that strips `tool_reference` blocks, it breaks loading of MCP
+  tools. To remove it by hand, delete the `"ENABLE_TOOL_SEARCH": "true"` line from
+  the `env` block of your Claude Code user settings. Or run
+  `distil default --always-on --undo` before downgrading.
+- **UNVERIFIED live.** No metered Claude Code session has run with tool search on
+  through distil yet. The passthrough test uses a stub upstream. It is confirmed when
+  a wrapped or always-on session that uses an MCP tool records `tools_deferred > 0`
+  in its `sessions/<sid>.requests.jsonl`, with no request failures. If it breaks,
+  there are two ways to revert:
+  - Per user: `export ENABLE_TOOL_SEARCH=false` (wrap) or set it to `false` in the
+    settings env block (always-on). Both win over distil's default.
+  - In code: `AGENT_PRESETS["claude"]` back to `{}`, and `cmd_default` back to
+    `wire_settings_env` for the pin instead of `wire_always_on_settings`.
 
 ### `distil discover` — the report that says what to do next
 
