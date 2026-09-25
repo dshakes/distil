@@ -6,7 +6,8 @@
   13,191 priced requests, $2,510.45 billed, $286.26 saved).
 - **Method:** read-only and content-free over `~/.distil/sessions/*.requests.jsonl`
   and `~/.distil/shadow.jsonl`, using the decomposition script's own row filter and
-  pricing. The published number is not changed here.
+  pricing. This note does not re-run the decomposition; the public surfaces now quote
+  the netted range below next to the 10.2% (see "Net of the overhead").
 
 ## The defect
 
@@ -54,7 +55,20 @@ than measured.
 
 Taking the two together, the published **10.2% is overstated by at least 1.0 pp** (0.07 +
 0.92) and **plausibly by about 2 pp** (0.34 + 1.6). A 10.2% gross figure is roughly an
-8–9% net one. A re-run of the decomposition on a window recorded after this fix will
+8–9% net one.
+
+## Net of the overhead
+
+Same counterfactual bill ($2,796.71), same $286.26 saved, with the overhead above
+subtracted from the saving:
+
+- **Floor on the overhead** (expand low $1.93 + shadow proven $25.80): $258.53 saved,
+  **9.2%**.
+- **Plausible overhead** (expand high $9.54 + shadow scaled to all rows $45.12): $231.60
+  saved, **8.3%**.
+
+So the figure to quote is **about 9%, 8.3–9.2%**, still before the replays' own cache
+reads and writes, which were never stored. A re-run of the decomposition on a window recorded after this fix will
 measure it directly: `upstream_calls`, `expand_requery_usage` and `overhead.jsonl` make
 the netting exact.
 

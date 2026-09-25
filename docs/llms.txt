@@ -6,7 +6,9 @@ re-sends every turn, never rewrites bytes the provider still has cached, and
 keeps every byte it trims recoverable through a `distil_expand` tool. On the
 maintainer's own Claude Code traffic (13,191 requests, 2026-09-01..24) it saved
 an estimated 10.2% of the bill, cache reads and writes priced in
-(benchmarks/results/2026-09-24/live_savings_decomposition.json); results depend
+(benchmarks/results/2026-09-24/live_savings_decomposition.json), before its own
+expand re-queries and shadow replays were netted out; net of them the corrected
+estimate is about 9%, 8.3-9.2% (docs/research/expand-undercount.md); results depend
 on how much large, repetitive tool output the agent reads.
 
 Install (one line; the PyPI package is distil-llm, the command is distil):

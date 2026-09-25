@@ -19,7 +19,7 @@
 <!-- TODO(first-impression): replace with a real screenshot of `distil savings` once that
      screen ships. No mock here on purpose: a made-up savings screen is a made-up number. -->
 
-**About a tenth off the real bill.** On the maintainer's own Claude Code traffic — 13,191 requests, 1–24 September 2026 — distil saved an estimated **10.2%** of what the bill would otherwise have been: **$286 on $2,510**, with cache reads and writes priced in. Your share depends on how much large, repetitive tool output your agent reads ([why](#-compression-modes--in-plain-english)). [Source data →](benchmarks/results/2026-09-24/live_savings_decomposition.json)
+**About 9% off the real bill.** On the maintainer's own Claude Code traffic — 13,191 requests, 1–24 September 2026 — distil saved an estimated **10.2%** of what the bill would otherwise have been (**$286 on $2,510**, cache reads and writes priced in) before its own spend was netted out. Counting the expand re-queries and shadow replays that measurement left out, the corrected estimate is **8.3–9.2%** ([how](docs/research/expand-undercount.md)). Your share depends on how much large, repetitive tool output your agent reads ([why](#-compression-modes--in-plain-english)). [Source data →](benchmarks/results/2026-09-24/live_savings_decomposition.json)
 
 ```bash
 uv tool install distil-llm && distil setup

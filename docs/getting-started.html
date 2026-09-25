@@ -148,7 +148,9 @@
     <div class="callout">
       <strong>What to expect.</strong> On an API key the saving is dollars off the bill; on a subscription it is
       rate-limit headroom. For reference, the maintainer's own Claude Code traffic (13,191 requests, September 2026)
-      came out an estimated 10.2% cheaper, cache included
+      came out an estimated 10.2% cheaper, cache included, before distil's own expand re-queries and
+      shadow replays were netted out; about 9% (8.3–9.2%) net of them
+      (<a href="https://github.com/dshakes/distil/blob/main/docs/research/expand-undercount.md">how</a>)
       (<a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/2026-09-24/live_savings_decomposition.json">data</a>).
       Savings come from large, repetitive tool output, so a short session that never reads a big file showing
       near zero is the tool working, not failing.

@@ -884,7 +884,27 @@
         "2,510",
         "13,191"
       ],
-      "note": "realized.saved_share_of_counterfactual_bill = 0.1024, realized.saved_usd_estimated = 286.26, billed_usd_total = 2510.45, requests_priced = 13191. One machine, one user, one mode: it is a real bill, not a population estimate, and every surface that quotes it says whose traffic it is. 'Estimated' because tokens saved are rescaled to billed scale and priced at each request's own blended input rate (the artifact's realized.note). Regenerate with benchmarks/live_savings_decomposition.py --since 2026-09-01."
+      "note": "realized.saved_share_of_counterfactual_bill = 0.1024, realized.saved_usd_estimated = 286.26, billed_usd_total = 2510.45, requests_priced = 13191. One machine, one user, one mode: it is a real bill, not a population estimate, and every surface that quotes it says whose traffic it is. 'Estimated' because tokens saved are rescaled to billed scale and priced at each request's own blended input rate (the artifact's realized.note). Regenerate with benchmarks/live_savings_decomposition.py --since 2026-09-01. Gross of distil's own overhead: the headline now quotes it together with the netted range in v-live-bill-net-of-overhead."
+    },
+    {
+      "id": "v-live-bill-net-of-overhead",
+      "status": "verified",
+      "page": [
+        "../README.md",
+        "index.html",
+        "getting-started.html",
+        "llms.txt"
+      ],
+      "anchor": null,
+      "snippet": "8.3–9.2%",
+      "claim": "The 10.2% live saving was measured before distil's own spend was netted out: expand re-queries (0.07–0.34 pp) and shadow replays (at least 0.92 pp, about 1.6 pp scaled to every row) were not in the ledger. Net of them the corrected estimate is about 9%, 8.3–9.2% of the same counterfactual bill, still before the replays' own cache reads and writes.",
+      "artifact": "docs/research/expand-undercount.md",
+      "values": [
+        "9%",
+        "8.3%",
+        "9.2%"
+      ],
+      "note": "Arithmetic in the artifact's 'Net of the overhead' section: ($286.26 − $1.93 − $25.80) / $2,796.71 = 9.2% and ($286.26 − $9.54 − $45.12) / $2,796.71 = 8.3%. An estimate, not a measurement: 0 of the 13,191 rows carry the new upstream_calls / expand_requery_usage fields. A re-run of benchmarks/live_savings_decomposition.py on a window recorded after the accounting fix replaces it with a measured figure."
     },
     {
       "id": "v-mcp-definition-tokens",
