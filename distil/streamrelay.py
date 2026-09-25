@@ -55,6 +55,17 @@ _USAGE_OUT = re.compile(rb'"output_tokens"\s*:\s*(\d+)')
 # sum of all three — without these, token accounting (and calibration) is wrong on cached traffic.
 _CACHE_READ = re.compile(rb'"cache_read_input_tokens"\s*:\s*(\d+)')
 _CACHE_CREATE = re.compile(rb'"cache_creation_input_tokens"\s*:\s*(\d+)')
+# Chat Completions and Gemini name the same counts differently. Chat's prompt_tokens
+# INCLUDES its cached tokens (a subset, prompt_tokens_details.cached_tokens); Anthropic's
+# input_tokens EXCLUDES them. Mapped to the Anthropic convention so every consumer can
+# keep summing input + cache_read + cache_creation. Before this, a Chat Completions or
+# Gemini request recorded no usage at all.
+_CHAT_IN = re.compile(rb'"prompt_tokens"\s*:\s*(\d+)')
+_CHAT_OUT = re.compile(rb'"completion_tokens"\s*:\s*(\d+)')
+_CHAT_CACHED = re.compile(rb'"cached_tokens"\s*:\s*(\d+)')
+_GEM_IN = re.compile(rb'"promptTokenCount"\s*:\s*(\d+)')
+_GEM_OUT = re.compile(rb'"candidatesTokenCount"\s*:\s*(\d+)')
+_GEM_CACHED = re.compile(rb'"cachedContentTokenCount"\s*:\s*(\d+)')
 _USAGE_SCAN_CAP = 16384  # head/tail window — usage lives at the edges of a stream
 
 
@@ -82,7 +93,45 @@ def scan_usage(blob: bytes) -> dict[str, int]:
         pass
     if last is not None:
         out["output_tokens"] = int(last.group(1))
+    if "input_tokens" not in out:
+        for rin, rout, rcached in (
+            (_CHAT_IN, _CHAT_OUT, _CHAT_CACHED),
+            (_GEM_IN, _GEM_OUT, _GEM_CACHED),
+        ):
+            m = None
+            for m in rin.finditer(blob):  # noqa: B007 — the final (cumulative) report
+                pass
+            if m is None:
+                continue
+            cached = 0
+            for cm in rcached.finditer(blob):
+                cached = int(cm.group(1))
+            out["input_tokens"] = max(0, int(m.group(1)) - cached)
+            if cached:
+                out["cache_read_input_tokens"] = cached
+            o = None
+            for o in rout.finditer(blob):  # noqa: B007
+                pass
+            if o is not None:
+                out["output_tokens"] = int(o.group(1))
+            break
     return out
+
+
+#: Usage keys that are summed when one client request costs several upstream calls.
+USAGE_KEYS = (
+    "input_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+    "output_tokens",
+)
+
+
+def add_usage(total: dict[str, int], part: dict[str, int], *, prefix: str = "") -> None:
+    """Add one upstream call's usage into *total* (keys prefixed with *prefix*)."""
+    for k in USAGE_KEYS:
+        if k in part:
+            total[prefix + k] = total.get(prefix + k, 0) + int(part[k] or 0)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

@@ -180,6 +180,42 @@ def _mcp_record(body: Any, tool_tokens: dict[str, int]) -> dict[str, Any]:
     return {"mcp_servers": servers, "mcp_called": sorted(called)}
 
 
+def billed_input_equiv(usage: dict[str, int] | None, model: str | None, *, prefix: str = "") -> int:
+    """Billed usage expressed in base-input tokens — the savings ledger's unit.
+
+    The ledger prices a token at the model's base input rate, so spend distil CAUSES
+    (an expand re-query, a shadow replay) is converted into that unit before it is
+    added to the distil side: uncached input at 1x, cache read at 0.1x, cache write at
+    1.25x, output at output/input. Then tokens-saved and dollars-saved both net it out.
+    An unpriceable model adds the input tokens it sent, unweighted.
+    """
+    u = usage or {}
+    inp = int(u.get(prefix + "input_tokens", 0) or 0)
+    cr = int(u.get(prefix + "cache_read_input_tokens", 0) or 0)
+    cw = int(u.get(prefix + "cache_creation_input_tokens", 0) or 0)
+    out = int(u.get(prefix + "output_tokens", 0) or 0)
+    from . import pricing as _pricing
+
+    p = _pricing.resolve(model)
+    if p is None:
+        return inp + cr + cw
+    return round(
+        (inp * p.input + cr * p.cache_read + cw * p.cache_write + out * p.output) / p.input
+    )
+
+
+def requery_input_equiv(usage: dict[str, int] | None, model: str | None) -> int:
+    """What this request's ``distil_expand`` re-queries cost, in base-input tokens.
+
+    A re-query is spend distil caused: without compression there would have been one
+    call, not several. Added to the distil side of the savings ledger, so a request
+    whose expand cost more than its compression saved books a negative saving.
+    """
+    if not (usage or {}).get("requeries"):
+        return 0
+    return billed_input_equiv(usage, model, prefix="requery_")
+
+
 def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
     """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
 
@@ -863,6 +899,45 @@ def build_handler(
             f"then release: {_RELEASE_CMD}. Opt out: DISTIL_NO_DRIFT_GUARD=1.",
             file=_sys.stderr,
         )
+
+    def _book_overhead(kind: str, model: str | None, calls: list[dict[str, int]]) -> None:
+        """Book upstream calls distil made on the user's key that no client asked for
+        (shadow replays): net them out of the savings ledger, and append their usage to
+        ``sessions/<sid>.overhead.jsonl`` so per-session cost (``distil ab``) includes
+        them. Content-free, fail-open."""
+        if not calls:
+            return
+        try:
+            from .streamrelay import add_usage
+
+            total: dict[str, int] = {}
+            for c in calls:
+                add_usage(total, c)
+            if savings is not None:
+                savings.record(0, billed_input_equiv(total, model), model=model)
+            from . import ledger as _ledger
+
+            rp = _ledger.session_requests_path()
+            if rp is not None:
+                from . import _filelock
+
+                op = rp.with_name(rp.name.replace(".requests.jsonl", ".overhead.jsonl"))
+                with _filelock.locked(op), op.open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "ts": time.time(),
+                                "kind": kind,
+                                "model": model,
+                                "calls": len(calls),
+                                **total,
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+        except Exception:  # noqa: BLE001 — bookkeeping must never break a replay
+            log.debug("overhead booking failed", exc_info=True)
 
     # First-POST latch for the session traffic marker: only the 0→1 transition
     # matters, so after one write the check is a single list lookup.
@@ -1598,7 +1673,7 @@ def build_handler(
                     _learn_stats.save()
                 if savings is not None and _pending_savings is not None and 200 <= status_x < 300:
                     _bt, _at, _m = _pending_savings
-                    savings.record(_bt, _at, model=_m)
+                    savings.record(_bt, _at + requery_input_equiv(_usage_x, _m), model=_m)
                     savings.maybe_flush(every=flush_every)
                 self._emit_detail(
                     extras=extras,
@@ -1690,6 +1765,19 @@ def build_handler(
                     shadow_sampled=shadow_sampled,
                 )
 
+            # Billed usage of EVERY upstream call this client request costs: the first
+            # response now, each expand re-query in `_post` below. Scanning only the
+            # final body (as this did until 1.54) recorded the last call and dropped the
+            # first one and every intermediate re-query, so a request that expanded
+            # looked cheaper than it was — biasing every savings figure toward distil.
+            from .streamrelay import add_usage, scan_usage
+
+            _usage_b: dict[str, int] = {}
+            try:
+                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
+            except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                pass
+
             # Transparent expand loop: resolve any distil_expand tool calls against
             # the local store and re-query, invisibly, before returning to the agent.
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
@@ -1709,6 +1797,13 @@ def build_handler(
 
                     def _post(b: dict[str, Any]) -> dict[str, Any]:
                         _s, _h, rb = self._post_upstream(_fwd_path, json.dumps(b).encode(), headers)
+                        _usage_b["requeries"] = _usage_b.get("requeries", 0) + 1
+                        try:
+                            _u = scan_usage(rb[:16384] + b"\n" + rb[-16384:])
+                            add_usage(_usage_b, _u)
+                            add_usage(_usage_b, _u, prefix="requery_")
+                        except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                            pass
                         return json.loads(rb)
 
                     if "contents" in body and isinstance(body.get("contents"), list):
@@ -1741,13 +1836,6 @@ def build_handler(
             # signal on real traffic. Never blocks the client's response.
             if shadow_sampled:
                 self._spawn_shadow(raw, headers, new_raw)
-            _usage_b: dict[str, int] = {}
-            try:
-                from .streamrelay import scan_usage
-
-                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
-            except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
-                pass
             # Per-request detail written synchronously before the relay: this guarantees
             # a record for every request (deterministic, none lost on abrupt shutdown) —
             # the property dissect relies on. The write is a bounded ~5-15ms of local disk
@@ -1773,7 +1861,7 @@ def build_handler(
             # upstream calls must not be counted as savings.
             if savings is not None and _pending_savings is not None and 200 <= status < 300:
                 _bt, _at, _m = _pending_savings
-                savings.record(_bt, _at, model=_m)
+                savings.record(_bt, _at + requery_input_equiv(_usage_b, _m), model=_m)
                 savings.maybe_flush(every=flush_every)
             if _sse_shape is not None and 200 <= status < 300:
                 # The client asked for a stream and we buffered to run the expand
@@ -1927,7 +2015,17 @@ def build_handler(
                 _billed_full = int(_u.get("input_tokens") or 0) + _cache
                 # A+C: feed the (heuristic estimate, full billed) pairing into the token calibrator
                 # so reported counts converge to the real tokenizer. Content-free, fail-open.
-                if _billed_full > 0:
+                # The estimate describes the FIRST call's prompt; expand re-queries (summed
+                # into `usage` since 1.54) re-send a longer one and must not skew the factor.
+                _first_billed = _billed_full - sum(
+                    int(_u.get("requery_" + k, 0) or 0)
+                    for k in (
+                        "input_tokens",
+                        "cache_read_input_tokens",
+                        "cache_creation_input_tokens",
+                    )
+                )
+                if _first_billed > 0:
                     _est = overhead + max(
                         0,
                         int(extras.get("x-distil-compressible-tokens", 0) or 0)
@@ -1935,7 +2033,7 @@ def build_handler(
                     )
                     from . import calibration
 
-                    calibration.record(str(model or "unknown"), _est, _billed_full)
+                    calibration.record(str(model or "unknown"), _est, _first_billed)
                 _prefix_hash, _prefix_bytes = "", 0
                 if isinstance(body, dict):
                     try:
@@ -1974,6 +2072,18 @@ def build_handler(
                     "usage_input_tokens": (usage or {}).get("input_tokens"),
                     "usage_output_tokens": (usage or {}).get("output_tokens"),
                     "usage_cache_tokens": _cache or None,
+                    # usage_* above are the SUM over every upstream call this request cost
+                    # (since 1.54). `upstream_calls` says how many; `expand_requery_usage`
+                    # is the re-queries' share, which the savings ledger nets out. Absent
+                    # on rows written before the fix: those recorded the first (streaming)
+                    # or last (buffered) call only.
+                    "upstream_calls": 1 + int(_u.get("requeries", 0) or 0),
+                    "expand_requery_usage": {
+                        k[len("requery_") :]: int(v)
+                        for k, v in _u.items()
+                        if k.startswith("requery_")
+                    }
+                    or None,
                     # Split, because the sum cannot tell a working cache from a thrashing
                     # one: a write is a 25% surcharge, a read a ~90% discount, and a prefix
                     # that drifts every turn writes forever and never reads — which looks
@@ -2124,16 +2234,21 @@ def build_handler(
                     _attempted = True
                     sigs: dict[str, str] = {}
                     usage: dict[str, dict[str, int]] = {}
-                    for _name, _body in arms:
-                        _st, _h, _rbody = self._post_upstream(self.path, _body, headers)
-                        if not (200 <= _st < 300):
-                            _failed = True
-                            _fail_reason = str(_st)
-                        # decision_signature_from_body handles both JSON and streamed
-                        # (SSE / chunk-array) bodies, so this works for Claude Code /
-                        # Codex / Gemini sessions, which stream their responses.
-                        sigs[_name] = decision_signature_from_body(_rbody)
-                        usage[_name] = scan_usage(_rbody[:16384] + b"\n" + _rbody[-16384:])
+                    try:
+                        for _name, _body in arms:
+                            _st, _h, _rbody = self._post_upstream(self.path, _body, headers)
+                            if not (200 <= _st < 300):
+                                _failed = True
+                                _fail_reason = str(_st)
+                            # decision_signature_from_body handles both JSON and streamed
+                            # (SSE / chunk-array) bodies, so this works for Claude Code /
+                            # Codex / Gemini sessions, which stream their responses.
+                            sigs[_name] = decision_signature_from_body(_rbody)
+                            usage[_name] = scan_usage(_rbody[:16384] + b"\n" + _rbody[-16384:])
+                    finally:
+                        # The replays are billed to the user's key: book them as spend
+                        # distil caused, whatever the verdict turns out to be.
+                        _book_overhead("shadow", rb_a.model, list(usage.values()))
                     # "none" means no decision could be extracted (transient upstream
                     # error or empty/unparseable body). Recording it as agreement or
                     # change would inflate the decision-equivalence rate on noise.

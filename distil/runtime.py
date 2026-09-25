@@ -126,8 +126,11 @@ class RuntimeSavings:
             if self.requests == 0:
                 return False
             for mid, (n, before, after) in self.by_model.items():
-                if before == 0:
+                if before == 0 and after == 0:
                     continue  # nothing measured — a zero-baseline record is noise
+                # before == 0 with after > 0 is spend distil caused with nothing to
+                # compress against (a shadow replay booked after the request's own row
+                # was flushed). Recorded: dropping it would overstate the saving.
                 # A window that saved nothing IS recorded. Dropping it kept its
                 # baseline out of the denominator too, so the reported percentage
                 # was savings over the traffic that happened to compress rather
