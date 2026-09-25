@@ -123,6 +123,22 @@ def list_sessions(
         if started:
             ov.started = min(ov.started or started, started)
             ov.last_ts = max(ov.last_ts, started)
+        # Ledger rows only exist for *booked* requests, and the manifest's
+        # started_ts is the session's birth, not its most recent activity — so a
+        # session whose only *recent* traffic failed (proxied but never billed:
+        # bad key, upstream 5xx, client abort) can still read as stale under
+        # `--since` even with an old booked row on record. The requests file is
+        # appended once per proxied request regardless of outcome
+        # (`_emit_detail`, distil/proxy.py), so its mtime is the freshest honest
+        # "this session did something" signal — folded in unconditionally, since
+        # a later failed request is more recent activity than an earlier booked
+        # one regardless of which source noticed it first.
+        req_path = session_requests_path(sid)
+        if req_path is not None:
+            try:
+                ov.last_ts = max(ov.last_ts, req_path.stat().st_mtime)
+            except OSError:
+                pass
     if with_status:
         for ov in by_sid.values():
             marker = session_marker_path(ov.sid)
@@ -1088,13 +1104,32 @@ _ELIGIBILITY_LABEL = {
     "tool_result_verbatim": "verbatim mode",
     "tool_result_learned_keep": "learned keep-byte-exact",
     "tool_result_declined": "digester declined",
+    "thinking_billed": "extended thinking (provider-signed, never rewritten)",
+    "reasoning_billed": "reasoning trace (provider-signed, never rewritten, count approx.)",
+    "compaction_billed": (
+        "server-side compaction summary (provider-signed, never rewritten; count approx. on OpenAI)"
+    ),
+    "signed_block_billed": "provider-signed opaque block (never rewritten)",
+    "signed_item_billed": "provider-signed opaque item (never rewritten, count approx.)",
 }
 
 # Buckets that represent a deliberate protection rather than a missed opportunity.
 # Distinguished so a report can say "working as designed" without the reader having to
-# know which gate is which.
+# know which gate is which. thinking/reasoning/compaction/signed-block/signed-item bytes are pinned by a
+# provider signature distil cannot alter even in principle — that is not a gate distil
+# declined to open, so it must not count as "missed opportunity" in protected_share.
 _PROTECTED_REASONS = frozenset(
-    {"assistant_text", "tool_result_recent", "user_text", "tool_result_learned_keep"}
+    {
+        "assistant_text",
+        "tool_result_recent",
+        "user_text",
+        "tool_result_learned_keep",
+        "thinking_billed",
+        "reasoning_billed",
+        "compaction_billed",
+        "signed_block_billed",
+        "signed_item_billed",
+    }
 )
 
 

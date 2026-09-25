@@ -1081,6 +1081,67 @@ def cmd_receipts(args: argparse.Namespace) -> int:
 
     from . import receipts as _r
 
+    if getattr(args, "check_proof", None):
+        # Reads the proof and nothing else: no DISTIL_HOME, no segment, no other receipt.
+        src = args.check_proof
+        try:
+            text = sys.stdin.read() if src == "-" else Path(src).read_text(encoding="utf-8")
+            bundle = json.loads(text)
+        except (OSError, ValueError) as exc:
+            print(f"cannot read proof {src}: {exc}", file=sys.stderr)
+            return 2
+        root = getattr(args, "root", None)
+        ck_hash = getattr(args, "checkpoint_hash", None)
+        if root is None and ck_hash is None:
+            print(
+                "warning: nothing pinned — the proof is checked against the checkpoint it "
+                "carries, which only shows it is self-consistent. Pass --checkpoint-hash "
+                "(proves position) or --root (proves membership) from a source you trust.",
+                file=sys.stderr,
+            )
+        ok, why = _r.verify_proof(bundle, root=root, checkpoint_hash=ck_hash)
+        print(why if ok else f"NOT INCLUDED — {why}")
+        return 0 if ok else 1
+
+    if getattr(args, "prove", None):
+        proof = _r.prove(args.prove)
+        if proof is None:
+            print(
+                f"no sealed receipt with request id {args.prove} — only receipts in a sealed "
+                "segment have a Merkle root to prove against",
+                file=sys.stderr,
+            )
+            return 1
+        print(json.dumps(proof, sort_keys=True, indent=2))
+        return 0
+
+    if getattr(args, "checkpoints", False):
+        missing = 0
+        for seg in _r.sealed_segments():
+            ck = _r.load_segment_checkpoint(seg)
+            if ck is None:
+                print(f"# segment {seg}: checkpoint missing or unreadable", file=sys.stderr)
+                missing += 1
+                continue
+            print(ck.canonical())
+            # The pin, on stderr so stdout stays exactly the records it is the hash of.
+            print(f"# segment {seg} checkpoint sha256 {ck.digest()}", file=sys.stderr)
+        # An incomplete set is what gets pinned externally — never report it as success.
+        return 1 if missing else 0
+
+    if getattr(args, "segment", None) is not None:
+        seg = int(args.segment)
+        if not _r.segment_path(seg).exists():
+            print(
+                f"no sealed segment {seg} (sealed: {_r.sealed_segments() or 'none'})",
+                file=sys.stderr,
+            )
+            return 1
+        verdict = _r.verify_segment(_r.segment_path(seg), _r.load_segment_checkpoint(seg))
+        print(f"segment {seg}: {verdict.statement}")
+        print(f"  path      {_r.segment_path(seg)}")
+        return 0 if verdict.ok else 1
+
     if args.export and not getattr(args, "verify", False):
         n = 0
         for rec in _r.read():
@@ -1095,6 +1156,9 @@ def cmd_receipts(args: argparse.Namespace) -> int:
     if verdict.total:
         saved = sum(r.tokens_saved for r in _r.read())
         print(f"  path      {_r.receipts_path()}")
+        segs = _r.sealed_segments()
+        if segs:
+            print(f"  segments  {len(segs)} sealed in {_r.segments_dir()} + the active file")
         print(f"  receipts  {verdict.total}")
         print(f"  tokens    {saved:,} saved across the chain")
         unresolved = [r.request_id for r in _r.read() if not r.restorable]
@@ -3017,41 +3081,94 @@ _ENV_REQUIRES_FLAG = {
     "openhands": ("--override-with-envs", "read LLM_* from the environment"),
 }
 
-#: IDE extensions people reasonably TRY to wrap. There is no argv to wrap and no
-#: published env-var contract, so a preset here would set a variable the editor never
-#: reads — routing nothing while reporting success. They are reachable, just by a
-#: different mechanism: run the proxy and point the editor's own base-URL setting at
-#: it. Saying that is worth more than a preset that lies.
-_IDE_NOT_WRAPPABLE = {
-    "cursor": "Cursor",
-    "cursor-agent": "Cursor",
-    "code": "VS Code (Copilot/Cline/Continue)",
-    "cline": "Cline",
-    "continue": "Continue",
-    "windsurf": "Windsurf",
-    "zed": "Zed",
-    "kilo": "Kilo Code",
-    "roo": "Roo Code",
-    "warp": "Warp",
-    "cortex": "Snowflake Cortex Code",
-    "coco": "Snowflake Cortex Code",
-}
+
+def _unwrappable_target(cmd_name: str):
+    """The ``targets.UNREACHABLE`` entry for a command someone tried to wrap.
+
+    Matches the entry's own key or any alias people reasonably type, so the
+    reason and its source live in one place (distil/targets.py) instead of
+    being restated here.
+    """
+    from .targets import UNREACHABLE
+
+    for target in UNREACHABLE:
+        if cmd_name == target.key or cmd_name in target.aliases:
+            return target
+    return None
 
 
 def _warn_if_ide_not_wrappable(cmd_name: str) -> None:
-    """Redirect an IDE user to the path that actually works, before the session starts."""
-    label = _IDE_NOT_WRAPPABLE.get(cmd_name)
-    if label is None:
+    """Redirect the user to the path that actually works, before the session starts.
+
+    Some of these have no process to wrap at all; others (Cline, Kilo) do ship
+    a CLI but publish no base-URL knob it honours — either way a preset would
+    set something the tool never reads, routing nothing while reporting
+    success. The per-target reason and the doc it was verified against come
+    from the catalogue, so this message can't go stale on its own.
+    """
+    target = _unwrappable_target(cmd_name)
+    if target is None:
         return
     print(
-        f"\n  ⚠ {label} is an IDE extension, not a CLI — there is no process to wrap,\n"
-        f"    and no environment variable it reads. This wrap would route NOTHING.\n\n"
+        f"\n  ⚠ {target.label} publishes no base-URL contract `distil wrap` can set —\n"
+        f"    {target.note}.\n"
+        f"    This wrap would route NOTHING.\n\n"
         f"    Use the always-on proxy instead:\n"
         f"        distil proxy --port 8080          # leave it running\n"
-        f"    then set the editor's OpenAI-compatible base URL to http://127.0.0.1:8080\n"
+        f"    then point its own setting at http://127.0.0.1:8080 — {target.knob}\n"
+        f"    Verified {target.verified}: {target.doc_url}\n"
         f"    Full per-editor steps: docs/IDE-AGENTS.md\n",
         file=sys.stderr,
     )
+
+
+def _print_targets(as_json: bool) -> int:
+    """`distil wrap --list` — every target, its mechanism and its wire shape."""
+    from .targets import catalog
+
+    targets = catalog()
+    if as_json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "command": t.key,
+                        "label": t.label,
+                        "mechanism": t.mechanism,
+                        "provider_shape": t.shape,
+                        "knob": t.knob,
+                        "wrappable": t.wrappable,
+                        "doc_url": t.doc_url,
+                        "verified": t.verified,
+                        "note": t.note,
+                    }
+                    for t in targets
+                ],
+                indent=2,
+            )
+        )
+        return 0
+    mechanisms = {
+        "env": "wrap sets an environment variable",
+        "config": "wrap manages a config file for the session",
+        "proxy": "not wrappable — point the tool at `distil proxy` / `distil default`",
+    }
+    for mechanism, heading in mechanisms.items():
+        rows = [t for t in targets if t.mechanism == mechanism]
+        if not rows:
+            continue
+        print(f"\n{heading}")
+        width = max(len(t.key) for t in rows)
+        for t in rows:
+            cmd = t.key if mechanism != "proxy" else "-"
+            print(f"  {cmd:<{width}}  {t.label}")
+            print(f"  {'':<{width}}  {t.shape} · {t.knob}")
+    print(
+        "\nEvery contract above was read from that tool's own docs on the date in "
+        "`distil wrap --list --json`.\nAnything missing had no verifiable knob — a "
+        "guessed one would route nothing and still report success."
+    )
+    return 0
 
 
 def _warn_if_env_ignored(cmd_name: str, command: list[str]) -> None:
@@ -3083,6 +3200,8 @@ def cmd_wrap(args: argparse.Namespace) -> int:
 
     from .updatecheck import maybe_notify as _update_notify
 
+    if getattr(args, "list", False):
+        return _print_targets(getattr(args, "json", False))
     _update_notify()  # ≤1/day, background thread, DISTIL_NO_UPDATE_CHECK opts out
     # Surface label for the census's integration counters; the spawned proxy
     # (and hot-swap worker) inherit it, so wrapped-agent traffic counts as
@@ -3107,6 +3226,7 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     env_var: str = args.env_var or ""
     upstream: str = args.upstream or ""
     extra_env: dict[str, str] = {}
+    env_value_template: str | None = None
 
     if preset is not None:
         preset_env_var, preset_upstream, preset_label, preset_extra = preset
@@ -3114,6 +3234,11 @@ def cmd_wrap(args: argparse.Namespace) -> int:
             env_var = preset_env_var
             print(f"  preset: {preset_label} detected → {env_var}")
             extra_env = preset_extra
+            # Only when the preset's OWN variable is in play: an explicit
+            # --env-var means the user picked a variable that takes a URL.
+            from .onboard import AGENT_ENV_TEMPLATES
+
+            env_value_template = AGENT_ENV_TEMPLATES.get(cmd_name)
         _warn_if_env_ignored(cmd_name, command)
         if not upstream:
             upstream = preset_upstream
@@ -3156,8 +3281,27 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     # unconditionally — it may belong to a different tool than the one being
     # wrapped right now. `config_preset` itself was already resolved above,
     # where its default upstream (if any) needed to take effect.
-    config_wrap.restore_stale_backups()
+    config_wrap.restore_stale_backups(command)
     if config_preset is not None:
+        # A config file can only name one proxy, and two live wraps need two
+        # ports — so a second concurrent wrap of the same target is refused
+        # here, before a proxy is started or a byte is written, rather than
+        # silently repointing the first session's agent at this one's proxy.
+        # (restore_stale_backups above has already reaped any dead session's
+        # registry, so only a genuinely running pid can block this.)
+        #
+        # `command` is passed because the child's own flags can move the file
+        # it reads — Cline takes --config and --data-dir — and resolving that
+        # can itself refuse, when the agent accepts several relocation knobs
+        # and documents no precedence between them.
+        try:
+            _busy = config_wrap.busy_holder(config_preset, command)
+        except config_wrap.ConfigWrapRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            return 1
+        if _busy is not None:
+            print(config_wrap.busy_message(*_busy), file=sys.stderr)
+            return 1
         print(
             f"  preset: {config_preset.label} detected → config-file injection ({config_preset.strategy})"
         )
@@ -3165,24 +3309,36 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     _apply_subscription_safe_default(args)
     from .proxy import wrap_run
 
-    code = wrap_run(
-        command,
-        host=args.host,
-        upstream=upstream,
-        lossless_only=args.lossless_only,
-        verbatim=args.verbatim,
-        shape_output=args.shape_output,
-        record=not args.no_record,
-        pricing_model=args.pricing,
-        env_var=env_var,
-        expand=args.expand,
-        session_delta=args.session_delta,
-        prefix_replay=not getattr(args, "no_prefix_replay", False),
-        shadow_rate=args.shadow,
-        retention_rate=getattr(args, "retention", 0.0),
-        extra_env=extra_env,
-        config_ctx=config_preset.apply if config_preset is not None else None,
-    )
+    try:
+        code = wrap_run(
+            command,
+            host=args.host,
+            upstream=upstream,
+            lossless_only=args.lossless_only,
+            verbatim=args.verbatim,
+            shape_output=args.shape_output,
+            record=not args.no_record,
+            pricing_model=args.pricing,
+            env_var=env_var,
+            expand=args.expand,
+            session_delta=args.session_delta,
+            prefix_replay=not getattr(args, "no_prefix_replay", False),
+            shadow_rate=args.shadow,
+            retention_rate=getattr(args, "retention", 0.0),
+            extra_env=extra_env,
+            env_value_template=env_value_template,
+            config_ctx=config_preset.apply if config_preset is not None else None,
+        )
+    except config_wrap.ConfigWrapRefused as refused:
+        # The pre-check above is advisory: a sibling wrap can claim the config
+        # in the gap between it and the claim inside `_own_config`. That
+        # in-lock recheck is the authoritative one, and this is where its
+        # refusal lands — same message, same exit code, and wrap_run has
+        # already torn its proxy down and launched no child. A preset that
+        # only discovers at apply time that it cannot place its config (the
+        # Continue `--config` clash) arrives here too.
+        print(refused.render(), file=sys.stderr)
+        return 1
     # Upstream-contract tripwire: distil's interception of a known agent rests on
     # that agent honoring `env_var` (undocumented upstream — an agent update can
     # silently stop). The session traffic marker (written "0" at wrap start,
@@ -4271,6 +4427,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="resume from this machine's checkpoint and re-hash only what was appended since; "
         "the default re-hashes every receipt",
     )
+    rc.add_argument(
+        "--segment",
+        type=int,
+        metavar="N",
+        help="verify one sealed segment against its Merkle checkpoint, reading no other segment",
+    )
+    rc.add_argument(
+        "--checkpoints",
+        action="store_true",
+        help="print every sealed segment's checkpoint (id, rows, first/last hash, Merkle root) "
+        "as JSONL, with each record's sha256 on stderr — the value to pin elsewhere",
+    )
+    rc.add_argument(
+        "--prove",
+        metavar="REQUEST_ID",
+        help="print a Merkle inclusion proof for one sealed receipt",
+    )
+    rc.add_argument(
+        "--check-proof",
+        metavar="FILE",
+        help="verify an inclusion proof (`-` for stdin); reads nothing but the proof",
+    )
+    rc.add_argument(
+        "--root",
+        metavar="HEX",
+        help="with --check-proof: a Merkle root you already trust — proves the receipt is in "
+        "that tree, not where",
+    )
+    rc.add_argument(
+        "--checkpoint-hash",
+        metavar="HEX",
+        help="with --check-proof: the sha256 of a checkpoint record you already trust (a line "
+        "of --checkpoints) — proves the receipt's segment and position too",
+    )
     rc.set_defaults(func=cmd_receipts)
 
     rs = sub.add_parser(
@@ -4984,6 +5174,12 @@ def build_parser() -> argparse.ArgumentParser:
         "wrap",
         help="run a command with its API base URL transparently routed through Distil",
     )
+    wr.add_argument(
+        "--list",
+        action="store_true",
+        help="list every agent distil can route, its mechanism (env var / config file) "
+        "and the provider wire shape — plus the ones it cannot reach and why",
+    )
     wr.add_argument("--host", default="127.0.0.1", help="bind address (default: localhost only)")
     wr.add_argument(
         "--upstream",
@@ -5061,6 +5257,7 @@ def build_parser() -> argparse.ArgumentParser:
         "On by default at 0.02 (2%% extra tokens on sampled requests) so the ✓de "
         "evidence accrues without opt-in; --shadow 0 disables",
     )
+    wr.add_argument("--json", action="store_true", help="machine-readable output (with --list)")
     wr.add_argument(
         "command",
         nargs=argparse.REMAINDER,

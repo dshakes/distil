@@ -211,21 +211,25 @@ def _readme_text() -> str:
 
 
 def test_every_advertised_agent_has_a_real_preset():
-    from distil.onboard import AGENT_PRESETS
+    # Both registries: an agent is reached either by an env var (AGENT_PRESETS)
+    # or by a config file distil manages for the session (CONFIG_PRESETS), and
+    # the README bullet advertises both.
+    from distil.targets import catalog
 
+    real = {t.key for t in catalog() if t.wrappable}
     text = _readme_text()
     line = next(ln for ln in text.splitlines() if ln.startswith("- **Wrap your agent**"))
     advertised = set(re.findall(r"`(?:distil wrap -- )?([a-z][a-z0-9-]*)`", line))
-    unreal = advertised - set(AGENT_PRESETS)
+    unreal = advertised - real - {"agent"}  # `<agent>` is the placeholder itself
     assert not unreal, f"README advertises agents with no preset: {sorted(unreal)}"
 
 
 def test_every_real_preset_is_advertised():
     """The reverse: shipping an agent nobody is told about wastes the work."""
-    from distil.onboard import AGENT_PRESETS
+    from distil.targets import catalog
 
     text = _readme_text()
-    missing = [a for a in AGENT_PRESETS if f"`{a}`" not in text]
+    missing = [t.key for t in catalog() if t.wrappable and f"`{t.key}`" not in text]
     assert not missing, f"presets exist but the README never mentions them: {missing}"
 
 

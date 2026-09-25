@@ -1,0 +1,31 @@
+{
+  "generated_by": "distil savings --trajectory corpus/sample_trajectory.json --pricing claude-opus-4-8   (distil/cli.py:cmd_savings, distil/compress/cache_aware.py:simulate)",
+  "trajectory": "corpus/sample_trajectory.json",
+  "trajectory_id": "sre-disk-incident",
+  "turns": 4,
+  "model": "claude-opus-4-8",
+  "tokenizer": "heuristic (not billing-grade)",
+  "strategies": {
+    "baseline (no cache, no compress)": {
+      "dollars_per_run": 0.01524,
+      "pct_vs_baseline": 0.0,
+      "cache_hit_tokens": 0
+    },
+    "cache only": {
+      "dollars_per_run": 0.01115,
+      "pct_vs_baseline": 26.8,
+      "cache_hit_tokens": 1028
+    },
+    "naive compress + cache": {
+      "dollars_per_run": 0.01696,
+      "pct_vs_baseline": -11.3,
+      "cache_hit_tokens": 0
+    },
+    "distil (cache-aware lossless)": {
+      "dollars_per_run": 0.01023,
+      "pct_vs_baseline": 32.8,
+      "cache_hit_tokens": 1028
+    }
+  },
+  "naive_pct_more_than_distil": 66
+}
