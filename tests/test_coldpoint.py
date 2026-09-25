@@ -547,7 +547,7 @@ def test_the_clock_counts_sleep(monkeypatch) -> None:
 
     real = coldpoint._pick_clock()
     a = real()
-    time.sleep(0.01)
+    time.sleep(0.05)  # over Windows' ~15.6ms timer-tick resolution
     assert real() > a, "the picked clock does not advance"
 
 
