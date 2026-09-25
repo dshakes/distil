@@ -222,6 +222,11 @@ def _receipts_line() -> str:
         return "no receipts recorded"
     if not v.ok:
         return f"chain BROKEN at receipt {v.first_bad_index} of {v.total} — {v.reason}"
+    if v.skipped:
+        return (
+            f"{v.total} receipts, chain intact — but {v.skipped} line(s) in the file are not "
+            "receipts (torn write or foreign text); `distil receipts` for details"
+        )
     if not v.checked_from:
         return f"{v.total} receipts, chain verified (every hash re-checked)"
     # A checkpointed pass re-hashes only what was appended since this machine's last

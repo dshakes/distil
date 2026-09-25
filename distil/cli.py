@@ -1048,6 +1048,67 @@ def cmd_receipts(args: argparse.Namespace) -> int:
 
     from . import receipts as _r
 
+    if getattr(args, "check_proof", None):
+        # Reads the proof and nothing else: no DISTIL_HOME, no segment, no other receipt.
+        src = args.check_proof
+        try:
+            text = sys.stdin.read() if src == "-" else Path(src).read_text(encoding="utf-8")
+            bundle = json.loads(text)
+        except (OSError, ValueError) as exc:
+            print(f"cannot read proof {src}: {exc}", file=sys.stderr)
+            return 2
+        root = getattr(args, "root", None)
+        ck_hash = getattr(args, "checkpoint_hash", None)
+        if root is None and ck_hash is None:
+            print(
+                "warning: nothing pinned — the proof is checked against the checkpoint it "
+                "carries, which only shows it is self-consistent. Pass --checkpoint-hash "
+                "(proves position) or --root (proves membership) from a source you trust.",
+                file=sys.stderr,
+            )
+        ok, why = _r.verify_proof(bundle, root=root, checkpoint_hash=ck_hash)
+        print(why if ok else f"NOT INCLUDED — {why}")
+        return 0 if ok else 1
+
+    if getattr(args, "prove", None):
+        proof = _r.prove(args.prove)
+        if proof is None:
+            print(
+                f"no sealed receipt with request id {args.prove} — only receipts in a sealed "
+                "segment have a Merkle root to prove against",
+                file=sys.stderr,
+            )
+            return 1
+        print(json.dumps(proof, sort_keys=True, indent=2))
+        return 0
+
+    if getattr(args, "checkpoints", False):
+        missing = 0
+        for seg in _r.sealed_segments():
+            ck = _r.load_segment_checkpoint(seg)
+            if ck is None:
+                print(f"# segment {seg}: checkpoint missing or unreadable", file=sys.stderr)
+                missing += 1
+                continue
+            print(ck.canonical())
+            # The pin, on stderr so stdout stays exactly the records it is the hash of.
+            print(f"# segment {seg} checkpoint sha256 {ck.digest()}", file=sys.stderr)
+        # An incomplete set is what gets pinned externally — never report it as success.
+        return 1 if missing else 0
+
+    if getattr(args, "segment", None) is not None:
+        seg = int(args.segment)
+        if not _r.segment_path(seg).exists():
+            print(
+                f"no sealed segment {seg} (sealed: {_r.sealed_segments() or 'none'})",
+                file=sys.stderr,
+            )
+            return 1
+        verdict = _r.verify_segment(_r.segment_path(seg), _r.load_segment_checkpoint(seg))
+        print(f"segment {seg}: {verdict.statement}")
+        print(f"  path      {_r.segment_path(seg)}")
+        return 0 if verdict.ok else 1
+
     if args.export and not getattr(args, "verify", False):
         n = 0
         for rec in _r.read():
@@ -1062,6 +1123,9 @@ def cmd_receipts(args: argparse.Namespace) -> int:
     if verdict.total:
         saved = sum(r.tokens_saved for r in _r.read())
         print(f"  path      {_r.receipts_path()}")
+        segs = _r.sealed_segments()
+        if segs:
+            print(f"  segments  {len(segs)} sealed in {_r.segments_dir()} + the active file")
         print(f"  receipts  {verdict.total}")
         print(f"  tokens    {saved:,} saved across the chain")
         unresolved = [r.request_id for r in _r.read() if not r.restorable]
@@ -4219,6 +4283,40 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="resume from this machine's checkpoint and re-hash only what was appended since; "
         "the default re-hashes every receipt",
+    )
+    rc.add_argument(
+        "--segment",
+        type=int,
+        metavar="N",
+        help="verify one sealed segment against its Merkle checkpoint, reading no other segment",
+    )
+    rc.add_argument(
+        "--checkpoints",
+        action="store_true",
+        help="print every sealed segment's checkpoint (id, rows, first/last hash, Merkle root) "
+        "as JSONL, with each record's sha256 on stderr — the value to pin elsewhere",
+    )
+    rc.add_argument(
+        "--prove",
+        metavar="REQUEST_ID",
+        help="print a Merkle inclusion proof for one sealed receipt",
+    )
+    rc.add_argument(
+        "--check-proof",
+        metavar="FILE",
+        help="verify an inclusion proof (`-` for stdin); reads nothing but the proof",
+    )
+    rc.add_argument(
+        "--root",
+        metavar="HEX",
+        help="with --check-proof: a Merkle root you already trust — proves the receipt is in "
+        "that tree, not where",
+    )
+    rc.add_argument(
+        "--checkpoint-hash",
+        metavar="HEX",
+        help="with --check-proof: the sha256 of a checkpoint record you already trust (a line "
+        "of --checkpoints) — proves the receipt's segment and position too",
     )
     rc.set_defaults(func=cmd_receipts)
 

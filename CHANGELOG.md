@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and one hash that cost the whole chain to answer
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time
 
 The same shape keeps recurring below. The first half is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second half is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. Neither half is a new capability. Both are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -797,6 +797,73 @@ skips it going the other direction, and a line longer than one block just costs
 another block, never a wrong answer. Chain format, lock scope, and every caller's
 semantics are unchanged. On a synthetic 100,000-row chain the lookup goes from 325 ms
 to 0.18 ms.
+
+### The receipt chain is sealed into segments, each with a Merkle root an auditor can check alone
+
+The receipt chain is the artifact a team hands to someone who does not trust it, and it
+only grows: one file, re-hashed end to end to answer anything about any part of it. It is
+now split. When the active `receipts.jsonl` reaches the segment size, the append that
+finds it there (inside the same lock, one `stat` per request) seals it: a checkpoint is
+written first — segment id, row count, first and last receipt hash, and a Merkle root over
+the segment's receipt hashes with RFC 6962 leaf/node domain separation — and then the file
+is *renamed* into `receipts-segments/`. No receipt byte is rewritten, which is also the
+migration: a chain from before this verifies unchanged and becomes segment 0 on its first
+rotation. The next receipt links to the sealed segment's last hash, so every segment
+boundary is a chain link, and a deleted or reordered segment breaks the chain the same way
+a deleted receipt does.
+
+`distil receipts` still verifies the whole history, now including every segment against
+its checkpoint. `--segment N` verifies one sealed segment against its checkpoint and opens
+no other file. `--checkpoints` prints the checkpoint records to pin somewhere outside
+`~/.distil` (each record's sha256 goes to stderr) — whoever can write there can re-seal a
+segment and its checkpoint together. `--prove <request-id>` emits an inclusion proof for
+one sealed receipt; `--check-proof` re-hashes the receipt from its content, then walks the
+audit path (RFC 9162 §2.1.3.2), reading nothing but the proof. What a pass proves is
+exactly what was pinned. `--checkpoint-hash <sha256>` pins the whole checkpoint record —
+segment, row count, first/last hash, root — so the output names the receipt's segment and
+position. `--root <hex>` alone pins only the tree: it proves membership, and the output
+names no position, because the row count then comes from the proof unauthenticated and
+audit paths for different (index, size) pairs coincide (index 1 of 2 also verifies as
+index 2 of 3). With nothing pinned the proof is checked against its own checkpoint, which
+is circular; the output says `SELF-CONSISTENT ONLY` and the CLI warns on stderr. The path
+length is also checked against the claimed tree size, and every receipt field in a proof
+is type-checked, so a hostile bundle (`"handles": 5`) is a clean "malformed proof", not a
+traceback.
+
+The same type check now runs on every line of the chain, which forced a decision about
+lines that are not receipts. They are no longer silent. A JSON object that is not a valid
+receipt (`"handles": 5`, a string where a count belongs) is **BROKEN** at that line:
+no torn write produces a well-formed object, and distil's writer always writes every
+field with its type, so it can only be an edit — and it stays BROKEN after later receipts
+chain past it. A line that is not a JSON object at all (a torn trailing write after a
+crash, foreign text) keeps the existing contract, that it does not invalidate the real
+receipts around it, but the verdict now reads `VERIFIED WITH GAPS — … N lines are not a
+receipt and were skipped` instead of a clean `VERIFIED`, and the wrap exit line says so
+too. The resumed (`--fast`) pass carries that count in its resume point, so it reports
+the same number as the full pass. A checkpoint's schema field `v` is now validated as
+the integer 1; anything else is an unreadable checkpoint, and a checkpoint of another
+schema is a segment mismatch.
+
+Crash ordering is the design: checkpoint first, rename second. A crash between them leaves
+a checkpoint with no segment, which every reader ignores and the next seal overwrites, and
+the active file untouched; a crash after the rename leaves no active file, and
+`head_hash()` then reads the newest segment's tail — still a tail read, not a history
+scan — so the next receipt links correctly. A seal that fails is logged at debug and the
+receipt is appended to the active file anyway, and this process does not try again for
+a minute: a seal that keeps failing (an unwritable segments directory; on Windows, a
+reader holding the active file open) would otherwise re-parse the whole active file on
+every append, inside the lock every request waits on. The cheap steps that can fail —
+creating the directory, tightening it to 0700 even if it already existed — run before
+the parse. `verify()` runs without the append lock, so a seal landing mid-pass could make
+a healthy chain read as broken at the segment boundary; a failure is re-run once against
+a fresh listing when the listing changed, and a real break survives the retry. The resume point behind
+`distil receipts --fast` and the wrap exit line records which file its last receipt was in;
+a rename keeps that receipt's offsets, so the fast pass resumes straight across a seal, and
+a resume point written before this reads as file 0, which is exactly where the migrated
+chain lands. Segments and checkpoints are created 0600 in a 0700 directory, like the chain.
+
+One side fix, in the function this rewrote: `verify(path)` on an explicit file used to
+write this machine's resume point with offsets from that other file. It no longer does.
 
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
