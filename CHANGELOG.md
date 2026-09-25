@@ -1138,6 +1138,60 @@ chain lands. Segments and checkpoints are created 0600 in a 0700 directory, like
 One side fix, in the function this rewrote: `verify(path)` on an explicit file used to
 write this machine's resume point with offsets from that other file. It no longer does.
 
+### Fixed — a claim pointed at the one file that never had its numbers
+`docs/claims.json`'s `v-cache-aware-vs-naive` entry cited `docs/CACHE.md` for its 33% /
+11% / 2× figures. That file contains none of them — the coverage gate's `.md` skip is
+why nothing caught it. The figures are real (they are the `distil savings --trajectory
+corpus/sample_trajectory.json --pricing claude-opus-4-8` table already printed on
+`architecture.html` and `concepts.html`, and the "2×" figure is the separate live-adapter
+incident documented in `docs/cache-contract.html`), but no artifact had ever committed
+the underlying run. `benchmarks/results/cache-aware-vs-naive-2026-09-24.json` now holds
+that run's output — produced by executing `distil.compress.cache_aware.simulate` against
+the real corpus fixture, not invented — and the entry points at it.
+`tests/test_claims_coverage.py` no longer exempts `.md` artifacts from value-checking;
+the one other `.md`-backed entry (the re-read delta's 51.4%, ADR 0010) was checked
+against this tightened gate and passes.
+### Fixed — `distil discover --since` dropped a session whose only recent traffic failed
+`list_sessions()` derived `last_ts` from booked ledger rows and the manifest's
+`started_ts` alone. The ledger only ever gets a row once a request is billed, and
+`started_ts` is a session's birth, not its most recent activity — so a session whose
+only in-window traffic was a failed, unbooked request (bad key, upstream 5xx, client
+abort) read as stale under `--since` and was silently dropped from both `distil dissect`'s
+session picker and `distil discover`'s window, even though it had just been used, and this
+held even for a session with an old booked row on record: a request from 30 days ago does
+not make a failure five minutes ago any less recent. Every proxied request appends to
+`sessions/<sid>.requests.jsonl` regardless of outcome, so its mtime is now folded into
+`last_ts` unconditionally, alongside the ledger and the manifest — whichever source saw
+the most recent activity wins, rather than the requests file only being trusted when the
+ledger had nothing at all for that sid. New tests at both the `dissect.list_sessions()`
+and `discover.scan(since_days=...)` layers cover the previously-dropped cases, including
+the old-booked-row-plus-recent-failure shape.
+### Fixed — the "2×" figure was carried by a run that never measured it
+`v-cache-aware-vs-naive` above still bundled a "2×" value that its artifact,
+`benchmarks/results/cache-aware-vs-naive-2026-09-24.json`, does not state — that figure
+belongs to a different incident (the pre-1.45 live-adapter cache-bust bug) than the
+trajectory simulation the artifact actually ran. The artifact itself had also grown a
+`live_incident_2026` block describing that separate incident, which is the same failure
+mode this fix exists to close: a results artifact must hold only what its run measured.
+Removed the block, trimmed `v-cache-aware-vs-naive`'s `values` to the 33%/11% the artifact
+does state, and moved "2×" to its own entry, `u-live-cache-naive-2x`, marked `unsourced`
+with a `check_reason`: no committed artifact holds the live A/B's raw numbers, only the
+narrative writeup on `docs/cache-contract.html` and its retelling in `CHANGELOG.md` and
+`benchmark.html`. `EXPECTED_ENTRY_COUNT` in `tests/test_site_claims.py` moves 51 → 52 for
+the split.
+### Fixed — an old booked row could still mask a session's most recent failure
+The previous fix folded a session's `sessions/<sid>.requests.jsonl` mtime into `last_ts`
+only when the ledger had no booked row at all for that sid — which missed the more
+realistic shape of the same bug: a session booked once, long ago, whose only *recent*
+activity was a failed request. The old row won the `max()`, the session still read as
+stale under `--since`, and the fix didn't fix the case it was written for. The fold-in is
+now unconditional — ledger, manifest `started_ts`, and requests-file mtime all feed the
+same `max()`, so whichever source actually saw the most recent activity wins regardless of
+which of the three happens to be populated. The fixtures that broke under the unconditional
+rule were pinning their requests file's mtime to wall-clock "now" beside a synthetic
+historical `ts`; `os.utime`'d to match their own fixture clock instead of narrowing the
+rule to work around them. A new test pins the old-row-plus-recent-failure case.
+
 ## [1.53.0] — half of a re-read is a second copy, and a rewritten history is not a cache miss
 
 The through-line: the other end already has the bytes. Inside the conversation, half the
