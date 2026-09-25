@@ -1088,13 +1088,26 @@ _ELIGIBILITY_LABEL = {
     "tool_result_verbatim": "verbatim mode",
     "tool_result_learned_keep": "learned keep-byte-exact",
     "tool_result_declined": "digester declined",
+    "thinking_billed": "extended thinking (provider-signed, never rewritten)",
+    "compaction_billed": "server-side compaction summary (provider-signed, never rewritten)",
+    "signed_block_billed": "provider-signed opaque block (never rewritten)",
 }
 
 # Buckets that represent a deliberate protection rather than a missed opportunity.
 # Distinguished so a report can say "working as designed" without the reader having to
-# know which gate is which.
+# know which gate is which. thinking/compaction/signed-block bytes are pinned by a
+# provider signature distil cannot alter even in principle — that is not a gate distil
+# declined to open, so it must not count as "missed opportunity" in protected_share.
 _PROTECTED_REASONS = frozenset(
-    {"assistant_text", "tool_result_recent", "user_text", "tool_result_learned_keep"}
+    {
+        "assistant_text",
+        "tool_result_recent",
+        "user_text",
+        "tool_result_learned_keep",
+        "thinking_billed",
+        "compaction_billed",
+        "signed_block_billed",
+    }
 )
 
 

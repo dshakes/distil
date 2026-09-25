@@ -20,6 +20,33 @@ Claude Code, and that is the only traffic the soak has.
 
 Alongside them runs the same measurement turned outward. Every piece of statistical machinery in this repo already worked; none of it was ever shown to the person whose traffic it was measuring. That is not a gap in rigor, it is rigor that stayed in the library while the user got a savings number.
 
+### Anthropic server-side compaction: census gap fixed, passthrough pinned by contract tests
+
+Anthropic's Messages API now compacts context server-side (beta `compact-2026-01-12` /
+`compact-2026-09-04`) and returns a `compaction` content block whose `signature` the
+provider re-validates on replay: alter it, move it, or even re-encode it losslessly, and
+the next request 400s with `compaction_signature_invalid`. A new contract test suite
+(`tests/test_compaction_passthrough.py`, 22 cases) pins that distil's whole Anthropic path
+— `compress_messages` (digest/recency/provenance/rereaddelta), the SDK `wrap()` adapter,
+the proxy (`context_management` field + `anthropic-beta` header), and the streaming splice
+— never touches that block, both non-streaming and streaming, including when the
+tool_results around it ARE digested.
+
+Passthrough was already safe: the dispatch that makes it true predates this work (an
+unknown block type falls through untouched, the same guard that already protected
+`thinking`/`redacted_thinking`), and 18 of the 22 cases pass with no code change at all —
+they exist now as a contract so it stays true. The actual bug the suite found was a
+census gap: a `compaction` block's billed tokens were invisible to the eligibility census,
+the exact blind spot `thinking_billed` was added to close for extended thinking. Fixed by
+generalising that guard from an allowlist of two type strings to "provider-signed and
+opaque" (`compaction`, or any future block carrying a `signature`) so a cost distil cannot
+reduce is not also one it hides from the savings percentage — narrowed to exclude blocks
+with their own dedicated handling (`tool_result`, `text`, `tool_use`, `image`) so a stray
+`signature` key on one of those can't shadow its compression or its census. `dissect.py`'s
+protected/missed-opportunity split now recognises `compaction_billed` and
+`signed_block_billed` alongside `thinking_billed`, so a compaction- or thinking-heavy
+session reads as policy holding rather than a broken gate.
+
 ### The freshest read the agent asked for came back as a pointer
 
 ADR 0010 rule 0 says the newest tool output is never elided, for the reason the recency
