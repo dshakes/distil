@@ -9,16 +9,15 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 
 
-### Fixed: every upstream call distil makes is recorded and netted out of savings
+### Operating routines
 
-- Until now the per-request ledger kept one upstream call per client request: the first on the streaming `distil_expand` splice, the last on the buffered expand loops, and none at all on Chat Completions or Gemini. Shadow replays (on by default at 2%) were never netted out of any savings figure. Usage is now summed over every call, each record carries `upstream_calls` and `expand_requery_usage`, and the savings ledger nets both re-queries and shadow replays out of "saved". [docs/research/expand-undercount.md](docs/research/expand-undercount.md) bounds what this did to the published 10.2%: it is overstated by at least 1.0 percentage point, plausibly about 2. The published number is not changed here.
-
-### Added: what distil saves per session, measured causally, across model changes
-
-- **Randomised holdout.** 5% of new sessions by default are held out: the request goes upstream as the original bytes, with no compression, shaping, expand tool, cold-point or prefix replay. Under `distil wrap` the unit is the session, via an HMAC of an install secret and the session id, so a resumed wrap keeps its arm. Under a managed `distil proxy` it is the client's conversation, via Claude Code's own session id, persisted as a keyed hash. The rate is disclosed by `distil setup`, by `distil proxy`, by `distil ab`, and on every held-out wrap. `DISTIL_HOLDOUT_RATE=0` or `distil ab --holdout-rate 0` opts out. [ADR 0019](docs/adr/0019-task-level-ab-holdout.md).
-- **`distil ab`.** The headline is mean list-price cost per randomised session, distil against holdout, over every session that has ended, including failed ones. Its interval is an empirical-Bernstein confidence sequence on cost capped at $500 per session. That interval is anytime-valid with no normality assumed, because real session costs are heavy-tailed. Turns, tasks, cost per task and cost per turn are shown as mediators, never as the headline. Also shown: an efficient estimate (strata-pooled, CUPED, asymptotic), a bootstrap cross-check that says when it disagrees, a per-arm balance check, a difference-in-differences across a model rollout, and the cost of the holdout. When there is not enough data, the report says so up front: "Individual results take months to become conclusive: need ≈N sessions." `--json` and `distil.abtest.abtest_summary(window)` return the same result for other screens.
-- Per-request records now carry `arm`, `client` (name and major.minor), `user_turn` and, on managed installs, `conv` (a keyed hash). Randomised sessions are folded into `~/.distil/ab.jsonl` so they outlive the 7-day sweep. Nothing new goes to the census.
-- `benchmarks/abtest_montecarlo.py` reproduces every estimator number on [the A/B page](docs/ab.html) offline. That includes the type-I table across tail weights, and a case where distil makes sessions dearer while making cost per task look cheaper.
+- **Added — agentic operating routines.** `scripts/ops/adoption_report.py` (external-only
+  signals: stars, forks, traffic, external issues/PRs, PyPI downloads by OS — no census,
+  no maintainer activity), `ops/routines/*.md` (the six weekly/event-driven maintenance
+  prompts: adoption report, issue triage, claims/docs drift, cost-truth refresh, release
+  train, launch-calendar nudge), `.github/workflows/ops-adoption-report.yml` (weekly
+  artifact only), and `docs/ops.md`. Every routine drafts; none posts, merges, releases,
+  or spends without the maintainer's explicit go-ahead.
 
 ## [1.54.0] — 2026-09-25 — measured, enforced, verifiable
 

@@ -1,0 +1,39 @@
+# Weekly adoption report — external signals only (stars/forks/traffic/PyPI/external
+# issues+PRs), read-only `gh api` + pypistats. Uploads markdown+JSON as a workflow
+# artifact for the maintainer to read; posts nothing anywhere (no workflow in this repo
+# holds `issues: write`, so a pinned-issue comment is deliberately out of scope — see
+# docs/ops.md and ops/routines/weekly-adoption-report.md).
+#
+# Distinct from adoption-stats.yml: that one snapshots raw registry counters nightly
+# into the `metrics` branch (history, since GitHub's traffic API only keeps 14 days).
+# This one runs weekly and renders the human-facing digest — deltas, filters out the
+# maintainer's own activity, no census. Different cadence, different shape; kept apart
+# rather than bolted onto the nightly cron.
+name: ops-adoption-report
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Monday 03:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate report
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || github.token }}
+        run: |
+          mkdir -p /tmp/ops-adoption-report
+          python3 scripts/ops/adoption_report.py \
+            --json /tmp/ops-adoption-report/adoption-report.json \
+            > /tmp/ops-adoption-report/adoption-report.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: adoption-report-${{ github.run_number }}
+          path: /tmp/ops-adoption-report/
+          retention-days: 90
