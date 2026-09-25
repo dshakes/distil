@@ -3,7 +3,7 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
+## [Unreleased] — the rules the re-read delta was documented to follow, and the guard the other server already had, and the ninth command knows the other eight exist, and every public number reads from its artifact, and where you are still leaving savings on the table, and the verdict at the end of the session, and the alarm that acts, and one hash that cost the whole chain to answer, and an audit log you can hand over one receipt at a time, and the rules the re-read delta was documented to follow, the guard the other server already had, the ninth command knows the other eight exist, every public number reads from its artifact, where you are still leaving savings on the table, the verdict at the end of the session, and the config the agent was actually told to read
 
 Three threads, and the same shape keeps recurring below. The first is the re-read delta measured against its own written contract: rules stated in an ADR and not implemented in the path that runs them. The second is the exposed surfaces measured against the guards distil already applies elsewhere: a body the proxy refuses and the gateway read as empty, a tenant label the client-supplied header validates and the identity claim did not, a socket timeout the proxy sets and the component you actually bind to a network did not. The third is `distil wrap` measured against the agents it claims to reach: a preset verified from someone else's documentation rather than guessed at, and a config patched where that agent will actually look for it rather than where distil assumed. None of them is a new capability. All are the distance between what the documentation promises and what the code does, which is the one kind of defect a soak cannot be relied on to surface.
 
@@ -90,6 +90,114 @@ eligibility census total can legitimately exceed `x-distil-compressible-tokens` 
 Responses session; both the docstring and the doc now say so, and both the census tokens
 and the report's opaque-bucket labels are marked approximate — a heuristic count of
 base64 ciphertext, not the provider's real billed reasoning-token count.
+
+### The drift alarm stops the compression it catches, against the one budget everything else reads
+Two gaps, one shape. Before this, the anytime-valid drift e-process could print
+`BREACHED` at wrap exit while the proxy carried on compressing, because nothing on the
+request path imported `distil/drift.py`. The budget it bet against was also one of
+three thresholds nobody coordinated: the drift alarm's α, the conformal certificate's
+α, and `certify`'s TOST margin, each a literal in its own file. On the maintainer's own
+shadow ledger (read-only, 2026-09-24) that produced a real contradiction: the proof
+ledger printed `certified decision-change budget: intact` directly above a conformal
+bound that was over the budget.
+- **One risk budget.** `distil.conformal` now owns `BUDGET_ALPHA` (≤5% decision
+  change), `BUDGET_DELTA` (at 95% confidence) and `CERT_MARGIN` (the 2 pp TOST margin).
+  The conformal certificate, `certify-trajectories`, `calibrate`, the drift e-process,
+  the proof ledger's budget and risk lines, the proxy guard, and every CLI and library
+  default all read them at call time. No values changed. The TOST margin and the budget
+  measure the same estimand, and the margin is deliberately stricter, so a point that
+  just certified does not trip the live alarm on noise. A test now pins
+  `CERT_MARGIN ≤ BUDGET_ALPHA`, and another changes `BUDGET_ALPHA` and checks that the
+  certificate, drift, risk and guard verdicts all move with it.
+- **`intact` is earned.** When the e-process has not tripped, that means no breach has
+  been *proven*. It does not mean "within budget". The budget line now prints `intact`
+  only when the bound next to it is inside the budget. Otherwise it prints `unproven`.
+  The risk line now says `within` or `ABOVE` the budget.
+- **One e-process, written only by the proxies that feed it.** `drift.json` is the
+  e-process. Each proxy folds the paired shadow verdict it just produced into that file,
+  under a file lock, from the shadow thread (`drift.fold`). Loading inside the lock
+  means a restart, a hot-swap worker and a second wrap all continue the same capital,
+  so no row is bet twice and no restart takes a fresh look from stale capital. The
+  new tests show the restart path produces the exact same capital as one long-lived
+  process, and that the null false-alarm rate across simulated restarts stays at δ.
+  Wrap exit, `distil stats` and the status line only read the file; a reporting
+  command never writes it. Neither does `distil doctor`: its proxy self-test runs a
+  read-only guard, with no migration and no watcher thread. An existing old-format
+  `drift.json` is migrated once, on the first proxy start after this upgrade, by
+  rebuilding it from `shadow.jsonl` in file order. That is the same fold the exit
+  summary used to do. A *missing* `drift.json` is folded from `shadow.jsonl` once, but
+  only on a first-ever start: a fresh install, or an upgrade from a version that never
+  wrote the file. Starting those at zero would throw away harm evidence the machine had
+  already measured. If a release archive (`drift.json.reset-*`) sits beside the missing
+  file, the user has released before. That case starts fresh and never re-folds, or a
+  release whose fresh state was deleted or never written would re-trip on the very rows
+  it released. A quarantined `.corrupt-*` file does not count as a release. If both the
+  state file and every release archive are deleted, the machine looks like a first
+  install and re-bootstraps; that is accepted.
+- **A state file nobody can read is held, not reset.** A zero-length, garbage or
+  wrongly-typed `drift.json` used to load as a fresh monitor, and the next fold then
+  overwrote it, so a recorded breach could vanish. Now:
+  - It counts as held. The first writer copies it to `drift.json.corrupt-<time>-<ns>`
+    (a hard link, or a copy when linking fails), then atomically writes a held state
+    over the original that records the copy's name. The file is copied rather than
+    moved so there is no moment when `drift.json` is missing; a missing file would read
+    as released. If the held write fails, the corrupt file stays in place and is still
+    held. If the copy fails, the original is never overwritten. A second corruption gets
+    its own name.
+  - Every surface says `HELD — the drift state file was unreadable …`, followed by the
+    release command.
+  - Writes fsync before the atomic rename.
+  - Known limits, documented rather than built:
+    - When the advisory lock can't be taken, locking fails open. Two processes crossing
+      the threshold together can then each write a trip receipt; the hold itself is
+      unaffected.
+    - `.reset-*` and `.corrupt-*` archives are never pruned, because they are evidence.
+      They accumulate one per release or corruption.
+- **The alarm acts.** On a breach, the next request is served lossless-only: Tier-0, no
+  digest, no output shaping. The response carries `x-distil-mode: lossless-only` and
+  `x-distil-drift-guard: held`. `distil_expand` stays injected, so stubs already in the
+  history stay recoverable and the cached tools prefix keeps its shape. The hot-path
+  cost is one attribute read, with no per-request file I/O. Held requests are receipted
+  as byte-reversible (`lossless-only` is Tier-0). A request that issued digest handles
+  never is, whatever its mode. This also corrects `--lossless-only`, which the receipt
+  chain used to mislabel as not reversible.
+- **It persists globally, and every process sees it.** A trip is part of `drift.json`
+  and adds one `mode: drift-trip` event receipt (zero counts, `reversible: false`) to the
+  chain. It is written inside the same lock, so two processes crossing together produce
+  one receipt. The hold is global rather than per-session: the e-process and budget
+  already are, and a per-session hold would let the next `distil wrap` resume lossy
+  compression right after a certified breach. A long-running proxy, such as the launch
+  agent, stats the file every 30s from a daemon thread. It picks up another process's
+  trip, and a release, without a restart. The async proxy is already Tier-0, so a trip
+  there turns off output shaping. The multi-tenant gateway runs no shadow and is
+  deliberately exempt. One tenant's evidence must not hold every tenant; see
+  [ADR 0016](docs/adr/0016-drift-guard-scope.md).
+- **Visible where you look, releasable without collateral.** While a hold is on, the
+  status line shows `⚠ drift hold · distil reset --drift-guard`. The wrap exit summary
+  and `distil stats` say `BREACHED … compression held at lossless-only`, followed by
+  the same command. `distil reset --drift-guard` archives only the drift state and
+  leaves a fresh one, so the next start does not re-fold the same rows into the same
+  breach. Savings and shadow stats are untouched, and running proxies resume within
+  30s. If the release cannot archive the old state or write the fresh one, it says so
+  on stderr and exits 1; it never claims a release it did not make. `distil reset
+  --shadow` still releases the hold as well.
+- **Fail-open, on by default.** A guard that raises, or cannot load its state, serves the
+  request exactly as configured. `DISTIL_NO_DRIFT_GUARD=1` opts out of the hold. The
+  alarm still trips, and the proof line then says compression was *not* held.
+- **Upgrading with an e-process that has already tripped.** If an earlier version left a
+  `~/.distil/drift.json` that says BREACHED, the proxy starts held at lossless-only. That
+  is the alarm doing its job on evidence you already had. An old-format file that has
+  not tripped is rebuilt from `shadow.jsonl`, and it holds if that evidence crosses the
+  budget. With no `drift.json` at all (a version that never wrote one), the existing
+  shadow evidence is folded once on the first start, and it holds if it crosses the
+  budget. After
+  `distil calibrate`, release a hold with `distil reset --drift-guard`.
+- **Do not run an older distil side by side.** An older build still installed next to
+  this one, such as a second venv or a pinned launch agent, rewrites `drift.json` in
+  the old format at its own wrap exit. The next proxy start from this build then sees an
+  old-format file and rebuilds the e-process from `shadow.jsonl` again, from
+  `K_0 = 1`. Each alternation between the two versions is another look at the same rows,
+  so the one-e-process guarantee only holds when a single version writes the file.
 
 ### The freshest read the agent asked for came back as a pointer
 

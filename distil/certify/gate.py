@@ -12,6 +12,7 @@ import json
 from dataclasses import dataclass
 
 from ..compress.strategies import REGISTRY, Strategy
+from ..conformal import BUDGET_DELTA, CERT_MARGIN
 from ..replay.runner import AgentRunner, DeterministicRunner
 from ..trajectory import Trajectory
 from .stats import TostResult, tost
@@ -62,8 +63,8 @@ def certify(
     strategy: str | Strategy,
     *,
     runner: AgentRunner | None = None,
-    margin: float = 0.02,
-    alpha: float = 0.05,
+    margin: float = CERT_MARGIN,
+    alpha: float = BUDGET_DELTA,
     aa_control: bool = False,
 ) -> CertReport:
     """Certify decision-equivalence of *strategy* on *traj*.
@@ -92,8 +93,8 @@ def certify_pooled(
     strategy: str | Strategy,
     *,
     runner: AgentRunner | None = None,
-    margin: float = 0.02,
-    alpha: float = 0.05,
+    margin: float = CERT_MARGIN,
+    alpha: float = BUDGET_DELTA,
     aa_control: bool = False,
 ) -> CertReport:
     """One pooled TOST over EVERY turn of every trajectory.

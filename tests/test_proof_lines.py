@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 
 from distil.conformal import tight_risk_bound
-from distil.drift import BUDGET_ALPHA, BUDGET_DELTA, paired_loss
+from distil.conformal import BUDGET_ALPHA, BUDGET_DELTA
+from distil.drift import paired_loss
 from distil.shadow import SIG_VERSION, VERDICT_MIN_AA, VERDICT_MIN_AB, bootstrap_ci
 
 ARTIFACT = Path(__file__).resolve().parent.parent / "benchmarks/results/shadow-live-2026-09-15.json"
@@ -25,7 +26,11 @@ ARTIFACT = Path(__file__).resolve().parent.parent / "benchmarks/results/shadow-l
 def _write_paired(
     home: Path, diffs: list[int], *, out_a: int | None = None, out_b: int = 0
 ) -> None:
-    """Write paired shadow rows whose per-request difference is exactly ``diffs``."""
+    """Write paired shadow rows whose per-request difference is exactly ``diffs``, and
+    fold them into the drift e-process — what a proxy does with each verdict it records."""
+    from distil.drift import fold
+
+    fold(list(diffs))
     p = home / "shadow.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:
@@ -170,30 +175,46 @@ def test_risk_line_reports_the_bound_it_computed(tmp_path, monkeypatch):
 
 def test_budget_line_flips_to_breached_on_sustained_harm(tmp_path, monkeypatch):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
-    _write_paired(tmp_path, [0] * 60)
+    # Enough evidence for the bound to clear the budget: "intact" is earned, not assumed.
+    _write_paired(tmp_path, [0] * 200 + [1] * 20)
     from distil.proof_ledger import proof_lines
 
     assert "intact (e-value" in dict(proof_lines())["budget"]
     _write_paired(tmp_path, [-1] * 300)
-    assert "BREACHED at sample" in dict(proof_lines())["budget"]
+    line = dict(proof_lines())["budget"]
+    assert "BREACHED at sample" in line
+    assert "held at lossless-only" in line  # and it says the proxy acted on it
 
 
-def test_budget_line_follows_a_truncated_shadow_file(tmp_path, monkeypatch):
-    """End to end through the real reporting path: the drift state indexes into the
-    shadow ledger, so archiving shadow.jsonl outside `distil reset --shadow` must not
-    leave every surface quoting an n the file can no longer support."""
+def test_budget_line_never_says_intact_beside_a_bound_above_budget(tmp_path, monkeypatch):
+    """The regression this commit fixes: 60 neutral samples have not tripped the alarm,
+    but their bound is far above the budget — the old line printed "intact" next to it."""
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    _write_paired(tmp_path, [0] * 60)
+    from distil.proof_ledger import proof_lines
+
+    lines = dict(proof_lines())
+    assert "ABOVE the 5% budget" in lines["risk"]
+    assert "intact" not in lines["budget"]
+    assert "unproven" in lines["budget"]
+
+
+def test_reporting_is_read_only(tmp_path, monkeypatch):
+    """`distil stats` and wrap exit report the e-process; they must never write it. A
+    reporting command that folds (or arms a hold) is a second writer, and every second
+    writer is a second look at the same evidence."""
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
     from distil.proof_ledger import proof_lines
 
     _write_paired(tmp_path, [-1] * 200)
-    assert "BREACHED at sample" in dict(proof_lines())["budget"]
-
-    (tmp_path / "shadow.jsonl").unlink()  # archived by hand, state file left behind
-    _write_paired(tmp_path, [0] * 60)
+    before = (tmp_path / "drift.json").read_bytes()
     line = dict(proof_lines())["budget"]
-    assert "n=60" in line
-    assert "BREACHED" not in line
-    assert "restarted: the shadow stream was replaced" in line
+    assert "BREACHED at sample" in line and "distil reset --drift-guard" in line
+    assert (tmp_path / "drift.json").read_bytes() == before
+
+    (tmp_path / "drift.json").unlink()
+    dict(proof_lines())
+    assert not (tmp_path / "drift.json").exists(), "a report created state"
 
 
 def test_output_line_names_a_direction_only_when_the_ci_excludes_zero(tmp_path, monkeypatch):

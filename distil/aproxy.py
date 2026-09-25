@@ -163,6 +163,12 @@ def make_app(
     # until aproxy grows a streaming equivalent it must not emit an unrecoverable stub.
     # `_lossy_ok` still gates response shaping (opt-in) below.
     verbatim = True
+    # The drift guard (distil.drift): already Tier-0 here, so a trip only has response
+    # shaping left to switch off. aproxy runs no shadow, so it never trips one; its
+    # watcher picks up another process's trip (and release) without a restart.
+    from .drift import DriftGuard
+
+    _drift_guard = DriftGuard.start()
 
     # Eager-load the request-path module the handler otherwise imports lazily, so
     # an in-place upgrade never loads a post-upgrade .py mid-serve against the
@@ -304,7 +310,7 @@ def make_app(
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(max(0, before_tok - after_tok)),
                 }
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _lossy_ok and not _drift_guard.engaged:
                     from .output import shape_request
 
                     body = shape_request(body, level=shape_output, allow=True, shape="responses")
@@ -334,7 +340,7 @@ def make_app(
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
                 }
-                if shape_output != "off" and _lossy_ok:
+                if shape_output != "off" and _lossy_ok and not _drift_guard.engaged:
                     from .output import shape_request
 
                     _shape = "anthropic" if request.path == "/v1/messages" else "openai"

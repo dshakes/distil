@@ -163,17 +163,54 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def _release_drift_guard(stamp: str) -> bool | None:
+    """Archive the drift e-process and its lossless-only hold; print what happened.
+
+    True = released, False = nothing to release, None = FAILED (said on stderr, and the
+    command exits non-zero — a release that did not happen must never read as one)."""
+    import sys
+
+    from .drift import DriftGuard, release
+
+    try:
+        existed = release(stamp)
+    except OSError as exc:
+        print(
+            f"distil: could NOT release the drift guard — {exc}. Check that DISTIL_HOME "
+            "is writable and has space, then run `distil reset --drift-guard` again.",
+            file=sys.stderr,
+        )
+        return None
+    if not existed:
+        return False
+    print(
+        "drift alarm archived and reset — the lossless-only hold is released. Running "
+        f"proxies resume lossy compression within {DriftGuard.POLL_S:.0f}s; no restart needed."
+    )
+    return True
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     """Archive the savings ledger (and optionally shadow stats) and start fresh.
 
     Non-destructive: the ledger is renamed to ``savings.jsonl.reset-<utc>`` next
     to the original, so history is auditable but the statusline/leaderboard
-    start from zero on the current (post-1.10, record-after-2xx) accounting."""
+    start from zero on the current (post-1.10, record-after-2xx) accounting.
+
+    ``--drift-guard`` alone touches ONLY the drift alarm: a hold (true or false) must be
+    releasable without wiping the savings totals the status line and leaderboard show."""
     import time as _time
 
     from . import ledger
 
     stamp = _time.strftime("%Y%m%d-%H%M%SZ", _time.gmtime())
+    if getattr(args, "drift_guard", False) and not getattr(args, "shadow", False):
+        released = _release_drift_guard(stamp)
+        if released is None:
+            return 1
+        if not released:
+            print("nothing to reset — no drift alarm state recorded yet.")
+        return 0
     reset_any = False
     src = ledger.default_path()
     if src.exists():
@@ -194,16 +231,12 @@ def cmd_reset(args: argparse.Namespace) -> int:
             sh.rename(sh.with_name(sh.name + f".reset-{stamp}"))
             print("shadow decision-equivalence stats archived and reset")
             reset_any = True
-        # The drift e-process is derived from those rows and its trip is sticky, so a
-        # breach would outlive the evidence it was computed from. This is the
-        # documented reset for the alarm.
-        from .drift import _state_path
-
-        dr = _state_path()
-        if dr.exists():
-            dr.rename(dr.with_name(dr.name + f".reset-{stamp}"))
-            print("drift monitor archived and reset — the budget alarm starts over")
-            reset_any = True
+        # The drift e-process summarises those rows and its trip is sticky, so a breach
+        # would outlive the evidence it was computed from. Released with it.
+        released = _release_drift_guard(stamp)
+        if released is None:
+            return 1
+        reset_any = reset_any or released
     if not reset_any:
         print("nothing to reset — no ledger recorded yet.")
         return 0
@@ -1905,10 +1938,24 @@ def cmd_statusline(args: argparse.Namespace) -> int:
         for h in ("127.0.0.1", "localhost")
     )
 
+    def _drift_chip() -> str | None:
+        """The live surface for a drift-alarm hold: a trip mid-session changes what
+        every later request does, so it cannot wait for the wrap exit summary."""
+        try:
+            from .drift import RELEASE_CMD, held_now
+
+            return c("1;38;5;220", f"⚠ drift hold · {RELEASE_CMD}") if held_now() else None
+        except Exception:  # noqa: BLE001 — a status line must never error out
+            return None
+
+    drift_chip = _drift_chip()
+
     # MINIMAL is opt-in (DISTIL_STATUSLINE=minimal|lite|compact) — a two-fact
     # segment for crowded composite lines: this session's saving + lifetime.
     if os.environ.get("DISTIL_STATUSLINE", "").lower() in ("minimal", "lite", "compact"):
         mseg = [c("1;38;5;79", "distil")]
+        if drift_chip:
+            mseg.append(drift_chip)
         if s is None or s.runs == 0:
             if _bypass_suspected():
                 mseg.append(c("38;5;220", "⚠ bypassed"))
@@ -1955,6 +2002,8 @@ def cmd_statusline(args: argparse.Namespace) -> int:
     )  # ponytail: newest overall mode; pass a session id if mixed-mode panes ever matter
     if _mode_chip:
         parts.append(c(*_mode_chip))
+    if drift_chip:
+        parts.append(drift_chip)
     if s is None or s.runs == 0:
         if not _routed:
             parts.append(c("38;5;73", "no savings yet · distil wrap -- <agent>"))
@@ -4265,6 +4314,8 @@ research / CI internals:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from . import conformal as _budget  # the one risk budget; see conformal.BUDGET_ALPHA
+
     p = argparse.ArgumentParser(
         prog="distil",
         description="Compression with a quality contract.",
@@ -4417,7 +4468,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="archive the savings ledger and start fresh (non-destructive)",
     )
     rs.add_argument(
-        "--shadow", action="store_true", help="also archive/reset shadow decision-equivalence stats"
+        "--shadow",
+        action="store_true",
+        help="also archive/reset shadow decision-equivalence stats, the drift alarm, and its lossless-only hold",
+    )
+    rs.add_argument(
+        "--drift-guard",
+        action="store_true",
+        help="release a drift-alarm hold (lossless-only) ONLY — savings and shadow stats "
+        "are left untouched; running proxies resume within 30s",
     )
     rs.set_defaults(func=cmd_reset)
 
@@ -4437,13 +4496,13 @@ def build_parser() -> argparse.ArgumentParser:
     ce.add_argument(
         "--margin",
         type=float,
-        default=0.02,
+        default=_budget.CERT_MARGIN,
         help="TOST non-inferiority margin (max tolerated decision-change rate)",
     )
     ce.add_argument(
         "--alpha",
         type=float,
-        default=0.05,
+        default=_budget.BUDGET_DELTA,
         help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
     )
     ce.add_argument(
@@ -4485,13 +4544,13 @@ def build_parser() -> argparse.ArgumentParser:
     be.add_argument(
         "--margin",
         type=float,
-        default=0.02,
+        default=_budget.CERT_MARGIN,
         help="TOST non-inferiority margin (max tolerated decision-change rate)",
     )
     be.add_argument(
         "--alpha",
         type=float,
-        default=0.05,
+        default=_budget.BUDGET_DELTA,
         help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
     )
     be.add_argument(
@@ -4608,8 +4667,10 @@ def build_parser() -> argparse.ArgumentParser:
     bn.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
     bn.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
     bn.add_argument("--tokenizer", default="heuristic", choices=("heuristic", "anthropic"))
-    bn.add_argument("--margin", type=float, default=0.02, help="TOST non-inferiority margin")
-    bn.add_argument("--alpha", type=float, default=0.05, help="significance level")
+    bn.add_argument(
+        "--margin", type=float, default=_budget.CERT_MARGIN, help="TOST non-inferiority margin"
+    )
+    bn.add_argument("--alpha", type=float, default=_budget.BUDGET_DELTA, help="significance level")
     bn.add_argument(
         "--external",
         action="append",
@@ -4664,9 +4725,17 @@ def build_parser() -> argparse.ArgumentParser:
         "conformal",
         help="decision-equivalence risk certificate (distribution-free guarantee)",
     )
-    cf.add_argument("--alpha", type=float, default=0.05, help="max decision-change rate to certify")
     cf.add_argument(
-        "--delta", type=float, default=0.05, help="LTT failure probability (1−confidence)"
+        "--alpha",
+        type=float,
+        default=_budget.BUDGET_ALPHA,
+        help="max decision-change rate to certify",
+    )
+    cf.add_argument(
+        "--delta",
+        type=float,
+        default=_budget.BUDGET_DELTA,
+        help="LTT failure probability (1−confidence)",
     )
     cf.add_argument("--method", default="ltt", choices=("ltt", "crc"))
     cf.add_argument("--corpus", help="calibration corpus dir (e.g. your ingested traffic)")
@@ -4692,7 +4761,7 @@ def build_parser() -> argparse.ArgumentParser:
     cal.add_argument(
         "--margin",
         type=float,
-        default=0.05,
+        default=_budget.BUDGET_ALPHA,
         help="max tolerated task-success drop as a proportion (default 0.05 = 5 pp)",
     )
     cal.add_argument("--json", help="write the calibration certificate to this path")
@@ -5229,8 +5298,12 @@ def build_parser() -> argparse.ArgumentParser:
         "outcomes",
         help="JSONL of matched runs: {task_id, full_success, compressed_success} per line",
     )
-    ct.add_argument("--alpha", type=float, default=0.05, help="max degradation risk to certify")
-    ct.add_argument("--delta", type=float, default=0.05, help="confidence budget (1-δ)")
+    ct.add_argument(
+        "--alpha", type=float, default=_budget.BUDGET_ALPHA, help="max degradation risk to certify"
+    )
+    ct.add_argument(
+        "--delta", type=float, default=_budget.BUDGET_DELTA, help="confidence budget (1-δ)"
+    )
     ct.add_argument("--json", action="store_true", help="machine-readable output")
     ct.set_defaults(func=cmd_certify_trajectories)
 
