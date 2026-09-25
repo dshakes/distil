@@ -18,6 +18,7 @@ turns for a drift ratio) are the part that makes the report trustworthy.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -1103,6 +1104,43 @@ class TestWindowing:
         # own aggregation.
         d = dz.dissect("sPersist", since_ts=NOW - 7 * 86400)
         assert d.baseline_tokens == 10_000  # the old 1,000,000-token row is excluded
+
+    def test_since_days_keeps_a_session_whose_only_in_window_activity_is_unbooked(
+        self, home: Path
+    ) -> None:
+        """No booked ledger row, ever, and a manifest `started_ts` from a month ago —
+        the ledger and the manifest both say "nothing recent". A failed request
+        landing inside the window must still surface the session as
+        `sessions_all_unbooked` rather than the window silently acting as if it
+        never happened."""
+        _manifest("sFail")
+        mp = home / "sessions" / "sFail.json"
+        man = json.loads(mp.read_text(encoding="utf-8"))
+        man["started_ts"] = NOW - 30 * 86400
+        mp.write_text(json.dumps(man), encoding="utf-8")
+
+        append_session_request(
+            {
+                "ts": NOW - 3600,  # inside a 1-day window
+                "model": "claude-opus-4-8",
+                "status": 529,
+                "booked": False,
+                "mode": "digest",
+                "compressible_tokens": 0,
+                "tokens_saved": 0,
+                "overhead_tokens": 0,
+                "system_tokens": 0,
+                "tools_tokens": 0,
+                "tools": [],
+                "usage_input_tokens": 0,
+                "blocks": [],
+            },
+            "sFail",
+        )
+        os.utime(home / "sessions" / "sFail.requests.jsonl", (NOW - 3600, NOW - 3600))
+
+        r = dv.scan(since_days=1.0)
+        assert r.sessions_all_unbooked == 1
 
     def test_no_since_days_is_unaffected_by_the_bounding_fix(self, seeded: Path) -> None:
         """The default (no `--since`) path must dissect every row exactly as

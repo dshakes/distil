@@ -33,6 +33,18 @@ Every preset also refuses to invent a credential: if the api-key env var it
 would embed isn't set, it prints why and leaves the tool's config untouched
 (same rule ``proxy.wrap_run``'s ``extra_env`` already follows).
 
+A preset is handed the wrapped command's argv, because several of these tools
+let the child be TOLD where its config lives — and patching the default then
+writes a real file that nobody reads. Cline takes ``--config`` (the settings
+dir itself), ``--data-dir`` (two levels above it) and ``CLINE_DATA_DIR`` (one
+level above it); Crush follows ``XDG_CONFIG_HOME``. Where exactly one of those
+is in play the preset follows it. Where several are, and the tool documents no
+precedence between them, ``ConfigPathUnresolved`` names them and the wrap
+refuses — guessing is how you patch the wrong file and still report success.
+``cn`` refuses for the mirror-image reason: it injects by appending its OWN
+``--config``, so a user who passed one would be silently overridden, or
+silently lose to it.
+
 Every write that can put a credential on disk — the real config file, and
 its ``.distil-backup`` copy of what was there before — goes through
 ``_atomic_write_secure``: 0600-at-creation (POSIX) plus a same-directory
@@ -45,16 +57,35 @@ separate case, covered by the existing ``finally``/signal-handling in
 ``proxy.wrap_run`` for anything short of SIGKILL, and by
 ``restore_stale_backups()`` at the top of the next ``distil wrap`` for that.
 
-Two `distil wrap` sessions can legitimately be patching the same config at
-once (a second wrap of any tool calls ``restore_stale_backups()``
-unconditionally). ``_claim_session``/``_release_session`` track that with a
-per-target-path registry of pid-tagged entries, so a live sibling's
-backup/sentinel is never mistaken for crash leftovers, and whichever session
-turns out to be the LAST one running does the real restore — regardless of
-exit order. Every claim-and-write and release-and-restore transition holds
-``_session_lock(path)`` for its whole extent, so a release's "no live
-siblings remain" check and a fresh sibling's claim can never straddle each
-other — the failure mode a lock-free registry check alone still allows.
+Two `distil wrap` sessions must NEVER be patching the same config at once,
+and the second one is refused. The registry of pid-tagged entries maintained
+by ``_claim_session``/``_release_session`` used to be treated as making
+concurrency safe; it isn't, and it never was. What it makes safe is the
+shared BACKUP — whose bytes to restore, which session does the restoring, and
+telling a live sibling's bookkeeping apart from a crashed one's leftovers.
+What it cannot make safe is the patch itself, because every preset writes the
+same active provider entry (``distil``) pointing at ITS OWN proxy port, and
+one file cannot name two ports. Two live sessions on one config gave: B
+repoints the file at B's proxy, so A's traffic silently flows through B's
+session and lands in B's ledger; A exits first and its proxy dies, leaving
+the config B is still using pointed at a dead port; B exits last and restores
+the pre-wrap backup under a session that has already gone. Nor can B simply
+reuse A's proxy — A owns that proxy's lifetime and takes it down when A's
+agent exits.
+
+So ``_own_config`` refuses, raising ``ConfigTargetBusy`` before it writes
+anything, whenever ``_live_holder`` finds a registrant whose pid is still
+running; ``cmd_wrap`` asks ``busy_holder()`` first so the usual case is a
+clean non-zero exit with no proxy started. Running several agents through
+distil at once is what ``distil default`` is for: one long-lived proxy, no
+config patching. Dead registrants are reaped exactly as before, so a
+SIGKILLed session never blocks the next wrap.
+
+Every claim-and-write and release-and-restore transition still holds
+``_session_lock(path)`` for its whole extent — the busy check included, so
+two wraps starting in the same instant cannot both pass it — and whichever
+session turns out to be the last one running still does the real restore,
+regardless of exit order.
 
 The registry says who is running; it does NOT say whether the shared backup
 exists. ``_own_config`` decides that from the backup file itself, in the
@@ -62,10 +93,12 @@ same critical section as the claim and strictly before the patch, so no
 crash can leave a config patched with nothing to restore it from. Patching
 is idempotent for every strategy that touches a real file — droid and crush
 key their entry (drop-and-re-append / dict assignment), omp strips its own
-marker fence before splicing a new one — so re-patching an already-patched
-config replaces the ``distil`` entry instead of stacking a second one; cn
-never re-patches anything, since it renders a fresh self-contained temp
-config per invocation and leaves the user's own files alone.
+marker fence before splicing a new one, cline assigns into its providers map
+— so a wrap that runs against a config still carrying a ``distil`` entry
+(one a `kill -9` left behind, restored or not) replaces it rather than
+stacking a second one; cn never re-patches anything, since it renders a
+fresh self-contained temp config per invocation and leaves the user's own
+files alone.
 """
 
 from __future__ import annotations
@@ -75,8 +108,9 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -88,7 +122,7 @@ from distil import _filelock
 _MARKER_BEGIN = "# --- distil wrap: injected, restored on exit ---"
 _MARKER_END = "# --- end distil wrap ---"
 
-ApplyFn = Callable[[str, str], "contextlib.AbstractContextManager[list[str]]"]
+ApplyFn = Callable[[str, str, Sequence[str]], "contextlib.AbstractContextManager[list[str]]"]
 
 
 def _family(upstream: str) -> str:
@@ -233,6 +267,80 @@ def _pid_is_alive(pid: int) -> bool:
         return True  # couldn't ask — fail-safe, assume alive
 
 
+class ConfigWrapRefused(RuntimeError):
+    """Config injection must not proceed, and the wrap must not run regardless.
+
+    Both subclasses share one shape: distil would otherwise write to a file the
+    child is not going to read, or fight a live session for one, and either way
+    ``wrap`` would report success while routing nothing. ``cmd_wrap`` catches
+    this base class, renders ``.render()`` exactly once, and exits non-zero.
+    """
+
+    def render(self) -> str:  # pragma: no cover - every subclass overrides it
+        raise NotImplementedError
+
+
+class ConfigPathUnresolved(ConfigWrapRefused):
+    """The child was told where its config lives, and distil cannot be sure.
+
+    An agent that accepts more than one way to relocate its config — Cline
+    takes ``--config``, ``--data-dir`` AND ``CLINE_DATA_DIR``, each rooted at a
+    different depth — publishes no precedence between them. Picking one would
+    be a guess, and a wrong guess patches a file the child never reads while
+    reporting success: exactly the Kilo shadowing bug in another costume. So
+    the combination is named and refused instead.
+    """
+
+    def __init__(self, label: str, sources: list[str]) -> None:
+        self.label = label
+        self.sources = sources
+        super().__init__(f"{label}: cannot resolve the config path from {', '.join(sources)}")
+
+    def render(self) -> str:
+        joined = "\n        ".join(self.sources)
+        return (
+            f"\n  ✗ distil wrap: {self.label} was given more than one way to locate\n"
+            f"    its configuration, and its docs do not say which one wins:\n\n"
+            f"        {joined}\n\n"
+            f"    distil will not guess — patching the wrong one would route nothing\n"
+            f"    while reporting success. Re-run with just one of them, or use the\n"
+            f"    always-on proxy, which patches no config at all:\n"
+            f"        distil default --always-on\n"
+        )
+
+
+class ConfigTargetBusy(ConfigWrapRefused):
+    """Another *live* ``distil wrap`` session already owns this config file.
+
+    Concurrent wraps of the same config-file target cannot be made to work by
+    sharing, and the registry alone was never enough to make them safe. The
+    registry protects the shared BACKUP — whose bytes to restore, and which
+    session does the restoring — but every preset writes the same active
+    provider entry (``distil``) pointing at ITS OWN proxy port. So two live
+    sessions on one config produced: B repoints the file at B's proxy, so A's
+    requests silently flow through B's session and land in B's ledger; A exits
+    first, its proxy dies, and the config B is still using now names a dead
+    port; B exits last and restores the pre-wrap backup, under a session that
+    is gone anyway.
+
+    "Have B reuse A's proxy" does not fix it either: A owns that proxy's
+    lifetime and will take it down whenever A's agent exits, leaving B routed
+    at nothing. Two sessions genuinely need two ports, and one file cannot name
+    two ports. So the second wrap is refused instead — before anything is
+    touched — and the user is pointed at ``distil default``, which is the
+    supported way to have many launches share one long-lived proxy without
+    patching any config at all.
+    """
+
+    def __init__(self, path: Path, pid: int) -> None:
+        self.path = path
+        self.pid = pid
+        super().__init__(f"{path} is already owned by a live distil wrap (pid {pid})")
+
+    def render(self) -> str:
+        return busy_message(self.path, self.pid)
+
+
 def _registry_dir(path: Path) -> Path:
     return path.with_name(path.name + ".distil-sessions")
 
@@ -246,6 +354,65 @@ def _prune_dead_registrants(registry_dir: Path) -> None:
         pid_str = entry.name.split(".", 1)[0]
         if not pid_str.isdigit() or not _pid_is_alive(int(pid_str)):
             entry.unlink(missing_ok=True)
+
+
+def _live_holder(registry_dir: Path) -> int | None:
+    """The pid of a live session registered against this path, or ``None``.
+
+    Dead registrants are reaped first, exactly as ``restore_stale_backups``
+    does, so a session that was SIGKILLed can never block the next wrap — the
+    only thing that blocks is a process that is genuinely still running.
+    Callers hold ``_session_lock(path)`` across this and whatever they do with
+    the answer, so a claim cannot slip in behind it.
+    """
+    _prune_dead_registrants(registry_dir)
+    try:
+        entries = sorted(entry.name for entry in registry_dir.iterdir())
+    except FileNotFoundError:
+        return None
+    for name in entries:
+        pid_str = name.split(".", 1)[0]
+        if pid_str.isdigit():
+            return int(pid_str)
+    return None
+
+
+def busy_holder(preset: ConfigPreset, argv: Sequence[str] = ()) -> tuple[Path, int] | None:
+    """``(path, pid)`` if a live wrap already owns one of this preset's config
+    files, else ``None``. Used by ``cmd_wrap`` to refuse a second concurrent
+    wrap of the same target cleanly — before a proxy is started or a byte is
+    written. ``_own_config`` re-checks under its own lock, so this being
+    advisory (a sibling could start in the gap) costs correctness nothing; it
+    just makes the common case a tidy exit instead of an aborted injection.
+    """
+    for path in preset.paths(argv):
+        with _session_lock(path):
+            pid = _live_holder(_registry_dir(path))
+        if pid is not None:
+            return path, pid
+    return None
+
+
+def busy_message(path: Path, pid: int) -> str:
+    """What to tell someone whose second wrap was refused. Names the holder,
+    and leads with the thing that actually solves their problem rather than
+    with the refusal.
+
+    Rendered in exactly one place — ``cli.cmd_wrap``, for both the pre-check
+    and the ``ConfigTargetBusy`` it may catch out of ``wrap_run``. Nothing
+    inside this module prints it; the exception carries the path and the pid so
+    the caller decides how (and whether) to show them."""
+    return (
+        f"\n  ✗ distil wrap: {path} is already being managed by a live\n"
+        f"    distil wrap session (pid {pid}). A config file can only name one\n"
+        f"    proxy, and two sessions need two — so wrapping it twice would\n"
+        f"    route this session's traffic through the other one's proxy, and\n"
+        f"    leave whichever session outlives the other pointed at a dead port.\n\n"
+        f"    To run several agents through distil at once, use the always-on\n"
+        f"    proxy instead — one long-lived port, no config patching at all:\n"
+        f"        distil default --always-on\n"
+        f"    Or wait for pid {pid} to exit and run this again.\n"
+    )
 
 
 def _session_lock(path: Path) -> contextlib.AbstractContextManager[None]:
@@ -386,6 +553,19 @@ def _own_config(path: Path, render: Callable[[bytes | None], bytes]) -> Iterator
     backup = _backup_path(path)
     sentinel = _created_marker(path)
     with _session_lock(path):
+        # Refusing a second live session on one config happens HERE, inside the
+        # same lock as the claim, rather than only in cmd_wrap's pre-check:
+        # otherwise two wraps starting at the same moment both pass the
+        # pre-check and both patch. Nothing has been written at this point, so
+        # raising leaves the file exactly as it was found. See ConfigTargetBusy
+        # for why sharing one config between two sessions cannot be made to work.
+        holder = _live_holder(_registry_dir(path))
+        if holder is not None:
+            # Raise, never print. The exception already carries the path and
+            # the pid, and ``cmd_wrap`` is the single place that renders
+            # ``busy_message`` — for its own pre-check and for this. Printing
+            # here as well showed the user the same seven-line refusal twice.
+            raise ConfigTargetBusy(path, holder)
         registry_dir, my_id = _claim_session(path)
         current = path.read_bytes() if path.exists() else None
         if not backup.exists() and not sentinel.exists():
@@ -416,7 +596,13 @@ class ConfigPreset:
     apply: ApplyFn
     #: Stable paths this preset ever writes to directly (not temp files) —
     #: swept by restore_stale_backups() for crash recovery. Empty for "flag".
-    paths: Callable[[], list[Path]]
+    paths: Callable[[Sequence[str]], list[Path]]
+    #: Doc metadata, joined with AGENT_PRESETS' in ``targets.catalog()``: the
+    #: wire shape the proxy must speak for this target, and the config key the
+    #: preset writes. Both are printed by ``distil wrap --list`` and rendered
+    #: into the README/docs tables, so a table can't drift from the code.
+    shape: str
+    knob: str
     #: Upstream to use when the CLI got no explicit --upstream and no
     #: AGENT_PRESETS entry supplied one either (config-file presets are a
     #: separate registry from AGENT_PRESETS, so they'd otherwise silently
@@ -442,7 +628,16 @@ class ConfigPreset:
 
 
 @contextlib.contextmanager
-def _continue_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _continue_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
+    # This preset works by APPENDING its own `--config <temp>`. If the user
+    # already passed one, distil would be overriding the configuration they
+    # explicitly chose — and which of the two `cn` honours is not documented,
+    # so it is equally possible distil's is ignored and the wrap routes
+    # nothing. Refuse and say so rather than silently win or silently lose.
+    if _flag_value(argv, "--config") is not None:
+        raise ConfigPathUnresolved(
+            "Continue", ["your own --config", "the session config distil would pass"]
+        )
     family = _family(upstream)
     provider, model, key_var = (
         ("anthropic", "claude-opus-4-8", "ANTHROPIC_API_KEY")
@@ -500,7 +695,7 @@ def _factory_settings_path() -> Path:
 
 
 @contextlib.contextmanager
-def _droid_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _droid_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     if _family(upstream) != "openai":
         print(
             "  ⚠ Factory Droid: only the OpenAI-compatible provider type "
@@ -627,7 +822,7 @@ def _omp_patch(text: str | None, fenced: str) -> str:
 
 
 @contextlib.contextmanager
-def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _omp_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     family = _family(upstream)
     key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
     api_key = os.environ.get(key_var, "")
@@ -675,11 +870,24 @@ def _omp_apply(upstream: str, base: str) -> Iterator[list[str]]:
 
 
 def _crush_config_path() -> Path:
-    return Path.home() / ".config" / "crush" / "crush.json"
+    """Crush "respects the XDG Base Directory Specification, so your paths may
+    differ depending on your ``XDG_CONFIG_HOME`` value" (its own README,
+    verified 2026-09-16) — so that variable is read rather than assumed. The
+    same class of bug as Cline's ``--data-dir``: patch ``~/.config`` while the
+    child reads ``$XDG_CONFIG_HOME`` and the wrap routes nothing while
+    reporting success.
+
+    Crush has no flag that relocates its config, so there is nothing in argv to
+    consult. Its project-local ``./crushrc`` DOES outrank this file, but that
+    is a shell script distil deliberately does not splice; see the preset's
+    note above."""
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(xdg) if xdg else Path.home() / ".config"
+    return root / "crush" / "crush.json"
 
 
 @contextlib.contextmanager
-def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
+def _crush_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
     family = _family(upstream)
     key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
     api_key = os.environ.get(key_var, "")
@@ -727,6 +935,158 @@ def _crush_apply(upstream: str, base: str) -> Iterator[list[str]]:
         yield []
 
 
+# ---------------------------------------------------------------------------
+# Cline CLI (`cline`) — providers.<id>.settings.baseUrl in
+# ~/.cline/data/settings/providers.json.
+#
+# Cline was previously declined here for having "no published schema". It has
+# one; it just isn't on the docs site. Verified 2026-09-16 against cline/cline
+# on `main`:
+#   * the file's location and the CLINE_DATA_DIR override are documented
+#     (docs.cline.bot/cli/cli-reference, "Configuration Files" and
+#     "Environment Variables": ~/.cline/data/settings/providers.json, and
+#     CLINE_DATA_DIR "replaces ~/.cline/data/");
+#   * its shape is the zod schema StoredProviderSettings in
+#     sdk/packages/core/src/types/provider-settings.ts — version: 1,
+#     lastUsedProvider, modes, and providers: Record<id, {settings, updatedAt,
+#     tokenSource}> — and a committed fixture of exactly that file lives at
+#     apps/cli/src/tests/configs/default/data/settings/providers.json;
+#   * each entry's `settings` is ProviderSettingsSchema
+#     (sdk/packages/core/src/services/llms/provider-settings.ts), whose
+#     `baseUrl` is documented in `toProviderConfig` as taking precedence over
+#     the regional API line AND the provider default, and whose `protocol` /
+#     `client` enums carry "anthropic" and "openai-chat"/"openai-compatible";
+#   * `lastUsedProvider` is what the CLI resolves the active provider from
+#     (ProviderSettingsManager.getLastUsedProviderSettings in
+#     sdk/packages/core/src/services/storage/provider-settings-manager.ts), so
+#     the injected entry is actually selected rather than merely present.
+#
+# `updatedAt` is required by the schema (z.string().datetime()), so it is
+# written as a real UTC timestamp rather than omitted — a missing field would
+# make Cline reject the whole file, including the user's own providers.
+# ---------------------------------------------------------------------------
+
+
+def _flag_value(argv: Sequence[str], flag: str) -> str | None:
+    """The value of ``--flag value`` or ``--flag=value`` in ``argv``, last
+    occurrence winning (the near-universal CLI convention, and the safe choice
+    either way: if the tool took the FIRST one we would merely refuse a
+    combination we could have handled, never patch the wrong file).
+
+    Stops at a bare ``--``: everything after it is the agent's own payload, not
+    flags distil gets to interpret.
+    """
+    found: str | None = None
+    for i, arg in enumerate(argv):
+        if arg == "--":
+            break
+        if arg == flag:
+            if i + 1 < len(argv):
+                found = argv[i + 1]
+        elif arg.startswith(flag + "="):
+            found = arg[len(flag) + 1 :]
+    return found
+
+
+def _cline_providers_path(argv: Sequence[str] = ()) -> Path:
+    """Where THIS invocation of Cline will read its providers from.
+
+    Cline publishes three different ways to move that file, each rooted at a
+    different depth (docs.cline.bot/cli/cli-reference, verified 2026-09-16):
+
+      ``--config <path>``     the settings directory itself, default
+                              ``~/.cline/data/settings``
+      ``--data-dir <path>``   "isolated local state", default ``~/.cline``
+      ``CLINE_DATA_DIR``      "replaces ``~/.cline/data/``"
+
+    Patching the default while the child was told to read somewhere else is the
+    failure this whole module exists to prevent, so all three are honoured. The
+    reference does NOT document what happens when more than one is given, and
+    they do not nest predictably — so that combination raises
+    ``ConfigPathUnresolved`` rather than picking a winner.
+    """
+    config_dir = _flag_value(argv, "--config")
+    data_dir_flag = _flag_value(argv, "--data-dir")
+    data_dir_env = os.environ.get("CLINE_DATA_DIR") or None
+
+    given = [
+        (f"--config {config_dir}", lambda: Path(config_dir or "")),
+        (f"--data-dir {data_dir_flag}", lambda: Path(data_dir_flag or "") / "data" / "settings"),
+        (f"CLINE_DATA_DIR={data_dir_env}", lambda: Path(data_dir_env or "") / "settings"),
+    ]
+    supplied = [
+        (label, resolve)
+        # ponytail: no zip(strict=) — 3.9 is the supported floor; both sides are 3 literals.
+        for (label, resolve), value in zip(given, (config_dir, data_dir_flag, data_dir_env))
+        if value
+    ]
+    if len(supplied) > 1:
+        raise ConfigPathUnresolved("Cline", [label for label, _ in supplied])
+    if supplied:
+        return supplied[0][1]() / "providers.json"
+    return Path.home() / ".cline" / "data" / "settings" / "providers.json"
+
+
+@contextlib.contextmanager
+def _cline_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
+    family = _family(upstream)
+    key_var = "ANTHROPIC_API_KEY" if family == "anthropic" else "OPENAI_API_KEY"
+    api_key = os.environ.get(key_var, "")
+    if not api_key:
+        print(
+            f"  ⚠ Cline: {key_var} is not set — skipping the providers.json "
+            "entry (never inventing a credential)."
+        )
+        yield []
+        return
+
+    path = _cline_providers_path(argv)
+    provider, protocol, client = (
+        ("anthropic", "anthropic", "anthropic")
+        if family == "anthropic"
+        else ("openai", "openai-chat", "openai-compatible")
+    )
+
+    def _render(current: bytes | None) -> bytes:
+        try:
+            doc = json.loads(current) if current else {}
+            if not isinstance(doc, dict):
+                raise ValueError("providers.json root is not an object")
+        except (json.JSONDecodeError, ValueError):
+            # ponytail: an unparseable providers.json is treated as empty, the
+            # same call crush.json makes — the ORIGINAL bytes are backed up and
+            # restored untouched either way, and Cline would have rejected the
+            # file it could not parse too.
+            doc = {}
+        providers = doc.get("providers")
+        if not isinstance(providers, dict):
+            providers = {}
+        # Idempotent: keyed assignment, so re-patching replaces our entry
+        # rather than stacking a second one.
+        providers["distil"] = {
+            "settings": {
+                "provider": provider,
+                "apiKey": api_key,
+                "baseUrl": base,
+                "protocol": protocol,
+                "client": client,
+            },
+            "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "tokenSource": "manual",
+        }
+        doc["providers"] = providers
+        doc["version"] = 1
+        doc["lastUsedProvider"] = "distil"
+        return (json.dumps(doc, indent="\t") + "\n").encode("utf-8")
+
+    with _own_config(path, _render):
+        print(
+            f'  → wrote provider "distil" into {path} and made it the '
+            "last-used provider — `cline` picks it up on its next session"
+        )
+        yield []
+
+
 CONFIG_PRESETS: dict[str, ConfigPreset] = {
     "cn": ConfigPreset(
         label="Continue",
@@ -734,7 +1094,9 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://docs.continue.dev/cli/configuration",
         verified="2026-09-06",
         apply=_continue_apply,
-        paths=lambda: [],  # temp file only — nothing stable to sweep
+        paths=lambda argv: [],  # temp file only — nothing stable to sweep
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="config.yaml → models[].apiBase (via --config)",
     ),
     "droid": ConfigPreset(
         label="Factory Droid",
@@ -742,7 +1104,9 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://docs.factory.ai/model-independence/byok",
         verified="2026-09-06",
         apply=_droid_apply,
-        paths=lambda: [_factory_settings_path()],
+        paths=lambda argv: [_factory_settings_path()],
+        shape="OpenAI Chat Completions",
+        knob="settings.local.json → customModels[].baseUrl",
         # _droid_apply hard-requires an OpenAI-shaped upstream (only
         # "generic-chat-completion-api" is verified) — without this, a bare
         # `distil wrap -- droid` inherited cmd_wrap's hardcoded Anthropic
@@ -755,7 +1119,9 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://github.com/omnara-ai/omp",
         verified="2026-09-06",
         apply=_omp_apply,
-        paths=lambda: [_omp_models_path()],
+        paths=lambda argv: [_omp_models_path()],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="models.yml → baseUrl",
     ),
     "crush": ConfigPreset(
         label="Crush",
@@ -763,18 +1129,42 @@ CONFIG_PRESETS: dict[str, ConfigPreset] = {
         doc_url="https://github.com/charmbracelet/crush/blob/main/docs/config/README.md",
         verified="2026-09-07",
         apply=_crush_apply,
-        paths=lambda: [_crush_config_path()],
+        paths=lambda argv: [_crush_config_path()],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="crush.json → providers.<id>.base_url",
     ),
+    "cline": ConfigPreset(
+        label="Cline",
+        strategy="patch",
+        doc_url="https://docs.cline.bot/cli/cli-reference",
+        verified="2026-09-16",
+        apply=_cline_apply,
+        paths=lambda argv: [_cline_providers_path(argv)],
+        shape="Anthropic Messages or OpenAI Chat Completions",
+        knob="providers.json → providers.<id>.settings.baseUrl",
+    ),
+    # Kilo Code is NOT here. It briefly was, patching ~/.config/kilo/kilo.json —
+    # which Kilo's own documented precedence has a project-local ./kilo.json
+    # override, so in any repo carrying one the patch went to a file the child
+    # never read while `wrap` reported success. Kilo turns out to publish a
+    # higher-precedence knob that touches no file at all; see
+    # onboard.AGENT_ENV_TEMPLATES["kilo"].
 }
 
 
-def restore_stale_backups() -> None:
+def restore_stale_backups(argv: Sequence[str] = ()) -> None:
     """Crash recovery: call once at the top of every `distil wrap`. If a
     prior wrap died before its `finally` ran (SIGKILL, power loss, `kill -9`),
     the backup or the created-sentinel is still sitting next to the real
     file — put it back (or delete what we created) so the tool sees the same
     state it started in. Fail-open and silent on success; this must never
     block a wrap that has nothing to do with a previous one.
+
+    ``argv`` is this wrap's command, so a target whose config path depends on
+    the child's own flags (Cline's ``--config``/``--data-dir``) is swept at the
+    path THIS invocation would use as well as at its default. A crash under
+    flags nobody repeats is still not swept — nothing knows where to look — but
+    re-running the same command now cleans up after the last one.
 
     A backup/sentinel next to a target isn't proof of a crash by itself — a
     still-running sibling `distil wrap` session on the SAME config keeps its
@@ -798,7 +1188,16 @@ def restore_stale_backups() -> None:
     an unexpected error — must not be able to stop the wrap from running.
     """
     for preset in CONFIG_PRESETS.values():
-        for path in preset.paths():
+        paths = []
+        for candidate_argv in ((), argv) if argv else ((),):
+            try:
+                paths.extend(preset.paths(candidate_argv))
+            except ConfigWrapRefused:
+                # An argv distil refuses to resolve (Cline given two conflicting
+                # location flags) still must not stop the default sweep, and
+                # cmd_wrap will refuse the wrap itself a moment later anyway.
+                pass
+        for path in dict.fromkeys(paths):
             try:
                 _restore_one(path)
             except Exception:  # noqa: BLE001 — old cleanup must never block a new wrap

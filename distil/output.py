@@ -17,13 +17,23 @@ real, complementary mechanisms:
    OAuth) and **measured**: `measure_output_savings` reports the token reduction
    *and* the rate at which the underlying answer is preserved, with a bootstrap
    CI. We never claim a reduction without checking the answer survived.
+
+`resolve_shape_output` is what decides whether (2) runs. It is `auto` by default
+on a metered session and answers to the same live referee every other surface
+reports — the paired shadow verdict and its certified harm budget — so shaping
+is on exactly while the evidence says it is safe and paying, and off with a
+stated reason otherwise. It reads only shadow rows measured with shaping OFF, so
+shaping can never be kept on by evidence it produced itself.
 """
 
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
+from pathlib import Path
 
+from .conformal import CERT_MARGIN
 from .certify.holdout import bootstrap_ci
 from .compress.tier1 import Tier1Reversible
 from .tokenizer import DEFAULT, Tokenizer
@@ -103,6 +113,165 @@ def shape_request(
     messages = list(body.get("messages", []))
     messages.append({"role": "system", "content": directive})
     return {**body, "messages": messages}
+
+
+# --- adaptive mode: when is shaping allowed to be on? -----------------------
+
+#: What ``--shape-output`` accepts. ``auto`` is the default on metered sessions —
+#: per the project rule, intelligence is the default and a flag is an opt-OUT.
+SHAPE_MODES = ("auto", "off", "light", "aggressive")
+
+#: The level ``auto`` turns ON. Never ``aggressive``: an automatic decision gets the
+#: conservative directive; the strongest lossy setting stays a thing you ask for.
+AUTO_LEVEL = "light"
+
+#: The harm budget ``auto`` holds shaping to — the pre-registered certification
+#: margin, not a number of its own. Swap point when the single risk budget lands.
+SHAPE_HARM_MARGIN = CERT_MARGIN
+
+#: How far back ``auto`` reads shadow evidence — the same 7-day recent window
+#: ``distil stats`` uses for its "recent" savings line.
+SHAPE_EVIDENCE_DAYS = 7
+
+
+@dataclass(frozen=True)
+class ShapeDecision:
+    """What shaping this session runs, and the one sentence saying why.
+
+    ``requested`` is what the user (or the default) asked for; ``level`` is what
+    actually runs. They differ exactly when ``auto`` resolved, or when the
+    subscription boundary suppressed an explicit request.
+    """
+
+    level: str
+    reason: str
+    requested: str
+
+    @property
+    def on(self) -> bool:
+        return self.level != "off"
+
+    @property
+    def line(self) -> str:
+        return f"output shaping {self.level} — {self.reason}"
+
+
+def resolve_shape_output(
+    requested: str, *, lossy_ok: bool, path: Path | None = None
+) -> ShapeDecision:
+    """Decide this session's output shaping from the live evidence.
+
+    The rule, in order:
+
+    * **Not PAYG** — a subscription/OAuth session never has its prompt altered
+      (``policy.may_compress_lossy``), so shaping is off whatever was asked for.
+      This is a boundary, not a preference; it is checked first and alone.
+    * **Explicit ``off``/``light``/``aggressive``** — the user decided; run it.
+    * **``auto``** — on only when the SAME referee every other surface reports
+      says so:
+
+      1. the paired decision-equivalence verdict is at or above the reporting
+         floor (:func:`shadow.floor_note`'s 50 A/B + 30 A/A), and
+      2. its harm bound — the lower end of the paired difference interval — is
+         inside the pre-registered certification budget
+         (:data:`conformal.CERT_MARGIN`), and
+      3. the shadow output-token delta excludes zero on the saving side, over at
+         least as many samples as the verdict floor.
+
+    Condition 3 measures the effect of *input* compression on reply length, not
+    of shaping — a shaping A/B needs a live model and cannot be run at session
+    start. It is used as an enabling signal: it says the replies on THIS traffic
+    move in the shorter direction when the prompt changes, and it is the only
+    live output-side evidence that exists before the session runs. What shaping
+    itself costs is measured by :func:`measure_output_savings`.
+
+    **Evidence to turn ON comes only from rows measured with shaping OFF.** Once
+    shaping is on, the shadow B arm carries the directive, so its "shorter
+    replies" is shaping measuring itself — a gate fed those rows would keep itself
+    on by construction. Every row is tagged with its levers (:func:`shadow.lever`);
+    rows that predate the tag are excluded too, because their shaping state is
+    unknown.
+
+    **Evidence to turn OFF also comes from shaped rows.** They are the only rows
+    that measure the directive's own decision-change effect, so once they clear
+    the reporting floor their harm bound must sit inside the same budget, or
+    shaping goes off. Without this, ``auto`` could turn shaping on but never off.
+
+    Both sets are read over the last :data:`SHAPE_EVIDENCE_DAYS` only, so an "on"
+    decision cannot rest forever on traffic that has since changed.
+
+    Reading the ledger is startup-only — never on the request path.
+    """
+    if requested not in SHAPE_MODES:
+        raise ValueError(f"unknown shape-output mode {requested!r}; choose {sorted(SHAPE_MODES)}")
+    if not lossy_ok:
+        return ShapeDecision(
+            "off",
+            "subscription/OAuth session — distil never alters a flat-rate prompt",
+            requested,
+        )
+    if requested != "auto":
+        return ShapeDecision(requested, "explicitly requested", requested)
+
+    from .shadow import VERDICT_MIN_AB, ShadowLedger, floor_note, lever
+
+    since = time.time() - SHAPE_EVIDENCE_DAYS * 86400
+    # ponytail: two passes over the file, startup-only; one split pass if it ever shows up.
+    led = ShadowLedger.load(
+        path, current_only=True, since_ts=since, where=lambda r: lever(r, "shape") == "off"
+    )
+    shaped = ShadowLedger.load(
+        path,
+        current_only=True,
+        since_ts=since,
+        where=lambda r: lever(r, "shape") not in (None, "off"),
+    )
+    eq = led.equivalence()
+    if eq.below_floor:
+        return ShapeDecision(
+            "off", f"auto: {floor_note(eq.n_ab, eq.n_aa)} (unshaped rows only)", requested
+        )
+    harm = eq.diff_ci[0] if eq.diff_ci else None
+    if harm is None or harm < -SHAPE_HARM_MARGIN:
+        return ShapeDecision("off", f"auto: {_harm_note(harm)}", requested)
+    # Shaping's OWN harm: only shaped rows measure it. Below the floor there is no
+    # evidence either way, which must not block the first "on" — the drift e-process
+    # (the `budget` line) watches every row in the meantime.
+    s_eq = shaped.equivalence()
+    s_harm = s_eq.diff_ci[0] if s_eq.diff_ci else None
+    if not s_eq.below_floor and (s_harm is None or s_harm < -SHAPE_HARM_MARGIN):
+        return ShapeDecision(
+            "off", f"auto: with shaping on, {_harm_note(s_harm)} (n={s_eq.n_ab})", requested
+        )
+    cost = led.cost()
+    if cost is None or cost.n < VERDICT_MIN_AB:
+        n = 0 if cost is None else cost.n
+        return ShapeDecision(
+            "off", f"auto: only {n} priced shadow sample(s); need {VERDICT_MIN_AB}", requested
+        )
+    if cost.out_delta_ci[1] >= 0:
+        return ShapeDecision(
+            "off",
+            f"auto: reply-length effect does not exclude zero on the saving side "
+            f"([{cost.out_delta_ci[0]:+.1f}, {cost.out_delta_ci[1]:+.1f}] tokens/request, "
+            f"n={cost.n}) — no evidence shaping pays here",
+            requested,
+        )
+    return ShapeDecision(
+        AUTO_LEVEL,
+        f"auto: {eq.pct:.1f}% decision-equivalence (harm bound {harm * 100:+.1f}pp within "
+        f"±{SHAPE_HARM_MARGIN * 100:.0f}pp) and replies already {-cost.out_delta_mean:.0f} "
+        f"tokens shorter under compression, n={cost.n}",
+        requested,
+    )
+
+
+def _harm_note(harm: float | None) -> str:
+    shown = "unmeasured" if harm is None else f"{harm * 100:+.1f}pp"
+    return (
+        f"decision-equivalence harm bound {shown} is outside the certified "
+        f"budget (±{SHAPE_HARM_MARGIN * 100:.0f}pp)"
+    )
 
 
 # --- lossless output re-entry digest ----------------------------------------
