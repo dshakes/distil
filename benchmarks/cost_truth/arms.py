@@ -23,7 +23,7 @@ LOCKS = Path(__file__).resolve().parent / "locks"
 
 CLAUDE_CODE_VERSION = "2.1.282"  # npm @anthropic-ai/claude-code latest, 2026-09-25
 HARBOR_VERSION = "0.23.0"  # PyPI harbor; wheel sha256 8747400dbb2a5e22…
-TASK_DATASET = "terminal-bench@2.1"  # Harbor registry id (README shows terminal-bench@2.0)
+TASK_DATASET = "terminal-bench/terminal-bench-2-1"  # Harbor hub id (89 tasks); resolved version is recorded in the run manifest
 
 #: Downloaded once on the host by ``live.prepare_tools``, sha256-verified, then bind-mounted
 #: read-only into every task container at ``HOST_MOUNT``. Name -> (url, sha256).

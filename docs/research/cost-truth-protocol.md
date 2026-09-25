@@ -439,7 +439,7 @@ uv run python -m benchmarks.cost_truth live --phase pilot --i-approve-spend 92.0
 ```
 
 It refuses unless the approval equals the pilot cap to the cent, then: verifies and mounts
-the pinned artifacts, downloads `terminal-bench@2.1` with Harbor 0.23.0 if absent, samples
+the pinned artifacts, downloads `terminal-bench/terminal-bench-2-1` (89 tasks; the id `terminal-bench@2.1` in the first draft did not exist — corrected 2026-09-25 before any data) with Harbor 0.23.0 if absent, samples
 10 tasks with the committed seed, runs the four canaries, then 10 tasks × 2 seeds × 4 arms
 (80 runs, ≤ 4 concurrent, 360 s same-task spacing) under one $92.07 hard cap. It writes
 content-free results to `benchmarks/results/cost_truth/pilot-<ts>/` (runs, per-request meter
