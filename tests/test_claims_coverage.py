@@ -493,7 +493,7 @@ def test_claim_artifact_exists_and_states_its_values(entry: dict):
 
     # Source files cited as artifacts (harness.py, provenance.py, shadow.py) back
     # a mechanism, not a measurement; a number check against them is meaningless.
-    if artifact.is_file() and artifact.suffix in {".py", ".md"}:
+    if artifact.is_file() and artifact.suffix == ".py":
         return
 
     stated = _numbers_in(artifact)

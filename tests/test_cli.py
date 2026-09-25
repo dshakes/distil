@@ -10,19 +10,22 @@ import argparse
 
 
 def test_wrapping_an_ide_extension_says_so_instead_of_routing_nothing(capsys):
-    """An IDE extension has no argv to wrap and reads no base-URL variable.
+    """A target with no base-URL contract reads no variable `wrap` can set.
 
     Wrapping one would set a variable nothing reads: the wrap reports success, the
-    editor talks straight to the provider, and the user sees zero savings with no
-    explanation. Say it before the session starts, and name the path that works.
+    tool talks straight to the provider, and the user sees zero savings with no
+    explanation. Say it before the session starts, name the path that works, and
+    cite the doc the claim came from — this is an assertion about someone else's
+    product and it goes stale.
     """
     from distil.cli import _warn_if_ide_not_wrappable
 
     _warn_if_ide_not_wrappable("cursor")
     err = capsys.readouterr().err
-    assert "IDE extension" in err
+    assert "route NOTHING" in err
     assert "distil proxy" in err, "must name the mechanism that actually works"
     assert "IDE-AGENTS.md" in err
+    assert "https://" in err, "a claim about another tool must cite its source"
 
     _warn_if_ide_not_wrappable("claude")  # a real CLI must stay silent
     assert capsys.readouterr().err == ""

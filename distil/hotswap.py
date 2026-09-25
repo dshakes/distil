@@ -91,12 +91,13 @@ class WorkerConfig:
     upstream: str
     lossless_only: bool = False
     verbatim: bool = False
-    shape_output: str = "off"
+    shape_output: str = "auto"
     record: bool = True
     pricing_model: str = "claude-opus-4-8"
     expand: bool = False
     session_delta: bool = False
     prefix_replay: bool = True
+    cold_point: bool = True
     shadow_rate: float = 0.0
     retention_rate: float = 0.0
 
@@ -201,6 +202,7 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
         expand=cfg.expand,
         session_delta=cfg.session_delta,
         prefix_replay=cfg.prefix_replay,
+        cold_point=cfg.cold_point,
         shadow_rate=cfg.shadow_rate,
         retention_rate=cfg.retention_rate,
     )

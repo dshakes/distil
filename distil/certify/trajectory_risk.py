@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from ..conformal import hb_pvalue, ltt_certify, tight_risk_bound
+from ..conformal import BUDGET_ALPHA, BUDGET_DELTA, hb_pvalue, ltt_certify, tight_risk_bound
 
 
 @dataclass(frozen=True)
@@ -97,8 +97,8 @@ _ASSUMPTIONS = (
 def certify_trajectory_risk(
     outcomes: Sequence[TrajectoryOutcome],
     *,
-    alpha: float = 0.05,
-    delta: float = 0.05,
+    alpha: float = BUDGET_ALPHA,
+    delta: float = BUDGET_DELTA,
     min_n: int = 20,
 ) -> TrajectoryRiskCertificate:
     """Test H0: trajectory-degradation risk > *alpha* at confidence 1-*delta*.
@@ -159,9 +159,9 @@ def drift_monitor(alpha: float = 0.05, delta: float = 0.05):
 
     An anytime-valid monitor for the certificate's exchangeability assumption.
 
-    Superseded on the live path by :func:`distil.drift.live_monitor`, which feeds the
-    same e-process from shadow mode's paired rows and prints its verdict in the wrap
-    exit summary. This factory has no callers.
+    Superseded on the live path by :func:`distil.drift.fold`, which feeds the same
+    e-process from shadow mode's paired rows, holds the proxy at lossless-only on a
+    breach, and whose verdict the wrap exit summary prints. This factory has no callers.
 
     Feed it every post-deployment trajectory loss (``monitor.update(loss)``);
     it returns True — and the certificate must be considered STALE and
