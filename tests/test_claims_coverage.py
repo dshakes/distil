@@ -70,7 +70,6 @@ NON_CLAIMS: dict[str, dict[str, str]] = {
         "10×": "Anthropic's published cache-read discount, not a distil measurement",
         "2×": "quotes the cache-busting incident's headline, covered by v-cache-aware-vs-naive",
         "87%": "quotes someone else's marketing claim in order to refuse it",
-        "99%": "the status line's glyph threshold (distil/cli.py), a constant not a result",
         "2.1×": "named only to say the 0.27.0-era ratio does not survive the re-run",
     },
     "docs/benchmark.html": {
@@ -97,12 +96,6 @@ NON_CLAIMS: dict[str, dict[str, str]] = {
     },
     "docs/faq.html": {
         "7\u00d7": '"roughly 7x safer" restates v-provider-compaction\'s 92.5%-vs-12.5% ratio',
-        "3×": "`--shadow 1.0` issues three replays per request; arithmetic, not a measurement",
-        "99%": "the status line's glyph threshold (distil/cli.py), a constant not a result",
-    },
-    "docs/getting-started.html": {
-        "2%": "the default shadow sample rate, a flag value not a result",
-        "10×": "Anthropic's published cache-read discount, not a distil measurement",
         "3×": "`--shadow 1.0` issues three replays per request; arithmetic, not a measurement",
         "99%": "the status line's glyph threshold (distil/cli.py), a constant not a result",
     },

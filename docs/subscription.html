@@ -58,6 +58,7 @@
         <li><a href="research.html">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -69,9 +70,12 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="mcp.html">MCP Compressor <span class="nav-badge">New</span></a></li>
         <li><a href="corpus.html">Corpus</a></li>
         <li><a href="output.html">Output &amp; I/O</a></li>
       </ul>
@@ -154,9 +158,16 @@ distil quota              # see the window it is saving</code></pre>
     is produced, and <em>no</em> hook event can rewrite history. Compression is append-only because
     the platform makes it so &mdash; not because we remembered to be careful.</p>
 
-    <p>The same property forces the tier: with no way to rewrite history, a digest stub could never be
-    expanded back, so a recall tool would be useless even if we wanted one. <strong>Lossless-only is
-    both the correct tier and the compliant one.</strong></p>
+    <p>The same policy as the proxy sets the tier: <strong>on a subscription the hook is
+    lossless-only by default.</strong> Lossless-only is both the correct tier and the compliant one.
+    If you want more, you can opt in explicitly &mdash; <code>distil hook install --digest</code> (or
+    <code>distil setup --hooks --digest</code>) &mdash; and the hook adds the proxy&rsquo;s Tier-1 digest
+    for verbose line output. Each stub is emitted only after the original is written to distil&rsquo;s
+    local restore store and read back byte-exact, and it names the <code>distil expand
+    &lt;handle&gt;</code> command that recovers it; no tool is injected and nothing is intercepted. The
+    opt-in is recorded, and <code>distil hook status</code> shows which tier is active and why. On a
+    metered API key the digest is on by default, as it is on the proxy. See <a href="hooks.html">Post-tool
+    hooks</a>.</p>
 
     <h2 id="setup">Set it up &mdash; three commands</h2>
 
@@ -187,7 +198,7 @@ distil quota              # see the window it is saving</code></pre>
   PASS  bash preserves unknown keys
   PASS  bash refuses: stderr present
   ...
-16/16 checks passed</code></pre>
+21/21 checks passed</code></pre>
 
     <p>Then run something with big, repetitive output in a real session &mdash; <code>cat</code> a
     large JSON file, or a verbose test run &mdash; and check the window before and after with
@@ -312,19 +323,26 @@ Subscription quota (the currency a flat-rate plan actually spends):
       <thead><tr><th>Agent</th><th>Can a hook rewrite tool output?</th><th>Status</th></tr></thead>
       <tbody>
         <tr><td>Claude Code</td><td><code>PostToolUse</code> &rarr; <code>updatedToolOutput</code></td><td><strong>Supported today</strong></td></tr>
-        <tr><td>Gemini CLI</td><td><code>AfterTool</code> exists, but replacement is indirect</td><td>Under evaluation</td></tr>
-        <tr><td>Codex CLI</td><td>Hooks are observe-only; <code>updatedMCPToolOutput</code> is rejected</td><td>Blocked upstream</td></tr>
+        <tr><td>Cursor</td><td><code>postToolUse</code> &rarr; <code>updated_mcp_tool_output</code>, MCP tools only</td><td><strong>Supported</strong> (MCP output)</td></tr>
+        <tr><td>Gemini CLI</td><td><code>AfterTool</code> &rarr; <code>decision: "deny"</code> + <code>reason</code> replaces the result</td><td><strong>Supported</strong></td></tr>
+        <tr><td>Codex CLI</td><td><code>PostToolUse</code> &rarr; <code>decision: "block"</code> + <code>reason</code> replaces the result (<code>updatedMCPToolOutput</code> is still unsupported)</td><td><strong>Supported</strong></td></tr>
+        <tr><td>Windsurf</td><td>Post hooks are observe-only</td><td>Unsupported</td></tr>
       </tbody>
     </table>
     </div>
 
-    <p>For agents without a rewrite hook, the proxy and the in-process library remain the paths, and on
+    <p>Re-checked 2026-09-25; sources and install commands are on <a href="hooks.html">Post-tool
+    hooks</a> (<code>distil setup --hooks</code> installs every detected one). For agents without a
+    rewrite hook, the proxy and the in-process library remain the paths, and on
     a metered key both reach the full reversible digest tier.</p>
 
     <h2 id="scope">Honest scope</h2>
 
     <ul>
-      <li><strong>Lossless only.</strong> No digest stubs, no injected recall tool, no summarization.</li>
+      <li><strong>Lossless only, by default.</strong> No digest stubs, no injected recall tool, no
+      summarization. The recoverable digest is an explicit opt-in (<code>--digest</code>), recorded and
+      shown by <code>distil hook status</code>. Hooks installed before this release stay
+      lossless-only until you re-install.</li>
       <li><strong>Bash and MCP tool results only</strong>, at or above 2&nbsp;KB. Other built-in tools
       have undocumented output shapes and a near-miss is silently ignored, so distil declines them
       rather than guessing.</li>

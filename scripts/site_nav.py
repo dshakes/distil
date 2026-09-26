@@ -38,6 +38,7 @@ LEARN: list[tuple[str, str, str | None]] = [
     ("research.html", "Research &amp; Frontier", None),
     ("provider-compaction.html", "Provider Compaction", "New"),
     ("evals.html", "Evaluation", None),
+    ("ab.html", "Task-level A/B", "New"),
     ("benchmark-independent.html", "Independent Benchmark", "New"),
     ("benchmark.html", "Live Benchmark", None),
     ("benchmarks.html", "Reproduce Benchmarks", None),
@@ -56,9 +57,12 @@ COURSE_MODULES: list[tuple[str, str]] = [
 REFERENCE: list[tuple[str, str, str | None]] = [
     ("library.html", "Library API", "New"),
     ("cli.html", "CLI Reference", None),
+    ("hooks.html", "Post-tool Hooks", "New"),
+    ("code-skeletons.html", "Code Skeletons", "New"),
     ("adapters.html", "Adapters", None),
     ("metrics.html", "Metrics &amp; Observability", None),
     ("cache.html", "Prompt Caching", "New"),
+    ("mcp.html", "MCP Compressor", "New"),
     ("corpus.html", "Corpus", None),
     ("output.html", "Output &amp; I/O", None),
 ]

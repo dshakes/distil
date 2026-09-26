@@ -1,6 +1,6 @@
 <!-- mcp-name: io.github.dshakes/distil -->
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="Distil — compression with a quality contract" width="100%"/>
+  <img src="docs/assets/banner.svg" alt="Distil — cuts what your coding agent costs you, and shows you the real bill, cache included" width="100%"/>
 </p>
 
 <p align="center">
@@ -14,39 +14,34 @@
   <a href="https://dshakes.github.io/distil/adoption.html"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdshakes%2Fdistil%2Fmetrics%2Fdata%2Fbadges%2Fdownloads-real.json" alt="PyPI installs/month, bot-filtered"/></a>
 </p>
 
-<h2 align="center">Something is rewriting your agent's context.<br/>Distil measures what it cost you.</h2>
+<h3 align="center">Distil cuts what Claude Code and other coding agents cost you —<br/>and shows you the real bill, cache included.</h3>
 
-<p align="center"><b>Your provider now edits the context window for you — clearing old tool results, summarizing history — by default, server-side, with no report of what changed.</b><br/>Distil is the instrument that answers the only question that matters: <b>did the agent still do the same thing?</b></p>
+<!-- TODO(first-impression): replace with a real screenshot of `distil savings` once that
+     screen ships. No mock here on purpose: a made-up savings screen is a made-up number. -->
 
-<table align="center">
-<tr><td>
+**About 9% off the real bill.** On the maintainer's own Claude Code traffic — 13,191 requests, 1–24 September 2026 — distil saved an estimated **10.2%** of what the bill would otherwise have been (**$286 on $2,510**, cache reads and writes priced in) before its own spend was netted out. Counting the expand re-queries and shadow replays that measurement left out, the corrected estimate is **8.3–9.2%** ([how](docs/research/expand-undercount.md)). Your share depends on how much large, repetitive tool output your agent reads ([why](#-compression-modes--in-plain-english)). [Source data →](benchmarks/results/2026-09-24/live_savings_decomposition.json)
 
-**We pointed it at the providers.** Anthropic's **default** context-editing policy (`keep=3`) changed the
-agent's next action in **95–100% of cases**, against a 2.5% A/A noise floor. Keeping the 3 most recent
-tool uses didn't lower the change rate at all — it turned *stalling* into *acting on missing facts*.
-OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per run.
+```bash
+uv tool install distil-llm && distil setup
+```
 
-**[Read the study →](https://dshakes.github.io/distil/provider-compaction.html)** · [rerun it on your own config](https://dshakes.github.io/distil/provider-compaction.html#reproduce)
+<sub>Or: `curl -LsSf https://dshakes.github.io/distil/install.sh | sh` · `brew install dshakes/tap/distil` · Windows: `powershell -ExecutionPolicy ByPass -c "irm https://dshakes.github.io/distil/install.ps1 | iex"`</sub>
 
-</td></tr>
-</table>
+```bash
+distil wrap -- claude      # run your agent through distil (or let `distil setup` make it always-on)
+distil savings             # what it saved you, from your own traffic
+distil doctor              # if something looks off
+```
 
-<p align="center">Distil also <b>compresses</b> — the tool output, logs, and history your agent re-sends every turn, reversibly.<br/>It's the one context operation that ships with its own certificate, its own adversarial gate, and a number it is willing to refuse to print.</p>
+`distil wrap -- claude` also keeps Claude Code's MCP tool search switched on, which Claude Code otherwise turns off behind a proxy, so unused connectors can stay deferred instead of riding along on every turn. Verified live on 1.54.0 (2026-09-25): a wrapped Claude Code session recorded `tools_deferred` of 4–5 on every request, tool payload 9,733 tokens, prompt-cache reads intact, no request failures. ([ADR 0013](docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md))
 
-<h3 align="center">The 60-second version</h3>
+**Why trust the number**
 
-<p align="center">Compression that <b>cannot be checked</b> is a guess about your agent's behaviour.<br/>Distil is built so every part of it is checkable, and so the checks are allowed to come back <b>no</b>.</p>
+- **It doesn't break your prompt cache.** Distil never rewrites bytes the provider still has cached; older context changes only once that cache has already expired. We shipped that bug once, measured what it cost, and made the rule an enforced invariant. [The cache contract →](https://dshakes.github.io/distil/cache-contract.html)
+- **Every compressed byte is recoverable.** What distil folds away it keeps in a local store, and the agent gets a `distil_expand` tool to pull the exact original back mid-task. [How the digest works →](https://dshakes.github.io/distil/techniques.html#skeleton-digest)
+- **It's measured on your own bill.** Savings are counted per request, then calibrated against the `usage` your provider actually bills — not estimated from a benchmark. The number above is one real bill. [How it's measured →](https://dshakes.github.io/distil/benchmark.html)
 
-- **It proves decision-equivalence per request — and can say no.** Shadow mode replays a sampled request three times: twice on the original context and once on the compressed one, then reports `1{A=B} − 1{A=A'}` — a *paired difference* against the model's own self-agreement, with a bootstrap 95% CI, **unclipped, so it is allowed to be negative**. One reporting floor (50 A/B + 30 A/A) gates every surface; below it, every surface says *below reporting floor* instead of a number. The current live sample cleared that floor on 2026-09-15 and reads **97.5%** [95.5, 99.5] over n=398 A/B — under 99%, so the status line flags it ⚠ rather than ✓.
-- **What it folds, it can give back byte-exact.** A digest is a marker plus a handle into a local content-addressed store, and the agent gets a `distil_expand` tool to recover the original mid-task. The gateway ships **Tier-0 only** rather than emit a stub it cannot restore.
-- **It will not digest a line your agent has to quote back.** An `Edit(old_string=…)` is a literal match. Reading exact-quote provenance from the *shell command*, not just the tool name, took byte-exact quote loss from **39.3% → 16.2%** on real coding traffic — and it costs real savings, which we price rather than hide.
-- **It does not break your prompt cache.** Compression is suffix-only and cache-monotonic by construction: a later turn may never rewrite bytes the provider has already cached. We shipped that bug once, measured it at *2× the cost of compressing nothing*, and made the invariant enforced. **[The cache contract →](https://dshakes.github.io/distil/cache-contract.html)**
-- **It has been pointed at a hostile input, not just a hard one.** `distil validate --adversarial` runs a COMA-class battery through the same path the proxy uses, and we publish the two cases that do not come back clean. **[Threat model →](https://dshakes.github.io/distil/threat-model.html)**
-- **Every rung of the dial is measured, not just the default.** `distil bench --curve` traces savings against fact recall across the whole ladder, offline and free. **[The curve →](https://dshakes.github.io/distil/benchmark.html#degradation-curve)**
-
-<h4 align="center">Proof and provenance</h4>
-
-<p align="center">Every claim above is checkable, and so is the supply chain that shipped it. Releases carry <a href="https://peps.python.org/pep-0740/">PEP 740 attestations</a> so you can verify a build came from this repo's CI, not a compromised laptop; a <b>CycloneDX SBOM</b> ships with every release so you know what's inside; <a href="https://github.com/ossf/scorecard">OpenSSF Scorecard</a> runs weekly against the repo itself. The adversarial path is documented rather than assumed: see the <a href="THREAT_MODEL.md">threat model</a> and the <a href="docs/SECURITY-WHITEPAPER.md">security whitepaper</a> for what's in scope and what isn't, and run <code>distil validate</code> yourself to gate a deployment against hostile input before you trust it with one.</p>
+<sub>Going deeper: [what distil checks, and what it found when it pointed those checks at the providers' own compaction ↓](#-what-distil-checks--and-what-it-found)</sub>
 
 ## What it does
 
@@ -57,13 +52,19 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 - **Call it as a library** — `from distil import compress_messages` in your own agent loop.
 - **Give your agent a recall tool** — MCP server: it compresses its own output and gets the exact bytes back on demand.
 - **Framework hooks** — LangChain · LangGraph · LiteLLM · Agno · Strands · AutoGen · LlamaIndex, in-process, no network hop — plus an **ASGI middleware** for any Starlette/FastAPI app that hosts its own LLM endpoint, and the [npm package](https://www.npmjs.com/package/distil-llm) for the Vercel AI SDK.
-- **On a subscription** — `distil hook --install`: Claude Code compresses its own tool output through
-  the documented `PostToolUse` extension point. No proxy, no credentials touched. `distil quota` shows
-  the rate-limit window it buys back. [Details →](https://dshakes.github.io/distil/subscription.html)
+- **Where a proxy can't reach** — `distil setup --hooks`: Claude Code, Cursor (MCP output), Gemini CLI
+  and Codex CLI compress tool output through their documented post-tool hooks. Lossless-only on a
+  subscription unless you add `--digest`; every digest recoverable with `distil expand <handle>`.
+  No proxy, no credentials touched. `distil quota` shows the rate-limit
+  window it buys back. [Hooks →](https://dshakes.github.io/distil/hooks.html)
+- **VS Code Copilot Chat** — its BYOK Custom Endpoint can point at a distil proxy: `distil setup --vscode`.
+- **Keep a span verbatim** — `<distil:keep>…</distil:keep>` in a prompt or tool output is never compressed.
+- **Real code skeletons** — `pip install 'distil-llm[code]'` adds tree-sitter parses for Go, Rust, Java,
+  C/C++, Ruby and TS/JS. [Code skeletons →](https://dshakes.github.io/distil/code-skeletons.html)
 - **See what it did** — live status line, session dissect, per-request headers, OTel spans, Prometheus metrics.
 
 ```bash
-pipx install distil-llm && distil onboard    # detects your agent + billing, wires everything
+uv tool install distil-llm && distil setup    # detects your agent + billing, wires everything
 ```
 
 > **Not sure which of those you want?** [Two questions pick your mode →](https://dshakes.github.io/distil/which-mode.html) — plain language, honest savings ranges, no jargon.
@@ -97,7 +98,7 @@ pipx install distil-llm && distil onboard    # detects your agent + billing, wir
 <p align="center"><b><a href="https://dshakes.github.io/distil/adoption.html">▶ &nbsp;Watch the counter tick live &amp; audit every number →</a></b></p>
 
 <table align="center"><tr>
-<td align="center"><b>⚡ Get the savings</b><br/><sub>2 min, no config</sub><br/><br/><code>pipx install distil-llm</code><br/><code>distil onboard</code></td>
+<td align="center"><b>⚡ Get the savings</b><br/><sub>2 min, no config</sub><br/><br/><code>uv tool install distil-llm</code><br/><code>distil setup</code></td>
 <td align="center"><b>🔬 See the proof</b><br/><sub>real harness</sub><br/><br/><a href="#-the-proof"><b>benchmark ↓</b></a> · <a href="docs/PAPER.md">paper</a><br/><a href="https://dshakes.github.io/distil/compare.html">vs the others</a></td>
 </tr></table>
 
@@ -136,6 +137,44 @@ Tool results get the reversible digest; user and system text get lossless transf
 TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs.com/package/distil-llm), byte-identical to the Python engine. Full reference: **[Library API →](https://dshakes.github.io/distil/library.html)** · runnable examples: [`python_library.py`](examples/python_library.py) · [`js_library.ts`](examples/js_library.ts).
 
 **Maintain a framework?** [`docs/INTEGRATING.md`](docs/INTEGRATING.md) is the ~20 lines and the four rules — we would rather the integration live in your repo than ours.
+
+---
+
+## 🔬 What distil checks — and what it found
+
+<h3 align="center">Something is rewriting your agent's context.<br/>Distil measures what it cost you.</h3>
+
+<p align="center"><b>Your provider now edits the context window for you — clearing old tool results, summarizing history — by default, server-side, with no report of what changed.</b><br/>Distil is the instrument that answers the only question that matters: <b>did the agent still do the same thing?</b></p>
+
+<table align="center">
+<tr><td>
+
+**We pointed it at the providers.** Anthropic's **default** context-editing policy (`keep=3`) changed the
+agent's next action in **95–100% of cases**, against a 2.5% A/A noise floor. Keeping the 3 most recent
+tool uses didn't lower the change rate at all — it turned *stalling* into *acting on missing facts*.
+OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per run.
+
+**[Read the study →](https://dshakes.github.io/distil/provider-compaction.html)** · [rerun it on your own config](https://dshakes.github.io/distil/provider-compaction.html#reproduce)
+
+</td></tr>
+</table>
+
+<p align="center">Distil also <b>compresses</b> — the tool output, logs, and history your agent re-sends every turn, reversibly.<br/>It's the one context operation that ships with its own certificate, its own adversarial gate, and a number it is willing to refuse to print.</p>
+
+<h3 align="center">The 60-second version</h3>
+
+<p align="center">Compression that <b>cannot be checked</b> is a guess about your agent's behaviour.<br/>Distil is built so every part of it is checkable, and so the checks are allowed to come back <b>no</b>.</p>
+
+- **It proves decision-equivalence per request — and can say no.** Shadow mode replays a sampled request three times: twice on the original context and once on the compressed one, then reports `1{A=B} − 1{A=A'}` — a *paired difference* against the model's own self-agreement, with a bootstrap 95% CI, **unclipped, so it is allowed to be negative**. One reporting floor (50 A/B + 30 A/A) gates every surface; below it, every surface says *below reporting floor* instead of a number. The current live sample cleared that floor on 2026-09-15 and reads **97.5%** [95.5, 99.5] over n=398 A/B — under 99%, so the status line flags it ⚠ rather than ✓.
+- **What it folds, it can give back byte-exact.** A digest is a marker plus a handle into a local content-addressed store, and the agent gets a `distil_expand` tool to recover the original mid-task. The gateway ships **Tier-0 only** rather than emit a stub it cannot restore.
+- **It will not digest a line your agent has to quote back.** An `Edit(old_string=…)` is a literal match. Reading exact-quote provenance from the *shell command*, not just the tool name, took byte-exact quote loss from **39.3% → 16.2%** on real coding traffic — and it costs real savings, which we price rather than hide.
+- **It does not break your prompt cache.** Compression is suffix-only and cache-monotonic by construction: a later turn may never rewrite bytes the provider has already cached. We shipped that bug once, measured it at *2× the cost of compressing nothing*, and made the invariant enforced. **[The cache contract →](https://dshakes.github.io/distil/cache-contract.html)**
+- **It has been pointed at a hostile input, not just a hard one.** `distil validate --adversarial` runs a COMA-class battery through the same path the proxy uses, and we publish the two cases that do not come back clean. **[Threat model →](https://dshakes.github.io/distil/threat-model.html)**
+- **Every rung of the dial is measured, not just the default.** `distil bench --curve` traces savings against fact recall across the whole ladder, offline and free. **[The curve →](https://dshakes.github.io/distil/benchmark.html#degradation-curve)**
+
+<h4 align="center">Proof and provenance</h4>
+
+<p align="center">Every claim above is checkable, and so is the supply chain that shipped it. Releases carry <a href="https://peps.python.org/pep-0740/">PEP 740 attestations</a> so you can verify a build came from this repo's CI, not a compromised laptop; a <b>CycloneDX SBOM</b> ships with every release so you know what's inside; <a href="https://github.com/ossf/scorecard">OpenSSF Scorecard</a> runs weekly against the repo itself. The adversarial path is documented rather than assumed: see the <a href="THREAT_MODEL.md">threat model</a> and the <a href="docs/SECURITY-WHITEPAPER.md">security whitepaper</a> for what's in scope and what isn't, and run <code>distil validate</code> yourself to gate a deployment against hostile input before you trust it with one.</p>
 
 ---
 
@@ -180,14 +219,18 @@ TypeScript too — `compress(messages)` from the [npm package](https://www.npmjs
 
 ## 🚀 Use it now
 
-**One command sets you up and tells you what to do next:**
+**Four commands.** `distil --help` shows only these; `distil --help-all` shows the rest.
 
 ```bash
-pipx install distil-llm
-distil onboard      # detects your agent + billing, wires the status line, prints a guided tour
+uvx --from distil-llm distil savings   # what your agent costs you now — no install, read-only
+uv tool install distil-llm
+distil setup                           # detects your agent + billing, wires the status line, tells you what's next
+distil wrap -- claude                  # run your agent through distil
+distil savings                         # spent, saved, daily graph, what to fix next
+distil doctor                          # if anything looks wrong
 ```
 
-It detects your environment (Claude Code · Codex · Gemini CLI; metered vs subscription) and hands you the exact commands. Or wrap your agent directly — **no config, no code change:**
+`distil setup` detects your environment (Claude Code · Codex · Gemini CLI; metered vs subscription). Or wrap your agent directly — **no config, no code change:**
 
 ```bash
 # Claude Code on a metered API key — saves real $$:
@@ -247,6 +290,7 @@ removes the pin, the service, and the shell block using nothing but `sh`.
 Then watch genuine savings from **your** traffic — measured, not estimated:
 
 ```bash
+distil savings              # billed spend vs saved, daily graph, top fixes (--since 7d / --all / --json)
 distil leaderboard          # cumulative tokens + $ saved, from the local ledger
 distil dashboard            # live terminal TUI — token-trim + decision-equiv bars, Ctrl-C to exit
 distil dissect             # per-session deep-dive: savings, digest inventory, anomalies (--html/--serve)
@@ -559,9 +603,34 @@ client knows `distil_expand` is a safe, repeatable, offline read without having 
 
 ---
 
+## 🗜️ MCP compressor — shrink other servers' tools and results
+
+`distil mcp` with a subcommand is a transparent proxy in front of your *other* MCP servers, for
+Codex, Cursor, Gemini CLI, opencode, Claude Desktop, Windsurf and custom agents. (Claude Code's own
+tool search already defers unused tools — see [ADR 0017](docs/adr/0017-mcp-compressor.md).)
+
+```bash
+distil mcp wrap -- npx -y @modelcontextprotocol/server-filesystem ~/work   # one server
+distil mcp serve --config mcp.json       # every stdio server in an mcpServers file
+distil mcp install cursor                # route Cursor's servers through distil (…--undo restores byte-exact)
+distil mcp watch                         # per-tool: tokens before→after, unlocks, fetches, expands
+```
+
+Levels are explicit: **L0** lossless schema canonicalisation (on), **L1** extractive summaries,
+**L2** lazy loading that surfaces the *real* tool after its schema is fetched (not a generic
+`invoke` forever), **L3** L2 plus pins learned from your usage, and **R** recoverable result digests
+with a `<server>_expand` tool (`--results`). The first live run of the
+[pre-registered accuracy protocol](docs/research/mcp-compressor-protocol.md) (`claude-haiku-4-5`,
+1,000 tool tasks per level) **certified every level**: right-tool-and-arguments went from 91.2% on
+the raw tool list to 92.1% / 95.4% / 96.3% / 95.4% on L0–L3, and R answered 99.5% of result questions
+against 99.7% raw. L1–L3 and R stay opt-in until a replication model runs. L2 billed more than raw on
+that run because its short index missed the prompt cache. Details: [docs/mcp.html](https://dshakes.github.io/distil/mcp.html).
+
+---
+
 ## 📦 Install your way
 
-**New here?** `pipx install distil-llm`, then `distil onboard` — it sets you up and guides you (see [Use it now](#-use-it-now)). Want to see it prove itself first instead? `distil bench` runs the certified gate in ~10s, no API key. The matrix below is for picking an *install format* — everything in it is an alternative, not a requirement.
+**New here?** `uv tool install distil-llm`, then `distil setup` — it sets you up and guides you (see [Use it now](#-use-it-now)). Want to see it prove itself first instead? `distil bench` runs the certified gate in ~10s, no API key. The matrix below is for picking an *install format* — everything in it is an alternative, not a requirement.
 
 <details>
 <summary><b>Install gotchas & troubleshooting</b> (package name, old-Python errors, stale mirrors)</summary>
@@ -586,6 +655,8 @@ client knows `distil_expand` is a safe, repeatable, offline read without having 
 
 | Format | Command | Prereq |
 |---|---|---|
+| **One-line installer** | `curl -LsSf https://dshakes.github.io/distil/install.sh \| sh` · Windows: `powershell -ExecutionPolicy ByPass -c "irm https://dshakes.github.io/distil/install.ps1 \| iex"` | none — installs [uv](https://docs.astral.sh/uv/) if missing, then the next row |
+| **uv tool** | `uv tool install distil-llm` → `distil setup` | [uv](https://docs.astral.sh/uv/) — **auto-provisions Python 3.9+** |
 | **Zero install** | `uvx --from distil-llm distil bench` | [uv](https://docs.astral.sh/uv/) — **auto-provisions Python 3.9+** |
 | **Isolated CLI** | `pipx install distil-llm` → `distil bench` | Python **3.9+** (else `pipx install --python python3.12 distil-llm`) |
 | **Homebrew** | `brew install dshakes/tap/distil` | Homebrew |

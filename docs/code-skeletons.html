@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Code Skeletons — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Code Skeletons — Distil"/>
+<meta property="og:description" content="Real tree-sitter parses for code skeletons in Go, Rust, Java, C, C++, Ruby, TypeScript and JavaScript — optional, offline, recoverable, measured."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/code-skeletons.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Code Skeletons — Distil"/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+          <ul class="sidebar-sub">
+            <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+            <li><a href="learn-compression.html">2. Compression</a></li>
+            <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+          </ul></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html">Cache Contract <span class="nav-badge">New</span></a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Live Benchmark</a></li>
+        <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html" class="active" aria-current="page">Code Skeletons <span class="nav-badge">New</span></a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="mcp.html">MCP Compressor <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="autogen.html">AutoGen</a></li>
+            <li><a href="llamaindex.html">LlamaIndex</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+            <li><a href="asgi.html">ASGI Middleware</a></li>
+          </ul></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html">Threat Model <span class="nav-badge">New</span></a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Code skeletons <span class="g">from a real parse</span></h1>
+    <p class="lead">When a tool result is source code, the reversible tier keeps its structure — imports, types, every function signature — and folds function bodies behind a handle the agent can expand. Python has always used the standard library's <code>ast</code>. Other languages used a brace-counting heuristic; with the optional <code>[code]</code> extra they get a real parse.</p>
+
+<pre class="term"><span class="d">$ pipx install 'distil-llm[code]'</span>     <span class="d"># or: pip install 'distil-llm[code]'</span></pre>
+
+    <h2 id="what">What changes</h2>
+    <ul>
+      <li><strong>Languages:</strong> Go, Rust, Java, C, C++, Ruby, TypeScript, JavaScript. Ruby is new ground: it has no braces, so the heuristic never saw it.</li>
+      <li><strong>Bodies elided, signatures kept.</strong> A function body becomes <code>...</code>; the signature line, doc comments above it and the closing line stay. A body that holds a <em>named</em> function stays open so that name stays visible — a factory, a <code>describe</code> wrapper or an IIFE module does not swallow the file. Callbacks and closures go with their body.</li>
+      <li><strong>Conservative on errors.</strong> A subtree the grammar could not parse is left whole, and a text that is mostly parse errors is treated as not this language.</li>
+      <li><strong>Recoverable, deterministic.</strong> The byte-exact original sits behind the same handle as every other digest; same input, same skeleton.</li>
+    </ul>
+
+    <h2 id="deps">Dependencies</h2>
+    <p>The extra installs the official per-language tree-sitter grammar wheels: prebuilt, bundled, nothing downloaded when a file is parsed. <code>tree-sitter-language-pack</code> was considered and not used: its 1.x series fetches grammar bundles from the network on first use and needs Python 3.10, and distil runs on 3.9 and offline. Without the extra — or for a language it does not cover — distil uses the heuristic exactly as before.</p>
+
+    <h2 id="measured">Measured</h2>
+    <p>On eleven real source files (eight pinned public files across the eight languages plus three of this repo's own), the skeletons went from <strong>26.0% to 40.4%</strong> smaller than the source, and every named function's signature line survived; the heuristic dropped signatures on the Java and C++ files and could not skeleton Rust's <code>string.rs</code> or any Ruby at all. On the bundled corpus the <code>bench</code>, <code>verify</code>, <code>validate</code> and <code>retention</code> gates print identical results with and without the extra: its trajectories carry no non-Python source, so this path is not exercised there. Artifact: <code>benchmarks/results/skeleton_treesitter.json</code>; reproduce with:</p>
+<pre class="term"><span class="d">$ uv run --extra code python benchmarks/skeleton_treesitter.py</span></pre>
+
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

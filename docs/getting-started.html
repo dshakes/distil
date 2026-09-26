@@ -8,14 +8,14 @@
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Distil"/>
 <meta property="og:title" content="Getting Started — Distil"/>
-<meta property="og:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta property="og:description" content="Install distil, run distil setup, wrap your agent, and see what it saved on your own bill."/>
 <meta property="og:url" content="https://dshakes.github.io/distil/getting-started.html"/>
 <meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
 <meta property="og:image:width" content="1200"/>
 <meta property="og:image:height" content="630"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="twitter:title" content="Getting Started — Distil"/>
-<meta name="twitter:description" content="Cache-aware, causally-pruned context compression for LLM agentic runtimes — certified non-inferior across 9 domains. Compress input and output; certify the agent's next action is unchanged (a proxy; see E7)."/>
+<meta name="twitter:description" content="Install distil, run distil setup, wrap your agent, and see what it saved on your own bill."/>
 <meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -61,6 +61,7 @@
         <li><a href="research.html">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -72,9 +73,12 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="mcp.html">MCP Compressor <span class="nav-badge">New</span></a></li>
         <li><a href="corpus.html">Corpus</a></li>
         <li><a href="output.html">Output &amp; I/O</a></li>
       </ul>
@@ -110,338 +114,57 @@
   <main class="content" id="content" tabindex="-1">
 
     <h1>Getting <span class="g">Started</span></h1>
-    <p class="lead">Install, then run <code>distil onboard</code> — one command that detects your agent (Claude Code, Codex, Gemini CLI) and billing, wires the savings status line, and hands you the exact next steps. No code change required.</p>
+    <p class="lead">Four steps: install, set up, run your agent, see what it saved. No code change.</p>
+    <p>Want to see what your agent costs you before installing anything? <code>uvx --from distil-llm distil savings</code> reads your Claude Code transcripts, read-only. <code>distil --help</code> shows only the four front-door commands (<code>setup</code>, <code>wrap</code>, <code>savings</code>, <code>doctor</code>); <code>distil --help-all</code> lists everything else.</p>
 
     <hr/>
 
-    <!-- Install -->
-    <h2 id="install">Install</h2>
-    <p>Distil ships as a PyPI package (<code>distil-llm</code>) with a <strong>stdlib-only core — zero runtime dependencies</strong>. The corpus is bundled in every distribution.</p>
+    <h2 id="install">1. Install</h2>
+    <pre class="term">uv tool install distil-llm</pre>
+    <p>No <a href="https://docs.astral.sh/uv/">uv</a>? The one-line installer gets it first, then runs the line above:</p>
+    <pre class="term">curl -LsSf https://dshakes.github.io/distil/install.sh | sh</pre>
+    <p>Or <code>brew install dshakes/tap/distil</code>. On Windows:
+      <code>powershell -ExecutionPolicy ByPass -c "irm https://dshakes.github.io/distil/install.ps1 | iex"</code>.
+      The package is <code>distil-llm</code>; the command is <code>distil</code>. Other formats (pipx, Docker, pip, npm, a single file) and install troubleshooting:
+      <a href="https://github.com/dshakes/distil#-install-your-way">Install your way</a>.</p>
 
-    <div class="callout good">
-      <strong>Just want it now?</strong> <code>distil onboard</code> ensures you have everything — if you run it ephemerally it <strong>installs distil permanently</strong>, then wires the status line, routes your agent, and offers to make distil the default. One command (needs <a href="https://docs.astral.sh/uv/">uv</a>):
-      <pre class="term" style="margin:.6em 0 .4em">uvx --from distil-llm distil onboard   <span class="d"># sets up everything — incl. a permanent install</span></pre>
-      Prefer pipx? <code>pipx install distil-llm &amp;&amp; distil onboard</code>. Just want to see it prove itself first? <code>distil bench</code> runs the certified gate in ~10s, no API key. Everything else below is an alternative, not a requirement.
-    </div>
+    <h2 id="setup">2. Set up</h2>
+    <pre class="term">distil setup</pre>
+    <p>Detects your agent and how you pay (an API key, or a Pro/Max subscription), picks the mode that fits,
+      wires the savings status line into Claude Code, and offers to make distil always-on so you never have to
+      type <code>wrap</code>. Not sure which mode you want? <a href="which-mode.html">Two questions pick it</a>.</p>
 
+    <h2 id="wrap">3. Run your agent</h2>
+    <pre class="term">distil wrap -- claude</pre>
+    <p>Routes that session through distil. Same pattern for <code>codex</code>, <code>gemini</code>, <code>aider</code>
+      and the rest; <code>distil wrap --list</code> prints every agent it can reach, and the ones it cannot.
+      For Claude Code it also keeps MCP tool search switched on, which Claude Code otherwise turns off behind a proxy.
+      Using an IDE agent or your own SDK code? See <a href="integrations.html">Integrations</a>.</p>
+
+    <h2 id="savings">4. See what it saved</h2>
+    <pre class="term">distil savings</pre>
+    <p>What distil saved on <em>your</em> traffic, calibrated against the usage your provider bills.
+      Something looks off? <code>distil doctor</code> checks the wiring.</p>
     <div class="callout">
-      <strong>The one gotcha — the name.</strong> The package is <code>distil-llm</code> but the command is <code>distil</code> (the bare <code>distil</code> name was taken on PyPI). So it's <code>pipx install distil-llm</code> → run <code>distil …</code>. <code>pipx install distil</code> installs the wrong thing.
-    </div>
-
-    <div class="callout">
-      <strong>Python 3.9+ required.</strong> Install Distil <em>isolated</em> from your system Python — modern macOS and Linux reject system-wide <code>pip install</code> with <code>error: externally-managed-environment</code> (<a href="https://peps.python.org/pep-0668/">PEP&nbsp;668</a>). Every method below is isolated and safe.
-    </div>
-
-    <div class="callout">
-      <strong>Hit <code>Could not find a version that satisfies the requirement distil-llm (from versions: none)</code>?</strong>
-      The package <em>is</em> on PyPI — that error means your <code>pip</code>/<code>pipx</code> is on a Python below the package floor. <strong>Distil supports Python 3.9+</strong> (what macOS ships), so a current install just works; on an even older Python, let <strong>uv provision one</strong>: <code>uvx --python 3.12 --from distil-llm distil bench</code> (or <code>uv tool install --python 3.12 distil-llm</code>). Check yours with <code>python3 --version</code>.
-    </div>
-
-    <div class="callout">
-      <strong>Got an <em>old</em> version (e.g. <code>0.25.1</code>) instead of the latest?</strong>
-      Run <code>pip index versions distil-llm</code> — if the list stops short of the <a href="https://pypi.org/project/distil-llm/">PyPI latest</a> (or has gaps), your <code>pip</code>/<code>pipx</code> is resolving against a <strong>private/mirror index</strong> (Artifactory / CodeArtifact / Nexus) that hasn't synced the newest releases, or a <code>&lt;1.0</code> pin in a constraints file. Unblock now by forcing public PyPI:
-      <pre class="term">pipx install --pip-args="--index-url https://pypi.org/simple/" distil-llm</pre>
-      Or install a specific version (a pull-through mirror will fetch it on demand): <code>pipx install "distil-llm==1.8.3"</code>. To keep using the mirror, ask your platform team to sync <code>distil-llm</code> — it exists upstream. Check config with <code>pip config list</code> and <code>env | grep -i pip</code>.
-    </div>
-
-    <div class="grid2">
-      <div class="card">
-        <span class="tag">Zero install · recommended</span>
-        <h3>uvx</h3>
-        <p>Run straight from PyPI, no install step. <strong>Prereq:</strong> <a href="https://docs.astral.sh/uv/">uv</a>.</p>
-        <pre class="term">uvx --from distil-llm distil bench</pre>
-      </div>
-      <div class="card">
-        <span class="tag">Isolated CLI · recommended</span>
-        <h3>pipx</h3>
-        <p>Permanent install in its own venv — PEP&nbsp;668-safe. <strong>Prereq:</strong> Python 3.9+, <a href="https://pipx.pypa.io/">pipx</a> (<code>brew install pipx</code>).</p>
-        <pre class="term">pipx install distil-llm
-distil certify</pre>
-      </div>
-      <div class="card">
-        <span class="tag">macOS / Linux</span>
-        <h3>Homebrew</h3>
-        <p>Installs into an isolated keg — doesn't touch your Python. <strong>Prereq:</strong> Homebrew and <code>git</code> (third-party taps are cloned with git — run <code>brew install git</code> if you see <code>Error: Git is unavailable</code>).</p>
-        <pre class="term">brew install dshakes/tap/distil
-distil bench</pre>
-      </div>
-      <div class="card">
-        <span class="tag">Container</span>
-        <h3>Docker</h3>
-        <p>Reproducible image, ideal for CI or sandboxed environments. <strong>Prereq:</strong> Docker.</p>
-        <pre class="term">docker build -t distil .
-docker run distil bench</pre>
-      </div>
-      <div class="card">
-        <span class="tag">Single file</span>
-        <h3>Zipapp (.pyz)</h3>
-        <p>One portable executable — copy it anywhere. <strong>Prereq:</strong> Python 3.9+ (no install).</p>
-        <pre class="term">make pyz
-python dist/distil.pyz bench</pre>
-      </div>
-      <div class="card">
-        <span class="tag">In a venv / project</span>
-        <h3>pip</h3>
-        <p>For embedding the library in your own project. <strong>Prereq:</strong> an active virtualenv.</p>
-        <pre class="term">python3 -m venv .venv &amp;&amp; source .venv/bin/activate
-pip install distil-llm</pre>
-      </div>
-    </div>
-
-    <div class="callout good">
-      <strong>Node / TypeScript / other languages?</strong> Fastest: <code>npx distil-llm wrap -- &lt;your-agent&gt;</code> — the <a href="https://www.npmjs.com/package/distil-llm">npm package</a> bridges to the CLI via uv/pipx (no pip step). Or <code>npm i distil-llm</code> for <code>distilBaseURL()</code> helpers, or just run <code>distil proxy</code> and point your SDK's <code>baseURL</code> at it. No code changes, any language. The CLI needs Python 3.9+; your app does not.
+      <strong>What to expect.</strong> On an API key the saving is dollars off the bill; on a subscription it is
+      rate-limit headroom. For reference, the maintainer's own Claude Code traffic (13,191 requests, September 2026)
+      came out an estimated 10.2% cheaper, cache included, before distil's own expand re-queries and
+      shadow replays were netted out; about 9% (8.3–9.2%) net of them
+      (<a href="https://github.com/dshakes/distil/blob/main/docs/research/expand-undercount.md">how</a>)
+      (<a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/2026-09-24/live_savings_decomposition.json">data</a>).
+      Savings come from large, repetitive tool output, so a short session that never reads a big file showing
+      near zero is the tool working, not failing.
     </div>
 
     <hr/>
 
-    <!-- Use it on your agent -->
-    <h2>Use it on your agent <span class="g">— the 30-second path</span></h2>
-    <p><strong>Easiest:</strong> let <code>distil onboard</code> set you up and hand you the exact commands for your environment — it detects your agent and billing, wires the status line, and prints a guided tour:</p>
-    <pre class="term">distil onboard   <span class="d"># one command: detects your setup, wires the status line, guides you</span></pre>
-    <p>Or do it by hand. <code>distil wrap</code> launches your coding agent with its API traffic routed through compression — <strong>no config, no code change</strong>. <code>distil default</code> (run by onboard) picks the right mode for your billing automatically — override any time with an explicit flag:</p>
-    <pre class="term"><span class="d"># metered / API-key billing — expand mode (<abbr title="pay-as-you-go">PAYG</abbr> auto-default):</span>
-distil wrap --expand -- claude
-<span class="d"># Pro/Max subscription — lossless-only mode (subscription auto-default):</span>
-distil wrap --lossless-only -- claude
-<span class="d"># Codex, Gemini CLI, aider — env var auto-selected per agent:</span>
-distil wrap --expand -- codex     <span class="d"># → OPENAI_BASE_URL auto-set (routing unverified — see below)</span>
-distil wrap --expand -- gemini    <span class="d"># → GOOGLE_GEMINI_BASE_URL auto-set</span>
-distil wrap --expand -- aider     <span class="d"># → OPENAI_API_BASE auto-set</span>
-<span class="d"># every agent distil can route, and the ones it cannot:</span>
-distil wrap --list</pre>
-
-    <p>When you use a recognized agent name (<code>distil wrap --list</code> prints them all, with the primary doc each routing contract was read from), distil auto-selects the correct env var or config file and upstream endpoint — no <code>--env-var</code> or <code>--upstream</code> flag needed. <strong>Codex is the exception to trust:</strong> codex-rs reads its base URL from the <code>openai_base_url</code> config key and no mapping from <code>OPENAI_BASE_URL</code> was found, so its preset may route nothing — the zero-traffic warning at exit would tell you. It prints <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> on start so you can confirm. Explicit <code>--env-var</code> or <code>--upstream</code> always win over the preset.</p>
-
-    <p><strong>You usually don't need to pick a mode</strong> — <code>distil onboard</code> detects your billing and writes the right one into your setup automatically. Here's what each mode means in plain terms:</p>
+    <h2>Next</h2>
     <ul>
-      <li><strong>digest</strong> (default) — Distil shortens long things (big files, command output, past steps) into short summaries, and can pull back the full original the moment the AI needs it. Originals are kept and restored automatically. <em>Most people should just use this.</em></li>
-      <li><strong>expand</strong> (<code>--expand</code>) — Same shortening as digest, but Distil also gives the AI a "show me the full version" button it can press on its own. Best for long autonomous coding sessions. <em>Picked automatically if you pay per use (API key).</em></li>
-      <li><strong>lossless-only</strong> (<code>--lossless-only</code> / <code>--safe</code>) — The cautious setting: only trims things that can be rebuilt perfectly (like extra whitespace), never summarizes. Zero chance of losing any detail. <em>Picked automatically on a flat monthly subscription.</em></li>
-      <li><strong>verbatim</strong> (<code>--verbatim</code>) — Just tidies formatting, changes nothing else. Almost no savings. Use it to audit exactly what's being sent.</li>
-    </ul>
-
-    <div class="table-scroll" tabindex="0" role="region" aria-label="Use it on your agent — the 30-second path">
-    <table>
-      <thead><tr><th>Mode flag</th><th>What it does</th><th>Savings</th><th>Safety</th><th>Auto-selected when</th></tr></thead>
-      <tbody>
-        <tr><td><code>--expand</code></td><td>Digest + the AI gets a "show me more" button to pull back compressed content on demand</td><td>Most</td><td>Originals kept, restorable</td><td>Metered / API-key (PAYG)</td></tr>
-        <tr><td><em>(no flag)</em> digest</td><td>Shortens long context; originals stored locally and restored when the AI needs them</td><td>High</td><td>Originals kept, restorable</td><td>Default if no flag passed</td></tr>
-        <tr><td><code>--lossless-only</code> / <code>--safe</code></td><td>Lossless-only transforms — no summarizing, rebuilds perfectly every time</td><td>Fewer</td><td>Zero unrecoverable content</td><td>Subscription / flat-rate</td></tr>
-        <tr><td><code>--verbatim</code></td><td>Whitespace + JSON normalization only</td><td>Minimal</td><td>Most conservative</td><td>Debugging / auditing</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <p>At the end of each <code>distil wrap</code> session, a <strong>Proof Ledger</strong> is printed automatically to stderr — calibrated tokens saved, dollar cost before and after, the shadow decision-equivalence verdict (with an honest "below threshold, gathering" label while evidence accumulates), and how many digest handles are still live and recoverable. Opt out with <code>DISTIL_NO_LEDGER=1</code>. It looks like:</p>
-    <pre class="term">  distil proof ledger — session 47m
-    tokens   84,213 → 62,440   (25.9% smaller)
-    cost     $0.42 → $0.31        calibrated to your billed usage (n=58, ±2.1%)
-    shadow   0 decision changes    (n=12 A/B, 8 A/A — below verdict threshold, gathering)
-    restore  100% recoverable    (3 digests, all handles live, TTL 14d)</pre>
-
-    <p>Then watch genuine, measured savings from <em>your</em> traffic (not estimates):</p>
-    <pre class="term">distil leaderboard          <span class="d"># cumulative tokens + $ saved, from the local ledger (alias: distil stats)</span>
-distil dashboard            <span class="d"># live terminal TUI — token-trim + decision-equiv bars, Ctrl-C to exit</span>
-distil dissect             <span class="d"># per-session deep-dive: savings, digest inventory, anomalies (--html/--serve)</span>
-distil doctor               <span class="d"># diagnose your setup: ledger, shadow, proxy self-test, wiring</span></pre>
-    <p>Wire the status line in one step with <code>distil setup</code>. The <strong>status line</strong> and <code>distil dashboard</code> auto-detect a flat-rate <strong>Claude subscription</strong> — the per-token dollar figure is notional, so it's dropped and the token reduction leads (override with <code>DISTIL_SUBSCRIPTION=0/1</code>). Inside Claude Code, <code>/distil-stats</code>, <code>/distil-shadow</code>, <code>/distil-dashboard</code>, <code>/distil-doctor</code>, <code>/distil-certify</code> (the trajectory-level certificate), and <code>/distil-badge</code> (share your measured savings) surface this on demand — see <a href="integrations.html">Integrations</a> for the full plugin.</p>
-    <p>Tired of typing <code>distil wrap</code> each session? Make it the default — once:</p>
-    <pre class="term">distil default              <span class="d"># managed shell alias so `claude` always routes through distil</span>
-distil default --always-on  <span class="d"># or a persistent proxy service covering every SDK</span>
-distil offboard             <span class="d"># later: remove distil's footprint (alias, service, status line) before uninstalling</span></pre>
-    <p><code>distil default</code> detects your shell (zsh / bash / fish / PowerShell) and billing mode, writes the right line to the rc file your shell actually reads, and <strong>tells you what it detected</strong>; <code>distil default --undo</code> reverses it. <code>distil offboard</code> is the clean inverse of onboarding — it undoes each piece (asking first), keeps your savings ledger unless <code>--purge</code>, and prints the right uninstall command. See the <a href="cli.html#default">CLI reference</a> for both.</p>
-    <div class="callout">
-      <strong>Always-on is fault-tolerant, by construction.</strong> <code>--always-on</code> pins <code>ANTHROPIC_BASE_URL</code>, so every client on the machine routes through one local process — and a process that is down for one second used to mean every session failing with <code>ConnectionRefused</code>, an error that names the <em>provider</em> rather than distil. The service supervisor (launchd / systemd) now owns the <strong>listening socket</strong>: when the proxy restarts, connections queue in the kernel backlog instead of being refused, so a crash costs about a second of latency rather than your session. <code>distil default --always-on</code> also proves the service is registered <em>and</em> serving before it wires anything, and wires nothing if it isn't — a failed start is an error you see immediately, not an outage twenty minutes later. Need out when distil is already uninstalled? <code>sh ~/.distil/uninstall.sh</code> removes the pin, the service, and the shell block using nothing but <code>sh</code>.
-    </div>
-    <div class="callout">
-      <strong>Will it save me money?</strong> Only on <strong>metered / pay-as-you-go</strong> billing (an API key): fewer tokens → fewer dollars. On a <strong>subscription</strong> you're flat-rate, so there's no per-token bill to cut — but lossless mode still <strong>cuts tokens per turn</strong> (JSON minify, run-collapse, and columnar fold of tabular tool output), which buys back context headroom and rate-limit room, plus lower latency. Want the deepest reduction on a subscription? <code>--expand</code> is an explicit opt-in that turns on the recoverable digest even there — nothing is irreversibly lost (the agent pulls detail back on demand), it just modifies requests more than pure lossless mode. <strong>Honest about coding agents:</strong> on short sessions the win is modest (~7% — the agent re-expands most of what it edits); the real savings land on <strong>long, many-turn sessions</strong> with large context the model never re-reads. Prefer an in-process hook or an org-wide proxy? See <a href="integrations.html">Integrations</a>.
-    </div>
-
-    <hr/>
-
-    <h3>Billing-grade tokenizer (optional)</h3>
-    <p>The default tokenizer is an offline heuristic — compression <em>ratios</em> are exact, and the absolute counts <strong>self-calibrate</strong> to your provider's billed <code>usage.*</code> as traffic flows (content-free, no network), so the leaderboard converges to billing-grade on its own. For per-string exactness or live-model certification, install the <code>live</code> extra:</p>
-    <pre class="term"><span class="d"># with pipx (isolated):</span>
-pipx install 'distil-llm[live]'
-<span class="d"># or one-off with uvx:  uvx --from 'distil-llm[live]' distil certify --runner anthropic</span>
-<span class="d">export ANTHROPIC_API_KEY=sk-ant-…</span>
-distil savings --tokenizer anthropic
-distil certify --runner anthropic</pre>
-
-    <h3>Validate it preserved your outcomes</h3>
-    <p>Compression is only safe if your agent makes <em>the same decision</em> it would have on full context. Shadow mode proves that on your live traffic: it samples a fraction of requests and runs each one <strong>twice — once compressed, once with the full prompt</strong> — then compares the <strong>agent's chosen next action</strong> (the tool call it decides to make), not the prose. The two are <em>decision-equivalent</em> when those signatures match.</p>
-    <p><strong>Shadow is on by default at 2% of requests</strong> (opt-out with <code>--shadow 0</code>). Raise the rate to collect evidence faster; use <code>--shadow 1.0</code> to sample every request — proves equivalence in minutes at ~3× token cost, then drop back.</p>
-    <pre class="term">distil wrap -- claude                <span class="d"># shadow on at 2% by default</span>
-distil wrap --shadow 0.1 -- claude   <span class="d"># raise to 10% to collect evidence faster</span>
-distil wrap --shadow 1.0 -- claude   <span class="d"># full-sampling: proves equivalence quickly (~3× tokens)</span>
-distil wrap --shadow 0 -- claude     <span class="d"># disable shadow entirely</span>
-distil shadow-stats                  <span class="d"># live decision-equivalence rate (or /distil-shadow)</span></pre>
-    <p>The <code>de</code> segment in the <a href="deploy-security.html">status line</a> shows <code>de n/50</code> while collecting, then a ✓/⚠/✗ verdict once <strong>50 A/B + 30 A/A samples</strong> accrue (A/B = compressed-vs-original; A/A = same request replayed against itself — the noise baseline). Read it as <em>"of the requests I shadow-checked, N% produced the identical next action with vs without compression."</em> Distil fails safe to full context.</p>
-    <p><strong>Live result — 2026-09-15, build 1.53.0rc1, paired estimator (signature v5).</strong> The sample now clears the reporting floor: <strong>398 A/B and 399 A/A samples</strong>, both modes mixed (digest 206, lossless-only 192), paired equivalence <strong>97.5%</strong> [95.5, 99.5] from a paired difference of −0.025 [−0.045, −0.005]. Under 99%, which is why the status line prints <code>⚠de 97.5% (398)</code> rather than a ✓. Replays run <em>hot</em> — 399 of 399, temperature is not pinned — so the paired difference is the statistic to read, not the 53.0% raw agreement; the A/A arm carries the same nondeterminism and is what the difference subtracts out. Artifact: <code>benchmarks/results/shadow-live-2026-09-15.json</code>. Two earlier readings stay on the record: the 1.13.0 number (100% over 116 sampled requests, A/A 31/31) is <strong>withdrawn</strong> — the 1.51.1 changelog found that every replay carrying a prior <code>thinking</code> block failed with a signature error, biasing the sample — and the 1.51.1 reading (44 A/B, 11 A/A, raw agreement 81.8%, below the floor, unpaired estimator) is kept at <code>benchmarks/results/shadow-live-2026-09-04.json</code>. Not a universal guarantee — your workload may differ.</p>
-    <p style="font-size:13px;opacity:.85"><strong>Honest scope:</strong> this certifies <strong>next-action equivalence — a proxy</strong>, not end-to-end task success. On <a href="research.html#e7">real SWE-bench Verified (E7)</a> the proxy does not fully transfer once compression gets aggressive — which is exactly why you monitor the live rate and keep the gate conservative.</p>
-
-    <h3>Certify the level that matters: task outcomes</h3>
-    <p>Shadow mode watches the per-step proxy live. When you have (or can run) an eval suite, <code>distil certify-trajectories</code> certifies the invariant that actually transfers: run it twice — full context and compressed — on the same tasks, and get a distribution-free bound on how many <em>solvable</em> tasks compression may have cost you.</p>
-    <pre class="term">distil certify-trajectories outcomes.jsonl --alpha 0.05 --delta 0.05
-<span class="d"># each line: {"task_id": "...", "full_success": true, "compressed_success": true}</span>
-<span class="d"># → With confidence 95%, compression degrades at most 5.0% of tasks the full</span>
-<span class="d">#   context would have solved (observed 0.5% over 200 matched trajectories).</span></pre>
-    <p style="font-size:13px;opacity:.85">It refuses to certify below 20 matched trajectories, states its exchangeability assumptions in the certificate itself, and ships a drift monitor that flags when live traffic has shifted enough to need recalibration. See <a href="concepts.html#trajectory-certificate">Concepts &rarr; The trajectory-level certificate</a> and the <a href="cli.html#certify-trajectories">CLI reference</a>.</p>
-
-    <hr/>
-
-    <!-- 60-second quickstart -->
-    <h2>60-second quickstart</h2>
-    <p>Three commands cover the core workflow. All run against the bundled multi-domain corpus — no API key required. Run them in order the first time: <code>bench</code> to confirm savings and the gate pass, <code>certify</code> to inspect a single strategy, <code>prune</code> to see what's actually free to drop.</p>
-
-    <h3>1. Benchmark savings across 9 domains</h3>
-    <p><code>distil bench</code> is the corpus-wide CI gate. It prices four strategies, certifies Distil is non-inferior on every trajectory, and confirms the gate rejects the aggressive lossy strategy. Run this in CI to catch any regression. Two more gates run alongside it: <code>distil verify</code> (byte-fidelity — every compression exactly reversible) and <code>distil validate</code> (the adversarial real-path gate — invariants on hostile inputs the corpus can't reach).</p>
-    <pre class="term"><span class="d">$ distil bench</span>
-corpus gate — 9 trajectories | model claude-opus-4-8 | tokenizer=heuristic
-
-domain            trajectory               $ saved   distil   aggr  pruned
----------------------------------------------------------------------------
-ops/sre           sre-disk-incident          32.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     615
-coding            coding-bugfix              25.5%     <span class="g">PASS</span>   <span class="w">FAIL</span>     736
-support           support-refund             32.6%     <span class="g">PASS</span>   <span class="w">FAIL</span>     765
-research          research-synthesis         25.7%     <span class="g">PASS</span>   <span class="w">FAIL</span>     809
-data-analysis     data-analysis-sql          18.1%     <span class="g">PASS</span>   <span class="w">FAIL</span>     965
-devops            devops-rollback            22.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     857
-finance           finance-reconcile          24.9%     <span class="g">PASS</span>   <span class="w">FAIL</span>    1014
-web-research      web-research               89.8%     <span class="g">PASS</span>   <span class="w">FAIL</span>     428
-agent-worklog     agent-worklog              35.3%     <span class="g">PASS</span>   <span class="w">FAIL</span>     891
----------------------------------------------------------------------------
-aggregate: distil cuts $0.24052 -> $0.12400 (48.4% cheaper) reversibly; 7080 tokens causally prunable.
-
-GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; aggressive rejected on all.</pre>
-
-    <h3>2. Certify a strategy</h3>
-    <p>Run the TOST non-inferiority gate on a single trajectory and strategy. Exits 0 on pass, 1 on fail — plug it directly into any CI pipeline.</p>
-    <pre class="term"><span class="d">$ distil certify --strategy distil</span>
-certifying strategy 'distil' on 'sre-disk-incident' (runner=deterministic)
-
-  turn 0: ok
-  turn 1: ok
-  turn 2: ok
-  turn 3: ok
-
-decision-equivalence match rate: <span class="g">100.0%</span>
-TOST non-inferiority (margin=0.02, alpha=0.05): mean diff=+0.000, p=0.0000
-
-VERDICT: <span class="g">PASS</span>  (certified non-inferior)</pre>
-
-    <h3>3. Discover causally inert blocks</h3>
-    <p><code>distil prune</code> ablates each context block, replays the trajectory, and identifies what never changed a decision. Those blocks are provably free to drop — not heuristically likely, provably safe.</p>
-    <pre class="term"><span class="d">$ distil prune</span>
-causal ablation over 'sre-disk-incident' — what is free to drop?
-
-block                  occ   tokens  verdict
-doc-0                    4      312  <span class="g">PRUNE (causally inert)</span>
-doc-1                    4      303  <span class="g">PRUNE (causally inert)</span>
-obs-0                    4      234  <span class="d">keep (changed a decision)</span>
-obs-1                    4      198  <span class="d">keep (changed a decision)</span>
-system                   4      218  <span class="d">keep (changed a decision)</span>
-
-tokens provably free to drop: 615 across 2 block(s).</pre>
-
-    <hr/>
-
-    <!-- Drop-in wrap -->
-    <h2>Drop-in adoption: <code>wrap(client)</code></h2>
-    <p>The fastest path to production compression — no changes to your call sites. Wrap your existing Anthropic client once and every subsequent <code>messages.create</code> call is transparently compressed and cache-pinned.</p>
-
-    <pre class="term"><span class="c">import</span> anthropic
-<span class="c">from</span> distil.adapters.anthropic <span class="c">import</span> wrap
-
-<span class="d"># One-line drop-in — no call-site changes needed</span>
-client = wrap(anthropic.Anthropic())
-
-<span class="d"># Works exactly like the original client</span>
-response = client.messages.create(
-    model=<span class="g">"claude-opus-4-8"</span>,
-    max_tokens=1024,
-    system=<span class="g">"You are a helpful assistant."</span>,
-    messages=[{<span class="g">"role"</span>: <span class="g">"user"</span>, <span class="g">"content"</span>: <span class="g">"Analyse this log output…"</span>}],
-)</pre>
-
-    <p>The wrapper applies Tier-0 lossless transforms (JSON minification, run-length collapse) and Tier-1 reversible digests to large tool results. It also pins the stable system prefix for cache-control so repeated calls get the ~10× cache-read discount automatically.</p>
-
-    <div class="callout good">
-      <b>No call-site changes.</b> The wrapper is a pure structural proxy — it duck-types against any object that exposes a <code>messages.create(**kwargs)</code> method. It imports nothing from the Anthropic SDK itself, so it also works in test environments where the SDK is not installed.
-    </div>
-
-    <h3>Alternative: provider proxy</h3>
-    <p>Prefer a network-level approach that works with any SDK, framework, or language? See the <a href="adapters.html">Adapters</a> page for <code>distil proxy</code>.</p>
-
-    <hr/>
-
-    <h2>Use it on your workflow <span class="g">— recipes</span></h2>
-    <p>Pick the row that matches you. Every command is real; watch it work with <code>distil leaderboard</code> (genuine cumulative savings) and the <code>x-distil-*</code> response headers.</p>
-
-    <h3>Coding agents — Claude Code · Codex · Gemini CLI</h3>
-    <p>Wrap the agent; its traffic routes through compression with zero code change.</p>
-    <pre class="term"><span class="d"># subscription/OAuth-safe (ToS-safe, no tool injection)</span>
-distil wrap --lossless-only -- claude
-<span class="d"># interactive: model sees content un-digested (Tier-0 only)</span>
-distil wrap --lossless-only --verbatim -- claude
-<span class="d"># PAYG: aggressive reversible digest; the model recovers detail on demand</span>
-distil wrap --expand -- claude
-<span class="d"># coding sessions with re-reads: send the diff, not the whole file</span>
-distil wrap --session-delta -- claude</pre>
-
-    <h3>Any SDK app — chatbots, RAG, agents, batch (non-coding)</h3>
-    <pre class="term"><span class="d"># standalone proxy — point any base_url SDK at it, any language</span>
-distil proxy
-distil proxy --upstream https://generativelanguage.googleapis.com   <span class="d"># Google Gemini</span></pre>
-    <pre class="term"><span class="d"># or in-process, no sidecar (LiteLLM / LangChain)</span>
-<span class="c">from</span> distil.integrations <span class="c">import</span> litellm <span class="c">as</span> distil_litellm
-distil_litellm.completion(model=<span class="g">"claude-opus-4-8"</span>, messages=[...])</pre>
-
-    <h3>See it, prove it, get more out of it</h3>
-    <div class="table-scroll" tabindex="0" role="region" aria-label="See it, prove it, get more out of it">
-    <table>
-      <thead><tr><th>Goal</th><th>Command</th></tr></thead>
-      <tbody>
-        <tr><td>Set up + a guided tour (start here)</td><td><code>distil onboard</code></td></tr>
-        <tr><td>Make distil the default (no per-session <code>wrap</code>)</td><td><code>distil default</code> · undo <code>distil default --undo</code></td></tr>
-        <tr><td>Remove distil's footprint (before uninstalling)</td><td><code>distil offboard</code> · clear data <code>distil offboard --purge</code></td></tr>
-        <tr><td>Diagnose your setup (ledger, shadow, proxy self-test, wiring)</td><td><code>distil doctor</code></td></tr>
-        <tr><td>Wire the savings status line into Claude Code</td><td><code>distil setup</code></td></tr>
-        <tr><td>Watch genuine savings accumulate</td><td><code>distil leaderboard</code> · live TUI <code>distil dashboard</code></td></tr>
-        <tr><td>Live decision-equivalence on real traffic</td><td><code>distil wrap --shadow 0.1 -- claude</code> → <code>distil shadow-stats</code></td></tr>
-        <tr><td>Certify on <em>your</em> domain</td><td><code>distil ingest --input prod.jsonl --out ./mycorpus</code> → <code>distil conformal --corpus ./mycorpus</code></td></tr>
-        <tr><td>Let agents recover digested detail (MCP)</td><td><code>distil mcp</code> — exposes <code>distil_compress</code>/<code>_expand</code>/<code>_savings</code></td></tr>
-        <tr><td>Live savings in your Claude Code status line</td><td>install the <code>plugins/distil</code> plugin → <code>distil statusline</code></td></tr>
-        <tr><td>Self-improving keep policy</td><td><code>distil learn</code> / <code>distil online</code> (flywheel; only ever gets more conservative)</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <div class="callout good">
-      <b>Rule of thumb.</b> A detected <b>subscription</b> auto-selects <code>--lossless-only</code> — bare <code>distil wrap -- claude</code> is safe by default (add <code>--expand</code> for max recoverable compression, <code>--verbatim</code> for byte-exact). PAYG / autonomous → default digest (add <code>--expand</code> for recoverable stubs). Coding sessions with re-reads → add <code>--session-delta</code>.
-    </div>
-
-    <hr/>
-
-    <h2 id="census">Join the community count <span class="g">— opt-in census</span></h2>
-    <p>Distil sends <b>nothing</b> by default. If you want your install and savings counted on the <a href="adoption.html">live adoption board</a> (numbers only, never content — anonymous random id, revocable):</p>
-    <pre class="term"><span class="d"># see the EXACT payload first — nothing is sent</span>
-distil census show
-
-<span class="d"># opt in (or answer yes once during `distil onboard`)</span>
-distil census on
-
-<span class="d"># status · revoke anytime (deletes the anonymous id)</span>
-distil census
-distil census off</pre>
-    <p>What's sent (schema frozen by test): distil version, OS/arch/Python, run count, calibrated tokens/$ saved, top models, billing mode, wrapped agents (allowlist-only), and integration counts — which surface (wrap/proxy/gateway) and API shape (Anthropic/OpenAI/Gemini) your requests used. Never keys, content, or anything identity-derived. At most one small JSON per day, fail-open. <code>DO_NOT_TRACK=1</code> or <code>DISTIL_NO_TELEMETRY=1</code> beat a stored opt-in, always. Full disclosure: <a href="https://github.com/dshakes/distil/blob/main/TELEMETRY.md">TELEMETRY.md</a>.</p>
-
-    <hr/>
-
-    <h2>What to read next</h2>
-    <ul>
-      <li><a href="concepts.html"><strong>Concepts</strong></a> — why decision-equivalence beats byte-equivalence, how the certificate works, and why cache misses (not token size) dominate cost.</li>
-      <li><a href="techniques.html"><strong>Techniques</strong></a> — every compression technique in depth: cache stabilization, causal pruning, recoverable compression, cross-turn dedup, and more.</li>
-      <li><a href="benchmark.html"><strong>Benchmark</strong></a> — the live head-to-head against real installed packages (LLMLingua-2, Headroom), graded by <code>claude-opus-4-8</code>.</li>
-      <li><a href="cli.html"><strong>CLI Reference</strong></a> — every flag and sample output for all commands.</li>
+      <li><a href="cli.html">CLI reference</a> — every command and flag.</li>
+      <li><a href="cache-contract.html">Cache contract</a> and <a href="compare.html">the proof</a> — why the number holds up.</li>
+      <li><a href="library.html">Library API</a> — compress inside your own agent loop.</li>
+      <li><a href="adoption.html">Adoption</a> — the opt-in census (off unless you turn it on).</li>
+      <li>Leaving? <code>distil offboard</code> removes everything distil wired, then prints the uninstall command.</li>
     </ul>
 
     <div class="site-footer">

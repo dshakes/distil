@@ -24,6 +24,10 @@ _REAL_CLAUDE_SETTINGS_FILES = _setup.claude_settings_files
 def _distil_home_sandbox(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("DISTIL_HOME", str(tmp_path_factory.mktemp("distil-home")))
     monkeypatch.delenv("DISTIL_SESSION", raising=False)
+    # The A/B holdout (distil.abtest) is a random 5% of wrap sessions by default; a
+    # suite that expects compression must not get a verbatim session by chance.
+    # Tests of the holdout itself set or delete this.
+    monkeypatch.setenv("DISTIL_HOLDOUT_RATE", "0")
     # `distil default --undo` now sweeps EVERY settings file Claude Code merges and
     # deletes any loopback ANTHROPIC_BASE_URL it finds. That reach is the whole point
     # of the fix — and it is precisely why no test may keep it: a suite run from this

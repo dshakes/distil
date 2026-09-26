@@ -1,0 +1,293 @@
+{
+ "protocol": "docs/research/mcp-compressor-protocol.md",
+ "protocol_version": 1,
+ "seed": 0,
+ "n_tool_tasks": 1000,
+ "n_result_tasks": 630,
+ "margin": 0.02,
+ "alpha": 0.05,
+ "summary": {
+  "arms": {
+   "raw": {
+    "n": 1000,
+    "selection": 1.0,
+    "args": 1.0,
+    "success": 1.0,
+    "mean_round_trips": 1.0,
+    "extra_round_trips": 0.0,
+    "tools_tokens": 20022,
+    "mean_input_tokens": 20409.338
+   },
+   "L0": {
+    "n": 1000,
+    "selection": 1.0,
+    "args": 1.0,
+    "success": 1.0,
+    "mean_round_trips": 1.0,
+    "extra_round_trips": 0.0,
+    "tools_tokens": 17495,
+    "mean_input_tokens": 17882.338
+   },
+   "L1": {
+    "n": 1000,
+    "selection": 1.0,
+    "args": 1.0,
+    "success": 1.0,
+    "mean_round_trips": 1.0,
+    "extra_round_trips": 0.0,
+    "tools_tokens": 16405,
+    "mean_input_tokens": 16792.338
+   },
+   "L2": {
+    "n": 1000,
+    "selection": 1.0,
+    "args": 1.0,
+    "success": 1.0,
+    "mean_round_trips": 2.0,
+    "extra_round_trips": 1.0,
+    "tools_tokens": 4599,
+    "mean_input_tokens": 10596.463
+   },
+   "L3": {
+    "n": 1000,
+    "selection": 1.0,
+    "args": 1.0,
+    "success": 1.0,
+    "mean_round_trips": 1.191,
+    "extra_round_trips": 0.191,
+    "tools_tokens": 10076,
+    "mean_input_tokens": 12583.422
+   }
+  },
+  "results": {
+   "raw": {
+    "n": 630,
+    "correct": 1.0,
+    "mean_expands": 0.0,
+    "mean_input_tokens": 6243.374603174603
+   },
+   "R": {
+    "n": 630,
+    "correct": 1.0,
+    "mean_expands": 0.3333333333333333,
+    "mean_input_tokens": 2784.474603174603
+   }
+  }
+ },
+ "verdicts": {
+  "L0": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "L1": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "L2": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "L3": {
+   "status": "certified",
+   "selection": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   },
+   "args": {
+    "n": 1000,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  },
+  "R": {
+   "status": "certified",
+   "correct": {
+    "n": 630,
+    "base_rate": 1.0,
+    "arm_rate": 1.0,
+    "mean_diff": 0.0,
+    "losses": 0,
+    "gains": 0,
+    "discordant_rate": 0.0,
+    "tost_p": 0.0,
+    "boot_lower": 0.0,
+    "boot_ci95": [
+     0.0,
+     0.0
+    ],
+    "mcnemar_ci95": [
+     0.0,
+     0.0
+    ],
+    "margin": 0.02,
+    "alpha": 0.05,
+    "non_inferior": true
+   }
+  }
+ },
+ "mode": "dry-run (oracle mock model \u2014 verdicts validate the plumbing, not a model)"
+}

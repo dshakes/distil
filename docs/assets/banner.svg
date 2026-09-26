@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240" font-family="ui-sans-serif,Segoe UI,Inter,Roboto,sans-serif" role="img" aria-label="Distil — compression with a quality contract. Certified non-inferior: 42.0% versus 39.2% on SWE-bench.">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240" font-family="ui-sans-serif,Segoe UI,Inter,Roboto,sans-serif" role="img" aria-label="Distil — cuts what your coding agent costs, and shows you the real bill, cache included.">
   <style>
     /* Restraint on purpose: this is the README hero, and a busy header is one people
        scroll past. The only thing that moves is the mark's three bars, which already
@@ -60,14 +60,14 @@
   </g>
 
   <text x="205" y="104" font-size="68" font-weight="800" letter-spacing="-2" fill="#e7e9ee">Dist<tspan fill="url(#g)">il</tspan></text>
-  <text x="207" y="146" font-size="22" fill="#8b91a1">Compression with a <tspan fill="#e7e9ee" font-weight="600">quality contract</tspan>.</text>
-  <text x="207" y="180" font-size="16" fill="#8b91a1">Compress your agent's context — and <tspan fill="#c9cdd6" font-weight="600">prove its decisions don't change.</tspan></text>
+  <text x="207" y="146" font-size="22" fill="#8b91a1">Cuts what your <tspan fill="#e7e9ee" font-weight="600">coding agent</tspan> costs you.</text>
+  <text x="207" y="180" font-size="16" fill="#8b91a1">And shows you <tspan fill="#c9cdd6" font-weight="600">the real bill, cache included.</tspan></text>
   <g transform="translate(207,200)">
-    <rect width="336" height="26" rx="13" fill="#0f1219" stroke="#1b1f2a"/>
+    <rect width="304" height="26" rx="13" fill="#0f1219" stroke="#1b1f2a"/>
     <circle cx="17" cy="13" r="3.5" fill="#5ad19a">
       <animate attributeName="opacity" dur="7s" repeatCount="indefinite"
                values="1;0.45;1;1" keyTimes="0;0.10;0.20;1"/>
     </circle>
-    <text x="30" y="17" font-size="12" fill="#5ad1c9">certified non-inferior · 42.0% vs 39.2% on SWE-bench</text>
+    <text x="30" y="17" font-size="12" fill="#5ad1c9">cache-safe · every compressed byte recoverable</text>
   </g>
 </svg>

@@ -58,6 +58,7 @@
         <li><a href="research.html">Research &amp; Frontier</a></li>
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -69,9 +70,12 @@
       <ul>
         <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
         <li><a href="cli.html" class="active" aria-current="page">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
         <li><a href="adapters.html">Adapters</a></li>
         <li><a href="metrics.html">Metrics &amp; Observability</a></li>
         <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="mcp.html">MCP Compressor <span class="nav-badge">New</span></a></li>
         <li><a href="corpus.html">Corpus</a></li>
         <li><a href="output.html">Output &amp; I/O</a></li>
       </ul>
@@ -107,6 +111,20 @@
 
     <h1>CLI <span class="g">Reference</span></h1>
     <p class="lead">Every subcommand, its flags, and a real sample output. All commands work offline with zero API key — the bundled corpus is self-contained.</p>
+
+    <h2 id="start">Start here: four commands</h2>
+    <p><code>distil --help</code> shows only these. Everything below still works; <code>distil --help-all</code> lists it all.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="The four commands">
+    <table>
+      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><a href="#setup"><code>distil setup</code></a></th><td>One guided setup: status line, make distil your agent's default, then a health check.</td></tr>
+        <tr><th scope="row"><a href="#wrap"><code>distil wrap -- claude</code></a></th><td>Run your agent through distil.</td></tr>
+        <tr><th scope="row"><a href="#savings"><code>distil savings</code></a></th><td>What you spent, what distil saved, a daily graph, and what to fix next.</td></tr>
+        <tr><th scope="row"><a href="#doctor"><code>distil doctor</code></a></th><td>Check that everything is wired and working.</td></tr>
+      </tbody>
+    </table>
+    </div>
 
     <div class="callout">
       <b>Global flag:</b> <code>distil --version</code> prints the installed version.
@@ -159,7 +177,35 @@ GATE: <span class="g">PASS</span> — every trajectory certified non-inferior; a
 
     <!-- savings -->
     <h2 id="savings">distil savings</h2>
-    <p>Price four compression strategies on a single trajectory and show per-strategy cost, savings percentage, and cache hit tokens. The key result: naive compress + cache costs <em>more</em> than baseline because it busts the prefix cache.</p>
+    <p>One screen. <b>Spent</b> is the provider's billed usage on every request distil proxied, with cache reads and writes priced at their own rates. <b>Saved</b> comes from the savings ledger, calibrated to billed tokens and priced at the input rate you actually paid. Then a daily graph, the top three fixes from <a href="#discover"><code>distil discover</code></a>, and one proof line.</p>
+    <p>Never wrapped anything? It reads your Claude Code transcripts instead (usage fields and tool-result sizes only, read-only) and shows real spend by day. What distil would save is labelled <b>ESTIMATE</b> and names its source. It works with no install: <code>uvx --from distil-llm distil savings</code>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
+    <table>
+      <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>--since</code></th><td><code>7d</code></td><td>Window: <code>24h</code>, <code>7d</code>, <code>2w</code></td></tr>
+        <tr><th scope="row"><code>--all</code></th><td>off</td><td>All history</td></tr>
+        <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <pre class="term"><span class="d">$ distil savings</span>
+distil savings  ·  last 7 days
+
+  spent    $506.25
+           27 requests · cache reads 270.0M · writes 27.0M · uncached 27.0M · output 2.7M
+  saved    $34.53  (25,500,000 tokens)
+           priced at your blended input rate, $1.35/Mtok (cache reads included)
+  net      6.4% of what you would have paid
+
+  day    spent                          saved
+  09-23  █████████████████▏   $  112.50  █▍                   $   8.94
+  09-24  ███████████▍         $   75.00  ▋                    $   4.33
+  09-25  ████████████████████ $  131.25  █▊                   $  11.38</pre>
+
+    <h3 id="savings-strategies">Pricing strategies on a trajectory</h3>
+    <p>The original <code>distil savings</code>, unchanged: pass <code>--strategies</code> or any flag below. It prices four compression strategies on one trajectory and shows per-strategy cost, savings percentage, and cache hit tokens. The key result: naive compress + cache costs <em>more</em> than baseline because it busts the prefix cache.</p>
 
     <h3>Flags</h3>
     <div class="table-scroll" tabindex="0" role="region" aria-label="Flags">
@@ -609,6 +655,20 @@ distil discover — where your remaining savings are
      do        disable the MCP servers / tools you do not use in your agent's config</pre>
     <pre class="term"><span class="d">$ distil discover --since 7 --json</span>   <span class="d"># last week, machine-readable</span></pre>
 
+    <h2 id="ab">distil ab</h2>
+    <p>What distil saves <strong>per task</strong>, measured causally rather than per request. A small random share of new <code>wrap</code> sessions is held out and forwarded uncompressed. <code>distil ab</code> compares cost per task, turns per task and cost per turn between the two groups, within the same model and client, with an anytime-valid interval. A model change starts a fresh comparison and is reported as a difference-in-differences. Design and math: <a href="ab.html">Task-level A/B</a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="distil ab">
+    <table>
+      <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>--window</code></td><td>all time</td><td>Only sessions started in the last N days</td></tr>
+      <tr><td><code>--json</code></td><td>off</td><td>Machine-readable: headline, per-stratum cells, eras, difference-in-differences</td></tr>
+      <tr><td><code>--holdout-rate</code></td><td>unset</td><td>Set the holdout share for new sessions and exit; <code>0</code> turns it off (also <code>DISTIL_HOLDOUT_RATE</code>)</td></tr>
+    </table>
+    </div>
+    <pre class="term"><span class="d">$ distil ab</span>
+<span class="d">$ distil ab --window 30 --json</span>
+<span class="d">$ distil ab --holdout-rate 0</span>   <span class="d"># opt out</span></pre>
+
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while
 compressing for one agent is expandable by <em>any</em> other reading the same
@@ -743,7 +803,7 @@ response = litellm.completion(api_base=<span class="g">"http://localhost:8788"</
     <p>The zero-config way to route an existing agent or CLI through Distil. <code>distil wrap</code> starts the proxy on an ephemeral local port, injects the right env var into the child process's environment, runs your command to completion, then tears the proxy down — flushing genuine savings to your ledger and printing the <strong>Proof Ledger</strong> on exit. No code change, no manual env wiring, no leftover server.</p>
 
     <p><strong>Per-agent presets</strong> — when the command name is a known agent, distil auto-selects how to route it: an environment variable (<code>claude</code>, <code>codex</code>, <code>gemini</code>, <code>aider</code>, <code>opencode</code>, <code>qwen</code>, <code>goose</code>, <code>grok</code>, <code>openhands</code>, <code>copilot</code>, <code>kimi</code>, <code>vibe</code>, <code>kilo</code>, …) or, for agents with no env-var contract, a config file distil claims for the session and restores on exit (<code>cline</code>, <code>crush</code>, <code>droid</code>, <code>omp</code>, <code>cn</code>). <code>distil wrap --list</code> prints every target with its mechanism, wire shape and the primary doc its contract was read from — and the agents it cannot reach, with the reason. A <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> line confirms the selection at startup. Explicit <code>--env-var</code> and <code>--upstream</code> always override the preset. <strong><code>codex</code> is unverified:</strong> codex-rs reads its base URL from the <code>openai_base_url</code> config key and no mapping from <code>OPENAI_BASE_URL</code> was found, so the preset may route nothing; the zero-traffic warning at exit is how you would know. Full matrix: <a href="integrations.html">Integrations</a>.</p>
-    <p><strong>Claude Code's tool search stays on.</strong> Claude Code turns off its own deferred loading of MCP tool definitions whenever <code>ANTHROPIC_BASE_URL</code> names a non-first-party host, so every connector's full schema would ride along on every turn. <code>distil wrap -- claude</code> sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (an exported <code>ENABLE_TOOL_SEARCH=false</code> still wins), and distil forwards <code>defer_loading</code> and <code>tool_reference</code> blocks untouched. Unverified on a metered session so far; see <a href="cache-contract.html#tools">the cache contract</a> for how to confirm it and ADR 0013 for why distil does not hide tools itself.</p>
+    <p><strong>Claude Code's tool search stays on.</strong> Claude Code turns off its own deferred loading of MCP tool definitions whenever <code>ANTHROPIC_BASE_URL</code> names a non-first-party host, so every connector's full schema would ride along on every turn. <code>distil wrap -- claude</code> sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (an exported <code>ENABLE_TOOL_SEARCH=false</code> still wins), and distil forwards <code>defer_loading</code> and <code>tool_reference</code> blocks untouched. Verified live on 1.54.0 (2026-09-25): a wrapped session recorded <code>tools_deferred</code> of 4–5 on every request, tool payload 9,733 tokens, cache reads intact, no request failures; see <a href="cache-contract.html#tools">the cache contract</a> for how to confirm it on yours and ADR 0013 for why distil does not hide tools itself.</p>
 
     <pre class="term"><span class="d"># claude → ANTHROPIC_BASE_URL auto-set</span>
 $ distil <span class="c">wrap</span> -- claude -p <span class="g">"summarize this repo"</span>
@@ -1368,6 +1428,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
       <tbody>
         <tr><th scope="row"><code>--no-color</code></th><td>off</td><td>Disable ANSI colors in the check list</td></tr>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output (CI-gateable): <code>{"checks": [...], "ok": bool}</code>, one object per check with <code>name</code>/<code>status</code>/<code>detail</code>/<code>hint</code></td></tr>
+        <tr><th scope="row"><code>--deep</code></th><td>off</td><td>Also run the <a href="#validate"><code>validate</code></a> and <a href="#verify"><code>verify</code></a> gates</td></tr>
       </tbody>
     </table>
     </div>
@@ -1375,7 +1436,19 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <hr/>
 
     <h2 id="setup">distil setup</h2>
-    <p>Wire the distil savings status line into Claude Code's <code>settings.json</code> in one step. Idempotent (no-op if already wired), never clobbers an existing status line without <code>--force</code> (which backs it up first), and preserves all other settings.</p>
+    <p>One guided setup. It runs <a href="#onboard"><code>distil onboard</code></a> (status line, optional alias default, next steps), optionally <code>distil default --always-on</code>, and ends with <a href="#doctor"><code>distil doctor</code></a>. <code>--yes</code> accepts the prompts but never turns on always-on; pass <code>--always-on</code> for that.</p>
+    <p><code>--statusline-only</code> (or <code>--settings PATH</code>) runs the original command: wire the status line into Claude Code's <code>settings.json</code>. It is idempotent, never replaces an existing status line without <code>--force</code> (which backs it up first), and keeps all other settings.</p>
+
+    <h3 id="setup-hooks">distil setup --hooks</h3>
+    <p>For agents a proxy cannot reach: install a post-tool hook in every detected client — Claude Code, Cursor (MCP output only), Gemini CLI, Codex CLI — that compresses tool output before it enters the agent's history. On a subscription it is lossless-only unless you add <code>--digest</code>; on a metered key the recoverable digest runs by default, with the original kept for <code>distil expand &lt;handle&gt;</code>. Only this runs; nothing else in <code>setup</code> does. Per client and to undo: <code>distil hook install|uninstall|status --client claude|cursor|gemini|codex|all</code>. Details, sources and what is not supported: <a href="hooks.html">Post-tool hooks</a>.</p>
+    <pre class="term"><span class="d">$ distil setup --hooks</span>                      <span class="d"># every detected client</span>
+<span class="d">$ distil setup --hooks --digest</span>             <span class="d"># subscription: opt in to the digest</span>
+<span class="d">$ distil hook status</span>                        <span class="d"># where it is installed, which tier, and why</span>
+<span class="d">$ distil hook uninstall --client all</span>        <span class="d"># removes only what distil added</span>
+<span class="d">$ distil expand 3f9a1c2e</span>                    <span class="d"># the original behind a digest handle</span></pre>
+
+    <h3 id="setup-vscode">distil setup --vscode</h3>
+    <p>Prints the VS Code Copilot Chat <code>chatLanguageModels.json</code> entry (BYOK Custom Endpoint, Anthropic Messages) that sends chat through a running distil proxy. <code>--port</code> picks the proxy port (default 8788). VS Code keeps the key; distil writes nothing. See <a href="https://github.com/dshakes/distil/blob/main/docs/IDE-AGENTS.md">IDE agents</a>.</p>
 
     <hr/>
 

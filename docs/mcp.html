@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MCP Compressor — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="MCP Compressor — Distil"/>
+<meta property="og:description" content="How distil mcp compresses MCP tool definitions and results for any MCP client, at named levels whose accuracy is decided by a pre-registered test."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/mcp.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="MCP Compressor — Distil"/>
+<meta name="twitter:description" content="How distil mcp compresses MCP tool definitions and results for any MCP client, at named levels whose accuracy is decided by a pre-registered test."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode? <span class="nav-badge">New</span></a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <h2 class="sidebar-section">Getting started</h2>
+      <ul>
+        <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Learn</h2>
+      <ul>
+        <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+          <ul class="sidebar-sub">
+            <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+            <li><a href="learn-compression.html">2. Compression</a></li>
+            <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+          </ul></li>
+        <li><a href="concepts.html">Concepts</a></li>
+        <li><a href="techniques.html">Techniques</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="cache-contract.html">Cache Contract <span class="nav-badge">New</span></a></li>
+        <li><a href="subscription.html">Subscription <span class="nav-badge">New</span></a></li>
+        <li><a href="research.html">Research &amp; Frontier</a></li>
+        <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
+        <li><a href="evals.html">Evaluation</a></li>
+        <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
+        <li><a href="benchmark.html">Live Benchmark</a></li>
+        <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
+        <li><a href="compare.html">Compare</a></li>
+        <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+      </ul>
+
+      <h2 class="sidebar-section">Reference</h2>
+      <ul>
+        <li><a href="library.html">Library API <span class="nav-badge">New</span></a></li>
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="hooks.html">Post-tool Hooks <span class="nav-badge">New</span></a></li>
+        <li><a href="code-skeletons.html">Code Skeletons <span class="nav-badge">New</span></a></li>
+        <li><a href="adapters.html">Adapters</a></li>
+        <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+        <li><a href="cache.html">Prompt Caching <span class="nav-badge">New</span></a></li>
+        <li><a href="mcp.html" class="active" aria-current="page">MCP Compressor <span class="nav-badge">New</span></a></li>
+        <li><a href="corpus.html">Corpus</a></li>
+        <li><a href="output.html">Output &amp; I/O</a></li>
+      </ul>
+
+      <h2 class="sidebar-section">More</h2>
+      <ul>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="integrations.html">Integrations</a>
+          <ul class="sidebar-sub">
+            <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+            <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+            <li><a href="litellm.html">LiteLLM</a></li>
+            <li><a href="langchain.html">LangChain</a></li>
+            <li><a href="langgraph.html">LangGraph</a></li>
+            <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+            <li><a href="agno.html">Agno</a></li>
+            <li><a href="strands.html">Strands</a></li>
+            <li><a href="autogen.html">AutoGen</a></li>
+            <li><a href="llamaindex.html">LlamaIndex</a></li>
+            <li><a href="crewai.html">CrewAI</a></li>
+            <li><a href="asgi.html">ASGI Middleware</a></li>
+          </ul></li>
+        <li><a href="security.html">Security</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+        <li><a href="threat-model.html">Threat Model <span class="nav-badge">New</span></a></li>
+        <li><a href="index.html">← Landing page</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">    <h1>MCP compressor</h1>
+    <p class="lede"><code>distil mcp</code> sits between any MCP client and its MCP servers and compresses what they cost you: the <b>tool definitions</b> resent on every request, and the <b>tool results</b> that pile up in context. Every level is an explicit, named mode, and every level's accuracy is decided by a <a href="https://github.com/dshakes/distil/blob/main/docs/research/mcp-compressor-protocol.md">pre-registered test</a> — not by a token count.</p>
+
+    <p class="note"><b>Using Claude Code?</b> You do not need this for definitions: Claude Code's native tool search defers unused tools better than a proxy can, and distil leaves it on (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0017-mcp-compressor.md">ADR 0017</a>). This is for Codex, Cursor, Gemini CLI, opencode, Claude Desktop, Windsurf and your own agents.</p>
+
+    <h2 id="quickstart">Quick start</h2>
+<pre><code>distil mcp wrap -- npx -y @modelcontextprotocol/server-filesystem ~/work   # one server
+distil mcp serve --config mcp.json          # every stdio server in an mcpServers file
+distil mcp install cursor                   # rewrite Cursor's config to route through distil
+distil mcp install cursor --undo            # byte-exact restore
+distil mcp watch                            # live view: what was compressed, per tool
+distil dashboard --web                      # then open /mcp for the before/after diff</code></pre>
+    <p><code>install</code> knows <code>cursor</code>, <code>claude-desktop</code>, <code>gemini</code>, <code>windsurf</code>, <code>opencode</code> and <code>codex</code>, plus <code>custom --path FILE</code> for any <code>mcpServers</code> JSON. It keeps a byte-exact backup, writes 0600 atomically, and records what it wrote: undo restores the original bytes (and mode) when the file is untouched, and unwraps only distil's entries — keeping your later edits — when it is not. Remote (<code>url</code>) servers are never touched.</p>
+
+    <h2 id="levels">Levels</h2>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Compression levels">
+    <table>
+      <thead><tr><th>Level</th><th>What the model sees</th><th>What is recoverable</th><th>Default</th></tr></thead>
+      <tbody>
+        <tr><td><b>L0</b> lossless</td><td>every tool, with only JSON-Schema annotation keywords removed (<code>$comment</code>, a <code>title</code> that restates its name, an empty description, a no-op <code>$schema</code>) and whitespace normalised</td><td>nothing is lost that validation reads — proven on every vendored real schema</td><td>on</td></tr>
+        <tr><td><b>L1</b> summary</td><td>descriptions cut to their first sentence plus up to two constraint sentences, verbatim — never generated</td><td>the full description, via <code>&lt;server&gt;_get_tool_schema</code></td><td>opt-in</td></tr>
+        <tr><td><b>L2</b> lazy</td><td>one index per server; a tool's real definition appears once the model asks for it</td><td>every schema, on demand</td><td>opt-in</td></tr>
+        <tr><td><b>L3</b> adaptive</td><td>L2, plus the tools you actually use pinned fully expanded from the first turn</td><td>as L2</td><td>opt-in</td></tr>
+        <tr><td><b>R</b> results</td><td>large text results as distil's recoverable digest</td><td>the exact original, via <code>&lt;server&gt;_expand</code></td><td>opt-in (<code>--results</code>)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>The default is L0 alone. L1–L3 and R passed the pre-registered live accuracy run below on <code>claude-haiku-4-5</code> and are still opt-in: the protocol's default rule also needs a replication model, and that run has not been made.</p>
+    <p>No level is ever larger than L0: a server whose index or summary would not be smaller (a two-tool server, say) is served at L0, and the watch view says so. R never touches errors, images or other non-text content, results carrying <code>structuredContent</code> your client parses, or anything an agent may quote back byte-exact: tools named like read / view / open / cat / show / contents, and read-only tools whose description says they return file or source content. <code>&lt;server&gt;_expand</code> only returns originals that same server's results produced in the current session.</p>
+
+    <h2 id="namespacing">Several servers behind one proxy</h2>
+    <p><code>distil mcp install</code> gives every server its own proxy, so tools keep their real names. When one <code>distil mcp serve</code> fronts several servers, every tool, meta tool and prompt is namespaced <code>&lt;server&gt;__&lt;name&gt;</code> and routed through one explicit name-to-server table in config order. Server names are reduced to letters, digits and <code>-</code>, so one server can never mint a name that parses as another's; a name that would collide is dropped and logged, never "first claimant wins". Resources and prompts go to the server that listed them — an unknown or ambiguous one is an error, not a guess, and no kind of claim outranks another: if two servers could own a URI, by exact listing or by template, neither gets the read. Catch-all resource templates are not routed. Requests a server sends to your client (sampling, elicitation) and its <code>instructions</code> are labelled with the server they came from.</p>
+
+    <h2 id="measured">What it saves on definitions</h2>
+    <p>On the eight MCP reference servers (78 tools, their verbatim <code>tools/list</code> vendored as fixtures), L0 sends <b>12.6%</b> fewer model-facing definition tokens and L2 <b>77.0%</b> fewer at the start of a session. These are exact, deterministic counts over fixed inputs (<code>benchmarks/results/mcp_toolbench/definitions.json</code>, regenerated by <code>distil mcp bench</code>); they say nothing about accuracy, which is the next section.</p>
+
+    <h2 id="beyond">Beyond wrapper-style lazy loading</h2>
+    <p>Other MCP compressors fold a server's tools into one wrapper and route <em>every</em> call through a generic <code>invoke_tool</code> — the model never sees a real signature again, and every use costs an extra round trip. <code>distil mcp</code> does lazy loading differently:</p>
+    <ul>
+      <li><b>The real tool comes back.</b> Fetching a schema adds the tool to the list under its real name with its real <code>inputSchema</code>, and tells the client (<code>notifications/tools/list_changed</code>). The next call is a normal, typed tool call. <code>&lt;server&gt;_invoke_tool</code> remains only as the fallback for clients that never refresh their list.</li>
+      <li><b>Cache-stable.</b> The index is one byte-stable description; unlocked tools are appended at the end and never removed, and the set is persisted per session, so a cached prefix survives an unlock.</li>
+      <li><b>Learns what you use.</b> L3 pins the tools a server is actually called for — tool names and counts only, on this machine — and fixes the pins for the session.</li>
+      <li><b>Compresses results too</b>, recoverably, for every client.</li>
+      <li><b>Publishes accuracy, not just tokens</b> — below.</li>
+    </ul>
+
+    <h2 id="accuracy">Accuracy: pre-registered, measured</h2>
+    <p>The protocol fixes everything before a live run: tool-selection accuracy and argument exact-match against the uncompressed tool list, paired, on generated tasks over the real reference-server catalog; non-inferiority by TOST and a paired bootstrap at distil's single risk budget; sample sizes from a power calculation; levels tested in a fixed sequence, one look, no rescue re-runs. <code>distil mcp bench</code> is its executable form. Offline it runs a scripted mock model that checks the plumbing and is never presented as evidence about a real model. With <code>--live</code> it needs a hard <code>--budget-usd</code> ceiling, which a spend meter enforces before every API call.</p>
+    <p>The first live run, on <code>claude-haiku-4-5</code> (2026-09-25, $21.68 spent of an $85 ceiling), <b>certified every level</b>: 1,000 tool tasks per level and 630 result tasks, all eight servers exposed at once.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Live accuracy results">
+    <table>
+      <thead><tr><th>Arm</th><th>Right tool</th><th>Right tool and arguments</th><th>Extra round trips per task</th><th>Billed on this suite</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>raw (uncompressed)</td><td>94.4%</td><td>91.2%</td><td>0</td><td>$2.17</td><td>reference</td></tr>
+        <tr><td><b>L0</b></td><td>95.2%</td><td>92.1%</td><td>0</td><td>$2.00</td><td>certified</td></tr>
+        <tr><td><b>L1</b></td><td>95.4%</td><td>95.4%</td><td>0</td><td>$1.90</td><td>certified</td></tr>
+        <tr><td><b>L2</b></td><td>99.8%</td><td>96.3%</td><td>1.006</td><td>$8.79</td><td>certified</td></tr>
+        <tr><td><b>L3</b></td><td>98.8%</td><td>95.4%</td><td>0.088</td><td>$1.82</td><td>certified</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>R, on results: answers were right 99.7% of the time from raw results and 99.5% from R's digests, with the <code>_expand</code> tool available. Billed $3.08 raw vs $1.92 with R. <b>Certified.</b></p>
+    <p>Three things to read with these numbers:</p>
+    <ul>
+      <li><b>Compressed levels scored higher than raw.</b> The protocol tests non-inferiority, not superiority, so that is an observation, not a claim.</li>
+      <li><b>L2 cost more, not less.</b> Its short index was never written to the prompt cache on this model, and every task took a second round trip, so in this benchmark (one fresh session per task) it billed $8.79 against raw's $2.17. Its value is context-window headroom. L3 was cheaper than raw only because its pins had already been learned; a fresh L3 install starts as L2.</li>
+      <li><b>Scope.</b> One model, the eight reference servers, synthetic single-call tasks. No replication model was run, so the default stays L0 and L1–L3 and R stay opt-in. <code>distil mcp watch</code> and the <code>/mcp</code> dashboard show them as certified.</li>
+    </ul>
+    <p>Results: <code>benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json</code>, per-call billing in <code>live_calls_claude-haiku-4-5.jsonl</code>, the analysis in the <a href="https://github.com/dshakes/distil/blob/main/docs/research/mcp-compressor-protocol.md">protocol</a>.</p>
+
+    <h2 id="watch">See how it compressed</h2>
+<pre><code>[github] level L2 (lazy)  results on  cache 3 list change(s)
+  definitions 7,943 → 2,088 tok  schema fetches 2
+  results 8,567 → 199 tok  calls 3  expands 1
+  tool                              state              def tok  fetch  calls        result tok
+  create_issue                      unlocked      290→258          1      1             37→37
+  list_issues                       unlocked      371→339          1      1          4,265→81
+  search_code                       unlocked      226→194          0      1          4,265→81
+  add_issue_comment                 lazy          201→24           0      0                 —</code></pre>
+    <p>Per server and per tool: definition tokens before → after, lazy / unlocked / pinned state, schema fetches, result compression, expands, how many times the list changed this session, and each level's certificate. <code>distil dashboard --web</code> → <code>/mcp</code> adds a side-by-side diff of any tool's original and sent definition, listing exactly what was dropped, and a timeline.</p>
+    <p>Everything comes from a local, content-free event log under <code>$DISTIL_HOME/mcp/</code>: tool names, event kinds and token sizes — never arguments, results or descriptions. Tool names stay on your machine; they are not part of the census or any telemetry.</p>
+
+    <h2 id="safety">Fail-open and transparent</h2>
+    <ul>
+      <li>Only <code>tools/list</code> and <code>tools/call</code> are rewritten. Resources, prompts, completion, logging, notifications and server-to-client requests (<code>roots/list</code>, sampling) pass through, with request ids preserved so cancellation and progress keep working.</li>
+      <li>A compression error returns the server's own answer. If the proxy cannot start at all, <code>wrap</code> runs the server directly.</li>
+      <li>The server runs with the command, environment and working directory it was configured with; its stderr goes wherever your client already collects it.</li>
+    </ul>
+
+    <h2 id="limits">Limits</h2>
+    <ul>
+      <li>stdio servers only. Remote (streamable-HTTP / SSE) servers are skipped by <code>serve</code> and left alone by <code>install</code>.</li>
+      <li>Rewriting Codex's <code>config.toml</code> needs Python 3.11+; the patch is verified by re-parsing, and anything that would not round-trip is refused rather than written.</li>
+      <li>A client that ignores <code>list_changed</code> gets L2/L3 through the invoke fallback — typed calls are the part it misses.</li>
+    </ul>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+</main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

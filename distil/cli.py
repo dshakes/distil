@@ -103,11 +103,36 @@ def cmd_compress(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_savings_screen(args: argparse.Namespace) -> int:
+    """`distil savings`: the one screen. Any strategy-pricing flag (or --strategies)
+    keeps the pre-1.55 behaviour, so existing scripts see exactly what they did."""
+    if (
+        getattr(args, "strategies", False)
+        or args.trajectory
+        or args.record
+        or args.pricing
+        or args.tokenizer
+        or args.output_tokens_per_turn is not None
+    ):
+        return cmd_savings(args)
+    from . import savings_screen as ss
+
+    try:
+        since = None if args.all else time.time() - ss.parse_since(args.since)
+    except ValueError as e:
+        print(f"distil savings: {e}", file=sys.stderr)
+        return 2
+    screen = ss.build(since)
+    print(ss.to_json(screen) if args.json else ss.render(screen))
+    return 0
+
+
 def cmd_savings(args: argparse.Namespace) -> int:
     traj = _load(args.trajectory)
-    price = pricing.get(args.pricing)
-    tok = tokenizer.resolve(args.tokenizer, model=price.name)
-    out_t = args.output_tokens_per_turn
+    price = pricing.get(args.pricing or "claude-opus-4-8")
+    tk = args.tokenizer or "heuristic"
+    tok = tokenizer.resolve(tk, model=price.name)
+    out_t = args.output_tokens_per_turn or 0
 
     runs: dict[str, dict[str, Any]] = {
         "baseline (no cache, no compress)": dict(strategy="none", caching=False),
@@ -121,11 +146,8 @@ def cmd_savings(args: argparse.Namespace) -> int:
     }
     baseline = results["baseline (no cache, no compress)"].total_dollars
 
-    tok_note = "≈, not billing-grade" if args.tokenizer == "heuristic" else "billing-grade"
-    print(
-        f"model {price.name}   |   {len(traj.turns)} turns   |   "
-        f"tokenizer={args.tokenizer} ({tok_note})\n"
-    )
+    tok_note = "≈, not billing-grade" if tk == "heuristic" else "billing-grade"
+    print(f"model {price.name}   |   {len(traj.turns)} turns   |   tokenizer={tk} ({tok_note})\n")
     print(f"{'strategy':<34}{'$ / run':>12}{'vs baseline':>14}{'cache hits':>12}")
     print("-" * 72)
     for label, r in results.items():
@@ -2261,6 +2283,120 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if n_fail else 0
 
 
+def cmd_doctor_front(args: argparse.Namespace) -> int:
+    """`distil doctor`, plus `--deep`: the adversarial validate gate and the
+    byte-fidelity verify gate after the health checks. Exit = worst of the three."""
+    if not getattr(args, "deep", False):
+        return cmd_doctor(args)
+    if getattr(args, "json", False):
+        print("distil doctor: --deep prints human output; drop --json", file=sys.stderr)
+        return 2
+    rc = cmd_doctor(args)
+    print("\n── deep: distil validate ──")
+    rc_validate = cmd_validate(argparse.Namespace(adversarial=False))
+    print("\n── deep: distil verify ──")
+    rc_verify = cmd_verify(argparse.Namespace())
+    return max(rc, rc_validate, rc_verify)
+
+
+def cmd_setup_front(args: argparse.Namespace) -> int:
+    """`distil setup`: onboard (status line, alias default, tour) → optional always-on
+    → doctor. `--settings`/`--statusline-only` keep the original status-line-only command."""
+    if args.settings or args.statusline_only:
+        return cmd_setup(args)
+    if getattr(args, "hooks", False):
+        return cmd_hook(argparse.Namespace(action="install", client="auto", digest=args.digest))
+    if getattr(args, "vscode", False):
+        return _print_vscode_entry(args.port)
+    interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
+    rc = cmd_onboard(
+        argparse.Namespace(
+            json=False,
+            offline=args.offline,
+            dry_run=False,
+            force=args.force,
+            upgrade=False,
+            yes=args.yes,
+            no_interactive=args.no_interactive,
+            no_color=args.no_color,
+            no_launch=True,  # setup ends on the health check, not inside the agent
+        )
+    )
+    always_on = args.always_on
+    if not always_on and interactive and not args.yes:
+        # Never implied by --yes: it installs a login service and pins ANTHROPIC_BASE_URL.
+        try:
+            always_on = input(
+                "Also run distil always-on (a background proxy every SDK routes through)? [y/N] "
+            ).strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            print()
+    if always_on:
+        print()
+        rc = max(
+            rc,
+            cmd_default(
+                argparse.Namespace(
+                    rc=None,
+                    agent=None,
+                    mode=None,
+                    port=8788,
+                    undo=False,
+                    always_on=True,
+                    no_start=False,
+                    force=False,
+                )
+            ),
+        )
+    print()
+    rc = max(rc, cmd_doctor(argparse.Namespace(no_color=args.no_color, json=False)))
+    print("\nnext:  distil wrap -- claude     then:  distil savings")
+    return rc
+
+
+def vscode_entry(port: int) -> list[dict[str, Any]]:
+    """A VS Code ``chatLanguageModels.json`` provider routing Copilot Chat via distil.
+
+    Shape from code.visualstudio.com/docs/copilot/customization/language-models
+    (Custom Endpoint, verified 2026-09-25). The key stays an ``${input:…}`` variable
+    so VS Code prompts for it and stores it — distil never sees or writes a key.
+    """
+    return [
+        {
+            "name": "distil",
+            "vendor": "customendpoint",
+            "apiKey": "${input:anthropicApiKey}",
+            "apiType": "messages",
+            "models": [
+                {
+                    "id": "claude-sonnet-4-6",
+                    "name": "Claude Sonnet 4.6 (via distil)",
+                    "url": f"http://127.0.0.1:{port}/v1/messages",
+                    "toolCalling": True,
+                    "vision": True,
+                    "maxInputTokens": 200000,
+                    "maxOutputTokens": 64000,
+                }
+            ],
+        }
+    ]
+
+
+def _print_vscode_entry(port: int) -> int:
+    """Print the Copilot Chat entry; writing VS Code's own file is left to VS Code."""
+    import json as _json
+
+    print("VS Code Copilot Chat → distil (BYOK Custom Endpoint)\n")
+    print(f"1. Keep a distil proxy on port {port}:  distil setup --always-on")
+    print("2. In VS Code: Chat: Manage Language Models → Add Models → Custom Endpoint,")
+    print("   API type Messages. VS Code opens chatLanguageModels.json — use this entry:\n")
+    print(_json.dumps(vscode_entry(port), indent=2))
+    print("\n3. Pick 'Claude Sonnet 4.6 (via distil)' in the chat model picker.")
+    print("   Change id/name for another model. Chat only: inline completions stay on GitHub.")
+    print("   Source: https://code.visualstudio.com/docs/copilot/customization/language-models")
+    return 0
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     """Wire the distil status line into Claude Code settings (idempotent, safe)."""
     from pathlib import Path
@@ -2275,6 +2411,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print("\nNext — route an agent through distil so the line fills in:")
         print("  distil wrap --shadow 0.1 -- claude")
         print("Verify your setup anytime with:  distil doctor")
+        from .abtest import disclosure
+
+        print(disclosure())
         return 0
     return 1
 
@@ -2453,7 +2592,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:
             print(c("90", "  no answer recorded — enable anytime: distil census on") + "\n")
 
     # Or just route the agent once, right now.
-    if env.agents:
+    if env.agents and not getattr(args, "no_launch", False):
         first_cmd = steps[0][1]
         if ask(f"Start now — run step 1?  ({first_cmd})"):
             print()
@@ -2985,16 +3124,57 @@ def cmd_quota(args: argparse.Namespace) -> int:
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
-    """Run, install, verify, or report on the Claude Code PostToolUse hook."""
-    from .hook import install_hook, main as hook_main, uninstall_hook
+    """Run, install, verify, or report on the post-tool hooks (Claude Code, Cursor,
+    Gemini CLI, Codex CLI)."""
+    from .hook import (
+        CLIENTS,
+        detected_clients,
+        install_hook,
+        main as hook_main,
+        print_status,
+        uninstall_hook,
+    )
 
+    action = getattr(args, "action", None)
     if getattr(args, "install", False):
-        return install_hook()
-    if getattr(args, "uninstall", False):
-        return uninstall_hook()
+        action = "install"
+    elif getattr(args, "uninstall", False):
+        action = "uninstall"
+    if action == "status":
+        return print_status()
+    if action in ("install", "uninstall"):
+        client = getattr(args, "client", None) or "claude"
+        keys = (
+            list(CLIENTS)
+            if client == "all"
+            else detected_clients()
+            if client == "auto"
+            else [client]
+        )
+        digest = bool(getattr(args, "digest", False))
+        rc = 0
+        for i, key in enumerate(keys):
+            if i:
+                print()
+            rc = max(
+                rc, install_hook(key, digest=digest) if action == "install" else uninstall_hook(key)
+            )
+        return rc
     if getattr(args, "stats", False):
         return _hook_stats()
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
+def cmd_expand(args: argparse.Namespace) -> int:
+    """Print the byte-exact original behind a digest handle (hook or proxy)."""
+    from .mcp_server import _tool_expand
+
+    out = _tool_expand({"handle": args.handle})
+    if out.startswith("error: "):
+        print(f"distil: {out[7:]}", file=sys.stderr)
+        return 1
+    sys.stdout.write(out)
+    return 0
 
 
 def cmd_memory(args: argparse.Namespace) -> int:
@@ -3085,7 +3265,11 @@ def _hook_stats(out: Any = None) -> int:
         by_tool[str(r.get("tool") or "?")] = by_tool.get(str(r.get("tool") or "?"), 0) + int(
             r.get("chars_saved") or 0
         )
-    print("distil hook — lossless tool-output compression (subscription-safe)\n", file=stream)
+    print(
+        "distil hook — tool-output compression via first-party hooks "
+        "(lossless-only on a subscription unless you opted in)\n",
+        file=stream,
+    )
     print(f"  compressed results : {len(rows):,}", file=stream)
     print(f"  characters before  : {before:,}", file=stream)
     print(f"  characters after   : {after:,}", file=stream)
@@ -3104,11 +3288,262 @@ def _hook_stats(out: Any = None) -> int:
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
-    """Run the zero-dependency distil MCP server over stdio (compress/expand/savings)."""
-    from .mcp_server import serve
+    """``distil mcp`` — distil's own MCP server; with a subcommand, the MCP proxy."""
+    sub = getattr(args, "mcp_cmd", None)
+    if sub is None:
+        from .mcp_server import serve
 
-    serve()
+        serve()
+        return 0
+    handlers = {
+        "wrap": _mcp_wrap,
+        "serve": _mcp_serve,
+        "install": _mcp_install,
+        "watch": _mcp_watch,
+        "bench": _mcp_bench,
+    }
+    return handlers[sub](args)
+
+
+def _mcp_default_name(command: list[str]) -> str:
+    """A server name from its command line: ``npx -y @scope/server-git`` → ``git``."""
+    target = next((a for a in command[1:] if not a.startswith("-")), command[0])
+    base = Path(target).name.split("@", 1)[-1] if target.startswith("@") else Path(target).name
+    for prefix in ("mcp-server-", "server-", "mcp-"):
+        if base.startswith(prefix):
+            base = base[len(prefix) :]
+    return base or "mcp"
+
+
+def _mcp_level_notice(level: str, results: bool) -> None:
+    """One stderr line (the client's MCP log) when an uncertified level is in use."""
+    from .mcpproxy import watch
+
+    cert = watch.certificate()
+    pending = [
+        lv
+        for lv in ([level] if level != "L0" else []) + (["R"] if results else [])
+        if cert.get(lv) != "certified"
+    ]
+    if pending:
+        print(
+            f"distil mcp: {', '.join(pending)} accuracy certificate is {cert.get(pending[0])} — "
+            "see `distil mcp watch`; L0 is lossless by construction",
+            file=sys.stderr,
+        )
+
+
+def _mcp_run(specs: list, level: str, results: bool, fallback: list[str] | None) -> int:
+    from .mcpproxy import proxy as mp
+
+    try:
+        px = mp.build(specs, level=level, results=results)
+    except FileNotFoundError as exc:
+        print(f"distil mcp: cannot start server: {exc}", file=sys.stderr)
+        return 127
+    except Exception as exc:  # noqa: BLE001 — fail open: run the server without the proxy
+        if fallback is None:
+            raise
+        import os
+
+        print(
+            f"distil mcp: proxy unavailable ({type(exc).__name__}); running the server directly",
+            file=sys.stderr,
+        )
+        os.execvp(fallback[0], fallback)
+        return 127  # only reached when exec itself is stubbed out
+    _mcp_level_notice(level, results)
+    mp.serve(px)
     return 0
+
+
+def _mcp_wrap(args: argparse.Namespace) -> int:
+    from .mcpproxy import proxy as mp
+
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        print(
+            "usage: distil mcp wrap [--name N] [--level L0..L3] -- <server command>",
+            file=sys.stderr,
+        )
+        return 2
+    name = args.name or _mcp_default_name(command)
+    spec = mp.ServerSpec(name, command[0], command[1:])
+    return _mcp_run([spec], args.level, args.results, command)
+
+
+def _mcp_serve(args: argparse.Namespace) -> int:
+    from .mcpproxy import proxy as mp
+
+    try:
+        specs, skipped = mp.load_config(Path(args.config))
+    except mp.ConfigError as exc:
+        print(f"distil mcp serve: {exc}", file=sys.stderr)
+        return 2
+    for why in skipped:
+        print(f"distil mcp serve: skipped {why}", file=sys.stderr)
+    return _mcp_run(specs, args.level, args.results, None)
+
+
+def _mcp_install(args: argparse.Namespace) -> int:
+    from .mcpproxy import install as mi
+
+    path = Path(args.path).expanduser() if args.path else None
+    try:
+        if args.undo:
+            status, msg = mi.uninstall(args.client, path=path)
+        else:
+            status, msg = mi.install(
+                args.client,
+                path=path,
+                level=args.level,
+                results=args.results,
+                dry_run=args.dry_run,
+            )
+    except mi.InstallError as exc:
+        print(f"distil mcp install: {exc}", file=sys.stderr)
+        return 1
+    print(msg)
+    if status == "ok":
+        print("restart the client so it relaunches its MCP servers through distil")
+    return 0
+
+
+def _mcp_watch(args: argparse.Namespace) -> int:
+    if args.web:
+        from .webdash import serve_webdash
+
+        print(f"MCP compression view → http://127.0.0.1:{args.port}/mcp")
+        serve_webdash(args.port, open_browser=False)
+        return 0
+    from .mcpproxy import watch
+
+    return watch.run_watch(interval=args.interval, once=args.once)
+
+
+def _mcp_bench(args: argparse.Namespace) -> int:
+    from .mcpproxy import bench
+
+    out = Path(args.out)
+    if args.live:
+        return _mcp_bench_live(args, bench, out)
+    degrade = {"L2": 0.08, "L3": 0.08} if args.behavior == "degraded" else None
+    model = bench.scripted(args.behavior, seed=args.seed, degrade=degrade)
+    res = bench.run(model=model, n_tools=args.n, n_results=args.n_results, seed=args.seed)
+    runs = res.pop("_runs")
+    res["mode"] = (
+        f"dry-run ({args.behavior} mock model — verdicts validate the plumbing, not a model)"
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"dryrun-{args.behavior}.json").write_text(json.dumps(res, indent=1) + "\n")
+    print(
+        f"dry run ({args.behavior} mock model, no API calls) → {out / f'dryrun-{args.behavior}.json'}"
+    )
+    _print_bench(res)
+    if args.behavior == "oracle":
+        cost = bench.estimate_cost(runs["tools"], runs["results"])
+        cost["n_tool_tasks"], cost["n_result_tasks"] = res["n_tool_tasks"], res["n_result_tasks"]
+        (out / "cost_estimate.json").write_text(json.dumps(cost, indent=1) + "\n")
+        (out / "definitions.json").write_text(json.dumps(bench.definition_table(), indent=1) + "\n")
+        print("\nlive-run cost estimate (nothing spent):")
+        for m, row in cost["models"].items():
+            print(
+                f"  {m:<20} ${row['usd_cached']:>9,.2f} with prompt caching   ${row['usd_no_cache']:>9,.2f} upper bound"
+            )
+    return 0
+
+
+def _print_bench(res: dict) -> None:
+    print(
+        f"\n  {'arm':<6}{'select':>9}{'args':>9}{'success':>9}{'+trips':>8}{'tools tok':>11}   verdict"
+    )
+    cert = res["verdicts"]
+    for arm, s in res["summary"]["arms"].items():
+        v = cert.get(arm, {}).get("status", "reference" if arm == "raw" else "")
+        print(
+            f"  {arm:<6}{s['selection']:>9.3f}{s['args']:>9.3f}{s['success']:>9.3f}"
+            f"{s['extra_round_trips']:>8.2f}{s['tools_tokens']:>11,}   {v}"
+        )
+    for arm, s in res["summary"]["results"].items():
+        v = cert.get("R", {}).get("status", "") if arm == "R" else "reference"
+        print(
+            f"  {arm:<6} answer {s['correct']:.3f}  expands/task {s['mean_expands']:.2f}  in-tok/task {s['mean_input_tokens']:,.0f}   {v}"
+        )
+
+
+def _mcp_bench_live(args: argparse.Namespace, bench: Any, out: Path) -> int:
+    if args.budget_usd is None or args.model is None:
+        print(
+            "distil mcp bench --live needs --model and --budget-usd (a hard spend cap)",
+            file=sys.stderr,
+        )
+        return 2
+    if args.model not in bench.LIVE_MODELS:
+        print(f"--model must be one of {', '.join(bench.LIVE_MODELS)}", file=sys.stderr)
+        return 2
+    dry = bench.run(
+        model=bench.scripted("oracle"), n_tools=args.n, n_results=args.n_results, seed=args.seed
+    )
+    est = bench.estimate_cost(dry["_runs"]["tools"], dry["_runs"]["results"], (args.model,))
+    expected = est["models"][args.model]["usd_cached"]
+    if expected > args.budget_usd:
+        print(
+            f"expected cost ${expected:,.2f} exceeds --budget-usd {args.budget_usd:,.2f}; "
+            "nothing was sent",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        model = bench.AnthropicModel(args.model, args.budget_usd)
+    except RuntimeError as exc:
+        print(f"distil mcp bench --live: {exc}", file=sys.stderr)
+        return 1
+    meter = getattr(model, "meter", None)
+    if not isinstance(meter, bench.SpendMeter) or meter.ceiling != args.budget_usd:
+        print("refusing: no spend meter enforces --budget-usd; nothing was sent", file=sys.stderr)
+        return 1
+    out.mkdir(parents=True, exist_ok=True)
+    rec: dict[str, Any] = {"mode": "live", "model": args.model, "budget_usd": args.budget_usd}
+    rec["expected_usd"] = expected
+    rc = 0
+    try:
+        rec["preflight_input_tokens"] = model.preflight(bench.initial_tool_lists(args.n, args.seed))
+        res = bench.run(
+            model=model,
+            n_tools=args.n,
+            n_results=args.n_results,
+            seed=args.seed,
+            workers=args.workers,
+            stop_at_failure=True,
+        )
+        res.pop("_runs")
+        rec = {**res, **rec}
+        if res["stopped"]:
+            print(f"stopped by the spend ceiling: {res['stopped']['why']}", file=sys.stderr)
+            rc = 1
+    except (RuntimeError, OSError) as exc:  # §8: an unrecoverable API error aborts the run
+        rec["aborted"] = f"{type(exc).__name__}: {exc}"
+        print(f"distil mcp bench --live aborted (no verdict): {exc}", file=sys.stderr)
+        rc = 1
+    calls = meter.calls
+    rec["spent_usd"] = round(meter.spent, 4)
+    rec["usage_totals"] = {
+        k: sum(int(c.get(k, 0)) for c in calls) for k in ("in", "cw", "cr", "out")
+    }
+    rec["spend_by_arm"] = bench.spend_by_arm(calls)
+    rec["api_attempts"] = len(calls)
+    rec["failed_attempts"] = sum(1 for c in calls if c.get("status") != 200)
+    path = out / f"live_{args.model}.json"
+    path.write_text(json.dumps(rec, indent=1) + "\n")
+    (out / f"live_calls_{args.model}.jsonl").write_text(
+        "".join(json.dumps(c, separators=(",", ":")) + "\n" for c in calls)
+    )
+    print(f"live run → {path} (spent ${meter.spent:,.4f} of ${args.budget_usd:,.2f})")
+    if "verdicts" in rec:
+        _print_bench(rec)
+    return rc
 
 
 #: Agents that read distil's base-URL variable only when an extra flag is passed.
@@ -4354,6 +4789,40 @@ research / CI internals:
 """
 
 
+#: What a newcomer sees. Everything else still parses; `--help-all` lists it.
+FRONT_DOOR = ("setup", "wrap", "savings", "doctor")
+
+
+class _FullHelp(argparse.Action):
+    def __init__(self, option_strings: list[str], dest: str, **kw: Any) -> None:
+        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS, **kw)
+
+    def __call__(self, parser: argparse.ArgumentParser, *_: Any) -> None:
+        parser.print_help()
+        parser.exit()
+
+
+class _FrontHelp(_FullHelp):
+    def __call__(self, parser: argparse.ArgumentParser, *_: Any) -> None:
+        print(front_help(parser))
+        parser.exit()
+
+
+def front_help(parser: argparse.ArgumentParser) -> str:
+    """The short help: four commands, each described by its own subparser help."""
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    helps = {a.dest: a.help for a in sub._choices_actions}
+    rows = "\n".join(f"  {name:<10}{helps[name]}" for name in FRONT_DOOR)
+    return (
+        "usage: distil <command> [options]\n\n"
+        "Compression with a quality contract.\n\n"
+        f"{rows}\n\n"
+        "  --version  print the installed version\n\n"
+        "Start: distil setup, then distil wrap -- claude. See it: distil savings.\n"
+        "More: distil --help-all"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     from . import conformal as _budget  # the one risk budget; see conformal.BUDGET_ALPHA
 
@@ -4362,7 +4831,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Compression with a quality contract.",
         epilog=_HELP_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
+    p.add_argument("-h", "--help", action=_FrontHelp, help="show the four everyday commands")
+    p.add_argument("--help-all", action=_FullHelp, help="show every command")
     p.add_argument("--version", action="version", version=f"distil {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>")
 
@@ -4419,15 +4891,36 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--json", action="store_true", help="machine-readable output")
     sim.set_defaults(func=cmd_simulate)
 
-    s = sub.add_parser("savings", help="price strategies in real dollars (technique #1)")
-    add_traj(s)
-    add_tokenizer(s)
-    s.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
-    s.add_argument("--output-tokens-per-turn", type=int, default=0)
-    s.add_argument(
-        "--record", action="store_true", help="append this run to the local savings ledger"
+    s = sub.add_parser(
+        "savings",
+        help="what you spent, what distil saved, and what to fix next",
+        description="What you spent (billed, cache-priced), what distil saved, a daily "
+        "graph, and the top things to fix. Never wrapped? It reads your Claude Code "
+        "transcripts (usage fields only) and labels its projection an ESTIMATE. "
+        "Any strategy-pricing flag below runs the original trajectory pricer instead.",
     )
-    s.set_defaults(func=cmd_savings)
+    s.add_argument("--since", default="7d", help="window, e.g. 7d, 24h, 2w (default 7d)")
+    s.add_argument("--all", action="store_true", help="all history, no window")
+    s.add_argument("--json", action="store_true", help="machine-readable output")
+    s.add_argument(
+        "--strategies",
+        action="store_true",
+        help="price 4 strategies on a trajectory in real dollars (the original `savings`)",
+    )
+    add_traj(s)
+    s.add_argument(
+        "--tokenizer",
+        choices=("heuristic", "anthropic"),
+        help="(--strategies) heuristic (default) or anthropic (billing-grade count_tokens)",
+    )
+    s.add_argument(
+        "--pricing", choices=sorted(pricing.CATALOG), help="(--strategies) default claude-opus-4-8"
+    )
+    s.add_argument("--output-tokens-per-turn", type=int, help="(--strategies) default 0")
+    s.add_argument(
+        "--record", action="store_true", help="(--strategies) append the run to the ledger"
+    )
+    s.set_defaults(func=cmd_savings_screen)
 
     lb = sub.add_parser(
         "leaderboard",
@@ -5059,6 +5552,14 @@ def build_parser() -> argparse.ArgumentParser:
     dv.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     dv.set_defaults(func=cmd_discover)
 
+    from .abtest.report import register as _register_ab
+
+    # `distil ab` — the causal task-level A/B (distil/abtest/). Not in FRONT_DOOR, so
+    # `--help` leaves it out and `--help-all` lists it (tests/test_front_door.py).
+    # ponytail: the savings screen does not render abtest_summary() yet — it calls
+    # harvest(), which folds session files on every call; add it with its own test.
+    _register_ab(sub)
+
     dash = sub.add_parser(
         "dashboard",
         help="live dashboard of your savings (terminal, or --web for a browser)",
@@ -5092,14 +5593,58 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dr.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     dr.add_argument("--json", action="store_true", help="machine-readable output (CI-gateable)")
-    dr.set_defaults(func=cmd_doctor)
+    dr.add_argument(
+        "--deep",
+        action="store_true",
+        help="also run the adversarial `validate` and byte-fidelity `verify` gates",
+    )
+    dr.set_defaults(func=cmd_doctor_front)
 
-    su = sub.add_parser("setup", help="wire the distil status line into Claude Code settings")
+    su = sub.add_parser(
+        "setup",
+        help="one guided setup: status line, make distil the default, then a health check",
+        description="Runs `distil onboard` (status line, optional alias default, next "
+        "steps), optionally `distil default --always-on`, and finishes with `distil doctor`. "
+        "--settings or --statusline-only runs the original status-line-only setup.",
+        epilog=_YES_VS_NO_INTERACTIVE,
+    )
     su.add_argument(
         "--force", action="store_true", help="replace an existing status line (backed up first)"
     )
-    su.add_argument("--settings", help="settings.json path (default ~/.claude/settings.json)")
-    su.set_defaults(func=cmd_setup)
+    su.add_argument("--settings", help="settings.json path; implies --statusline-only")
+    su.add_argument(
+        "--statusline-only", action="store_true", help="only wire the status line (pre-1.55)"
+    )
+    su.add_argument(
+        "--yes", "-y", action="store_true", help="auto-confirm prompts (never implies --always-on)"
+    )
+    su.add_argument("--no-interactive", action="store_true", help="never prompt")
+    su.add_argument(
+        "--always-on",
+        action="store_true",
+        help="also install the background proxy (`distil default --always-on`)",
+    )
+    su.add_argument("--offline", action="store_true", help="skip the PyPI version check")
+    su.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    su.add_argument(
+        "--hooks",
+        action="store_true",
+        help="only install post-tool hooks for every detected client (Claude Code, Cursor, "
+        "Gemini CLI, Codex) — for agents a proxy cannot reach",
+    )
+    su.add_argument(
+        "--digest",
+        action="store_true",
+        help="with --hooks: opt a subscription login into the recoverable digest (metered keys "
+        "get it by default; subscriptions stay lossless-only without this)",
+    )
+    su.add_argument(
+        "--vscode",
+        action="store_true",
+        help="print the VS Code Copilot Chat custom-endpoint entry that routes it via distil",
+    )
+    su.add_argument("--port", type=int, default=8788, help="proxy port for --vscode (default 8788)")
+    su.set_defaults(func=cmd_setup_front)
 
     ob = sub.add_parser(
         "onboard",
@@ -5177,9 +5722,75 @@ def build_parser() -> argparse.ArgumentParser:
     sl.set_defaults(func=cmd_statusline)
 
     mc = sub.add_parser(
-        "mcp", help="run the zero-dep MCP server over stdio (distil_compress/expand/savings)"
+        "mcp",
+        help="run the zero-dep MCP server over stdio (distil_compress/expand/savings); "
+        "with a subcommand, compress other MCP servers' tools (wrap/serve/install/watch/bench)",
     )
     mc.set_defaults(func=cmd_mcp)
+    mcs = mc.add_subparsers(dest="mcp_cmd")
+
+    def _level_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--level",
+            choices=["L0", "L1", "L2", "L3"],
+            default="L0",
+            help="definition compression: L0 lossless (default), L1 summary, L2 lazy, "
+            "L3 adaptive — L1-L3 are opt-in (certificates: distil mcp watch)",
+        )
+        p.add_argument(
+            "--results",
+            action="store_true",
+            help="also digest large tool results (R) — opt-in (certificate: distil mcp watch)",
+        )
+
+    mw = mcs.add_parser("wrap", help="proxy one stdio MCP server: distil mcp wrap -- <command>")
+    mw.add_argument("--name", help="server name for tool prefixes and the watch view")
+    _level_flags(mw)
+    mw.add_argument("command", nargs=argparse.REMAINDER, help="the server command, after --")
+    ms = mcs.add_parser("serve", help="proxy every stdio server in an mcpServers JSON config")
+    ms.add_argument("--config", required=True, help="Claude Desktop/Cursor-style mcpServers JSON")
+    _level_flags(ms)
+    mi = mcs.add_parser("install", help="route a client's MCP servers through distil (exact undo)")
+    mi.add_argument(
+        "client",
+        choices=["cursor", "claude-desktop", "gemini", "windsurf", "opencode", "codex", "custom"],
+    )
+    mi.add_argument("--path", help="config file (required for custom; overrides the default)")
+    mi.add_argument(
+        "--undo", action="store_true", help="restore the config (byte-exact if untouched)"
+    )
+    mi.add_argument(
+        "--dry-run", action="store_true", help="print the rewritten config, write nothing"
+    )
+    _level_flags(mi)
+    mwt = mcs.add_parser(
+        "watch", help="live view: per-server/per-tool compression, fetches, expands"
+    )
+    mwt.add_argument("--once", action="store_true", help="print one snapshot and exit")
+    mwt.add_argument("--interval", type=float, default=1.0, help="refresh seconds (default 1)")
+    mwt.add_argument("--web", action="store_true", help="serve the webdash /mcp page instead")
+    mwt.add_argument("--port", type=int, default=8766)
+    mb = mcs.add_parser("bench", help="tool-use accuracy harness (dry run by default; no spend)")
+    mb.add_argument(
+        "--live", action="store_true", help="call the Anthropic API (needs --budget-usd)"
+    )
+    mb.add_argument(
+        "--model", help="live model (claude-haiku-4-5 | claude-sonnet-5 | claude-opus-5)"
+    )
+    mb.add_argument("--budget-usd", type=float, help="hard spend cap for --live")
+    mb.add_argument(
+        "--workers", type=int, default=4, help="concurrent tasks per arm for --live (default 4)"
+    )
+    mb.add_argument(
+        "--behavior",
+        choices=["oracle", "invoke", "noisy", "degraded", "no-expand"],
+        default="oracle",
+        help="dry-run mock model behaviour",
+    )
+    mb.add_argument("--n", type=int, default=1000, help="tool-selection tasks (protocol: 1000)")
+    mb.add_argument("--n-results", type=int, default=630, help="result tasks (protocol: 630)")
+    mb.add_argument("--seed", type=int, default=0)
+    mb.add_argument("--out", default="benchmarks/results/mcp_toolbench", help="results directory")
 
     mem = sub.add_parser(
         "memory",
@@ -5194,7 +5805,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     hk = sub.add_parser(
         "hook",
-        help="Claude Code PostToolUse hook: losslessly shrink tool output in-process",
+        help="post-tool hooks (Claude Code, Cursor, Gemini CLI, Codex): shrink tool "
+        "output before it enters the agent's history",
+    )
+    hk.add_argument(
+        "action",
+        nargs="?",
+        choices=("install", "uninstall", "status"),
+        help="install/uninstall the hook, or show where it is installed",
+    )
+    hk.add_argument(
+        "--client",
+        choices=("claude", "cursor", "gemini", "codex", "all", "auto"),
+        help="which client to (un)install for (default claude; auto = every detected one)",
     )
     hk.add_argument(
         "--selftest",
@@ -5204,17 +5827,27 @@ def build_parser() -> argparse.ArgumentParser:
     hk.add_argument(
         "--install",
         action="store_true",
-        help="write the hook into ~/.claude/settings.json (idempotent)",
+        help="same as `distil hook install`",
     )
     hk.add_argument(
         "--stats",
         action="store_true",
         help="what the hook actually saved, from its append-only receipts",
     )
+    hk.add_argument("--uninstall", action="store_true", help="same as `distil hook uninstall`")
     hk.add_argument(
-        "--uninstall", action="store_true", help="remove the distil hook from settings.json"
+        "--digest",
+        action="store_true",
+        help="install: opt a subscription login into the recoverable digest (recorded; "
+        "metered keys get it by default, subscriptions stay lossless-only without it)",
     )
     hk.set_defaults(func=cmd_hook)
+
+    ex = sub.add_parser(
+        "expand", help="print the original behind a digest handle (`<< … handle=XXXXXXXX >>`)"
+    )
+    ex.add_argument("handle", help="the 8-hex handle from a digest marker")
+    ex.set_defaults(func=cmd_expand)
 
     qt = sub.add_parser(
         "quota",
@@ -5225,7 +5858,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     wr = sub.add_parser(
         "wrap",
-        help="run a command with its API base URL transparently routed through Distil",
+        help="run your agent through distil (e.g. distil wrap -- claude)",
     )
     wr.add_argument(
         "--list",

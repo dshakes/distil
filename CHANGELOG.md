@@ -3,7 +3,133 @@
 All notable changes to Distil are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the blog.
+
 ## [Unreleased]
+
+**In short**
+
+- **Added — one front door.** `distil --help` shows four commands (`setup`, `wrap`, `savings`, `doctor`); `distil setup` is one guided setup; `distil savings` is one screen of spend, savings and what to fix next. `--help-all` lists the rest.
+- **Added — agent hooks.** Post-tool hooks for Claude Code, Cursor, Gemini CLI and Codex CLI; on a subscription they stay lossless-only unless you opt in.
+- **Added — `distil mcp`.** A compressor for other MCP servers' tool definitions and results, at named levels; L0 is the default, and L0–L3 and R certified on a first live run.
+- **Added — task-level A/B.** `distil ab` reports cost per randomised session, distil against a 5% holdout, with an anytime-valid interval.
+- **Fixed — savings accounting.** Every upstream call distil makes (expand re-queries, shadow replays) is now recorded and netted out. The published live figure is restated from 10.2% to about 9% (8.3–9.2%).
+- **Research** — a pre-registered cost-truth benchmark protocol (ADR 0018); **Ops** — operating routines that draft and never act on their own.
+
+The full story, change by change:
+
+### Added: one front door, agent hooks, 1-hour cache pricing
+
+- `distil savings` is one screen: billed spend with cache reads and writes priced at their own rates, calibrated savings, net %, a daily graph, the top three `discover` fixes, and one proof line. `--since 7d` (default), `--all`, `--json`.
+- With no distil ledger, `distil savings` reads your Claude Code transcripts (usage fields and tool-result sizes only, read-only). It shows real spend by day and an ESTIMATE of what distil would save, citing `benchmarks/results/2026-09-24/live_savings_decomposition.json`. Works with no install: `uvx --from distil-llm distil savings`.
+- `distil setup` is one guided setup: `onboard`, then optional `--always-on`, then `doctor`. `--yes` never implies `--always-on`.
+- `distil doctor --deep` also runs the `validate` and `verify` gates.
+- `distil --help-all` lists every command.
+- `pricing.Pricing.cache_write_1h`: 1-hour cache writes bill at 2x input.
+- Post-tool hooks for Claude Code, Cursor (MCP output only), Gemini CLI and Codex CLI: `distil setup --hooks`, `distil hook install|uninstall|status --client …`. They follow the proxy's billing policy: lossless-only on a subscription unless you opt in with `--digest` (recorded; `distil hook status` shows the tier and why), the recoverable digest by default on a metered key. Hooks installed before this release stay lossless-only until re-installed. Exact-quote reads are never touched. Windsurf's post hooks cannot replace output, so it is documented as unsupported.
+- `distil discover` prices 1-hour cache writes of tool definitions at 2x (older rows at 1.25x, as before).
+- The proxy records 1-hour and 5-minute cache writes separately (`usage_cache_create_1h` / `_5m`); `distil savings` and `distil dissect` price 1-hour writes at 2x. Older rows price as before.
+- Optional `distil-llm[code]` extra: tree-sitter code skeletons for Go, Rust, Java, C, C++, Ruby, TypeScript and JavaScript. Falls back to the brace heuristic without it.
+- `<distil:keep>…</distil:keep>` spans are never compressed; the tags pass through.
+- `distil setup --vscode`: VS Code Copilot Chat can use a distil proxy through its BYOK Custom Endpoint.
+
+### Changed: `--help`, `savings` and `setup` lead with the front door
+
+- `distil --help` shows four commands: `setup`, `wrap`, `savings`, `doctor`. Every other command still works.
+- The original `distil savings` (strategy pricing on a trajectory) runs with `--strategies` or any of its flags (`-t`, `--pricing`, `--tokenizer`, `--output-tokens-per-turn`, `--record`). Bare `distil savings` now shows the new screen.
+- The original `distil setup` (status line only) runs with `--statusline-only` or `--settings`.
+
+### First impression
+
+- **Added** `docs/install.sh` and `docs/install.ps1`, served at `https://dshakes.github.io/distil/install.sh` (and `.ps1`): install uv if missing, then `uv tool install --upgrade distil-llm`; `DISTIL_VERSION` pins a version.
+- **Changed** the README first screen and the landing hero to lead with what distil does, one measured number (the maintainer's own bill, with its source; now quoted as about 9%, 8.3–9.2%, net of distil's own overhead) and one install line, `uv tool install distil-llm && distil setup`. The provider-compaction study and the certificate material moved below the fold, unchanged.
+- **Changed** Getting Started to four steps: install, `distil setup`, `distil wrap -- claude`, `distil savings`.
+
+### `distil mcp`: the other MCP servers' tools, compressed at a level you can name
+
+`distil mcp wrap -- <server>` and `distil mcp serve --config mcp.json` put a transparent
+stdio proxy in front of any MCP server. It rewrites `tools/list` and `tools/call` and relays
+everything else — resources, prompts, notifications, and server-to-client requests with
+their ids remapped — so it drops into Codex, Cursor, Gemini CLI, opencode, Claude Desktop,
+Windsurf or a custom agent unchanged. `distil mcp install <client>` rewrites that client's
+config to route through it, with a byte-exact backup, 0600 atomic writes and an undo that
+restores the original bytes when the file is untouched and unwraps only distil's entries
+when it is not. Claude Code is deliberately not a target for definitions: its own tool
+search defers unused tools better (ADR 0017, building on 0013).
+
+Every level is a named mode and none is ever larger than L0. **L0** removes only
+JSON-Schema annotation keywords — proven, on all 78 vendored reference-server schemas,
+to leave every validation keyword in place. **L1** keeps each description's first
+sentence and its constraint sentences, verbatim. **L2** is lazy loading that hands the
+model the *real* tool once it fetches the schema, instead of routing every call through a
+generic `invoke` forever; unlocks are append-only and persisted per session so a cached
+prefix survives them. **L3** pins what a server is actually used for, learned locally from
+names and counts. **R** digests large text results with the same recoverable digest the
+LLM proxy uses and a `<server>_expand` tool to get them back; it never touches errors,
+non-text content, `structuredContent`, or file reads an agent has to quote back exactly.
+
+The default is L0 alone — R and L1–L3 are opt-in and print their certificate status on
+every start — because
+whether a compressed tool list still gets the right tool called is a measurement nobody
+has published. `docs/research/mcp-compressor-protocol.md` pre-registers it — paired
+non-inferiority on tool selection and argument exact-match at the single risk budget,
+sample sizes from a power calculation, a fixed testing sequence, one look — and `distil
+mcp bench` is its executable form. It runs offline against a scripted model through the
+real proxy, which is enough to show the statistics fail an injected loss. The first live
+run (`claude-haiku-4-5`, $21.68 of an $85 ceiling enforced by a per-call spend meter)
+certified L0, L1, L2, L3 and R for that model
+(`benchmarks/results/mcp_toolbench/live_claude-haiku-4-5.json`). The default stays L0
+until a replication model runs. On that run L2 billed more than the raw list, because its
+short index missed the prompt cache.
+`distil mcp watch` and the dashboard's `/mcp` page show, per tool, what was sent before
+and after, from a content-free local log that keeps tool names on this machine.
+
+A security review before release found two blockers and closed them here. One proxy
+fronting several servers used to hand bare names to whichever server listed them first, so
+a hostile server could advertise `fs_read_file` and receive calls meant for its sibling;
+every tool, meta tool and prompt is now `<server>__<name>`, server names cannot contain
+`_`, and calls route through one table built in config order. And an undo could restore a
+backup older than the user's edits; the backup is now the pre-image of the latest write
+and is restored only when that pre-image was clean, otherwise distil unwraps its own
+entries and leaves the rest alone. The same pass stopped backend I/O under the session
+lock, stopped the fail-open path re-sending a call that had already run, kept symlinked
+configs as symlinks, scoped `<server>_expand` to its own server's results, labelled
+server-to-client requests with their origin, bounded the id maps, and made the dashboard
+refuse non-loopback `Host` headers. A re-review then closed three more: a server could
+list another server's file URI exactly and win the read over that server's template (every
+claim now counts, and two claims are an error); merged lists read only their first page;
+and two long server names could truncate to the same meta tool (truncated names now carry
+a hash). Cancellation and progress from a server now only reach the client for that
+server's own requests, and undo only restores a backup whose hash still matches. The PR
+review then found the owner cache counted as populated once EITHER list had been fetched,
+so a client that listed templates first left exact listings unknown and a broad template
+could still capture an explicitly listed URI; both lists are now always fetched before a
+read is routed. JSON-RPC batches get one array response, as the spec requires.
+
+### Fixed: every upstream call distil makes is recorded and netted out of savings
+
+- Until now the per-request ledger kept one upstream call per client request: the first on the streaming `distil_expand` splice, the last on the buffered expand loops, and none at all on Chat Completions or Gemini. Shadow replays (on by default at 2%) were never netted out of any savings figure. Usage is now summed over every call, each record carries `upstream_calls` and `expand_requery_usage`, and the savings ledger nets both re-queries and shadow replays out of "saved". [docs/research/expand-undercount.md](docs/research/expand-undercount.md) bounds what this did to the published 10.2%: it is overstated by at least 1.0 percentage point, plausibly about 2. README, the landing page, Getting Started and `llms.txt` now quote about 9% (8.3–9.2%) beside the 10.2%.
+
+### Added: what distil saves per session, measured causally, across model changes
+
+- **Randomised holdout.** 5% of new sessions by default are held out: the request goes upstream as the original bytes, with no compression, shaping, expand tool, cold-point or prefix replay. Under `distil wrap` the unit is the session, via an HMAC of an install secret and the session id, so a resumed wrap keeps its arm. Under a managed `distil proxy` it is the client's conversation, via Claude Code's own session id, persisted as a keyed hash. The rate is disclosed by `distil setup`, by `distil proxy`, by `distil ab`, and on every held-out wrap. `DISTIL_HOLDOUT_RATE=0` or `distil ab --holdout-rate 0` opts out. [ADR 0019](docs/adr/0019-task-level-ab-holdout.md).
+- **`distil ab`.** The headline is mean list-price cost per randomised session, distil against holdout, over every session that has ended, including failed ones. Its interval is an empirical-Bernstein confidence sequence on cost capped at $500 per session. That interval is anytime-valid with no normality assumed, because real session costs are heavy-tailed. Turns, tasks, cost per task and cost per turn are shown as mediators, never as the headline. Also shown: an efficient estimate (strata-pooled, CUPED, asymptotic), a bootstrap cross-check that says when it disagrees, a per-arm balance check, a difference-in-differences across a model rollout, and the cost of the holdout. When there is not enough data, the report says so up front: "Individual results take months to become conclusive: need ≈N sessions." `--json` and `distil.abtest.abtest_summary(window)` return the same result for other screens.
+- Per-request records now carry `arm`, `client` (name and major.minor), `user_turn` and, on managed installs, `conv` (a keyed hash). Randomised sessions are folded into `~/.distil/ab.jsonl` so they outlive the 7-day sweep. Nothing new goes to the census.
+- `benchmarks/abtest_montecarlo.py` reproduces every estimator number on [the A/B page](docs/ab.html) offline. That includes the type-I table across tail weights, and a case where distil makes sessions dearer while making cost per task look cheaper.
+
+### Research: a cost-truth benchmark, protocol first
+
+- **Added** `docs/research/cost-truth-protocol.md` and `benchmarks/cost_truth/`: billed dollars per solved task for distil, RTK and Headroom against a no-compression control, metered at the network edge rather than read from any tool's own counter. The protocol is pre-registered before any live run ([ADR 0018](docs/adr/0018-cost-truth-benchmark.md)); only offline tests and canary pilots are committed, no result.
+
+### Operating routines
+
+- **Added — agentic operating routines.** `scripts/ops/adoption_report.py` (external-only
+  signals: stars, forks, traffic, external issues/PRs, PyPI downloads by OS — no census,
+  no maintainer activity), `ops/routines/*.md` (the six weekly/event-driven maintenance
+  prompts: adoption report, issue triage, claims/docs drift, cost-truth refresh, release
+  train, launch-calendar nudge), `.github/workflows/ops-adoption-report.yml` (weekly
+  artifact only), and `docs/ops.md`. Every routine drafts; none posts, merges, releases,
+  or spends without the maintainer's explicit go-ahead.
 
 ## [1.54.0] — 2026-09-25 — measured, enforced, verifiable
 

@@ -36,6 +36,7 @@ from ..compress.tier0 import collapse_runs, minify_json
 from ..mcp_server import load_restore as _load_restore
 from ..mcp_server import record_restore as _record_restore
 from ..compress.intent import extract_intent
+from ..compress import keeptags as _keeptags
 from ..compress import vision as _vision
 from ..compress.tier1 import digest as _tier1_digest
 from ..tokenizer import DEFAULT as _tokenizer
@@ -505,8 +506,10 @@ def _lossless_fold(text: str) -> str | None:
 
 
 def _compress_text_content(text: str, store: RestoreStore, verbatim: bool) -> str:
-    """Apply only Tier-0 lossless transforms to a plain text block."""
-    return _apply_tier0(text)
+    """Apply only Tier-0 lossless transforms to a plain text block.
+
+    ``<distil:keep>`` spans pass through byte-exact (``compress.keeptags``)."""
+    return _keeptags.apply(text, _apply_tier0)
 
 
 def _compress_tool_result_text(
@@ -525,7 +528,15 @@ def _compress_tool_result_text(
     ``is_recent`` marks a recency-exempt block (the last few tool turns): the agent
     must see its most recent output byte-exact to choose its next action, so those
     stay verbatim with NO fold — even a lossless columnar fold changes the bytes.
+
+    ``<distil:keep>`` … ``</distil:keep>`` spans are never compressed: the stretches
+    around them go through this function one by one, the spans (tags included) pass
+    through byte-exact. See ``compress.keeptags``.
     """
+    if _keeptags.OPEN in text:
+        return _keeptags.apply(
+            text, lambda seg: _compress_tool_result_text(seg, store, verbatim, is_recent)
+        )
     # Learned policy: if your agents keep expanding this kind of content, keep it
     # byte-exact (strictly safer — only ever reduces savings, never equivalence).
     # Hoisted above the HTML step so both digest paths honour it, and evaluated once.

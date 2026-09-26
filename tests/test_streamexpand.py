@@ -255,7 +255,10 @@ def test_output_token_usage_is_summed_across_the_splice():
     out = bytes(h.wfile.buf).decode()
     assert '"output_tokens": 16' in out
     assert sink.get("output_tokens") == 16
-    assert sink.get("input_tokens") == 100
+    # Both upstream messages are billed their input (100 each). This asserted 100 until
+    # 1.54 — i.e. it pinned the under-count that dropped every re-query's input.
+    assert sink.get("input_tokens") == 200
+    assert sink.get("requery_input_tokens") == 100
 
 
 def test_max_iters_is_bounded_on_a_model_that_always_expands():
@@ -474,3 +477,24 @@ def test_unresolvable_handle_still_terminates_the_message(monkeypatch):
     evts = _delivered(h.wfile.buf)
     assert st == 200
     assert evts[-1]["type"] == "message_stop", "must terminate, never truncate"
+
+
+def test_cache_write_ttl_split_reaches_the_usage_sink():
+    """The 1h/5m write split lives under usage.cache_creation; the ledger prices 1h at 2x."""
+    usage = {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 100,
+        "cache_creation": {"ephemeral_1h_input_tokens": 60, "ephemeral_5m_input_tokens": 40},
+    }
+    first = _text_response("ok").replace(
+        b'{"input_tokens": 100, "output_tokens": 1}',
+        json.dumps({**usage, "output_tokens": 1}).encode(),
+    )
+    assert b"ephemeral_1h" in first
+    sink: dict[str, int] = {}
+    send, _ = _sender([_Resp(first)])
+    stream_with_expand(
+        _Handler(), send, {"messages": []}, _Store(), hop_by_hop=frozenset(), usage_sink=sink
+    )
+    assert sink["ephemeral_1h_input_tokens"] == 60
+    assert sink["ephemeral_5m_input_tokens"] == 40

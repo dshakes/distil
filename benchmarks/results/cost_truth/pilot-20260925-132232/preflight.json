@@ -1,0 +1,33 @@
+{
+  "control": {
+    "cost_usd": 0.000108,
+    "ok": true,
+    "problems": []
+  },
+  "distil": {
+    "cost_usd": 0,
+    "ok": false,
+    "problems": [
+      "meter never saw the canary request (or the provider refused it)",
+      "the claude shim was never launched by the arm"
+    ]
+  },
+  "headroom": {
+    "cost_usd": 0,
+    "ok": false,
+    "problems": [
+      "meter never saw the canary request (or the provider refused it)",
+      "the claude shim was never launched by the arm"
+    ]
+  },
+  "rtk": {
+    "cost_usd": 0,
+    "ok": false,
+    "problems": [
+      "meter never saw the canary request (or the provider refused it)",
+      "the claude shim was never launched by the arm",
+      "rtk hook not in $HOME/.claude/settings.json",
+      "`rtk rewrite 'git status'` did not rewrite (got '')"
+    ]
+  }
+}
