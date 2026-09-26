@@ -7,6 +7,8 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+## [1.55.0] — 2026-09-26 — one front door, agent hooks, distil mcp, honest A/B, corrected savings
+
 **In short**
 
 - **Added — one front door.** `distil --help` shows four commands (`setup`, `wrap`, `savings`, `doctor`); `distil setup` is one guided setup; `distil savings` is one screen of spend, savings and what to fix next. `--help-all` lists the rest.
