@@ -16,11 +16,6 @@
       "kind": "binary"
     },
     {
-      "id": "format_consist_act",
-      "label": "format act eq",
-      "kind": "binary"
-    },
-    {
       "id": "equiv_distil",
       "label": "distil exact",
       "kind": "binary"
@@ -207,5 +202,5 @@
       "out": 25.0
     }
   },
-  "harness_sha": "18888e2377bc58fd89e6307c44463027bd7516dfec68b357bd11b7d7e775162e"
+  "harness_sha": "cdcd692aa0acb5830217ecf906d2e940ce4d120716adf241c499956829349b78"
 }

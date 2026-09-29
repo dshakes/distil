@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-09-29).** These results are not clean measurements for two reasons: (1) the synthetic cases plant `DECISION:` markers (offline-runner annotations) in model-visible content, which leaks the intended answer to a live model; (2) every call was routed through the local distil proxy via an inherited ANTHROPIC_BASE_URL, which digested some eval requests in flight. The live measurement is `../decision-equivalence-real/` (public τ-bench traces, direct API). Kept for the record and the pipeline history.
+
 | variant | config | n | distil equiv (act / exact) | expand equiv (act / exact) | self-consist (act / exact) | format consist (act) | agree w/ ref (act) | trunc caught | Δ distil act-equiv vs base (test, 95% CI) | $/case | out tok/case | s/case | errors | spend |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | baseline | claude-opus-4-8 / default | 200 | 76.0% / 23.5% | 72.5% / 27.0% | 95.0% / 28.0% | 76.0% | 95.0% | 42.5% | — | $0.1170 | 580 | 19.7 | 0 | $23.40 |

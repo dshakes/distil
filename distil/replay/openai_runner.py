@@ -26,6 +26,8 @@ from . import prompts
 
 class OpenAIRunner:
     name = "openai"
+    # decide() goes through a forced/strict decision tool; ExpandAwareRunner commits through it.
+    structured_decision = True
 
     def __init__(
         self,

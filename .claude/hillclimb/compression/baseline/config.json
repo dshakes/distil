@@ -1,0 +1,13 @@
+{
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "reps": 2,
+  "fake": null,
+  "arms": [
+    "full_a",
+    "full_b",
+    "distil",
+    "expand_structured"
+  ],
+  "seeded_from": "decision-equivalence/v3 reps 0-1"
+}

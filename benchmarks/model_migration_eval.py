@@ -62,8 +62,7 @@ HARNESS = [
     ROOT / "distil/replay/anthropic_runner.py",
     ROOT / "distil/replay/expand_runner.py",
     ROOT / "distil/replay/prompts.py",
-    ROOT / "distil/compress/strategies.py",
-]
+]  # distil/compress/ is deliberately NOT here: it is what the compression hillclimb edits
 TRUNC = _truncate(160)
 NO = "<no-decision>"
 
@@ -99,6 +98,146 @@ def load_cases() -> list[dict]:
             }
         )
     return cases
+
+
+# --- real cases: public τ-bench trajectories ------------------------------------------
+
+# sierra-research/tau-bench historical_trajectories (MIT). Fetched into a gitignored
+# cache by --fetch-tau-bench and verified by sha256; only the case list is committed.
+TAU_URL = "https://raw.githubusercontent.com/sierra-research/tau-bench/main/historical_trajectories/{}.json"
+TAU_SHA256 = {
+    "gpt-4o-airline": "e9e6c0297660c537f83d4fd9c476ce7a9a86ecd2784874b7bfc13be598e37bfa",
+    "gpt-4o-retail": "df01707894836168ff0ec9616b0bf08f66c7e5afcf313e5fe4f7a2f5c2ec938b",
+    "sonnet-35-new-airline": "fe62fcd514b855b36f156dd4c3c7748597b392b006aff739b53337a9f3ba94d1",
+    "sonnet-35-new-retail": "0df526398e9d2720c32d340815cffb04fe8c4f8a61b1f4f84bf3bb558f760131",
+}
+TAU_DIR = ROOT / "benchmarks/.cache/tau-bench"
+REAL_CASES = ROOT / "benchmarks/model_migration_cases_real.json"
+
+
+def fetch_tau_bench() -> None:
+    import urllib.request
+
+    TAU_DIR.mkdir(parents=True, exist_ok=True)
+    for name, sha in TAU_SHA256.items():
+        p = TAU_DIR / f"{name}.json"
+        if not p.exists():
+            print(f"fetching {name}.json", file=sys.stderr)
+            urllib.request.urlretrieve(TAU_URL.format(name), p)
+        got = hashlib.sha256(p.read_bytes()).hexdigest()
+        if got != sha:
+            sys.exit(f"{p}: sha256 {got[:12]} != pinned {sha[:12]} -- delete it and re-fetch")
+
+
+def _tool_menu(path: Path) -> str:
+    """τ-bench trajectories don't ship tool schemas, so without this block the
+    certifier free-types action names. Reconstructed from every tool the
+    domain's recorded agents called (names + argument keys), plus `respond`
+    for a plain reply to the user."""
+    tools: dict[str, set] = {}
+    for ep in json.loads(path.read_text()):
+        for m in ep.get("traj") or ep.get("messages") or []:
+            for tc in m.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                args = fn.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {}
+                tools.setdefault(fn.get("name", "?"), set()).update(args if isinstance(args, dict) else {})
+    lines = ["AVAILABLE TOOLS (reconstructed from the tools this domain's recorded agents called; names and argument keys only):"]
+    lines += [f"- {n}({', '.join(sorted(a))})" for n, a in sorted(tools.items())]
+    lines.append("- respond(content): reply to the user in text instead of calling a tool")
+    return "\n".join(lines)
+
+
+_TAU_CACHE: dict[str, tuple] = {}
+
+
+def _tau(name: str):
+    """(entries, gold, tools_block) for one τ-bench file, loaded once."""
+    if name not in _TAU_CACHE:
+        from distil.replay.realtrace import gold_actions, load_tau_bench
+        from distil.trajectory import Block, Kind, Stability
+
+        path = TAU_DIR / f"{name}.json"
+        if not path.exists():
+            sys.exit(f"{path} missing -- run with --fetch-tau-bench first")
+        es = load_tau_bench(path)
+        tools = Block(id="tools", kind=Kind.TOOLS, text=_tool_menu(path), stability=Stability.STABLE,
+                      decision_relevant=True)
+        _TAU_CACHE[name] = (es, gold_actions(es), tools)
+    return _TAU_CACHE[name]
+
+
+def _with_tools(turn, tools):
+    from distil.trajectory import Turn
+
+    b = list(turn.blocks)
+    return Turn(index=turn.index, blocks=b[:1] + [tools] + b[1:])
+
+
+def select_real_cases(total: int = 100, seed: int = 20260929, min_savings: float = 0.10) -> None:
+    """Pick per_file cases per τ-bench file: one turn per episode (independence),
+    only from turns where distil saves >= min_savings (elsewhere compression is a
+    no-op and equivalence is trivially 1), episodes and turns drawn at random."""
+    rng = random.Random(seed)
+    out = []
+    pools = {}
+    for name in sorted(TAU_SHA256):
+        es, _, tools = _tau(name)
+        eligible = []
+        for k, e in enumerate(es):
+            turns = []
+            for t in e.trajectory.turns:
+                tt = _with_tools(t, tools)
+                full = sum(TOK.count(b.text) for b in tt.blocks)
+                comp = sum(TOK.count(b.text) for b in distil_strategy(tt.blocks, tt.index))
+                if full and 1 - comp / full >= min_savings:
+                    turns.append(t.index)
+            if turns:
+                eligible.append((k, turns))
+        pools[name] = eligible
+    # Equal share per file; a file with too few eligible episodes gives its
+    # shortfall to the others (largest remaining pool first).
+    quota = {n: min(total // len(pools), len(p)) for n, p in pools.items()}
+    while sum(quota.values()) < total and any(quota[n] < len(p) for n, p in pools.items()):
+        n = max((n for n in pools if quota[n] < len(pools[n])), key=lambda n: len(pools[n]) - quota[n])
+        quota[n] += 1
+    for name, eligible in pools.items():
+        es = _tau(name)[0]
+        for k, turns in rng.sample(eligible, quota[name]):
+            out.append({"file": name, "episode": k, "traj_id": es[k].trajectory.id, "turn": rng.choice(turns)})
+    REAL_CASES.write_text(json.dumps({"source": "tau-bench historical_trajectories", "seed": seed,
+                                      "min_savings": min_savings, "eligible_episodes": {n: len(p) for n, p in pools.items()},
+                                      "quota": quota, "cases": out}, indent=1))
+    print(f"wrote {len(out)} cases to {REAL_CASES}", file=sys.stderr)
+
+
+def load_real_cases() -> list[dict]:
+    spec = json.loads(REAL_CASES.read_text())
+    cases = []
+    for c in spec["cases"]:
+        es, gold, tools = _tau(c["file"])
+        e = es[c["episode"]]
+        turn = _with_tools(next(t for t in e.trajectory.turns if t.index == c["turn"]), tools)
+        g = gold.get((e.trajectory.id, c["turn"]))
+        recorder, domain = c["file"].rsplit("-", 1)
+        cases.append({
+            "id": f"{c['file']}-ep{c['episode']}-t{c['turn']}", "turn": turn,
+            "tags": [domain, recorder, f"turn{c['turn']}"],
+            "title": f"τ-bench {domain} (recorded by {recorder}) episode {c['episode']} turn {c['turn']}",
+            "gold": prompts.canonical(g.action, g.target) if g else None,
+        })
+    return cases
+
+
+CASE_SOURCE = "synthetic"
+
+
+def cases_for(source: str) -> list[dict]:
+    return load_real_cases() if source == "real" else load_cases()
 
 
 # --- instrumentation -------------------------------------------------------------
@@ -149,6 +288,19 @@ def _same_model(served: str, requested: str) -> bool:
     return rest is not None and bool(re.fullmatch(r"[-@](\d{8}|\d{4}-\d{2}-\d{2})", rest))
 
 
+def direct_client():
+    """The first-party API, never an inherited ANTHROPIC_BASE_URL: in a distil-wrapped
+    shell that points at the local distil proxy, which would compress the eval's own
+    requests in flight (and relay its upstream failures as 502s)."""
+    import anthropic
+
+    base = __import__("os").environ.get("ANTHROPIC_BASE_URL")
+    if base and "api.anthropic.com" not in base:
+        print(f"note: ignoring ANTHROPIC_BASE_URL={base}; the eval calls https://api.anthropic.com directly",
+              file=sys.stderr)
+    return anthropic.Anthropic(base_url="https://api.anthropic.com", max_retries=6)  # SDK: jittered backoff
+
+
 # --- offline fake clients (wiring checks, no spend) -------------------------------
 
 
@@ -186,7 +338,10 @@ class FakeClient:
 # --- one case ---------------------------------------------------------------------
 
 
-def run_case(case: dict, client, model: str, effort: str | None = None) -> dict:
+ARMS = ("full_a", "full_b", "distil", "expand_structured", "trunc")
+
+
+def run_case(case: dict, client, model: str, effort: str | None = None, arms_on=ARMS) -> dict:
     blocks = case["turn"].blocks
     idx = case["turn"].index
     rec = Recorder(client, model)
@@ -195,6 +350,8 @@ def run_case(case: dict, client, model: str, effort: str | None = None) -> dict:
     arm_calls: dict[str, int] = {}
 
     def arm(name, fn):
+        if name not in arms_on:
+            return
         n0 = len(rec.calls)
         arms[name] = fn()
         arm_calls[name] = len(rec.calls) - n0
@@ -203,13 +360,9 @@ def run_case(case: dict, client, model: str, effort: str | None = None) -> dict:
     arm("full_a", lambda: base.decide(blocks))
     arm("full_b", lambda: base.decide(blocks))
     arm("distil", lambda: base.decide(comp))
-    arm("expand", lambda: ExpandAwareRunner(base).decide(comp, build_restore(blocks)))
-    # Same free-text decision protocol as `expand`, on the uncompressed turn (no
-    # handles, so ExpandAwareRunner goes straight to the text decision prompt).
-    # `expand` is graded against THIS arm, not full_a: full_a uses the forced
-    # decision tool with an action enum, and that format difference alone flips
-    # actions - it is not a compression effect.
-    arm("full_text", lambda: ExpandAwareRunner(base).decide(blocks, {}))
+    # ExpandAwareRunner commits through AnthropicRunner's decision tool
+    # (structured_decision), so this arm and full_a share one decision format.
+    arm("expand_structured", lambda: ExpandAwareRunner(base).decide(comp, build_restore(blocks)))
     arm("trunc", lambda: base.decide(TRUNC(blocks, idx)))
 
     full_tok = sum(TOK.count(b.text) for b in blocks)
@@ -251,6 +404,7 @@ def run_case(case: dict, client, model: str, effort: str | None = None) -> dict:
         "n_calls": len(rec.calls),
         "savings": round(1 - comp_tok / full_tok, 4) if full_tok else 0.0,
         "forced_tool_choice": base.forced_tool_choice,
+        "gold": case.get("gold"),
     }
 
 
@@ -270,49 +424,84 @@ def grade(run: dict, ref_fp: str | None) -> dict:
         return 1 if (x != NO and y != NO and f(x) == f(y)) else 0
 
     ref = ref_fp if ref_fp is not None else a["full_b"]
-    return {
+    g = {}
+    # Real traces only: the action the recorded agent actually took. Diagnostic,
+    # not ground truth (another model wrote it) - never a gate.
+    if run.get("gold"):
+        g["agree_gold_act"] = eq(a["full_a"], run["gold"], _act)
+    # Recovery-loop equivalence only where the arm ran in the structured format.
+    # Rows from before that fix (free-text expand) carry no expand grade rather
+    # than a number measured in a different format.
+    if "expand_structured" in a:
+        g["equiv_expand"] = eq(a["full_a"], a["expand_structured"])
+        g["equiv_expand_act"] = eq(a["full_a"], a["expand_structured"], _act)
+    return g | {
         "equiv_distil": eq(a["full_a"], a["distil"]),
         "equiv_distil_act": eq(a["full_a"], a["distil"], _act),
-        "equiv_expand": eq(a["full_text"], a["expand"]),
-        "equiv_expand_act": eq(a["full_text"], a["expand"], _act),
-        "format_consist_act": eq(a["full_a"], a["full_text"], _act),
         "self_consist": eq(a["full_a"], a["full_b"]),
         "self_consist_act": eq(a["full_a"], a["full_b"], _act),
         "decided": 1 if a["full_a"] != NO else 0,
         "agree_ref": eq(a["full_a"], ref),
         "agree_ref_act": eq(a["full_a"], ref, _act),
-        "trunc_detect": 1 if (a["full_a"] != NO and _act(a["trunc"]) != _act(a["full_a"])) else 0,
-    }
+    } | ({"trunc_detect": 1 if (a["full_a"] != NO and _act(a["trunc"]) != _act(a["full_a"])) else 0}
+         if "trunc" in a else {})
 
 
-def backfill_full_text(vdir: Path, client, concurrency: int) -> None:
-    """Add the full_text arm to rows recorded before it existed: one extra call
-    per row with the variant's own model/effort; usage and call count are added
-    to the row so cost stays complete. Rewrites results.jsonl atomically."""
+def backfill_arm(vdir: Path, client, concurrency: int, arm: str, max_rep: int) -> None:
+    """Add *arm* to rows recorded before it existed, with the variant's own
+    model/effort; the arm's usage and calls are added to the row so cost stays
+    complete. Rows are checkpointed (atomic rewrite) as they land and a failed
+    row is logged to errors.jsonl and skipped, so a transient outage never
+    loses completed calls; re-running picks up only the rows still missing."""
+    if arm != "expand_structured":
+        raise SystemExit(f"no backfill recipe for arm {arm}")
     cfg = json.loads((vdir / "config.json").read_text())
-    cases = {c["id"]: c for c in load_cases()}
+    cases = {c["id"]: c for c in cases_for(CASE_SOURCE)}
     rp = vdir / "results.jsonl"
     rows = [json.loads(ln) for ln in rp.read_text().splitlines() if ln.strip()]
-    todo = [r for r in rows if "full_text" not in r["meta"]["arms"]]
-    print(f"[{vdir.name}] backfilling full_text on {len(todo)} rows ({cfg['model']}, effort={cfg.get('effort')})", file=sys.stderr)
+    todo = [r for r in rows if arm not in r["meta"]["arms"] and r["rep"] < max_rep]
+    print(f"[{vdir.name}] backfilling {arm} on {len(todo)} rows ({cfg['model']}, effort={cfg.get('effort')})", file=sys.stderr)
 
     def one(r):
         rec = Recorder(client, cfg["model"])
         base = AnthropicRunner(model=cfg["model"], client=rec, effort=cfg.get("effort"))
-        fp = ExpandAwareRunner(base).decide(cases[r["prompt_id"]]["turn"].blocks, {})
-        return r, fp, rec.calls
+        t = cases[r["prompt_id"]]["turn"]
+        try:
+            fp = ExpandAwareRunner(base).decide(distil_strategy(t.blocks, t.index), build_restore(t.blocks))
+        except BaseException as e:  # noqa: BLE001 - SystemExit from AnthropicRunner._create included
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            return r, None, rec.calls, e
+        return r, fp, rec.calls, None
 
+    def checkpoint():
+        tmp = rp.with_suffix(".jsonl.tmp")
+        tmp.write_text("".join(json.dumps(x) + "\n" for x in rows))
+        tmp.replace(rp)
+
+    ok = fail = 0
     with cf.ThreadPoolExecutor(concurrency) as ex:
-        for r, fp, calls in ex.map(one, todo):
-            r["meta"]["arms"]["full_text"] = fp
+        for f in cf.as_completed([ex.submit(one, r) for r in todo]):
+            r, fp, calls, err = f.result()
+            if err is not None:
+                fail += 1
+                with (vdir / "errors.jsonl").open("a") as fh:
+                    fh.write(json.dumps({"prompt_id": r["prompt_id"], "rep": r["rep"], "stage": f"backfill:{arm}",
+                                         "failure_class": getattr(err, "failure_class", "harness_or_api_error"),
+                                         "error": str(err)[:500],
+                                         "usage": {k: sum(c["usage"][k] for c in calls) for k in calls[0]["usage"]} if calls else {}}) + "\n")
+                continue
+            r["meta"]["arms"][arm] = fp
             for c in calls:
                 for k, v in c["usage"].items():
                     r["usage"][k] = r["usage"].get(k, 0) + v
             r["tool_calls"] += len(calls)
             r["latency_s"] = round(r["latency_s"] + sum(c["latency_s"] for c in calls), 3)
-    tmp = rp.with_suffix(".jsonl.tmp")
-    tmp.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    tmp.replace(rp)
+            ok += 1
+            if ok % 20 == 0:
+                checkpoint()
+    checkpoint()
+    print(f"[{vdir.name}] backfill {arm}: {ok} ok, {fail} failed (re-run to retry the failed rows)", file=sys.stderr)
 
 
 def regrade(flow: Path) -> None:
@@ -325,7 +514,8 @@ def regrade(flow: Path) -> None:
             continue
         rows = [json.loads(ln) for ln in rp.read_text().splitlines() if ln.strip()]
         for r in rows:
-            r["grade"] = grade({"arms": r["meta"]["arms"]}, None if v.name == "baseline" else ref.get(r["prompt_id"]))
+            r["grade"] = grade({"arms": r["meta"]["arms"], "gold": r["meta"].get("gold")},
+                               None if v.name == "baseline" else ref.get(r["prompt_id"]))
         rp.write_text("".join(json.dumps(r) + "\n" for r in rows))
         print(f"regraded {len(rows)} rows in {v.name}", file=sys.stderr)
 
@@ -372,26 +562,38 @@ def main() -> None:
     ap.add_argument("--timeout-s", type=float, default=900)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
+    ap.add_argument("--arms", default=",".join(ARMS), help="comma-separated subset of " + ",".join(ARMS))
     ap.add_argument("--fake", choices=["oracle", "null", "flip"])
+    ap.add_argument("--cases", choices=["synthetic", "real"], default="synthetic",
+                    help="synthetic: corpus/ + corpus_xl (plants DECISION: markers - offline-runner annotations "
+                         "that leak the answer to a live model); real: public τ-bench trajectories")
+    ap.add_argument("--fetch-tau-bench", action="store_true", help="download + verify the pinned τ-bench files")
+    ap.add_argument("--select-real-cases", action="store_true", help="(re)write the real case list")
     ap.add_argument("--status", action="store_true", help="print the cross-variant status table and exit")
     ap.add_argument("--regrade", action="store_true", help="recompute grades from stored decisions (no API calls)")
-    ap.add_argument("--backfill-full-text", action="store_true", help="add the full_text arm to existing rows of --variant")
+    ap.add_argument("--backfill-arm", help="add this arm to existing rows of --variant (reps < --reps)")
     ap.add_argument("--flow", type=Path, default=FLOW)
     ap.add_argument("--approve-harness", action="store_true")
     a = ap.parse_args()
+    global CASE_SOURCE
+    CASE_SOURCE = a.cases
+    if a.fetch_tau_bench:
+        fetch_tau_bench()
+    if a.select_real_cases:
+        select_real_cases()
+    if a.fetch_tau_bench or a.select_real_cases:
+        return
     if not re.fullmatch(r"baseline|v[1-9]\d*", a.variant):
         sys.exit("--variant must be 'baseline' or 'v<N>'")
     FLOW = a.flow
-    if a.backfill_full_text:
+    if a.backfill_arm:
         if not a.fake:
             check_harness(a.approve_harness)
         if a.fake:
             client = FakeClient(a.fake, a.model)
         else:
-            import anthropic
-
-            client = anthropic.Anthropic(max_retries=6)
-        backfill_full_text(FLOW / a.variant, client, a.concurrency)
+            client = direct_client()
+        backfill_arm(FLOW / a.variant, client, a.concurrency, a.backfill_arm, a.reps)
         return
     if a.regrade:
         regrade(FLOW)
@@ -406,11 +608,16 @@ def main() -> None:
     (vdir / "traces").mkdir(parents=True, exist_ok=True)
     # One configuration per variant dir: resuming with a different model/effort
     # would silently mix two cells into one row set.
-    cfg = {"model": a.model, "effort": a.effort, "reps": a.reps, "fake": a.fake}
+    arms_on = tuple(x for x in a.arms.split(",") if x)
+    if not {"full_a", "full_b", "distil"} <= set(arms_on) or not set(arms_on) <= set(ARMS):
+        sys.exit(f"--arms must include full_a,full_b,distil and be a subset of {ARMS}")
+    cfg = {"model": a.model, "effort": a.effort, "reps": a.reps, "fake": a.fake, "arms": list(arms_on),
+           "cases": a.cases}
     cfgp = vdir / "config.json"
     if cfgp.exists():
         old = json.loads(cfgp.read_text())
-        if {k: old.get(k) for k in ("model", "effort", "fake")} != {k: cfg[k] for k in ("model", "effort", "fake")}:
+        keys = ("model", "effort", "fake", "cases")
+        if {k: old.get(k, "synthetic" if k == "cases" else None) for k in keys} != {k: cfg[k] for k in keys}:
             sys.exit(f"{vdir} was run as {old}; use a new --variant for {cfg}")
     cfgp.write_text(json.dumps(cfg, indent=2))
     sp = vdir / "summary.json"
@@ -431,7 +638,8 @@ def main() -> None:
             sys.exit("run the baseline first -- agree_ref needs its frozen decisions")
         ref = json.loads(refp.read_text())
 
-    cases = load_cases()[: a.limit] if a.limit else load_cases()
+    cases = cases_for(CASE_SOURCE)
+    cases = cases[: a.limit] if a.limit else cases
     tasks = [(c, r) for c in cases for r in range(a.reps) if (c["id"], r) not in done]
     print(
         f"[{a.variant}] {len(tasks)} of {len(cases) * a.reps} (case,rep) to run on {a.model}",
@@ -441,14 +649,12 @@ def main() -> None:
     if a.fake:
         client = FakeClient(a.fake, a.model)
     else:
-        import anthropic
-
-        client = anthropic.Anthropic(max_retries=6)  # SDK: jittered backoff on 429/5xx/overloaded
+        client = direct_client()
     lock = threading.Lock()
     ok = fail = 0
 
     def one(c, rep):
-        run = run_case(c, client, a.model, a.effort)
+        run = run_case(c, client, a.model, a.effort, arms_on)
         g = grade(run, ref.get(c["id"]) if a.variant != "baseline" else None)
         return run, g
 
@@ -475,6 +681,7 @@ def main() -> None:
                     "meta": {
                         "arms": run["arms"],
                         "forced_tool_choice": run["forced_tool_choice"],
+                        "gold": run["gold"],
                         "effort": a.effort,
                         "refusal": run["stop_reason"] == "refusal",
                     },
@@ -517,9 +724,11 @@ def main() -> None:
     # headline + 95% CI (Wilson) over this variant's rows, all reps
     rows = [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
     rows = [r for r in rows if r["status"] == "ok"]
-    for m in ("equiv_distil_act", "equiv_distil", "equiv_expand_act", "format_consist_act", "self_consist_act", "decided", "agree_ref_act", "trunc_detect"):
-        n = len(rows)
-        k = sum(r["grade"][m] for r in rows)
+    for m in ("equiv_distil_act", "equiv_distil", "equiv_expand_act", "self_consist_act", "decided", "agree_ref_act",
+              "agree_gold_act", "trunc_detect"):
+        have = [r for r in rows if m in r["grade"]]
+        n = len(have)
+        k = sum(r["grade"][m] for r in have)
         if n:
             p, z = k / n, 1.96
             d = 1 + z * z / n
@@ -574,9 +783,9 @@ def status_table(flow: Path) -> str:
                 key=lambda p: -1 if p.name == "baseline" else int(p.name[1:]))
     per: dict[str, dict] = {}
     lines = ["| variant | config | n | distil equiv (act / exact) | expand equiv (act / exact) | self-consist (act / exact) "
-             "| format consist (act) | agree w/ ref (act) | trunc caught | Δ distil act-equiv vs base (test, 95% CI) | $/case | out tok/case "
+             "| agree w/ ref (act) | trunc caught | Δ distil act-equiv vs base (test, 95% CI) | $/case | out tok/case "
              "| s/case | errors | spend |",
-             "|" + "---|" * 15]
+             "|" + "---|" * 14]
     for v in vs:
         rows = [json.loads(ln) for ln in (v / "results.jsonl").read_text().splitlines() if ln.strip()] \
             if (v / "results.jsonl").exists() else []
@@ -593,7 +802,11 @@ def status_table(flow: Path) -> str:
         costs = [cost_usd(r["model"], r["usage"]) for r in rows]
 
         def pct(m):
-            return f"{100 * sum(r['grade'][m] for r in ok) / len(ok):.1f}%"
+            have = [r for r in ok if m in r["grade"]]
+            if not have:
+                return "—"
+            s = f"{100 * sum(r['grade'][m] for r in have) / len(have):.1f}%"
+            return s if len(have) == len(ok) else f"{s} (n={len(have)})"
 
         if v.name == "baseline":
             delta = "—"
@@ -603,7 +816,7 @@ def status_table(flow: Path) -> str:
         lines.append(
             f"| {v.name} | {cfg.get('model', '?')} / {cfg.get('effort') or 'default'} | {len(ok)} "
             f"| {pct('equiv_distil_act')} / {pct('equiv_distil')} | {pct('equiv_expand_act')} / {pct('equiv_expand')} "
-            f"| {pct('self_consist_act')} / {pct('self_consist')} | {pct('format_consist_act')} | {pct('agree_ref_act')} | {pct('trunc_detect')} | {delta} "
+            f"| {pct('self_consist_act')} / {pct('self_consist')} | {pct('agree_ref_act')} | {pct('trunc_detect')} | {delta} "
             f"| ${sum(costs) / len(rows):.4f} | {sum(r['usage'].get('output_tokens', 0) for r in rows) / len(rows):.0f} "
             f"| {sum(r['latency_s'] for r in rows) / len(rows):.1f} | {errs} | ${sum(costs):.2f} |")
     return "\n".join(lines)

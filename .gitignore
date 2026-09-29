@@ -74,3 +74,6 @@ benchmarks/results/scratch/
 .claude/hillclimb/**/trajectory/
 .claude/hillclimb/**/progress.txt
 .claude/hillclimb/**/*.tmp
+
+# downloaded public trajectories (fetch with benchmarks/fetch_tau_bench.py)
+benchmarks/.cache/

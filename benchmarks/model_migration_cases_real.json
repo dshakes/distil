@@ -1,0 +1,619 @@
+{
+ "source": "tau-bench historical_trajectories",
+ "seed": 20260929,
+ "min_savings": 0.1,
+ "eligible_episodes": {
+  "gpt-4o-airline": 31,
+  "gpt-4o-retail": 21,
+  "sonnet-35-new-airline": 127,
+  "sonnet-35-new-retail": 240
+ },
+ "quota": {
+  "gpt-4o-airline": 25,
+  "gpt-4o-retail": 21,
+  "sonnet-35-new-airline": 25,
+  "sonnet-35-new-retail": 29
+ },
+ "cases": [
+  {
+   "file": "gpt-4o-airline",
+   "episode": 72,
+   "traj_id": "32",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 90,
+   "traj_id": "1",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 147,
+   "traj_id": "14",
+   "turn": 1
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 64,
+   "traj_id": "24",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 111,
+   "traj_id": "24",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 86,
+   "traj_id": "46",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 17,
+   "traj_id": "21",
+   "turn": 2
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 77,
+   "traj_id": "37",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 36,
+   "traj_id": "41",
+   "turn": 1
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 105,
+   "traj_id": "18",
+   "turn": 1
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 71,
+   "traj_id": "31",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 89,
+   "traj_id": "tau-100",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 12,
+   "traj_id": "15",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 161,
+   "traj_id": "28",
+   "turn": 8
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 7,
+   "traj_id": "10",
+   "turn": 1
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 157,
+   "traj_id": "24",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 63,
+   "traj_id": "23",
+   "turn": 6
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 156,
+   "traj_id": "23",
+   "turn": 6
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 158,
+   "traj_id": "25",
+   "turn": 2
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 27,
+   "traj_id": "32",
+   "turn": 2
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 143,
+   "traj_id": "9",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 70,
+   "traj_id": "30",
+   "turn": 8
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 151,
+   "traj_id": "18",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 178,
+   "traj_id": "46",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-airline",
+   "episode": 19,
+   "traj_id": "23",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 165,
+   "traj_id": "50",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 348,
+   "traj_id": "3",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 395,
+   "traj_id": "50",
+   "turn": 0
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 137,
+   "traj_id": "22",
+   "turn": 2
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 232,
+   "traj_id": "2",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 265,
+   "traj_id": "35",
+   "turn": 1
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 241,
+   "traj_id": "11",
+   "turn": 4
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 242,
+   "traj_id": "12",
+   "turn": 4
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 404,
+   "traj_id": "59",
+   "turn": 4
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 349,
+   "traj_id": "4",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 310,
+   "traj_id": "80",
+   "turn": 4
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 118,
+   "traj_id": "3",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 2,
+   "traj_id": "2",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 9,
+   "traj_id": "9",
+   "turn": 2
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 4,
+   "traj_id": "4",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 126,
+   "traj_id": "11",
+   "turn": 4
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 119,
+   "traj_id": "4",
+   "turn": 3
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 121,
+   "traj_id": "6",
+   "turn": 2
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 411,
+   "traj_id": "66",
+   "turn": 1
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 336,
+   "traj_id": "106",
+   "turn": 4
+  },
+  {
+   "file": "gpt-4o-retail",
+   "episode": 174,
+   "traj_id": "59",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 68,
+   "traj_id": "18",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 313,
+   "traj_id": "14",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 18,
+   "traj_id": "18",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 125,
+   "traj_id": "25",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 224,
+   "traj_id": "25",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 373,
+   "traj_id": "24",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 114,
+   "traj_id": "14",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 39,
+   "traj_id": "39",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 300,
+   "traj_id": "1",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 349,
+   "traj_id": "tau-350",
+   "turn": 6
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 288,
+   "traj_id": "39",
+   "turn": 1
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 211,
+   "traj_id": "12",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 124,
+   "traj_id": "24",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 361,
+   "traj_id": "12",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 173,
+   "traj_id": "23",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 274,
+   "traj_id": "25",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 120,
+   "traj_id": "20",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 60,
+   "traj_id": "10",
+   "turn": 1
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 139,
+   "traj_id": "39",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 324,
+   "traj_id": "25",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 64,
+   "traj_id": "14",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 213,
+   "traj_id": "14",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 25,
+   "traj_id": "25",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 304,
+   "traj_id": "5",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-airline",
+   "episode": 359,
+   "traj_id": "10",
+   "turn": 9
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 750,
+   "traj_id": "60",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 325,
+   "traj_id": "95",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 127,
+   "traj_id": "12",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 185,
+   "traj_id": "70",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 519,
+   "traj_id": "59",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 571,
+   "traj_id": "111",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 625,
+   "traj_id": "50",
+   "turn": 0
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 136,
+   "traj_id": "21",
+   "turn": 0
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 260,
+   "traj_id": "30",
+   "turn": 7
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 212,
+   "traj_id": "97",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 865,
+   "traj_id": "61",
+   "turn": 0
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 914,
+   "traj_id": "110",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 790,
+   "traj_id": "100",
+   "turn": 8
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 641,
+   "traj_id": "66",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 281,
+   "traj_id": "51",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 525,
+   "traj_id": "65",
+   "turn": 0
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 551,
+   "traj_id": "91",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 125,
+   "traj_id": "10",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 634,
+   "traj_id": "59",
+   "turn": 3
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 64,
+   "traj_id": "64",
+   "turn": 5
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 124,
+   "traj_id": "9",
+   "turn": 6
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 856,
+   "traj_id": "52",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 697,
+   "traj_id": "7",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 239,
+   "traj_id": "9",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 154,
+   "traj_id": "39",
+   "turn": 2
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 14,
+   "traj_id": "14",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 703,
+   "traj_id": "13",
+   "turn": 4
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 813,
+   "traj_id": "8",
+   "turn": 1
+  },
+  {
+   "file": "sonnet-35-new-retail",
+   "episode": 195,
+   "traj_id": "80",
+   "turn": 4
+  }
+ ]
+}
