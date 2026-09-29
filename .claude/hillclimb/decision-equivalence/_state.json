@@ -1,0 +1,211 @@
+{
+  "metrics": [
+    {
+      "id": "equiv_distil_act",
+      "label": "distil act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_expand_act",
+      "label": "expand act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "self_consist_act",
+      "label": "self act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "format_consist_act",
+      "label": "format act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_distil",
+      "label": "distil exact",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_expand",
+      "label": "expand exact",
+      "kind": "binary"
+    },
+    {
+      "id": "self_consist",
+      "label": "self exact",
+      "kind": "binary"
+    },
+    {
+      "id": "decided",
+      "label": "decided",
+      "kind": "binary"
+    },
+    {
+      "id": "agree_ref_act",
+      "label": "ref act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "agree_ref",
+      "label": "ref exact",
+      "kind": "binary"
+    },
+    {
+      "id": "trunc_detect",
+      "label": "trunc caught",
+      "kind": "binary"
+    }
+  ],
+  "perf_fields": [
+    "latency_s",
+    "tool_calls",
+    "savings"
+  ],
+  "harness_paths": [
+    "benchmarks/model_migration_eval.py",
+    "distil/replay/anthropic_runner.py",
+    "distil/replay/expand_runner.py",
+    "distil/replay/prompts.py",
+    "distil/compress/strategies.py"
+  ],
+  "reps": 2,
+  "train_ids": [
+    "agent-worklog-t0",
+    "agent-worklog-t1",
+    "api-json-0-t0",
+    "api-json-4-t4",
+    "api-json-5-t0",
+    "coding-bugfix-t2",
+    "coding-bugfix-t3",
+    "data-analysis-sql-t0",
+    "data-analysis-sql-t2",
+    "devops-rollback-t0",
+    "devops-rollback-t3",
+    "finance-reconcile-t0",
+    "finance-reconcile-t2",
+    "k8s-incident-0-t0",
+    "k8s-incident-4-t4",
+    "k8s-incident-6-t1",
+    "logs-0-t0",
+    "logs-1-t1",
+    "logs-7-t2",
+    "metrics-0-t0",
+    "metrics-2-t2",
+    "metrics-7-t2",
+    "rag-synthesis-0-t0",
+    "rag-synthesis-2-t2",
+    "rag-synthesis-3-t3",
+    "research-synthesis-t0",
+    "research-synthesis-t1",
+    "sql-rows-2-t2",
+    "sql-rows-6-t1",
+    "sql-rows-7-t2",
+    "sre-disk-incident-t1",
+    "sre-disk-incident-t3",
+    "stacktrace-2-t2",
+    "stacktrace-5-t0",
+    "stacktrace-7-t2",
+    "support-chat-0-t0",
+    "support-chat-4-t4",
+    "support-chat-5-t0",
+    "support-refund-t0",
+    "support-refund-t3",
+    "web-research-t0",
+    "web-research-t3"
+  ],
+  "test_ids": [
+    "agent-worklog-t2",
+    "agent-worklog-t3",
+    "api-json-1-t1",
+    "api-json-2-t2",
+    "api-json-3-t3",
+    "api-json-6-t1",
+    "api-json-7-t2",
+    "coding-bugfix-t0",
+    "coding-bugfix-t1",
+    "data-analysis-sql-t1",
+    "data-analysis-sql-t3",
+    "devops-rollback-t1",
+    "devops-rollback-t2",
+    "finance-reconcile-t1",
+    "finance-reconcile-t3",
+    "k8s-incident-1-t1",
+    "k8s-incident-2-t2",
+    "k8s-incident-3-t3",
+    "k8s-incident-5-t0",
+    "k8s-incident-7-t2",
+    "logs-2-t2",
+    "logs-3-t3",
+    "logs-4-t4",
+    "logs-5-t0",
+    "logs-6-t1",
+    "metrics-1-t1",
+    "metrics-3-t3",
+    "metrics-4-t4",
+    "metrics-5-t0",
+    "metrics-6-t1",
+    "rag-synthesis-1-t1",
+    "rag-synthesis-4-t4",
+    "rag-synthesis-5-t0",
+    "rag-synthesis-6-t1",
+    "rag-synthesis-7-t2",
+    "research-synthesis-t2",
+    "research-synthesis-t3",
+    "sql-rows-0-t0",
+    "sql-rows-1-t1",
+    "sql-rows-3-t3",
+    "sql-rows-4-t4",
+    "sql-rows-5-t0",
+    "sre-disk-incident-t0",
+    "sre-disk-incident-t2",
+    "stacktrace-0-t0",
+    "stacktrace-1-t1",
+    "stacktrace-3-t3",
+    "stacktrace-4-t4",
+    "stacktrace-6-t1",
+    "support-chat-1-t1",
+    "support-chat-2-t2",
+    "support-chat-3-t3",
+    "support-chat-6-t1",
+    "support-chat-7-t2",
+    "support-refund-t1",
+    "support-refund-t2",
+    "web-research-t1",
+    "web-research-t2"
+  ],
+  "goal": {
+    "target": "cost_usd",
+    "direction": "lower",
+    "hold": [
+      "equiv_distil_act",
+      "self_consist_act",
+      "trunc_detect",
+      "decided"
+    ]
+  },
+  "approve_each_round": false,
+  "adoption_gates": {
+    "quality_band": "paired delta in equiv_distil_act vs baseline on test: 95% CI lower bound >= -5 pts; self_consist_act and decided not below baseline by more than their own CI; trunc_detect >= 80% of baseline's rate",
+    "cost_margin": ">= 15% cheaper $/case than the incumbent at first-party list prices, cache-cold",
+    "mechanism": "saving must show up as fewer output tokens (effort) or lower per-token price (tier); an unexplained cost drop is a rejection"
+  },
+  "prices": {
+    "claude-opus-5-5": {
+      "in": 4.0,
+      "out": 20.0
+    },
+    "claude-sonnet-5-5": {
+      "in": 2.0,
+      "out": 10.0
+    },
+    "claude-haiku-4-5": {
+      "in": 1.0,
+      "out": 5.0
+    },
+    "claude-opus-4-8": {
+      "in": 5.0,
+      "out": 25.0
+    }
+  },
+  "harness_sha": "18888e2377bc58fd89e6307c44463027bd7516dfec68b357bd11b7d7e775162e"
+}

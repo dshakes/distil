@@ -1,0 +1,36 @@
+== baseline
+curated   agent-worklog          n=  8 distil_act= 100% self_act=  88% savings=  5%
+curated   coding                 n=  8 distil_act= 100% self_act= 100% savings=  6%
+curated   data-analysis          n=  8 distil_act=  75% self_act= 100% savings=  5%
+curated   devops                 n=  8 distil_act= 100% self_act= 100% savings=  7%
+curated   finance                n=  8 distil_act= 100% self_act= 100% savings=  7%
+curated   ops/sre                n=  8 distil_act= 100% self_act= 100% savings=  6%
+curated   research               n=  8 distil_act=  75% self_act= 100% savings=  9%
+curated   support                n=  8 distil_act=  88% self_act=  88% savings=  9%
+curated   web-research           n=  8 distil_act= 100% self_act= 100% savings= 85%
+synthetic api-json               n= 16 distil_act=  44% self_act=  88% savings= 80%
+synthetic k8s-incident           n= 16 distil_act=  94% self_act= 100% savings= 39%
+synthetic logs                   n= 16 distil_act= 100% self_act= 100% savings= 61%
+synthetic metrics                n= 16 distil_act=  75% self_act=  88% savings= 39%
+synthetic rag-synthesis          n= 16 distil_act=  31% self_act=  94% savings= 59%
+synthetic sql-rows               n= 16 distil_act=  56% self_act=  81% savings= 42%
+synthetic stacktrace             n= 16 distil_act=  31% self_act= 100% savings= 49%
+synthetic support-chat           n= 16 distil_act= 100% self_act= 100% savings= 58%
+== v3
+curated   agent-worklog          n=  8 distil_act=  62% self_act=  75% savings=  5%
+curated   coding                 n=  8 distil_act= 100% self_act= 100% savings=  6%
+curated   data-analysis          n=  8 distil_act=  75% self_act=  88% savings=  5%
+curated   devops                 n=  8 distil_act= 100% self_act= 100% savings=  7%
+curated   finance                n=  8 distil_act=  88% self_act=  88% savings=  7%
+curated   ops/sre                n=  8 distil_act= 100% self_act=  88% savings=  6%
+curated   research               n=  8 distil_act=  75% self_act=  88% savings=  9%
+curated   support                n=  8 distil_act=  50% self_act= 100% savings=  9%
+curated   web-research           n=  8 distil_act= 100% self_act= 100% savings= 85%
+synthetic api-json               n= 16 distil_act=  50% self_act=  94% savings= 80%
+synthetic k8s-incident           n= 16 distil_act= 100% self_act= 100% savings= 39%
+synthetic logs                   n= 16 distil_act=  81% self_act=  88% savings= 61%
+synthetic metrics                n= 16 distil_act= 100% self_act= 100% savings= 39%
+synthetic rag-synthesis          n= 16 distil_act=  38% self_act= 100% savings= 59%
+synthetic sql-rows               n= 16 distil_act=  88% self_act=  94% savings= 42%
+synthetic stacktrace             n= 16 distil_act= 100% self_act= 100% savings= 49%
+synthetic support-chat           n= 16 distil_act=  38% self_act=  88% savings= 58%

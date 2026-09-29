@@ -36,6 +36,7 @@ class AnthropicRunner:
         max_tokens: int = 4096,
         samples: int = 1,
         max_calls: int | None = None,
+        effort: str | None = None,
     ) -> None:
         self.model = model
         self._client = client
@@ -44,11 +45,18 @@ class AnthropicRunner:
         # run fails loudly when the budget is hit instead of spending silently.
         self.max_calls = max_calls
         self.calls_made = 0
+        # Newer models (claude-opus-5-5, claude-sonnet-5-5, claude-fable-5-1)
+        # reject forced tool_choice with a 400. Flipped on the first such 400;
+        # the decision then goes through tool_choice=auto + the same strict tool.
+        self.forced_tool_choice = True
         # Newer models deprecate `temperature`, so we can't pin sampling to 0.
         # Instead, take the MAJORITY decision over `samples` calls — the stable
         # "most-likely action" — which removes the model's own run-to-run variance
         # that would otherwise masquerade as a compression-induced divergence.
         self.samples = max(1, samples)
+        # output_config.effort (low..max) - the main cost lever on current models.
+        # None sends no output_config, i.e. the request is unchanged.
+        self.effort = effort
 
     def _ensure_client(self) -> object:
         if self._client is None:
@@ -80,9 +88,20 @@ class AnthropicRunner:
                 "API calls) — raise --max-live-calls or shrink the trajectory set."
             )
         self.calls_made += 1
+        if self.effort:
+            kw.setdefault("output_config", {"effort": self.effort})
         try:
             return self._ensure_client().messages.create(**kw)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit
+            tc = kw.get("tool_choice")
+            if (
+                isinstance(tc, dict)
+                and tc.get("type") == "tool"
+                and getattr(exc, "status_code", None) == 400
+                and "tool_choice" in str(exc)
+            ):
+                self.forced_tool_choice = False
+                return self._create(**{**kw, "tool_choice": {"type": "auto"}})
             raise SystemExit(
                 f"distil: the Anthropic API call failed — {exc}\n"
                 "  set your key:  export ANTHROPIC_API_KEY=sk-ant-..."
@@ -154,7 +173,11 @@ class AnthropicRunner:
             max_tokens=self.max_tokens,
             system="\n\n".join(system_parts) or "You are an autonomous agent.",
             tools=[decision_tool],
-            tool_choice={"type": "tool", "name": "record_decision"},
+            tool_choice=(
+                {"type": "tool", "name": "record_decision"}
+                if self.forced_tool_choice
+                else {"type": "auto"}
+            ),
             messages=[
                 {
                     "role": "user",
@@ -174,7 +197,13 @@ class AnthropicRunner:
         for block in resp_blocks:
             if getattr(block, "type", None) == "tool_use":
                 return prompts.fingerprint_from_args(block.input)
-        return "<no-decision>"
+        # Under tool_choice=auto the model may answer in text instead of calling
+        # the tool; the same {action,target} parser the text runners use applies.
+        return prompts.parse_fingerprint(
+            "".join(
+                getattr(b, "text", "") for b in resp_blocks if getattr(b, "type", None) == "text"
+            )
+        )
 
     def _raw(self, system: str, user: str) -> str:
         """Free-form text completion (no forced tool) — used by the expand loop, which
