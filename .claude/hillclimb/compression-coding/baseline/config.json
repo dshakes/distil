@@ -1,14 +1,16 @@
 {
   "model": "claude-sonnet-5-5",
   "effort": "low",
-  "reps": 4,
+  "reps": 2,
   "fake": null,
   "arms": [
     "full_a",
     "full_b",
     "distil",
     "expand_structured",
-    "trunc"
+    "trunc",
+    "served",
+    "served_expand"
   ],
-  "cases": "real"
+  "cases": "coding"
 }

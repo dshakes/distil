@@ -1,0 +1,35 @@
+{
+ "turns": 4616,
+ "full_tokens": 121674662,
+ "compressed_tokens": 118467863,
+ "savings": 0.0264,
+ "served_tokens": 57690894,
+ "served_savings": 0.5259,
+ "by_kind": {
+  "history": {
+   "full": 15241225,
+   "compressed": 15241225,
+   "savings": 0.0
+  },
+  "system": {
+   "full": 6226984,
+   "compressed": 6226984,
+   "savings": 0.0
+  },
+  "tool_output": {
+   "full": 92511243,
+   "compressed": 89301713,
+   "savings": 0.0347
+  },
+  "tools": {
+   "full": 793952,
+   "compressed": 793952,
+   "savings": 0.0
+  },
+  "user": {
+   "full": 6901258,
+   "compressed": 6903989,
+   "savings": -0.0004
+  }
+ }
+}

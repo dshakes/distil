@@ -184,5 +184,17 @@
     "distil/replay/expand_runner.py",
     "distil/replay/prompts.py"
   ],
-  "harness_sha": "101ed31108e78af771a09f7364f4bf38d4579ba63d039c0bc52f2f37e36ebedd"
+  "harness_sha": "101ed31108e78af771a09f7364f4bf38d4579ba63d039c0bc52f2f37e36ebedd",
+  "best": {
+    "variant": "v3",
+    "config": "claude-sonnet-5-5 @ effort=low",
+    "verdict": "passes all registered gates on 60 test cases x 4 reps (2026-09-29)",
+    "equiv_expand_act_delta": "+3.8 +- 8.3 pts (lower -4.6 vs -5 bar)",
+    "self_consist_act_delta": "+6.7 +- 4.9",
+    "trunc_ratio": 0.88,
+    "cost_per_case": {
+      "baseline": 0.146,
+      "v3": 0.062
+    }
+  }
 }

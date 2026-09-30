@@ -233,10 +233,195 @@ def load_real_cases() -> list[dict]:
     return cases
 
 
+# --- coding cases: public SWE-agent trajectories ---------------------------------------
+
+# 120 seeded-random GPT-4o SWE-agent runs on SWE-bench Lite (swe-bench-submissions S3,
+# lite/20240728_sweagent_gpt4o/trajs/), pinned by benchmarks/swe_agent_trajs_manifest.json.
+SWE_DIR = ROOT / "benchmarks/.cache/swe-agent"
+SWE_MANIFEST = ROOT / "benchmarks/swe_agent_trajs_manifest.json"
+SWE_URL = "https://swe-bench-submissions.s3.amazonaws.com/lite/20240728_sweagent_gpt4o/trajs/{}"
+CODING_CASES = ROOT / "benchmarks/model_migration_cases_coding.json"
+
+
+def fetch_swe_agent() -> None:
+    import urllib.request
+
+    SWE_DIR.mkdir(parents=True, exist_ok=True)
+    for name, sha in json.loads(SWE_MANIFEST.read_text())["sha256"].items():
+        p = SWE_DIR / name
+        if not p.exists():
+            urllib.request.urlretrieve(SWE_URL.format(name), p)
+        if hashlib.sha256(p.read_bytes()).hexdigest() != sha:
+            sys.exit(f"{p}: sha256 mismatch -- delete it and re-fetch")
+
+
+def _swe_blocks(req: dict, obs: list[str]):
+    """Blocks for one decision point, one per message so a recovery loop can restore a
+    single digested observation. `obs` are the observation texts to show (original, or
+    what distil's serving adapter made of them); the full and served views share this
+    one formatter, so compression is the only difference between them."""
+    from distil.trajectory import Block, Kind, Stability
+
+    inst = req["inst"]
+    blocks = []
+    if req["system"]:
+        blocks.append(Block(f"{inst}:system", Kind.SYSTEM, req["system"], Stability.STABLE, True))
+    blocks.append(Block(f"{inst}:tools", Kind.TOOLS, req["menu"], Stability.STABLE, True))
+    blocks.append(Block(f"{inst}:task", Kind.USER, req["task"], Stability.STABLE, True))
+    last = len(req["pairs"]) - 1
+    for k, ((agent, _), o) in enumerate(zip(req["pairs"], obs)):
+        blocks.append(Block(f"{inst}:agent@{k}", Kind.HISTORY, agent, Stability.SETTLING))
+        blocks.append(Block(f"{inst}:obs@{k}", Kind.TOOL_OUTPUT, o or "(no output)",
+                            Stability.VOLATILE if k == last else Stability.SETTLING, k == last))
+    return blocks
+
+
+def serve(req: dict):
+    """What distil's serving adapter sends for this decision point: the history as the
+    Anthropic tool_use/tool_result request an agent client would make, run through
+    distil.adapters.anthropic.compress_messages with the client's cache breakpoint on
+    the newest tool result (a caching client - every tool output is digestible, the
+    freshest included). Returns (blocks, restore) where restore maps each handle in the
+    served text to its original."""
+    from distil.adapters.anthropic import compress_messages
+
+    msgs = [{"role": "user", "content": req["task"]}]
+    for k, (agent, o) in enumerate(req["pairs"]):
+        tid = f"toolu_{k:04d}"
+        msgs.append({"role": "assistant", "content": [
+            {"type": "text", "text": agent},
+            {"type": "tool_use", "id": tid, "name": req["tools"][k], "input": {"command": req["cmds"][k]}}]})
+        msgs.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid, "content": o or "(no output)"}]})
+    msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
+    out, store = compress_messages(msgs)
+    served = []
+    for m in out[2::2]:
+        c = m["content"][-1]["content"]
+        served.append(c if isinstance(c, str) else "".join(x.get("text", "") for x in c if isinstance(x, dict)))
+    blocks = _swe_blocks(req, served)
+    restore = {}
+    for b in blocks:
+        for h in re.findall(r"handle=([0-9a-f]{8})", b.text):
+            try:
+                restore[h] = store.expand(h)
+            except Exception:  # noqa: BLE001 - an unexpandable handle stays folded
+                pass
+    return blocks, restore
+
+
+def _swe_turns(path: Path):
+    """[(turn, gold_fingerprint, req)] for every non-demo assistant step of one .traj,
+    rebuilt from the trajectory's own `history` - the exact messages the agent saw, in
+    order. (distil.replay.realtrace.load_swe_bench drops the system prompt and the issue
+    for this format and pairs each observation with the action that produced it; this
+    builds the decision point correctly.) `req` is the raw material for serve()."""
+    from distil.trajectory import Turn
+
+    d = json.loads(path.read_text())
+    h = [m for m in d.get("history") or [] if not m.get("is_demo")]
+    sysmsg = next((m for m in h if m.get("role") == "system"), None)
+    sigs = re.findall(r"signature:\s*(.+)", sysmsg["content"]) if sysmsg else []
+    names = []
+    menu = ["AVAILABLE TOOLS (SWE-agent commands, from the system prompt's signatures):"]
+    for sg in sigs:
+        name, *args = sg.strip().split()
+        names.append(name)
+        menu.append(f"- {name}({' '.join(args)})")
+    menu.append("- bash(command): any other shell command (python, pytest, ls, cd, grep, rm, ...)")
+
+    def command(text):
+        m = re.search(r"```\s*\n?(.*?)(?:\n|```)", text or "", re.S)
+        return (m.group(1) if m else "").strip()
+
+    msgs = [m for m in h if m.get("role") in ("user", "assistant")]
+    out = []
+    for j, m in enumerate(msgs):
+        if m["role"] != "assistant" or j < 2 or msgs[j - 1]["role"] != "user":
+            continue
+        rest = msgs[1:j]  # assistant, observation, assistant, observation, ...
+        pairs = [(rest[k]["content"], rest[k + 1]["content"]) for k in range(0, len(rest) - 1, 2)
+                 if rest[k]["role"] == "assistant" and rest[k + 1]["role"] == "user"]
+        if not pairs:
+            continue
+        req = {"inst": path.stem, "system": sysmsg["content"] if sysmsg else "", "menu": "\n".join(menu),
+               "task": msgs[0]["content"], "pairs": pairs, "cmds": [command(a) for a, _ in pairs]}
+        # Name each call as a tool-use client would: SWE-agent's own commands (open, goto,
+        # edit, ...) as tools, everything else as bash - distil's exact-quote provenance
+        # keys on the tool name, so an all-"bash" request would hide it.
+        req["tools"] = [c.split(" ", 1)[0] if c.split(" ", 1)[0] in names else "bash" for c in req["cmds"]]
+        line = command(m["content"])
+        verb, _, rest_ = line.partition(" ")
+        gold = prompts.canonical(verb if verb in names else "bash", rest_ if verb in names else line) if line else None
+        out.append((Turn(j, _swe_blocks(req, [o for _, o in pairs])), gold, req))
+    return out
+
+
+def select_coding_cases(total: int = 100, seed: int = 20260929, min_savings: float = 0.10) -> None:
+    """One decision point per trajectory (independence), drawn at random from turns where
+    distil saves >= min_savings; trajectories themselves drawn at random."""
+    rng = random.Random(seed)
+    eligible = []
+    for p in sorted(SWE_DIR.glob("*.traj")):
+        ok = []
+        for t, _, _ in _swe_turns(p):
+            full = sum(TOK.count(b.text) for b in t.blocks)
+            comp = sum(TOK.count(b.text) for b in distil_strategy(t.blocks, t.index))
+            if full and 1 - comp / full >= min_savings:
+                ok.append(t.index)
+        if ok:
+            eligible.append((p.name, ok))
+    pick = rng.sample(eligible, min(total, len(eligible)))
+    cases = [{"file": n, "turn": rng.choice(ok)} for n, ok in sorted(pick)]
+    CODING_CASES.write_text(json.dumps({"source": "swe-agent gpt-4o trajs (SWE-bench Lite)", "seed": seed,
+                                        "min_savings": min_savings, "eligible_trajectories": len(eligible),
+                                        "cases": cases}, indent=1))
+    print(f"wrote {len(cases)} cases ({len(eligible)} eligible trajectories) to {CODING_CASES}", file=sys.stderr)
+
+
+def savings_report() -> dict:
+    """Aggregate token savings of the certified distil strategy over EVERY turn of every
+    cached SWE-agent trajectory (not just the eval cases). Model-free and free to run: the
+    compression hillclimb's cost objective."""
+    full = comp = served = turns = 0
+    by_kind: dict[str, list[int]] = {}
+    for p in sorted(SWE_DIR.glob("*.traj")):
+        for t, _, req in _swe_turns(p):
+            turns += 1
+            served += sum(TOK.count(b.text) for b in serve(req)[0])
+            c = distil_strategy(t.blocks, t.index)
+            for b in t.blocks:
+                by_kind.setdefault(b.kind.value, [0, 0])[0] += TOK.count(b.text)
+            for b in c:
+                by_kind.setdefault(b.kind.value, [0, 0])[1] += TOK.count(b.text)
+            full += sum(TOK.count(b.text) for b in t.blocks)
+            comp += sum(TOK.count(b.text) for b in c)
+    return {"turns": turns, "full_tokens": full, "compressed_tokens": comp, "savings": round(1 - comp / full, 4),
+            "served_tokens": served, "served_savings": round(1 - served / full, 4),
+            "by_kind": {k: {"full": v[0], "compressed": v[1], "savings": round(1 - v[1] / v[0], 4) if v[0] else 0}
+                        for k, v in sorted(by_kind.items())}}
+
+
+def load_coding_cases() -> list[dict]:
+    out = []
+    for c in json.loads(CODING_CASES.read_text())["cases"]:
+        p = SWE_DIR / c["file"]
+        if not p.exists():
+            sys.exit(f"{p} missing -- run with --fetch-swe-agent first")
+        turn, gold, req = next((t, g, r) for t, g, r in _swe_turns(p) if t.index == c["turn"])
+        repo = p.stem.split("__")[0]
+        steps = turn.index // 2  # history alternates agent/observation after the task message
+        out.append({"id": f"{p.stem}-t{c['turn']}", "turn": turn, "gold": gold, "req": req,
+                    "tags": [repo, "swe-agent", f"step{steps}"],
+                    "title": f"SWE-bench Lite {p.stem} (SWE-agent GPT-4o) step {steps}"})
+    return out
+
+
 CASE_SOURCE = "synthetic"
 
 
 def cases_for(source: str) -> list[dict]:
+    if source == "coding":
+        return load_coding_cases()
     return load_real_cases() if source == "real" else load_cases()
 
 
@@ -338,7 +523,7 @@ class FakeClient:
 # --- one case ---------------------------------------------------------------------
 
 
-ARMS = ("full_a", "full_b", "distil", "expand_structured", "trunc")
+ARMS = ("full_a", "full_b", "distil", "expand_structured", "trunc", "served", "served_expand")
 
 
 def run_case(case: dict, client, model: str, effort: str | None = None, arms_on=ARMS) -> dict:
@@ -364,6 +549,14 @@ def run_case(case: dict, client, model: str, effort: str | None = None, arms_on=
     # (structured_decision), so this arm and full_a share one decision format.
     arm("expand_structured", lambda: ExpandAwareRunner(base).decide(comp, build_restore(blocks)))
     arm("trunc", lambda: base.decide(TRUNC(blocks, idx)))
+    served_savings = None
+    if case.get("req") and ({"served", "served_expand"} & set(arms_on)):
+        # distil's real serving adapter on the request a caching agent client would send
+        sblocks, srestore = serve(case["req"])
+        arm("served", lambda: base.decide(sblocks))
+        arm("served_expand", lambda: ExpandAwareRunner(base).decide(sblocks, srestore))
+        full_t = sum(TOK.count(b.text) for b in blocks)
+        served_savings = round(1 - sum(TOK.count(b.text) for b in sblocks) / full_t, 4) if full_t else 0.0
 
     full_tok = sum(TOK.count(b.text) for b in blocks)
     comp_tok = sum(TOK.count(b.text) for b in comp)
@@ -405,6 +598,7 @@ def run_case(case: dict, client, model: str, effort: str | None = None, arms_on=
         "savings": round(1 - comp_tok / full_tok, 4) if full_tok else 0.0,
         "forced_tool_choice": base.forced_tool_choice,
         "gold": case.get("gold"),
+        "served_savings": served_savings,
     }
 
 
@@ -425,6 +619,10 @@ def grade(run: dict, ref_fp: str | None) -> dict:
 
     ref = ref_fp if ref_fp is not None else a["full_b"]
     g = {}
+    if "served" in a:
+        g["equiv_served_act"] = eq(a["full_a"], a["served"], _act)
+    if "served_expand" in a:
+        g["equiv_served_expand_act"] = eq(a["full_a"], a["served_expand"], _act)
     # Real traces only: the action the recorded agent actually took. Diagnostic,
     # not ground truth (another model wrote it) - never a gate.
     if run.get("gold"):
@@ -564,11 +762,14 @@ def main() -> None:
     ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--arms", default=",".join(ARMS), help="comma-separated subset of " + ",".join(ARMS))
     ap.add_argument("--fake", choices=["oracle", "null", "flip"])
-    ap.add_argument("--cases", choices=["synthetic", "real"], default="synthetic",
+    ap.add_argument("--cases", choices=["synthetic", "real", "coding"], default="synthetic",
                     help="synthetic: corpus/ + corpus_xl (plants DECISION: markers - offline-runner annotations "
                          "that leak the answer to a live model); real: public τ-bench trajectories")
     ap.add_argument("--fetch-tau-bench", action="store_true", help="download + verify the pinned τ-bench files")
     ap.add_argument("--select-real-cases", action="store_true", help="(re)write the real case list")
+    ap.add_argument("--fetch-swe-agent", action="store_true", help="download + verify the pinned SWE-agent trajs")
+    ap.add_argument("--select-coding-cases", action="store_true", help="(re)write the coding case list")
+    ap.add_argument("--savings-report", help="write the all-turns SWE-agent savings report to this path (free, offline)")
     ap.add_argument("--status", action="store_true", help="print the cross-variant status table and exit")
     ap.add_argument("--regrade", action="store_true", help="recompute grades from stored decisions (no API calls)")
     ap.add_argument("--backfill-arm", help="add this arm to existing rows of --variant (reps < --reps)")
@@ -581,7 +782,16 @@ def main() -> None:
         fetch_tau_bench()
     if a.select_real_cases:
         select_real_cases()
-    if a.fetch_tau_bench or a.select_real_cases:
+    if a.fetch_swe_agent:
+        fetch_swe_agent()
+    if a.select_coding_cases:
+        select_coding_cases()
+    if a.savings_report:
+        rep_ = savings_report()
+        Path(a.savings_report).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.savings_report).write_text(json.dumps(rep_, indent=1))
+        print(json.dumps({k: v for k, v in rep_.items() if k != "by_kind"}))
+    if a.fetch_tau_bench or a.select_real_cases or a.fetch_swe_agent or a.select_coding_cases or a.savings_report:
         return
     if not re.fullmatch(r"baseline|v[1-9]\d*", a.variant):
         sys.exit("--variant must be 'baseline' or 'v<N>'")
@@ -677,6 +887,7 @@ def main() -> None:
                     "latency_s": run["latency_s"],
                     "tool_calls": run["n_calls"],
                     "savings": run["savings"],
+                    "served_savings": run["served_savings"],
                     "grade": g,
                     "meta": {
                         "arms": run["arms"],

@@ -19,3 +19,14 @@
 - **claude-sonnet-5-5 @ low is the cost winner**: best point estimate on every quality column, 58% cheaper per case, and the saving comes from its lower per-token price (it produces more output tokens than claude-opus-4-8). It does **not yet clear** the registered gate: its CI lower bound is -6.0 against a -5 bar. Two more reps on baseline and claude-sonnet-5-5 (~$41) would narrow the half-width to about ±6.
 - **claude-haiku-4-5 is too weak to certify.** It loses about 7 pts on the deployed metric, and without the recovery loop it keeps only 44% of actions.
 - "recorded act" (agreement with the recorded agent's action) is 44–54% for every model. τ-bench turns often admit several reasonable next actions (think, respond, transfer), so this column is a diagnostic and never a gate.
+
+## Confirm (4 reps on baseline and v3, 2026-09-29)
+
+claude-sonnet-5-5 @ low **passes every registered gate** on the 60 held-out cases × 4 reps:
+- expand act-eq 94.6% vs 90.8%, Δ +3.8 ± 8.3 (lower bound -4.6 ≥ -5)
+- self-consistency 99.2% vs 92.5%, Δ +6.7 ± 4.9, significantly better
+- decided 100% vs 100%
+- trunc caught 0.88× baseline (≥ 0.80)
+- $0.062 vs $0.146 per case (-58%), from a lower per-token price
+
+Recommended default certifier: claude-sonnet-5-5 @ effort=low.

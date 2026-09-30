@@ -1,0 +1,408 @@
+{
+ "source": "swe-agent gpt-4o trajs (SWE-bench Lite)",
+ "seed": 20260929,
+ "min_savings": 0.1,
+ "eligible_trajectories": 109,
+ "cases": [
+  {
+   "file": "astropy__astropy-14365.traj",
+   "turn": 15
+  },
+  {
+   "file": "astropy__astropy-14995.traj",
+   "turn": 13
+  },
+  {
+   "file": "astropy__astropy-6938.traj",
+   "turn": 19
+  },
+  {
+   "file": "astropy__astropy-7746.traj",
+   "turn": 17
+  },
+  {
+   "file": "django__django-11049.traj",
+   "turn": 3
+  },
+  {
+   "file": "django__django-11283.traj",
+   "turn": 11
+  },
+  {
+   "file": "django__django-11848.traj",
+   "turn": 9
+  },
+  {
+   "file": "django__django-11910.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-11999.traj",
+   "turn": 15
+  },
+  {
+   "file": "django__django-12284.traj",
+   "turn": 9
+  },
+  {
+   "file": "django__django-12286.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-12308.traj",
+   "turn": 11
+  },
+  {
+   "file": "django__django-12470.traj",
+   "turn": 25
+  },
+  {
+   "file": "django__django-12497.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-12589.traj",
+   "turn": 37
+  },
+  {
+   "file": "django__django-12747.traj",
+   "turn": 5
+  },
+  {
+   "file": "django__django-12856.traj",
+   "turn": 33
+  },
+  {
+   "file": "django__django-13028.traj",
+   "turn": 5
+  },
+  {
+   "file": "django__django-13158.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-13265.traj",
+   "turn": 17
+  },
+  {
+   "file": "django__django-13757.traj",
+   "turn": 11
+  },
+  {
+   "file": "django__django-13925.traj",
+   "turn": 11
+  },
+  {
+   "file": "django__django-13933.traj",
+   "turn": 9
+  },
+  {
+   "file": "django__django-14016.traj",
+   "turn": 21
+  },
+  {
+   "file": "django__django-14017.traj",
+   "turn": 9
+  },
+  {
+   "file": "django__django-14608.traj",
+   "turn": 43
+  },
+  {
+   "file": "django__django-14672.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-14787.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-15202.traj",
+   "turn": 11
+  },
+  {
+   "file": "django__django-15738.traj",
+   "turn": 23
+  },
+  {
+   "file": "django__django-16041.traj",
+   "turn": 9
+  },
+  {
+   "file": "django__django-16379.traj",
+   "turn": 7
+  },
+  {
+   "file": "django__django-16400.traj",
+   "turn": 5
+  },
+  {
+   "file": "django__django-16408.traj",
+   "turn": 7
+  },
+  {
+   "file": "django__django-16527.traj",
+   "turn": 13
+  },
+  {
+   "file": "django__django-16595.traj",
+   "turn": 17
+  },
+  {
+   "file": "django__django-16873.traj",
+   "turn": 15
+  },
+  {
+   "file": "mwaskom__seaborn-2848.traj",
+   "turn": 31
+  },
+  {
+   "file": "mwaskom__seaborn-3407.traj",
+   "turn": 19
+  },
+  {
+   "file": "pallets__flask-4045.traj",
+   "turn": 9
+  },
+  {
+   "file": "pallets__flask-4992.traj",
+   "turn": 15
+  },
+  {
+   "file": "pydata__xarray-4248.traj",
+   "turn": 21
+  },
+  {
+   "file": "pylint-dev__pylint-5859.traj",
+   "turn": 11
+  },
+  {
+   "file": "pylint-dev__pylint-6506.traj",
+   "turn": 11
+  },
+  {
+   "file": "pylint-dev__pylint-7993.traj",
+   "turn": 31
+  },
+  {
+   "file": "pytest-dev__pytest-5103.traj",
+   "turn": 17
+  },
+  {
+   "file": "pytest-dev__pytest-5221.traj",
+   "turn": 13
+  },
+  {
+   "file": "pytest-dev__pytest-5495.traj",
+   "turn": 23
+  },
+  {
+   "file": "pytest-dev__pytest-7220.traj",
+   "turn": 23
+  },
+  {
+   "file": "pytest-dev__pytest-8365.traj",
+   "turn": 11
+  },
+  {
+   "file": "pytest-dev__pytest-8906.traj",
+   "turn": 15
+  },
+  {
+   "file": "pytest-dev__pytest-9359.traj",
+   "turn": 13
+  },
+  {
+   "file": "scikit-learn__scikit-learn-10297.traj",
+   "turn": 23
+  },
+  {
+   "file": "scikit-learn__scikit-learn-10508.traj",
+   "turn": 11
+  },
+  {
+   "file": "scikit-learn__scikit-learn-13439.traj",
+   "turn": 13
+  },
+  {
+   "file": "scikit-learn__scikit-learn-14092.traj",
+   "turn": 15
+  },
+  {
+   "file": "scikit-learn__scikit-learn-14894.traj",
+   "turn": 17
+  },
+  {
+   "file": "scikit-learn__scikit-learn-15512.traj",
+   "turn": 15
+  },
+  {
+   "file": "scikit-learn__scikit-learn-15535.traj",
+   "turn": 15
+  },
+  {
+   "file": "scikit-learn__scikit-learn-25500.traj",
+   "turn": 17
+  },
+  {
+   "file": "scikit-learn__scikit-learn-25747.traj",
+   "turn": 9
+  },
+  {
+   "file": "sphinx-doc__sphinx-11445.traj",
+   "turn": 25
+  },
+  {
+   "file": "sphinx-doc__sphinx-8435.traj",
+   "turn": 5
+  },
+  {
+   "file": "sphinx-doc__sphinx-8474.traj",
+   "turn": 15
+  },
+  {
+   "file": "sphinx-doc__sphinx-8506.traj",
+   "turn": 13
+  },
+  {
+   "file": "sphinx-doc__sphinx-8595.traj",
+   "turn": 29
+  },
+  {
+   "file": "sympy__sympy-11897.traj",
+   "turn": 15
+  },
+  {
+   "file": "sympy__sympy-12454.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-12481.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-13043.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-13146.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-13437.traj",
+   "turn": 23
+  },
+  {
+   "file": "sympy__sympy-13647.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-13773.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-13895.traj",
+   "turn": 19
+  },
+  {
+   "file": "sympy__sympy-14317.traj",
+   "turn": 13
+  },
+  {
+   "file": "sympy__sympy-14396.traj",
+   "turn": 13
+  },
+  {
+   "file": "sympy__sympy-15011.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-15345.traj",
+   "turn": 19
+  },
+  {
+   "file": "sympy__sympy-15346.traj",
+   "turn": 33
+  },
+  {
+   "file": "sympy__sympy-15609.traj",
+   "turn": 17
+  },
+  {
+   "file": "sympy__sympy-15678.traj",
+   "turn": 13
+  },
+  {
+   "file": "sympy__sympy-16503.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-16988.traj",
+   "turn": 17
+  },
+  {
+   "file": "sympy__sympy-17139.traj",
+   "turn": 13
+  },
+  {
+   "file": "sympy__sympy-17655.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-18087.traj",
+   "turn": 29
+  },
+  {
+   "file": "sympy__sympy-18532.traj",
+   "turn": 17
+  },
+  {
+   "file": "sympy__sympy-18698.traj",
+   "turn": 19
+  },
+  {
+   "file": "sympy__sympy-19254.traj",
+   "turn": 13
+  },
+  {
+   "file": "sympy__sympy-19487.traj",
+   "turn": 25
+  },
+  {
+   "file": "sympy__sympy-20154.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-20322.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-20639.traj",
+   "turn": 15
+  },
+  {
+   "file": "sympy__sympy-21055.traj",
+   "turn": 11
+  },
+  {
+   "file": "sympy__sympy-21614.traj",
+   "turn": 15
+  },
+  {
+   "file": "sympy__sympy-21627.traj",
+   "turn": 7
+  },
+  {
+   "file": "sympy__sympy-21847.traj",
+   "turn": 13
+  },
+  {
+   "file": "sympy__sympy-22714.traj",
+   "turn": 5
+  },
+  {
+   "file": "sympy__sympy-24066.traj",
+   "turn": 11
+  }
+ ]
+}
