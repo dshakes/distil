@@ -7,12 +7,21 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+## [1.56.1] — 2026-10-01 — the outcome, measured
+
 ### Added
 
-- **SWE-bench outcome eval, powered run.** 100 SWE-bench Lite tasks x 2 arms, `claude-sonnet-5-5` @ low, graded by the official harness: distil-served 70/100 vs plain 69/100, paired difference +1.0 pts (95% CI −4.9 to +6.9), non-inferior at the pre-registered 5-point margin (narrowly; ~283 pairs for 80% power). On these short tasks serving used 10.6% more input tokens — it bounds task risk, it does not show savings. $8.73. Artifacts in `benchmarks/results/swebench-outcome-100/`.
+- **SWE-bench outcome eval, powered run.** 100 SWE-bench Lite tasks x 2 arms, `claude-sonnet-5-5` @ low, graded by the official harness: distil-served 70/100 vs plain 69/100, paired difference +1.0 pts (95% CI −4.9 to +6.9), non-inferior at the pre-registered 5-point margin (narrowly; ~283 pairs for 80% power). On these short tasks serving used 10.6% more input tokens — roughly a third of the extra (estimated) was the injected expand-tool definition, paid in full each step because the eval agent did not use prompt caching; about a quarter was the 11 extra steps; the rest is unattributed. It bounds task risk, it does not show savings. $8.73. Artifacts in `benchmarks/results/swebench-outcome-100/`.
 
 ### Changed
 
+- **SWE-bench outcome harness caches like a real agent.** Both arms mark an ephemeral cache breakpoint on the newest turn (before compression, so distil's recency anchoring sees it). The first powered run was uncached, which charged the expand tool's definition at full price every step and overstated distil's per-step overhead. The proxy's up-front expand-tool injection is unchanged: it is deliberate, because adding a tool mid-session would invalidate the whole cached prefix.
+- **Datasets used, in one table** (`docs/EVALUATION.md` §6.9, linked from the README and the Model Migration page), with source, exact files, selection seed and sha256 pins:
+  - **τ-bench** historical trajectories ([sierra-research/tau-bench](https://github.com/sierra-research/tau-bench), MIT) — 4 files, 100 decision points: certifier model migration.
+  - **SWE-agent GPT-4o trajectories** from the SWE-bench Lite leaderboard submissions (`s3://swe-bench-submissions/lite/20240728_sweagent_gpt4o/trajs/`) — 120 trajectories, 100 decision points: certified-vs-served savings and the served-path decision gap.
+  - **SWE-bench Lite** ([`princeton-nlp/SWE-bench_Lite`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite), test split, official Docker images and grader) — 10-task pilot and 100-task powered run: task outcome.
+  - **distil's synthetic corpus** (in-repo) — offline certification only; excluded from live comparisons because its `DECISION:` markers leak the answer.
+- **"New" badges expire on their own.** Each page records the release that introduced it (`ADDED` in `scripts/site_nav.py`, from git history); the badge shows only while that release is the current or previous minor version, and the generator refreshes the landing page too. 14 hand-set "New" badges (some from 1.33) become 5.
 - Docs sidebar grouped into 7 collapsible sections (native `<details>`, no JS).
 
 ## [1.56.0] — 2026-09-30 — who grades the certificate, and what it grades

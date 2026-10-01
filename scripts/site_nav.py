@@ -23,6 +23,47 @@ from pathlib import Path
 # Pages with their own bespoke navigation, not the shared template.
 SKIP = {"index.html"}
 
+# The release that introduced each page (from `git log --diff-filter=A` + the first
+# tag containing it). A page shows a "New" badge only while that release is within
+# NEW_WINDOW minor versions of the current one, so badges retire themselves as
+# releases ship instead of every page staying "New" forever. Add a row for each
+# new page; pages without a row never get the badge.
+ADDED: dict[str, str] = {
+    "provider-compaction.html": "1.33.0",
+    "cache.html": "1.41.0",
+    "library.html": "1.42.0",
+    "subscription.html": "1.48.0",
+    "which-mode.html": "1.48.1",
+    "benchmark-independent.html": "1.50.1",
+    "cache-contract.html": "1.52.0",
+    "threat-model.html": "1.52.0",
+    "ab.html": "1.55.0",
+    "hooks.html": "1.55.0",
+    "code-skeletons.html": "1.55.0",
+    "mcp.html": "1.55.0",
+    "model-migration.html": "1.56.0",
+}
+NEW_WINDOW = 2  # the current minor release and the one before it
+
+
+def _minor(version: str) -> tuple[int, int]:
+    major, minor = re.match(r"(\d+)\.(\d+)", version).groups()  # type: ignore[union-attr]
+    return int(major), int(minor)
+
+
+def current_version() -> str:
+    text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8")
+    return re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)  # type: ignore[union-attr]
+
+
+def is_new(href: str, version: str | None = None) -> bool:
+    added = ADDED.get(href)
+    if added is None:
+        return False
+    (cmaj, cmin), (amaj, amin) = _minor(version or current_version()), _minor(added)
+    return amaj == cmaj and 0 <= cmin - amin < NEW_WINDOW
+
+
 # (href, label_html, badge|None)
 GETTING_STARTED: list[tuple[str, str, str | None]] = [
     ("getting-started.html", "Install &amp; Quickstart", None),
@@ -34,9 +75,9 @@ LEARN: list[tuple[str, str, str | None]] = [
     ("techniques.html", "Techniques", None),
     ("architecture.html", "Architecture", None),
     ("research.html", "Research &amp; Frontier", None),
-    ("cache-contract.html", "Cache Contract", "New"),
-    ("subscription.html", "Subscription", "New"),
-    ("provider-compaction.html", "Provider Compaction", "New"),
+    ("cache-contract.html", "Cache Contract", None),
+    ("subscription.html", "Subscription", None),
+    ("provider-compaction.html", "Provider Compaction", None),
 ]
 
 # Nested under Token Economics — the 3-module course, previously two clicks deep
@@ -49,9 +90,9 @@ COURSE_MODULES: list[tuple[str, str]] = [
 
 EVALUATION: list[tuple[str, str, str | None]] = [
     ("evals.html", "Evaluation", None),
-    ("ab.html", "Task-level A/B", "New"),
-    ("model-migration.html", "Model Migration", "New"),
-    ("benchmark-independent.html", "Independent Benchmark", "New"),
+    ("ab.html", "Task-level A/B", None),
+    ("model-migration.html", "Model Migration", None),
+    ("benchmark-independent.html", "Independent Benchmark", None),
     ("benchmark.html", "Live Benchmark", None),
     ("benchmarks.html", "Reproduce Benchmarks", None),
     ("compare.html", "Compare", None),
@@ -59,18 +100,18 @@ EVALUATION: list[tuple[str, str, str | None]] = [
 ]
 
 REFERENCE: list[tuple[str, str, str | None]] = [
-    ("library.html", "Library API", "New"),
+    ("library.html", "Library API", None),
     ("cli.html", "CLI Reference", None),
     ("metrics.html", "Metrics &amp; Observability", None),
-    ("cache.html", "Prompt Caching", "New"),
+    ("cache.html", "Prompt Caching", None),
     ("output.html", "Output &amp; I/O", None),
     ("corpus.html", "Corpus", None),
 ]
 
 AGENT_TOOLING: list[tuple[str, str, str | None]] = [
-    ("hooks.html", "Post-tool Hooks", "New"),
-    ("code-skeletons.html", "Code Skeletons", "New"),
-    ("mcp.html", "MCP Compressor", "New"),
+    ("hooks.html", "Post-tool Hooks", None),
+    ("code-skeletons.html", "Code Skeletons", None),
+    ("mcp.html", "MCP Compressor", None),
 ]
 
 INTEGRATIONS: list[tuple[str, str, str | None]] = [
@@ -94,7 +135,7 @@ MORE: list[tuple[str, str, str | None]] = [
     ("faq.html", "FAQ", None),
     ("security.html", "Security", None),
     ("deploy-security.html", "Deploy &amp; Security", None),
-    ("threat-model.html", "Threat Model", "New"),
+    ("threat-model.html", "Threat Model", None),
     ("changelog.html", "Changelog", None),
 ]
 
@@ -126,6 +167,7 @@ def _li(
     active: str, href: str, label: str, badge: str | None = None, indent: str = "        "
 ) -> str:
     cls = ' class="active" aria-current="page"' if href == active else ""
+    badge = badge or ("New" if is_new(href) else None)
     return f'{indent}<li><a href="{href}"{cls}>{label}{_badge(badge)}</a></li>'
 
 
@@ -133,7 +175,7 @@ def render_topbar_links(active: str) -> str:
     wm_cls = ' class="active" aria-current="page"' if active == "which-mode.html" else ""
     return (
         '  <nav class="topbar-links">\n'
-        f'    <a href="which-mode.html"{wm_cls}>Which Mode? <span class="nav-badge">New</span></a>\n'
+        f'    <a href="which-mode.html"{wm_cls}>Which Mode?{_badge("New" if is_new("which-mode.html") else None)}</a>\n'
         '    <a href="getting-started.html">Docs</a>\n'
         '    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>\n'
         "  </nav>"
@@ -200,14 +242,33 @@ def apply_to_text(text: str, active: str) -> str:
     return text
 
 
+_LINK_BADGE_RE = re.compile(
+    r'(<a href="(?P<href>[a-z0-9-]+\.html)"[^>]*>[^<]*?)(?: <span class="nav-badge">New</span>)?(</a>)'
+)
+
+
+def refresh_new_badges(text: str) -> str:
+    """Re-derive every "New" badge on links to pages in ADDED (for the bespoke landing
+    page, whose hand-written nav the shared template does not render)."""
+
+    def fix(m: re.Match[str]) -> str:
+        if m.group("href") not in ADDED or m.group(1).rstrip().endswith(("&rarr;", "→")):
+            return m.group(0)  # not a tracked page, or a call-to-action arrow link
+        badge = ' <span class="nav-badge">New</span>' if is_new(m.group("href")) else ""
+        return f"{m.group(1).rstrip()}{badge}{m.group(3)}"
+
+    return _LINK_BADGE_RE.sub(fix, text)
+
+
 def main(argv: list[str]) -> int:
     docs = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent / "docs"
     changed = 0
     for path in sorted(docs.glob("*.html")):
-        if path.name in SKIP:
-            continue
         before = path.read_text(encoding="utf-8")
-        after = apply_to_text(before, path.name)
+        if path.name in SKIP:
+            after = refresh_new_badges(before)
+        else:
+            after = apply_to_text(before, path.name)
         if after != before:
             path.write_text(after, encoding="utf-8")
             changed += 1

@@ -506,7 +506,7 @@ plain-versus-served harness graded by the official grader and McNemar's test. It
 built, and a 100-task run (`benchmarks/results/swebench-outcome-100/report.md`) found the served agent non-inferior at
 the pre-registered 5-point margin: 70/100 vs 69/100 resolved, paired difference +1.0 pts,
 95% CI [−4.9, +6.9]. The lower bound clears the margin narrowly, and on those short tasks
-serving used 10.6% more input tokens, not fewer. Decision record:
+serving used 10.6% more input tokens, not fewer. Per step the distil arm sent 4,361 input tokens against 4,054 (+307), and it took 408 steps against 397. The run used no prompt caching (0 cache reads), so the injected expand tool's definition (about 150 tokens by a characters/4 estimate) was paid at full price on every step; an agent that caches pays it at the cached-read rate after its first turn. The rest of the per-step gap was not broken down. The harness now caches like a real agent. Decision record:
 `docs/adr/0021-served-path-certification.md`.
 
 **Harness fixes and lessons.** The recovery loop now commits through the runner's
@@ -519,6 +519,20 @@ order, gold = the next command); exact-quote provenance covers `goto`, `scroll_u
 `ANTHROPIC_BASE_URL` to the local proxy, so an eval client must pin `api.anthropic.com`;
 the bundled corpus is for the offline oracle, and live grading needs marker-free real
 traces.
+
+
+### 6.9 Datasets used (model migration, served path, task outcome)
+
+Every external dataset these evals read. Downloads are pinned and verified (sha256)
+before parsing; only the case lists and result artifacts are committed, never the
+upstream files. The fact-recall benchmarks are listed separately in §5.2.
+
+| Dataset | Source | What is used | Pin / selection | Used for |
+|---|---|---|---|---|
+| τ-bench historical trajectories (MIT) | [sierra-research/tau-bench](https://github.com/sierra-research/tau-bench) `historical_trajectories/` | `gpt-4o-airline`, `gpt-4o-retail`, `sonnet-35-new-airline`, `sonnet-35-new-retail` | sha256 per file in `TAU_SHA256` (`benchmarks/model_migration_eval.py`); 100 decision points (25 / 21 / 25 / 29), seed 20260929, list in `benchmarks/model_migration_cases_real.json` | Certifier model migration (§6.8): the incumbent vs candidate models |
+| SWE-agent GPT-4o trajectories on SWE-bench Lite | `s3://swe-bench-submissions/lite/20240728_sweagent_gpt4o/trajs/` (the SWE-bench leaderboard's submission artifacts) | 120 `.traj` files drawn at random | sha256 per file in `benchmarks/swe_agent_trajs_manifest.json` (seed 20260929); 100 decision points from 109 eligible trajectories in `benchmarks/model_migration_cases_coding.json`; all 4,616 turns for the savings report | Certified-vs-served savings and the served-path decision gap (§6.8) |
+| SWE-bench Lite | [`princeton-nlp/SWE-bench_Lite`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite), `test` split, with the prebuilt `swebench/sweb.eval.x86_64.*` Docker images | 10 instances (pilot) and 100 instances (powered run), `--seed 1` | Instance ids in each run's `results.jsonl`; graded by the official harness, `swebench>=4,<5` | Task-outcome eval: plain agent vs distil-served agent (`benchmarks/results/swebench-outcome-*`) |
+| distil synthetic corpus | `corpus/` + `benchmarks/corpus_xl/` (in-repo) | all trajectories | in-repo | Offline certification only. Not used for live model comparisons: it plants `DECISION:` answer markers that a live model can read (§6.8) |
 
 ## 7. How to reproduce
 
