@@ -1065,7 +1065,7 @@
       ],
       "anchor": "served",
       "snippet": "This is an open risk, not a win.",
-      "claim": "On 100 SWE-agent decision points (59 held out), graded by claude-sonnet-5-5 at effort low at $0.1797 per case: two identical uncompressed calls agree on the next action 94.1% of the time; certified distil alone keeps it 51.7%, with recovery 77.1%; the served adapter alone 59.3%, with recovery 78.0%. The truncation control diverges on 48.3% of these decisions. This is an open decision-level risk on one model and one small set, not a task-success result: the SWE-bench outcome eval that would settle it is built and tested offline and has not been run.",
+      "claim": "On 100 SWE-agent decision points (59 held out), graded by claude-sonnet-5-5 at effort low at $0.1797 per case: two identical uncompressed calls agree on the next action 94.1% of the time; certified distil alone keeps it 51.7%, with recovery 77.1%; the served adapter alone 59.3%, with recovery 78.0%. The truncation control diverges on 48.3% of these decisions. This is an open decision-level risk on one model and one small set, not a task-success result: the SWE-bench outcome eval (v-swebench-outcome-100) is the task-level check.",
       "note": "Recomputed from the per-case rows by benchmarks/model_migration_summary.py (paired over held-out cases, each case averaged over its reps, 95% CI from the case-level differences). Live model calls were made once; the page restates the committed summary and does not re-run them. Reproduce the rows: python benchmarks/model_migration_eval.py (see model-migration.html#rerun). coding_served.baseline.test_rates: self_consist_act 0.9407, equiv_distil_act 0.5169, equiv_expand_act 0.7712, equiv_served_act 0.5932, equiv_served_expand_act 0.7797, trunc_detect 0.4831.",
       "artifact": "benchmarks/results/model-migration/summary.json",
       "values": [
@@ -1076,6 +1076,22 @@
         "78.0%",
         "48.3%",
         "0.1797"
+      ]
+    },
+    {
+      "id": "v-swebench-outcome-100",
+      "status": "verified",
+      "page": [
+        "model-migration.html",
+        "../README.md"
+      ],
+      "anchor": "served",
+      "snippet": "so the result speaks to task safety, not savings.",
+      "claim": "On 100 SWE-bench Lite tasks x 2 arms (claude-sonnet-5-5 @ low, max 30 steps), graded by the official SWE-bench harness: the distil-served agent resolved 70/100 vs 69/100 plain; paired difference +1.0 pts, 95% Wald CI [-4.9, +6.9], exact McNemar p = 1.0; non-inferior at the pre-registered 5-point margin. Serving sent 10.6% more input tokens (1,779,229 vs 1,609,344).",
+      "note": "Reproduce the table: python -m benchmarks.swebench_outcome report --out benchmarks/results/swebench-outcome-100 (results.jsonl carries every patch, grades.jsonl the official verdicts). Re-running the agents spends money (~$9); see specs/swebench-outcome-eval.md.",
+      "artifact": "benchmarks/results/swebench-outcome-100/report.md",
+      "values": [
+        "10.6%"
       ]
     }
   ]

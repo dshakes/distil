@@ -503,8 +503,10 @@ keeps the next action in 78.0% of held-out coding decisions, against 94.1% for t
 identical uncompressed calls. Whether that costs solved tasks is the question of
 `specs/swebench-outcome-eval.md` (`benchmarks/swebench_outcome/`), a SWE-bench Lite
 plain-versus-served harness graded by the official grader and McNemar's test. It is
-built and tested offline; only a 10-task pilot
-(`benchmarks/results/swebench-outcome-pilot/report.md`) has run, too small to settle the question. Decision record:
+built, and a 100-task run (`benchmarks/results/swebench-outcome-100/report.md`) found the served agent non-inferior at
+the pre-registered 5-point margin: 70/100 vs 69/100 resolved, paired difference +1.0 pts,
+95% CI [−4.9, +6.9]. The lower bound clears the margin narrowly, and on those short tasks
+serving used 10.6% more input tokens, not fewer. Decision record:
 `docs/adr/0021-served-path-certification.md`.
 
 **Harness fixes and lessons.** The recovery loop now commits through the runner's
