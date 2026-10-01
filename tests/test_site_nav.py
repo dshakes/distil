@@ -65,3 +65,22 @@ def test_which_mode_is_on_every_topbar():
             continue
         text = path.read_text(encoding="utf-8")
         assert 'href="which-mode.html"' in text, f"{path.name} topbar is missing Which Mode?"
+
+
+def test_new_badge_follows_the_release_window():
+    """ "New" retires itself: only pages introduced in the current minor release
+    carry it, judged against the version argument, not a wall clock."""
+    mod = _load_site_nav()
+    assert mod.is_new("model-migration.html", "1.56.1")
+    assert mod.is_new("ab.html", "1.55.2")  # new in its own release
+    assert not mod.is_new("ab.html", "1.56.1")  # the next minor release retires it
+    assert not mod.is_new("cache.html", "1.56.1")  # 1.41: long since not new
+    assert not mod.is_new("cli.html", "1.56.1")  # untracked pages never get it
+    assert not mod.is_new("model-migration.html", "2.0.0")
+
+
+def test_landing_page_badges_are_in_sync():
+    """index.html has its own hand-written nav; its "New" badges must follow the same rule."""
+    mod = _load_site_nav()
+    text = (_DOCS / "index.html").read_text(encoding="utf-8")
+    assert mod.refresh_new_badges(text) == text, "Run: python3 scripts/site_nav.py"

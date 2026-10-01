@@ -129,15 +129,20 @@ def test_real_compress_messages_is_the_default():
     r, c, _ = go([resp([txt("x")], stop="end_turn")], arm="distil")
     assert (
         c.calls[0]["messages"]
-        == compress_messages([{"role": "user", "content": "Resolve this issue:\n\nfix foo"}])[0]
+        == compress_messages(
+            ag.with_cache_breakpoint(
+                [{"role": "user", "content": "Resolve this issue:\n\nfix foo"}]
+            )
+        )[0]
     )
     assert r["failure_class"] == "gave_up"
 
 
-def test_plain_arm_has_no_expand_tool_and_sends_messages_as_is():
+def test_plain_arm_has_no_expand_tool_and_only_adds_a_cache_breakpoint():
     _, c, _ = go(EDIT)
     assert all(t["name"] != "distil_expand" for t in c.calls[0]["tools"])
-    assert c.calls[0]["messages"][0]["content"].endswith("fix foo")
+    first = c.calls[0]["messages"][0]["content"]
+    assert first[0]["text"].endswith("fix foo") and first[0]["cache_control"]["type"] == "ephemeral"
 
 
 def test_budget_stop():
@@ -352,3 +357,26 @@ def test_run_refuses_without_flags(tmp_path):
     assert (
         cli.main(["run", "--instances", str(f), "--budget-usd", "1", "--out", str(tmp_path)]) == 2
     )
+
+
+def test_with_cache_breakpoint_marks_only_the_newest_block():
+    from benchmarks.swebench_outcome.agent import with_cache_breakpoint
+
+    msgs = [
+        {"role": "user", "content": "issue"},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "a", "content": "x"},
+                {"type": "tool_result", "tool_use_id": "b", "content": "y"},
+            ],
+        },
+    ]
+    out = with_cache_breakpoint(msgs)
+    assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in out[-1]["content"][0]
+    assert "cache_control" not in msgs[-1]["content"][-1]  # input untouched
+    first = with_cache_breakpoint(msgs[:1])[0]["content"]
+    assert first == [{"type": "text", "text": "issue", "cache_control": {"type": "ephemeral"}}]
+    assert with_cache_breakpoint([]) == []

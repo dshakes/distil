@@ -1086,8 +1086,8 @@
         "../README.md"
       ],
       "anchor": "served",
-      "snippet": "so the result speaks to task safety, not savings.",
-      "claim": "On 100 SWE-bench Lite tasks x 2 arms (claude-sonnet-5-5 @ low, max 30 steps), graded by the official SWE-bench harness: the distil-served agent resolved 70/100 vs 69/100 plain; paired difference +1.0 pts, 95% Wald CI [-4.9, +6.9], exact McNemar p = 1.0; non-inferior at the pre-registered 5-point margin. Serving sent 10.6% more input tokens (1,779,229 vs 1,609,344).",
+      "snippet": "The result speaks to task safety, not savings",
+      "claim": "On 100 SWE-bench Lite tasks x 2 arms (claude-sonnet-5-5 @ low, max 30 steps), graded by the official SWE-bench harness: the distil-served agent resolved 70/100 vs 69/100 plain; paired difference +1.0 pts, 95% Wald CI [-4.9, +6.9], exact McNemar p = 1.0; non-inferior at the pre-registered 5-point margin. Serving sent 10.6% more input tokens (1,779,229 vs 1,609,344). That run used no prompt caching (0 cache reads), so the injected expand tool's definition was paid at full price each step; per step distil sent 4,361 vs 4,054 input tokens over 408 vs 397 steps.",
       "note": "Reproduce the table: python -m benchmarks.swebench_outcome report --out benchmarks/results/swebench-outcome-100 (results.jsonl carries every patch, grades.jsonl the official verdicts). Re-running the agents spends money (~$9); see specs/swebench-outcome-eval.md.",
       "artifact": "benchmarks/results/swebench-outcome-100/report.md",
       "values": [

@@ -132,6 +132,18 @@ def run_editor(env: Env, inp: dict[str, Any]) -> str:
         return f"error: {path} does not exist"
 
 
+def with_cache_breakpoint(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A copy of *messages* with an ephemeral cache breakpoint on the newest block."""
+    if not messages:
+        return messages
+    last = dict(messages[-1])
+    content = last["content"]
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
+    blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+    last["content"] = blocks
+    return [*messages[:-1], last]
+
+
 def _param(block: Any) -> dict[str, Any]:
     return block.model_dump(exclude_none=True) if hasattr(block, "model_dump") else dict(block)
 
@@ -178,10 +190,13 @@ def run_agent(
             if clock() - t0 > cfg.task_timeout:
                 res["failure_class"], stop = "timeout", "timeout"
                 break
-            send = messages
+            # Both arms cache like a real agent (Claude Code marks the newest turn); without
+            # it every step re-pays tools + system + history at full price, which inflated
+            # the distil arm's injected expand-tool definition in the first powered run.
+            send = with_cache_breakpoint(messages)
             if arm == "distil":
                 assert compress is not None
-                send, store = compress(messages)
+                send, store = compress(send)
                 stores.append(store)
             try:
                 resp = client.messages.create(
