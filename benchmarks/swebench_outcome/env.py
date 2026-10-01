@@ -91,6 +91,9 @@ class DockerEnv:
                 "-d",
                 "--name",
                 self.name,
+                # SWE-bench instance images are x86_64-only; arm64 hosts run them under emulation.
+                "--platform",
+                "linux/amd64",
                 "--network",
                 "none",
                 "--cap-drop",
