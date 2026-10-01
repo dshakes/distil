@@ -88,7 +88,7 @@ already pulled (DockerEnv does not pull), the `datasets` Lite schema (`instance_
 
 ## Pilot and full run
 ```
-pip install anthropic datasets swebench      # in a venv; Docker running
+pip install anthropic datasets 'swebench>=4,<5'  # in a venv; Docker running
 python -m benchmarks.swebench_outcome plan --limit 5 --seed 0
 # DockerEnv does not pull: pre-pull each planned instance image (swebench/sweb.eval.x86_64.<id>:latest)
 python -m benchmarks.swebench_outcome run --limit 5 --seed 0 --budget-usd 25 \

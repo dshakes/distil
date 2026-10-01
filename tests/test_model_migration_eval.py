@@ -134,3 +134,19 @@ def test_serve_handles_are_restorable(mme) -> None:
     back = _expand_blocks(sblocks, handles, restore)
     assert [b.text for b in back] == [b.text for b in turn.blocks]
     json.dumps(restore)  # plain str -> str, persistable with a result row
+
+
+def test_fetch_verified_rejects_a_bad_download(mme, tmp_path, monkeypatch) -> None:
+    import hashlib
+    import urllib.request
+
+    def fake(url, dest):
+        Path(dest).write_bytes(b"corrupt")
+
+    monkeypatch.setattr(urllib.request, "urlretrieve", fake)
+    dest = tmp_path / "x.json"
+    with pytest.raises(SystemExit):
+        mme._fetch_verified("u", dest, "0" * 64)
+    assert not dest.exists() and not list(tmp_path.iterdir())
+    mme._fetch_verified("u", dest, hashlib.sha256(b"corrupt").hexdigest())
+    assert dest.read_bytes() == b"corrupt"

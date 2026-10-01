@@ -116,19 +116,30 @@ REAL_CASES = ROOT / "benchmarks/model_migration_cases_real.json"
 
 
 def fetch_tau_bench() -> None:
-    import urllib.request
 
     TAU_DIR.mkdir(parents=True, exist_ok=True)
     for name, sha in TAU_SHA256.items():
         p = TAU_DIR / f"{name}.json"
         if not p.exists():
             print(f"fetching {name}.json", file=sys.stderr)
-            part = p.with_suffix(".part")
-            urllib.request.urlretrieve(TAU_URL.format(name), part)
-            part.replace(p)
+            _fetch_verified(TAU_URL.format(name), p, sha)
         got = hashlib.sha256(p.read_bytes()).hexdigest()
         if got != sha:
             sys.exit(f"{p}: sha256 {got[:12]} != pinned {sha[:12]} -- delete it and re-fetch")
+
+
+def _fetch_verified(url: str, p: Path, sha: str) -> None:
+    """Download to a .part file and move it into place only once its sha256 matches, so a
+    corrupt or truncated download never lands at `p` (which later runs would trust)."""
+    import urllib.request
+
+    part = p.with_suffix(p.suffix + ".part")
+    urllib.request.urlretrieve(url, part)
+    got = hashlib.sha256(part.read_bytes()).hexdigest()
+    if got != sha:
+        part.unlink()
+        sys.exit(f"{url}: sha256 {got[:12]} != pinned {sha[:12]} -- download rejected")
+    part.replace(p)
 
 
 def _tool_menu(path: Path) -> str:
@@ -277,15 +288,12 @@ CODING_CASES = ROOT / "benchmarks/model_migration_cases_coding.json"
 
 
 def fetch_swe_agent() -> None:
-    import urllib.request
 
     SWE_DIR.mkdir(parents=True, exist_ok=True)
     for name, sha in json.loads(SWE_MANIFEST.read_text())["sha256"].items():
         p = SWE_DIR / name
         if not p.exists():
-            part = p.with_suffix(".part")
-            urllib.request.urlretrieve(SWE_URL.format(name), part)
-            part.replace(p)
+            _fetch_verified(SWE_URL.format(name), p, sha)
         if hashlib.sha256(p.read_bytes()).hexdigest() != sha:
             sys.exit(f"{p}: sha256 mismatch -- delete it and re-fetch")
 
