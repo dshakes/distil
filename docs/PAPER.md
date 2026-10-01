@@ -800,7 +800,7 @@ certified strategy rather than merged into it.
 E7 made against the per-step certificate: keeping the next action on 78.0% of coding
 decisions says nothing about whether the task is still solved. The SWE-bench outcome eval
 that would settle it (`benchmarks/swebench_outcome/`, spec
-`specs/swebench-outcome-eval.md`) is built and tested offline. A 10-task pilot (`benchmarks/results/swebench-outcome-pilot/report.md`) resolved 8/10 in both arms with zero discordant pairs; at n = 10 that rules out nothing beyond a gross regression, so the powered run remains open.
+`specs/swebench-outcome-eval.md`) has now been run on 100 SWE-bench Lite tasks (`benchmarks/results/swebench-outcome-100/report.md`): 70/100 resolved with distil serving against 69/100 plain (discordant 5 vs 4), a paired difference of +1.0 pts with 95% Wald CI [−4.9, +6.9], non-inferior at the pre-registered 5-point margin by a tenth of a point. At the observed discordance about 283 pairs would give 80% power, so this is a pass, not a large one; and on these short, low-effort tasks serving sent 10.6% more input tokens (the injected expand tool, with almost nothing long enough to digest), so it bounds task risk without demonstrating savings.
 (2) One grader model per arm, one small case set per domain, and 60 or 59 held-out cases.
 (3) The migration result is on τ-bench traffic; the coding set was graded by the
 already-chosen certifier and has no incumbent comparison. (4) The truncation control's

@@ -7,6 +7,14 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+### Added
+
+- **SWE-bench outcome eval, powered run.** 100 SWE-bench Lite tasks x 2 arms, `claude-sonnet-5-5` @ low, graded by the official harness: distil-served 70/100 vs plain 69/100, paired difference +1.0 pts (95% CI −4.9 to +6.9), non-inferior at the pre-registered 5-point margin (narrowly; ~283 pairs for 80% power). On these short tasks serving used 10.6% more input tokens — it bounds task risk, it does not show savings. $8.73. Artifacts in `benchmarks/results/swebench-outcome-100/`.
+
+### Changed
+
+- Docs sidebar grouped into 7 collapsible sections (native `<details>`, no JS).
+
 ## [1.56.0] — 2026-09-30 — who grades the certificate, and what it grades
 
 **In short**

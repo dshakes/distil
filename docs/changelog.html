@@ -133,7 +133,14 @@
 
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
-
+<h3>Added</h3>
+<ul>
+<li><strong>SWE-bench outcome eval, powered run.</strong> 100 SWE-bench Lite tasks x 2 arms, <code>claude-sonnet-5-5</code> @ low, graded by the official harness: distil-served 70/100 vs plain 69/100, paired difference +1.0 pts (95% CI −4.9 to +6.9), non-inferior at the pre-registered 5-point margin (narrowly; ~283 pairs for 80% power). On these short tasks serving used 10.6% more input tokens — it bounds task risk, it does not show savings. $8.73. Artifacts in <code>benchmarks/results/swebench-outcome-100/</code>.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>Docs sidebar grouped into 7 collapsible sections (native <code>&lt;details&gt;</code>, no JS).</li>
+</ul>
 </section>
 
 <section class="changelog-entry">
