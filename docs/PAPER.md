@@ -731,6 +731,81 @@ missing hedge gives it no reason to. The gate is set at the measured band rather
 at zero, so that a regression fails and an improvement also forces the bound to be
 re-examined.
 
+## Recent additions (September 2026)
+
+**§ "The grader is a variable: certifier migration and served-path certification"**
+(new subsection, Analysis section). Every certificate in this paper is graded by a
+model, so the certificate's own grader is an experimental variable: changing it moves
+the numbers without touching the compressor. This section records how the live
+certifier was changed from `claude-opus-4-8` to `claude-sonnet-5-5` at `effort=low` under
+a recorded acceptance test (ADR 0020), and what grading the *served* path instead of the
+certified one showed (ADR 0021). Every figure below is from
+`benchmarks/results/model-migration/summary.json`; page-level tables are in
+`docs/model-migration.html`.
+
+**Design.** `benchmarks/model_migration_eval.py` calls distil's real runners
+(`AnthropicRunner`, `ExpandAwareRunner`) on real traces: 100 τ-bench turns (60 held out)
+and 100 SWE-agent decision points (59 held out), pinned and sha256-verified by
+`--fetch-tau-bench` / `--fetch-swe-agent`. Each (case, rep) is graded on these arms:
+`full_a` and `full_b` (two uncompressed samples, the noise floor), `distil` (digests
+alone), `expand_structured` (digest plus the `distil_expand` recovery loop, committing
+through the same strict decision tool as the plain arm), `trunc` (truncation, a positive
+control that *should* diverge), and on coding traffic `served` and `served_expand` (the
+real serving adapter's `compress_messages`, without and with recovery). The metric is
+action-level decision-equivalence: the next action is unchanged, an undecided side never
+counts as a match. The deployed metric is `equiv_expand_act`. Candidates are paired
+against the incumbent on the held-out split, each case averaged over its repetitions,
+with a 95% interval from the case-level differences. The acceptance gates were written
+before any candidate ran: a quality lower bound of at least −5 points, self-consistency
+no worse, truncation control at least 0.8× the incumbent's, at least 15% cheaper, and the
+mechanism explained.
+
+**A leakage finding.** The first design graded the bundled synthetic corpus. That corpus
+plants `DECISION:` annotation lines for the deterministic offline oracle; a live model
+reads them too, which hands it the answer, so a live certificate over that corpus
+measures marker reading rather than context sufficiency. The fix is twofold: live grading
+uses marker-free real traces, and live renders now strip the `DECISION:` lines (the
+deterministic runner is unaffected). The harness's `--cases` help and ADR 0021 record it.
+We report no leakage magnitude: it was removed rather than measured.
+
+**Result (τ-bench, held-out, 4 reps for the incumbent and `claude-sonnet-5-5`, 2 otherwise).**
+
+| certifier | next action kept, with recovery | paired change / 95% lower bound (pts) | digests alone | truncation control diverges | cost per case |
+|---|---|---|---|---|---|
+| `claude-opus-4-8` (incumbent) | 90.8% | — | 61.3% | 89.2% | $0.1458 |
+| `claude-opus-5-5` | 90.8% | +0.0 / −10.0 | 73.3% | 73.3% | $0.1336 |
+| `claude-opus-5-5`, low | 90.0% | −0.8 / −9.8 | 75.0% | 75.8% | $0.1256 |
+| `claude-sonnet-5-5`, low | 94.6% | +3.8 / −4.5 | 66.7% | 79.6% | $0.0619 |
+| `claude-haiku-4-5` | 85.0% | −5.8 / −15.8 | 44.2% | 93.3% | $0.0248 |
+
+`claude-sonnet-5-5` at low passed all five gates and is 57.5% cheaper than the incumbent;
+it is the default since 1.56.0. The `claude-opus-5-5` rows miss the quality bound and
+`claude-haiku-4-5` misses it by more, with the decisions themselves (not the control)
+failing. Intervals are wide at n=60: a bound of −4.5 points clears the gate, it does not
+show equivalence. The "mechanism" gate is reported as passed in the eval record; its
+supporting trace analysis is not in `summary.json`.
+
+**The certified-vs-served gap.** The `distil` strategy that `distil certify` grades
+digests only the latest tool output. A caching tool-use client is served something else:
+the adapter digests every earlier tool result. Over 4,616 real SWE-agent turns the
+certified strategy saves 2.6% of tokens and the served path saves 52.6%, so most served
+bytes were never certified. Graded by `claude-sonnet-5-5` at low on the 59 held-out coding
+decisions, two uncompressed calls agree on the next action 94.1% of the time; certified
+`distil` alone keeps it 51.7% (77.1% with recovery); the served adapter alone 59.3%
+(78.0% with recovery); the truncation control diverges 48.3% of the time. This is an
+open risk, not a pass, and `distil certify --strategy served` now reports it beside the
+certified strategy rather than merged into it.
+
+**Threats to validity.** (1) *Decision-equivalence is not task success*, the point
+E7 made against the per-step certificate: keeping the next action on 78.0% of coding
+decisions says nothing about whether the task is still solved. The SWE-bench outcome eval
+that would settle it (`benchmarks/swebench_outcome/`, spec
+`specs/swebench-outcome-eval.md`) is built and tested offline and **has not been run**.
+(2) One grader model per arm, one small case set per domain, and 60 or 59 held-out cases.
+(3) The migration result is on τ-bench traffic; the coding set was graded by the
+already-chosen certifier and has no incumbent comparison. (4) The truncation control's
+sensitivity differs by candidate, so a candidate's own control rate is part of its result.
+
 ## Reproducing
 
 ```bash

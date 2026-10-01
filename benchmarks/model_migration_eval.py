@@ -123,7 +123,9 @@ def fetch_tau_bench() -> None:
         p = TAU_DIR / f"{name}.json"
         if not p.exists():
             print(f"fetching {name}.json", file=sys.stderr)
-            urllib.request.urlretrieve(TAU_URL.format(name), p)
+            part = p.with_suffix(".part")
+            urllib.request.urlretrieve(TAU_URL.format(name), part)
+            part.replace(p)
         got = hashlib.sha256(p.read_bytes()).hexdigest()
         if got != sha:
             sys.exit(f"{p}: sha256 {got[:12]} != pinned {sha[:12]} -- delete it and re-fetch")
@@ -281,7 +283,9 @@ def fetch_swe_agent() -> None:
     for name, sha in json.loads(SWE_MANIFEST.read_text())["sha256"].items():
         p = SWE_DIR / name
         if not p.exists():
-            urllib.request.urlretrieve(SWE_URL.format(name), p)
+            part = p.with_suffix(".part")
+            urllib.request.urlretrieve(SWE_URL.format(name), part)
+            part.replace(p)
         if hashlib.sha256(p.read_bytes()).hexdigest() != sha:
             sys.exit(f"{p}: sha256 mismatch -- delete it and re-fetch")
 
@@ -349,7 +353,8 @@ def serve(req: dict):
             }
         )
     msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
-    out, store = compress_messages(msgs)
+    # persist=False: an eval must not write (or read back) the user's restore store.
+    out, store = compress_messages(msgs, persist=False)
     served = []
     for m in out[2::2]:
         c = m["content"][-1]["content"]
