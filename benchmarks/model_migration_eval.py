@@ -116,17 +116,30 @@ REAL_CASES = ROOT / "benchmarks/model_migration_cases_real.json"
 
 
 def fetch_tau_bench() -> None:
-    import urllib.request
 
     TAU_DIR.mkdir(parents=True, exist_ok=True)
     for name, sha in TAU_SHA256.items():
         p = TAU_DIR / f"{name}.json"
         if not p.exists():
             print(f"fetching {name}.json", file=sys.stderr)
-            urllib.request.urlretrieve(TAU_URL.format(name), p)
+            _fetch_verified(TAU_URL.format(name), p, sha)
         got = hashlib.sha256(p.read_bytes()).hexdigest()
         if got != sha:
             sys.exit(f"{p}: sha256 {got[:12]} != pinned {sha[:12]} -- delete it and re-fetch")
+
+
+def _fetch_verified(url: str, p: Path, sha: str) -> None:
+    """Download to a .part file and move it into place only once its sha256 matches, so a
+    corrupt or truncated download never lands at `p` (which later runs would trust)."""
+    import urllib.request
+
+    part = p.with_suffix(p.suffix + ".part")
+    urllib.request.urlretrieve(url, part)
+    got = hashlib.sha256(part.read_bytes()).hexdigest()
+    if got != sha:
+        part.unlink()
+        sys.exit(f"{url}: sha256 {got[:12]} != pinned {sha[:12]} -- download rejected")
+    part.replace(p)
 
 
 def _tool_menu(path: Path) -> str:
@@ -275,13 +288,12 @@ CODING_CASES = ROOT / "benchmarks/model_migration_cases_coding.json"
 
 
 def fetch_swe_agent() -> None:
-    import urllib.request
 
     SWE_DIR.mkdir(parents=True, exist_ok=True)
     for name, sha in json.loads(SWE_MANIFEST.read_text())["sha256"].items():
         p = SWE_DIR / name
         if not p.exists():
-            urllib.request.urlretrieve(SWE_URL.format(name), p)
+            _fetch_verified(SWE_URL.format(name), p, sha)
         if hashlib.sha256(p.read_bytes()).hexdigest() != sha:
             sys.exit(f"{p}: sha256 mismatch -- delete it and re-fetch")
 
@@ -349,7 +361,8 @@ def serve(req: dict):
             }
         )
     msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
-    out, store = compress_messages(msgs)
+    # persist=False: an eval must not write (or read back) the user's restore store.
+    out, store = compress_messages(msgs, persist=False)
     served = []
     for m in out[2::2]:
         c = m["content"][-1]["content"]
@@ -903,8 +916,9 @@ def check_harness(approve: bool) -> None:
 def main() -> None:
     global FLOW
     ap = argparse.ArgumentParser()
-    ap.add_argument("--variant", required=True)
-    ap.add_argument("--model", required=True)
+    # Required for runs; the fetch/select/report utility modes need neither.
+    ap.add_argument("--variant")
+    ap.add_argument("--model")
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--timeout-s", type=float, default=900)
@@ -974,6 +988,17 @@ def main() -> None:
         or a.savings_report
     ):
         return
+    FLOW = a.flow
+    if (a.status or a.regrade) and not a.backfill_arm:
+        # cross-variant, no-API modes: no --variant/--model needed
+        if a.regrade:
+            regrade(FLOW)
+        print(status_table(FLOW))
+        return
+    if not a.variant or not a.model:
+        ap.error(
+            "--variant and --model are required (except for the fetch/select/report/status/regrade modes)"
+        )
     if not re.fullmatch(r"baseline|v[1-9]\d*", a.variant):
         sys.exit("--variant must be 'baseline' or 'v<N>'")
     FLOW = a.flow

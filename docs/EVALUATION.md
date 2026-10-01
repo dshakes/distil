@@ -503,7 +503,8 @@ keeps the next action in 78.0% of held-out coding decisions, against 94.1% for t
 identical uncompressed calls. Whether that costs solved tasks is the question of
 `specs/swebench-outcome-eval.md` (`benchmarks/swebench_outcome/`), a SWE-bench Lite
 plain-versus-served harness graded by the official grader and McNemar's test. It is
-built and tested offline and has not been run. Decision record:
+built and tested offline; only a 10-task pilot
+(`benchmarks/results/swebench-outcome-pilot/report.md`) has run, too small to settle the question. Decision record:
 `docs/adr/0021-served-path-certification.md`.
 
 **Harness fixes and lessons.** The recovery loop now commits through the runner's

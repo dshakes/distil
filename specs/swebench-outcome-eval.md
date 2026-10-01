@@ -65,7 +65,7 @@ overshoot is at most one API call.
 - Docker; SWE-bench instance images are ~1-3 GB each; budget **100 GB+ disk** for a full Lite pass
   (ASSUMED from swebench docs, not measured here). x86_64 images; Apple Silicon needs emulation
   (slow, occasionally flaky): prefer a Linux x86_64 host.
-- `pip install anthropic datasets swebench` (optional extra; deliberately NOT in pyproject).
+- `pip install anthropic datasets 'swebench>=4,<5'` (5.x needs an `image` field the princeton-nlp Lite dataset lacks) (optional extra; deliberately NOT in pyproject).
 - Network: api.anthropic.com for `run`; HuggingFace for the dataset (`plan` with `--instances
   file.txt` touches no network at all).
 
@@ -88,7 +88,7 @@ already pulled (DockerEnv does not pull), the `datasets` Lite schema (`instance_
 
 ## Pilot and full run
 ```
-pip install anthropic datasets swebench      # in a venv; Docker running
+pip install anthropic datasets 'swebench>=4,<5'  # in a venv; Docker running
 python -m benchmarks.swebench_outcome plan --limit 5 --seed 0
 # DockerEnv does not pull: pre-pull each planned instance image (swebench/sweb.eval.x86_64.<id>:latest)
 python -m benchmarks.swebench_outcome run --limit 5 --seed 0 --budget-usd 25 \

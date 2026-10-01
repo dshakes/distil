@@ -373,7 +373,21 @@ To be precise about what each layer proves: the **per-commit** gates grade decis
 
 **Who grades the live runs.** Since 1.56.0 the default live certifier is `claude-sonnet-5-5` at `effort=low` (`--effort` is a flag on `certify`, `eval`, `benchmark`, `frontier` and `conformal`). It was chosen by a pre-registered, paired [model-migration eval](https://dshakes.github.io/distil/model-migration.html) on real τ-bench traffic: it cleared every gate, including a quality lower bound of at least −5 points against `claude-opus-4-8`, at 57.5% lower cost per case. The earlier live results above were graded by `claude-opus-4-8` and are still labelled so.
 
-**An open risk on coding traffic.** The certified `distil` strategy digests only the latest tool output and saves 2.6% of tokens on real SWE-agent trajectories; the serving adapter digests every earlier tool output and saves 52.6%, so most served bytes were never certified. `distil certify --strategy served` now grades the real adapter, and its first result is not a pass: with recovery it keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two identical uncompressed calls. Whether that costs solved tasks is what the SWE-bench outcome eval ([spec](specs/swebench-outcome-eval.md), `benchmarks/swebench_outcome/`) is for; it is built and tested offline and **has not been run**. Method, tables and rerun commands: [Model Migration](https://dshakes.github.io/distil/model-migration.html).
+**Choosing or migrating the live certifier.** The grader is itself a variable, so changing it is a measured decision, not a flag flip. Pick it per run with `--model` (on `certify`, overrides the trajectory's model for `--runner anthropic`) and `--effort low|medium|high|xhigh|max`; the default is `claude-sonnet-5-5` at `low`. To qualify a new model against the incumbent, run the same cases and compare paired on held-out turns:
+
+```bash
+python benchmarks/model_migration_eval.py --fetch-tau-bench      # pinned, sha256-verified real traces
+python benchmarks/model_migration_eval.py --cases real --flow .claude/hillclimb/decision-equivalence-real \
+    --variant baseline --model claude-opus-4-8 --reps 4          # incumbent
+python benchmarks/model_migration_eval.py --cases real --flow .claude/hillclimb/decision-equivalence-real \
+    --variant v5 --model <new-model> --effort low --reps 4       # candidate
+python benchmarks/model_migration_eval.py --status               # cross-variant table
+python benchmarks/model_migration_summary.py                     # paired CIs -> benchmarks/results/model-migration/summary.json
+```
+
+Live runs spend money; add `--fake oracle` to check the wiring offline first. Gates, tables and the rest of the commands: [Model Migration](https://dshakes.github.io/distil/model-migration.html) ([`docs/model-migration.html`](docs/model-migration.html)). Decision records: [ADR 0020](docs/adr/0020-default-live-certifier.md) (default certifier) and [ADR 0021](docs/adr/0021-served-path-certification.md) (served-path certification).
+
+**An open risk on coding traffic.** The certified `distil` strategy digests only the latest tool output and saves 2.6% of tokens on real SWE-agent trajectories; the serving adapter digests every earlier tool output and saves 52.6%, so most served bytes were never certified. `distil certify --strategy served` now grades the real adapter, and its first result is not a pass: with recovery it keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two identical uncompressed calls. Whether that costs solved tasks is what the SWE-bench outcome eval ([spec](specs/swebench-outcome-eval.md), `benchmarks/swebench_outcome/`) is for; a 10-task pilot ([report](benchmarks/results/swebench-outcome-pilot/report.md)) resolved 8/10 in both arms with no discordant pairs, which shows no regression but is far too small to prove there is none; the powered run has not been done. Method, tables and rerun commands: [Model Migration](https://dshakes.github.io/distil/model-migration.html).
 
 ```
 domain            trajectory                $ saved   distil   aggr  pruned

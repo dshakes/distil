@@ -82,7 +82,33 @@ class DockerEnv:
         self.workdir = workdir
         self.name = f"swo-{uuid.uuid4().hex[:10]}"
         self.image = image or instance_image(instance_id)
-        r = self._run(["docker", "run", "-d", "--name", self.name, self.image, "sleep", "infinity"])
+        # Model-driven commands run here: no network, no extra privileges, bounded resources.
+        # SWE-bench instance images ship their dependencies, so tests run offline.
+        r = self._run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                self.name,
+                # SWE-bench instance images are x86_64-only; arm64 hosts run them under emulation.
+                "--platform",
+                "linux/amd64",
+                "--network",
+                "none",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--pids-limit",
+                "512",
+                "--memory",
+                "4g",
+                self.image,
+                "sleep",
+                "infinity",
+            ]
+        )
         if r.returncode:
             raise EnvError(f"docker run {self.image}: {r.stderr.strip()[:500]}")
 
