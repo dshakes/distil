@@ -59,6 +59,7 @@
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
         <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -391,7 +392,7 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
 
     <p>Two structural invariants are enforced across the entire corpus by the verify gate. A second gate, <code>distil validate</code>, re-asserts them (plus reject-if-bigger, recency-exactness, fail-open, and content-free telemetry) against <em>hostile</em> inputs the corpus never contains — huge/unicode/nested/malformed tool output, content that mimics distil's own <code>&lt;&lt; handle &gt;&gt;</code> stubs, secret-looking strings — because that is where real-traffic bugs hide. Both run in CI on every push.</p>
 
-    <p>A third gate closes the synthetic-vs-live gap: a <strong>nightly</strong> job (<a href="https://github.com/dshakes/distil/blob/main/.github/workflows/live-cert.yml" target="_blank" rel="noopener"><code>live-cert.yml</code></a>) re-certifies every corpus trajectory against a real model via <code>distil certify --runner anthropic</code>, budget-capped with <code>--max-live-calls 60</code> per trajectory so an unattended run cannot spend silently. Per-commit gates = synthetic oracle; nightly gate = live model; both are labeled as such.</p>
+    <p>A third gate closes the synthetic-vs-live gap: a <strong>nightly</strong> job (<a href="https://github.com/dshakes/distil/blob/main/.github/workflows/live-cert.yml" target="_blank" rel="noopener"><code>live-cert.yml</code></a>) re-certifies every corpus trajectory against a real model (<code>claude-sonnet-5-5</code> at low effort, the measured <a href="model-migration.html">default certifier</a>) via <code>distil certify --runner anthropic</code>, budget-capped with <code>--max-live-calls 60</code> per trajectory so an unattended run cannot spend silently. Per-commit gates = synthetic oracle; nightly gate = live model; both are labeled as such.</p>
 
     <h3>Reversibility</h3>
     <p>Every original block is recoverable — either because the compressed text is byte-identical to the original, or because the original lives in the local restore table (keyed by block ID for Tier-0, by content handle for Tier-1). Recovery is confirmed via SHA-256 equality: auditable and machine-checkable.</p>

@@ -474,6 +474,49 @@ argues for exactly the axes above — information density, temporal consistency,
 error propagation — over end-task success alone
 ([preprint](https://www.preprints.org/frontend/manuscript/098fda1d1490b8885d002521dbc08afa/download_pub)).
 
+### 6.8 Who grades, and what is graded: model migration and the served path
+
+A live certificate is only as good as the model grading it, and only as broad as the
+bytes it grades. 1.56.0 measured both.
+
+**The certifier.** The default live certifier is now `claude-sonnet-5-5` at
+`effort=low` (it was `claude-opus-4-8` in `AnthropicRunner`, and `distil certify` used
+the trace's model label). The choice comes from `benchmarks/model_migration_eval.py`:
+100 real tau-bench decision points (60 held out, 4 repetitions each), paired against
+`claude-opus-4-8` on the deployed metric `equiv_expand_act` — the next action is
+unchanged by compression when the model may recover a digest with `distil_expand`. It
+passed every gate pre-registered before the run: quality lower bound at least -5
+points (-4.5), self-consistency no worse, truncation control at least 0.8x the
+incumbent's, at least 15% cheaper (57.5%), and the mechanism explained.
+`claude-opus-5-5` did not clear the quality bound on 60 cases; `claude-haiku-4-5` was
+too weak. The earlier live result (graded by `claude-opus-4-8`, 2026-07-05) is not
+re-graded. Figures: `benchmarks/results/model-migration/summary.json`; decision record
+`docs/adr/0020-default-live-certifier.md`.
+
+**The served path.** `distil certify` grades the `distil` strategy, which digests only
+the latest tool output. A caching coding client is served `compress_messages`, which
+digests every earlier tool result too. On real SWE-agent trajectories (4,616 turns) the
+certified strategy saves 2.6% of tokens and serving saves 52.6%, so most served bytes
+were never certified. `distil certify --strategy served` (and a `served (adapter)`
+frontier point) runs the real adapter. Its result is an open risk: with recovery it
+keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two
+identical uncompressed calls. Whether that costs solved tasks is the question of
+`specs/swebench-outcome-eval.md` (`benchmarks/swebench_outcome/`), a SWE-bench Lite
+plain-versus-served harness graded by the official grader and McNemar's test. It is
+built and tested offline and has not been run. Decision record:
+`docs/adr/0021-served-path-certification.md`.
+
+**Harness fixes and lessons.** The recovery loop now commits through the runner's
+structured decision tool (the free-text format difference alone had flipped about one action
+in five); live renders strip `DECISION:` annotation lines (offline-oracle markers
+that leaked the answer to live graders); `load_swe_bench` reads the current SWE-agent
+`.traj` history format (system prompt, tool menu and issue, correct action/observation
+order, gold = the next command); exact-quote provenance covers `goto`, `scroll_up` and
+`scroll_down` file views like `open`. A distil-wrapped shell exports
+`ANTHROPIC_BASE_URL` to the local proxy, so an eval client must pin `api.anthropic.com`;
+the bundled corpus is for the offline oracle, and live grading needs marker-free real
+traces.
+
 ## 7. How to reproduce
 
 - `distil shadow-stats` — live decision-equivalence, raw/baseline/adjusted

@@ -145,8 +145,12 @@ def _tool_menu(path: Path) -> str:
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
-                tools.setdefault(fn.get("name", "?"), set()).update(args if isinstance(args, dict) else {})
-    lines = ["AVAILABLE TOOLS (reconstructed from the tools this domain's recorded agents called; names and argument keys only):"]
+                tools.setdefault(fn.get("name", "?"), set()).update(
+                    args if isinstance(args, dict) else {}
+                )
+    lines = [
+        "AVAILABLE TOOLS (reconstructed from the tools this domain's recorded agents called; names and argument keys only):"
+    ]
     lines += [f"- {n}({', '.join(sorted(a))})" for n, a in sorted(tools.items())]
     lines.append("- respond(content): reply to the user in text instead of calling a tool")
     return "\n".join(lines)
@@ -165,8 +169,13 @@ def _tau(name: str):
         if not path.exists():
             sys.exit(f"{path} missing -- run with --fetch-tau-bench first")
         es = load_tau_bench(path)
-        tools = Block(id="tools", kind=Kind.TOOLS, text=_tool_menu(path), stability=Stability.STABLE,
-                      decision_relevant=True)
+        tools = Block(
+            id="tools",
+            kind=Kind.TOOLS,
+            text=_tool_menu(path),
+            stability=Stability.STABLE,
+            decision_relevant=True,
+        )
         _TAU_CACHE[name] = (es, gold_actions(es), tools)
     return _TAU_CACHE[name]
 
@@ -203,15 +212,34 @@ def select_real_cases(total: int = 100, seed: int = 20260929, min_savings: float
     # shortfall to the others (largest remaining pool first).
     quota = {n: min(total // len(pools), len(p)) for n, p in pools.items()}
     while sum(quota.values()) < total and any(quota[n] < len(p) for n, p in pools.items()):
-        n = max((n for n in pools if quota[n] < len(pools[n])), key=lambda n: len(pools[n]) - quota[n])
+        n = max(
+            (n for n in pools if quota[n] < len(pools[n])), key=lambda n: len(pools[n]) - quota[n]
+        )
         quota[n] += 1
     for name, eligible in pools.items():
         es = _tau(name)[0]
         for k, turns in rng.sample(eligible, quota[name]):
-            out.append({"file": name, "episode": k, "traj_id": es[k].trajectory.id, "turn": rng.choice(turns)})
-    REAL_CASES.write_text(json.dumps({"source": "tau-bench historical_trajectories", "seed": seed,
-                                      "min_savings": min_savings, "eligible_episodes": {n: len(p) for n, p in pools.items()},
-                                      "quota": quota, "cases": out}, indent=1))
+            out.append(
+                {
+                    "file": name,
+                    "episode": k,
+                    "traj_id": es[k].trajectory.id,
+                    "turn": rng.choice(turns),
+                }
+            )
+    REAL_CASES.write_text(
+        json.dumps(
+            {
+                "source": "tau-bench historical_trajectories",
+                "seed": seed,
+                "min_savings": min_savings,
+                "eligible_episodes": {n: len(p) for n, p in pools.items()},
+                "quota": quota,
+                "cases": out,
+            },
+            indent=1,
+        )
+    )
     print(f"wrote {len(out)} cases to {REAL_CASES}", file=sys.stderr)
 
 
@@ -224,12 +252,15 @@ def load_real_cases() -> list[dict]:
         turn = _with_tools(next(t for t in e.trajectory.turns if t.index == c["turn"]), tools)
         g = gold.get((e.trajectory.id, c["turn"]))
         recorder, domain = c["file"].rsplit("-", 1)
-        cases.append({
-            "id": f"{c['file']}-ep{c['episode']}-t{c['turn']}", "turn": turn,
-            "tags": [domain, recorder, f"turn{c['turn']}"],
-            "title": f"τ-bench {domain} (recorded by {recorder}) episode {c['episode']} turn {c['turn']}",
-            "gold": prompts.canonical(g.action, g.target) if g else None,
-        })
+        cases.append(
+            {
+                "id": f"{c['file']}-ep{c['episode']}-t{c['turn']}",
+                "turn": turn,
+                "tags": [domain, recorder, f"turn{c['turn']}"],
+                "title": f"τ-bench {domain} (recorded by {recorder}) episode {c['episode']} turn {c['turn']}",
+                "gold": prompts.canonical(g.action, g.target) if g else None,
+            }
+        )
     return cases
 
 
@@ -271,8 +302,15 @@ def _swe_blocks(req: dict, obs: list[str]):
     last = len(req["pairs"]) - 1
     for k, ((agent, _), o) in enumerate(zip(req["pairs"], obs)):
         blocks.append(Block(f"{inst}:agent@{k}", Kind.HISTORY, agent, Stability.SETTLING))
-        blocks.append(Block(f"{inst}:obs@{k}", Kind.TOOL_OUTPUT, o or "(no output)",
-                            Stability.VOLATILE if k == last else Stability.SETTLING, k == last))
+        blocks.append(
+            Block(
+                f"{inst}:obs@{k}",
+                Kind.TOOL_OUTPUT,
+                o or "(no output)",
+                Stability.VOLATILE if k == last else Stability.SETTLING,
+                k == last,
+            )
+        )
     return blocks
 
 
@@ -288,16 +326,38 @@ def serve(req: dict):
     msgs = [{"role": "user", "content": req["task"]}]
     for k, (agent, o) in enumerate(req["pairs"]):
         tid = f"toolu_{k:04d}"
-        msgs.append({"role": "assistant", "content": [
-            {"type": "text", "text": agent},
-            {"type": "tool_use", "id": tid, "name": req["tools"][k], "input": {"command": req["cmds"][k]}}]})
-        msgs.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid, "content": o or "(no output)"}]})
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": agent},
+                    {
+                        "type": "tool_use",
+                        "id": tid,
+                        "name": req["tools"][k],
+                        "input": {"command": req["cmds"][k]},
+                    },
+                ],
+            }
+        )
+        msgs.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": tid, "content": o or "(no output)"}
+                ],
+            }
+        )
     msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
     out, store = compress_messages(msgs)
     served = []
     for m in out[2::2]:
         c = m["content"][-1]["content"]
-        served.append(c if isinstance(c, str) else "".join(x.get("text", "") for x in c if isinstance(x, dict)))
+        served.append(
+            c
+            if isinstance(c, str)
+            else "".join(x.get("text", "") for x in c if isinstance(x, dict))
+        )
     blocks = _swe_blocks(req, served)
     restore = {}
     for b in blocks:
@@ -339,19 +399,34 @@ def _swe_turns(path: Path):
         if m["role"] != "assistant" or j < 2 or msgs[j - 1]["role"] != "user":
             continue
         rest = msgs[1:j]  # assistant, observation, assistant, observation, ...
-        pairs = [(rest[k]["content"], rest[k + 1]["content"]) for k in range(0, len(rest) - 1, 2)
-                 if rest[k]["role"] == "assistant" and rest[k + 1]["role"] == "user"]
+        pairs = [
+            (rest[k]["content"], rest[k + 1]["content"])
+            for k in range(0, len(rest) - 1, 2)
+            if rest[k]["role"] == "assistant" and rest[k + 1]["role"] == "user"
+        ]
         if not pairs:
             continue
-        req = {"inst": path.stem, "system": sysmsg["content"] if sysmsg else "", "menu": "\n".join(menu),
-               "task": msgs[0]["content"], "pairs": pairs, "cmds": [command(a) for a, _ in pairs]}
+        req = {
+            "inst": path.stem,
+            "system": sysmsg["content"] if sysmsg else "",
+            "menu": "\n".join(menu),
+            "task": msgs[0]["content"],
+            "pairs": pairs,
+            "cmds": [command(a) for a, _ in pairs],
+        }
         # Name each call as a tool-use client would: SWE-agent's own commands (open, goto,
         # edit, ...) as tools, everything else as bash - distil's exact-quote provenance
         # keys on the tool name, so an all-"bash" request would hide it.
-        req["tools"] = [c.split(" ", 1)[0] if c.split(" ", 1)[0] in names else "bash" for c in req["cmds"]]
+        req["tools"] = [
+            c.split(" ", 1)[0] if c.split(" ", 1)[0] in names else "bash" for c in req["cmds"]
+        ]
         line = command(m["content"])
         verb, _, rest_ = line.partition(" ")
-        gold = prompts.canonical(verb if verb in names else "bash", rest_ if verb in names else line) if line else None
+        gold = (
+            prompts.canonical(verb if verb in names else "bash", rest_ if verb in names else line)
+            if line
+            else None
+        )
         out.append((Turn(j, _swe_blocks(req, [o for _, o in pairs])), gold, req))
     return out
 
@@ -372,10 +447,22 @@ def select_coding_cases(total: int = 100, seed: int = 20260929, min_savings: flo
             eligible.append((p.name, ok))
     pick = rng.sample(eligible, min(total, len(eligible)))
     cases = [{"file": n, "turn": rng.choice(ok)} for n, ok in sorted(pick)]
-    CODING_CASES.write_text(json.dumps({"source": "swe-agent gpt-4o trajs (SWE-bench Lite)", "seed": seed,
-                                        "min_savings": min_savings, "eligible_trajectories": len(eligible),
-                                        "cases": cases}, indent=1))
-    print(f"wrote {len(cases)} cases ({len(eligible)} eligible trajectories) to {CODING_CASES}", file=sys.stderr)
+    CODING_CASES.write_text(
+        json.dumps(
+            {
+                "source": "swe-agent gpt-4o trajs (SWE-bench Lite)",
+                "seed": seed,
+                "min_savings": min_savings,
+                "eligible_trajectories": len(eligible),
+                "cases": cases,
+            },
+            indent=1,
+        )
+    )
+    print(
+        f"wrote {len(cases)} cases ({len(eligible)} eligible trajectories) to {CODING_CASES}",
+        file=sys.stderr,
+    )
 
 
 def savings_report() -> dict:
@@ -395,10 +482,22 @@ def savings_report() -> dict:
                 by_kind.setdefault(b.kind.value, [0, 0])[1] += TOK.count(b.text)
             full += sum(TOK.count(b.text) for b in t.blocks)
             comp += sum(TOK.count(b.text) for b in c)
-    return {"turns": turns, "full_tokens": full, "compressed_tokens": comp, "savings": round(1 - comp / full, 4),
-            "served_tokens": served, "served_savings": round(1 - served / full, 4),
-            "by_kind": {k: {"full": v[0], "compressed": v[1], "savings": round(1 - v[1] / v[0], 4) if v[0] else 0}
-                        for k, v in sorted(by_kind.items())}}
+    return {
+        "turns": turns,
+        "full_tokens": full,
+        "compressed_tokens": comp,
+        "savings": round(1 - comp / full, 4),
+        "served_tokens": served,
+        "served_savings": round(1 - served / full, 4),
+        "by_kind": {
+            k: {
+                "full": v[0],
+                "compressed": v[1],
+                "savings": round(1 - v[1] / v[0], 4) if v[0] else 0,
+            }
+            for k, v in sorted(by_kind.items())
+        },
+    }
 
 
 def load_coding_cases() -> list[dict]:
@@ -410,9 +509,16 @@ def load_coding_cases() -> list[dict]:
         turn, gold, req = next((t, g, r) for t, g, r in _swe_turns(p) if t.index == c["turn"])
         repo = p.stem.split("__")[0]
         steps = turn.index // 2  # history alternates agent/observation after the task message
-        out.append({"id": f"{p.stem}-t{c['turn']}", "turn": turn, "gold": gold, "req": req,
-                    "tags": [repo, "swe-agent", f"step{steps}"],
-                    "title": f"SWE-bench Lite {p.stem} (SWE-agent GPT-4o) step {steps}"})
+        out.append(
+            {
+                "id": f"{p.stem}-t{c['turn']}",
+                "turn": turn,
+                "gold": gold,
+                "req": req,
+                "tags": [repo, "swe-agent", f"step{steps}"],
+                "title": f"SWE-bench Lite {p.stem} (SWE-agent GPT-4o) step {steps}",
+            }
+        )
     return out
 
 
@@ -481,9 +587,13 @@ def direct_client():
 
     base = __import__("os").environ.get("ANTHROPIC_BASE_URL")
     if base and "api.anthropic.com" not in base:
-        print(f"note: ignoring ANTHROPIC_BASE_URL={base}; the eval calls https://api.anthropic.com directly",
-              file=sys.stderr)
-    return anthropic.Anthropic(base_url="https://api.anthropic.com", max_retries=6)  # SDK: jittered backoff
+        print(
+            f"note: ignoring ANTHROPIC_BASE_URL={base}; the eval calls https://api.anthropic.com directly",
+            file=sys.stderr,
+        )
+    return anthropic.Anthropic(
+        base_url="https://api.anthropic.com", max_retries=6
+    )  # SDK: jittered backoff
 
 
 # --- offline fake clients (wiring checks, no spend) -------------------------------
@@ -556,7 +666,9 @@ def run_case(case: dict, client, model: str, effort: str | None = None, arms_on=
         arm("served", lambda: base.decide(sblocks))
         arm("served_expand", lambda: ExpandAwareRunner(base).decide(sblocks, srestore))
         full_t = sum(TOK.count(b.text) for b in blocks)
-        served_savings = round(1 - sum(TOK.count(b.text) for b in sblocks) / full_t, 4) if full_t else 0.0
+        served_savings = (
+            round(1 - sum(TOK.count(b.text) for b in sblocks) / full_t, 4) if full_t else 0.0
+        )
 
     full_tok = sum(TOK.count(b.text) for b in blocks)
     comp_tok = sum(TOK.count(b.text) for b in comp)
@@ -633,16 +745,27 @@ def grade(run: dict, ref_fp: str | None) -> dict:
     if "expand_structured" in a:
         g["equiv_expand"] = eq(a["full_a"], a["expand_structured"])
         g["equiv_expand_act"] = eq(a["full_a"], a["expand_structured"], _act)
-    return g | {
-        "equiv_distil": eq(a["full_a"], a["distil"]),
-        "equiv_distil_act": eq(a["full_a"], a["distil"], _act),
-        "self_consist": eq(a["full_a"], a["full_b"]),
-        "self_consist_act": eq(a["full_a"], a["full_b"], _act),
-        "decided": 1 if a["full_a"] != NO else 0,
-        "agree_ref": eq(a["full_a"], ref),
-        "agree_ref_act": eq(a["full_a"], ref, _act),
-    } | ({"trunc_detect": 1 if (a["full_a"] != NO and _act(a["trunc"]) != _act(a["full_a"])) else 0}
-         if "trunc" in a else {})
+    return (
+        g
+        | {
+            "equiv_distil": eq(a["full_a"], a["distil"]),
+            "equiv_distil_act": eq(a["full_a"], a["distil"], _act),
+            "self_consist": eq(a["full_a"], a["full_b"]),
+            "self_consist_act": eq(a["full_a"], a["full_b"], _act),
+            "decided": 1 if a["full_a"] != NO else 0,
+            "agree_ref": eq(a["full_a"], ref),
+            "agree_ref_act": eq(a["full_a"], ref, _act),
+        }
+        | (
+            {
+                "trunc_detect": 1
+                if (a["full_a"] != NO and _act(a["trunc"]) != _act(a["full_a"]))
+                else 0
+            }
+            if "trunc" in a
+            else {}
+        )
+    )
 
 
 def backfill_arm(vdir: Path, client, concurrency: int, arm: str, max_rep: int) -> None:
@@ -658,14 +781,19 @@ def backfill_arm(vdir: Path, client, concurrency: int, arm: str, max_rep: int) -
     rp = vdir / "results.jsonl"
     rows = [json.loads(ln) for ln in rp.read_text().splitlines() if ln.strip()]
     todo = [r for r in rows if arm not in r["meta"]["arms"] and r["rep"] < max_rep]
-    print(f"[{vdir.name}] backfilling {arm} on {len(todo)} rows ({cfg['model']}, effort={cfg.get('effort')})", file=sys.stderr)
+    print(
+        f"[{vdir.name}] backfilling {arm} on {len(todo)} rows ({cfg['model']}, effort={cfg.get('effort')})",
+        file=sys.stderr,
+    )
 
     def one(r):
         rec = Recorder(client, cfg["model"])
         base = AnthropicRunner(model=cfg["model"], client=rec, effort=cfg.get("effort"))
         t = cases[r["prompt_id"]]["turn"]
         try:
-            fp = ExpandAwareRunner(base).decide(distil_strategy(t.blocks, t.index), build_restore(t.blocks))
+            fp = ExpandAwareRunner(base).decide(
+                distil_strategy(t.blocks, t.index), build_restore(t.blocks)
+            )
         except BaseException as e:  # noqa: BLE001 - SystemExit from AnthropicRunner._create included
             if isinstance(e, KeyboardInterrupt):
                 raise
@@ -684,10 +812,25 @@ def backfill_arm(vdir: Path, client, concurrency: int, arm: str, max_rep: int) -
             if err is not None:
                 fail += 1
                 with (vdir / "errors.jsonl").open("a") as fh:
-                    fh.write(json.dumps({"prompt_id": r["prompt_id"], "rep": r["rep"], "stage": f"backfill:{arm}",
-                                         "failure_class": getattr(err, "failure_class", "harness_or_api_error"),
-                                         "error": str(err)[:500],
-                                         "usage": {k: sum(c["usage"][k] for c in calls) for k in calls[0]["usage"]} if calls else {}}) + "\n")
+                    fh.write(
+                        json.dumps(
+                            {
+                                "prompt_id": r["prompt_id"],
+                                "rep": r["rep"],
+                                "stage": f"backfill:{arm}",
+                                "failure_class": getattr(
+                                    err, "failure_class", "harness_or_api_error"
+                                ),
+                                "error": str(err)[:500],
+                                "usage": {
+                                    k: sum(c["usage"][k] for c in calls) for k in calls[0]["usage"]
+                                }
+                                if calls
+                                else {},
+                            }
+                        )
+                        + "\n"
+                    )
                 continue
             r["meta"]["arms"][arm] = fp
             for c in calls:
@@ -699,21 +842,28 @@ def backfill_arm(vdir: Path, client, concurrency: int, arm: str, max_rep: int) -
             if ok % 20 == 0:
                 checkpoint()
     checkpoint()
-    print(f"[{vdir.name}] backfill {arm}: {ok} ok, {fail} failed (re-run to retry the failed rows)", file=sys.stderr)
+    print(
+        f"[{vdir.name}] backfill {arm}: {ok} ok, {fail} failed (re-run to retry the failed rows)",
+        file=sys.stderr,
+    )
 
 
 def regrade(flow: Path) -> None:
     """Recompute every stored row's grade from its recorded arm decisions - no API calls."""
     refp = flow / "baseline/ref/decisions.json"
     ref = json.loads(refp.read_text()) if refp.exists() else {}
-    for v in sorted(p for p in flow.iterdir() if p.is_dir() and re.fullmatch(r"baseline|v\d+", p.name)):
+    for v in sorted(
+        p for p in flow.iterdir() if p.is_dir() and re.fullmatch(r"baseline|v\d+", p.name)
+    ):
         rp = v / "results.jsonl"
         if not rp.exists():
             continue
         rows = [json.loads(ln) for ln in rp.read_text().splitlines() if ln.strip()]
         for r in rows:
-            r["grade"] = grade({"arms": r["meta"]["arms"], "gold": r["meta"].get("gold")},
-                               None if v.name == "baseline" else ref.get(r["prompt_id"]))
+            r["grade"] = grade(
+                {"arms": r["meta"]["arms"], "gold": r["meta"].get("gold")},
+                None if v.name == "baseline" else ref.get(r["prompt_id"]),
+            )
         rp.write_text("".join(json.dumps(r) + "\n" for r in rows))
         print(f"regraded {len(rows)} rows in {v.name}", file=sys.stderr)
 
@@ -760,19 +910,44 @@ def main() -> None:
     ap.add_argument("--timeout-s", type=float, default=900)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
-    ap.add_argument("--arms", default=",".join(ARMS), help="comma-separated subset of " + ",".join(ARMS))
+    ap.add_argument(
+        "--arms", default=",".join(ARMS), help="comma-separated subset of " + ",".join(ARMS)
+    )
     ap.add_argument("--fake", choices=["oracle", "null", "flip"])
-    ap.add_argument("--cases", choices=["synthetic", "real", "coding"], default="synthetic",
-                    help="synthetic: corpus/ + corpus_xl (plants DECISION: markers - offline-runner annotations "
-                         "that leak the answer to a live model); real: public τ-bench trajectories")
-    ap.add_argument("--fetch-tau-bench", action="store_true", help="download + verify the pinned τ-bench files")
+    ap.add_argument(
+        "--cases",
+        choices=["synthetic", "real", "coding"],
+        default="synthetic",
+        help="synthetic: corpus/ + corpus_xl (plants DECISION: markers - offline-runner annotations "
+        "that leak the answer to a live model); real: public τ-bench trajectories",
+    )
+    ap.add_argument(
+        "--fetch-tau-bench", action="store_true", help="download + verify the pinned τ-bench files"
+    )
     ap.add_argument("--select-real-cases", action="store_true", help="(re)write the real case list")
-    ap.add_argument("--fetch-swe-agent", action="store_true", help="download + verify the pinned SWE-agent trajs")
-    ap.add_argument("--select-coding-cases", action="store_true", help="(re)write the coding case list")
-    ap.add_argument("--savings-report", help="write the all-turns SWE-agent savings report to this path (free, offline)")
-    ap.add_argument("--status", action="store_true", help="print the cross-variant status table and exit")
-    ap.add_argument("--regrade", action="store_true", help="recompute grades from stored decisions (no API calls)")
-    ap.add_argument("--backfill-arm", help="add this arm to existing rows of --variant (reps < --reps)")
+    ap.add_argument(
+        "--fetch-swe-agent",
+        action="store_true",
+        help="download + verify the pinned SWE-agent trajs",
+    )
+    ap.add_argument(
+        "--select-coding-cases", action="store_true", help="(re)write the coding case list"
+    )
+    ap.add_argument(
+        "--savings-report",
+        help="write the all-turns SWE-agent savings report to this path (free, offline)",
+    )
+    ap.add_argument(
+        "--status", action="store_true", help="print the cross-variant status table and exit"
+    )
+    ap.add_argument(
+        "--regrade",
+        action="store_true",
+        help="recompute grades from stored decisions (no API calls)",
+    )
+    ap.add_argument(
+        "--backfill-arm", help="add this arm to existing rows of --variant (reps < --reps)"
+    )
     ap.add_argument("--flow", type=Path, default=FLOW)
     ap.add_argument("--approve-harness", action="store_true")
     a = ap.parse_args()
@@ -791,7 +966,13 @@ def main() -> None:
         Path(a.savings_report).parent.mkdir(parents=True, exist_ok=True)
         Path(a.savings_report).write_text(json.dumps(rep_, indent=1))
         print(json.dumps({k: v for k, v in rep_.items() if k != "by_kind"}))
-    if a.fetch_tau_bench or a.select_real_cases or a.fetch_swe_agent or a.select_coding_cases or a.savings_report:
+    if (
+        a.fetch_tau_bench
+        or a.select_real_cases
+        or a.fetch_swe_agent
+        or a.select_coding_cases
+        or a.savings_report
+    ):
         return
     if not re.fullmatch(r"baseline|v[1-9]\d*", a.variant):
         sys.exit("--variant must be 'baseline' or 'v<N>'")
@@ -821,18 +1002,30 @@ def main() -> None:
     arms_on = tuple(x for x in a.arms.split(",") if x)
     if not {"full_a", "full_b", "distil"} <= set(arms_on) or not set(arms_on) <= set(ARMS):
         sys.exit(f"--arms must include full_a,full_b,distil and be a subset of {ARMS}")
-    cfg = {"model": a.model, "effort": a.effort, "reps": a.reps, "fake": a.fake, "arms": list(arms_on),
-           "cases": a.cases}
+    cfg = {
+        "model": a.model,
+        "effort": a.effort,
+        "reps": a.reps,
+        "fake": a.fake,
+        "arms": list(arms_on),
+        "cases": a.cases,
+    }
     cfgp = vdir / "config.json"
     if cfgp.exists():
         old = json.loads(cfgp.read_text())
         keys = ("model", "effort", "fake", "cases")
-        if {k: old.get(k, "synthetic" if k == "cases" else None) for k in keys} != {k: cfg[k] for k in keys}:
+        if {k: old.get(k, "synthetic" if k == "cases" else None) for k in keys} != {
+            k: cfg[k] for k in keys
+        }:
             sys.exit(f"{vdir} was run as {old}; use a new --variant for {cfg}")
     cfgp.write_text(json.dumps(cfg, indent=2))
     sp = vdir / "summary.json"
     if not sp.exists():
-        sp.write_text(json.dumps({"description": f"{a.model} @ effort={a.effort or 'default'}", "target": "code"}))
+        sp.write_text(
+            json.dumps(
+                {"description": f"{a.model} @ effort={a.effort or 'default'}", "target": "code"}
+            )
+        )
     results, errors = vdir / "results.jsonl", vdir / "errors.jsonl"
     done = set()
     if results.exists():
@@ -935,8 +1128,16 @@ def main() -> None:
     # headline + 95% CI (Wilson) over this variant's rows, all reps
     rows = [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
     rows = [r for r in rows if r["status"] == "ok"]
-    for m in ("equiv_distil_act", "equiv_distil", "equiv_expand_act", "self_consist_act", "decided", "agree_ref_act",
-              "agree_gold_act", "trunc_detect"):
+    for m in (
+        "equiv_distil_act",
+        "equiv_distil",
+        "equiv_expand_act",
+        "self_consist_act",
+        "decided",
+        "agree_ref_act",
+        "agree_gold_act",
+        "trunc_detect",
+    ):
         have = [r for r in rows if m in r["grade"]]
         n = len(have)
         k = sum(r["grade"][m] for r in have)
@@ -959,21 +1160,33 @@ def main() -> None:
 
 # $/MTok (input, output), first-party list prices. Cache write 1.25x input, read 0.1x.
 PRICES = {
-    "claude-fable-5-1": (10.0, 50.0), "claude-fable-5": (10.0, 50.0),
-    "claude-opus-5-5": (4.0, 20.0), "claude-opus-5": (5.0, 25.0),
-    "claude-opus-4-8": (5.0, 25.0), "claude-opus-4-7": (5.0, 25.0),
-    "claude-sonnet-5-5": (2.0, 10.0), "claude-sonnet-5": (2.0, 10.0),
-    "claude-sonnet-4-6": (3.0, 15.0), "claude-haiku-4-5": (1.0, 5.0),
+    "claude-fable-5-1": (10.0, 50.0),
+    "claude-fable-5": (10.0, 50.0),
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-opus-4-8": (5.0, 25.0),
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
 }
 
 
 def cost_usd(model: str, u: dict) -> float:
-    base = next((m for m in PRICES if model == m or model.startswith(m + "-") or model.startswith(m + "@")), None)
+    base = next(
+        (m for m in PRICES if model == m or model.startswith(m + "-") or model.startswith(m + "@")),
+        None,
+    )
     if base is None:
         raise KeyError(f"no price for {model}; add it to PRICES")
     pin, pout = PRICES[base]
-    return (u.get("input_tokens", 0) * pin + u.get("cache_creation_input_tokens", 0) * pin * 1.25
-            + u.get("cache_read_input_tokens", 0) * pin * 0.1 + u.get("output_tokens", 0) * pout) / 1e6
+    return (
+        u.get("input_tokens", 0) * pin
+        + u.get("cache_creation_input_tokens", 0) * pin * 1.25
+        + u.get("cache_read_input_tokens", 0) * pin * 0.1
+        + u.get("output_tokens", 0) * pout
+    ) / 1e6
 
 
 def _paired_ci(base: dict, var: dict) -> tuple[float, float, int]:
@@ -990,18 +1203,28 @@ def _paired_ci(base: dict, var: dict) -> tuple[float, float, int]:
 def status_table(flow: Path) -> str:
     st = json.loads((flow / "_state.json").read_text())
     test = set(st.get("test_ids") or [])
-    vs = sorted([p for p in flow.iterdir() if p.is_dir() and re.fullmatch(r"baseline|v\d+", p.name)],
-                key=lambda p: -1 if p.name == "baseline" else int(p.name[1:]))
+    vs = sorted(
+        [p for p in flow.iterdir() if p.is_dir() and re.fullmatch(r"baseline|v\d+", p.name)],
+        key=lambda p: -1 if p.name == "baseline" else int(p.name[1:]),
+    )
     per: dict[str, dict] = {}
-    lines = ["| variant | config | n | distil equiv (act / exact) | expand equiv (act / exact) | self-consist (act / exact) "
-             "| agree w/ ref (act) | trunc caught | Δ distil act-equiv vs base (test, 95% CI) | $/case | out tok/case "
-             "| s/case | errors | spend |",
-             "|" + "---|" * 14]
+    lines = [
+        "| variant | config | n | distil equiv (act / exact) | expand equiv (act / exact) | self-consist (act / exact) "
+        "| agree w/ ref (act) | trunc caught | Δ distil act-equiv vs base (test, 95% CI) | $/case | out tok/case "
+        "| s/case | errors | spend |",
+        "|" + "---|" * 14,
+    ]
     for v in vs:
-        rows = [json.loads(ln) for ln in (v / "results.jsonl").read_text().splitlines() if ln.strip()] \
-            if (v / "results.jsonl").exists() else []
-        errs = sum(1 for ln in (v / "errors.jsonl").read_text().splitlines() if ln.strip()) \
-            if (v / "errors.jsonl").exists() else 0
+        rows = (
+            [json.loads(ln) for ln in (v / "results.jsonl").read_text().splitlines() if ln.strip()]
+            if (v / "results.jsonl").exists()
+            else []
+        )
+        errs = (
+            sum(1 for ln in (v / "errors.jsonl").read_text().splitlines() if ln.strip())
+            if (v / "errors.jsonl").exists()
+            else 0
+        )
         ok = [r for r in rows if r["status"] == "ok"]
         if not ok:
             continue
@@ -1029,7 +1252,8 @@ def status_table(flow: Path) -> str:
             f"| {pct('equiv_distil_act')} / {pct('equiv_distil')} | {pct('equiv_expand_act')} / {pct('equiv_expand')} "
             f"| {pct('self_consist_act')} / {pct('self_consist')} | {pct('agree_ref_act')} | {pct('trunc_detect')} | {delta} "
             f"| ${sum(costs) / len(rows):.4f} | {sum(r['usage'].get('output_tokens', 0) for r in rows) / len(rows):.0f} "
-            f"| {sum(r['latency_s'] for r in rows) / len(rows):.1f} | {errs} | ${sum(costs):.2f} |")
+            f"| {sum(r['latency_s'] for r in rows) / len(rows):.1f} | {errs} | ${sum(costs):.2f} |"
+        )
     return "\n".join(lines)
 
 

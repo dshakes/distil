@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .certify.gate import certify
 from .certify.stats import tost
-from .compress.strategies import distil as distil_strategy
+from .compress.strategies import distil as distil_strategy, served as served_strategy
 from .compress.tier0 import Tier0Lossless
 from .corpus import CorpusEntry, load_corpus
 from .replay.runner import AgentRunner
@@ -60,6 +60,10 @@ class EvalPoint:
 class FrontierReport:
     points: list[EvalPoint] = field(default_factory=list)
     runner: str = "deterministic"
+    # A live grader's model/effort (None for the offline oracle), so a raw curve says
+    # which certifier graded it — the default moves between releases.
+    grader_model: str | None = None
+    grader_effort: str | None = None
 
     @property
     def distil_point(self) -> EvalPoint | None:
@@ -101,10 +105,20 @@ def frontier(
 ) -> FrontierReport:
     entries = entries if entries is not None else load_corpus()
     limits = limits if limits is not None else DEFAULT_LIMITS
-    report = FrontierReport(runner=getattr(runner, "name", "deterministic"))
+    report = FrontierReport(
+        runner=getattr(runner, "name", "deterministic"),
+        grader_model=getattr(runner, "model", None),
+        grader_effort=getattr(runner, "effort", None),
+    )
 
-    # reference operating points
-    for label, strat in (("tier-0 lossless", _tier0), ("distil (cache-aware)", distil_strategy)):
+    # reference operating points — `served` is the serving adapter itself (what a
+    # caching client is sent), so the frontier shows the served path, not just the
+    # volatile-only slice `distil` certifies
+    for label, strat in (
+        ("tier-0 lossless", _tier0),
+        ("distil (cache-aware)", distil_strategy),
+        ("served (adapter)", served_strategy),
+    ):
         s, eq, ok = _measure(entries, strat, tok, runner)
         report.points.append(EvalPoint(label, s, eq, ok))
 
@@ -155,6 +169,8 @@ def write_raw(report: FrontierReport, out_dir: str, stamp: str) -> str:
                         "equivalence": p.equivalence,
                         "certified": p.certified,
                         "runner": report.runner,
+                        "grader_model": report.grader_model,
+                        "grader_effort": report.grader_effort,
                     }
                 )
                 + "\n"

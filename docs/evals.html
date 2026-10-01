@@ -59,6 +59,7 @@
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html" class="active" aria-current="page">Evaluation</a></li>
         <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -233,6 +234,11 @@ distil shadow-stats --record</pre>
       <li><b>The gate graded a surface users never receive.</b> It compressed every block with a bare tier; the serving path leaves the stable prefix untouched and compresses only the volatile tail. Found by cross-audit.</li>
     </ul>
     <p>Each of those is a failure the probes exist to detect, occurring in the probes. We publish them because the alternative — a suite that has never been wrong — is the less trustworthy artifact.</p>
+
+    <h2 id="model-migration">Who grades the live certifier</h2>
+    <p>A live certificate is graded by a model, so changing that model changes what the certificate means. Since 1.56.0 the default live certifier is <b><code>claude-sonnet-5-5</code> at <code>effort=low</code></b>, chosen by a pre-registered, paired migration eval on real τ-bench traffic rather than by price. It passed every gate, including a quality lower bound of at least −5 points against <code>claude-opus-4-8</code>, at 57.5% lower cost per case; <code>claude-opus-5-5</code> did not clear the quality bound and <code>claude-haiku-4-5</code> was too weak. <code>--effort</code> is now a flag on <code>certify</code>, <code>eval</code>, <code>benchmark</code>, <code>frontier</code> and <code>conformal</code>. The earlier published live result was graded by <code>claude-opus-4-8</code> and stays labelled so.</p>
+    <p>The same harness exposed a gap in what the certificate covered. The certified <code>distil</code> strategy digests only the latest tool output and saves 2.6% of tokens on real SWE-agent trajectories; the serving adapter digests every earlier tool output and saves 52.6%, so most served bytes were never certified. <code>distil certify --strategy served</code> now runs the real adapter. <b>Its result is an open risk:</b> with recovery it keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two identical uncompressed calls. Whether that costs solved tasks is the question of a SWE-bench outcome eval that is built and tested offline and has not been run.</p>
+    <p>Two harness lessons belong with the probe list above: a distil-wrapped shell exports <code>ANTHROPIC_BASE_URL</code> to the local proxy, so an eval client must pin <code>api.anthropic.com</code>; and the bundled corpus plants <code>DECISION:</code> markers for the offline oracle, so live grading needs marker-free real traces. The method, tables, diagrams and rerun commands are on <a href="model-migration.html">Model Migration</a>.</p>
 
     <h2 id="exit-summary">What the exit summary proves</h2>
     <p>Every <code>distil wrap</code> session ends with a proof ledger, and the same four verdicts appear in <code>distil stats</code> and <code>distil dissect</code> — one function behind all three, so two surfaces reading one ledger cannot disagree about it. Each line is allowed to come back negative. That is the only reason any of them is worth printing.</p>

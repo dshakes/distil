@@ -34,6 +34,7 @@ A normalized fixture of each (no planted answers) ships under
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -264,14 +265,151 @@ def _swe_action_fingerprint(action: str) -> tuple[str, str]:
     return (verb, target)
 
 
+# Fenced blocks of an SWE-agent response. The info string (```bash) is a language tag,
+# never part of the command; the ACTION is the LAST block — a response may quote code
+# (the issue's snippet, a diff) before it.
+_FENCE = re.compile(r"```[ \t]*[\w+.-]*[ \t]*\n(.*?)```", re.S)
+
+
+def swe_fenced_command(text: str) -> str:
+    """First line of the LAST fenced block in *text* (an SWE-agent action), or ``""``."""
+    blocks = _FENCE.findall(text or "")
+    lines = [ln.strip() for ln in (blocks[-1] if blocks else "").split("\n") if ln.strip()]
+    return lines[0] if lines else ""
+
+
+def _swe_text(content) -> str:
+    """A history message's text: a plain string, or the text parts of a content list."""
+    if isinstance(content, list):
+        return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return content or ""
+
+
+def _swe_call(m: dict) -> tuple[str, str, str] | None:
+    """(tool, gold target, command line) from an assistant entry's own structured
+    action — a function-calling ``tool_calls`` entry, or SWE-agent's ``action`` field —
+    or None when it carries neither (then the fenced block in its text is the action)."""
+    calls = m.get("tool_calls") or []
+    if calls and isinstance(calls[0], dict):
+        fn = calls[0].get("function", calls[0])
+        name = str(fn.get("name") or "")
+        args = fn.get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (json.JSONDecodeError, ValueError):
+                args = {"command": args}
+        if name:
+            cmd = args.get("command") if isinstance(args, dict) else None
+            if name == "bash" and isinstance(cmd, str):
+                line = cmd.strip().split("\n")[0]
+                return "bash", line, line
+            return name, _norm_args(args), f"{name} {json.dumps(args, sort_keys=True)}"
+    action = m.get("action")
+    if isinstance(action, str) and action.strip():
+        line = action.strip().split("\n")[0]
+        return "", "", line  # classified against the menu by the caller
+    return None
+
+
+def _swe_menu(system: str, extra: tuple[str, ...] = ()) -> tuple[str, list[str]]:
+    """A TOOLS block of SWE-agent's own commands, from the ``signature:`` lines of its
+    system prompt, plus any function-calling tool the run actually called (*extra*), as
+    ``- name(args)`` lines (so ``prompts.available_actions`` parses them), plus ``bash``
+    for every other shell command the agent may run."""
+    names: list[str] = []
+    lines = ["AVAILABLE TOOLS (SWE-agent commands, from the system prompt's signatures):"]
+    for sig in re.findall(r"signature:\s*(.+)", system):
+        parts = sig.split()
+        if not parts or parts[0] in names:
+            continue
+        names.append(parts[0])
+        lines.append(f"- {parts[0]}({' '.join(parts[1:])})")
+    for name in extra:
+        if name not in names and name != "bash":
+            names.append(name)
+            lines.append(f"- {name}(arguments): a tool this run called")
+    lines.append("- bash(command): any other shell command (python, pytest, ls, cd, grep, rm, ...)")
+    names.append("bash")
+    return "\n".join(lines), names
+
+
+def _swe_history_turns(raw: dict, inst: str) -> list[tuple[list[Block], str, str]]:
+    """Decision points of a current SWE-agent ``.traj`` (``history`` key), as
+    ``[(blocks, gold_action, gold_target)]``.
+
+    Rebuilt from ``history`` — the exact messages the agent saw, in order — because the
+    ``trajectory`` steps are the wrong unit: a step is action→observation, so the
+    action PRODUCED its step's observation rather than answering it. Demo messages
+    (``is_demo``) are the few-shot example, not this run, and are skipped.
+
+    The decision at an assistant message sees everything before it: the system prompt,
+    the command menu and the issue (STABLE), then every earlier (action, observation)
+    in order (SETTLING), the newest observation last (VOLATILE). An observation is a
+    ``user`` message after the issue, or a ``tool`` message (function-calling runs).
+    Its gold is that assistant message's own command — from its ``tool_calls`` or
+    ``action`` field when it has one, else the last fenced block of its text: an
+    SWE-agent command by name, anything else as ``bash`` with the whole command line
+    as target. A function-calling action is not in the message text, so it is appended
+    to the agent's block as a fenced line: the agent saw its own call. The first action
+    (issue only, no observation yet) is not a decision point.
+    """
+    h = [m for m in raw.get("history") or [] if isinstance(m, dict) and not m.get("is_demo")]
+    system = next((_swe_text(m.get("content")) for m in h if m.get("role") == "system"), "")
+    msgs = [m for m in h if m.get("role") in ("user", "assistant", "tool")]
+    if not msgs or msgs[0]["role"] != "user":
+        return []
+    called = [c[0] for m in msgs if m["role"] == "assistant" and (c := _swe_call(m)) and c[0]]
+    menu, names = _swe_menu(system, tuple(dict.fromkeys(called)))
+    stable: list[Block] = []
+    if system:
+        stable.append(Block(f"{inst}:system", Kind.SYSTEM, system, Stability.STABLE, True))
+    stable.append(Block(f"{inst}:tools", Kind.TOOLS, menu, Stability.STABLE, True))
+    stable.append(
+        Block(f"{inst}:task", Kind.USER, _swe_text(msgs[0].get("content")), Stability.STABLE, True)
+    )
+    out: list[tuple[list[Block], str, str]] = []
+    prior: list[Block] = []
+    for j, m in enumerate(msgs[1:], start=1):
+        text = _swe_text(m.get("content"))
+        if m["role"] == "assistant":
+            call = _swe_call(m)
+            if call is not None and call[0]:
+                verb, target, line = call
+            else:
+                line = call[2] if call is not None else swe_fenced_command(text)
+                v, _, rest = line.partition(" ")
+                verb, target = (v, rest) if v in names else ("bash" if line else "", line)
+            if prior and msgs[j - 1]["role"] in ("user", "tool"):
+                fresh = prior[-1]
+                blocks = [b.copy_with(b.text) for b in stable + prior[:-1]]
+                blocks.append(
+                    Block(fresh.id, Kind.TOOL_OUTPUT, fresh.text, Stability.VOLATILE, True)
+                )
+                out.append((blocks, verb, target))
+            if line and swe_fenced_command(text) != line:
+                text = f"{text}\n\n```\n{line}\n```" if text else f"```\n{line}\n```"
+            prior.append(Block(f"{inst}:agent@{j}", Kind.HISTORY, text, Stability.SETTLING))
+        else:
+            prior.append(
+                Block(
+                    f"{inst}:obs@{j}", Kind.TOOL_OUTPUT, text or "(no output)", Stability.SETTLING
+                )
+            )
+    return out
+
+
 def load_swe_bench(path: str | Path, *, model: str = "claude-opus-4-8") -> list[CorpusEntry]:
     """Load SWE-agent ``.traj`` trajectories (single file or a directory of them).
 
-    Each step is a decision point: the context is the problem statement + setup
-    (STABLE), prior steps (SETTLING), and the latest observation (VOLATILE); the
-    gold decision is the step's ``action`` (verb + primary file/target). Resolution
-    status (``info.resolved`` / ``exit_status``) is carried for the downstream
-    task-success metric.
+    Two shapes. A current SWE-agent ``.traj`` (top-level ``history``) is rebuilt from
+    its message history — see :func:`_swe_history_turns`. The older normalized shape
+    (top-level ``problem_statement``/``system`` + ``trajectory`` steps, as the bundled
+    fixture uses) keeps its original reading: each step is a decision point whose
+    context is the problem statement + setup (STABLE), prior steps (SETTLING) and the
+    step's observation (VOLATILE), gold the step's ``action``. Resolution status
+    (``info.resolved`` / ``exit_status``) is carried for the downstream task-success
+    metric.
     """
     p = Path(path)
     files = sorted(p.glob("*.traj")) + sorted(p.glob("*.json")) if p.is_dir() else [p]
@@ -305,6 +443,16 @@ def load_swe_bench(path: str | Path, *, model: str = "claude-opus-4-8") -> list[
             )
 
         turns = []
+        if raw.get("history"):
+            # Current SWE-agent shape: its top-level keys are environment/trajectory/
+            # history/info, so the problem/system lookups above find nothing — and the
+            # step loop below would pair each observation with the action that produced
+            # it. The history holds the real conversation; read that instead.
+            for di, (blocks, verb, target) in enumerate(_swe_history_turns(raw, inst)):
+                turns.append(Turn(di, blocks))
+                _register_gold(inst, di, verb, target)
+            if turns:
+                steps = []  # else fall through to the step reading, never a silent []
         history: list[str] = []
         for si, step in enumerate(steps):
             action = step.get("action") or ""

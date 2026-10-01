@@ -30,7 +30,8 @@ from distil.trajectory import Stability
 
 ALPHA, DELTA, SAMPLES, WORKERS = 0.05, 0.05, 3, 8
 client = Anthropic(max_retries=6)
-runner = AnthropicRunner(client=client, samples=1)
+# ponytail: pinned to the grader this documented run used, not the moving certifier default.
+runner = AnthropicRunner(model="claude-opus-4-8", client=client, samples=1, effort=None)
 entries = load_corpus("/tmp/corpus_realworld")
 turns = [t for e in entries for t in e.trajectory.turns]
 n = len(turns)

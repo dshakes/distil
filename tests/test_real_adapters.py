@@ -1116,3 +1116,311 @@ def test_anthropic_runner_constrains_action_to_available_tools():
     enum = seen["tools"][0]["input_schema"]["properties"]["action"].get("enum")
     assert enum == ["kb_search", "issue_refund"]
     assert "enum" not in ar._DECISION_TOOL["input_schema"]["properties"]["action"]
+
+
+# --------------------------------------------------------------------------- #
+# current SWE-agent .traj (top-level environment/trajectory/history/info)
+# --------------------------------------------------------------------------- #
+
+_TRAJ_SYSTEM = (
+    "SETTING: you are an autonomous programmer.\n"
+    "open:\n  docstring: opens a file\n  signature: open <path> [<line_number>]\n"
+    "goto:\n  docstring: moves the window\n  signature: goto <line_number>\n"
+    "edit:\n  docstring: replaces lines\n  signature: edit <start_line>:<end_line>\n"
+)
+
+
+def _traj(tmp_path):
+    def a(cmd):
+        return {"role": "assistant", "content": f"thinking about it\n\n```\n{cmd}\n```"}
+
+    history = [
+        {"role": "system", "content": _TRAJ_SYSTEM},
+        {"role": "user", "content": "DEMO issue", "is_demo": True},
+        {"role": "assistant", "content": "```\nopen demo.py\n```", "is_demo": True},
+        {"role": "user", "content": "ISSUE: pagination drops the last page"},
+        a("find_file pager.py"),
+        {"role": "user", "content": "Found 1 match: src/pager.py"},
+        a("open src/pager.py"),
+        {
+            "role": "user",
+            "content": "[File: src/pager.py]\n1:def pages(n, k):\n2:    return n // k",
+        },
+        a("edit 2:2"),
+        {"role": "user", "content": "File updated."},
+        a("python -m pytest tests/test_pager.py"),
+    ]
+    doc = {
+        "environment": "swe_main",
+        "trajectory": [{"action": "find_file pager.py\n", "observation": "Found 1 match"}],
+        "history": history,
+        "info": {"exit_status": "submitted", "submission": "diff --git ..."},
+    }
+    p = tmp_path / "proj__pager-1.traj"
+    p.write_text(__import__("json").dumps(doc))
+    return p
+
+
+def test_swe_traj_history_builds_correct_decision_points(tmp_path):
+    from distil.replay import prompts
+    from distil.trajectory import Kind
+
+    (e,) = realtrace.load_swe_bench(_traj(tmp_path))
+    turns = e.trajectory.turns
+    # the first action (issue only, nothing observed yet) is not a decision point
+    assert len(turns) == 3
+    assert realtrace.validate_real([e]) == []
+    gold = realtrace.gold_actions([e])
+    # the gold is the NEXT action — not the one that produced the observation
+    assert [
+        (gold[(e.trajectory.id, i)].action, gold[(e.trajectory.id, i)].target) for i in range(3)
+    ] == [
+        ("open", "src/pager.py"),
+        ("edit", "2:2"),
+        ("bash", "python -m pytest tests/test_pager.py"),
+    ]
+    t = turns[1]
+    kinds = [(b.kind, b.stability) for b in t.blocks]
+    assert kinds[:3] == [
+        (Kind.SYSTEM, Stability.STABLE),
+        (Kind.TOOLS, Stability.STABLE),
+        (Kind.USER, Stability.STABLE),
+    ]
+    texts = [b.text for b in t.blocks]
+    assert texts[2] == "ISSUE: pagination drops the last page"
+    assert not any("DEMO" in x for x in texts)  # demo messages are the few-shot, not this run
+    # prior (action, observation) pairs in order, the newest observation last and VOLATILE
+    assert "find_file pager.py" in texts[3] and texts[4] == "Found 1 match: src/pager.py"
+    assert "open src/pager.py" in texts[5]
+    assert t.blocks[-1].kind is Kind.TOOL_OUTPUT and t.blocks[-1].stability is Stability.VOLATILE
+    assert t.blocks[-1].text.startswith("[File: src/pager.py]")
+    assert [b.stability for b in t.blocks[3:-1]] == [Stability.SETTLING] * 3
+    # real SWE-agent command names in a TOOLS block the decision tool can constrain to
+    assert prompts.available_actions(t.blocks) == ["open", "goto", "edit", "bash"]
+    # an earlier observation's block is byte-identical across turns (cacheable prefix)
+    assert turns[2].blocks[4].text == t.blocks[4].text and turns[2].blocks[4].id == t.blocks[4].id
+    assert realtrace.resolved_status(e) is True
+
+
+def test_swe_old_fixture_shape_unchanged():
+    entries = realtrace.load_swe_bench(FIX / "swe_bench_sample.json")
+    first = entries[0].trajectory.turns[0]
+    assert first.blocks[0].text.startswith("You are a software engineer")
+    assert first.blocks[1].text.startswith("ISSUE:\n")
+
+
+# --------------------------------------------------------------------------- #
+# the live certifier default
+# --------------------------------------------------------------------------- #
+
+
+def test_live_certifier_defaults_to_the_measured_pair():
+    from distil.replay.anthropic_runner import AnthropicRunner, effort_for
+
+    r = AnthropicRunner()
+    assert (r.model, r.effort) == ("claude-sonnet-5-5", "low")
+    assert effort_for(None, None) == "low"
+    assert effort_for("claude-sonnet-5-5", None) == "low"
+    # another model gets no output_config unless asked: haiku-4-5 400s on effort
+    assert effort_for("claude-haiku-4-5", None) is None
+    assert effort_for("claude-haiku-4-5", "none") is None
+    assert effort_for("claude-opus-4-8", "high") == "high"
+
+
+def test_effort_none_sends_no_output_config():
+    from types import SimpleNamespace
+
+    from distil.replay.anthropic_runner import AnthropicRunner
+    from distil.trajectory import Block, Kind
+
+    seen = []
+
+    class C:
+        messages = None
+
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kw):
+            seen.append(kw)
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="tool_use", input={"action": "a", "target": "b"})]
+            )
+
+    blocks = [Block("o", Kind.TOOL_OUTPUT, "x")]
+    AnthropicRunner(client=C(), effort=None).decide(blocks)
+    AnthropicRunner(client=C()).decide(blocks)
+    assert "output_config" not in seen[0]
+    assert seen[1]["output_config"] == {"effort": "low"} and seen[1]["model"] == "claude-sonnet-5-5"
+
+
+def test_cli_live_runner_honours_model_and_effort():
+    import argparse
+
+    from distil.cli import _anthropic_runner
+
+    r = _anthropic_runner(argparse.Namespace(model=None, effort=None), samples=3)
+    assert (r.model, r.effort, r.samples) == ("claude-sonnet-5-5", "low", 3)
+    r = _anthropic_runner(argparse.Namespace(model="claude-haiku-4-5", effort=None))
+    assert (r.model, r.effort) == ("claude-haiku-4-5", None)
+    r = _anthropic_runner(argparse.Namespace(model="claude-opus-4-8", effort="high"))
+    assert (r.model, r.effort) == ("claude-opus-4-8", "high")
+    r = _anthropic_runner(argparse.Namespace())  # a namespace without the flags
+    assert r.model == "claude-sonnet-5-5"
+
+
+def test_every_live_command_accepts_model_and_effort():
+    from distil.cli import build_parser
+
+    p = build_parser()
+    for cmd in ("certify", "eval", "benchmark", "frontier", "conformal"):
+        a = p.parse_args([cmd, "--runner", "anthropic", "--model", "m", "--effort", "none"])
+        assert (a.model, a.effort) == ("m", "none"), cmd
+        a = p.parse_args([cmd])
+        assert (a.model, a.effort) == (None, None), cmd
+
+
+def _load_history(tmp_path, history, **extra):
+    import json
+
+    p = tmp_path / "proj__fc-1.traj"
+    p.write_text(json.dumps({"environment": "swe_main", "history": history, "info": {}, **extra}))
+    (e,) = realtrace.load_swe_bench(p)
+    gold = realtrace.gold_actions([e])
+    return e, [
+        (gold[(e.trajectory.id, t.index)].action, gold[(e.trajectory.id, t.index)].target)
+        for t in e.trajectory.turns
+    ]
+
+
+def test_swe_traj_function_calling_history(tmp_path):
+    from distil.replay import prompts
+    from distil.trajectory import Kind
+
+    def call(i, name, **args):
+        import json
+
+        fn = {"name": name, "arguments": json.dumps(args)}
+        return {
+            "role": "assistant",
+            "content": "thinking",
+            "tool_calls": [{"id": i, "function": fn}],
+        }
+
+    history = [
+        {"role": "system", "content": "You are an agent."},
+        {"role": "user", "content": "ISSUE: bug"},
+        call("c1", "bash", command="ls src"),
+        {"role": "tool", "content": "pager.py", "tool_call_ids": ["c1"]},
+        call("c2", "str_replace_editor", command="view", path="src/pager.py"),
+        {"role": "tool", "content": "1 def pages()", "tool_call_ids": ["c2"]},
+        call("c3", "bash", command="pytest -q"),
+    ]
+    e, golds = _load_history(tmp_path, history)
+    # role "tool" is an observation; the action comes from tool_calls, not the text
+    assert golds == [("str_replace_editor", "view"), ("bash", "pytest -q")]
+    t = e.trajectory.turns[1]
+    assert t.blocks[-1].kind is Kind.TOOL_OUTPUT and t.blocks[-1].text == "1 def pages()"
+    assert prompts.available_actions(t.blocks) == ["str_replace_editor", "bash"]
+    # the agent saw its own call, so its history block shows it
+    assert "```\nls src\n```" in t.blocks[3].text
+
+
+def test_swe_traj_action_is_the_last_fence_not_quoted_code(tmp_path):
+    history = [
+        {"role": "system", "content": "signature: open <path>"},
+        {"role": "user", "content": "ISSUE: bug"},
+        {"role": "assistant", "content": "```\nopen a.py\n```"},
+        {"role": "user", "content": "[File: a.py]"},
+        {
+            "role": "assistant",
+            "content": "The issue says:\n```python\nprint(pages(10, 5))\n```\nLet me run it.\n"
+            "```bash\npython repro.py\n```",
+        },
+        {"role": "user", "content": "2"},
+        {"role": "assistant", "content": "```bash\nopen b.py\n```"},
+    ]
+    _, golds = _load_history(tmp_path, history)
+    assert golds == [("bash", "python repro.py"), ("open", "b.py")]
+
+
+def test_swe_traj_action_field_wins(tmp_path):
+    history = [
+        {"role": "user", "content": "ISSUE: bug"},
+        {"role": "assistant", "content": "```\nls\n```", "action": "ls\n"},
+        {"role": "user", "content": "a.py"},
+        {"role": "assistant", "content": "```python\nx = 1\n```", "action": "python -m pytest\n"},
+    ]
+    _, golds = _load_history(tmp_path, history)
+    assert golds == [("bash", "python -m pytest")]
+
+
+def test_swe_traj_empty_history_falls_through_to_steps(tmp_path):
+    _, golds = _load_history(
+        tmp_path,
+        [{"role": "system", "content": "s"}],
+        trajectory=[{"action": "ls src/", "observation": "pager.py"}],
+    )
+    assert golds == [("ls", "src/")]
+
+
+def test_runner_effort_resolves_per_model_when_omitted():
+    from distil.replay.anthropic_runner import AnthropicRunner
+
+    assert AnthropicRunner(model="claude-haiku-4-5").effort is None  # haiku 400s on effort
+    assert AnthropicRunner(model="claude-sonnet-5-5").effort == "low"
+    assert AnthropicRunner(model="claude-haiku-4-5", effort="high").effort == "high"
+    assert AnthropicRunner(effort=None).effort is None  # explicit None still means none
+
+
+def test_render_version_is_part_of_the_prove_cache_key(monkeypatch):
+    from distil.replay import prompts
+    from distil.trajectory import Block, Kind
+
+    prove = _load_prove()
+    blocks = [Block("o", Kind.TOOL_OUTPUT, "x")]
+    k = prove.DecisionCache._key(blocks)
+    monkeypatch.setattr(prompts, "RENDER_VERSION", prompts.RENDER_VERSION + 1)
+    assert prove.DecisionCache._key(blocks) != k
+
+
+def test_certify_json_records_the_live_graders_model_and_effort(monkeypatch, capsys):
+    import json
+    from types import SimpleNamespace
+
+    from distil.cli import build_parser
+    from distil.replay import anthropic_runner as ar
+
+    class C:
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kw):
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="tool_use", input={"action": "a", "target": "b"})]
+            )
+
+    monkeypatch.setattr(ar.AnthropicRunner, "_ensure_client", lambda self: C())
+    args = build_parser().parse_args(["certify", "--runner", "anthropic", "--json"])
+    args.func(args)
+    grader = json.loads(capsys.readouterr().out)["grader"]
+    assert (grader["model"], grader["effort"]) == ("claude-sonnet-5-5", "low")
+    args = build_parser().parse_args(
+        ["certify", "--runner", "anthropic", "--json", "--model", "claude-haiku-4-5"]
+    )
+    args.func(args)
+    grader = json.loads(capsys.readouterr().out)["grader"]
+    assert (grader["model"], grader["effort"]) == ("claude-haiku-4-5", None)
+    # the published schema (additionalProperties: false) admits the new fields
+    schema = json.loads((FIX.parent.parent / "schemas" / "eval-record.schema.json").read_text())
+    assert {"model", "effort"} <= set(schema["properties"]["grader"]["properties"])
+
+
+def test_offline_records_carry_no_grader_model():
+    from distil.evalrecord import describe_grader
+
+    assert "model" not in describe_grader("deterministic")
+    from distil.conformal import _grader_name
+    from distil.replay.anthropic_runner import AnthropicRunner
+
+    assert _grader_name(AnthropicRunner()) == "anthropic (claude-sonnet-5-5, effort=low)"

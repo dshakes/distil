@@ -589,6 +589,18 @@ def cmd_prune(args: argparse.Namespace) -> int:
     return 0
 
 
+def _anthropic_runner(args: argparse.Namespace, **kw: Any) -> Any:
+    """The live grader for ``--runner anthropic``, honouring --model/--effort (see
+    ``anthropic_runner.effort_for``: an unset --effort is the certified pair's for the
+    default model and no output_config for any other)."""
+    from .replay.anthropic_runner import DEFAULT_MODEL, AnthropicRunner, effort_for
+
+    model = getattr(args, "model", None)
+    return AnthropicRunner(
+        model=model or DEFAULT_MODEL, effort=effort_for(model, getattr(args, "effort", None)), **kw
+    )
+
+
 def cmd_certify(args: argparse.Namespace) -> int:
     import time
 
@@ -608,18 +620,14 @@ def cmd_certify(args: argparse.Namespace) -> int:
         if not pooled_trajs:
             print(f"distil certify: no trajectory JSON files in {traj_path}")
             return 2
-        traj = pooled_trajs[0]  # model source for the live runner
     else:
         traj = _load(args.trajectory)
     runner = None
     if args.runner == "anthropic":
-        from .replay.anthropic_runner import AnthropicRunner
-
-        runner = AnthropicRunner(
-            model=args.model or traj.model,
-            max_calls=args.max_live_calls,
-            samples=args.samples,
-        )
+        # The grader is the measured certifier unless --model says otherwise — no longer
+        # the trajectory's recorded model (`traj.model`), which is a label on the trace,
+        # not a certifier anyone measured.
+        runner = _anthropic_runner(args, max_calls=args.max_live_calls, samples=args.samples)
     # A/A control defaults ON for live runners (a live model's self-disagreement on
     # ambiguous turns must not indict compression); it is a provable no-op for the
     # deterministic runner, so per-commit gate semantics never change.
@@ -709,6 +717,7 @@ def cmd_certify(args: argparse.Namespace) -> int:
             grader=args.runner,
             gates=[gate],
             started=started,
+            runner=runner,
         )
         print(json.dumps(record.to_dict(), indent=2))
         return 0 if t.non_inferior else 1
@@ -4203,9 +4212,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
 
     runner = None
     if args.runner == "anthropic":
-        from .replay.anthropic_runner import AnthropicRunner
-
-        runner = AnthropicRunner()
+        runner = _anthropic_runner(args)
     price = pricing.get(args.pricing)
     tok = tokenizer.resolve(args.tokenizer, model=price.name)
     entries = load_corpus(args.corpus) if args.corpus else load_corpus()
@@ -4244,9 +4251,7 @@ def cmd_conformal(args: argparse.Namespace) -> int:
 
     runner: Any = None
     if args.runner == "anthropic":
-        from .replay.anthropic_runner import AnthropicRunner
-
-        runner = AnthropicRunner(samples=args.samples)
+        runner = _anthropic_runner(args, samples=args.samples)
     else:
         from .replay.runner import DeterministicRunner
 
@@ -4431,9 +4436,7 @@ def cmd_frontier(args: argparse.Namespace) -> int:
 
     runner: Any = DeterministicRunner()
     if args.runner == "anthropic":
-        from .replay.anthropic_runner import AnthropicRunner
-
-        runner = AnthropicRunner(samples=args.samples)
+        runner = _anthropic_runner(args, samples=args.samples)
     entries = load_corpus(args.corpus) if args.corpus else load_corpus()
     try:
         targets = tuple(float(x) for x in args.targets.split(","))
@@ -4468,9 +4471,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
     runner = None
     if args.runner == "anthropic":
-        from .replay.anthropic_runner import AnthropicRunner
-
-        runner = AnthropicRunner()
+        runner = _anthropic_runner(args)
     entries = load_corpus(args.corpus) if args.corpus else load_corpus()
     rep = frontier(entries, runner=runner)
     print(format_frontier(rep))
@@ -4868,6 +4869,26 @@ def build_parser() -> argparse.ArgumentParser:
             help="heuristic (offline, default) or anthropic (billing-grade count_tokens)",
         )
 
+    def add_live(sp: argparse.ArgumentParser, model_help: str | None = None) -> None:
+        """--model/--effort for every command that takes --runner anthropic."""
+        from .replay.anthropic_runner import DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS
+
+        sp.add_argument(
+            "--model",
+            default=None,
+            help=model_help
+            or f"live grader for --runner anthropic (default: {DEFAULT_MODEL}, the measured "
+            "certifier)",
+        )
+        sp.add_argument(
+            "--effort",
+            default=None,
+            choices=EFFORTS,
+            help=f"output_config.effort for --runner anthropic (default: {DEFAULT_EFFORT} for "
+            f"{DEFAULT_MODEL}, none for any other --model; 'none' sends no output_config — "
+            "claude-haiku-4-5 rejects one)",
+        )
+
     c = sub.add_parser("compress", help="shrink a trajectory; report ratio + reversibility")
     add_traj(c)
     add_tokenizer(c)
@@ -5039,12 +5060,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=_budget.BUDGET_DELTA,
         help="significance level (alpha — how strict the TOST gate is; lower is stricter)",
     )
-    ce.add_argument(
-        "--model",
-        default=None,
-        help="override the trajectory's model for --runner anthropic (e.g. a cheap "
-        "model for the nightly budget-capped gate)",
-    )
+    add_live(ce)
     ce.add_argument(
         "--max-live-calls",
         type=int,
@@ -5134,6 +5150,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("eval", help="certified compression frontier (savings vs accuracy)")
     ev.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
     ev.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
+    add_live(ev)
     ev.add_argument("--out", help="write the raw curve JSONL to this dir")
     ev.set_defaults(func=cmd_eval)
 
@@ -5199,6 +5216,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bn.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
     bn.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
+    add_live(bn)
     bn.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
     bn.add_argument("--tokenizer", default="heuristic", choices=("heuristic", "anthropic"))
     bn.add_argument(
@@ -5221,6 +5239,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fr.add_argument("--corpus", help="custom corpus dir")
     fr.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
+    add_live(fr)
     fr.add_argument(
         "--samples", type=int, default=3, help="majority-vote samples (anthropic runner)"
     )
@@ -5274,6 +5293,7 @@ def build_parser() -> argparse.ArgumentParser:
     cf.add_argument("--method", default="ltt", choices=("ltt", "crc"))
     cf.add_argument("--corpus", help="calibration corpus dir (e.g. your ingested traffic)")
     cf.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
+    add_live(cf)
     cf.add_argument(
         "--samples", type=int, default=3, help="majority-vote samples (anthropic runner)"
     )

@@ -139,6 +139,17 @@
         },
         "detail": {
           "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "description": "Live grader model id (live runners only)."
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "output_config.effort sent to the live grader; null = none sent."
         }
       }
     },

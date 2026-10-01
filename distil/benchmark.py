@@ -270,7 +270,11 @@ class Result:
 class BenchReport:
     results: list[Result] = field(default_factory=list)
     runner: str = "deterministic"
-    model: str = ""
+    model: str = ""  # the PRICING model, not the grader
+    # A live grader's model/effort (None for the offline oracle): the certifier default
+    # moves between releases, so a raw row must say which one graded it.
+    grader_model: str | None = None
+    grader_effort: str | None = None
 
     @property
     def certified(self) -> list[Result]:
@@ -312,7 +316,12 @@ def run_benchmark(
         for e in entries
     )
 
-    report = BenchReport(runner=getattr(runner, "name", "deterministic"), model=price.name)
+    report = BenchReport(
+        runner=getattr(runner, "name", "deterministic"),
+        model=price.name,
+        grader_model=getattr(runner, "model", None),
+        grader_effort=getattr(runner, "effort", None),
+    )
     for tech in techniques:
         base_tok = comp_tok = 0
         dollars = 0.0
@@ -470,6 +479,8 @@ def write_raw(report: BenchReport, out_dir: str, stamp: str) -> str:
                         "certified": r.certified,
                         "model": report.model,
                         "runner": report.runner,
+                        "grader_model": report.grader_model,
+                        "grader_effort": report.grader_effort,
                     }
                 )
                 + "\n"
