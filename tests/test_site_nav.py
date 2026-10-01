@@ -68,12 +68,12 @@ def test_which_mode_is_on_every_topbar():
 
 
 def test_new_badge_follows_the_release_window():
-    """ "New" retires itself: only pages introduced in the current or previous minor
-    release carry it, judged against the version argument, not a wall clock."""
+    """ "New" retires itself: only pages introduced in the current minor release
+    carry it, judged against the version argument, not a wall clock."""
     mod = _load_site_nav()
     assert mod.is_new("model-migration.html", "1.56.1")
-    assert mod.is_new("ab.html", "1.56.1")  # 1.55: still inside the window
-    assert not mod.is_new("ab.html", "1.57.0")  # one release later it drops
+    assert mod.is_new("ab.html", "1.55.2")  # new in its own release
+    assert not mod.is_new("ab.html", "1.56.1")  # the next minor release retires it
     assert not mod.is_new("cache.html", "1.56.1")  # 1.41: long since not new
     assert not mod.is_new("cli.html", "1.56.1")  # untracked pages never get it
     assert not mod.is_new("model-migration.html", "2.0.0")

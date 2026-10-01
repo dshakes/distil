@@ -43,7 +43,7 @@ ADDED: dict[str, str] = {
     "mcp.html": "1.55.0",
     "model-migration.html": "1.56.0",
 }
-NEW_WINDOW = 2  # the current minor release and the one before it
+NEW_WINDOW = 1  # the current minor release only
 
 
 def _minor(version: str) -> tuple[int, int]:

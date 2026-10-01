@@ -21,7 +21,7 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
   - **SWE-agent GPT-4o trajectories** from the SWE-bench Lite leaderboard submissions (`s3://swe-bench-submissions/lite/20240728_sweagent_gpt4o/trajs/`) — 120 trajectories, 100 decision points: certified-vs-served savings and the served-path decision gap.
   - **SWE-bench Lite** ([`princeton-nlp/SWE-bench_Lite`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite), test split, official Docker images and grader) — 10-task pilot and 100-task powered run: task outcome.
   - **distil's synthetic corpus** (in-repo) — offline certification only; excluded from live comparisons because its `DECISION:` markers leak the answer.
-- **"New" badges expire on their own.** Each page records the release that introduced it (`ADDED` in `scripts/site_nav.py`, from git history); the badge shows only while that release is the current or previous minor version, and the generator refreshes the landing page too. 14 hand-set "New" badges (some from 1.33) become 5.
+- **"New" badges expire on their own.** Each page records the release that introduced it (`ADDED` in `scripts/site_nav.py`, from git history); the badge shows only while that release is the current minor version, and the generator refreshes the landing page too. 14 hand-set "New" badges (some from 1.33) become 1.
 - Docs sidebar grouped into 7 collapsible sections (native `<details>`, no JS).
 
 ## [1.56.0] — 2026-09-30 — who grades the certificate, and what it grades
