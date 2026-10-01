@@ -59,6 +59,7 @@
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
         <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -115,6 +116,59 @@
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
 
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-56-0">1.56.0 — 2026-09-30 — who grades the certificate, and what it grades</h2>
+<p><strong>In short</strong></p>
+<ul>
+<li><strong>Changed — the default live certifier is <code>claude-sonnet-5-5</code> at <code>effort=low</code></strong> (it was <code>claude-opus-4-8</code> in <code>AnthropicRunner</code>; <code>distil certify</code> used the trace's model label). Chosen by a pre-registered, paired migration eval on real τ-bench traffic: it passed every gate, at 57.5% lower cost per case. The nightly live gate moved from <code>claude-haiku-4-5</code> to it. New <code>--effort</code> flag on <code>certify</code>, <code>eval</code>, <code>benchmark</code>, <code>frontier</code> and <code>conformal</code>.</li>
+<li><strong>Added — <code>distil certify --strategy served</code>, and a <code>served (adapter)</code> frontier point.</strong> It runs the real serving adapter on the request a caching tool-use client sends, so the certificate covers the digests of <em>earlier</em> tool outputs. On real SWE-agent trajectories the old certified strategy saves 2.6% of tokens and serving saves 52.6%: most served bytes were never certified.</li>
+<li><strong>Open risk, stated plainly.</strong> With recovery, the served path keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two identical uncompressed calls. The SWE-bench outcome harness that would settle whether that costs solved tasks is built and tested offline and has <strong>not been run</strong>.</li>
+<li><strong>Fixed — grading and loading.</strong> The recovery loop commits through the structured decision tool; live renders strip <code>DECISION:</code> markers; <code>load_swe_bench</code> reads the current SWE-agent <code>.traj</code> format; exact-quote provenance covers <code>goto</code> / <code>scroll_up</code> / <code>scroll_down</code>; <code>--runner anthropic</code> no longer exits on models that reject a forced <code>tool_choice</code>.</li>
+<li><strong>Research</strong> — a model-migration eval (<code>benchmarks/model_migration_eval.py</code>), its summary artifact, a new <a href="model-migration.html">Model Migration</a> page, three diagrams, and ADRs <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0020-default-live-certifier.md">0020</a> and <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0021-served-path-certification.md">0021</a>.</li>
+</ul>
+<p>The full story, change by change:</p>
+<h3>Changed: the live certifier is measured, not inherited</h3>
+<p>A certificate is graded by a model, and for as long as distil has had a live grader that model was an inheritance: <code>AnthropicRunner</code> defaulted to <code>claude-opus-4-8</code>, <code>distil certify</code> graded with whatever model label the trace carried, and the nightly gate used <code>claude-haiku-4-5</code> because it was cheap. Nobody had asked whether changing the grader changes the verdict. That is a migration question, and a model upgrade has one honest test: the candidate grades the same compressed and uncompressed contexts as the incumbent, and you look at whether it reaches the same verdicts.</p>
+<p><code>benchmarks/model_migration_eval.py</code> is that test. It replays 100 real τ-bench decision points (60 held out, 4 repetitions each) on the arms described below, paired against <code>claude-opus-4-8</code> on the deployed metric <code>equiv_expand_act</code>: the next action is unchanged by compression when the model may recover a digest with <code>distil_expand</code>. Candidates were accepted only under gates written before the first run: a quality lower bound of at least −5 points, self-consistency no worse, the truncation control still diverging at no less than 0.8 times the incumbent's rate, at least 15% cheaper, and any difference explained by a mechanism found in the traces.</p>
+<ul>
+<li><code>claude-sonnet-5-5</code> at low effort passed all five: a paired change of +3.8 points with a lower bound of −4.5, two full calls agreeing 99.2% of the time against 92.5%, a control that still diverges on 79.6% of held-out cases against 89.2%, and $0.0619 per case against $0.1458, 57.5% cheaper. The interval is wide, so the claim is non-inferiority at a large saving, not that Sonnet certifies better.</li>
+<li><code>claude-opus-5-5</code> tracks the incumbent on the point estimate at about the same cost, and does not clear the quality bound on 60 cases (lower bounds −10.0 at default effort, −9.8 at low). It buys neither a saving nor a proof.</li>
+<li><code>claude-haiku-4-5</code> is too weak: −5.8 points, lower bound −15.8. Its control is the most sensitive of the five, so the failure is in the decisions, not the instrument.</li>
+<li><code>AnthropicRunner</code> defaults to <code>claude-sonnet-5-5</code> at <code>effort=low</code>. <code>--effort</code> is a flag on <code>certify</code>, <code>eval</code>, <code>benchmark</code>, <code>frontier</code> and <code>conformal</code>; <code>effort_for()</code> resolves it: an explicit value wins, <code>none</code> sends no <code>output_config</code>, and unset means <code>low</code> for the default model and nothing for any other, because a blanket <code>low</code> would 400 every call to a model without effort support (<code>claude-haiku-4-5</code> rejects one). This is exactly what the nightly gate ran into when it was on Haiku.</li>
+<li><code>claude-opus-5-5</code>, <code>claude-sonnet-5-5</code> and <code>claude-fable-5-1</code> reject a forced <code>tool_choice</code> with a 400. <code>AnthropicRunner</code> falls back to <code>tool_choice=auto</code> with the same strict decision tool; before this, <code>--runner anthropic</code> exited on all three.</li>
+<li>The nightly live-cert workflow moved from <code>claude-haiku-4-5</code> to <code>claude-sonnet-5-5</code> at low effort.</li>
+<li>The published live result (83.2% token savings at 0% decision-change, graded by <code>claude-opus-4-8</code> on 2026-07-05) is not re-graded and stays labelled with its grader.</li>
+</ul>
+<p>Decision record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0020-default-live-certifier.md">ADR 0020</a>. Figures are recomputed by <code>benchmarks/model_migration_summary.py</code> into <code>benchmarks/results/model-migration/summary.json</code>.</p>
+<h3>Added: certifying what is served</h3>
+<p>The same harness would not let a second problem stay hidden. <code>distil certify</code> grades the <code>distil</code> strategy, which digests only the volatile, latest tool output. A caching coding client puts its cache breakpoint on the newest message, so everything before it is committed prefix, and the serving adapter (<code>distil.adapters.anthropic.compress_messages</code>) digests every earlier tool result. On real SWE-agent trajectories (4,616 turns) the certified strategy saves 2.6% of tokens and serving saves 52.6%. The certificate was true of a slice of the traffic that carries almost none of the savings.</p>
+<ul>
+<li><code>distil certify --strategy served</code>, and a <code>served (adapter)</code> point on the <code>frontier</code>, run the real adapter on the request a caching tool-use client sends: stable system and tool blocks stay out of it, each tool output becomes a <code>tool_result</code> answering a paired <code>tool_use</code>, the breakpoint sits on the newest message so nothing is carved out as recent, and reject-if-bigger applies on top. What it does not certify (a client with no or an earlier breakpoint, images, verbatim and subscription mode, a sub-span handle from a <code>&lt;distil:keep&gt;</code> span or a re-read delta, and task success) is written out in <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0021-served-path-certification.md">ADR 0021</a>.</li>
+<li><strong>The first result is an open risk, not a win.</strong> On 100 SWE-agent decision points (59 held out), graded by <code>claude-sonnet-5-5</code> at low effort, the served path with recovery keeps the next action in 78.0% of held-out decisions against 94.1% for two identical uncompressed calls (certified <code>distil</code> with recovery: 77.1%). The set is small, it is one model, and a next-action match is stricter than task success, so this is not a verdict that serving hurts task success. It is the reason the next item exists.</li>
+<li><code>benchmarks/swebench_outcome/</code> with <a href="https://github.com/dshakes/distil/blob/main/specs/swebench-outcome-eval.md"><code>specs/swebench-outcome-eval.md</code></a>: a SWE-bench Lite task-outcome harness, a plain agent against a distil-served agent, the official grader, paired McNemar against a pre-registered 5-point margin. <strong>Built and tested offline. Not yet run.</strong> No page claims a task-success result from it.</li>
+</ul>
+<h3>Fixed: the harness was grading its own artefacts</h3>
+<p>Building live arms found defects that an offline oracle could never have shown, because the oracle is what hid them.</p>
+<ul>
+<li><strong>Recovery-loop grading.</strong> <code>ExpandAwareRunner</code> committed its final decision as free text while the plain arm used the strict decision tool. The format difference alone flipped about one action in five (measured on the synthetic corpus, before it was superseded), which read as compression harm and was none. It now commits through the runner's <code>structured_decision</code> tool.</li>
+<li><strong>Answer markers leaked.</strong> Live renders carried <code>DECISION:</code> annotation lines, offline-oracle markers that hand the answer to a live grader. They are stripped from live renders. The <code>DeterministicRunner</code> is unaffected, because it is the thing that reads them.</li>
+<li><strong>The strip applies to every trace, not just the corpus.</strong> Any line whose text starts with <code>DECISION:</code> is removed from every live render (Anthropic, OpenAI-compatible, <code>claude -p</code>, the recovery loop), in both arms alike, because on a planted corpus that line is the answer and the two arms must differ by compression alone. A real trace with such a line loses it from the grader's view. Live certificates over traces carrying these lines are not comparable with earlier ones, and <code>benchmarks/prove.py</code> now keys its decision cache on a render version so it never replays a decision made under the old render.</li>
+<li><strong><code>load_swe_bench</code> read SWE-agent trajectories wrongly.</strong> Against the current <code>.traj</code> history format it dropped the issue and the system prompt and mis-paired steps, so coding decision points were not decision points. It now reads system prompt, tool menu and issue, actions and observations in the right order, and the gold is the next command.</li>
+<li><strong>Exact-quote provenance</strong> now covers SWE-agent <code>goto</code>, <code>scroll_up</code> and <code>scroll_down</code> file views, like <code>open</code>.</li>
+</ul>
+<p>Two lessons worth their own paragraph, because each would have ruined a result silently. A distil-wrapped shell exports <code>ANTHROPIC_BASE_URL</code> to the local proxy, so an eval client that honours it grades distil with distil; the eval client pins <code>api.anthropic.com</code>. And the bundled corpus is for the offline oracle: it plants <code>DECISION:</code> markers, so live grading needs marker-free real traces.</p>
+<h3>Added: the eval tooling</h3>
+<ul>
+<li><code>benchmarks/model_migration_eval.py</code> — the decision-equivalence model-migration eval. Case sources <code>synthetic</code>, real τ-bench and coding SWE-agent; arms full×2, distil, expand (distil with recovery), a truncation control, served and served with recovery; paired confidence intervals; cost; a direct-API client; a harness-hash gate; <code>--fetch-tau-bench</code>, <code>--fetch-swe-agent</code>, <code>--savings-report</code>, <code>--status</code> and <code>--regrade</code>.</li>
+<li><code>benchmarks/model_migration_summary.py</code> — recomputes every figure the docs quote into <code>benchmarks/results/model-migration/summary.json</code>.</li>
+<li><code>benchmarks/swebench_outcome/</code> — see above; unrun.</li>
+</ul>
+<h3>Docs</h3>
+<ul>
+<li>New page <a href="model-migration.html">Model Migration</a>: the question, the method, the results table, the gates, what is still open, how to rerun. Three new diagrams (<code>model-migration-arms.svg</code>, <code>served-coverage.svg</code>, <code>certifier-migration.svg</code>). <a href="evals.html">Evaluation</a>, <a href="cli.html">CLI reference</a>, README, <code>docs/EVALUATION.md</code>, <code>docs/RUNNING-EVALS.md</code> and <code>docs/llms.txt</code> updated; ADRs 0020 and 0021.</li>
+</ul>
 </section>
 
 <section class="changelog-entry">

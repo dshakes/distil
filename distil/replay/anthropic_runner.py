@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..trajectory import Block, Kind, Stability
+from ..trajectory import Block
 from . import prompts
 
 _DECISION_TOOL = {
@@ -25,17 +25,46 @@ _DECISION_TOOL = {
     "input_schema": prompts.DECISION_PARAMS,
 }
 
+# The live certifier. Chosen by benchmarks/model_migration_eval.py on real τ-bench
+# traffic (60 held-out cases x 4 reps) against the incumbent claude-opus-4-8: it passed
+# every pre-registered gate (expand action-equivalence +3.8 ± 8.3 pts, self-consistency
+# 99.2% vs 92.5%) at 58% lower cost per certificate. The PAIR is what was measured —
+# the same model at another effort is an unmeasured certifier.
+DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_EFFORT = "low"
+# CLI choices for --effort; "none" sends no output_config at all.
+EFFORTS = ("low", "medium", "high", "xhigh", "max", "none")
+
+
+def effort_for(model: str | None, effort: str | None) -> str | None:
+    """Resolve a CLI ``--effort`` for *model*: an explicit value wins (``none`` -> send
+    no output_config); unset means the measured pair's effort for the default model
+    and NO output_config for any other. A blanket ``low`` would 400 every call to a
+    model without effort support (claude-haiku-4-5), which is what the nightly gate
+    ran on until this default moved."""
+    if effort:
+        return None if effort == "none" else effort
+    return DEFAULT_EFFORT if model in (None, DEFAULT_MODEL) else None
+
+
+# "effort not given" — distinct from an explicit None (= send no output_config), so an
+# omitted effort can be resolved per model by effort_for.
+_UNSET = "<unset>"
+
 
 class AnthropicRunner:
     name = "anthropic"
+    # decide() goes through a forced/strict decision tool; ExpandAwareRunner commits through it.
+    structured_decision = True
 
     def __init__(
         self,
-        model: str = "claude-opus-4-8",
+        model: str = DEFAULT_MODEL,
         client: object | None = None,
         max_tokens: int = 4096,
         samples: int = 1,
         max_calls: int | None = None,
+        effort: str | None = _UNSET,
     ) -> None:
         self.model = model
         self._client = client
@@ -44,11 +73,20 @@ class AnthropicRunner:
         # run fails loudly when the budget is hit instead of spending silently.
         self.max_calls = max_calls
         self.calls_made = 0
+        # Newer models (claude-opus-5-5, claude-sonnet-5-5, claude-fable-5-1)
+        # reject forced tool_choice with a 400. Flipped on the first such 400;
+        # the decision then goes through tool_choice=auto + the same strict tool.
+        self.forced_tool_choice = True
         # Newer models deprecate `temperature`, so we can't pin sampling to 0.
         # Instead, take the MAJORITY decision over `samples` calls — the stable
         # "most-likely action" — which removes the model's own run-to-run variance
         # that would otherwise masquerade as a compression-induced divergence.
         self.samples = max(1, samples)
+        # output_config.effort (low..max) - the main cost lever on current models.
+        # None sends no output_config, i.e. the request is unchanged. Omitted, it is
+        # resolved by effort_for: DEFAULT_EFFORT for the default model (the measured
+        # pair), none for any other — claude-haiku-4-5 400s on an effort it lacks.
+        self.effort = effort_for(model, None) if effort == _UNSET else effort
 
     def _ensure_client(self) -> object:
         if self._client is None:
@@ -80,9 +118,24 @@ class AnthropicRunner:
                 "API calls) — raise --max-live-calls or shrink the trajectory set."
             )
         self.calls_made += 1
+        if self.effort:
+            kw.setdefault("output_config", {"effort": self.effort})
         try:
             return self._ensure_client().messages.create(**kw)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 — auth / network / rate-limit
+            tc = kw.get("tool_choice")
+            if (
+                isinstance(tc, dict)
+                and tc.get("type") == "tool"
+                and getattr(exc, "status_code", None) == 400
+                and "tool_choice" in str(exc)
+            ):
+                self.forced_tool_choice = False
+                return self._create(**{**kw, "tool_choice": {"type": "auto"}})
+            if getattr(exc, "failure_class", None):
+                # A classified harness error (e.g. the eval's served-model check) keeps
+                # its class; turning it into SystemExit would file it as an API error.
+                raise
             raise SystemExit(
                 f"distil: the Anthropic API call failed — {exc}\n"
                 "  set your key:  export ANTHROPIC_API_KEY=sk-ant-..."
@@ -98,17 +151,9 @@ class AnthropicRunner:
 
     def _sample(self, blocks: list[Block]) -> str:
         # Stable system/tool context -> system prompt; everything else -> the user turn.
-        system_parts = [
-            b.text
-            for b in blocks
-            if b.stability is Stability.STABLE and b.kind in (Kind.SYSTEM, Kind.TOOLS)
-        ]
-        rest = [
-            b
-            for b in blocks
-            if not (b.stability is Stability.STABLE and b.kind in (Kind.SYSTEM, Kind.TOOLS))
-        ]
-        user = "\n\n".join(f"[{b.kind.value}] {b.text}" for b in rest)
+        # The shared split, so DECISION: annotations never reach the model here either.
+        system_parts, rest = prompts.split(blocks)
+        user = prompts.render(blocks)[1]
 
         # Vision blocks are rendered as REAL provider content blocks — otherwise
         # the model never sees an image and any "vision certificate" would be
@@ -126,7 +171,12 @@ class AnthropicRunner:
         content: list[dict[str, Any]] = []
         if has_media:
             for b in rest:
-                content.append({"type": "text", "text": f"[{b.kind.value}] {b.text}"})
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"[{b.kind.value}] {prompts.strip_annotations(b.text)}",
+                    }
+                )
                 for item in b.media or ():
                     if isinstance(item, dict) and item.get("type") == "image":
                         content.append(item)
@@ -154,13 +204,19 @@ class AnthropicRunner:
             max_tokens=self.max_tokens,
             system="\n\n".join(system_parts) or "You are an autonomous agent.",
             tools=[decision_tool],
-            tool_choice={"type": "tool", "name": "record_decision"},
+            tool_choice=(
+                {"type": "tool", "name": "record_decision"}
+                if self.forced_tool_choice
+                else {"type": "auto"}
+            ),
             messages=[
                 {
                     "role": "user",
-                    # A plain string when there is no media, so the text-only
-                    # path is byte-identical to what it sent before this change
-                    # and every existing certificate stays comparable.
+                    # A plain string when there is no media — the text-only shape the
+                    # media path was added beside. Not byte-identical to older runs on
+                    # every trace: since 1.56.0 DECISION: annotation lines are stripped
+                    # (prompts.strip_annotations), so certificates over traces carrying
+                    # them are not comparable with ones made before.
                     "content": (
                         content
                         if has_media
@@ -174,7 +230,13 @@ class AnthropicRunner:
         for block in resp_blocks:
             if getattr(block, "type", None) == "tool_use":
                 return prompts.fingerprint_from_args(block.input)
-        return "<no-decision>"
+        # Under tool_choice=auto the model may answer in text instead of calling
+        # the tool; the same {action,target} parser the text runners use applies.
+        return prompts.parse_fingerprint(
+            "".join(
+                getattr(b, "text", "") for b in resp_blocks if getattr(b, "type", None) == "text"
+            )
+        )
 
     def _raw(self, system: str, user: str) -> str:
         """Free-form text completion (no forced tool) — used by the expand loop, which

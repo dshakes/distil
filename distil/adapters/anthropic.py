@@ -401,8 +401,12 @@ class RestoreStore:
     sent to the model, so it costs zero tokens.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, persist: bool = True) -> None:
         self._store: dict[str, str] = {}
+        # False = in-memory only: no disk write and no disk collision check. For
+        # offline callers (the `served` certify strategy) that must neither evict a
+        # live session's restore blobs nor depend on what is already on disk.
+        self._persist = persist
 
     # ------------------------------------------------------------------
     # Internal (used by compress_messages)
@@ -422,7 +426,7 @@ class RestoreStore:
         # place the same collision can happen. A handle that already maps to different
         # bytes on disk would expand correctly here and WRONGLY after a restart, so the
         # stub is declined rather than emitted with a shorter life than the handle.
-        if not _record_restore(handle, original):
+        if self._persist and not _record_restore(handle, original):
             return False
         self._store[handle] = original
         return True
@@ -1045,6 +1049,7 @@ def compress_messages(
     verbatim: bool = False,
     keep: Any = None,
     evict: frozenset[str] = frozenset(),
+    persist: bool = True,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -1065,6 +1070,11 @@ def compress_messages(
         tool_use ids whose results become a recoverable eviction stub (ADR 0014,
         chosen by :mod:`distil.coldpoint`). Ignored in verbatim mode, on recent
         turns, and for any exact-quote result.
+    persist:
+        When *False*, originals stay in the returned in-memory store only: nothing is
+        written to (or collision-checked against) the on-disk restore store. For
+        offline certification, which must not evict a live session's blobs or let
+        disk state change its output.
 
     Returns
     -------
@@ -1108,7 +1118,7 @@ def compress_messages(
             # of them and the model would receive none. Per-pass state, per-pass reset.
             # ADR 0003 — None unless the content type has been certified, so the default
             # path is byte-for-byte what it was before.
-            store = RestoreStore()
+            store = RestoreStore(persist=persist)
             new_messages: list[dict[str, Any]] = []
             for idx, msg in enumerate(messages):
                 if not isinstance(msg, dict):

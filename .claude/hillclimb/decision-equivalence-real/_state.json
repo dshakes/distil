@@ -1,0 +1,200 @@
+{
+  "metrics": [
+    {
+      "id": "equiv_distil_act",
+      "label": "distil act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_expand_act",
+      "label": "expand act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "self_consist_act",
+      "label": "self act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "decided",
+      "label": "decided",
+      "kind": "binary"
+    },
+    {
+      "id": "agree_ref_act",
+      "label": "ref act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "agree_gold_act",
+      "label": "recorded act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "trunc_detect",
+      "label": "trunc caught",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_distil",
+      "label": "distil exact",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_expand",
+      "label": "expand exact",
+      "kind": "binary"
+    },
+    {
+      "id": "self_consist",
+      "label": "self exact",
+      "kind": "binary"
+    }
+  ],
+  "perf_fields": [
+    "latency_s",
+    "tool_calls",
+    "savings"
+  ],
+  "reps": 2,
+  "train_ids": [
+    "gpt-4o-airline-ep12-t0",
+    "gpt-4o-airline-ep143-t0",
+    "gpt-4o-airline-ep151-t0",
+    "gpt-4o-airline-ep156-t6",
+    "gpt-4o-airline-ep17-t2",
+    "gpt-4o-airline-ep7-t1",
+    "gpt-4o-airline-ep72-t0",
+    "gpt-4o-airline-ep86-t0",
+    "gpt-4o-airline-ep89-t0",
+    "gpt-4o-airline-ep90-t0",
+    "gpt-4o-retail-ep119-t3",
+    "gpt-4o-retail-ep126-t4",
+    "gpt-4o-retail-ep174-t4",
+    "gpt-4o-retail-ep241-t4",
+    "gpt-4o-retail-ep310-t4",
+    "gpt-4o-retail-ep348-t3",
+    "gpt-4o-retail-ep4-t3",
+    "gpt-4o-retail-ep404-t4",
+    "sonnet-35-new-airline-ep124-t4",
+    "sonnet-35-new-airline-ep125-t2",
+    "sonnet-35-new-airline-ep139-t2",
+    "sonnet-35-new-airline-ep224-t2",
+    "sonnet-35-new-airline-ep288-t1",
+    "sonnet-35-new-airline-ep324-t5",
+    "sonnet-35-new-airline-ep349-t6",
+    "sonnet-35-new-airline-ep373-t4",
+    "sonnet-35-new-airline-ep60-t1",
+    "sonnet-35-new-airline-ep68-t2",
+    "sonnet-35-new-retail-ep124-t6",
+    "sonnet-35-new-retail-ep136-t0",
+    "sonnet-35-new-retail-ep281-t4",
+    "sonnet-35-new-retail-ep325-t4",
+    "sonnet-35-new-retail-ep551-t5",
+    "sonnet-35-new-retail-ep571-t5",
+    "sonnet-35-new-retail-ep634-t3",
+    "sonnet-35-new-retail-ep697-t2",
+    "sonnet-35-new-retail-ep703-t4",
+    "sonnet-35-new-retail-ep813-t1",
+    "sonnet-35-new-retail-ep856-t4",
+    "sonnet-35-new-retail-ep914-t4"
+  ],
+  "test_ids": [
+    "gpt-4o-airline-ep105-t1",
+    "gpt-4o-airline-ep111-t3",
+    "gpt-4o-airline-ep147-t1",
+    "gpt-4o-airline-ep157-t0",
+    "gpt-4o-airline-ep158-t2",
+    "gpt-4o-airline-ep161-t8",
+    "gpt-4o-airline-ep178-t0",
+    "gpt-4o-airline-ep19-t0",
+    "gpt-4o-airline-ep27-t2",
+    "gpt-4o-airline-ep36-t1",
+    "gpt-4o-airline-ep63-t6",
+    "gpt-4o-airline-ep64-t3",
+    "gpt-4o-airline-ep70-t8",
+    "gpt-4o-airline-ep71-t0",
+    "gpt-4o-airline-ep77-t0",
+    "gpt-4o-retail-ep118-t3",
+    "gpt-4o-retail-ep121-t2",
+    "gpt-4o-retail-ep137-t2",
+    "gpt-4o-retail-ep165-t0",
+    "gpt-4o-retail-ep2-t3",
+    "gpt-4o-retail-ep232-t3",
+    "gpt-4o-retail-ep242-t4",
+    "gpt-4o-retail-ep265-t1",
+    "gpt-4o-retail-ep336-t4",
+    "gpt-4o-retail-ep349-t3",
+    "gpt-4o-retail-ep395-t0",
+    "gpt-4o-retail-ep411-t1",
+    "gpt-4o-retail-ep9-t2",
+    "sonnet-35-new-airline-ep114-t4",
+    "sonnet-35-new-airline-ep120-t2",
+    "sonnet-35-new-airline-ep173-t5",
+    "sonnet-35-new-airline-ep18-t2",
+    "sonnet-35-new-airline-ep211-t3",
+    "sonnet-35-new-airline-ep213-t3",
+    "sonnet-35-new-airline-ep25-t2",
+    "sonnet-35-new-airline-ep274-t5",
+    "sonnet-35-new-airline-ep300-t4",
+    "sonnet-35-new-airline-ep304-t5",
+    "sonnet-35-new-airline-ep313-t3",
+    "sonnet-35-new-airline-ep359-t9",
+    "sonnet-35-new-airline-ep361-t3",
+    "sonnet-35-new-airline-ep39-t2",
+    "sonnet-35-new-airline-ep64-t3",
+    "sonnet-35-new-retail-ep125-t4",
+    "sonnet-35-new-retail-ep127-t4",
+    "sonnet-35-new-retail-ep14-t4",
+    "sonnet-35-new-retail-ep154-t2",
+    "sonnet-35-new-retail-ep185-t4",
+    "sonnet-35-new-retail-ep195-t4",
+    "sonnet-35-new-retail-ep212-t5",
+    "sonnet-35-new-retail-ep239-t2",
+    "sonnet-35-new-retail-ep260-t7",
+    "sonnet-35-new-retail-ep519-t3",
+    "sonnet-35-new-retail-ep525-t0",
+    "sonnet-35-new-retail-ep625-t0",
+    "sonnet-35-new-retail-ep64-t5",
+    "sonnet-35-new-retail-ep641-t4",
+    "sonnet-35-new-retail-ep750-t3",
+    "sonnet-35-new-retail-ep790-t8",
+    "sonnet-35-new-retail-ep865-t0"
+  ],
+  "cases": "real (benchmarks/model_migration_cases_real.json; \u03c4-bench historical_trajectories, fetch with --fetch-tau-bench)",
+  "goal": {
+    "target": "cost_usd",
+    "direction": "lower",
+    "hold": [
+      "equiv_distil_act",
+      "self_consist_act",
+      "trunc_detect",
+      "decided"
+    ]
+  },
+  "approve_each_round": false,
+  "adoption_gates": {
+    "quality_band": "paired delta in equiv_distil_act vs baseline on test: 95% CI lower bound >= -5 pts; self_consist_act and decided not below baseline by more than their own CI; trunc_detect >= 80% of baseline's rate",
+    "cost_margin": ">= 15% cheaper $/case than the incumbent at first-party list prices, cache-cold",
+    "mechanism": "saving must show up as fewer output tokens (effort) or lower per-token price (tier); an unexplained cost drop is a rejection"
+  },
+  "harness_paths": [
+    "benchmarks/model_migration_eval.py",
+    "distil/replay/anthropic_runner.py",
+    "distil/replay/expand_runner.py",
+    "distil/replay/prompts.py"
+  ],
+  "harness_sha": "101ed31108e78af771a09f7364f4bf38d4579ba63d039c0bc52f2f37e36ebedd",
+  "best": {
+    "variant": "v3",
+    "config": "claude-sonnet-5-5 @ effort=low",
+    "verdict": "passes all registered gates on 60 test cases x 4 reps (2026-09-29)",
+    "equiv_expand_act_delta": "+3.8 +- 8.3 pts (lower -4.6 vs -5 bar)",
+    "self_consist_act_delta": "+6.7 +- 4.9",
+    "trunc_ratio": 0.88,
+    "cost_per_case": {
+      "baseline": 0.146,
+      "v3": 0.062
+    }
+  }
+}

@@ -381,8 +381,13 @@ def render_grader(grader: str) -> str:
 
 
 def _grader_name(runner) -> str:
-    """Best-effort provenance for whatever graded the losses."""
-    return str(getattr(runner, "name", None) or type(runner).__name__)
+    """Best-effort provenance for whatever graded the losses — a live runner's model
+    and effort included, since the certifier's default moves between releases."""
+    name = str(getattr(runner, "name", None) or type(runner).__name__)
+    model = getattr(runner, "model", None)
+    if model:
+        name += f" ({model}, effort={getattr(runner, 'effort', None) or 'none'})"
+    return name
 
 
 def calibrate(

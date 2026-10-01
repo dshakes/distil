@@ -1,0 +1,45 @@
+--- a/distil/compress/tier1.py	2026-08-24 23:35:56
++++ repo/distil/compress/tier1.py	2026-09-29 10:51:25
+@@ -86,6 +86,29 @@
+     return "green" if saw_verdict else "unknown"
+ 
+ 
++# Directive halo — an in-band DECISION: line is pinned, but folding everything
++# around it strips the claim of the evidence it sits in: the qualifier that follows
++# a verdict ("… applies if not returned"), or the fragments that show the line was
++# spliced into the middle of another record. Isolated, the directive reads as
++# settled and the model follows it where the full context makes it verify first.
++# Keep the nearest non-blank line before and the two after. Additive (only widens
++# the keep set), so every folded line stays recoverable behind the same handle.
++# ponytail: fixed 1-before/2-after window; widen only if a trace shows a qualifier
++# further out.
++_HALO_BEFORE, _HALO_AFTER = 1, 2
++
++
++def _halo(lines: list[str], i: int) -> set[int]:
++    out: set[int] = set()
++    for step, want in ((-1, _HALO_BEFORE), (1, _HALO_AFTER)):
++        j, got = i + step, 0
++        while 0 <= j < len(lines) and got < want:
++            out.add(j)
++            got += bool(lines[j].strip())
++            j += step
++    return out
++
++
+ def digest(
+     text: str,
+     head: int = 3,
+@@ -124,8 +147,11 @@
+             keep_idx |= _qmodel.relevant_lines(lines, intent, kind)
+     shape_seen: dict[str, int] = {}
+     for i, ln in enumerate(lines):
+-        if "DECISION:" in ln or _SUMMARY_RE.search(ln) is not None:
++        if "DECISION:" in ln:
+             keep_idx.add(i)  # answers — never deduped
++            keep_idx |= _halo(lines, i)
++        elif _SUMMARY_RE.search(ln) is not None:
++            keep_idx.add(i)  # answers — never deduped
+         elif must_keep(ln, kind):
+             s = _shape(ln)
+             shape_seen[s] = shape_seen.get(s, 0) + 1

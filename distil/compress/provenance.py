@@ -85,6 +85,13 @@ EXACT_QUOTE_TOOLS = frozenset(
         "readfile",
         "view",
         "open",
+        # SWE-agent's window commands. Each returns a numbered view of the open file
+        # exactly like `open` does, and `edit a:b` addresses lines by the numbers in
+        # whichever view the agent last saw — a digest of a goto/scroll window loses
+        # them the same way a digested `open` would.
+        "goto",
+        "scroll_up",
+        "scroll_down",
         "cat",
         "str_replace_editor",
         "str_replace_based_edit_tool",

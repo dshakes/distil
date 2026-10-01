@@ -1,0 +1,185 @@
+{
+  "metrics": [
+    {
+      "id": "equiv_expand_act",
+      "label": "expand act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_distil_act",
+      "label": "distil act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "self_consist_act",
+      "label": "self act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "decided",
+      "label": "decided",
+      "kind": "binary"
+    },
+    {
+      "id": "agree_ref_act",
+      "label": "ref act eq",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_expand",
+      "label": "expand exact",
+      "kind": "binary"
+    },
+    {
+      "id": "equiv_distil",
+      "label": "distil exact",
+      "kind": "binary"
+    },
+    {
+      "id": "self_consist",
+      "label": "self exact",
+      "kind": "binary"
+    }
+  ],
+  "perf_fields": [
+    "savings",
+    "latency_s",
+    "tool_calls"
+  ],
+  "reps": 2,
+  "certifier": {
+    "model": "claude-sonnet-5-5",
+    "effort": "low",
+    "arms": [
+      "full_a",
+      "full_b",
+      "distil",
+      "expand_structured"
+    ]
+  },
+  "train_ids": [
+    "agent-worklog-t0",
+    "agent-worklog-t1",
+    "api-json-0-t0",
+    "api-json-4-t4",
+    "api-json-5-t0",
+    "coding-bugfix-t2",
+    "coding-bugfix-t3",
+    "data-analysis-sql-t0",
+    "data-analysis-sql-t2",
+    "devops-rollback-t0",
+    "devops-rollback-t3",
+    "finance-reconcile-t0",
+    "finance-reconcile-t2",
+    "k8s-incident-0-t0",
+    "k8s-incident-4-t4",
+    "k8s-incident-6-t1",
+    "logs-0-t0",
+    "logs-1-t1",
+    "logs-7-t2",
+    "metrics-0-t0",
+    "metrics-2-t2",
+    "metrics-7-t2",
+    "rag-synthesis-0-t0",
+    "rag-synthesis-2-t2",
+    "rag-synthesis-3-t3",
+    "research-synthesis-t0",
+    "research-synthesis-t1",
+    "sql-rows-2-t2",
+    "sql-rows-6-t1",
+    "sql-rows-7-t2",
+    "sre-disk-incident-t1",
+    "sre-disk-incident-t3",
+    "stacktrace-2-t2",
+    "stacktrace-5-t0",
+    "stacktrace-7-t2",
+    "support-chat-0-t0",
+    "support-chat-4-t4",
+    "support-chat-5-t0",
+    "support-refund-t0",
+    "support-refund-t3",
+    "web-research-t0",
+    "web-research-t3"
+  ],
+  "test_ids": [
+    "agent-worklog-t2",
+    "agent-worklog-t3",
+    "api-json-1-t1",
+    "api-json-2-t2",
+    "api-json-3-t3",
+    "api-json-6-t1",
+    "api-json-7-t2",
+    "coding-bugfix-t0",
+    "coding-bugfix-t1",
+    "data-analysis-sql-t1",
+    "data-analysis-sql-t3",
+    "devops-rollback-t1",
+    "devops-rollback-t2",
+    "finance-reconcile-t1",
+    "finance-reconcile-t3",
+    "k8s-incident-1-t1",
+    "k8s-incident-2-t2",
+    "k8s-incident-3-t3",
+    "k8s-incident-5-t0",
+    "k8s-incident-7-t2",
+    "logs-2-t2",
+    "logs-3-t3",
+    "logs-4-t4",
+    "logs-5-t0",
+    "logs-6-t1",
+    "metrics-1-t1",
+    "metrics-3-t3",
+    "metrics-4-t4",
+    "metrics-5-t0",
+    "metrics-6-t1",
+    "rag-synthesis-1-t1",
+    "rag-synthesis-4-t4",
+    "rag-synthesis-5-t0",
+    "rag-synthesis-6-t1",
+    "rag-synthesis-7-t2",
+    "research-synthesis-t2",
+    "research-synthesis-t3",
+    "sql-rows-0-t0",
+    "sql-rows-1-t1",
+    "sql-rows-3-t3",
+    "sql-rows-4-t4",
+    "sql-rows-5-t0",
+    "sre-disk-incident-t0",
+    "sre-disk-incident-t2",
+    "stacktrace-0-t0",
+    "stacktrace-1-t1",
+    "stacktrace-3-t3",
+    "stacktrace-4-t4",
+    "stacktrace-6-t1",
+    "support-chat-1-t1",
+    "support-chat-2-t2",
+    "support-chat-3-t3",
+    "support-chat-6-t1",
+    "support-chat-7-t2",
+    "support-refund-t1",
+    "support-refund-t2",
+    "web-research-t1",
+    "web-research-t2"
+  ],
+  "goal": {
+    "target": "savings",
+    "direction": "higher",
+    "hold": [
+      "equiv_expand_act",
+      "equiv_distil_act"
+    ]
+  },
+  "approve_each_round": false,
+  "adoption_gates": {
+    "quality_band": "paired \u0394 equiv_expand_act vs baseline on test: 95% CI lower bound >= -5 pts; equiv_distil_act same bound",
+    "cost_margin": "mean token savings strictly higher than the incumbent (or equal savings with a quality gain outside noise)",
+    "mechanism": "the change must move the targeted lines: flips fixed on the cases/domains the rationale names; savings change traceable to the edited keep/digest rule",
+    "cache_guardrail": "tests/test_cache_contract.py, tests/test_live_certified_equivalence.py and the full suite stay green; no rule may make stable-prefix output depend on turn position"
+  },
+  "harness_paths": [
+    "benchmarks/model_migration_eval.py",
+    "distil/replay/anthropic_runner.py",
+    "distil/replay/expand_runner.py",
+    "distil/replay/prompts.py"
+  ]
+}

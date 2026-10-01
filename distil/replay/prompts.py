@@ -20,12 +20,40 @@ INSTRUCTION = (
 )
 
 
-def render(blocks: list[Block]) -> tuple[str, str]:
-    """Split blocks into (system, user) text exactly like the Anthropic runner does:
-    the stable system/tool schema becomes the system prompt; everything else (history,
-    fresh observations) becomes the user turn."""
+# Bumped whenever the rendered prompt changes for an unchanged trace, so decision caches
+# keyed on block content (benchmarks/prove.py) are not answered by an older render.
+# 2 = DECISION: annotation lines stripped (1.56.0).
+RENDER_VERSION = 2
+
+
+def strip_annotations(text: str) -> str:
+    """*text* without its ``DECISION:`` annotation lines.
+
+    The bundled corpus plants ``DECISION: <the right move>`` lines for the offline
+    DeterministicRunner, which grades by reading exactly those lines. A live model
+    shown them is reading the answer key: equivalence then measures whether the
+    annotation survived compression, not whether the model still chooses the same
+    action. So every live render drops them — from the full and the compressed arm
+    alike, which keeps the two arms' prompts differing by compression and nothing
+    else. Real traces carry no such lines, so this is a no-op on them.
+
+    Only this renderer strips. The DeterministicRunner reads blocks directly and the
+    compressors keep these lines by contract (tier1's keep-DECISION rule): that is
+    the offline oracle, and it stays intact. Keyed on the line's content STARTING
+    with the marker — the corpus convention, and where every compressor leaves it —
+    so prose that merely mentions the word is untouched.
+    """
+    if "DECISION:" not in text:
+        return text
+    return "\n".join(ln for ln in text.split("\n") if not ln.lstrip().startswith("DECISION:"))
+
+
+def split(blocks: list[Block]) -> tuple[list[str], list[Block]]:
+    """(system texts, the rest): the stable system/tool schema becomes the system
+    prompt; everything else (history, fresh observations) becomes the user turn.
+    System texts are already annotation-stripped; strip the rest when rendering."""
     system_parts = [
-        b.text
+        strip_annotations(b.text)
         for b in blocks
         if b.stability is Stability.STABLE and b.kind in (Kind.SYSTEM, Kind.TOOLS)
     ]
@@ -34,7 +62,14 @@ def render(blocks: list[Block]) -> tuple[str, str]:
         for b in blocks
         if not (b.stability is Stability.STABLE and b.kind in (Kind.SYSTEM, Kind.TOOLS))
     ]
-    user = "\n\n".join(f"[{b.kind.value}] {b.text}" for b in rest)
+    return system_parts, rest
+
+
+def render(blocks: list[Block]) -> tuple[str, str]:
+    """Split blocks into (system, user) text exactly like the Anthropic runner does,
+    with ``DECISION:`` annotations removed (see :func:`strip_annotations`)."""
+    system_parts, rest = split(blocks)
+    user = "\n\n".join(f"[{b.kind.value}] {strip_annotations(b.text)}" for b in rest)
     system = "\n\n".join(system_parts) or "You are an autonomous agent."
     return system, user
 

@@ -34,7 +34,8 @@
         "concepts.html",
         "faq.html",
         "llms.txt",
-        "../README.md"
+        "../README.md",
+        "model-migration.html"
       ],
       "anchor": "proof",
       "snippet": "83.2% token savings at a 0% decision-change rate",
@@ -988,6 +989,94 @@
       "claim": "distil ab holds out 5% of new wrap sessions by default (DEFAULT_RATE), overridable by DISTIL_HOLDOUT_RATE or distil ab --holdout-rate; 0 disables.",
       "note": "A configured constant, not a measurement; tests/test_abtest.py pins the precedence and the opt-out.",
       "artifact": "distil/abtest/__init__.py"
+    },
+    {
+      "id": "v-migration-certifier-table",
+      "status": "verified",
+      "page": [
+        "model-migration.html",
+        "evals.html",
+        "../README.md"
+      ],
+      "anchor": "certifier",
+      "snippet": "claude-sonnet-5-5</code>, effort low</b></td><td><b>94.6%</b>",
+      "claim": "Real tau-bench traffic, 100 decision points (60 held out, 4 reps), certifier candidates paired against claude-opus-4-8 on the deployed metric equiv_expand_act (next action unchanged by compression with distil_expand recovery), held-out cases. Next action kept with recovery: claude-opus-4-8 90.8%, claude-opus-5-5 90.8%, claude-opus-5-5 at low 90.0%, claude-sonnet-5-5 at low 94.6%, claude-haiku-4-5 85.0%. Paired change (points) and its 95% lower bound: opus-5-5 +0.0 / -10.0, opus-5-5 low -0.8 / -9.8, sonnet-5-5 low +3.8 / -4.5, haiku-4-5 -5.8 / -15.8. Distil digests alone without recovery: 61.3%, 73.3%, 75.0%, 66.7%, 44.2%. Two full calls agree: 92.5%, 93.3%, 94.2%, 99.2%, 96.7%. Truncation control diverges: 89.2%, 73.3%, 75.8%, 79.6%, 93.3%. Cost per case: $0.1458, $0.1336, $0.1256, $0.0619, $0.0248; claude-sonnet-5-5 at low is 57.5% cheaper than claude-opus-4-8. The pre-registered gates were a quality lower bound of at least -5 points, self-consistency no worse, truncation control at least 0.8× the incumbent's, at least 15% cheaper, and the mechanism explained; sonnet-5-5 at low passed all five. The deployed default certifier since 1.56.0 is claude-sonnet-5-5 at effort=low.",
+      "note": "Recomputed from the per-case rows by benchmarks/model_migration_summary.py (paired over held-out cases, each case averaged over its reps, 95% CI from the case-level differences). Live model calls were made once; the page restates the committed summary and does not re-run them. Reproduce the rows: python benchmarks/model_migration_eval.py (see model-migration.html#rerun). The 57.5% is headline.cost_reduction (1 - 0.0619/0.1458); the gate thresholds (-5 points, 0.8x, 15%) are the pre-registered rule, not measurements, and are restated from docs/adr/0020-default-live-certifier.md. The page's 'mechanism' gate is reported as passed per the eval record; its supporting trace analysis is not in summary.json.",
+      "artifact": "benchmarks/results/model-migration/summary.json",
+      "values": [
+        "90.8%",
+        "90.0%",
+        "94.6%",
+        "85.0%",
+        "10.0",
+        "9.8",
+        "3.8",
+        "4.5",
+        "5.8",
+        "15.8",
+        "61.3%",
+        "73.3%",
+        "75.0%",
+        "66.7%",
+        "44.2%",
+        "92.5%",
+        "93.3%",
+        "94.2%",
+        "99.2%",
+        "96.7%",
+        "89.2%",
+        "75.8%",
+        "79.6%",
+        "0.1458",
+        "0.1336",
+        "0.1256",
+        "0.0619",
+        "0.0248",
+        "57.5%"
+      ]
+    },
+    {
+      "id": "v-served-coverage",
+      "status": "verified",
+      "page": [
+        "model-migration.html",
+        "evals.html",
+        "../README.md",
+        "llms.txt"
+      ],
+      "anchor": "served",
+      "snippet": "The old certified strategy saves <b>2.6%</b> of tokens.",
+      "claim": "Over 4,616 real SWE-agent turns the certified distil strategy saves 2.6% of tokens while the serving adapter (compress_messages on a caching client's request) saves 52.6%: most served bytes were never certified.",
+      "note": "Free, offline all-turns savings report (model_migration_eval.py --savings-report), copied into summary.json coding_served.all_turns_savings as savings 0.0264 and served_savings 0.5259. Turn count 4616 is turns in the same object. The per-token-kind breakdown (by_kind) is not in summary.json and is not quoted.",
+      "artifact": "benchmarks/results/model-migration/summary.json",
+      "values": [
+        "2.6%",
+        "52.6%",
+        "4616"
+      ]
+    },
+    {
+      "id": "v-served-decision-gap",
+      "status": "verified",
+      "page": [
+        "model-migration.html",
+        "evals.html",
+        "../README.md"
+      ],
+      "anchor": "served",
+      "snippet": "This is an open risk, not a win.",
+      "claim": "On 100 SWE-agent decision points (59 held out), graded by claude-sonnet-5-5 at effort low at $0.1797 per case: two identical uncompressed calls agree on the next action 94.1% of the time; certified distil alone keeps it 51.7%, with recovery 77.1%; the served adapter alone 59.3%, with recovery 78.0%. The truncation control diverges on 48.3% of these decisions. This is an open decision-level risk on one model and one small set, not a task-success result: the SWE-bench outcome eval that would settle it is built and tested offline and has not been run.",
+      "note": "Recomputed from the per-case rows by benchmarks/model_migration_summary.py (paired over held-out cases, each case averaged over its reps, 95% CI from the case-level differences). Live model calls were made once; the page restates the committed summary and does not re-run them. Reproduce the rows: python benchmarks/model_migration_eval.py (see model-migration.html#rerun). coding_served.baseline.test_rates: self_consist_act 0.9407, equiv_distil_act 0.5169, equiv_expand_act 0.7712, equiv_served_act 0.5932, equiv_served_expand_act 0.7797, trunc_detect 0.4831.",
+      "artifact": "benchmarks/results/model-migration/summary.json",
+      "values": [
+        "94.1%",
+        "51.7%",
+        "77.1%",
+        "59.3%",
+        "78.0%",
+        "48.3%",
+        "0.1797"
+      ]
     }
   ]
 }

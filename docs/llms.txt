@@ -239,6 +239,9 @@ Evals (every probe distil runs on itself, including the three bugs these probes
 found in distil's OWN harness — published, not hidden):
 https://dshakes.github.io/distil/evals.html
 
+Model migration (how the default live certifier, claude-sonnet-5-5 at low effort, was chosen by a paired, pre-registered eval on real traffic; the served-path gap: the certified strategy saves 2.6% of tokens on real SWE-agent trajectories, serving saves 52.6%, and `distil certify --strategy served` grades the real adapter, whose result is an open risk; the SWE-bench outcome eval that would settle it is built and not yet run):
+https://dshakes.github.io/distil/model-migration.html
+
 What the exit summary proves (the four verdicts every `distil wrap` session ends
 with — an anytime-valid alarm on the certified risk budget, a distribution-free
 upper bound on the live decision-change rate, compression's measured effect on

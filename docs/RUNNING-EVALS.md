@@ -280,6 +280,37 @@ distil shadow-stats            # what shadow mode measured
 
 ---
 
+## Model migration and the served path (live, costs money)
+
+The decision-equivalence eval that chose the default live certifier
+(`claude-sonnet-5-5` at `effort=low`) and graded the `served` strategy. Method, results
+and diagrams: <https://dshakes.github.io/distil/model-migration.html>.
+
+```bash
+python benchmarks/model_migration_eval.py --fetch-tau-bench          # pinned, sha256-verified
+python benchmarks/model_migration_eval.py --fetch-swe-agent
+python benchmarks/model_migration_eval.py --cases real --flow .claude/hillclimb/decision-equivalence-real \
+    --variant baseline --model claude-opus-4-8 --reps 4
+python benchmarks/model_migration_eval.py --cases real --flow .claude/hillclimb/decision-equivalence-real \
+    --variant v3 --model claude-sonnet-5-5 --effort low --reps 4
+python benchmarks/model_migration_eval.py --cases coding --flow .claude/hillclimb/compression-coding \
+    --variant baseline --model claude-sonnet-5-5 --effort low --reps 2
+python benchmarks/model_migration_eval.py --savings-report savings.json   # free, offline
+python benchmarks/model_migration_eval.py --status                        # cross-variant table
+python benchmarks/model_migration_eval.py --regrade                       # no API calls
+python benchmarks/model_migration_summary.py                              # the committed artifact
+```
+
+`--fake oracle|null|flip` checks the wiring offline first; `--limit N` runs a pilot.
+Run from a shell that is not distil-wrapped: a wrapped shell exports `ANTHROPIC_BASE_URL`
+to the local proxy, and an eval must talk to `api.anthropic.com` (the harness pins it).
+The live certifier is chosen per command with `--model` and `--effort` on `certify`,
+`eval`, `benchmark`, `frontier` and `conformal`; `distil certify --strategy served`
+certifies the serving adapter's digests of earlier tool outputs.
+
+The SWE-bench task-outcome harness (`benchmarks/swebench_outcome/`, spec
+`specs/swebench-outcome-eval.md`) is built and tested offline and has **not been run**.
+
 ## Extending the corpus
 
 The probes are only as good as what the corpus makes them look at. Twice now a

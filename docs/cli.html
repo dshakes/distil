@@ -59,6 +59,7 @@
         <li><a href="provider-compaction.html">Provider Compaction <span class="nav-badge">New</span></a></li>
         <li><a href="evals.html">Evaluation</a></li>
         <li><a href="ab.html">Task-level A/B <span class="nav-badge">New</span></a></li>
+        <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark-independent.html">Independent Benchmark <span class="nav-badge">New</span></a></li>
         <li><a href="benchmark.html">Live Benchmark</a></li>
         <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -247,8 +248,10 @@ note: naive compression costs $0.01696 — <span class="w">66% MORE</span> than 
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
-        <tr><th scope="row"><code>--strategy</code></th><td><code>distil</code></td><td>Strategy to certify: <code>distil</code>, <code>aggressive</code>, <code>naive</code>, <code>none</code></td></tr>
+        <tr><th scope="row"><code>--strategy</code></th><td><code>distil</code></td><td>Strategy to certify: <code>distil</code>, <code>served</code>, <code>aggressive</code>, <code>naive</code>, <code>none</code>, <code>vision</code>. <code>served</code> runs the real serving adapter (<code>compress_messages</code>) on the request a caching tool-use client sends, so the certificate covers the digests of <em>earlier</em> tool outputs; see <a href="model-migration.html#served">Model Migration</a></td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, uses ground-truth markers) or <code>anthropic</code> (live model, requires key)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST indifference margin</td></tr>
         <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Significance level</td></tr>
         <tr><th scope="row"><code>--json</code></th><td>off</td><td>Machine-readable output: the same eval-record envelope as <code>retention --json</code> and <code>fidelity --json</code> (schema, subject, dataset fingerprint, grader provenance, metrics, gates)</td></tr>
@@ -1116,6 +1119,8 @@ Load with: TransformerKeepModel.from_pretrained('./my-keep-model/model.onnx', '.
       <tbody>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir (e.g. from <code>distil ingest</code> on benchmark traces)</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, structural equivalence) or <code>anthropic</code> (live model, requires API key)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--out</code></th><td>off</td><td>Write the raw curve as a timestamped JSONL file to this directory</td></tr>
       </tbody>
     </table>
@@ -1151,6 +1156,8 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
         <tr><th scope="row"><code>--external</code></th><td>—</td><td><code>module:function[:Name]</code> — register a real compressor (<code>list[str]→list[str]</code> over per-turn block texts), measured on the identical axes. Repeatable.</td></tr>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir (e.g. ingested benchmark traces)</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline) or <code>anthropic</code> (live model)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing for the cache-aware cost model</td></tr>
         <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code> (billing-grade)</td></tr>
         <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST non-inferiority margin</td></tr>
@@ -1188,6 +1195,8 @@ LEADER (certified $ savings): distil-causal — 37.4% cheaper, 100% decision-equ
         <tr><th scope="row"><code>--targets</code></th><td><code>1.0,0.97,0.95,0.90,0.80</code></td><td>Comma-separated equivalence targets in (0,1]</td></tr>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
     </table>
@@ -1219,6 +1228,8 @@ savings-vs-equivalence dial  (runner=deterministic)
         <tr><th scope="row"><code>--method</code></th><td><code>ltt</code></td><td><code>ltt</code> (high-probability bound) or <code>crc</code> (expected-rate bound)</td></tr>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Calibration corpus dir (use your own traffic via <code>distil ingest</code>)</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
     </table>

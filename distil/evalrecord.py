@@ -126,13 +126,22 @@ def fingerprint(entries: Iterable[Any]) -> str:
     return f"sha256:{h.hexdigest()[:16]}"
 
 
-def describe_grader(kind: str) -> dict[str, str]:
+def describe_grader(kind: str, runner: Any = None) -> dict[str, Any]:
     """Provenance for whatever produced the decision signal.
 
     Mirrors :func:`distil.conformal.render_grader`. The deterministic oracle reads a
     `DECISION:` marker out of fixture text; it is not a model and must never be
-    reported as one.
+    reported as one. A live *runner* adds its ``model`` and ``effort`` (None = no
+    output_config sent): "graded by a live model" says nothing a reader can reproduce,
+    and the certifier's default moves between releases.
     """
+    model = getattr(runner, "model", None)
+    if model:
+        return {
+            **describe_grader(kind),
+            "model": str(model),
+            "effort": getattr(runner, "effort", None),
+        }
     if kind == "deterministic":
         return {
             "kind": "deterministic",
@@ -162,6 +171,7 @@ def build(
     grader: str = "deterministic",
     gates: list[Gate] | None = None,
     started: float | None = None,
+    runner: Any = None,
 ) -> EvalRecord:
     """Assemble a complete, reproducible record around a set of metrics."""
     entries = list(entries)
@@ -183,7 +193,7 @@ def build(
             "domains": domains,
             "fingerprint": fingerprint(entries),
         },
-        grader=describe_grader(grader),
+        grader=describe_grader(grader, runner),
         metrics=metrics,
         gates=list(gates or []),
     )

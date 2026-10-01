@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="580" viewBox="0 0 1200 580" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Certified versus served: what each path digests on a coding agent's request</title>
+  <desc id="d">One request from a caching tool-use coding agent: a stable system prompt and tool menu, then a history of earlier tool outputs, then the latest tool output and the user turn. The certified distil strategy digests only the latest tool output, so over real SWE-agent trajectories it saves 2.6 percent of tokens. The serving adapter digests every earlier tool output as well and saves 52.6 percent, so most of the bytes that are served were never certified. The layout is schematic and not to scale.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
+  </defs>
+  <style>
+    /* The figure builds in reading order. Reduced motion gets the finished figure. */
+    @media (prefers-reduced-motion: reduce) {
+      animate { display: none }
+      .beat { opacity: 1 !important }
+    }
+  </style>
+  <rect width="1200" height="580" fill="url(#bg)"/>
+  <text x="48" y="52" fill="#e8eaf2" font-size="25" font-weight="700">Most served bytes were never certified</text>
+  <text x="48" y="78" fill="#8b93a8" font-size="14">One request from a caching coding agent, drawn schematically (widths are not to scale).</text>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.00;0.08;0.97;1"/>
+    <text x="48" y="136" fill="#b9a8ff" font-size="12" font-weight="700" letter-spacing="1.2">CERTIFIED STRATEGY: distil</text>
+    <rect x="48" y="150" width="144" height="70" rx="10" fill="url(#card)" fill-opacity="1" stroke="#8b93a8" stroke-opacity="0.35" stroke-dasharray="5 4"/>
+    <text x="62" y="180" fill="#8b93a8" font-size="12.5" font-weight="600">system + tools</text>
+    <text x="62" y="200" fill="#6f7688" font-size="11">sent verbatim</text>
+    <rect x="204" y="150" width="514" height="70" rx="10" fill="url(#card)" fill-opacity="1" stroke="#8b7bff" stroke-opacity="0.35" stroke-dasharray="5 4"/>
+    <text x="218" y="180" fill="#8b93a8" font-size="12.5" font-weight="600">earlier tool outputs (history)</text>
+    <text x="218" y="200" fill="#6f7688" font-size="11">sent verbatim</text>
+    <rect x="730" y="150" width="234" height="70" rx="10" fill="#5ad1c9" fill-opacity="0.30" stroke="#5ad1c9" stroke-opacity="0.9" />
+    <text x="744" y="180" fill="#e8eaf2" font-size="12.5" font-weight="600">latest tool output</text>
+    <text x="744" y="200" fill="#c9cfdd" font-size="11">digested</text>
+    <rect x="976" y="150" width="170" height="70" rx="10" fill="url(#card)" fill-opacity="1" stroke="#8b93a8" stroke-opacity="0.35" stroke-dasharray="5 4"/>
+    <text x="990" y="180" fill="#8b93a8" font-size="12.5" font-weight="600">user</text>
+    <text x="990" y="200" fill="#6f7688" font-size="11">sent verbatim</text>
+
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.12;0.20;0.97;1"/>
+    <text x="48" y="268" fill="#5ad1c9" font-size="36" font-weight="700">2.6%</text>
+    <text x="172" y="268" fill="#8b93a8" font-size="13">of tokens saved on the turns the certificate covers</text>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.28;0.36;0.97;1"/>
+    <text x="48" y="326" fill="#b9a8ff" font-size="12" font-weight="700" letter-spacing="1.2">SERVED PATH: distil.adapters.anthropic.compress_messages</text>
+    <rect x="48" y="340" width="144" height="70" rx="10" fill="url(#card)" fill-opacity="1" stroke="#8b93a8" stroke-opacity="0.35" stroke-dasharray="5 4"/>
+    <text x="62" y="370" fill="#8b93a8" font-size="12.5" font-weight="600">system + tools</text>
+    <text x="62" y="390" fill="#6f7688" font-size="11">sent verbatim</text>
+    <rect x="204" y="340" width="514" height="70" rx="10" fill="#8b7bff" fill-opacity="0.30" stroke="#8b7bff" stroke-opacity="0.9" />
+    <text x="218" y="370" fill="#e8eaf2" font-size="12.5" font-weight="600">earlier tool outputs (history)</text>
+    <text x="218" y="390" fill="#c9cfdd" font-size="11">digested</text>
+    <rect x="730" y="340" width="234" height="70" rx="10" fill="#5ad1c9" fill-opacity="0.30" stroke="#5ad1c9" stroke-opacity="0.9" />
+    <text x="744" y="370" fill="#e8eaf2" font-size="12.5" font-weight="600">latest tool output</text>
+    <text x="744" y="390" fill="#c9cfdd" font-size="11">digested</text>
+    <rect x="976" y="340" width="170" height="70" rx="10" fill="url(#card)" fill-opacity="1" stroke="#8b93a8" stroke-opacity="0.35" stroke-dasharray="5 4"/>
+    <text x="990" y="370" fill="#8b93a8" font-size="12.5" font-weight="600">user</text>
+    <text x="990" y="390" fill="#6f7688" font-size="11">sent verbatim</text>
+
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.42;0.50;0.97;1"/>
+    <text x="48" y="458" fill="#8b7bff" font-size="36" font-weight="700">52.6%</text>
+    <text x="196" y="458" fill="#8b93a8" font-size="13">of tokens saved by what a caching client is actually served</text>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.62;0.72;0.97;1"/>
+    <rect x="48" y="480" width="1104" height="76" rx="12" fill="#12151f" stroke="#ff8a7a" stroke-opacity="0.45"/>
+    <text x="70" y="508" fill="#ff8a7a" font-size="12" font-weight="700" letter-spacing="1.2">WHAT THE GAP MEANS</text>
+    <text x="70" y="530" fill="#e8eaf2" font-size="14" font-weight="600">Earlier tool outputs make up the gap, and the certified strategy never graded them.</text>
+    <text x="70" y="548" fill="#8b93a8" font-size="12">The served strategy runs the real adapter so the certificate covers them. Over 4,616 real SWE-agent turns. See the open risk on the model-migration page.</text>
+  </g>
+</svg>

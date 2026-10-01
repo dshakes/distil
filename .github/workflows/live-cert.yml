@@ -56,7 +56,11 @@ jobs:
     if: github.repository == 'dshakes/distil'
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      LIVE_CERT_MODEL: claude-haiku-4-5-20251001
+      # The measured live certifier (benchmarks/model_migration_eval.py): it passed every
+      # pre-registered gate against claude-opus-4-8 on real τ-bench traffic at 58% lower
+      # cost per certificate. Model and effort are one pair — change them together.
+      LIVE_CERT_MODEL: claude-sonnet-5-5
+      LIVE_CERT_EFFORT: low
       # ≤450 live API calls per cold run (132 unique context pairs × 3 samples,
       # quick ladder, 18 fixture trajectories). Warm runs cost nothing (all cached).
       MAX_LIVE_CALLS: "450"
@@ -84,6 +88,7 @@ jobs:
                --dataset fixtures \
                --runner anthropic \
                --model "$LIVE_CERT_MODEL" \
+               --effort "$LIVE_CERT_EFFORT" \
                --samples 3 \
                --ladder quick \
                --alpha 0.20 \
@@ -94,7 +99,7 @@ jobs:
                | tee live-cert-reports/prove_stdout.txt
           status=$?
           {
-            echo "## Nightly live serving-semantics gate ($LIVE_CERT_MODEL, fixtures, quick ladder, α=0.20, samples=3)"
+            echo "## Nightly live serving-semantics gate ($LIVE_CERT_MODEL @ effort $LIVE_CERT_EFFORT, fixtures, quick ladder, α=0.20, samples=3)"
             echo '```'
             tail -20 live-cert-reports/prove_stdout.txt
             echo '```'

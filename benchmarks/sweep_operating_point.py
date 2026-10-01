@@ -192,7 +192,15 @@ def main() -> int:
     )
     ap.add_argument("--path", required=True, help="corpus json (e.g. the shuffled E5 corpus)")
     ap.add_argument("--runner", default="anthropic", choices=["smoke", "anthropic", "openai"])
+    # ponytail: pinned to the E5 grader this sweep reproduces, not the live certifier.
     ap.add_argument("--model", default="claude-sonnet-4-6")
+    ap.add_argument(
+        "--effort",
+        default=None,
+        choices=("low", "medium", "high", "xhigh", "max", "none"),
+        help="anthropic runner: output_config.effort (default: none unless --model is "
+        "the live certifier's; see distil.replay.anthropic_runner.effort_for)",
+    )
     ap.add_argument("--samples", type=int, default=3)
     ap.add_argument("--alpha", type=float, default=0.15)
     ap.add_argument("--delta", type=float, default=0.05)
@@ -236,10 +244,11 @@ def main() -> int:
 
     # --- runner (same machinery / namespace as prove.py) -------------------- #
     if args.runner == "anthropic":
-        from distil.replay.anthropic_runner import AnthropicRunner
+        from distil.replay.anthropic_runner import AnthropicRunner, effort_for
 
-        runner = AnthropicRunner(model=args.model, samples=args.samples)
-        ns = f"anthropic_{args.model}_s{args.samples}"
+        effort = effort_for(args.model, args.effort)
+        runner = AnthropicRunner(model=args.model, samples=args.samples, effort=effort)
+        ns = f"anthropic_{args.model}_s{args.samples}" + (f"_e{effort}" if effort else "")
     elif args.runner == "openai":
         from distil.replay.openai_runner import OpenAIRunner
 
@@ -250,6 +259,12 @@ def main() -> int:
 
         runner = SmokeRunner()
         ns = "smoke"
+    # which certifier graded this, resolved (args.effort may be unset)
+    grader = {
+        "namespace": ns,
+        "model": getattr(runner, "model", None),
+        "effort": getattr(runner, "effort", None),
+    }
     if args.expand:
         from distil.replay.expand_runner import ExpandAwareRunner
 
@@ -328,6 +343,7 @@ def main() -> int:
 
     report = {
         "args": vars(args),
+        "grader": grader,
         "n_trajectories": len(entries),
         "n_cal": len(cal),
         "n_test": len(test),

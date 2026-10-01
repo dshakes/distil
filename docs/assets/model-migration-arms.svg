@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">The model-migration eval: one decision point, six arms, one certifier, paired metrics</title>
+  <desc id="d">A single trajectory decision point is replayed on six arms. Full context is sampled twice to measure the model's own noise. The certified distil strategy runs with and without the distil_expand recovery loop. The served adapter, distil's real compress_messages on the request a caching tool-use client sends, runs with and without recovery. A truncation control cuts tool output and should diverge. Each arm's chosen next action goes to the same certifier, and the eval reports paired metrics: equivalence to full context, the certifier's self-consistency, whether the control diverged, and cost per case.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
+  </defs>
+  <style>
+    /* The figure builds in reading order. Reduced motion gets the finished figure. */
+    @media (prefers-reduced-motion: reduce) {
+      animate { display: none }
+      .beat { opacity: 1 !important }
+    }
+  </style>
+  <rect width="1200" height="560" fill="url(#bg)"/>
+  <text x="48" y="52" fill="#e8eaf2" font-size="25" font-weight="700">One decision point, six arms</text>
+  <text x="48" y="78" fill="#8b93a8" font-size="14">Every arm answers the same question from a different version of the same context: what does the agent do next?</text>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.00;0.06;0.97;1"/>
+    <rect x="48" y="196" width="178" height="168" rx="12" fill="url(#card)" stroke="#8b7bff" stroke-opacity="0.5"/>
+    <text x="66" y="226" fill="#b9a8ff" font-size="12" font-weight="700" letter-spacing="1.2">DECISION POINT</text>
+    <text x="66" y="254" fill="#e8eaf2" font-size="14" font-weight="600">One trajectory turn</text>
+    <text x="66" y="280" fill="#8b93a8" font-size="12">Real tau-bench or</text>
+    <text x="66" y="297" fill="#8b93a8" font-size="12">SWE-agent traffic,</text>
+    <text x="66" y="314" fill="#8b93a8" font-size="12">no answer markers</text>
+    <text x="66" y="344" fill="#6f7688" font-size="11">Gold = the next action</text>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.06;0.12;0.97;1"/>
+    <rect x="316" y="104" width="430" height="52" rx="10" fill="url(#card)" stroke="#8b93a8" stroke-opacity="0.45"/>
+    <text x="332" y="126" fill="#8b93a8" font-size="13" font-weight="700">full x2</text>
+    <text x="332" y="144" fill="#8b93a8" font-size="11.5">Uncompressed, two independent calls</text>
+    <text x="736" y="126" text-anchor="end" fill="#6f7688" font-size="11">The certifier's own noise floor</text>
+    <path d="M266 280 H291 V130 H316" fill="none" stroke="#8b93a8" stroke-opacity="0.5" stroke-width="1.5"/>
+    <path d="M746 130 H770" fill="none" stroke="#8b93a8" stroke-opacity="0.5" stroke-width="1.5"/>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.13;0.19;0.97;1"/>
+    <rect x="316" y="166" width="430" height="52" rx="10" fill="url(#card)" stroke="#5ad1c9" stroke-opacity="0.45"/>
+    <text x="332" y="188" fill="#5ad1c9" font-size="13" font-weight="700">certified distil</text>
+    <text x="332" y="206" fill="#8b93a8" font-size="11.5">The cache-aware strategy as certified</text>
+    <text x="736" y="188" text-anchor="end" fill="#6f7688" font-size="11">Digests the latest tool output</text>
+    <path d="M266 280 H291 V192 H316" fill="none" stroke="#5ad1c9" stroke-opacity="0.5" stroke-width="1.5"/>
+    <path d="M746 192 H770" fill="none" stroke="#5ad1c9" stroke-opacity="0.5" stroke-width="1.5"/>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.20;0.26;0.97;1"/>
+    <rect x="316" y="228" width="430" height="52" rx="10" fill="url(#card)" stroke="#5ad1c9" stroke-opacity="0.45"/>
+    <text x="332" y="250" fill="#5ad1c9" font-size="13" font-weight="700">+ recovery</text>
+    <text x="332" y="268" fill="#8b93a8" font-size="11.5">Same digests, model may call distil_expand</text>
+    <text x="736" y="250" text-anchor="end" fill="#6f7688" font-size="11">How the digests deploy</text>
+    <path d="M266 280 H291 V254 H316" fill="none" stroke="#5ad1c9" stroke-opacity="0.5" stroke-width="1.5"/>
+    <path d="M746 254 H770" fill="none" stroke="#5ad1c9" stroke-opacity="0.5" stroke-width="1.5"/>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.27;0.33;0.97;1"/>
+    <rect x="316" y="290" width="430" height="52" rx="10" fill="url(#card)" stroke="#8b7bff" stroke-opacity="0.45"/>
+    <text x="332" y="312" fill="#8b7bff" font-size="13" font-weight="700">served adapter</text>
+    <text x="332" y="330" fill="#8b93a8" font-size="11.5">compress_messages on a caching client's request</text>
+    <text x="736" y="312" text-anchor="end" fill="#6f7688" font-size="11">Digests earlier tool outputs too</text>
+    <path d="M266 280 H291 V316 H316" fill="none" stroke="#8b7bff" stroke-opacity="0.5" stroke-width="1.5"/>
+    <path d="M746 316 H770" fill="none" stroke="#8b7bff" stroke-opacity="0.5" stroke-width="1.5"/>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.34;0.40;0.97;1"/>
+    <rect x="316" y="352" width="430" height="52" rx="10" fill="url(#card)" stroke="#8b7bff" stroke-opacity="0.45"/>
+    <text x="332" y="374" fill="#8b7bff" font-size="13" font-weight="700">+ recovery</text>
+    <text x="332" y="392" fill="#8b93a8" font-size="11.5">Served digests, model may call distil_expand</text>
+    <text x="736" y="374" text-anchor="end" fill="#6f7688" font-size="11">Served path as deployed</text>
+    <path d="M266 280 H291 V378 H316" fill="none" stroke="#8b7bff" stroke-opacity="0.5" stroke-width="1.5"/>
+    <path d="M746 378 H770" fill="none" stroke="#8b7bff" stroke-opacity="0.5" stroke-width="1.5"/>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.41;0.47;0.97;1"/>
+    <rect x="316" y="414" width="430" height="52" rx="10" fill="url(#card)" stroke="#ff8a7a" stroke-opacity="0.45"/>
+    <text x="332" y="436" fill="#ff8a7a" font-size="13" font-weight="700">truncation control</text>
+    <text x="332" y="454" fill="#8b93a8" font-size="11.5">Tool output cut to 160 characters</text>
+    <text x="736" y="436" text-anchor="end" fill="#6f7688" font-size="11">SHOULD diverge: proves the grader can see</text>
+    <path d="M266 280 H291 V440 H316" fill="none" stroke="#ff8a7a" stroke-opacity="0.5" stroke-width="1.5"/>
+    <path d="M746 440 H770" fill="none" stroke="#ff8a7a" stroke-opacity="0.5" stroke-width="1.5"/>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.52;0.58;0.97;1"/>
+    <path d="M226 280 H266" fill="none" stroke="#8b7bff" stroke-opacity="0.5" stroke-width="1.5"/>
+    <rect x="770" y="196" width="150" height="168" rx="12" fill="url(#card)" stroke="#5ad19a" stroke-opacity="0.5"/>
+    <text x="786" y="226" fill="#5ad19a" font-size="12" font-weight="700" letter-spacing="1.2">CERTIFIER</text>
+    <text x="786" y="254" fill="#e8eaf2" font-size="14" font-weight="600">The model under</text>
+    <text x="786" y="272" fill="#e8eaf2" font-size="14" font-weight="600">test</text>
+    <text x="786" y="298" fill="#8b93a8" font-size="12">Strict decision tool,</text>
+    <text x="786" y="315" fill="#8b93a8" font-size="12">model x effort</text>
+    <text x="786" y="344" fill="#6f7688" font-size="11">Sees every arm alike</text>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.66;0.74;0.97;1"/>
+    <path d="M920 280 H944" fill="none" stroke="#5ad19a" stroke-opacity="0.6" stroke-width="1.5"/>
+    <rect x="944" y="132" width="208" height="296" rx="12" fill="url(#card)" stroke="url(#g)" stroke-opacity="0.6"/>
+    <text x="962" y="162" fill="#b9a8ff" font-size="12" font-weight="700" letter-spacing="1.2">PAIRED METRICS</text>
+    <text x="962" y="194" fill="#e8eaf2" font-size="13" font-weight="600">Equivalence</text>
+    <text x="962" y="211" fill="#8b93a8" font-size="11.5">next action unchanged vs full</text>
+    <text x="962" y="243" fill="#e8eaf2" font-size="13" font-weight="600">Self-consistency</text>
+    <text x="962" y="260" fill="#8b93a8" font-size="11.5">full vs full, the noise floor</text>
+    <text x="962" y="292" fill="#e8eaf2" font-size="13" font-weight="600">Control sensitivity</text>
+    <text x="962" y="309" fill="#8b93a8" font-size="11.5">did truncation diverge?</text>
+    <text x="962" y="341" fill="#e8eaf2" font-size="13" font-weight="600">Paired delta, 95% CI</text>
+    <text x="962" y="358" fill="#8b93a8" font-size="11.5">per case, reps averaged</text>
+    <text x="962" y="390" fill="#e8eaf2" font-size="13" font-weight="600">Cost per case</text>
+    <text x="962" y="407" fill="#8b93a8" font-size="11.5">list price, all calls</text>
+  </g>
+  <g class="beat" opacity="0">
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;1" keyTimes="0;0.82;0.90;0.97;1"/>
+    <rect x="48" y="484" width="1104" height="56" rx="12" fill="#12151f" stroke="url(#g)" stroke-opacity="0.5"/>
+    <text x="70" y="508" fill="#e8eaf2" font-size="14" font-weight="600">The metric that matches deployment is the recovery arm: the next action is unchanged when distil_expand can recover a digest.</text>
+    <text x="70" y="528" fill="#8b93a8" font-size="12">Every arm runs on real, marker-free traces. A certified arm that no client is served would prove nothing about what ships.</text>
+  </g>
+</svg>

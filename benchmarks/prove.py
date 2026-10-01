@@ -39,7 +39,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from distil.conformal import crc_select, default_ladder, hb_pvalue, ltt_certify  # noqa: E402
-from distil.replay import realtrace  # noqa: E402
+from distil.replay import prompts, realtrace  # noqa: E402
+from distil.replay.anthropic_runner import DEFAULT_MODEL, EFFORTS, effort_for  # noqa: E402
 from distil.tokenizer import DEFAULT as tok  # noqa: E402
 
 CACHE_DIR = Path(__file__).resolve().parent / ".cache"
@@ -62,6 +63,9 @@ class DecisionCache:
     @staticmethod
     def _key(blocks) -> str:
         h = hashlib.sha1()
+        # A decision answers a RENDERED prompt, so the render version is part of the key:
+        # caches made before a render change (e.g. DECISION: stripping) are not reused.
+        h.update(f"render={prompts.RENDER_VERSION}\x00".encode())
         for b in blocks:
             h.update(f"{b.kind.value}|{b.stability.value}|{b.text}\x00".encode())
         return h.hexdigest()
@@ -597,7 +601,14 @@ def main() -> int:
         "per base context) and report E1 decision-change as excess above it — the "
         "honest per-turn signal on a stochastic grader. Costs one extra draw per turn.",
     )
-    ap.add_argument("--model", default="claude-opus-4-8", help="grader model id")
+    ap.add_argument("--model", default=DEFAULT_MODEL, help="grader model id")
+    ap.add_argument(
+        "--effort",
+        default=None,
+        choices=EFFORTS,
+        help="anthropic runner: output_config.effort (default: low for the default model, "
+        "none for any other --model; 'none' sends no output_config)",
+    )
     ap.add_argument(
         "--base-url",
         default="http://localhost:8000/v1",
@@ -721,10 +732,13 @@ def main() -> int:
     elif args.runner == "anthropic":
         from distil.replay.anthropic_runner import AnthropicRunner
 
+        effort = effort_for(args.model, args.effort)
         runner = AnthropicRunner(
-            model=args.model, samples=args.samples, max_calls=args.max_live_calls
+            model=args.model, samples=args.samples, max_calls=args.max_live_calls, effort=effort
         )
-        ns = f"anthropic_{args.model}_s{args.samples}"
+        # Effort is part of the grader's identity: a decision cached at one effort must
+        # not answer for another. Unsuffixed when unset, so older caches still resolve.
+        ns = f"anthropic_{args.model}_s{args.samples}" + (f"_e{effort}" if effort else "")
     elif args.runner == "openai":
         from distil.replay.openai_runner import OpenAIRunner
 
@@ -739,10 +753,16 @@ def main() -> int:
     else:  # claude-cli
         from distil.replay.claude_cli_runner import ClaudeCliRunner
 
-        cli_model = None if args.model == "claude-opus-4-8" else args.model
+        cli_model = None if args.model == DEFAULT_MODEL else args.model
         runner = ClaudeCliRunner(bin=args.cli_bin, model=cli_model, samples=args.samples)
         ns = f"claudecli_{(cli_model or 'default').replace('/', '_')}_s{args.samples}"
 
+    # which certifier graded this, resolved (args.effort may be unset)
+    grader = {
+        "namespace": ns,
+        "model": getattr(runner, "model", None),
+        "effort": getattr(runner, "effort", None),
+    }
     evidential = args.runner != "smoke"
     if evidential and args.samples == 1:
         print(
@@ -918,6 +938,7 @@ def main() -> int:
             json.dumps(
                 {
                     "args": vars(args),
+                    "grader": grader,
                     "n_trajectories": len(entries),
                     "n_turns": n_turns,
                     "frontier": f_rows,

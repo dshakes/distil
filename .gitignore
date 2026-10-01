@@ -66,3 +66,14 @@ benchmarks/swe_bench_e2e/results_*/
 # paper artifact now defaults its --out here instead (benchmarks/outpath.py);
 # publishing takes --write-tracked.
 benchmarks/results/scratch/
+
+# model-migration eval: derived/bulk output (regenerate with the report builder)
+.claude/hillclimb/**/traces/
+.claude/hillclimb/**/report.html
+.claude/hillclimb/**/state.json
+.claude/hillclimb/**/trajectory/
+.claude/hillclimb/**/progress.txt
+.claude/hillclimb/**/*.tmp
+
+# downloaded public trajectories (fetch with benchmarks/fetch_tau_bench.py)
+benchmarks/.cache/

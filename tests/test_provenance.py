@@ -341,3 +341,37 @@ def test_observed_view_excludes_the_models_own_turns() -> None:
     view = observed_view(msgs)
     assert "alpha" not in view
     assert "beta" in view
+
+
+# --------------------------------------------------------------------------- SWE-agent
+
+
+@pytest.mark.parametrize("name", ["open", "goto", "scroll_up", "scroll_down"])
+def test_swe_agent_file_views_are_exact_quote(name: str) -> None:
+    """goto/scroll_* return the same numbered view of the open file as `open`, and a
+    later `edit a:b` addresses lines by those numbers — so they are exempt by name too."""
+    calls = [ToolCall(id="t1", name=name, command=f"{name} 120", pos=0)]
+    assert exact_quote_ids(calls) == {"t1": "tool_result_exact_quote"}
+
+
+def test_swe_agent_goto_view_survives_the_adapter() -> None:
+    from distil.adapters.anthropic import compress_messages
+
+    view = "\n".join(f"{i}:    x_{i} = compute({i})" for i in range(100, 160))
+    msgs = [
+        {"role": "user", "content": "fix the bug"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "g", "name": "goto", "input": {"command": "goto 130"}}
+            ],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "g", "content": view}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "looking"}]},
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "go on", "cache_control": {"type": "ephemeral"}}],
+        },
+    ]
+    out, _ = compress_messages(msgs)
+    assert out[2]["content"][0]["content"] == view

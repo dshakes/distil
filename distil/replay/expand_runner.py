@@ -76,6 +76,7 @@ class ExpandAwareRunner:
 
     def _one(self, blocks: list[Block], restore: dict[str, str]) -> str:
         cur = blocks
+        structured = getattr(self.base, "structured_decision", False)
         for _ in range(self.max_iters):
             has_handle = any(_HANDLE_IN_TEXT.search(b.text) for b in cur)
             if not has_handle:
@@ -89,9 +90,15 @@ class ExpandAwareRunner:
                     cur = _expand_blocks(cur, resolvable, restore)
                     continue  # recovered something → look again
             fp = prompts.parse_fingerprint(text)
-            if fp != "<no-decision>":
+            if fp != "<no-decision>" and not structured:
                 return fp  # model committed to an action in the same step
             break  # unparseable / asked for nothing resolvable → clean decide below
+        if structured:
+            # Commit through the base runner's constrained decision tool — the same
+            # format the uncompressed arm is graded in. A free-text commit differs
+            # from it in format alone, and that flipped the action on 21% of turns
+            # on claude-opus-4-8 (benchmarks/model_migration_eval.py, format_consist).
+            return self.base.decide(cur)
         # always finish with a clean, constrained decision query on the current context
         system, user = prompts.decision_prompt(cur)
         return prompts.parse_fingerprint(self.base._raw(system, user))

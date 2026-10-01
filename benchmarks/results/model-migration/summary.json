@@ -1,0 +1,263 @@
+{
+ "source": "benchmarks/model_migration_eval.py; rows in .claude/hillclimb/<flow>/<variant>/results.jsonl",
+ "certifier_migration_real": {
+  "cases": "100 τ-bench turns (benchmarks/model_migration_cases_real.json), 60 held-out",
+  "variants": {
+   "baseline": {
+    "model": "claude-opus-4-8",
+    "effort": null,
+    "rows": 400,
+    "reps": 4,
+    "cost_per_case_usd": 0.1458,
+    "output_tokens_per_case": 609,
+    "rates": {
+     "equiv_expand_act": 0.905,
+     "equiv_distil_act": 0.62,
+     "self_consist_act": 0.9425,
+     "decided": 1.0,
+     "agree_ref_act": 0.9425,
+     "agree_gold_act": 0.5575,
+     "trunc_detect": 0.895
+    },
+    "test_rates": {
+     "equiv_expand_act": 0.9083,
+     "equiv_distil_act": 0.6125,
+     "self_consist_act": 0.925,
+     "decided": 1.0,
+     "agree_ref_act": 0.925,
+     "agree_gold_act": 0.5167,
+     "trunc_detect": 0.8917
+    }
+   },
+   "v1": {
+    "model": "claude-opus-5-5",
+    "effort": null,
+    "rows": 200,
+    "reps": 2,
+    "cost_per_case_usd": 0.1336,
+    "output_tokens_per_case": 1597,
+    "rates": {
+     "equiv_expand_act": 0.895,
+     "equiv_distil_act": 0.73,
+     "self_consist_act": 0.94,
+     "decided": 1.0,
+     "agree_ref_act": 0.72,
+     "agree_gold_act": 0.43,
+     "trunc_detect": 0.7
+    },
+    "test_rates": {
+     "equiv_expand_act": 0.9083,
+     "equiv_distil_act": 0.7333,
+     "self_consist_act": 0.9333,
+     "decided": 1.0,
+     "agree_ref_act": 0.6917,
+     "agree_gold_act": 0.4417,
+     "trunc_detect": 0.7333
+    },
+    "paired_vs_baseline_test": {
+     "equiv_expand_act": {
+      "delta": 0.0,
+      "half_width": 0.0995,
+      "lower": -0.0995,
+      "n_cases": 60
+     },
+     "self_consist_act": {
+      "delta": 0.0083,
+      "half_width": 0.0727,
+      "lower": -0.0644,
+      "n_cases": 60
+     },
+     "equiv_distil_act": {
+      "delta": 0.1208,
+      "half_width": 0.1278,
+      "lower": -0.007,
+      "n_cases": 60
+     }
+    }
+   },
+   "v2": {
+    "model": "claude-opus-5-5",
+    "effort": "low",
+    "rows": 200,
+    "reps": 2,
+    "cost_per_case_usd": 0.1256,
+    "output_tokens_per_case": 1197,
+    "rates": {
+     "equiv_expand_act": 0.91,
+     "equiv_distil_act": 0.715,
+     "self_consist_act": 0.94,
+     "decided": 1.0,
+     "agree_ref_act": 0.75,
+     "agree_gold_act": 0.45,
+     "trunc_detect": 0.725
+    },
+    "test_rates": {
+     "equiv_expand_act": 0.9,
+     "equiv_distil_act": 0.75,
+     "self_consist_act": 0.9417,
+     "decided": 1.0,
+     "agree_ref_act": 0.7167,
+     "agree_gold_act": 0.45,
+     "trunc_detect": 0.7583
+    },
+    "paired_vs_baseline_test": {
+     "equiv_expand_act": {
+      "delta": -0.0083,
+      "half_width": 0.0894,
+      "lower": -0.0978,
+      "n_cases": 60
+     },
+     "self_consist_act": {
+      "delta": 0.0167,
+      "half_width": 0.0647,
+      "lower": -0.048,
+      "n_cases": 60
+     },
+     "equiv_distil_act": {
+      "delta": 0.1375,
+      "half_width": 0.1278,
+      "lower": 0.0097,
+      "n_cases": 60
+     }
+    }
+   },
+   "v3": {
+    "model": "claude-sonnet-5-5",
+    "effort": "low",
+    "rows": 400,
+    "reps": 4,
+    "cost_per_case_usd": 0.0619,
+    "output_tokens_per_case": 1089,
+    "rates": {
+     "equiv_expand_act": 0.9475,
+     "equiv_distil_act": 0.6425,
+     "self_consist_act": 0.975,
+     "decided": 1.0,
+     "agree_ref_act": 0.745,
+     "agree_gold_act": 0.475,
+     "trunc_detect": 0.79
+    },
+    "test_rates": {
+     "equiv_expand_act": 0.9458,
+     "equiv_distil_act": 0.6667,
+     "self_consist_act": 0.9917,
+     "decided": 1.0,
+     "agree_ref_act": 0.7083,
+     "agree_gold_act": 0.4583,
+     "trunc_detect": 0.7958
+    },
+    "paired_vs_baseline_test": {
+     "equiv_expand_act": {
+      "delta": 0.0375,
+      "half_width": 0.083,
+      "lower": -0.0455,
+      "n_cases": 60
+     },
+     "self_consist_act": {
+      "delta": 0.0667,
+      "half_width": 0.0492,
+      "lower": 0.0174,
+      "n_cases": 60
+     },
+     "equiv_distil_act": {
+      "delta": 0.0542,
+      "half_width": 0.1233,
+      "lower": -0.0691,
+      "n_cases": 60
+     }
+    }
+   },
+   "v4": {
+    "model": "claude-haiku-4-5",
+    "effort": null,
+    "rows": 200,
+    "reps": 2,
+    "cost_per_case_usd": 0.0248,
+    "output_tokens_per_case": 630,
+    "rates": {
+     "equiv_expand_act": 0.85,
+     "equiv_distil_act": 0.44,
+     "self_consist_act": 0.955,
+     "decided": 1.0,
+     "agree_ref_act": 0.755,
+     "agree_gold_act": 0.58,
+     "trunc_detect": 0.915
+    },
+    "test_rates": {
+     "equiv_expand_act": 0.85,
+     "equiv_distil_act": 0.4417,
+     "self_consist_act": 0.9667,
+     "decided": 1.0,
+     "agree_ref_act": 0.7,
+     "agree_gold_act": 0.5417,
+     "trunc_detect": 0.9333
+    },
+    "paired_vs_baseline_test": {
+     "equiv_expand_act": {
+      "delta": -0.0583,
+      "half_width": 0.0998,
+      "lower": -0.1581,
+      "n_cases": 60
+     },
+     "self_consist_act": {
+      "delta": 0.0417,
+      "half_width": 0.0618,
+      "lower": -0.0201,
+      "n_cases": 60
+     },
+     "equiv_distil_act": {
+      "delta": -0.1708,
+      "half_width": 0.1262,
+      "lower": -0.2971,
+      "n_cases": 60
+     }
+    }
+   }
+  },
+  "headline": {
+   "recommended": "claude-sonnet-5-5 @ effort=low",
+   "cost_reduction": 0.5754
+  }
+ },
+ "coding_served": {
+  "cases": "100 SWE-agent decision points (benchmarks/model_migration_cases_coding.json), 59 held-out",
+  "baseline": {
+   "model": "claude-sonnet-5-5",
+   "effort": "low",
+   "rows": 200,
+   "reps": 2,
+   "cost_per_case_usd": 0.1797,
+   "output_tokens_per_case": 1019,
+   "rates": {
+    "equiv_expand_act": 0.785,
+    "equiv_distil_act": 0.55,
+    "self_consist_act": 0.95,
+    "decided": 1.0,
+    "agree_ref_act": 0.95,
+    "agree_gold_act": 0.45,
+    "trunc_detect": 0.46,
+    "equiv_served_act": 0.6,
+    "equiv_served_expand_act": 0.75
+   },
+   "test_rates": {
+    "equiv_expand_act": 0.7712,
+    "equiv_distil_act": 0.5169,
+    "self_consist_act": 0.9407,
+    "decided": 1.0,
+    "agree_ref_act": 0.9407,
+    "agree_gold_act": 0.4492,
+    "trunc_detect": 0.4831,
+    "equiv_served_act": 0.5932,
+    "equiv_served_expand_act": 0.7797
+   }
+  },
+  "all_turns_savings": {
+   "turns": 4616,
+   "full_tokens": 121674662,
+   "compressed_tokens": 118467863,
+   "savings": 0.0264,
+   "served_tokens": 57690894,
+   "served_savings": 0.5259
+  }
+ }
+}

@@ -1,0 +1,14 @@
+{
+  "model": "claude-opus-4-8",
+  "effort": null,
+  "reps": 4,
+  "fake": null,
+  "arms": [
+    "full_a",
+    "full_b",
+    "distil",
+    "expand_structured",
+    "trunc"
+  ],
+  "cases": "real"
+}
