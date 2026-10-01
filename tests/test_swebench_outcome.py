@@ -267,8 +267,19 @@ def test_report_pairs_and_verdict():
         a["arms"]["distil"]["expand_calls"] == 40
         and a["arms"]["plain"]["classes"]["api_error"] == 1
     )
-    assert a["verdict"] == "INCONCLUSIVE"  # n=40 cannot clear a 5pt margin
-    assert "INCONCLUSIVE" in report.markdown(a)
+    assert a["verdict"] == "PILOT (no verdict)"  # n=40 < PILOT_N: no verdict either way
+    assert "PILOT" in report.markdown(a)
+    # at PILOT_N pairs the three-way verdict applies
+    big = [
+        {"instance_id": f"j{i}", "arm": arm, "status": "resolved"}
+        for i in range(report.PILOT_N)
+        for arm in ("plain", "distil")
+    ]
+    rows = [
+        {"instance_id": g["instance_id"], "arm": g["arm"], "failure_class": None, "cost_usd": 0}
+        for g in big
+    ]
+    assert report.analyse(rows, big)["verdict"] == "NON-INFERIOR"
 
 
 def test_parse_report_and_predictions(tmp_path):

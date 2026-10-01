@@ -988,8 +988,17 @@ def main() -> None:
         or a.savings_report
     ):
         return
+    FLOW = a.flow
+    if (a.status or a.regrade) and not a.backfill_arm:
+        # cross-variant, no-API modes: no --variant/--model needed
+        if a.regrade:
+            regrade(FLOW)
+        print(status_table(FLOW))
+        return
     if not a.variant or not a.model:
-        ap.error("--variant and --model are required (except for the fetch/select/report modes)")
+        ap.error(
+            "--variant and --model are required (except for the fetch/select/report/status/regrade modes)"
+        )
     if not re.fullmatch(r"baseline|v[1-9]\d*", a.variant):
         sys.exit("--variant must be 'baseline' or 'v<N>'")
     FLOW = a.flow

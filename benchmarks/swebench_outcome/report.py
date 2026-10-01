@@ -10,6 +10,9 @@ from .stats import mcnemar_exact, paired_diff, sample_size_noninferiority, wilso
 MARGIN = 0.05  # pre-registered non-inferiority margin (5 pts); see specs/swebench-outcome-eval.md
 
 
+PILOT_N = 100  # below this many pairs the report gives no non-inferiority verdict
+
+
 def outcomes(
     results: list[dict[str, Any]], grades: list[dict[str, str]]
 ) -> dict[str, dict[str, bool]]:
@@ -63,6 +66,9 @@ def analyse(
             "expand_calls": sum(r.get("expand_calls", 0) for r in rs),
         }
     verdict = "NON-INFERIOR" if lo >= -margin else "INFERIOR" if hi < -margin else "INCONCLUSIVE"
+    if n < PILOT_N:
+        # The Wald interval collapses with few discordant pairs (0 -> [0, 0]); no verdict.
+        verdict = "PILOT (no verdict)"
     pd = (b + c) / n if n else 0.0
     return {
         "n_pairs": n,

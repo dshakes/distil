@@ -9,11 +9,10 @@ Paired instances with a graded outcome in both arms: **10**
 
 Discordant: plain-only 0, distil-only 0 (both 8, neither 2).
 Paired difference (distil - plain): +0.0 pts, 95% CI [+0.0, +0.0] (Wald); exact McNemar p = 1.0000.
-Decision (non-inferiority margin 5 pts): **NON-INFERIOR**.
+Decision (non-inferiority margin 5 pts): **PILOT (no verdict)**.
 
 n < 100: the Wald interval is unreliable; treat this as a pilot, not a verdict.
 Excluded (api_error/env_error/internal_error/budget) instances are listed in `classes`, never counted as unresolved.
-
 
 ## Run notes (2026-09-30)
 
