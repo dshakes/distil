@@ -33,18 +33,10 @@ LEARN: list[tuple[str, str, str | None]] = [
     ("concepts.html", "Concepts", None),
     ("techniques.html", "Techniques", None),
     ("architecture.html", "Architecture", None),
+    ("research.html", "Research &amp; Frontier", None),
     ("cache-contract.html", "Cache Contract", "New"),
     ("subscription.html", "Subscription", "New"),
-    ("research.html", "Research &amp; Frontier", None),
     ("provider-compaction.html", "Provider Compaction", "New"),
-    ("evals.html", "Evaluation", None),
-    ("ab.html", "Task-level A/B", "New"),
-    ("model-migration.html", "Model Migration", "New"),
-    ("benchmark-independent.html", "Independent Benchmark", "New"),
-    ("benchmark.html", "Live Benchmark", None),
-    ("benchmarks.html", "Reproduce Benchmarks", None),
-    ("compare.html", "Compare", None),
-    ("adoption.html", "Adoption", "Live"),
 ]
 
 # Nested under Token Economics — the 3-module course, previously two clicks deep
@@ -55,54 +47,75 @@ COURSE_MODULES: list[tuple[str, str]] = [
     ("learn-distil.html", "3. Distil &amp; Proof"),
 ]
 
+EVALUATION: list[tuple[str, str, str | None]] = [
+    ("evals.html", "Evaluation", None),
+    ("ab.html", "Task-level A/B", "New"),
+    ("model-migration.html", "Model Migration", "New"),
+    ("benchmark-independent.html", "Independent Benchmark", "New"),
+    ("benchmark.html", "Live Benchmark", None),
+    ("benchmarks.html", "Reproduce Benchmarks", None),
+    ("compare.html", "Compare", None),
+    ("adoption.html", "Adoption", "Live"),
+]
+
 REFERENCE: list[tuple[str, str, str | None]] = [
     ("library.html", "Library API", "New"),
     ("cli.html", "CLI Reference", None),
-    ("hooks.html", "Post-tool Hooks", "New"),
-    ("code-skeletons.html", "Code Skeletons", "New"),
-    ("adapters.html", "Adapters", None),
     ("metrics.html", "Metrics &amp; Observability", None),
     ("cache.html", "Prompt Caching", "New"),
-    ("mcp.html", "MCP Compressor", "New"),
-    ("corpus.html", "Corpus", None),
     ("output.html", "Output &amp; I/O", None),
+    ("corpus.html", "Corpus", None),
 ]
 
-INTEGRATIONS_SUB: list[tuple[str, str]] = [
-    ("anthropic-sdk.html", "Anthropic SDK"),
-    ("openai-sdk.html", "OpenAI SDK"),
-    ("litellm.html", "LiteLLM"),
-    ("langchain.html", "LangChain"),
-    ("langgraph.html", "LangGraph"),
-    ("vercel-ai-sdk.html", "Vercel AI SDK"),
-    ("agno.html", "Agno"),
-    ("strands.html", "Strands"),
-    ("autogen.html", "AutoGen"),
-    ("llamaindex.html", "LlamaIndex"),
-    ("crewai.html", "CrewAI"),
-    ("asgi.html", "ASGI Middleware"),
+AGENT_TOOLING: list[tuple[str, str, str | None]] = [
+    ("hooks.html", "Post-tool Hooks", "New"),
+    ("code-skeletons.html", "Code Skeletons", "New"),
+    ("mcp.html", "MCP Compressor", "New"),
 ]
 
-# faq.html, then integrations.html (spliced in with its sublist), then these.
+INTEGRATIONS: list[tuple[str, str, str | None]] = [
+    ("integrations.html", "Overview", None),
+    ("adapters.html", "Adapters", None),
+    ("anthropic-sdk.html", "Anthropic SDK", None),
+    ("openai-sdk.html", "OpenAI SDK", None),
+    ("litellm.html", "LiteLLM", None),
+    ("langchain.html", "LangChain", None),
+    ("langgraph.html", "LangGraph", None),
+    ("vercel-ai-sdk.html", "Vercel AI SDK", None),
+    ("agno.html", "Agno", None),
+    ("strands.html", "Strands", None),
+    ("autogen.html", "AutoGen", None),
+    ("llamaindex.html", "LlamaIndex", None),
+    ("crewai.html", "CrewAI", None),
+    ("asgi.html", "ASGI Middleware", None),
+]
+
 MORE: list[tuple[str, str, str | None]] = [
     ("faq.html", "FAQ", None),
     ("security.html", "Security", None),
-    ("changelog.html", "Changelog", None),
     ("deploy-security.html", "Deploy &amp; Security", None),
     ("threat-model.html", "Threat Model", "New"),
+    ("changelog.html", "Changelog", None),
+]
+
+# Sidebar sections in order: (title, entries, open by default). Every section is a
+# native <details> — no JS, keyboard and screen-reader accessible — and the one
+# holding the current page is always open, so a flat ~60-link list reads as 7 groups.
+SECTIONS: list[tuple[str, list[tuple[str, str, str | None]], bool]] = [
+    ("Getting started", GETTING_STARTED, True),
+    ("Learn", LEARN, True),
+    ("Evaluation &amp; benchmarks", EVALUATION, False),
+    ("Reference", REFERENCE, False),
+    ("Agent tooling", AGENT_TOOLING, False),
+    ("Integrations", INTEGRATIONS, False),
+    ("More", MORE, False),
 ]
 
 # Every href the canonical sidebar/topbar can render — used by check_nav.py and
 # by the completeness self-test below.
-ALL_SIDEBAR_HREFS = (
-    {h for h, _, _ in GETTING_STARTED}
-    | {h for h, _, _ in LEARN}
-    | {h for h, _ in COURSE_MODULES}
-    | {h for h, _, _ in REFERENCE}
-    | {h for h, _ in INTEGRATIONS_SUB}
-    | {h for h, _, _ in MORE}
-    | {"integrations.html"}
-)
+ALL_SIDEBAR_HREFS = {h for _, entries, _ in SECTIONS for h, _, _ in entries} | {
+    h for h, _ in COURSE_MODULES
+}
 
 
 def _badge(text: str | None) -> str:
@@ -129,51 +142,29 @@ def render_topbar_links(active: str) -> str:
 
 def render_sidebar(active: str) -> str:
     lines = ['  <aside class="sidebar" id="sidebar">', '    <nav aria-label="Documentation">']
-
-    lines.append('      <h2 class="sidebar-section">Getting started</h2>')
-    lines.append("      <ul>")
-    for href, label, badge in GETTING_STARTED:
-        lines.append(_li(active, href, label, badge))
-    lines.append("      </ul>")
-    lines.append("")
-
-    lines.append('      <h2 class="sidebar-section">Learn</h2>')
-    lines.append("      <ul>")
-    for href, label, badge in LEARN:
-        if href == "token-economics.html":
-            cls = ' class="active" aria-current="page"' if href == active else ""
-            lines.append(f'        <li><a href="{href}"{cls}>{label}{_badge(badge)}</a>')
-            lines.append('          <ul class="sidebar-sub">')
-            for mhref, mlabel in COURSE_MODULES:
-                mcls = ' class="active" aria-current="page"' if mhref == active else ""
-                lines.append(f'            <li><a href="{mhref}"{mcls}>{mlabel}</a></li>')
-            lines.append("          </ul></li>")
-        else:
-            lines.append(_li(active, href, label, badge))
-    lines.append("      </ul>")
-    lines.append("")
-
-    lines.append('      <h2 class="sidebar-section">Reference</h2>')
-    lines.append("      <ul>")
-    for href, label, badge in REFERENCE:
-        lines.append(_li(active, href, label, badge))
-    lines.append("      </ul>")
-    lines.append("")
-
-    lines.append('      <h2 class="sidebar-section">More</h2>')
-    lines.append("      <ul>")
-    for href, label, badge in MORE:
-        lines.append(_li(active, href, label, badge))
-        if href == "faq.html":
-            icls = ' class="active" aria-current="page"' if active == "integrations.html" else ""
-            lines.append(f'        <li><a href="integrations.html"{icls}>Integrations</a>')
-            lines.append('          <ul class="sidebar-sub">')
-            for ihref, ilabel in INTEGRATIONS_SUB:
-                ic = ' class="active" aria-current="page"' if ihref == active else ""
-                lines.append(f'            <li><a href="{ihref}"{ic}>{ilabel}</a></li>')
-            lines.append("          </ul></li>")
-    lines.append(_li(active, "index.html", "← Landing page"))
-    lines.append("      </ul>")
+    for title, entries, default_open in SECTIONS:
+        hrefs = {h for h, _, _ in entries}
+        if entries is LEARN:
+            hrefs |= {h for h, _ in COURSE_MODULES}
+        is_open = default_open or active in hrefs
+        lines.append(f'      <details class="sidebar-group"{" open" if is_open else ""}>')
+        lines.append(f'        <summary class="sidebar-section">{title}</summary>')
+        lines.append("        <ul>")
+        for href, label, badge in entries:
+            if href == "token-economics.html":
+                cls = ' class="active" aria-current="page"' if href == active else ""
+                lines.append(f'          <li><a href="{href}"{cls}>{label}{_badge(badge)}</a>')
+                lines.append('            <ul class="sidebar-sub">')
+                for mhref, mlabel in COURSE_MODULES:
+                    mcls = ' class="active" aria-current="page"' if mhref == active else ""
+                    lines.append(f'              <li><a href="{mhref}"{mcls}>{mlabel}</a></li>')
+                lines.append("            </ul></li>")
+            else:
+                lines.append(_li(active, href, label, badge, indent="          "))
+        if entries is MORE:
+            lines.append(_li(active, "index.html", "← Landing page", indent="          "))
+        lines.append("        </ul>")
+        lines.append("      </details>")
     lines.append("    </nav>")
     lines.append("  </aside>")
     return "\n".join(lines)
