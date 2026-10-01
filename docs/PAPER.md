@@ -800,7 +800,7 @@ certified strategy rather than merged into it.
 E7 made against the per-step certificate: keeping the next action on 78.0% of coding
 decisions says nothing about whether the task is still solved. The SWE-bench outcome eval
 that would settle it (`benchmarks/swebench_outcome/`, spec
-`specs/swebench-outcome-eval.md`) is built and tested offline and **has not been run**.
+`specs/swebench-outcome-eval.md`) is built and tested offline. A 10-task pilot (`benchmarks/results/swebench-outcome-pilot/report.md`) resolved 8/10 in both arms with zero discordant pairs; at n = 10 that rules out nothing beyond a gross regression, so the powered run remains open.
 (2) One grader model per arm, one small case set per domain, and 60 or 59 held-out cases.
 (3) The migration result is on τ-bench traffic; the coding set was graded by the
 already-chosen certifier and has no incumbent comparison. (4) The truncation control's

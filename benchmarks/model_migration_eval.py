@@ -916,8 +916,9 @@ def check_harness(approve: bool) -> None:
 def main() -> None:
     global FLOW
     ap = argparse.ArgumentParser()
-    ap.add_argument("--variant", required=True)
-    ap.add_argument("--model", required=True)
+    # Required for runs; the fetch/select/report utility modes need neither.
+    ap.add_argument("--variant")
+    ap.add_argument("--model")
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--timeout-s", type=float, default=900)
@@ -987,6 +988,8 @@ def main() -> None:
         or a.savings_report
     ):
         return
+    if not a.variant or not a.model:
+        ap.error("--variant and --model are required (except for the fetch/select/report modes)")
     if not re.fullmatch(r"baseline|v[1-9]\d*", a.variant):
         sys.exit("--variant must be 'baseline' or 'v<N>'")
     FLOW = a.flow

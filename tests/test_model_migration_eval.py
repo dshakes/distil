@@ -150,3 +150,16 @@ def test_fetch_verified_rejects_a_bad_download(mme, tmp_path, monkeypatch) -> No
     assert not dest.exists() and not list(tmp_path.iterdir())
     mme._fetch_verified("u", dest, hashlib.sha256(b"corrupt").hexdigest())
     assert dest.read_bytes() == b"corrupt"
+
+
+def test_utility_modes_need_no_variant_or_model(mme, monkeypatch) -> None:
+    import sys as _sys
+
+    called = []
+    monkeypatch.setattr(mme, "fetch_tau_bench", lambda: called.append("tau"))
+    monkeypatch.setattr(_sys, "argv", ["x", "--fetch-tau-bench"])
+    mme.main()
+    assert called == ["tau"]
+    monkeypatch.setattr(_sys, "argv", ["x", "--cases", "real"])
+    with pytest.raises(SystemExit):
+        mme.main()
