@@ -12,6 +12,7 @@ import copy
 import json
 import re
 import threading
+import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -379,6 +380,31 @@ def proxy():
         s.shutdown()
 
 
+def _settle_coldpoint(timeout: float = 2.0) -> None:
+    """Wait for the handler thread's deferred ``coldpoint.end()`` to land.
+
+    The handler calls ``end()`` in a ``finally`` AFTER the response is relayed (ADR
+    0014: a stream or an expand re-query can refresh the cache later than the forward
+    did, so the lineage must stay "in flight" until the handler thread is truly done).
+    That leaves a short window, after the client has read the response and before the
+    server thread reaches its ``finally``, where `end()` has not run yet. In production
+    that window is microseconds against a TTL measured in minutes, so it never matters.
+    These tests fake the TTL clock with a plain mutable float instead of real time, and
+    `end()` is itself a touch (`_touch` stamps `st.last` with whatever the clock reads
+    when it actually runs) — so a test that advances the clock and fires the next turn
+    inside that window can have the FIRST request's delayed `end()` land afterwards and
+    stamp `last` with the already-advanced time, erasing the simulated gap and turning
+    an intended "cold" turn "warm". Poll until no lineage is still mid-request before
+    treating a turn as settled.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with coldpoint._LOCK:
+            if all(st.inflight <= 0 for st in coldpoint._STATES.values()):
+                return
+        time.sleep(0.005)
+
+
 def _post(port: int, body: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]]:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/v1/messages",
@@ -388,6 +414,7 @@ def _post(port: int, body: dict[str, Any]) -> tuple[dict[str, str], list[dict[st
     with urllib.request.urlopen(req, timeout=10) as r:
         r.read()
         headers = {k.lower(): v for k, v in r.headers.items()}
+    _settle_coldpoint()
     return headers, json.loads(_Upstream.seen[-1])["messages"]
 
 
