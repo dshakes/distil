@@ -1583,4 +1583,81 @@ property of the harsher certification condition, not of production behavior, and
 carve-out is its structural remedy.
 
 
+\subsection{The grader is a variable: certifier migration and served-path certification}
+Every certificate here is graded by a model, so the grader is itself an experimental variable:
+changing it moves the numbers without touching the compressor. The live certifier was changed
+from \texttt{claude-opus-4-8} to \texttt{claude-sonnet-5-5} at \texttt{effort=low} under an
+acceptance test recorded before any candidate ran (ADR~0020); grading the \emph{served} path
+instead of the certified one is ADR~0021. Figures are from
+\texttt{benchmarks/results/model-migration/summary.json}.
+
+\paragraph{Datasets and design.} Real traces only: $100$ $\tau$-bench turns ($60$ held out) and
+$100$ SWE-agent decision points ($59$ held out), pinned and sha256-verified. Arms: two
+uncompressed samples (the noise floor), \texttt{distil} (digests alone), digest plus the
+\texttt{distil\_expand} recovery loop (the deployed metric), truncation (a positive control that
+\emph{should} diverge), and, on coding traffic, the real serving adapter with and without
+recovery. The metric is action-level decision-equivalence; an undecided side never counts as a
+match. Candidates are paired against the incumbent on the held-out split with a $95\%$ interval
+from case-level differences. The gates: quality lower bound $\ge -5$ points, self-consistency no
+worse, truncation control $\ge 0.8\times$ the incumbent's, at least $15\%$ cheaper, and the
+mechanism explained.
+
+\paragraph{A leakage finding.} The bundled synthetic corpus plants \texttt{DECISION:} annotation
+lines for the deterministic offline oracle. A live model reads them too, which hands it the
+answer, so a live certificate over that corpus measures marker reading rather than context
+sufficiency. Live grading now uses marker-free real traces and live renders strip the
+\texttt{DECISION:} lines. We report no leakage magnitude: it was removed, not measured.
+
+\paragraph{Result ($\tau$-bench, held out).} Four repetitions for the incumbent and
+\texttt{claude-sonnet-5-5}, two otherwise.
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lrrrrr}
+\toprule
+certifier & kept w/ recovery & $\Delta$ / 95\% LB (pts) & digests alone & trunc.\ diverges & \$/case \\
+\midrule
+\texttt{opus-4-8} (incumbent) & 90.8\% & --- & 61.3\% & 89.2\% & 0.1458 \\
+\texttt{opus-5-5} & 90.8\% & $+0.0$ / $-10.0$ & 73.3\% & 73.3\% & 0.1336 \\
+\texttt{opus-5-5}, low & 90.0\% & $-0.8$ / $-9.8$ & 75.0\% & 75.8\% & 0.1256 \\
+\texttt{sonnet-5-5}, low & 94.6\% & $+3.8$ / $-4.5$ & 66.7\% & 79.6\% & 0.0619 \\
+\texttt{haiku-4-5} & 85.0\% & $-5.8$ / $-15.8$ & 44.2\% & 93.3\% & 0.0248 \\
+\bottomrule
+\end{tabular}
+\caption{Certifier migration, $\tau$-bench held-out ($n=60$).}
+\end{table}
+\texttt{claude-sonnet-5-5} at low passed all five gates and is $57.5\%$ cheaper than the
+incumbent; it is the default since 1.56.0. The \texttt{opus-5-5} rows miss the quality bound and
+\texttt{haiku-4-5} misses it by more. Intervals are wide at $n=60$: a bound of $-4.5$ points
+clears the gate, it does not show equivalence. The ``mechanism'' gate is reported as passed in
+the eval record; its supporting trace analysis is not in \texttt{summary.json}.
+
+\paragraph{Certified versus served.} The strategy \texttt{distil certify} grades digests only the
+latest tool output; a caching tool-use client is served something else, since the adapter digests
+every earlier tool result. Over $4{,}616$ real SWE-agent turns the certified strategy saves
+$2.6\%$ of tokens and the served path $52.6\%$, so most served bytes were never certified. On the
+$59$ held-out coding decisions (graded by \texttt{claude-sonnet-5-5}, low), two uncompressed
+calls agree on the next action $94.1\%$ of the time; certified \texttt{distil} alone keeps it
+$51.7\%$ ($77.1\%$ with recovery); the served adapter alone $59.3\%$ ($78.0\%$ with recovery);
+truncation diverges $48.3\%$. This is an open risk, not a pass; \texttt{distil certify --strategy
+served} now reports it beside the certified strategy.
+
+\paragraph{Outcome eval on SWE-bench Lite.} Decision-equivalence is not task success. We ran
+the pre-registered paired outcome eval (distil serving versus plain, \texttt{claude-sonnet-5-5}
+at low, $30$ steps, graded by the official harness). A $10$-task pilot resolved $8/10$ in both
+arms with no discordant pairs and is not a verdict. The $100$-task run resolved $70/100$ with
+distil against $69/100$ plain (discordant $5$ versus $4$): a paired difference of $+1.0$ pts, $95\%$
+Wald CI $[-4.9,+6.9]$, non-inferior at the $5$-point margin \emph{by a tenth of a point}. At the
+observed discordance about $283$ pairs would give $80\%$ power, so this is a pass, not a large
+one. On these short, low-effort tasks serving sent $10.6\%$ more input tokens ($4{,}361$ versus
+$4{,}054$ per step; $408$ steps versus $397$), so the run bounds task risk without demonstrating
+savings. It used no prompt caching ($0$ cache reads), so the injected expand tool's definition
+(about $150$ tokens, by a characters/4 estimate) was paid at full price on every step; the rest of
+the per-step gap was not broken down. The harness now caches like a real agent.
+
+\paragraph{Threats to validity.} (1)~The outcome margin is cleared narrowly and the run is
+underpowered at this discordance. (2)~One grader model per arm, one small case set per domain,
+and $60$ or $59$ held-out cases. (3)~The migration result is on $\tau$-bench traffic; the coding
+set has no incumbent comparison. (4)~The truncation control's sensitivity differs by candidate,
+so a candidate's own control rate is part of its result.
+
 \end{document}
