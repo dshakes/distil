@@ -137,6 +137,16 @@
 </section>
 
 <section class="changelog-entry">
+<h2 id="v1-56-2">1.56.2 — 2026-10-02 — the full-size outcome, and it is not a pass</h2>
+<h3>Changed</h3>
+<ul>
+<li><strong>SWE-bench outcome eval on all 300 SWE-bench Lite tasks supersedes the 100-task run.</strong> Both agents now use prompt caching. Distil-served resolved 201/299 paired tasks vs 210/299 plain: −3.0 pts (95% CI −6.4 to +0.4, McNemar p = 0.12), so non-inferiority at the pre-registered 5-point margin is <strong>not shown</strong>, and the earlier narrow pass does not hold at full size. Serving also cost 12.4% more and took 29.9% more steps. $15.25. Artifacts in <code>benchmarks/results/swebench-outcome-300/</code>.</li>
+<li><strong>Why (from the transcripts, <code>tool_calls.json</code>):</strong> the agent re-read files in slices instead of expanding digests — <code>sed</code> 624 vs 406 calls, <code>grep</code> 539 vs 410, <code>distil_expand</code> 13 calls in 300 tasks. distil's exact-quote exemption keys on tool names (<code>goto</code>, <code>scroll_up</code>, …), so file views made through generic <code>bash</code> get digested. A fix is being measured; until then the docs treat the served path on coding agents as unproven for task success and not cheaper.</li>
+<li>README, paper, EVALUATION §6.8, the Model Migration page and the claims ledger (<code>v-swebench-outcome-300</code>) now state this result; the 100-task "non-inferior" claim is withdrawn.</li>
+</ul>
+</section>
+
+<section class="changelog-entry">
 <h2 id="v1-56-1">1.56.1 — 2026-10-01 — the outcome, measured</h2>
 <h3>Added</h3>
 <ul>

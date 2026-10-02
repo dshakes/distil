@@ -1,0 +1,37 @@
+{
+ "method": "counts of tool_use blocks per arm over all 300 transcripts; bash keyed by the first command after any leading 'cd <dir> &&'",
+ "plain": {
+  "total": 1184,
+  "bash:grep": 410,
+  "bash:sed": 406,
+  "bash:python": 312,
+  "bash:git": 27,
+  "bash:cat": 13,
+  "bash:rm": 4,
+  "bash:mkdir": 3,
+  "bash:echo": 2,
+  "bash:ls": 2,
+  "bash:PYTHONPATH=/tmp/t:/testbed": 2,
+  "bash:PYTHONIOENCODING=utf8": 1,
+  "bash:printf": 1,
+  "bash:awk": 1
+ },
+ "distil": {
+  "total": 1583,
+  "bash:sed": 624,
+  "bash:grep": 539,
+  "bash:python": 332,
+  "bash:git": 32,
+  "bash:cat": 27,
+  "distil_expand": 13,
+  "bash:ls": 4,
+  "bash:true": 2,
+  "bash:echo": 2,
+  "bash:rm": 2,
+  "bash:mkdir": 2,
+  "bash:PYTHONIOENCODING=utf8": 1,
+  "bash:cd": 1,
+  "bash:export": 1,
+  "bash:awk": 1
+ }
+}
