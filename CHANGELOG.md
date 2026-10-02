@@ -7,6 +7,16 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+## [1.56.3] — 2026-10-02 — shell search stays verbatim
+
+### Fixed
+
+- **Shell search output stays verbatim** (`grep`/`egrep`/`fgrep`/`rg`/`ag`/`ack`, `git grep`; pipes allowed, redirection not), like a `Grep` tool's already did — new census bucket `tool_result_shell_search`. On all 300 SWE-bench Lite tasks the served agent's extra steps over plain fall from +29.9% to +3.1% and its cost from +12.4% to parity; resolved 204/299 vs 210/299 (−2.0 pts, 95% CI −5.5 to +1.5), so task-level non-inferiority is still not shown. Price: on the unfixed run's transcripts, request-size savings fall from 24.1% to 9.1%. Artifacts in `benchmarks/results/swebench-outcome-300-grepfix/`.
+
+### Added
+
+- **Bubble charts for the evals**, generated from the committed result files by `scripts/build_eval_charts.py` and checked against them by a test: certifier settings (cost vs equivalence, size = self-consistency) and SWE-bench outcome (cost vs resolved, size = tasks; pre-caching runs labelled uncached).
+
 ## [1.56.2] — 2026-10-02 — the full-size outcome, and it is not a pass
 
 ### Changed

@@ -63,7 +63,9 @@ def _convo(tr_content: Any) -> list[dict[str, Any]]:
                     "type": "tool_use",
                     "id": "t1",
                     "name": "bash",
-                    "input": {"cmd": f"grep {_MARKER}"},
+                    # not a search command: shell search output is kept verbatim (provenance.is_shell_search),
+                    # which would exempt every case and stop the battery exercising compression
+                    "input": {"cmd": f"./run_check.sh {_MARKER}"},
                 }
             ],
         },
