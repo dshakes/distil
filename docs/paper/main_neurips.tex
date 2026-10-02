@@ -1641,23 +1641,34 @@ $51.7\%$ ($77.1\%$ with recovery); the served adapter alone $59.3\%$ ($78.0\%$ w
 truncation diverges $48.3\%$. This is an open risk, not a pass; \texttt{distil certify --strategy
 served} now reports it beside the certified strategy.
 
-\paragraph{Outcome eval on SWE-bench Lite.} Decision-equivalence is not task success. We ran
-the pre-registered paired outcome eval (distil serving versus plain, \texttt{claude-sonnet-5-5}
-at low, $30$ steps, graded by the official harness). A $10$-task pilot resolved $8/10$ in both
-arms with no discordant pairs and is not a verdict. The $100$-task run resolved $70/100$ with
-distil against $69/100$ plain (discordant $5$ versus $4$): a paired difference of $+1.0$ pts, $95\%$
-Wald CI $[-4.9,+6.9]$, non-inferior at the $5$-point margin \emph{by a tenth of a point}. At the
-observed discordance about $283$ pairs would give $80\%$ power, so this is a pass, not a large
-one. On these short, low-effort tasks serving sent $10.6\%$ more input tokens ($4{,}361$ versus
-$4{,}054$ per step; $408$ steps versus $397$), so the run bounds task risk without demonstrating
-savings. It used no prompt caching ($0$ cache reads), so the injected expand tool's definition
-(about $150$ tokens, by a characters/4 estimate) was paid at full price on every step; the rest of
-the per-step gap was not broken down. The harness now caches like a real agent.
+\paragraph{Outcome eval on SWE-bench Lite: not shown.} Decision-equivalence is not task success.
+We ran the pre-registered paired outcome eval (distil serving versus plain,
+\texttt{claude-sonnet-5-5} at low, $30$ steps, official grader) on all $300$ SWE-bench Lite
+tasks, both arms with prompt caching. Distil-served resolved $201/299$ against $210/299$ plain
+(discordant $18$ plain-only versus $9$ distil-only): a paired $-3.0$ pts, $95\%$ Wald CI
+$[-6.4,+0.4]$, exact McNemar $p=0.12$. Non-inferiority at the pre-registered $5$-point margin is
+\emph{not shown}. Distil also cost $12.4\%$ more (\$8.07 versus \$7.18) and took $29.9\%$ more
+steps ($1{,}629$ versus $1{,}254$). This supersedes an earlier $100$-task, uncached run ($70/100$
+versus $69/100$) that passed by a tenth of a point and does not hold at full size; a $10$-task
+pilot before it (8/10 in both arms) was not a verdict.
 
-\paragraph{Threats to validity.} (1)~The outcome margin is cleared narrowly and the run is
-underpowered at this discordance. (2)~One grader model per arm, one small case set per domain,
-and $60$ or $59$ held-out cases. (3)~The migration result is on $\tau$-bench traffic; the coding
-set has no incumbent comparison. (4)~The truncation control's sensitivity differs by candidate,
-so a candidate's own control rate is part of its result.
+\paragraph{Mechanism and fix.} An offline replay of the compression over the distil-arm requests
+found $704$ of $1{,}583$ tool results digested, including $436$ of $539$ shell \texttt{grep}
+results but only $105$ of $595$ \texttt{sed} reads. The agent re-searched and re-read instead of
+expanding ($13$ \texttt{distil\_expand} calls). A \texttt{Grep} tool's output is exempt by name;
+shell search output was not. The fix keeps shell search output verbatim. Re-running the distil arm
+on the same $300$ tasks against the same plain rows gave $204/299$ versus $210/299$: $-2.0$ pts,
+$95\%$ CI $[-5.5,+1.5]$, $p=0.34$, still not shown, by half a point. Steps are $+3.1\%$ over
+plain (from $+29.9\%$), cost is at parity (\$7.18 versus \$7.18), and give-ups fell from $4$ to
+$1$. The price is smaller savings: request-size savings fell from $24.1\%$ to $9.1\%$ (offline,
+on the unfixed transcripts).
+
+\paragraph{Threats to validity.} (1)~On coding agents the served path is cost-neutral after the
+fix but task success is not yet proven non-inferior. (2)~The fixed-arm re-run reuses the plain rows
+and the mechanism analysis is offline, on unfixed transcripts. (3)~One grader model per arm, one
+small case set per domain, and $60$ or $59$ held-out cases. (4)~The certifier-migration result is
+on $\tau$-bench traffic at the decision level, and stands; the coding set has no incumbent
+comparison. (5)~The truncation control's sensitivity differs by candidate, so a candidate's own
+control rate is part of its result.
 
 \end{document}
