@@ -100,7 +100,8 @@ def outcome_bubbles() -> list[Bubble]:
             out.append(
                 Bubble(
                     f"{run} {arm}",
-                    m["cost_usd"] / m["tasks"],
+                    # round: sum() of floats differs by an ulp across Python versions (3.12 changed it)
+                    round(m["cost_usd"] / m["tasks"], 6),
                     m["rate"] * 100,
                     float(m["n"]),
                     color,

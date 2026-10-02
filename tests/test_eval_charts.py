@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -66,6 +67,6 @@ def test_outcome_bubbles_cover_every_run_and_match_source() -> None:
         run = d.name.removeprefix("swebench-outcome-")
         for arm in ("plain", "distil"):
             rs = [r for r in res if r["arm"] == arm]
-            cost = sum(r.get("cost_usd", 0) for r in rs) / len(rs)
+            cost = round(math.fsum(r.get("cost_usd", 0) for r in rs) / len(rs), 6)
             n, k = a["arms"][arm]["n"], a["arms"][arm]["resolved"]
             assert got[f"{run} {arm}"] == (cost, k / n * 100, float(n))
