@@ -1086,13 +1086,29 @@
         "../README.md"
       ],
       "anchor": "served",
-      "snippet": "Until a fix is measured, treat the served path on coding agents as unproven",
+      "snippet": "Treat the served path on coding agents as cost-neutral",
       "claim": "On all 300 SWE-bench Lite tasks x 2 arms (claude-sonnet-5-5 @ low, max 30 steps, both arms with a prompt-cache breakpoint on the newest turn), graded by the official SWE-bench harness: distil-served resolved 201/299 paired tasks vs 210/299 plain; paired difference -3.0 pts, 95% Wald CI [-6.4, +0.4], exact McNemar p = 0.1221; non-inferiority at the pre-registered 5-point margin not shown. Cost $8.07 vs $7.18 (+12.4%); steps 1,629 vs 1,254 (+29.9%). Supersedes the 100-task run.",
       "note": "Reproduce the table: python -m benchmarks.swebench_outcome report --out benchmarks/results/swebench-outcome-300 (results.jsonl carries every patch, grades.jsonl the official verdicts). Tool-call counts: tool_calls.json. Re-running the agents spends money (~$15).",
       "artifact": "benchmarks/results/swebench-outcome-300/report.md",
       "values": [
         "12.4%",
         "29.9%"
+      ]
+    },
+    {
+      "id": "v-swebench-outcome-300-grepfix",
+      "status": "verified",
+      "page": [
+        "model-migration.html",
+        "../README.md"
+      ],
+      "anchor": "served",
+      "snippet": "removes the penalty: steps over plain fall from",
+      "claim": "With shell search output kept verbatim (distil.compress.provenance.is_shell_search), the distil arm re-run on the same 300 SWE-bench Lite tasks against the same plain rows: 204/299 vs 210/299 resolved, -2.0 pts, 95% Wald CI [-5.5, +1.5], McNemar p = 0.3449; steps 1,293 vs 1,254 (+3.1% over plain, from +29.9% unfixed); cost $7.18 vs $7.18.",
+      "note": "Reproduce: python -m benchmarks.swebench_outcome report --out benchmarks/results/swebench-outcome-300-grepfix. The plain rows are reused from swebench-outcome-300.",
+      "artifact": "benchmarks/results/swebench-outcome-300-grepfix/report.md",
+      "values": [
+        "3.1%"
       ]
     }
   ]

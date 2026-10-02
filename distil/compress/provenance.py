@@ -65,6 +65,7 @@ __all__ = [
     "command_text",
     "edit_quotes",
     "exact_quote_ids",
+    "is_shell_search",
     "missing_quotes",
     "observed_view",
     "quote_hazard",
@@ -439,6 +440,36 @@ def read_span(command: str) -> str:
     return f"{cmd}:{' '.join(args)}"
 
 
+# Shell searches whose output is a file:line map the agent navigates by. The `Grep` TOOL is
+# exempt by name (EXACT_QUOTE_TOOLS); the same search run through a shell tool was not, and
+# on the 300-task SWE-bench Lite run distil digested 436 of 539 shell `grep` results — the
+# agent then searched and re-read again instead of expanding (+29.9% steps, +12.4% cost;
+# benchmarks/results/swebench-outcome-300/digest_replay.json). `git grep` is matched by its
+# subcommand.
+_SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "ag", "ack"})
+
+
+def is_shell_search(command: str) -> bool:
+    """True when *command*'s first real command (after any ``cd <dir> &&``) is a search.
+
+    Pipes are allowed — ``grep -rn x | head`` still prints search hits, and it was the
+    largest digested bucket. Redirection is not: those bytes went to a file, not the agent.
+    """
+    if not command or ">" in command.replace("2>&1", "").replace("2>/dev/null", ""):
+        return False
+    norm = command.replace("||", ";").replace("&&", ";").replace("\n", ";")
+    for stage in (s.strip() for s in norm.split(";")):
+        if not stage:
+            continue
+        words = stage.split()
+        if words[0] == "cd":
+            continue
+        if words[0] == "git" and len(words) > 1:
+            return words[1] == "grep"
+        return words[0] in _SEARCHERS
+    return False
+
+
 def exact_quote_ids(
     calls: Iterable[ToolCall],
     *,
@@ -480,6 +511,9 @@ def exact_quote_ids(
             continue
         if call.name.lower() in EXACT_QUOTE_TOOLS:
             keep[call.id] = "tool_result_exact_quote"
+            continue
+        if is_shell_search(call.command):
+            keep[call.id] = "tool_result_shell_search"
             continue
         paths = whole_file_read_paths(call.command)
         if not paths:

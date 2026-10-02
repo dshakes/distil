@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="t d">
   <title id="t">SWE-bench Lite outcome: cost vs resolved</title>
-  <desc id="d">Bubble chart, one bubble per run and arm. x is cost per task in dollars, y is resolved tasks in percent of paired tasks, bubble area is the number of paired tasks. 100 (uncached) plain: $0.0419, 69.0%, 100 tasks; 100 (uncached) distil: $0.0454, 70.0%, 100 tasks; 300 plain: $0.0239, 70.2%, 299 tasks; 300 distil: $0.0269, 67.2%, 299 tasks; pilot (uncached) plain: $0.0325, 80.0%, 10 tasks; pilot (uncached) distil: $0.0357, 80.0%, 10 tasks.</desc>
+  <desc id="d">Bubble chart, one bubble per run and arm. x is cost per task in dollars, y is resolved tasks in percent of paired tasks, bubble area is the number of paired tasks. 100 (uncached) plain: $0.0419, 69.0%, 100 tasks; 100 (uncached) distil: $0.0454, 70.0%, 100 tasks; 300 plain: $0.0239, 70.2%, 299 tasks; 300 distil: $0.0269, 67.2%, 299 tasks; 300-grepfix plain: $0.0239, 70.2%, 299 tasks; 300-grepfix distil: $0.0239, 68.2%, 299 tasks; pilot (uncached) plain: $0.0325, 80.0%, 10 tasks; pilot (uncached) distil: $0.0357, 80.0%, 10 tasks.</desc>
   <rect width="1200" height="680" fill="#06070b"/>
   <text x="48" y="52" fill="#f2f3f7" font-size="25" font-weight="700">SWE-bench Lite outcome: cost vs resolved</text>
   <text x="48" y="78" fill="#9aa1b3" font-size="14">One bubble per run and arm; uncached runs are not cost-comparable. Source: benchmarks/results/swebench-outcome-*/</text>
@@ -33,12 +33,16 @@
   <text transform="translate(30 325.0) rotate(-90)" text-anchor="middle" fill="#9aa1b3" font-size="13" font-weight="700">Resolved (%)</text>
   <circle cx="389.9" cy="360.3" r="46.0" fill="#5ad1c9" fill-opacity="0.35" stroke="#5ad1c9" stroke-width="2" data-label="300 plain" data-x="0.023936" data-y="70.23411371237458" data-size="299.0"><title>300 plain: 0.02, 70, 299</title></circle>
   <circle cx="451.7" cy="407.3" r="46.0" fill="#8b7bff" fill-opacity="0.35" stroke="#8b7bff" stroke-width="2" data-label="300 distil" data-x="0.026909" data-y="67.22408026755853" data-size="299.0"><title>300 distil: 0.03, 67, 299</title></circle>
+  <circle cx="389.9" cy="360.3" r="46.0" fill="#5ad1c9" fill-opacity="0.35" stroke="#5ad1c9" stroke-width="2" data-label="300-grepfix plain" data-x="0.023936" data-y="70.23411371237458" data-size="299.0"><title>300-grepfix plain: 0.02, 70, 299</title></circle>
+  <circle cx="389.9" cy="391.7" r="46.0" fill="#8b7bff" fill-opacity="0.35" stroke="#8b7bff" stroke-width="2" data-label="300-grepfix distil" data-x="0.023936" data-y="68.22742474916387" data-size="299.0"><title>300-grepfix distil: 0.02, 68, 299</title></circle>
   <circle cx="763.9" cy="379.6" r="26.6" fill="#5ad1c9" fill-opacity="0.35" stroke="#5ad1c9" stroke-width="2" data-label="100 (uncached) plain" data-x="0.041917" data-y="69.0" data-size="100.0"><title>100 (uncached) plain: 0.04, 69, 100</title></circle>
   <circle cx="836.2" cy="364.0" r="26.6" fill="#8b7bff" fill-opacity="0.35" stroke="#8b7bff" stroke-width="2" data-label="100 (uncached) distil" data-x="0.045393" data-y="70.0" data-size="100.0"><title>100 (uncached) distil: 0.05, 70, 100</title></circle>
   <circle cx="567.2" cy="208.0" r="8.4" fill="#5ad1c9" fill-opacity="0.35" stroke="#5ad1c9" stroke-width="2" data-label="pilot (uncached) plain" data-x="0.032462" data-y="80.0" data-size="10.0"><title>pilot (uncached) plain: 0.03, 80, 10</title></circle>
   <circle cx="634.9" cy="208.0" r="8.4" fill="#8b7bff" fill-opacity="0.35" stroke="#8b7bff" stroke-width="2" data-label="pilot (uncached) distil" data-x="0.035717" data-y="80.0" data-size="10.0"><title>pilot (uncached) distil: 0.04, 80, 10</title></circle>
   <text x="335.9" y="364.3" text-anchor="end" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">300 plain</text>
   <text x="505.7" y="411.3" text-anchor="start" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">300 distil</text>
+  <text x="389.9" y="306.3" text-anchor="middle" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">300-grepfix plain</text>
+  <text x="335.9" y="395.7" text-anchor="end" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">300-grepfix distil</text>
   <text x="729.3" y="383.6" text-anchor="end" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">100 (uncached) plain</text>
   <text x="870.8" y="368.0" text-anchor="start" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">100 (uncached) distil</text>
   <text x="550.8" y="212.0" text-anchor="end" fill="#f2f3f7" font-size="13" paint-order="stroke" stroke="#06070b" stroke-width="3">pilot (uncached) plain</text>

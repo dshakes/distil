@@ -137,6 +137,18 @@
 </section>
 
 <section class="changelog-entry">
+<h2 id="v1-56-3">1.56.3 — 2026-10-02 — shell search stays verbatim</h2>
+<h3>Fixed</h3>
+<ul>
+<li><strong>Shell search output stays verbatim</strong> (<code>grep</code>/<code>egrep</code>/<code>fgrep</code>/<code>rg</code>/<code>ag</code>/<code>ack</code>, <code>git grep</code>; pipes allowed, redirection not), like a <code>Grep</code> tool's already did — new census bucket <code>tool_result_shell_search</code>. On all 300 SWE-bench Lite tasks the served agent's extra steps over plain fall from +29.9% to +3.1% and its cost from +12.4% to parity; resolved 204/299 vs 210/299 (−2.0 pts, 95% CI −5.5 to +1.5), so task-level non-inferiority is still not shown. Price: on the unfixed run's transcripts, request-size savings fall from 24.1% to 9.1%. Artifacts in <code>benchmarks/results/swebench-outcome-300-grepfix/</code>.</li>
+</ul>
+<h3>Added</h3>
+<ul>
+<li><strong>Bubble charts for the evals</strong>, generated from the committed result files by <code>scripts/build_eval_charts.py</code> and checked against them by a test: certifier settings (cost vs equivalence, size = self-consistency) and SWE-bench outcome (cost vs resolved, size = tasks; pre-caching runs labelled uncached).</li>
+</ul>
+</section>
+
+<section class="changelog-entry">
 <h2 id="v1-56-2">1.56.2 — 2026-10-02 — the full-size outcome, and it is not a pass</h2>
 <h3>Changed</h3>
 <ul>

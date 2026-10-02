@@ -20,7 +20,7 @@ def _big_log(needle_line: str) -> str:
 
 
 def test_grep_hit_survives_via_tool_use_intent():
-    # agent ran a grep for MAX_RETRIES; the answer line is buried in a big log
+    # agent asked a tool about MAX_RETRIES; the answer line is buried in a big log
     needle = "config/app.py:  MAX_RETRIES = 5"
     messages = [
         {"role": "user", "content": "what is the retry limit?"},
@@ -31,7 +31,8 @@ def test_grep_hit_survives_via_tool_use_intent():
                     "type": "tool_use",
                     "id": "t1",
                     "name": "bash",
-                    "input": {"command": "grep -rn MAX_RETRIES config/"},
+                    # not grep: shell search output is now kept verbatim, so it would never fold
+                    "input": {"command": "python scripts/show_config.py MAX_RETRIES config/"},
                 }
             ],
         },

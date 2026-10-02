@@ -375,3 +375,35 @@ def test_swe_agent_goto_view_survives_the_adapter() -> None:
     ]
     out, _ = compress_messages(msgs)
     assert out[2]["content"][0]["content"] == view
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("grep -rn foo src/", True),
+        ("cd /testbed && grep -rn 'def bar' . | head -20", True),  # largest digested bucket
+        ("rg -n Foo", True),
+        ("git grep -n Foo -- '*.py'", True),
+        ("egrep -n 'a|b' f.py 2>/dev/null", True),
+        ("grep -rn foo . > hits.txt", False),  # redirected: the agent never saw the bytes
+        ("find . -name '*.py' | xargs grep foo", False),  # first command is not a search
+        ("git log --grep foo", False),
+        ("python -c 'print(1)'", False),
+        ("", False),
+    ],
+)
+def test_is_shell_search(command, expected):
+    from distil.compress import provenance as prov
+
+    assert prov.is_shell_search(command) is expected
+
+
+def test_shell_search_results_are_exempt_in_their_own_bucket():
+    from distil.compress import provenance as prov
+
+    calls = [
+        prov.ToolCall("s1", "bash", "cd /testbed && grep -rn 'class Foo' . | head", 0),
+        prov.ToolCall("p1", "bash", "python -m pytest -q", 2),
+    ]
+    keep = prov.exact_quote_ids(calls)
+    assert keep == {"s1": "tool_result_shell_search"}
