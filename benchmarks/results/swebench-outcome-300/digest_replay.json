@@ -1,0 +1,91 @@
+{
+ "method": "each distil-arm transcript's final request re-run offline through distil.adapters.anthropic.compress_messages (cache breakpoint on the newest turn, persist=False); a tool result counts as digested if its compressed text carries a handle. Keyed by the bash command's first word after any leading 'cd <dir> &&', ' |' marking a pipeline.",
+ "tool_results": 1583,
+ "digested": 704,
+ "by_command": {
+  "bash:grep |": {
+   "digested": 300,
+   "total": 348
+  },
+  "bash:grep": {
+   "digested": 136,
+   "total": 191
+  },
+  "bash:sed": {
+   "digested": 105,
+   "total": 595
+  },
+  "bash:python": {
+   "digested": 73,
+   "total": 232
+  },
+  "bash:python |": {
+   "digested": 42,
+   "total": 100
+  },
+  "bash:sed |": {
+   "digested": 20,
+   "total": 29
+  },
+  "bash:git": {
+   "digested": 8,
+   "total": 27
+  },
+  "bash:cat |": {
+   "digested": 8,
+   "total": 16
+  },
+  "bash:cat": {
+   "digested": 5,
+   "total": 11
+  },
+  "bash:ls |": {
+   "digested": 1,
+   "total": 3
+  },
+  "bash:echo": {
+   "digested": 1,
+   "total": 2
+  },
+  "bash:rm": {
+   "digested": 1,
+   "total": 2
+  },
+  "bash:mkdir": {
+   "digested": 1,
+   "total": 2
+  },
+  "bash:git |": {
+   "digested": 1,
+   "total": 5
+  },
+  "bash:ls": {
+   "digested": 1,
+   "total": 1
+  },
+  "bash:awk |": {
+   "digested": 1,
+   "total": 1
+  },
+  "bash:true": {
+   "digested": 0,
+   "total": 2
+  },
+  "distil_expand:": {
+   "digested": 0,
+   "total": 13
+  },
+  "bash:PYTHONIOENCODING=utf8": {
+   "digested": 0,
+   "total": 1
+  },
+  "bash:cd": {
+   "digested": 0,
+   "total": 1
+  },
+  "bash:export": {
+   "digested": 0,
+   "total": 1
+  }
+ }
+}
