@@ -93,8 +93,13 @@ def outcome_bubbles() -> list[Bubble]:
     for d in sorted(RESULTS.glob("swebench-outcome-*"), key=run_key):
         if not (d / "results.jsonl").exists() or not (d / "grades.jsonl").exists():
             continue
-        a = analyse(rows(d / "results.jsonl"), rows(d / "grades.jsonl"))
+        res = rows(d / "results.jsonl")
+        a = analyse(res, rows(d / "grades.jsonl"))
         run = d.name.removeprefix("swebench-outcome-")
+        # Runs made before the harness cached are not cost-comparable with later ones:
+        # mark them from the data itself (no cache reads anywhere in the run).
+        if not any((r.get("usage") or {}).get("cache_read") for r in res):
+            run += " (uncached)"
         for arm, color in (("plain", ACC2), ("distil", ACC)):
             m = a["arms"][arm]
             out.append(
@@ -265,7 +270,7 @@ def charts() -> list[Chart]:
         Chart(
             "eval-bubble-outcome.svg",
             "SWE-bench Lite outcome: cost vs resolved",
-            "One bubble per run and arm. Source: benchmarks/results/swebench-outcome-*/results.jsonl, grades.jsonl",
+            "One bubble per run and arm; uncached runs are not cost-comparable. Source: benchmarks/results/swebench-outcome-*/",
             "Bubble chart, one bubble per run and arm. x is cost per task in dollars, "
             "y is resolved tasks in percent of paired tasks, bubble area is the number of paired tasks. "
             + "; ".join(f"{b.label}: ${b.x:.4f}, {b.y:.1f}%, {b.size:.0f} tasks" for b in ob)

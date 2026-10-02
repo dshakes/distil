@@ -65,6 +65,8 @@ def test_outcome_bubbles_cover_every_run_and_match_source() -> None:
         res, grades = _jsonl(d / "results.jsonl"), _jsonl(d / "grades.jsonl")
         a = analyse(res, grades)
         run = d.name.removeprefix("swebench-outcome-")
+        if not any((r.get("usage") or {}).get("cache_read") for r in res):
+            run += " (uncached)"  # pre-caching runs are labelled as not cost-comparable
         for arm in ("plain", "distil"):
             rs = [r for r in res if r["arm"] == arm]
             cost = round(math.fsum(r.get("cost_usd", 0) for r in rs) / len(rs), 6)
