@@ -36,7 +36,7 @@ MIN_CHARS, CHUNK_CHARS = 200, 800
 EMPTY = "[output removed by selective-context]"
 WORKER = Path(__file__).with_name("selective_worker.py")
 INSTALL_HINT = (
-    f"pip install selective-context=={SC_VERSION} && python -m spacy download en_core_web_sm "
+    f"pip install selective-context=={SC_VERSION} 'numpy<2' && python -m spacy download en_core_web_sm "
     "(needs CPython <= 3.10: it pins spacy==3.2.0); then pass that interpreter as "
     "--selective-python"
 )
@@ -137,18 +137,47 @@ def selective_arm(reduce: Callable[[str], str], meta: dict[str, Any] | None = No
             }
         return b
 
+    # What the latest request sent: tool-result chars before/after pruning. Each request
+    # carries the whole history, so the last one is the task's footprint.
+    last = {"tool_results": 0, "pruned_results": 0, "chars_before": 0, "chars_after": 0}
+
+    def _text(b: dict[str, Any]) -> str:
+        c = b.get("content")
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            return "".join(x.get("text", "") for x in c if x.get("type") == "text")
+        return ""
+
     def transform(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out = []
+        tally = dict.fromkeys(last, 0)
         for m in messages:
             c = m.get("content")
             if m.get("role") == "user" and isinstance(c, list):
-                m = {**m, "content": [block(b) if b.get("type") == "tool_result" else b for b in c]}
+                blocks = []
+                for b in c:
+                    if b.get("type") == "tool_result":
+                        nb = block(b)
+                        before, after = len(_text(b)), len(_text(nb))
+                        tally["tool_results"] += 1
+                        tally["pruned_results"] += after < before
+                        tally["chars_before"] += before
+                        tally["chars_after"] += after
+                        b = nb
+                    blocks.append(b)
+                m = {**m, "content": blocks}
             out.append(m)
+        last.update(tally)
         return out
+
+    def on_response(_resp: Any, stats: dict[str, Any]) -> None:
+        stats.update(last)
 
     return Arm(
         "selective",
         transform=transform,
+        on_response=on_response,
         meta={
             "library": "selective-context",
             "version": SC_VERSION,
