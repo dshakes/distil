@@ -133,7 +133,12 @@
 
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
-
+<h3>Added</h3>
+<ul>
+<li><strong>Head-to-head outcome harness</strong> (<code>benchmarks/swebench_outcome</code>): arms are now pluggable (<code>arms.Arm</code>: request transform, extra tools, request params/betas, tool-output wrapper, metadata) and selected with <code>--arms</code> on <code>plan</code>/<code>run</code>/<code>grade</code>/<code>report</code>. <code>plain</code> and <code>distil</code> behave exactly as before (existing tests unchanged; every committed <code>report.md</code> and chart regenerates identically). Three competitor arms, each calling the real thing, pinned: <code>rtk</code> (RTK v0.51.0, Apache-2.0, its <code>rtk rewrite</code> hook protocol run in the task container), <code>selective</code> (<code>selective-context==0.1.4</code>, MIT, GPT-2 via an out-of-process worker; optional, refuses before any spend if absent) and <code>provider-cm</code> (Anthropic context editing, <code>clear_tool_uses_20250919</code>, beta <code>context-management-2025-06-27</code>). Rows record <code>arm_meta</code> (library + version) and per-run <code>arm_stats</code>.</li>
+<li><code>report</code> compares every arm with plain (paired McNemar/Wald CI, non-inferiority verdict per arm, uncorrected-multiplicity note) plus a side-by-side summary table; the outcome chart handles N arms.</li>
+<li><code>plan --calibrate &lt;run dir&gt;</code> prices each arm from cached results (unmeasured arms at plain x1.5); <code>run --reuse-arm plain=&lt;dir&gt;</code> copies a finished arm's rows (same model/effort enforced, free against the budget, grades carried over, stated in the report). No paid head-to-head run is included; see <code>specs/swebench-outcome-eval.md</code>.</li>
+</ul>
 </section>
 
 <section class="changelog-entry">
