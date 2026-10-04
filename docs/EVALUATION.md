@@ -531,6 +531,65 @@ upstream files. The fact-recall benchmarks are listed separately in §5.2.
 | SWE-bench Lite | [`princeton-nlp/SWE-bench_Lite`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite), `test` split, with the prebuilt `swebench/sweb.eval.x86_64.*` Docker images | 10 instances (pilot) and 100 instances (`--seed 1`), then all 300 in dataset order (three batches of 100, images pre-pulled) | Instance ids in each run's `results.jsonl`; graded by the official harness, `swebench>=4,<5` | Task-outcome eval: plain agent vs distil-served agent (`benchmarks/results/swebench-outcome-*`) |
 | distil synthetic corpus | `corpus/` + `benchmarks/corpus_xl/` (in-repo) | all trajectories | in-repo | Offline certification only. Not used for live model comparisons: it plants `DECISION:` answer markers that a live model can read (§6.8) |
 
+### 6.10 Savings on real long sessions
+
+Every other number in this document is on a corpus someone built. This one is on the author's
+own Claude Code transcripts, replayed offline through the real serving adapter
+(`distil.adapters.anthropic.compress_messages(..., persist=False)`, digest mode) at distil 1.56.4.
+`benchmarks/session_replay.py` rebuilds each API request from the JSONL (streamed assistant
+blocks merged, parallel `tool_result` lines merged, sidechains and sub-agent transcripts
+skipped), replays every prefix that ends in a user turn, and measures bytes and tokens (distil's
+offline estimator) before and after. Claude Code does not record `cache_control` in the
+transcript, so the replay places the breakpoint on the newest message of each request, as the
+client does; the report states which applied. Committed artifact:
+`benchmarks/results/session-replay/{summary.json,report.md}`: aggregates only, no text, path,
+command or session id. Run it yourself with
+`uv run python benchmarks/session_replay.py --max-sessions 2500 --seed 0`.
+
+Sample: 2,498 sessions, 34,586 requests. Replaying request *i* is O(prefix), so a long session is
+quadratic; sessions above 100 requests (25 of them) are replayed on 100 evenly spaced requests
+(each preceded by its true predecessor so the cache comparison is exact), and one session over
+the per-session work budget was skipped. Tokens are the offline heuristic: ratios are robust to
+it, absolute counts are not.
+
+| session length (requests) | sessions | tokens saved, weighted | median / p90 per request | cache-aware $ saved |
+|---|---:|---:|---|---:|
+| 1-5 | 2,356 | 61.3% | 0.0% / 83.8% | 60.7% |
+| 6-20 | 107 | 56.2% | 17.1% / 85.8% | 56.1% |
+| 21-50 | 9 | 22.9% | 20.2% / 37.5% | 22.2% |
+| 51-100 | 1 | 18.9% | 8.6% / 23.5% | 19.9% |
+| 100+ | 25 | 8.1% | 9.2% / 22.2% | 8.0% |
+
+What it says:
+
+- **Savings fall as sessions get long.** A short session is mostly one large fresh tool output,
+  which digests well. A long one is dominated by files read to be edited, which the exact-quote
+  rule keeps byte-exact, and the digestible remainder is a shrinking fraction of a growing
+  prefix. Across all replayed requests 9.3% of tokens are removed; 49.1% of tool-result bytes
+  are digested.
+- **Cached-prefix economics change the dollar picture.** 93.1% of the tokens saved sit inside
+  the cached prefix, worth about 0.1x, so the cache-aware saving (14.4% overall) is driven by
+  the 6.9% saved on content new since the last request, which is written at 1.25x. The replayed
+  compressed prefix did not change between consecutive requests (0.0% bust rate over 6,573
+  requests), so digesting does not cost a cache rewrite on this traffic. Model: shared prefix
+  read at 0.1x, the rest written at 1.25x, TTL expiry ignored, input tokens only.
+- **The shell-search fix has a measurable price.** With the exemption disabled in-process the
+  overall token saving is 10.7% (cache-aware 15.7%) against 9.3% (14.4%) served; on 100+ request
+  sessions 9.5% against 8.1%. That is the cost of keeping `grep`/`rg` output verbatim, which
+  the SWE-bench outcome runs justify (§6.9) but which is not free.
+- **Quote hazard is not zero, and the number needs care.** Of 16,691 literal-edit quotes
+  (counted once per request that carries them, so long sessions weigh repeatedly), 66.8% are not
+  found in the forwarded payload, but 57.4% are not found in the *uncompressed* history either
+  (a quote against line-numbered `Read` output, or a file the agent `Write`-ed itself). The
+  difference, about 9.4% of quotes, is attributable to compression after the adapter's own
+  widen-and-retry guard. Disabling the shell-search exemption adds 122 more lost quotes. This is
+  the figure to watch; the replay cannot say how many of those edits the agent then recovered
+  from.
+
+Limits: one person's sessions, one tool (Claude Code), no model in the loop, so this measures
+what is removed and priced, not whether the agent still succeeds (that is §6.8 and the SWE-bench
+outcome runs). Where the transcript lacks a recorded breakpoint the placement is an assumption.
+
 ## 7. How to reproduce
 
 - `distil shadow-stats` — live decision-equivalence, raw/baseline/adjusted

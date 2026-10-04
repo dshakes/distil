@@ -7,6 +7,8 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+- `benchmarks/session_replay.py`: offline replay of local Claude Code transcripts through the real `compress_messages` serving adapter, with per-session-length and per-context-size savings, cache-aware ($-weighted) savings, digest rate by tool and shell class, quote hazard, and the shell-search-exemption counterfactual. Committed artifact is aggregates only (`benchmarks/results/session-replay/`); method and results in `docs/EVALUATION.md` §6.10.
+
 ## [1.56.4] — 2026-10-03 — a second outcome run, and a harness fix
 
 ### Added
