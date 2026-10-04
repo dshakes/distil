@@ -25,6 +25,15 @@ RESULTS = ROOT / "benchmarks" / "results"
 BG, PANEL, GRID, AXIS = "#06070b", "#0c0e15", "#1b2030", "#252c3e"
 INK, MUT, DIM = "#f2f3f7", "#9aa1b3", "#7d8598"
 ACC, ACC2 = "#8b7bff", "#5ad1c9"
+# One colour and legend label per outcome-eval arm (plain/distil keep their historical ones).
+ARM_STYLE = {
+    "plain": (ACC2, "plain agent"),
+    "distil": (ACC, "distil-served agent"),
+    "rtk": ("#f2b66d", "RTK (rewrite hook)"),
+    "selective": ("#e5738e", "Selective Context"),
+    "provider-cm": ("#6db7f2", "Anthropic context editing"),
+}
+EXTRA_COLORS = ("#a3d977", "#d98fe0", "#c9c9c9")  # arms outside ARM_STYLE, in sorted order
 FONT = "Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif"
 
 W, H = 1200, 680
@@ -77,11 +86,13 @@ def certifier_bubbles() -> list[Bubble]:
     return out
 
 
-def outcome_bubbles() -> list[Bubble]:
-    """One bubble per (run, arm) over every benchmarks/results/swebench-outcome-*."""
-    sys.path.insert(0, str(ROOT))
-    from benchmarks.swebench_outcome.report import analyse
+def _arm_color(arm: str, unknown: list[str]) -> str:
+    if arm in ARM_STYLE:
+        return ARM_STYLE[arm][0]
+    return EXTRA_COLORS[unknown.index(arm) % len(EXTRA_COLORS)]
 
+
+def _outcome_runs(results_dir: Path) -> list[tuple[Path, list[dict], list[dict]]]:
     def rows(p: Path) -> list[dict]:
         return [json.loads(ln) for ln in p.read_text().splitlines() if ln.strip()]
 
@@ -89,19 +100,33 @@ def outcome_bubbles() -> list[Bubble]:
         s = d.name.removeprefix("swebench-outcome-")
         return (0, int(s)) if s.isdigit() else (1, s)
 
+    return [
+        (d, rows(d / "results.jsonl"), rows(d / "grades.jsonl"))
+        for d in sorted(results_dir.glob("swebench-outcome-*"), key=run_key)
+        if (d / "results.jsonl").exists() and (d / "grades.jsonl").exists()
+    ]
+
+
+def _unknown_arms(runs: list[tuple[Path, list[dict], list[dict]]]) -> list[str]:
+    return sorted({r["arm"] for _, res, _ in runs for r in res} - set(ARM_STYLE))
+
+
+def outcome_bubbles(results_dir: Path = RESULTS) -> list[Bubble]:
+    """One bubble per (run, arm) over every swebench-outcome-* run in *results_dir*."""
+    sys.path.insert(0, str(ROOT))
+    from benchmarks.swebench_outcome.report import analyse
+
+    runs = _outcome_runs(results_dir)
+    unknown = _unknown_arms(runs)
     out = []
-    for d in sorted(RESULTS.glob("swebench-outcome-*"), key=run_key):
-        if not (d / "results.jsonl").exists() or not (d / "grades.jsonl").exists():
-            continue
-        res = rows(d / "results.jsonl")
-        a = analyse(res, rows(d / "grades.jsonl"))
+    for d, res, grades in runs:
+        a = analyse(res, grades)
         run = d.name.removeprefix("swebench-outcome-")
         # Runs made before the harness cached are not cost-comparable with later ones:
         # mark them from the data itself (no cache reads anywhere in the run).
         if not any((r.get("usage") or {}).get("cache_read") for r in res):
             run += " (uncached)"
-        for arm, color in (("plain", ACC2), ("distil", ACC)):
-            m = a["arms"][arm]
+        for arm, m in a["arms"].items():
             out.append(
                 Bubble(
                     f"{run} {arm}",
@@ -109,10 +134,19 @@ def outcome_bubbles() -> list[Bubble]:
                     round(m["cost_usd"] / m["tasks"], 6),
                     m["rate"] * 100,
                     float(m["n"]),
-                    color,
+                    _arm_color(arm, unknown),
                 )
             )
     return out
+
+
+def outcome_key(results_dir: Path = RESULTS) -> list[tuple[str, str]]:
+    """Legend entries for the arms that appear in *results_dir*, canonical order first."""
+    runs = _outcome_runs(results_dir)
+    unknown = _unknown_arms(runs)
+    present = {r["arm"] for _, res, _ in runs for r in res}
+    order = [a for a in ARM_STYLE if a in present] + unknown
+    return [(ARM_STYLE[a][1] if a in ARM_STYLE else a, _arm_color(a, unknown)) for a in order]
 
 
 def _nice_ticks(lo: float, hi: float, n: int = 5) -> list[float]:
@@ -282,7 +316,7 @@ def charts() -> list[Chart]:
             "Bubble area = number of paired tasks",
             "Analysis from benchmarks/swebench_outcome/report.py (graded outcomes only).",
             ob,
-            [("plain agent", ACC2), ("distil-served agent", ACC)],
+            outcome_key(),
         ),
     ]
 
