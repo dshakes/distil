@@ -50,23 +50,22 @@ uv run python benchmarks/reinflate_replay.py <run>_0 <run>_1 <run>_2 --out grepf
 
 ## Live validation (not run — costs money)
 
-The rule is on by default, so the distil arm needs no flag. Reuse the plain arm's rows from
-`../swebench-outcome-300/` and run only the distil arm, at the settings of the earlier runs:
+The rule is on by default, so the distil arm needs no flag. `--reuse-arm` copies the plain arm's rows from
+`../swebench-outcome-300/` (free against the budget), so only the distil arm runs, at the
+settings of the earlier runs:
 
 ```bash
 OUT=benchmarks/results/swebench-outcome-300-refetch
 SRC=benchmarks/results/swebench-outcome-300
-mkdir -p $OUT
-for f in results.jsonl grades.jsonl; do
-  python3 -c "import json,sys; [sys.stdout.write(l) for l in open('$SRC/$f') if json.loads(l)['arm']=='plain']" > $OUT/$f
-done
-cp $SRC/predictions_plain.jsonl $OUT/
-python -m benchmarks.swebench_outcome run --out $OUT --model claude-sonnet-5-5 --effort low \
-  --max-steps 30 --budget-usd 10 --i-understand-this-costs-money
-python -m benchmarks.swebench_outcome grade --out $OUT
-python -m benchmarks.swebench_outcome report --out $OUT
+A="--arms plain,distil --model claude-sonnet-5-5 --effort low --max-steps 30"
+python -m benchmarks.swebench_outcome plan $A --calibrate $SRC --reuse-arm plain=$SRC   # no spend
+python -m benchmarks.swebench_outcome run $A --out $OUT --reuse-arm plain=$SRC \
+  --budget-usd 10 --i-understand-this-costs-money
+python -m benchmarks.swebench_outcome grade  --arms plain,distil --out $OUT
+python -m benchmarks.swebench_outcome report --arms plain,distil --out $OUT
 ```
 
-The grepfix distil arm cost $7.18 for 300 tasks; `--budget-usd 10` caps this one. Compare
+Needs `datasets` (and `swebench` to grade), as in `specs/swebench-outcome-eval.md`. `plan`
+above estimates $8.07; the grepfix distil arm cost $7.18; `--budget-usd 10` caps it. Compare
 against `../swebench-outcome-300-grepfix/report.md`: steps, cost, `distil_expand` calls and
 resolved. Expect a small effect — five avoidable re-reads in 300 tasks offline.
