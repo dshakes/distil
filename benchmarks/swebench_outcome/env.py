@@ -115,14 +115,18 @@ class DockerEnv:
     @staticmethod
     def _run(argv: list[str], timeout: int = 600, inp: str | None = None):
         try:
-            return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=inp)
+            return subprocess.run(
+                argv, capture_output=True, text=True, errors="replace", timeout=timeout, input=inp
+            )
         except subprocess.TimeoutExpired as e:
             raise EnvError(f"timeout: {argv[:3]}") from e
 
     def exec(self, cmd: str, timeout: int = 120) -> str:
         argv = ["docker", "exec", "-w", self.workdir, self.name, "bash", "-c", ACTIVATE + cmd]
         try:
-            r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(
+                argv, capture_output=True, text=True, errors="replace", timeout=timeout
+            )
         except subprocess.TimeoutExpired:
             return f"command timed out after {timeout}s"
         return (
