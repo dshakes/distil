@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .run import DATASET, read_results
+from .run import DATASET, read_manifest, read_results
 
 # Classes whose patch is still graded (the agent ran and produced what it produced).
 GRADED_CLASSES = (None, "gave_up", "timeout")
@@ -59,12 +59,31 @@ def find_report(out: Path, run_id: str, model_name: str) -> Path:
     raise FileNotFoundError(f"no swebench report for run_id={run_id} under {out}")
 
 
+def carry_over(
+    out: Path, results: list[dict[str, Any]], arms: tuple[str, ...] | None
+) -> list[dict[str, str]]:
+    """Grades for reused arms come from the run they were copied from (same patches, same
+    official grader); re-grading hundreds of identical patches would only add flake."""
+    rows: list[dict[str, str]] = []
+    for arm, info in read_manifest(out).items():
+        gp = Path(info["from"]) / "grades.jsonl"
+        if (arms and arm not in arms) or not gp.exists():
+            continue
+        mine = {r["instance_id"] for r in results if r["arm"] == arm}
+        for ln in gp.read_text().splitlines():
+            g = json.loads(ln)
+            if g["arm"] == arm and g["instance_id"] in mine:
+                rows.append(g)
+    return rows
+
+
 def grade(
     out: Path,
     max_workers: int = 4,
     dataset: str = DATASET,
     timeout: int = 1800,
     run: Any = subprocess.run,
+    arms: tuple[str, ...] | None = None,
 ) -> list[dict[str, str]]:
     try:
         import swebench  # type: ignore  # noqa: F401
@@ -73,8 +92,12 @@ def grade(
     if not shutil.which("docker"):
         raise SystemExit("docker CLI not found; grading needs Docker")
     rows: list[dict[str, str]] = []
-    for arm, pred in write_predictions(read_results(out / "results.jsonl"), out).items():
-        if not pred.read_text().strip():
+    results = read_results(out / "results.jsonl")
+    carried = carry_over(out, results, arms)
+    rows += carried
+    skip = {r["arm"] for r in carried}
+    for arm, pred in write_predictions(results, out).items():
+        if arm in skip or (arms and arm not in arms) or not pred.read_text().strip():
             continue
         run_id = f"swo-{arm}"
         run(

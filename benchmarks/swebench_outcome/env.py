@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 
@@ -16,6 +17,8 @@ class EnvError(RuntimeError):
 
 class Env(Protocol):
     def exec(self, cmd: str, timeout: int = 120) -> str: ...
+    def exec_raw(self, argv: list[str], timeout: int = 60) -> tuple[int, str, str]: ...
+    def install_file(self, src: Path, dest: str) -> None: ...
     def read_file(self, path: str) -> str: ...
     def write_file(self, path: str, text: str) -> None: ...
     def diff(self) -> str: ...
@@ -26,17 +29,30 @@ class FakeEnv:
     """In-memory env for tests. `exec_fn(cmd) -> str` scripts bash output."""
 
     def __init__(
-        self, files: dict[str, str] | None = None, exec_fn: Callable[[str], str] | None = None
+        self,
+        files: dict[str, str] | None = None,
+        exec_fn: Callable[[str], str] | None = None,
+        raw_fn: Callable[[list[str]], tuple[int, str, str]] | None = None,
     ):
         self.orig = dict(files or {})
         self.files = dict(self.orig)
         self.exec_fn = exec_fn
+        self.raw_fn = raw_fn
         self.cmds: list[str] = []
+        self.raw_cmds: list[list[str]] = []
+        self.installed: list[tuple[Path, str]] = []
         self.closed = False
 
     def exec(self, cmd: str, timeout: int = 120) -> str:
         self.cmds.append(cmd)
         return self.exec_fn(cmd) if self.exec_fn else ""
+
+    def exec_raw(self, argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
+        self.raw_cmds.append(argv)
+        return self.raw_fn(argv) if self.raw_fn else (0, "", "")
+
+    def install_file(self, src: Path, dest: str) -> None:
+        self.installed.append((src, dest))
 
     def read_file(self, path: str) -> str:
         if path not in self.files:
@@ -134,6 +150,25 @@ class DockerEnv:
             if r.returncode == 0
             else f"{r.stdout}{r.stderr}\n[exit {r.returncode}]"
         )
+
+    def exec_raw(self, argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
+        """Run argv directly (no shell, no conda) and return (exit code, stdout, stderr)."""
+        r = self._run(["docker", "exec", "-w", self.workdir, self.name, *argv], timeout=timeout)
+        return r.returncode, r.stdout, r.stderr
+
+    def install_file(self, src: Path, dest: str) -> None:
+        """Stream a host file into the container and make it executable. Not `docker cp`: that
+        keeps the host owner, and with --cap-drop ALL root cannot chmod a file it does not own."""
+        argv = ["docker", "exec", "-i", self.name, "sh", "-c"]
+        script = 'cat > "$1" && chmod 755 "$1"'
+        try:
+            r = subprocess.run(
+                [*argv, script, "_", dest], input=src.read_bytes(), capture_output=True, timeout=120
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise EnvError(f"install {src} -> {dest}: {e!r}") from e
+        if r.returncode:
+            raise EnvError(f"install {dest}: {r.stderr.decode(errors='replace').strip()[:300]}")
 
     def read_file(self, path: str) -> str:
         r = self._run(["docker", "exec", "-w", self.workdir, self.name, "cat", path])

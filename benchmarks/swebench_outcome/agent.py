@@ -1,4 +1,4 @@
-"""Minimal tool-use coding agent. The two arms differ ONLY in `arm == "distil"` branches."""
+"""Minimal tool-use coding agent. Arms differ only through the hooks on `arms.Arm`."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from .arms import Arm, resolve_arm
 from .env import Env, EnvError
 
 PRICES = {  # $/MTok (in, out); mirrors benchmarks/model_migration_eval.py PRICES
@@ -31,8 +32,6 @@ SYSTEM = (
     "bash, edit with the editor tool, and run code to check your fix. When done, stop and "
     "reply with a short summary; your changes are collected automatically."
 )
-# The exact tool the proxy injects, so the distil arm offers what distil deploys.
-from distil.expand import EXPAND_TOOL, EXPAND_TOOL_NAME  # noqa: E402
 
 
 def direct_client() -> Any:
@@ -84,14 +83,12 @@ class Cfg:
     pout: float | None = None
 
 
-def build_tools(arm: str) -> list[dict[str, Any]]:
+def build_tools(arm: str | Arm) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = [
         {"type": "bash_20250124", "name": "bash"},
         {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"},
     ]
-    if arm == "distil":
-        tools.append(EXPAND_TOOL)
-    return tools
+    return [*tools, *resolve_arm(arm).tools]
 
 
 def _cap(s: str) -> str:
@@ -152,22 +149,24 @@ def run_agent(
     client: Any,
     env: Env,
     task: dict[str, Any],
-    arm: str,
+    arm: str | Arm,
     cfg: Cfg,
     budget: Budget,
     clock: Callable[[], float] = time.monotonic,
     compress: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
-    """Returns a result record. `failure_class` is None for a graded outcome."""
+    """Returns a result record. `failure_class` is None for a graded outcome.
+
+    `compress` overrides the distil arm's transform (tests); other arms ignore it."""
     import anthropic
 
-    if arm == "distil" and compress is None:
-        from distil.adapters.anthropic import compress_messages as compress
+    arm = resolve_arm(arm, compress)
     pin, pout = price(cfg.model, cfg.pin, cfg.pout)
     use = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
     res: dict[str, Any] = {
         "instance_id": task["instance_id"],
-        "arm": arm,
+        "arm": arm.name,
+        "arm_meta": dict(arm.meta),
         "model": cfg.model,
         "effort": cfg.effort,
         "failure_class": None,
@@ -180,9 +179,13 @@ def run_agent(
         {"role": "user", "content": "Resolve this issue:\n\n" + task["problem_statement"]}
     ]
     tools, stores, t0 = build_tools(arm), [], clock()
+    arm_stats: dict[str, Any] = {}
+    run_env = env
     stop = "step_limit"
     transcript: list[Any] = list(messages)
     try:
+        if arm.wrap_env:
+            run_env = arm.wrap_env(env, arm_stats)
         while res["steps"] < cfg.max_steps:
             if budget.exhausted:
                 res["failure_class"], stop = "budget_stopped", "budget"
@@ -190,29 +193,38 @@ def run_agent(
             if clock() - t0 > cfg.task_timeout:
                 res["failure_class"], stop = "timeout", "timeout"
                 break
-            # Both arms cache like a real agent (Claude Code marks the newest turn); without
+            # Every arm caches like a real agent (Claude Code marks the newest turn); without
             # it every step re-pays tools + system + history at full price, which inflated
             # the distil arm's injected expand-tool definition in the first powered run.
             send = with_cache_breakpoint(messages)
-            if arm == "distil":
-                assert compress is not None
-                send, store = compress(send)
-                stores.append(store)
+            if arm.transform:
+                out = arm.transform(send)
+                send, store = out if isinstance(out, tuple) else (out, None)
+                if store is not None:
+                    stores.append(store)
+            kwargs: dict[str, Any] = dict(
+                model=cfg.model,
+                max_tokens=cfg.max_tokens,
+                system=SYSTEM,
+                tools=tools,
+                messages=send,
+                thinking={"type": "adaptive"},
+                output_config={"effort": cfg.effort},
+                tool_choice={"type": "auto"},
+            )
+            kwargs.update(arm.params)
+            create = client.messages.create
+            if arm.betas:
+                kwargs["betas"] = list(arm.betas)
+                create = client.beta.messages.create
             try:
-                resp = client.messages.create(
-                    model=cfg.model,
-                    max_tokens=cfg.max_tokens,
-                    system=SYSTEM,
-                    tools=tools,
-                    messages=send,
-                    thinking={"type": "adaptive"},
-                    output_config={"effort": cfg.effort},
-                    tool_choice={"type": "auto"},
-                )
+                resp = create(**kwargs)
             except anthropic.APIError as e:
                 res["failure_class"], res["error"], stop = "api_error", repr(e)[:500], "api_error"
                 break
             res["steps"] += 1
+            if arm.on_response:
+                arm.on_response(resp, arm_stats)
             d = {k: getattr(resp.usage, a, 0) or 0 for k, a in _USAGE}
             for k, v in d.items():
                 use[k] += v
@@ -226,7 +238,7 @@ def run_agent(
                 break
             results = []
             for b in uses:
-                out, err = _dispatch(b, env, stores, res)
+                out, err = _dispatch(b, run_env, stores, res, arm)
                 results.append(
                     {
                         "type": "tool_result",
@@ -245,7 +257,7 @@ def run_agent(
     patch = ""
     if res["failure_class"] not in ("env_error", "internal_error"):
         try:
-            patch = env.diff()
+            patch = run_env.diff()
         except EnvError as e:
             res["failure_class"], res["error"] = "env_error", str(e)[:500]
     if res["failure_class"] is None and not patch.strip():
@@ -258,10 +270,14 @@ def run_agent(
         cost_usd=round(cost_usd(use, pin, pout), 6),
         transcript=transcript,
     )
+    if arm_stats:
+        res["arm_stats"] = arm_stats
     return res
 
 
-def _dispatch(b: Any, env: Env, stores: list[Any], res: dict[str, Any]) -> tuple[str, bool]:
+def _dispatch(
+    b: Any, env: Env, stores: list[Any], res: dict[str, Any], arm: Arm
+) -> tuple[str, bool]:
     name, inp = b.name, b.input
     if name == "bash":
         if inp.get("restart"):
@@ -270,13 +286,6 @@ def _dispatch(b: Any, env: Env, stores: list[Any], res: dict[str, Any]) -> tuple
     if name == "str_replace_based_edit_tool":
         out = run_editor(env, inp)
         return out, out.startswith("error")
-    if name == EXPAND_TOOL_NAME:
-        res["expand_calls"] += 1
-        for s in reversed(stores):
-            try:
-                return s.expand(str(inp.get("handle", ""))), False
-            except KeyError:
-                continue
-        res["expand_misses"] += 1
-        return f"error: no original found for handle {inp.get('handle')!r}", True
+    if name in arm.handlers:
+        return arm.handlers[name](inp, stores, res)
     return f"error: unknown tool {name}", True
