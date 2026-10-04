@@ -87,8 +87,10 @@ bucket `tool_result_refetch` carries its cost.
 
 In `compress_messages`, after the exact-quote exemption, the recency carve-out and
 cold-point eviction, and immediately before the digester — the one point in the walk where
-the rule can only ever stop a digest. A re-fetched block gets what a recency-exempt block
-gets: Tier-0 lossless transforms and `<distil:keep>` handling, no stub.
+the rule can only ever stop a digest. A re-fetched block goes out byte-for-byte as the
+client sent it — not even Tier-0, which minifies JSON and collapses repeated lines: the
+agent asked again for the bytes. Applies to a string payload or a list of text parts; a
+payload carrying an image keeps its per-part handling.
 
 ### The cache argument
 

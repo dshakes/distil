@@ -41,9 +41,9 @@
    "totals": {
     "requests": 1629,
     "raw_tokens": 3485125,
-    "sent_tokens": 3068978,
+    "sent_tokens": 3068982,
     "prefix_rewrites": 0,
-    "cost_units": 963928,
+    "cost_units": 963933,
     "raw_cost_units": 1074539,
     "calls": 1260,
     "redundant": 245,
@@ -78,9 +78,9 @@
    "totals": {
     "requests": 1629,
     "raw_tokens": 3485125,
-    "sent_tokens": 3097680,
+    "sent_tokens": 3097684,
     "prefix_rewrites": 0,
-    "cost_units": 971149,
+    "cost_units": 971154,
     "raw_cost_units": 1074539,
     "calls": 1260,
     "redundant": 245,

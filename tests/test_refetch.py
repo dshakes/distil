@@ -312,3 +312,43 @@ def test_offline_replay_counts_an_avoidable_reread(tmp_path: Any) -> None:
     assert (new["redundant"], new["avoidable"]) == (2, 1)
     assert base["prefix_rewrites"] == new["prefix_rewrites"] == 0
     assert variants["refetch"]["census_tokens"]["tool_result_refetch"] > 0
+
+
+def test_a_refetch_is_byte_exact_not_tier0() -> None:
+    """Not minified, not run-collapsed: the agent asked again for the bytes."""
+    pretty = json.dumps(
+        {f"key_{i}": {"value": i, "label": f"item {i}"} for i in range(40)}, indent=2
+    )
+    msgs = _session(("curl -s api/items", pretty), ("curl -s api/items", pretty))
+    assert _result(_send(msgs, refetch=True), "t1") == pretty
+
+
+def _block(out: list[dict[str, Any]], tid: str) -> dict[str, Any]:
+    return next(
+        b
+        for m in out
+        if isinstance(m.get("content"), list)
+        for b in m["content"]
+        if isinstance(b, dict) and b.get("tool_use_id") == tid
+    )
+
+
+def test_a_multi_part_text_result_is_covered() -> None:
+    """A tool_result carrying several text parts is checked as the agent read it, joined."""
+    parts = [{"type": "text", "text": _window(1, 60)}, {"type": "text", "text": _window(61, 120)}]
+    msgs = _session(("python repro.py", FILE), ("python repro.py --split", "x"))
+    msgs[-1]["content"][0]["content"] = parts
+    assert _block(_send(msgs, refetch=True), "t1")["content"] == parts
+    assert _block(_send(msgs, refetch=False), "t1")["content"] != parts, "off: parts digest"
+
+
+def test_a_payload_with_an_image_keeps_its_per_part_handling() -> None:
+    parts = [
+        {"type": "text", "text": FILE},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AA=="}},
+    ]
+    msgs = _session(("python repro.py", FILE), ("screenshot", "x"))
+    msgs[-1]["content"][0]["content"] = parts
+    out = _send(msgs, refetch=True)
+    assert (take_census() or {}).get("tool_result_refetch") is None
+    assert "handle=" in _block(out, "t1")["content"][0]["text"]

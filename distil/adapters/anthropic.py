@@ -169,18 +169,28 @@ def refetch_enabled() -> bool:
     return os.environ.get(_REFETCH_ENV, "1") != "0"
 
 
-def _refetch_verbatim(text: str) -> str | None:
-    """The verbatim rendering of *text* if it re-fetches content distil folded, else None.
+def _refetch_verbatim(content: Any) -> bool:
+    """Whether this tool_result payload re-fetches content distil folded, and so must be
+    forwarded exactly as the client sent it (censused as ``tool_result_refetch`` if so).
 
     Called only where the block would otherwise reach the digester, so it can only ever
-    turn a digest into verbatim — never the reverse. Tier-0 and ``<distil:keep>`` handling
-    match the recency carve-out's: lossless transforms only, no stub.
+    turn a digest into verbatim — never the reverse. Byte-for-byte, not even Tier-0: the
+    agent asked again *for the bytes*, and a minified or run-collapsed copy is not them
+    (an ``Edit`` quoting pretty-printed JSON would not match). A string, or a list of text
+    parts only; a payload carrying an image keeps its own per-part handling.
     """
     tracker = getattr(_refetch_tls, "tracker", None)
-    if tracker is None or len(text.splitlines()) < _MIN_LINES or not tracker.is_refetch(text):
-        return None
+    if tracker is None:
+        return False
+    if isinstance(content, list) and not all(
+        isinstance(sub, dict) and sub.get("type") == "text" for sub in content
+    ):
+        return False
+    text = _tool_result_text(content)
+    if len(text.splitlines()) < _MIN_LINES or not tracker.is_refetch(text):
+        return False
     _census("tool_result_refetch", text)
-    return _keeptags.apply(text, _apply_tier0)
+    return True
 
 
 def _tool_result_text(content: Any) -> str:
@@ -932,10 +942,8 @@ def _compress_content_item(
             # ADR 0022: the agent is fetching again what it was only shown folded. Placed
             # after eviction and the exact-quote exemption, before the digester — the one
             # point where it can only ever stop a digest.
-            text = _result_text(content)
-            kept = None if text is None else _refetch_verbatim(text)
-            if kept is not None:
-                return item if kept == text else _replace_result_text(item, kept)
+            if _refetch_verbatim(content):
+                return item
 
         if isinstance(content, str):
             new_content = _compress_tool_result_text(content, store, verbatim, is_recent)
@@ -1006,10 +1014,9 @@ def _compress_message(
         # string content gets Tier-0 lossless transforms.
         if role == "tool":
             # Censused inside _compress_tool_result_text, by branch taken.
-            kept = None if verbatim else _refetch_verbatim(content)
             new_text = (
-                kept
-                if kept is not None
+                content
+                if not verbatim and _refetch_verbatim(content)
                 else _compress_tool_result_text(content, store, verbatim, is_recent)
             )
             _observe_result(content, new_text)
