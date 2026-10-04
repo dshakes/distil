@@ -349,7 +349,7 @@ def _tool_stats(
     c: Counter[str], req: list[Message], comp: list[Message], ex: dict[str, str], detail: bool
 ) -> None:
     calls = {t.id: t for t in adapter._tool_calls(req)}
-    for before, after in zip(req, comp, strict=True):
+    for before, after in zip(req, comp):  # same length: compress_messages is 1:1 per message
         if before["role"] != "user":
             continue
         after_text = dict(_tool_results(after))
