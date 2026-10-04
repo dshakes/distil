@@ -380,3 +380,16 @@ def test_with_cache_breakpoint_marks_only_the_newest_block():
     first = with_cache_breakpoint(msgs[:1])[0]["content"]
     assert first == [{"type": "text", "text": "issue", "cache_control": {"type": "ephemeral"}}]
     assert with_cache_breakpoint([]) == []
+
+
+def test_env_run_survives_non_utf8_output():
+    """A test suite that prints raw bytes (seen on sympy__sympy-23191) used to raise
+    UnicodeDecodeError and turn the run into an internal_error."""
+    from benchmarks.swebench_outcome.env import DockerEnv
+
+    import sys
+
+    r = DockerEnv._run(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok\\x8c\\xa1')"]
+    )
+    assert r.returncode == 0 and r.stdout.startswith("ok") and "�" in r.stdout
