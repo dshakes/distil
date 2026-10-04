@@ -838,3 +838,31 @@ def test_committed_runs_still_re_report_identically(run_dir):
         run.read_results(run_dir / "results.jsonl"), grades, 0.05, ("plain", "distil")
     )
     assert rp.read_text().startswith(report.markdown(a))
+
+
+def test_selective_arm_records_what_it_pruned():
+    """A head-to-head arm must leave evidence that it ran: how many tool results it pruned
+    and the characters before/after, as RTK and provider-cm do."""
+    from benchmarks.swebench_outcome.arm_selective import selective_arm
+
+    arm = selective_arm(lambda t: t[: len(t) // 2])
+    big = "x" * 1000
+    msgs = [
+        {"role": "user", "content": "fix it"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "a", "name": "bash", "input": {}}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "a", "content": big},
+                {"type": "tool_result", "tool_use_id": "b", "content": "short"},
+            ],
+        },
+    ]
+    arm.transform(msgs)
+    stats: dict = {}
+    arm.on_response(None, stats)
+    assert stats["tool_results"] == 2 and stats["pruned_results"] == 1
+    assert stats["chars_before"] == 1005 and stats["chars_after"] < stats["chars_before"]

@@ -53,7 +53,7 @@ Read/Grep/Glob, is not) and the system prompt is unchanged (RTK.md is silent by 
 **selective** needs a local LM and a Python the harness cannot share: `selective-context==0.1.4`
 pins `spacy==3.2.0` (wheels only up to CPython 3.10) and `click==8.0.4`. It therefore runs
 out-of-process (`selective_worker.py`, JSON lines) under `--selective-python`, a venv with
-`pip install selective-context==0.1.4 && python -m spacy download en_core_web_sm`. Downloads:
+`pip install selective-context==0.1.4 'numpy<2' && python -m spacy download en_core_web_sm` (`numpy<2`: spaCy 3.2's compiled extensions fail against numpy 2 with "numpy.dtype size changed"). Downloads:
 GPT-2 124M from the Hugging Face hub on first use (`openai-community/gpt2`, MIT,
 `model.safetensors` 548 MB; the repo's tokenizer files add ~1.5 MB), spaCy `en_core_web_sm`, and
 torch (hundreds of MB, not measured here). CPU is enough. If any of that is missing or the
