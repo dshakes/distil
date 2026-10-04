@@ -7,6 +7,8 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+## [1.56.4] — 2026-10-03 — a second outcome run, and a harness fix
+
 ### Added
 
 - **SWE-bench outcome, medium effort** (`benchmarks/results/swebench-outcome-300-medium/`): with the shell-search fix, `claude-sonnet-5-5` at effort medium and 60 steps — distil-served 213/298 vs plain 218/298, −1.7 pts (95% CI −5.1 to +1.7), cost at parity. The second run at about −2 pts; non-inferiority still not shown. Not a long-horizon test after all (median 4 steps), so savings on long sessions remain unmeasured. $16.97.
