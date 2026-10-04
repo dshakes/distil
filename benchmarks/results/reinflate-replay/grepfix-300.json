@@ -1,0 +1,182 @@
+{
+ "transcripts": 300,
+ "variants": {
+  "baseline": {
+   "totals": {
+    "requests": 1293,
+    "raw_tokens": 2100389,
+    "sent_tokens": 1850350,
+    "prefix_rewrites": 0,
+    "cost_units": 694855,
+    "raw_cost_units": 766460,
+    "calls": 894,
+    "redundant": 61,
+    "visible": 25,
+    "final_results": 1189,
+    "final_digested": 210,
+    "avoidable": 36,
+    "expand_calls": 5,
+    "savings_pct": 11.9,
+    "cache_aware_savings_pct": 9.34
+   },
+   "avoidable_by_command": {
+    "sed": 13,
+    "python": 8,
+    "sed |": 5,
+    "python |": 4,
+    "grep |": 3,
+    "grep": 1,
+    "cat": 1,
+    "cat |": 1
+   },
+   "census_tokens": {
+    "tool_result_declined": 11093,
+    "tool_result_digested": 424469,
+    "tool_result_expand_recovered": 40866,
+    "tool_result_shell_read": 298918,
+    "tool_result_shell_search": 573487
+   }
+  },
+  "refetch": {
+   "totals": {
+    "requests": 1293,
+    "raw_tokens": 2100389,
+    "sent_tokens": 1865028,
+    "prefix_rewrites": 0,
+    "cost_units": 698470,
+    "raw_cost_units": 766460,
+    "calls": 894,
+    "redundant": 61,
+    "visible": 30,
+    "final_results": 1189,
+    "final_digested": 194,
+    "avoidable": 31,
+    "expand_calls": 5,
+    "savings_pct": 11.21,
+    "cache_aware_savings_pct": 8.87
+   },
+   "avoidable_by_command": {
+    "sed": 12,
+    "python": 6,
+    "sed |": 4,
+    "python |": 4,
+    "grep |": 3,
+    "grep": 1,
+    "cat |": 1
+   },
+   "census_tokens": {
+    "tool_result_declined": 11093,
+    "tool_result_digested": 395753,
+    "tool_result_expand_recovered": 40866,
+    "tool_result_refetch": 28716,
+    "tool_result_shell_read": 298918,
+    "tool_result_shell_search": 573487
+   }
+  },
+  "sticky": {
+   "totals": {
+    "requests": 1293,
+    "raw_tokens": 2100389,
+    "sent_tokens": 1903568,
+    "prefix_rewrites": 0,
+    "cost_units": 707234,
+    "raw_cost_units": 766460,
+    "calls": 894,
+    "redundant": 61,
+    "visible": 32,
+    "final_results": 1189,
+    "final_digested": 170,
+    "avoidable": 29,
+    "expand_calls": 5,
+    "savings_pct": 9.37,
+    "cache_aware_savings_pct": 7.73
+   },
+   "avoidable_by_command": {
+    "sed": 12,
+    "python": 6,
+    "sed |": 4,
+    "grep |": 3,
+    "python |": 3,
+    "grep": 1
+   },
+   "census_tokens": {
+    "tool_result_declined": 9116,
+    "tool_result_digested": 336320,
+    "tool_result_expand_recovered": 40866,
+    "tool_result_refetch": 90126,
+    "tool_result_shell_read": 298918,
+    "tool_result_shell_search": 573487
+   }
+  },
+  "sequence": {
+   "totals": {
+    "requests": 1293,
+    "raw_tokens": 2100389,
+    "sent_tokens": 1936000,
+    "prefix_rewrites": 0,
+    "cost_units": 715224,
+    "raw_cost_units": 766460,
+    "calls": 894,
+    "redundant": 61,
+    "visible": 39,
+    "final_results": 1189,
+    "final_digested": 179,
+    "avoidable": 22,
+    "expand_calls": 5,
+    "savings_pct": 7.83,
+    "cache_aware_savings_pct": 6.68
+   },
+   "avoidable_by_command": {
+    "sed": 8,
+    "python": 5,
+    "python |": 4,
+    "grep |": 2,
+    "sed |": 1,
+    "cat": 1,
+    "cat |": 1
+   },
+   "census_tokens": {
+    "tool_result_compound_read": 106376,
+    "tool_result_declined": 11093,
+    "tool_result_digested": 318093,
+    "tool_result_expand_recovered": 40866,
+    "tool_result_shell_read": 298918,
+    "tool_result_shell_search": 573487
+   }
+  },
+  "compound": {
+   "totals": {
+    "requests": 1293,
+    "raw_tokens": 2100389,
+    "sent_tokens": 2027269,
+    "prefix_rewrites": 0,
+    "cost_units": 740629,
+    "raw_cost_units": 766460,
+    "calls": 894,
+    "redundant": 61,
+    "visible": 53,
+    "final_results": 1189,
+    "final_digested": 119,
+    "expand_calls": 5,
+    "avoidable": 8,
+    "savings_pct": 3.48,
+    "cache_aware_savings_pct": 3.37
+   },
+   "avoidable_by_command": {
+    "python |": 3,
+    "python": 2,
+    "grep |": 1,
+    "sed": 1,
+    "cat": 1
+   },
+   "census_tokens": {
+    "tool_result_compound_read": 237872,
+    "tool_result_declined": 9838,
+    "tool_result_digested": 190433,
+    "tool_result_expand_recovered": 40866,
+    "tool_result_shell_read": 298918,
+    "tool_result_shell_search": 573487
+   }
+  }
+ }
+}

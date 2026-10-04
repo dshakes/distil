@@ -13,6 +13,10 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 - `report` compares every arm with plain (paired McNemar/Wald CI, non-inferiority verdict per arm, uncorrected-multiplicity note) plus a side-by-side summary table; the outcome chart handles N arms.
 - `plan --calibrate <run dir>` prices each arm from cached results (unmeasured arms at plain x1.5); `run --reuse-arm plain=<dir>` copies a finished arm's rows (same model/effort enforced, free against the budget, grades carried over, stated in the report). No paid head-to-head run is included; see `specs/swebench-outcome-eval.md`.
 
+### Changed
+
+- **A re-fetch of folded content is forwarded verbatim** (ADR 0022, `distil/compress/refetch.py`). When a tool result is mostly lines an earlier result carried but distil forwarded only as a digest, it goes out verbatim instead of digested — before, a byte-identical re-run came back as the same stub that had just failed the agent. The earlier digest is never rewritten (cached prefix), and the verdict is a function of the history alone, so it stays stateless and byte-stable. On by default; `DISTIL_REFETCH_VERBATIM=0` turns it off. New census bucket `tool_result_refetch`. Offline, on the 300 post-fix SWE-bench transcripts: re-reads of content the agent could only see as a digest 36 → 31, for 0.7 points of request-size savings (11.9% → 11.2%) and 0.5 points cache-aware; zero prefix rewrites. Not yet measured live. Replay and rejected alternatives in `benchmarks/results/reinflate-replay/`.
+
 ## [1.56.4] — 2026-10-03 — a second outcome run, and a harness fix
 
 ### Added

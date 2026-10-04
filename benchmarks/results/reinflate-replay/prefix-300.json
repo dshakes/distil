@@ -1,0 +1,186 @@
+{
+ "transcripts": 300,
+ "variants": {
+  "baseline": {
+   "totals": {
+    "requests": 1629,
+    "raw_tokens": 3485125,
+    "sent_tokens": 3051485,
+    "prefix_rewrites": 0,
+    "cost_units": 959032,
+    "raw_cost_units": 1074539,
+    "calls": 1260,
+    "redundant": 245,
+    "visible": 187,
+    "final_results": 1582,
+    "final_digested": 275,
+    "avoidable": 58,
+    "expand_calls": 13,
+    "savings_pct": 12.44,
+    "cache_aware_savings_pct": 10.75
+   },
+   "avoidable_by_command": {
+    "sed": 29,
+    "grep |": 7,
+    "python |": 6,
+    "sed |": 5,
+    "grep": 5,
+    "python": 4,
+    "cat |": 2
+   },
+   "census_tokens": {
+    "tool_result_declined": 9995,
+    "tool_result_digested": 690506,
+    "tool_result_expand_recovered": 30745,
+    "tool_result_html_stripped": 774,
+    "tool_result_shell_read": 678706,
+    "tool_result_shell_search": 1064907
+   }
+  },
+  "refetch": {
+   "totals": {
+    "requests": 1629,
+    "raw_tokens": 3485125,
+    "sent_tokens": 3068978,
+    "prefix_rewrites": 0,
+    "cost_units": 963928,
+    "raw_cost_units": 1074539,
+    "calls": 1260,
+    "redundant": 245,
+    "visible": 190,
+    "final_results": 1582,
+    "final_digested": 260,
+    "avoidable": 55,
+    "expand_calls": 13,
+    "savings_pct": 11.94,
+    "cache_aware_savings_pct": 10.29
+   },
+   "avoidable_by_command": {
+    "sed": 27,
+    "grep |": 7,
+    "python |": 5,
+    "sed |": 5,
+    "grep": 5,
+    "python": 4,
+    "cat |": 2
+   },
+   "census_tokens": {
+    "tool_result_declined": 9995,
+    "tool_result_digested": 658021,
+    "tool_result_expand_recovered": 30745,
+    "tool_result_html_stripped": 774,
+    "tool_result_refetch": 32485,
+    "tool_result_shell_read": 678706,
+    "tool_result_shell_search": 1064907
+   }
+  },
+  "sticky": {
+   "totals": {
+    "requests": 1629,
+    "raw_tokens": 3485125,
+    "sent_tokens": 3097680,
+    "prefix_rewrites": 0,
+    "cost_units": 971149,
+    "raw_cost_units": 1074539,
+    "calls": 1260,
+    "redundant": 245,
+    "visible": 195,
+    "final_results": 1582,
+    "final_digested": 240,
+    "avoidable": 50,
+    "expand_calls": 13,
+    "savings_pct": 11.12,
+    "cache_aware_savings_pct": 9.62
+   },
+   "avoidable_by_command": {
+    "sed": 27,
+    "grep |": 7,
+    "grep": 5,
+    "python |": 4,
+    "sed |": 3,
+    "python": 3,
+    "cat |": 1
+   },
+   "census_tokens": {
+    "tool_result_declined": 8008,
+    "tool_result_digested": 599191,
+    "tool_result_expand_recovered": 30745,
+    "tool_result_html_stripped": 774,
+    "tool_result_refetch": 93302,
+    "tool_result_shell_read": 678706,
+    "tool_result_shell_search": 1064907
+   }
+  },
+  "sequence": {
+   "totals": {
+    "requests": 1629,
+    "raw_tokens": 3485125,
+    "sent_tokens": 3270460,
+    "prefix_rewrites": 0,
+    "cost_units": 1012784,
+    "raw_cost_units": 1074539,
+    "calls": 1260,
+    "redundant": 245,
+    "visible": 218,
+    "final_results": 1582,
+    "final_digested": 209,
+    "avoidable": 27,
+    "expand_calls": 13,
+    "savings_pct": 6.16,
+    "cache_aware_savings_pct": 5.75
+   },
+   "avoidable_by_command": {
+    "sed": 8,
+    "python |": 6,
+    "grep |": 5,
+    "grep": 2,
+    "cat |": 2,
+    "python": 2,
+    "sed |": 2
+   },
+   "census_tokens": {
+    "tool_result_compound_read": 266283,
+    "tool_result_declined": 9995,
+    "tool_result_digested": 424223,
+    "tool_result_expand_recovered": 30745,
+    "tool_result_html_stripped": 774,
+    "tool_result_shell_read": 678706,
+    "tool_result_shell_search": 1064907
+   }
+  },
+  "compound": {
+   "totals": {
+    "requests": 1629,
+    "raw_tokens": 3485125,
+    "sent_tokens": 3371787,
+    "prefix_rewrites": 0,
+    "cost_units": 1043794,
+    "raw_cost_units": 1074539,
+    "calls": 1260,
+    "redundant": 245,
+    "visible": 237,
+    "final_results": 1582,
+    "final_digested": 125,
+    "expand_calls": 13,
+    "avoidable": 8,
+    "savings_pct": 3.25,
+    "cache_aware_savings_pct": 2.86
+   },
+   "avoidable_by_command": {
+    "python |": 5,
+    "grep |": 1,
+    "python": 1,
+    "cat |": 1
+   },
+   "census_tokens": {
+    "tool_result_compound_read": 432392,
+    "tool_result_declined": 8059,
+    "tool_result_digested": 271051,
+    "tool_result_expand_recovered": 30745,
+    "tool_result_html_stripped": 774,
+    "tool_result_shell_read": 678706,
+    "tool_result_shell_search": 1064907
+   }
+  }
+ }
+}
