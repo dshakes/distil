@@ -911,7 +911,17 @@ def build_handler(
             held = False
         return held, ("lossless-only" if held and not verbatim else _mode_label)
 
-    if _request_mode()[0] and not verbatim:
+    if _request_mode()[0] and not verbatim and not _drift_guard.held:
+        import sys as _sys
+
+        print(
+            "distil: lossy compression is not certified on this machine's traffic — "
+            f"{_drift_guard.uncertified}. Serving lossless-only; it re-checks hourly and "
+            "resumes once fresh evidence is inside the budget. Opt out: "
+            "DISTIL_NO_DRIFT_GUARD=1.",
+            file=_sys.stderr,
+        )
+    elif _request_mode()[0] and not verbatim:
         import sys as _sys
 
         print(
@@ -2368,7 +2378,7 @@ def build_handler(
                     # Feed the drift guard the same paired difference the ledger just
                     # booked. Here, in the shadow thread — never on the request path.
                     if kind == "paired" and aa_equal is not None:
-                        _drift_guard.observe(int(equivalent) - int(aa_equal))
+                        _drift_guard.observe(int(equivalent) - int(aa_equal), ev["mode"])
                 except Exception:  # noqa: BLE001 — shadow must never affect the request
                     log.debug("shadow compare failed", exc_info=True)
                     if _attempted and not _written:
