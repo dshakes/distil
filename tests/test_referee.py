@@ -380,6 +380,14 @@ def test_cli_interactive_prompt(monkeypatch):
     assert _cli("--compressor", "distil") == 0 and rf.config_path().exists()
 
 
+def test_cli_refuses_on_a_subscription(capsys, monkeypatch):
+    """A replay on a flat-rate plan draws on the plan's limits; a $ cap means nothing."""
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+    assert _cli("--compressor", "anthropic-context-editing", "--yes") == 2
+    assert rf.SUBSCRIPTION_REFUSAL in capsys.readouterr().err
+    assert not rf.config_path().exists()
+
+
 def test_cli_refuses_rtk_with_the_reason(capsys):
     assert _cli("--compressor", "rtk", "--yes") == 2
     assert "no faithful A" in capsys.readouterr().err
@@ -402,9 +410,12 @@ def test_audit_is_hidden_from_the_front_door_but_listed_in_help_all():
 # ------------------------------------------------------------------ proxy e2e
 
 
-def test_proxy_audits_context_editing_end_to_end(monkeypatch):
+@pytest.mark.parametrize("subscription", [False, True])
+def test_proxy_audits_context_editing_end_to_end(monkeypatch, subscription):
     """One real request through the in-thread proxy with the audit on at rate 1: the
-    served request plus A, A' and B, and one content-free paired row."""
+    served request plus A, A' and B, and one content-free paired row. On a
+    subscription (real billing, not the --lossless-only flag) the proxy never audits,
+    even with a config already on disk: only the served request goes upstream."""
     import http.server
     import os
     import sys
@@ -413,6 +424,7 @@ def test_proxy_audits_context_editing_end_to_end(monkeypatch):
     from distil import proxy as proxy_mod
 
     monkeypatch.setenv("DISTIL_HOT_SWAP", "0")
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1" if subscription else "0")
     rf.AuditConfig("anthropic-context-editing", 1.0, 5.0).save()
     posts: list[tuple[bytes, str]] = []
 
@@ -451,10 +463,14 @@ def test_proxy_audits_context_editing_end_to_end(monkeypatch):
     finally:
         srv.shutdown()
     assert code == 0
+    led = Path(os.environ["DISTIL_HOME"]) / "audit.jsonl"
+    if subscription:
+        assert len(posts) == 1, "a subscription session is never audited"
+        assert not led.exists()
+        return
     assert len(posts) == 4, "the served request plus A, A' and B"
     edited = [beta for body, beta in posts if b'"context_management"' in body]
     assert edited == ["context-management-2025-06-27"]
-    led = Path(os.environ["DISTIL_HOME"]) / "audit.jsonl"
     (row,) = [json.loads(x) for x in led.read_text().splitlines()]
     assert row["compressor"] == "anthropic-context-editing" and row["fired"] is True
     assert row["equivalent"] is True and row["aa_equal"] is True

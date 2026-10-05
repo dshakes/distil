@@ -793,9 +793,12 @@ def build_handler(
         _shadow_counters = ShadowCounters()
 
     # `distil audit`: None unless the user opted in (distil/referee.py). Never on a
-    # held-out session (every lever off) or a diagnostic handler. Fail-open.
+    # held-out session (every lever off) or a diagnostic handler, and never on a
+    # subscription/OAuth session: `_lossy_ok` comes from real billing
+    # (policy.session_auth_mode), and a replay there draws on the plan's rate limit
+    # while the per-token dollar cap means nothing on flat-rate billing. Fail-open.
     _auditor = None
-    if not (_holdout or diagnostic):
+    if _lossy_ok and not (_holdout or diagnostic):
         from .referee import Auditor
 
         _auditor = Auditor.load()

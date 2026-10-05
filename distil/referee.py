@@ -744,10 +744,21 @@ def disclosure(cfg: AuditConfig) -> str:
     )
 
 
+SUBSCRIPTION_REFUSAL = (
+    "audit is not available on a subscription — replays would draw on your plan's limits, "
+    "and a per-token dollar cap does not apply to flat-rate billing"
+)
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     if args.compressor:
         if args.action != "status":
             print("distil audit: --compressor turns the audit on; drop the action", file=sys.stderr)
+            return 2
+        from .doctor import subscription_mode  # lazy: doctor imports half the package
+
+        if subscription_mode():
+            print(f"distil audit: {SUBSCRIPTION_REFUSAL}", file=sys.stderr)
             return 2
         new = AuditConfig(args.compressor, args.rate, args.cap_usd, args.via, time.time())
         why = validate(new)
