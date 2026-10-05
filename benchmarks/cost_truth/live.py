@@ -71,7 +71,25 @@ class PreflightError(RuntimeError):
     """A pinned artifact, an arm spec, or the canary chain proof failed."""
 
 
+#: The frozen pre-registration (protocol §7/§9): the hard caps a run is approved against.
+PREREG_ESTIMATE = REPO_ROOT / "benchmarks" / "results" / "cost_truth" / "cost_estimate.json"
+
+
 def phase_cap(phase: str) -> float:
+    """The phase's pre-registered hard cap, read from the frozen estimate.
+
+    A recorded number, not a recomputation: the cap is what ``--i-approve-spend`` names,
+    so it must not move when the model price table is corrected. It was computed at the
+    list price then in ``distil.pricing`` (Sonnet 5 at $3/$15); Sonnet 5's standard price
+    is $2/$10, so the same design now costs less and the frozen cap still covers it
+    (``estimate_cap`` is today's recomputation; the tests pin estimate_cap <= phase_cap).
+    """
+    caps = json.loads(PREREG_ESTIMATE.read_text(encoding="utf-8"))["phases"]
+    return float(caps[phase]["hard_cap_usd"])
+
+
+def estimate_cap(phase: str) -> float:
+    """The cap the design would get at today's ``distil.pricing`` list prices."""
     d = DESIGN[phase]
     per = an.price_tokens(d["model"], an.attempt_tokens(**PROFILE))
     return round(per * d["tasks"] * d["seeds"] * len(rn.ARMS) * SAFETY, 2)

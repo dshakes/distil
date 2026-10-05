@@ -1,8 +1,8 @@
-# 0022 — A re-fetch of folded content is forwarded verbatim
+# 0025 — A re-fetch of folded content is forwarded verbatim
 
 - **Status:** accepted (on by default; offline-measured, live outcome not yet run)
 - **Date:** 2026-10-04
-- **Relates to:** `distil/compress/refetch.py`, `distil/adapters/anthropic.py` (`compress_messages`, `refetch_enabled`), `benchmarks/reinflate_replay.py`, `benchmarks/results/reinflate-replay/`, `tests/test_refetch.py`, ADR 0008, ADR 0009, ADR 0010, ADR 0021
+- **Relates to:** `distil/compress/refetch.py`, `distil/adapters/anthropic.py` (`compress_messages`, `refetch_enabled`, `refetch_tool_use_ids`), `distil/serve_core.py`, `benchmarks/reinflate_replay.py`, `benchmarks/results/reinflate-replay/`, `tests/test_refetch.py`, ADR 0008, ADR 0009, ADR 0010, ADR 0021
 - **Amends:** ADR 0009 — adds one cross-block dependency, monotone toward verbatim
 
 ## Context
@@ -138,6 +138,18 @@ block disappear, and the trusted block's bytes, when they differ, are its origin
 - Scope: the Anthropic Messages adapter, including `role: "tool"` string messages that pass
   through it. The OpenAI Responses and Gemini walkers do not have the rule yet; the measured
   traffic is Anthropic.
+- Proxy and gateway reach the rule through the one serve path, `serve_core.compress_or_forward`
+  (ADR 0023). Wherever that path serves verbatim — the per-mode certification hold (ADR 0022),
+  `--lossless-only`, a subscription session, a Tier-0 gateway — nothing is folded, so nothing
+  is re-fetched and the rule is off.
+- Cache-delta (`--session-delta`) runs before the digester and would turn a byte-identical
+  re-run into a back-reference to the earlier copy, the very block distil folded. It is
+  handed the re-fetch ids (`refetch_tool_use_ids`) with the exact-quote ones, so it leaves
+  them whole. That costs one extra compression pass per request, under `--session-delta`
+  only; the keep-set is prefix-deterministic, so cache-delta stays byte-stable turn to turn
+  (`tests/test_refetch.py`, `tests/test_serve_core.py::test_cache_delta_parity`).
+- Savings are booked on the payload sent, so a re-fetch forwarded verbatim is charged
+  against savings in full; receipts and the ledger need no special case.
 - Cost per request is two set unions over the tool-result lines already in memory.
 - Cold-point eviction (ADR 0014) still wins over the rule: an evicted block is a stub, as
   before. A re-fetch of it is then forwarded verbatim, which is the behaviour wanted.

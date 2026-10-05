@@ -1,4 +1,4 @@
-"""ADR 0022 — a tool result that re-fetches content distil folded is forwarded verbatim.
+"""ADR 0025 — a tool result that re-fetches content distil folded is forwarded verbatim.
 
 Driven through the public ``compress_messages`` with the client shape that bills: an
 ephemeral cache breakpoint on the newest block, so every earlier tool result is committed
@@ -352,3 +352,103 @@ def test_a_payload_with_an_image_keeps_its_per_part_handling() -> None:
     out = _send(msgs, refetch=True)
     assert (take_census() or {}).get("tool_result_refetch") is None
     assert "handle=" in _block(out, "t1")["content"][0]["text"]
+
+
+# ----------------------------------------------------------------- the shared serve path
+
+
+def _serve(msgs: list[dict[str, Any]], **kw: Any) -> Any:
+    """One request through proxy/gateway's compress-or-forward path (ADR 0023)."""
+    from distil import serve_core
+
+    kw = {"verbatim": False, "expand": True, "mode": "digest", **kw}
+    return serve_core.compress_or_forward(
+        {"model": "claude-sonnet-5", "max_tokens": 64, "messages": _cached(msgs)},
+        "/v1/messages",
+        count=lambda m: len(json.dumps(m)),
+        **kw,
+    )
+
+
+def test_refetch_ids_name_the_results_kept() -> None:
+    msgs = _session(("python repro.py", FILE), ("python repro.py", FILE), ("ls", "a\nb"))
+    assert A.refetch_tool_use_ids(_cached(msgs)) == {"t1"}
+
+
+def test_session_delta_does_not_reference_a_refetch_to_the_folded_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--session-delta runs before the digester. Left alone it turns a byte-identical
+    re-run into a reference to the earlier copy — the very block distil folded."""
+    from distil.cachedelta import reset_sessions
+
+    msgs = _session(("python repro.py", FILE), ("python repro.py", FILE))
+    monkeypatch.setenv("DISTIL_REFETCH_VERBATIM", "0")
+    reset_sessions()
+    off = _serve(msgs, session_delta=True, scope="off\0").body["messages"]
+    assert "distil-ref" in _result(off, "t1"), "the failure: a pointer to the stub"
+
+    monkeypatch.delenv("DISTIL_REFETCH_VERBATIM")
+    reset_sessions()
+    on = _serve(msgs, session_delta=True, scope="on\0").body["messages"]
+    assert "handle=" in _result(on, "t0")
+    assert _result(on, "t1") == FILE
+
+
+def test_session_delta_keeps_committed_blocks_byte_stable() -> None:
+    from distil.cachedelta import reset_sessions
+
+    reset_sessions()
+    msgs = _session(
+        ("cat app.py | sed -n 1,80p", _window(1, 80)),
+        ("python repro.py", FILE),
+        ("python repro.py", FILE),
+        ("sed -n 10,30p app.py | cut -c1-200", _window(10, 30)),
+        ("python repro.py", FILE),
+    )
+    prev: list[str] = []
+    for end in range(3, len(msgs) + 1, 2):
+        out = _serve(msgs[:end], session_delta=True, scope="stable\0").body["messages"]
+        cur = [_stable(m) for m in out]
+        assert cur[: len(prev)] == prev, f"a committed message changed at turn {end}"
+        prev = cur
+
+
+def test_held_or_lossless_serving_has_nothing_to_refetch() -> None:
+    """The certification hold and a subscription both serve verbatim: nothing is folded,
+    so nothing re-inflates and the census carries no re-fetch."""
+    msgs = _session(("python repro.py", FILE), ("python repro.py", FILE))
+    out = _serve(msgs, verbatim=True, held=True, expand=False, mode="lossless_only")
+    assert _result(out.body["messages"], "t1") == FILE
+    assert "handle=" not in _result(out.body["messages"], "t0")
+    assert (take_census() or {}).get("tool_result_refetch") is None
+
+
+def test_savings_count_the_refetch_as_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Booked savings are measured on the payload sent, so a re-fetch forwarded verbatim
+    shrinks them by exactly what it costs — no credit for bytes that went upstream."""
+    msgs = _session(("python repro.py", FILE), ("python repro.py", FILE))
+    monkeypatch.setenv("DISTIL_REFETCH_VERBATIM", "0")
+    off = _serve(msgs)
+    monkeypatch.delenv("DISTIL_REFETCH_VERBATIM")
+    on = _serve(msgs)
+    assert on.before_tok == off.before_tok
+    assert on.after_tok == len(json.dumps(on.body["messages"]))
+    assert on.after_tok > off.after_tok
+
+
+def test_offline_replay_reads_claude_code_transcripts(tmp_path: Any) -> None:
+    """--claude-code: the same metric over Claude Code JSONL, counts only."""
+    from benchmarks.reinflate_replay import run_claude_code
+
+    msgs = _session(*[("python repro.py", FILE)] * 3)
+    msgs.append({"role": "assistant", "content": [{"type": "text", "text": "done"}]})
+    lines = [json.dumps({"type": m["role"], "message": m}) for m in msgs]
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "proj" / "s.jsonl").write_text("\n".join(lines))
+    out = run_claude_code(tmp_path, sessions=5)
+    assert out["sessions_replayed"] == 1
+    base, new = out["variants"]["baseline"]["totals"], out["variants"]["refetch"]["totals"]
+    # The first re-run cannot be helped (its source is cached as a digest); the second can.
+    assert (base["redundant"], base["avoidable"], new["avoidable"]) == (2, 2, 1)
+    assert "repro" not in json.dumps(out), "no command text in the aggregate"

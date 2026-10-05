@@ -65,8 +65,9 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="model-migration.html">Model Migration</a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
           <li><a href="benchmark.html">Live Benchmark</a></li>
           <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -225,7 +226,7 @@
     <ol>
       <li><strong>Drift guard</strong> (<code>distil/drift.py</code>). If shadow mode's paired verdicts have pushed the anytime-valid drift alarm over the one risk budget (<code>distil.conformal.BUDGET_ALPHA</code>), the request is served lossless-only: Tier-0, no digest, no output shaping. The response carries <code>x-distil-mode: lossless-only</code> and <code>x-distil-drift-guard: held</code>. <code>distil_expand</code> stays injected, so stubs already in the history remain recoverable. The hold is one per machine, survives restarts, is written to the receipt chain, and is released with <code>distil reset --drift-guard</code>. Checking it costs one attribute read per request. A guard that fails serves the request as configured. The multi-tenant gateway runs no shadow and is exempt by design (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>). New since 1.53.0rc1 and still to pass an rc soak.</li>
       <li><strong>Cold-point planner</strong> (<code>distil/coldpoint.py</code>). When a turn arrives after the provider's cache entry has <em>certainly</em> expired, the whole prefix is re-billed anyway, so older tool output is replaced by <code>distil_expand</code>-recoverable stubs there and those stubs are forwarded on every later turn. Anthropic only, only where the recoverable digest runs; <code>--no-cold-point</code> opts out. <strong>Not yet measured live</strong>: the rc soak and a live A/B are its gate. Contract: <a href="cache-contract.html#cold-point">clause (h)</a>; decision record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>.</li>
-      <li><strong>Compression.</strong> Salience pins the load-bearing lines, Tier-0 runs lossless transforms, Tier-1 digests large tool output behind a content handle, and the re-read delta references lines the conversation already holds. Exact-quote provenance exempts anything an <code>Edit</code> may quote back. A tool result that re-fetches lines the agent was only ever shown as a digest is forwarded verbatim; the earlier digest is left as cached (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0022-refetch-verbatim.md">ADR 0022</a>, <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off). A dropped run no longer than its <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code> marker is shown inline rather than pointed at; that gain is small, and zero on the bundled corpus.</li>
+      <li><strong>Compression.</strong> Salience pins the load-bearing lines, Tier-0 runs lossless transforms, Tier-1 digests large tool output behind a content handle, and the re-read delta references lines the conversation already holds. Exact-quote provenance exempts anything an <code>Edit</code> may quote back. A tool result that re-fetches lines the agent was only ever shown as a digest is forwarded verbatim; the earlier digest is left as cached (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>, <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off). A dropped run no longer than its <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code> marker is shown inline rather than pointed at; that gain is small, and zero on the bundled corpus.</li>
       <li><strong>Prefix replay</strong> (<code>distil/prefixreplay.py</code>). For the longest canonically-equal leading prefix, the bytes forwarded last turn are forwarded again. Each request records why replay stopped (<code>replay_stop</code>, and <code>x-distil-replay-stop</code> on the response), so an in-window cache write can be attributed to the client or to distil. See <a href="#cache-aware">below</a>.</li>
       <li><strong>Upstream.</strong> Streams are relayed chunk by chunk. Provider-signed, opaque content is forwarded untouched: Anthropic <code>thinking</code> and server-side <code>compaction</code> blocks, OpenAI <code>reasoning</code> <code>encrypted_content</code> and <code>compaction</code> items (<a href="cache-contract.html#opaque">clause (g)</a>). So is the request <code>tools</code> array (<a href="cache-contract.html#tools">why</a>).</li>
       <li><strong>After the response.</strong> One content-free receipt is appended to the hash chain; when the active file reaches the segment size it is sealed with a Merkle-root checkpoint (<a href="cli.html#receipts"><code>distil receipts</code></a>). A shadow-sampled request is replayed off the request path, and its paired verdict is folded into the drift e-process the guard reads.</li>
@@ -331,14 +332,27 @@
     <pre class="term"><span class="d">$ distil prune</span>
 causal ablation over 'sre-disk-incident' — what is free to drop?
 
-block                  occ   tokens  verdict
-doc-0                    4      312  <span class="g">PRUNE (causally inert)</span>
-doc-1                    4      303  <span class="g">PRUNE (causally inert)</span>
-obs-0                    4      234  <span class="d">keep (changed a decision)</span>
-obs-1                    4      198  <span class="d">keep (changed a decision)</span>
-system                   4      218  <span class="d">keep (changed a decision)</span>
+block                  occ  tokens  verdict
+doc-0                    1     164  <span class="g">PRUNE (causally inert)</span>
+doc-1                    1     101  <span class="g">PRUNE (causally inert)</span>
+doc-2                    1      86  <span class="g">PRUNE (causally inert)</span>
+doc-3                    1      73  <span class="g">PRUNE (causally inert)</span>
+hist-0                   3      48  <span class="g">PRUNE (causally inert)</span>
+hist-1                   2      47  <span class="g">PRUNE (causally inert)</span>
+hist-2                   1      44  <span class="g">PRUNE (causally inert)</span>
+user-0                   1      20  <span class="g">PRUNE (causally inert)</span>
+user-3                   1      12  <span class="g">PRUNE (causally inert)</span>
+user-2                   1      11  <span class="g">PRUNE (causally inert)</span>
+user-1                   1       9  <span class="g">PRUNE (causally inert)</span>
+obs-0                    1     343  <span class="d">keep (changed a decision)</span>
+obs-1                    1     303  <span class="d">keep (changed a decision)</span>
+obs-2                    1     257  <span class="d">keep (changed a decision)</span>
+tools                    4     213  <span class="d">keep (changed a decision)</span>
+obs-3                    1     206  <span class="d">keep (changed a decision)</span>
+system                   4      82  <span class="d">keep (changed a decision)</span>
 
-tokens provably free to drop: 615 across 2 block(s).</pre>
+tokens provably free to drop: 615 across 11 block(s).</pre>
+    <p class="note">Real output, committed as <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/prune-sre-disk-incident-2026-10-04.out"><code>benchmarks/results/prune-sre-disk-incident-2026-10-04.out</code></a>.</p>
 
     <h3>Step 3 — Certify</h3>
     <p>The conformal DERC certificate (<code>certify/stats.py</code> via <code>certify/gate.py</code> and <code>conformal.py</code>) computes the decision-change rate across all turns and certifies it. The implementation uses Learn-Then-Test with Hoeffding–Bentkus p-values — distribution-free, valid at finite sample size, zero scipy/numpy. The guarantee: <strong>P(R(λ̂) ≤ α) ≥ 1 − δ</strong>.</p>
@@ -511,7 +525,7 @@ FIDELITY: <span class="g">PASS</span> — Tier-0/1 byte-reversible and history a
         <tr><td><code>compress/stabilize.py</code></td><td>Schema canonicalization + volatile-field extraction</td></tr>
         <tr><td><code>compress/tier0.py</code></td><td>Tier-0 lossless transforms (JSON minify, run-length collapse)</td></tr>
         <tr><td><code>compress/tier1.py</code></td><td>Tier-1 reversible digest + content handle embedding</td></tr>
-        <tr><td><code>compress/refetch.py</code></td><td>Re-fetch verbatim — a tool result that repeats lines distil forwarded only as a digest goes out verbatim; prefix-deterministic, monotone toward verbatim (ADR 0022)</td></tr>
+        <tr><td><code>compress/refetch.py</code></td><td>Re-fetch verbatim — a tool result that repeats lines distil forwarded only as a digest goes out verbatim; prefix-deterministic, monotone toward verbatim (ADR 0025)</td></tr>
         <tr><td><code>compress/provenance.py</code></td><td>Exact-quote provenance — which blocks are a verbatim slice of a file and must never be digested; one rule, used by all three adapters</td></tr>
         <tr><td><code>curve.py</code></td><td>The degradation curve — savings vs. fact recall at every ladder rung (<code>distil bench --curve</code>)</td></tr>
         <tr><td><code>compress/salience.py</code></td><td>Model-free salience protection (pre-gate safety net) + surprise-preserving retention</td></tr>

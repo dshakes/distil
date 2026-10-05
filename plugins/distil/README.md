@@ -55,8 +55,10 @@ Decision-equivalence shows once shadow mode clears the reporting floor (50 A/B +
 30 A/A); below it the segment counts up instead of printing a rate. `✓` at 99% and
 above, `⚠` under 99%, `✗` under 95% (the glyph is an alarm, not decoration, and it
 reads without color). The session/lifetime figures above are illustrative; the
-equivalence reading is the maintainer's live sample, 97.5% [95.5, 99.5] over n=398
-A/B on 2026-09-15 (`benchmarks/results/shadow-live-2026-09-15.json`).
+equivalence reading is the maintainer's pooled live sample, 97.5% over n=398 A/B on
+2026-09-15 (`benchmarks/results/shadow-live-2026-09-15.json`). Pooled is not a verdict:
+per mode, digest read −5.3 pp against self-agreement (over the 5% budget) and
+lossless-only ≈0 — `distil shadow-stats` prints each mode with its interval.
 With no savings yet it shows a hint instead.
 Requires `distil` on `PATH` or `uvx` available.
 

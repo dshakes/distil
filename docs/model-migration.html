@@ -65,8 +65,9 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html" class="active" aria-current="page">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="model-migration.html" class="active" aria-current="page">Model Migration</a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
           <li><a href="benchmark.html">Live Benchmark</a></li>
           <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -192,6 +193,7 @@
     <p><img src="assets/served-coverage.svg" alt="One request from a caching coding agent. The certified distil strategy digests only the latest tool output and saves 2.6 percent of tokens. The served path also digests every earlier tool output and saves 52.6 percent. Most served bytes were never certified." width="100%" loading="lazy"/></p>
     <p>The old certified strategy saves <b>2.6%</b> of tokens. Serving saves <b>52.6%</b>. The certificate was true of a slice of the traffic that carries almost none of the savings.</p>
     <p>So there is a new strategy, <code>distil certify --strategy served</code>, and a <code>served (adapter)</code> point on the frontier. It runs the real <code>compress_messages</code> on the request a caching tool-use client sends and maps the result back, so the certificate covers the digests of earlier tool outputs. What it does not cover is written out in <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0021-served-path-certification.md">ADR 0021</a>: a client with no or an earlier breakpoint, images, verbatim and subscription mode, and task success.</p>
+    <p>The same adapter has also been replayed offline over real Claude Code sessions, request by request, with the cache breakpoint priced in. Savings are largest on short sessions and shrink as sessions grow, because long sessions are dominated by files read to be edited, which stay byte-exact. It also reports what keeping shell search output verbatim costs and how many edit quotes survive. The method and aggregate results are in <a href="https://github.com/dshakes/distil/blob/main/docs/EVALUATION.md">EVALUATION.md §6.10</a>; this page quotes no figure from it.</p>
     <p>Its first result, 100 SWE-agent decision points (59 held out), graded by <code>claude-sonnet-5-5</code> at low effort:</p>
     <div class="table-scroll" tabindex="0" role="region" aria-label="Coding decision points, served versus certified">
     <table>

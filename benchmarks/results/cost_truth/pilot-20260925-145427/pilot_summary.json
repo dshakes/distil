@@ -1,0 +1,15 @@
+{
+  "any_1h_cache_writes": false,
+  "block_discordance": 0.3684210526315789,
+  "mde_ratio_89x5_at_this_sigma": 0.8922917538728327,
+  "median_tokens_per_attempt": {
+    "cache_creation_1h_input_tokens": 0,
+    "cache_creation_input_tokens": 34019,
+    "cache_read_input_tokens": 639595,
+    "input_tokens": 50,
+    "output_tokens": 10311
+  },
+  "median_turns": 19,
+  "note": "pooled over arms on purpose: the pilot does not compare arms (protocol \u00a77)",
+  "sigma_within_log_cost": 0.46879672694003777
+}

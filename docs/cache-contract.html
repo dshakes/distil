@@ -65,8 +65,9 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="model-migration.html">Model Migration</a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
           <li><a href="benchmark.html">Live Benchmark</a></li>
           <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -134,7 +135,7 @@
     <p class="note">This is the contract. <a href="cache.html">Prompt Caching</a> is the operational guide — how to mark a prefix, what <code>distil cache</code> reports, and how to read a miss. Start there if you are debugging a bill; start here if you are asking what Distil promises.</p>
 
     <h2 id="why">Why this is written down</h2>
-    <p>Distil has been on the wrong side of this once. A recency carve-out that counted back from the <em>end</em> of the message list slides forward as a conversation grows, so every block was protected while fresh and rewritten one turn later — after the client had already committed it to a cached prefix. Measured against the real API, that produced <b>zero cache reads on every turn and 2× the cost of compressing nothing at all</b>: the entire prefix was re-written at 1.25× instead of re-read at 0.1×.</p>
+    <p>Distil has been on the wrong side of this once. A recency carve-out that counted back from the <em>end</em> of the message list slides forward as a conversation grows, so every block was protected while fresh and rewritten one turn later — after the client had already committed it to a cached prefix. Measured against the real API, that produced <b>zero cache reads on every turn and 2× the cost of compressing nothing at all</b>: the entire prefix was re-written at 1.25× instead of re-read at 0.1×. (One 4-arm live A/B; its raw output was not committed, so treat the 2× as that run's reading, not a benchmark.)</p>
     <p>The fix was to anchor the carve-out to the client's own <code>cache_control</code> breakpoint rather than to the end of the list. The reason it needs a contract and not just a fix is that the failure is <b>silent</b>. Every request still succeeds. The savings report still shows tokens removed. Nothing raises and nothing 5xxs. The only symptom is the invoice.</p>
 
     <h2 id="boundary">Where the boundary is</h2>

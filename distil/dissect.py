@@ -1136,7 +1136,7 @@ _ELIGIBILITY_LABEL = {
     "assistant_text": "the model's own words (never rewritten)",
     "user_text": "your prompts (lossless only)",
     "tool_result_recent": "freshest tool output (kept byte-exact)",
-    "tool_result_refetch": "re-fetch of content seen only as a digest (kept byte-exact, ADR 0022)",
+    "tool_result_refetch": "re-fetch of content seen only as a digest (kept byte-exact, ADR 0025)",
     "tool_result_digested": "digested",
     "tool_result_html_stripped": "HTML chrome stripped",
     "tool_result_evicted": "evicted at a cold point (cache had expired; recoverable)",

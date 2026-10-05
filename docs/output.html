@@ -65,8 +65,9 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="model-migration.html">Model Migration</a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
           <li><a href="benchmark.html">Live Benchmark</a></li>
           <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -152,7 +153,7 @@
     </div>
 
     <div class="callout good">
-      <b>Combined effect:</b> for a typical agentic workload where input and output costs are roughly equal, compressing both sides cuts total API spend by 50%+ per run — no application changes needed.
+      <b>Combined effect:</b> compressing both sides attacks both halves of the bill, with no application changes. How much it saves is not a constant: on short SWE-bench tasks the shipped path measured cost-neutral overall, so measure it on your own traffic (<code>distil shadow-stats</code> reports the output-token delta).
     </div>
 
     <hr/>

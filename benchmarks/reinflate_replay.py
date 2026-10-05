@@ -1,4 +1,4 @@
-"""Offline replay for ADR 0022: does forwarding re-fetches verbatim make re-reads avoidable?
+"""Offline replay for ADR 0025: does forwarding re-fetches verbatim make re-reads avoidable?
 
 Replays recorded SWE-bench outcome transcripts (``benchmarks/swebench_outcome``, distil arm)
 request by request, exactly as the harness sent them: every prefix that ends in a user
@@ -10,7 +10,7 @@ not what it would have done.
 Variants:
 
 * ``baseline``  — the adapter with the re-fetch rule off (``refetch=False``).
-* ``refetch``   — the adapter as shipped (``refetch=True``, ADR 0022).
+* ``refetch``   — the adapter as shipped (``refetch=True``, ADR 0025).
 * ``sticky``    — rejected: (a) that, once one re-fetch is seen, digests nothing new.
 * ``sequence``  — rejected "likely-needed" retention: a sequence whose every stage is a
   plain read, a search or a ``cd`` (``sed -n 1,80p a; grep x b``) kept verbatim forever.
@@ -35,8 +35,12 @@ bytes on a later request — the thing ADR 0008 forbids).
 Usage::
 
     uv run python benchmarks/reinflate_replay.py DIR [DIR ...] --out results.json
+    uv run python benchmarks/reinflate_replay.py --claude-code ~/.claude/projects \\
+        --sessions 200 --out claude-code.json
 
 Each DIR holds ``transcripts/distil/*.json`` (a JSON list of Messages-API messages).
+``--claude-code`` reads local Claude Code transcripts instead (read-only; baseline and
+shipped variants only; aggregate counts only, see ``run_claude_code``).
 """
 
 from __future__ import annotations
@@ -172,7 +176,11 @@ def _first_word(call: dict[str, Any]) -> str:
 
 
 def replay(path: str, variant: str) -> dict[str, Any]:
-    msgs: list[dict[str, Any]] = json.load(open(path))
+    with open(path, encoding="utf-8") as fh:
+        return replay_messages(json.load(fh), variant)
+
+
+def replay_messages(msgs: list[dict[str, Any]], variant: str) -> dict[str, Any]:
     results = _results_by_id(msgs)
     c: Counter[str] = Counter()
     by_cmd: Counter[str] = Counter()
@@ -234,11 +242,12 @@ def replay(path: str, variant: str) -> dict[str, Any]:
     return {"counts": c, "by_cmd": by_cmd, "census": census}
 
 
-def run(dirs: list[str], limit: int | None = None) -> dict[str, Any]:
-    files = sorted(f for d in dirs for f in glob.glob(os.path.join(d, "transcripts/distil/*.json")))
+def run(dirs: list[str], limit: int | None = None, arm: str = "distil") -> dict[str, Any]:
+    pattern = f"transcripts/{arm}/*.json"
+    files = sorted(f for d in dirs for f in glob.glob(os.path.join(d, pattern)))
     if limit:
         files = files[:limit]
-    out: dict[str, Any] = {"transcripts": len(files), "variants": {}}
+    out: dict[str, Any] = {"transcripts": len(files), "arm": arm, "variants": {}}
     for variant in VARIANTS:
         totals: Counter[str] = Counter()
         by_cmd: Counter[str] = Counter()
@@ -271,13 +280,78 @@ def run(dirs: list[str], limit: int | None = None) -> dict[str, Any]:
     return out
 
 
+def run_claude_code(
+    root: Path, sessions: int, seed: int = 0, max_messages: int = 160
+) -> dict[str, Any]:
+    """The same metric over local Claude Code transcripts (read-only), baseline vs shipped.
+
+    Private input, so the output is counts and percentages only: no command words (the
+    SWE-bench ``avoidable_by_command`` table is dropped), no paths, no text. Each session is
+    cut to its first *max_messages* messages — the replay is quadratic in session length.
+    """
+    import random
+
+    from distil.whatif import discover, parse_transcript
+
+    files = discover(root.expanduser())
+    chosen = sorted(random.Random(seed).sample(files, min(sessions, len(files))))
+    sessions_msgs = []
+    for f in chosen:
+        with f.open(encoding="utf-8", errors="replace") as fh:
+            msgs = parse_transcript(fh).messages[:max_messages]
+        if any(m["role"] == "assistant" for m in msgs[1:]):
+            sessions_msgs.append(msgs)
+    out: dict[str, Any] = {
+        "source": "local Claude Code transcripts (read-only), aggregates only",
+        "sessions_found": len(files),
+        "sessions_replayed": len(sessions_msgs),
+        "seed": seed,
+        "max_messages_per_session": max_messages,
+        "variants": {},
+    }
+    for variant in ("baseline", "refetch"):
+        totals: Counter[str] = Counter()
+        census: Counter[str] = Counter()
+        for msgs in sessions_msgs:
+            try:
+                r = replay_messages(msgs, variant)
+            except Exception:  # noqa: BLE001 — a malformed session is skipped, counted
+                totals["sessions_failed"] += 1
+                continue
+            totals.update(r["counts"])
+            census.update(r["census"])
+        t = dict(totals)
+        t["savings_pct"] = round(100 * (1 - t["sent_tokens"] / t["raw_tokens"]), 2)
+        t["cache_aware_savings_pct"] = round(100 * (1 - t["cost_units"] / t["raw_cost_units"]), 2)
+        t["cost_units"] = round(t["cost_units"])
+        t["raw_cost_units"] = round(t["raw_cost_units"])
+        out["variants"][variant] = {
+            "totals": t,
+            "census_tokens": {
+                k: v
+                for k, v in sorted(census.items())
+                if k.startswith("tool_result_") and k != "tool_result_short"
+            },
+        }
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    ap.add_argument("dirs", nargs="+")
+    ap.add_argument("dirs", nargs="*")
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--arm", default="distil", help="transcripts/<arm>/ to replay")
+    ap.add_argument("--claude-code", type=Path, default=None, metavar="ROOT")
+    ap.add_argument("--sessions", type=int, default=200)
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
-    result = run(args.dirs, args.limit)
+    if args.claude_code is not None:
+        result = run_claude_code(args.claude_code, args.sessions, args.seed)
+    elif args.dirs:
+        result = run(args.dirs, args.limit, args.arm)
+    else:
+        ap.error("give transcript DIRs or --claude-code ROOT")
     Path(args.out).write_text(json.dumps(result, indent=1) + "\n")
     for name, v in result["variants"].items():
         t = v["totals"]

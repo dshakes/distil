@@ -1,0 +1,37 @@
+{
+  "_note": "Which committed runs scripts/build_scoreboard.py puts on docs/scoreboard.html, newest first. Every number on the page is recomputed from each dir's results.jsonl + grades.jsonl (swebench_outcome) or analysis.json (cost_truth). `date` and `versions` are run metadata copied from the run's report.md notes and git history; arm_meta in the rows wins when present. Add a dir here after a run lands; an arm with no rows shows 'pending run'.",
+  "runs": [
+    {
+      "id": "terminal-bench-pilot",
+      "kind": "cost_truth",
+      "dir": "benchmarks/results/cost_truth/pilot-20260925-145427",
+      "date": "2026-09-25",
+      "model": "claude-sonnet-5",
+      "versions": {
+        "distil": "1.54.0",
+        "rtk": "0.50.0",
+        "headroom": "0.38.0"
+      },
+      "note": "pilot, not a comparison (protocol section 7): 18 paired attempts per arm after 10 infra_error runs were excluded, run under emulated x86_64, and billed while distil priced claude-sonnet-5 at $3/$15 instead of the official $2/$10, so absolute dollars are 1.5x too high and ratios are unaffected. analysis.json carries no passing verdict for any arm"
+    },
+    {
+      "id": "swebench-lite-300-medium",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-outcome-300-medium",
+      "date": "2026-10-03",
+      "versions": {
+        "distil": "1.56.3"
+      }
+    },
+    {
+      "id": "swebench-lite-300-low",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-outcome-300-grepfix",
+      "date": "2026-10-02",
+      "versions": {
+        "distil": "1.56.3"
+      },
+      "note": "plain rows are reused from swebench-outcome-300 (same model, effort and tasks), as that run's report.md says"
+    }
+  ]
+}

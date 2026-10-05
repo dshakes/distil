@@ -243,6 +243,8 @@ def test_gateway_streams_sse_incrementally(tmp_path):
     try:
         t_first, body, _headers, _f = _stream_request(gw.server_address[1], _payload())
         assert t_first is not None and t_first < _DELAY * 0.75
+        # The default gateway is Tier-0 (no --digest): no expand splice, so the relay is
+        # byte-exact.
         assert _CHUNK1 in body and _CHUNK2 in body
     finally:
         gw.shutdown()

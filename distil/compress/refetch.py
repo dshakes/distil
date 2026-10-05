@@ -73,6 +73,9 @@ class Tracker:
     def __init__(self) -> None:
         self._sent: set[str] = set()
         self._forwarded: set[str] = set()
+        # Ids of the results this walk kept as re-fetches, for a pre-pass that must not
+        # rewrite them (cache-delta; see ``adapters.anthropic.refetch_tool_use_ids``).
+        self.hits: set[str] = set()
 
     def is_refetch(self, text: str) -> bool:
         """Whether *text* is mostly lines the agent has already been sent but only seen folded."""

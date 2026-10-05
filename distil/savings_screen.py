@@ -12,8 +12,10 @@ Composes what already exists rather than re-deriving it:
 
 With no ledger at all (distil never wrapped anything) it reads Claude Code's own
 transcripts instead — provider ``usage`` fields and tool-result *sizes* only; no
-content ever reaches the output — and prints real spend plus a labelled ESTIMATE.
-Read-only everywhere: this module never writes a file.
+content ever reaches the output — and prints real spend plus a what-if: your own recent
+requests replayed offline through the served adapter (:mod:`distil.whatif`). The quoted
+ESTIMATE is the fallback when nothing is replayable. Read-only everywhere: this module
+never writes a file.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import textwrap
 import time
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
@@ -85,6 +88,9 @@ class Screen:
     #: Transcript mode only: heuristic share of new context that was tool output.
     tool_results_share: float | None = None
     estimate: dict[str, Any] | None = None
+    #: Offline replay of your own recent requests through the served adapter, both modes
+    #: (:mod:`distil.whatif`). Transcript mode always; ledger mode on a subscription only.
+    whatif: dict[str, Any] | None = None
 
     @property
     def net_pct(self) -> float | None:
@@ -409,11 +415,92 @@ def _epoch(iso: Any) -> float:
     return ep(iso if isinstance(iso, str) else None)
 
 
-def build(since: float | None) -> Screen:
-    """Ledger mode if distil has ever recorded a run; the transcript reader otherwise."""
+#: A ledger user already pays for one replay pass; keep the extra line cheap.
+LEDGER_WHATIF_DEADLINE_S = 5.0
+
+
+def _attach_whatif(s: Screen, since: float | None, progress: Any, deadline_s: float) -> None:
+    from . import whatif
+
+    w = whatif.run(since, progress=progress, deadline_s=deadline_s)
+    if w.requests_replayed:
+        t = s.tokens
+        s.whatif = w.to_dict(t.uncached + t.cache_read + t.cache_write, s.requests)
+        s.whatif["digest_certification"] = digest_certification()
+
+
+#: What the maintainer's own live shadow says about digest (README, ADR 0022). Shown next
+#: to every "digest would save" figure so a token count is never read as a recommendation.
+PUBLISHED_DIGEST_STATE = (
+    "published: on the maintainer's live data digest is currently over its decision-change "
+    "budget (paired harm 5.3 pp against the 5% budget, 2026-09-15), so the drift guard "
+    "holds it at lossless-only there (ADR 0022)"
+)
+
+
+def digest_certification(now: float | None = None) -> dict[str, str]:
+    """Digest's certification on THIS machine, from its per-mode shadow evidence:
+    ``held`` (the per-mode hold or the drift alarm), ``certified``, or ``no-evidence``.
+    Read-only; never raises."""
+    try:
+        from . import drift
+        from .output import SHAPE_EVIDENCE_DAYS
+        from .shadow import VERDICT_MIN_AB, ShadowLedger
+
+        why = drift.cert_hold_reason() or drift.uncertified(now=now)
+        if why:
+            return {"state": "held", "detail": f"held by the per-mode hold — {why}"}
+        if drift.held_now():
+            return {"state": "held", "detail": "held — the drift alarm tripped"}
+        since = (time.time() if now is None else now) - SHAPE_EVIDENCE_DAYS * 86400
+        eq = (
+            ShadowLedger.load(current_only=True, since_ts=since).equivalence_by_mode().get("digest")
+        )
+        if eq is None or eq.below_floor or eq.diff_ci is None:
+            n = eq.n_paired if eq is not None else 0
+            return {
+                "state": "no-evidence",
+                "detail": f"not enough evidence yet — {n} paired digest shadow rows in the "
+                f"last {SHAPE_EVIDENCE_DAYS}d, a verdict needs {VERDICT_MIN_AB}",
+            }
+        return {
+            "state": "certified",
+            "detail": f"certified — paired harm upper bound {-eq.diff_ci[0] * 100:.1f} pp, "
+            f"inside the budget (n={eq.n_paired}, last {SHAPE_EVIDENCE_DAYS}d)",
+        }
+    except Exception:  # noqa: BLE001 — a status line must never break the screen
+        return {"state": "no-evidence", "detail": "not enough evidence yet (shadow unreadable)"}
+
+
+def _digest_status_lines(w: dict[str, Any]) -> list[str]:
+    cert = w.get("digest_certification") or {}
+    out = [f"    digest on this machine: {cert.get('detail', 'not enough evidence yet')}"]
+    return out + [
+        "    " + ln for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 84, break_on_hyphens=False)
+    ]
+
+
+def _digest_held(w: dict[str, Any]) -> bool:
+    return (w.get("digest_certification") or {}).get("state") == "held"
+
+
+def build(since: float | None, *, progress: Any = None) -> Screen:
+    """Ledger mode if distil has ever recorded a run; the transcript reader otherwise.
+
+    Transcript mode adds the offline what-if replay. Ledger mode adds it only on a
+    subscription, where the default is lossless-only and digest is an opt-in worth naming;
+    a metered key already runs digest, so there is nothing to add."""
+    from . import whatif
+
     if ledger.summary().runs:
-        return ledger_screen(since)
-    return transcripts_screen(since)
+        s = ledger_screen(since)
+        if s.notional:
+            _attach_whatif(s, since, progress, LEDGER_WHATIF_DEADLINE_S)
+        return s
+    s = transcripts_screen(since)
+    if s.mode == "transcripts":
+        _attach_whatif(s, since, progress, whatif.DEADLINE_S)
+    return s
 
 
 # --------------------------------------------------------------------------- render
@@ -472,6 +559,7 @@ def render(s: Screen) -> str:
             )
         if s.net_pct is not None:
             out.append(f"  net      {s.net_pct:.1f}% of what you would have paid")
+        out += _digest_would_add(s)
     else:
         out.append("")
         if s.tool_results_share is not None:
@@ -483,7 +571,9 @@ def render(s: Screen) -> str:
             f"  tool defs      {TOOL_DEFS_SHARE * 100:.0f}% of billed $ on a measured machine — "
             "not in transcripts"
         )
-        if s.estimate:
+        if s.whatif:
+            out += _render_whatif(s)
+        elif s.estimate:
             e = s.estimate
             out += [
                 "",
@@ -518,15 +608,106 @@ def render(s: Screen) -> str:
             out += ["", f"  proof    {s.proof}"]
         out += ["", "  more: distil stats · distil discover · distil dissect latest · distil cache"]
     else:
-        out += [
-            "",
-            "  what to do next",
-            "    1. set up once                    →  distil setup",
-            "    2. run your agent through distil  →  distil wrap -- claude",
-            "    3. come back for measured numbers →  distil savings",
-        ]
-        out.append("\n  read-only: only usage fields and tool-result sizes were read; no content.")
+        out += ["", f"  next     {NEXT_STEP}"]
+        out.append(
+            "\n  read-only: replayed in memory; only counts leave it — no content, paths "
+            "or project names."
+        )
     return "\n".join(out)
+
+
+NEXT_STEP = "uv tool install distil-llm && distil setup"
+WHATIF_CAVEAT = (
+    "estimate from replaying your requests offline; it can't see whether the agent would "
+    "have taken different steps. `distil ab` measures that on live traffic."
+)
+DIGEST_OPT_IN = "distil default --mode expand"
+
+
+def _tok_line(label: str, arm: dict[str, Any], per_day: float | None, usd: bool) -> str:
+    n = arm["input_tokens_removed"]
+    row = f"    {label:<14} {'−' + _k(n):>8} input tokens  {arm['share_of_billed_input'] * 100:>5.1f}%"
+    if per_day:
+        row += f"  {'≈' + _k(n / per_day):>7}/day"
+    if usd:
+        v = arm["usd_saved"]
+        row += f"  ≈${v:,.2f} saved" if v >= 0 else f"  ≈${-v:,.2f} MORE (cache rewrites)"
+    return row
+
+
+def _render_whatif(s: Screen) -> list[str]:
+    w = s.whatif or {}
+    lo, dg = w["lossless_only"], w["digest"]
+    days = s.days or None
+    sample = f"replayed {w['requests_replayed']:,} of {w['requests_in_window']:,} requests offline"
+    if w["stopped_early"]:
+        sample += ", stopped at the time cap"
+    out = ["", f"  what distil would have changed  ({sample})"]
+    if s.notional:
+        out += [
+            "  you are on a flat plan: no per-token bill, so read this as rate-limit headroom",
+            _tok_line("lossless-only", lo, days, usd=False) + "   ← your default",
+            _tok_line("digest", dg, days, usd=False)
+            + (
+                "   ← held here: not recommended"
+                if _digest_held(w)
+                else f"   ← opt in: {DIGEST_OPT_IN}"
+            ),
+        ]
+    else:
+        out += [
+            _tok_line("lossless-only", lo, days, usd=True),
+            _tok_line("digest", dg, days, usd=True)
+            + (
+                "   ← held here: served as lossless-only"
+                if _digest_held(w)
+                else "   ← API-key default"
+            ),
+            "    priced cache-aware from your usage: reads 0.1x, writes 1.25x (5m) / 2x (1h);",
+            "    a rewritten cached prefix is charged as a fresh write",
+        ]
+    out += _digest_status_lines(w)
+    if w.get("unpriced_requests"):
+        out.append(
+            f"    ({w['unpriced_requests']:,} replayed requests on an unpriced model, not in $)"
+        )
+    out += [
+        "    % is of your billed input tokens; only conversation messages were replayed (the",
+        "    system prompt and tool definitions aren't in transcripts, so they stay as billed)",
+        "",
+        *("  " + ln for ln in textwrap.wrap(WHATIF_CAVEAT, 86)),
+    ]
+    return out
+
+
+def _digest_would_add(s: Screen) -> list[str]:
+    from .whatif import MEANINGFUL_SHARE
+
+    w = s.whatif
+    if not w:
+        return []
+    lo, dg = w["lossless_only"], w["digest"]
+    extra = dg["input_tokens_removed"] - lo["input_tokens_removed"]
+    more = dg["share_of_billed_input"] - lo["share_of_billed_input"]
+    if more < MEANINGFUL_SHARE or extra <= 0:
+        return []
+    window = "on your last " + (f"{round(s.days, 1):g} days" if s.days else "history")
+    cert = w.get("digest_certification") or {}
+    advice = (
+        "but it is held on this machine, so not recommended"
+        if _digest_held(w)
+        else f"opt in: {DIGEST_OPT_IN}"
+    )
+    return [
+        f"  what-if  {window}, digest would remove ≈{_k(extra)} more input tokens "
+        f"(+{more * 100:.1f}%) — {advice}",
+        "           (offline replay estimate; `distil ab` measures it on live traffic)",
+        f"           digest here: {cert.get('detail', 'not enough evidence yet')}",
+        *(
+            "           " + ln
+            for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 78, break_on_hyphens=False)
+        ),
+    ]
 
 
 def to_json(s: Screen) -> str:

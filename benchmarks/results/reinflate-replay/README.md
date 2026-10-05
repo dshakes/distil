@@ -1,4 +1,4 @@
-# Re-fetch verbatim — offline replay (ADR 0022)
+# Re-fetch verbatim — offline replay (ADR 0025)
 
 `benchmarks/reinflate_replay.py` replays the distil-arm transcripts of two 300-task
 SWE-bench Lite outcome runs through `compress_messages`, request by request, exactly as the
@@ -34,13 +34,35 @@ is a message already forwarded that changed bytes on a later request; ADR 0008 f
 | variant | avoidable | request-size savings | cache-aware savings | final digests | prefix rewrites |
 |---|---|---|---|---|---|
 | baseline (rule off) | 36 | 11.90% | 9.34% | 210 / 1,189 | 0 |
-| **refetch (shipped, ADR 0022)** | **31** | **11.21%** | **8.87%** | **194 / 1,189** | **0** |
+| **refetch (shipped, ADR 0025)** | **31** | **11.21%** | **8.87%** | **194 / 1,189** | **0** |
 | sticky (rejected) | 29 | 9.37% | 7.73% | 170 / 1,189 | 0 |
 | sequence (rejected) | 22 | 7.83% | 6.68% | 179 / 1,189 | 0 |
 | compound (rejected) | 8 | 3.48% | 3.37% | 119 / 1,189 | 0 |
 
 `prefix-300.json` (300 tasks, 245 redundant): baseline 58 avoidable, refetch 55, sticky 50,
 sequence 27, compound 8; cache-aware savings 10.75%, 10.29%, 9.62%, 5.75%, 2.86%.
+
+`h2h-pilot-9x3.json` — a smoke replay, not a result: the first 9 tasks of each competitor
+arm of the head-to-head pilot (`../swebench-outcome-300-h2h/`, still running when taken,
+2026-10-05), replayed with `--arm`. These are short trajectories (3 to 13 steps), so the
+rule has little to act on:
+
+| arm's transcripts | requests | calls | redundant | avoidable, rule off → on | request-size savings, off → on | cache-aware, off → on | `tool_result_refetch` tokens | prefix rewrites |
+|---|---|---|---|---|---|---|---|---|
+| provider-cm | 35 | 22 | 1 | 1 → 1 | 5.48% → 5.39% | 6.47% → 6.21% | 113 | 0 |
+| rtk | 33 | 19 | 0 | 0 → 0 | 9.45% → 9.45% | 18.8% → 18.8% | 0 | 0 |
+| selective | 53 | 43 | 6 | 1 → 1 | 12.74% → 12.71% | 14.47% → 14.45% | 1,841 | 0 |
+
+The rule fired where there was anything to fire on and avoided no re-read in this sample:
+each avoidable call was a *first* re-read, which the rule cannot reach (ADR 0025). The
+300-task medium run (`../swebench-outcome-300-medium/`) cannot be replayed: its transcripts
+were not kept. `grepfix-300.json` stays the measurement; the adapter code it replayed is
+unchanged on main since (1.57.0 touched no file under `distil/adapters/` or
+`distil/compress/`).
+
+`--claude-code ROOT` replays local Claude Code transcripts the same way (read-only, baseline
+and shipped only, counts only: no command words, paths or text). No result from it is
+committed.
 
 The rule's own cost is the `tool_result_refetch` census bucket in each file. Re-running it:
 

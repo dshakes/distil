@@ -65,8 +65,9 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="model-migration.html">Model Migration</a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
           <li><a href="benchmark.html">Live Benchmark</a></li>
           <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -271,7 +272,7 @@
     </div>
 
     <div class="callout" style="border-color:#2a2550">
-      <strong>Field note — read the numbers honestly (2026).</strong> Headroom's headline is <em>60–95% (JSON) / 15–20% (coding)</em>, but its own published production telemetry shows a <strong>fleet-median compression of ~4.8%</strong> — the big ratios are best-case content, not what a typical agent session gets. Its accuracy claims (GSM8K, BFCL) are cited in the README but <strong>not reproduced on its own benchmarks page</strong>. And correctness is verified <strong>offline only</strong> (benchmark regression + Rust↔Python byte-parity) — there is no per-request check that the compressed request yields the same decision at runtime. Distil's wedge is exactly there: a <strong>live decision-equivalence gate on every request</strong>, savings <strong>calibrated to your billed usage</strong>, and a <strong>pure-Python install</strong> (Headroom's Rust core is mandatory — a missing native extension hard-exits). Where Headroom is genuinely strong: a real shipped model (Kompress-v2, ModernBERT/ONNX), prefix-freeze cache economics, its SmartCrusher JSON folder, and its multi-language CodeCompressor — all four Distil matches (learned salience; cache-aware compression; a <strong>reversible nested-JSON fold with constant-column collapse</strong>, ~62% on enum-heavy tool output; a <strong>zero-dependency code skeleton</strong> across JS/TS/Go/Rust/Java/C, ~44% on a TS file) without giving up the runtime proof its crusher can't offer — and Distil's code skeleton needs <em>no</em> native grammar, where a tree-sitter core would be one more mandatory native extension.
+      <strong>Field note — read the numbers honestly (2026).</strong> Headroom's headline is <em>60–95% (JSON) / 15–20% (coding)</em>, but its own published production telemetry shows a <strong>fleet-median compression of ~4.8%</strong> — the big ratios are best-case content, not what a typical agent session gets. Its accuracy claims (GSM8K, BFCL) are cited in the README but <strong>not reproduced on its own benchmarks page</strong>. And correctness is verified <strong>offline only</strong> (benchmark regression + Rust↔Python byte-parity) — there is no per-request check that the compressed request yields the same decision at runtime. Distil's wedge is exactly there: a <strong>live decision-equivalence gate on every request</strong>, savings <strong>calibrated to your billed usage</strong>, and a <strong>pure-Python install</strong> (Headroom's Rust core is mandatory — a missing native extension hard-exits). Where Headroom is genuinely strong: a real shipped model (Kompress-v2, ModernBERT/ONNX), prefix-freeze cache economics, its SmartCrusher JSON folder, and its multi-language CodeCompressor — all four Distil matches (learned salience; cache-aware compression; a <strong>reversible nested-JSON fold with constant-column collapse</strong>; a <strong>zero-dependency code skeleton</strong> across JS/TS/Go/Rust/Java/C) without giving up the runtime proof its crusher can't offer — and Distil's code skeleton needs <em>no</em> native grammar, where a tree-sitter core would be one more mandatory native extension.
     </div>
 
     <div class="callout" id="headroom-v0370-audit" style="border-color:#2a2550">
@@ -316,23 +317,18 @@
 
     <hr/>
 
-    <h2 id="e8-outcomes">Real task success — SWE-bench Verified, official harness</h2>
-    <p>Capability tables can't settle whether any of this holds up on a real, long-horizon coding agent. <a href="research.html#e8">E8</a> runs six conditions of the identical ReAct agent (only the compressor differs) end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker) — not a proxy metric.</p>
+    <h2 id="e8-outcomes">Real task success</h2>
+    <p><strong>The shipped path</strong>, on SWE-bench Lite (300 tasks, run twice after the shell-search fix, official grader): <strong>cost-neutral and within about 2 points on task success</strong> &mdash; 204/299 vs 210/299 plain (&minus;2.0&nbsp;pts, 95% CI &minus;5.5..+1.5) and 213/298 vs 218/298 (&minus;1.7&nbsp;pts, 95% CI &minus;5.1..+1.7). Not statistically distinguishable; non-inferiority at the pre-registered 5-point margin is not shown. <a href="model-migration.html">Reports &rarr;</a></p>
+    <p><strong>Research configurations, not the shipped path.</strong> <a href="research.html#e8">E8</a> runs six conditions of the identical ReAct agent (only the compressor differs) end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker) — not a proxy metric.</p>
 
     <div class="table-scroll" tabindex="0" role="region" aria-label="Real task success — SWE-bench Verified, official harness">
     <table>
-      <thead><tr><th scope="col">Condition</th><th scope="col" style="text-align:center">Task success</th><th scope="col" style="text-align:center">Tied with full context?</th><th scope="col" style="text-align:center">Reversible + certified?</th></tr></thead>
+      <thead><tr><th scope="col">Condition</th><th scope="col" style="text-align:center">Task success</th><th scope="col" style="text-align:center">vs full context</th><th scope="col" style="text-align:center">Reversible?</th></tr></thead>
       <tbody>
-        <tr style="background:rgba(90,209,154,.16)">
-          <th scope="row"><strong>Distil</strong> (gated + surprise digest, v1.7)</th>
-          <td style="text-align:center"><strong>42.0%</strong></td>
-          <td style="text-align:center"><span class="badge-pass">✔ tied with full</span> <small>(paired CI &minus;0.6..+6.2pp)</small></td>
-          <td style="text-align:center"><span class="badge-pass">✔</span></td>
-        </tr>
-        <tr style="background:rgba(90,209,154,.10)">
-          <th scope="row"><strong>Distil</strong> (relevance-gated, E8)</th>
+        <tr>
+          <th scope="row"><strong>Distil</strong> (relevance-gated, E8 &mdash; research configuration)</th>
           <td style="text-align:center"><strong>36.8%</strong></td>
-          <td style="text-align:center"><span class="badge-pass">✔</span></td>
+          <td style="text-align:center">&minus;2.4&nbsp;pp <small>(95% CI &minus;5.7..+0.9 &mdash; fails the 5-point margin)</small></td>
           <td style="text-align:center"><span class="badge-pass">✔</span></td>
         </tr>
         <tr>
@@ -356,7 +352,7 @@
       </tbody>
     </table>
     </div>
-    <p style="font-size:12.5px;color:#5b6177;">500-instance long-horizon ReAct agent, full SWE-bench Verified, official <code>swebench</code> harness (hidden tests, per-instance Docker), paired McNemar across all six conditions. Distil's gate is the only condition statistically non-inferior to full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19) and beats Headroom with significance (+4.2&nbsp;pp, p=0.035). rtk was not run in this harness — it does not compress arbitrary agent context (see above), so it has no comparable condition. Full methodology, CIs, and the recovery-round-trip ablation: <a href="research.html#e8">Research &rarr; E8</a>.</p>
+    <p style="font-size:12.5px;color:#5b6177;">500-instance long-horizon ReAct agent, full SWE-bench Verified, official <code>swebench</code> harness (hidden tests, per-instance Docker), paired McNemar across all six conditions. Distil's gate is not distinguishable from full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19) but its lower bound is past the 5-point margin, so non-inferiority is not shown; it beats Headroom with significance (+4.2&nbsp;pp, p=0.035). A later research digest (E14) is on the research page; neither is the shipped path. rtk was not run in this harness — it does not compress arbitrary agent context (see above), so it has no comparable condition. Full methodology, CIs, and the recovery-round-trip ablation: <a href="research.html#e8">Research &rarr; E8</a>.</p>
 
     <div class="callout warn">
       <strong>Honest scope.</strong> This table is task success on one harness (SWE-bench Verified), one agent design, one base model (<code>claude-haiku-4-5</code>) — not a claim that Distil wins every workload (see <a href="research.html#e7">E7</a> for the negative result that motivated the trajectory-level certificate). It's a claim that when someone measured end-to-end outcomes instead of raw compression ratios, the guarantee-carrying compressor led on the number that pays the bills.

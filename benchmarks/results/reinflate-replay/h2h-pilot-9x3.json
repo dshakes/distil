@@ -1,0 +1,420 @@
+{
+ "source": "benchmarks/results/swebench-outcome-300-h2h transcripts (head-to-head pilot, in progress), snapshot 2026-10-05: the first 9 tasks of each competitor arm, replayed through compress_messages. Not the 300-task medium run: its transcripts were never kept on disk.",
+ "command": "uv run python benchmarks/reinflate_replay.py <h2h dir> --arm <arm> --out ...",
+ "arms": {
+  "provider-cm": {
+   "transcripts": 9,
+   "arm": "provider-cm",
+   "variants": {
+    "baseline": {
+     "totals": {
+      "requests": 35,
+      "raw_tokens": 54993,
+      "sent_tokens": 51982,
+      "prefix_rewrites": 0,
+      "cost_units": 21901,
+      "raw_cost_units": 23415,
+      "calls": 22,
+      "redundant": 1,
+      "visible": 0,
+      "final_results": 34,
+      "final_digested": 4,
+      "avoidable": 1,
+      "savings_pct": 5.48,
+      "cache_aware_savings_pct": 6.47
+     },
+     "avoidable_by_command": {
+      "sed |": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 259,
+      "tool_result_digested": 3755,
+      "tool_result_shell_read": 5527,
+      "tool_result_shell_search": 24540
+     }
+    },
+    "refetch": {
+     "totals": {
+      "requests": 35,
+      "raw_tokens": 54993,
+      "sent_tokens": 52031,
+      "prefix_rewrites": 0,
+      "cost_units": 21962,
+      "raw_cost_units": 23415,
+      "calls": 22,
+      "redundant": 1,
+      "visible": 0,
+      "final_results": 34,
+      "final_digested": 3,
+      "avoidable": 1,
+      "savings_pct": 5.39,
+      "cache_aware_savings_pct": 6.21
+     },
+     "avoidable_by_command": {
+      "sed |": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 259,
+      "tool_result_digested": 3642,
+      "tool_result_refetch": 113,
+      "tool_result_shell_read": 5527,
+      "tool_result_shell_search": 24540
+     }
+    },
+    "sticky": {
+     "totals": {
+      "requests": 35,
+      "raw_tokens": 54993,
+      "sent_tokens": 52031,
+      "prefix_rewrites": 0,
+      "cost_units": 21962,
+      "raw_cost_units": 23415,
+      "calls": 22,
+      "redundant": 1,
+      "visible": 0,
+      "final_results": 34,
+      "final_digested": 3,
+      "avoidable": 1,
+      "savings_pct": 5.39,
+      "cache_aware_savings_pct": 6.21
+     },
+     "avoidable_by_command": {
+      "sed |": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 259,
+      "tool_result_digested": 3642,
+      "tool_result_refetch": 113,
+      "tool_result_shell_read": 5527,
+      "tool_result_shell_search": 24540
+     }
+    },
+    "sequence": {
+     "totals": {
+      "requests": 35,
+      "raw_tokens": 54993,
+      "sent_tokens": 51982,
+      "prefix_rewrites": 0,
+      "cost_units": 21901,
+      "raw_cost_units": 23415,
+      "calls": 22,
+      "redundant": 1,
+      "visible": 0,
+      "final_results": 34,
+      "final_digested": 4,
+      "avoidable": 1,
+      "savings_pct": 5.48,
+      "cache_aware_savings_pct": 6.47
+     },
+     "avoidable_by_command": {
+      "sed |": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 259,
+      "tool_result_digested": 3755,
+      "tool_result_shell_read": 5527,
+      "tool_result_shell_search": 24540
+     }
+    },
+    "compound": {
+     "totals": {
+      "requests": 35,
+      "raw_tokens": 54993,
+      "sent_tokens": 53712,
+      "prefix_rewrites": 0,
+      "cost_units": 22472,
+      "raw_cost_units": 23415,
+      "calls": 22,
+      "redundant": 1,
+      "visible": 0,
+      "final_results": 34,
+      "final_digested": 3,
+      "avoidable": 1,
+      "savings_pct": 2.33,
+      "cache_aware_savings_pct": 4.03
+     },
+     "avoidable_by_command": {
+      "sed |": 1
+     },
+     "census_tokens": {
+      "tool_result_compound_read": 2170,
+      "tool_result_declined": 259,
+      "tool_result_digested": 1585,
+      "tool_result_shell_read": 5527,
+      "tool_result_shell_search": 24540
+     }
+    }
+   }
+  },
+  "rtk": {
+   "transcripts": 9,
+   "arm": "rtk",
+   "variants": {
+    "baseline": {
+     "totals": {
+      "requests": 33,
+      "raw_tokens": 44002,
+      "sent_tokens": 39843,
+      "prefix_rewrites": 0,
+      "cost_units": 19728,
+      "raw_cost_units": 24296,
+      "calls": 19,
+      "redundant": 0,
+      "visible": 0,
+      "final_results": 31,
+      "final_digested": 4,
+      "savings_pct": 9.45,
+      "cache_aware_savings_pct": 18.8
+     },
+     "avoidable_by_command": {},
+     "census_tokens": {
+      "tool_result_declined": 482,
+      "tool_result_digested": 5104,
+      "tool_result_shell_read": 2641,
+      "tool_result_shell_search": 15889
+     }
+    },
+    "refetch": {
+     "totals": {
+      "requests": 33,
+      "raw_tokens": 44002,
+      "sent_tokens": 39843,
+      "prefix_rewrites": 0,
+      "cost_units": 19728,
+      "raw_cost_units": 24296,
+      "calls": 19,
+      "redundant": 0,
+      "visible": 0,
+      "final_results": 31,
+      "final_digested": 4,
+      "savings_pct": 9.45,
+      "cache_aware_savings_pct": 18.8
+     },
+     "avoidable_by_command": {},
+     "census_tokens": {
+      "tool_result_declined": 482,
+      "tool_result_digested": 5104,
+      "tool_result_shell_read": 2641,
+      "tool_result_shell_search": 15889
+     }
+    },
+    "sticky": {
+     "totals": {
+      "requests": 33,
+      "raw_tokens": 44002,
+      "sent_tokens": 39843,
+      "prefix_rewrites": 0,
+      "cost_units": 19728,
+      "raw_cost_units": 24296,
+      "calls": 19,
+      "redundant": 0,
+      "visible": 0,
+      "final_results": 31,
+      "final_digested": 4,
+      "savings_pct": 9.45,
+      "cache_aware_savings_pct": 18.8
+     },
+     "avoidable_by_command": {},
+     "census_tokens": {
+      "tool_result_declined": 482,
+      "tool_result_digested": 5104,
+      "tool_result_shell_read": 2641,
+      "tool_result_shell_search": 15889
+     }
+    },
+    "sequence": {
+     "totals": {
+      "requests": 33,
+      "raw_tokens": 44002,
+      "sent_tokens": 39843,
+      "prefix_rewrites": 0,
+      "cost_units": 19728,
+      "raw_cost_units": 24296,
+      "calls": 19,
+      "redundant": 0,
+      "visible": 0,
+      "final_results": 31,
+      "final_digested": 4,
+      "savings_pct": 9.45,
+      "cache_aware_savings_pct": 18.8
+     },
+     "avoidable_by_command": {},
+     "census_tokens": {
+      "tool_result_declined": 482,
+      "tool_result_digested": 5104,
+      "tool_result_shell_read": 2641,
+      "tool_result_shell_search": 15889
+     }
+    },
+    "compound": {
+     "totals": {
+      "requests": 33,
+      "raw_tokens": 44002,
+      "sent_tokens": 39843,
+      "prefix_rewrites": 0,
+      "cost_units": 19728,
+      "raw_cost_units": 24296,
+      "calls": 19,
+      "redundant": 0,
+      "visible": 0,
+      "final_results": 31,
+      "final_digested": 4,
+      "savings_pct": 9.45,
+      "cache_aware_savings_pct": 18.8
+     },
+     "avoidable_by_command": {},
+     "census_tokens": {
+      "tool_result_declined": 482,
+      "tool_result_digested": 5104,
+      "tool_result_shell_read": 2641,
+      "tool_result_shell_search": 15889
+     }
+    }
+   }
+  },
+  "selective": {
+   "transcripts": 9,
+   "arm": "selective",
+   "variants": {
+    "baseline": {
+     "totals": {
+      "requests": 53,
+      "raw_tokens": 107521,
+      "sent_tokens": 93824,
+      "prefix_rewrites": 0,
+      "cost_units": 30692,
+      "raw_cost_units": 35885,
+      "calls": 43,
+      "redundant": 6,
+      "visible": 5,
+      "avoidable": 1,
+      "final_results": 53,
+      "final_digested": 19,
+      "savings_pct": 12.74,
+      "cache_aware_savings_pct": 14.47
+     },
+     "avoidable_by_command": {
+      "python": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 244,
+      "tool_result_digested": 23677,
+      "tool_result_shell_read": 9017,
+      "tool_result_shell_search": 32594
+     }
+    },
+    "refetch": {
+     "totals": {
+      "requests": 53,
+      "raw_tokens": 107521,
+      "sent_tokens": 93852,
+      "prefix_rewrites": 0,
+      "cost_units": 30699,
+      "raw_cost_units": 35885,
+      "calls": 43,
+      "redundant": 6,
+      "visible": 5,
+      "avoidable": 1,
+      "final_results": 53,
+      "final_digested": 18,
+      "savings_pct": 12.71,
+      "cache_aware_savings_pct": 14.45
+     },
+     "avoidable_by_command": {
+      "python": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 244,
+      "tool_result_digested": 21836,
+      "tool_result_refetch": 1841,
+      "tool_result_shell_read": 9017,
+      "tool_result_shell_search": 32594
+     }
+    },
+    "sticky": {
+     "totals": {
+      "requests": 53,
+      "raw_tokens": 107521,
+      "sent_tokens": 95208,
+      "prefix_rewrites": 0,
+      "cost_units": 31357,
+      "raw_cost_units": 35885,
+      "calls": 43,
+      "redundant": 6,
+      "visible": 5,
+      "avoidable": 1,
+      "final_results": 53,
+      "final_digested": 14,
+      "savings_pct": 11.45,
+      "cache_aware_savings_pct": 12.62
+     },
+     "avoidable_by_command": {
+      "python": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 244,
+      "tool_result_digested": 17922,
+      "tool_result_refetch": 5755,
+      "tool_result_shell_read": 9017,
+      "tool_result_shell_search": 32594
+     }
+    },
+    "sequence": {
+     "totals": {
+      "requests": 53,
+      "raw_tokens": 107521,
+      "sent_tokens": 93824,
+      "prefix_rewrites": 0,
+      "cost_units": 30692,
+      "raw_cost_units": 35885,
+      "calls": 43,
+      "redundant": 6,
+      "visible": 5,
+      "avoidable": 1,
+      "final_results": 53,
+      "final_digested": 19,
+      "savings_pct": 12.74,
+      "cache_aware_savings_pct": 14.47
+     },
+     "avoidable_by_command": {
+      "python": 1
+     },
+     "census_tokens": {
+      "tool_result_declined": 244,
+      "tool_result_digested": 23677,
+      "tool_result_shell_read": 9017,
+      "tool_result_shell_search": 32594
+     }
+    },
+    "compound": {
+     "totals": {
+      "requests": 53,
+      "raw_tokens": 107521,
+      "sent_tokens": 104694,
+      "prefix_rewrites": 0,
+      "cost_units": 33952,
+      "raw_cost_units": 35885,
+      "calls": 43,
+      "redundant": 6,
+      "visible": 5,
+      "avoidable": 1,
+      "final_results": 53,
+      "final_digested": 12,
+      "savings_pct": 2.63,
+      "cache_aware_savings_pct": 5.39
+     },
+     "avoidable_by_command": {
+      "python": 1
+     },
+     "census_tokens": {
+      "tool_result_compound_read": 13238,
+      "tool_result_declined": 244,
+      "tool_result_digested": 10439,
+      "tool_result_shell_read": 9017,
+      "tool_result_shell_search": 32594
+     }
+    }
+   }
+  }
+ }
+}
