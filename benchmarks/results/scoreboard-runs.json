@@ -1,0 +1,24 @@
+{
+  "_note": "Which committed runs scripts/build_scoreboard.py puts on docs/scoreboard.html, newest first. Every number on the page is recomputed from each dir's results.jsonl + grades.jsonl (swebench_outcome) or analysis.json (cost_truth). `date` and `versions` are run metadata copied from the run's report.md notes and git history; arm_meta in the rows wins when present. Add a dir here after a run lands; an arm with no rows shows 'pending run'.",
+  "runs": [
+    {
+      "id": "swebench-lite-300-medium",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-outcome-300-medium",
+      "date": "2026-10-03",
+      "versions": {
+        "distil": "1.56.3"
+      }
+    },
+    {
+      "id": "swebench-lite-300-low",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-outcome-300-grepfix",
+      "date": "2026-10-02",
+      "versions": {
+        "distil": "1.56.3"
+      },
+      "note": "plain rows are reused from swebench-outcome-300 (same model, effort and tasks), as that run's report.md says"
+    }
+  ]
+}

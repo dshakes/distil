@@ -65,6 +65,7 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
           <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
@@ -689,6 +690,23 @@ distil discover — where your remaining savings are
     <pre class="term"><span class="d">$ distil ab</span>
 <span class="d">$ distil ab --window 30 --json</span>
 <span class="d">$ distil ab --holdout-rate 0</span>   <span class="d"># opt out</span></pre>
+
+    <h2 id="audit">distil audit</h2>
+    <p>Referee another compressor on <strong>your own</strong> traffic: did it help or hurt, in dollars and in the agent's decisions? Off until you turn it on. For a sampled share of requests distil replays the request three more times on your key, in the background: twice as your client sent it (the model's own noise floor) and once as the named compressor shapes it, then compares the agent's next action and the provider's billed tokens. A hard daily dollar cap gates every sample before it starts; the ledger holds hashes, token counts and dollars, never content. <code>distil audit report</code> prints, per compressor, <em>helped</em>, <em>hurt</em> or <em>can't tell yet</em> with how many more samples it needs. RTK cannot be audited per request (it rewrites commands inside the agent, so there is no faithful uncompressed request); it is scored offline on the <a href="scoreboard.html">scoreboard</a>. Design: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0022-distil-as-referee.md">ADR 0022</a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="distil audit">
+    <table>
+      <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>--compressor</code></td><td>none</td><td>Turn the audit on for <code>distil</code>, <code>anthropic-context-editing</code>, <code>openai-compaction</code> or <code>headroom</code> (asks first; <code>--yes</code> confirms)</td></tr>
+      <tr><td><code>--rate</code></td><td>0.02</td><td>Sampled fraction of requests</td></tr>
+      <tr><td><code>--cap-usd</code></td><td>1</td><td>Hard per-day dollar cap on replay spend</td></tr>
+      <tr><td><code>--via</code></td><td>unset</td><td><code>headroom</code> only: your running Headroom proxy (loopback URLs only)</td></tr>
+      <tr><td><code>report</code> / <code>off</code></td><td></td><td>Print the verdicts (<code>--json</code> for machines) / turn it off, keeping the ledger</td></tr>
+    </table>
+    </div>
+    <pre class="term"><span class="d">$ distil audit --compressor anthropic-context-editing</span>
+<span class="d">$ distil audit --compressor headroom --via http://127.0.0.1:PORT --cap-usd 2</span>
+<span class="d">$ distil audit report</span>
+<span class="d">$ distil audit off</span></pre>
 
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while
