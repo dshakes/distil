@@ -59,6 +59,7 @@ from ..compress.recency import cached_prefix_end as _cached_prefix_end  # noqa: 
 from ..compress.recency import exempt_indices as _exempt_indices  # noqa: E402
 from ..compress import provenance as _provenance  # noqa: E402
 from ..compress import rereaddelta as _rereaddelta  # noqa: E402
+from ..compress import refetch as _refetch  # noqa: E402
 
 # Thread-local learned "keep byte-exact" predicate, scoped per compress_messages call
 # (ThreadingHTTPServer handles requests on separate threads, so this must be per-thread).
@@ -148,6 +149,68 @@ _vision_tls = _threading.local()
 
 def _active_vision() -> Any:
     return getattr(_vision_tls, "dedup", None)
+
+
+# Re-fetch verbatim (ADR 0025): the per-pass line tracker, or None when the rule is off.
+# Thread-local for the same reason as the two above — it is fed by every tool_result the
+# walk renders, and threading it through the recursion would touch every call site.
+_refetch_tls = _threading.local()
+
+# Off with DISTIL_REFETCH_VERBATIM=0. See refetch_enabled.
+_REFETCH_ENV = "DISTIL_REFETCH_VERBATIM"
+
+
+def refetch_enabled() -> bool:
+    """Whether a re-fetch of digested content is forwarded verbatim (ADR 0025). On by
+    default; ``DISTIL_REFETCH_VERBATIM=0`` turns it off. Read per request, like the proxy's
+    other kill switches, so a running proxy can be flipped without a restart."""
+    import os
+
+    return os.environ.get(_REFETCH_ENV, "1") != "0"
+
+
+def _refetch_verbatim(content: Any, tool_id: Any = None) -> bool:
+    """Whether this tool_result payload re-fetches content distil folded, and so must be
+    forwarded exactly as the client sent it (censused as ``tool_result_refetch`` if so).
+
+    Called only where the block would otherwise reach the digester, so it can only ever
+    turn a digest into verbatim — never the reverse. Byte-for-byte, not even Tier-0: the
+    agent asked again *for the bytes*, and a minified or run-collapsed copy is not them
+    (an ``Edit`` quoting pretty-printed JSON would not match). A string, or a list of text
+    parts only; a payload carrying an image keeps its own per-part handling.
+    """
+    tracker = getattr(_refetch_tls, "tracker", None)
+    if tracker is None:
+        return False
+    if isinstance(content, list) and not all(
+        isinstance(sub, dict) and sub.get("type") == "text" for sub in content
+    ):
+        return False
+    text = _tool_result_text(content)
+    if len(text.splitlines()) < _MIN_LINES or not tracker.is_refetch(text):
+        return False
+    _census("tool_result_refetch", text)
+    if tool_id:
+        tracker.hits.add(str(tool_id))
+    return True
+
+
+def _tool_result_text(content: Any) -> str:
+    """Every text part of a tool_result, joined — what the agent read, for line tracking."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(
+        sub["text"] for sub in content if isinstance(sub, dict) and isinstance(sub.get("text"), str)
+    )
+
+
+def _observe_result(sent: Any, forwarded: Any) -> None:
+    """Feed one tool_result to the re-fetch tracker, if one is open for this pass."""
+    tracker = getattr(_refetch_tls, "tracker", None)
+    if tracker is not None:
+        tracker.observe(_tool_result_text(sent), _tool_result_text(forwarded))
 
 
 # Provenance-based exact-quote exemption. The tool NAME table and the shell-command
@@ -877,6 +940,13 @@ def _compress_content_item(
                     _census("tool_result_evicted", text)
                     return _replace_result_text(item, stub)
 
+        if not verbatim:
+            # ADR 0025: the agent is fetching again what it was only shown folded. Placed
+            # after eviction and the exact-quote exemption, before the digester — the one
+            # point where it can only ever stop a digest.
+            if _refetch_verbatim(content, item.get("tool_use_id")):
+                return item
+
         if isinstance(content, str):
             new_content = _compress_tool_result_text(content, store, verbatim, is_recent)
             if new_content == content:
@@ -946,7 +1016,12 @@ def _compress_message(
         # string content gets Tier-0 lossless transforms.
         if role == "tool":
             # Censused inside _compress_tool_result_text, by branch taken.
-            new_text = _compress_tool_result_text(content, store, verbatim, is_recent)
+            new_text = (
+                content
+                if not verbatim and _refetch_verbatim(content, msg.get("tool_call_id"))
+                else _compress_tool_result_text(content, store, verbatim, is_recent)
+            )
+            _observe_result(content, new_text)
         else:
             _census("user_text", content)
             new_text = _compress_text_content(content, store, verbatim)
@@ -962,6 +1037,8 @@ def _compress_message(
                 new_item = _compress_content_item(
                     item, store, role, verbatim, is_recent, exact_ids, reread, evict
                 )
+                if item.get("type") == "tool_result" and isinstance(new_item, dict):
+                    _observe_result(item.get("content"), new_item.get("content"))
                 if isinstance(new_item, list):
                     # A block may expand into a PAIR (a downscaled image plus the
                     # note carrying its recovery handle). Splice rather than nest:
@@ -1050,6 +1127,7 @@ def compress_messages(
     keep: Any = None,
     evict: frozenset[str] = frozenset(),
     persist: bool = True,
+    refetch: bool | None = None,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -1075,6 +1153,10 @@ def compress_messages(
         written to (or collision-checked against) the on-disk restore store. For
         offline certification, which must not evict a live session's blobs or let
         disk state change its output.
+    refetch:
+        Forward a tool result verbatim when it re-fetches content an earlier result
+        carried but distil forwarded only as a digest (ADR 0025). ``None`` (the default)
+        follows :func:`refetch_enabled`; ``True``/``False`` force it, for offline replay.
 
     Returns
     -------
@@ -1088,7 +1170,11 @@ def compress_messages(
     # return (see proxy._emit_detail). A re-compression on the same thread overwrites it,
     # which is the wanted behaviour — the census should describe the payload actually sent.
     _census_tls.counts = {}
-    _intent_tls.terms = frozenset() if verbatim else extract_intent(messages)
+    # A refetch_tool_use_ids probe runs no query intent: it would only shift uncached
+    # digests slightly and feed the query flywheel a second copy of the same rows.
+    _probe = getattr(_refetch_tls, "probe", False)
+    _intent_tls.terms = frozenset() if (verbatim or _probe) else extract_intent(messages)
+    use_refetch = (refetch_enabled() if refetch is None else refetch) and not verbatim
     try:
         recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
         # Query-aware salience is scoped to content the provider has NOT cached.
@@ -1119,6 +1205,8 @@ def compress_messages(
             # ADR 0003 — None unless the content type has been certified, so the default
             # path is byte-for-byte what it was before.
             store = RestoreStore(persist=persist)
+            # Per pass, like the deduper: the widened retry must see the lines afresh.
+            _refetch_tls.tracker = _refetch.Tracker() if use_refetch else None
             new_messages: list[dict[str, Any]] = []
             for idx, msg in enumerate(messages):
                 if not isinstance(msg, dict):
@@ -1155,6 +1243,36 @@ def compress_messages(
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
         _vision_tls.dedup = None
+        # The last pass's hits outlive the call, like the census: read by
+        # refetch_tool_use_ids right after it returns, overwritten by the next call.
+        _refetch_tls.hits = frozenset(getattr(_refetch_tls.tracker, "hits", ()))
+        _refetch_tls.tracker = None
+
+
+def refetch_tool_use_ids(
+    messages: list[dict[str, Any]],
+    *,
+    keep: Any = None,
+    evict: frozenset[str] = frozenset(),
+) -> frozenset[str]:
+    """Ids of the tool results ``compress_messages`` would forward verbatim as re-fetches
+    (ADR 0025), for a pre-pass that runs before it and must leave them alone.
+
+    That pre-pass is cache-delta (``--session-delta``): left to itself it replaces a
+    byte-identical re-run with a back-reference to the earlier copy, which is the very
+    block distil folded, so the agent is pointed at the digest it re-ran to get past.
+    Prefix-deterministic like the rule itself, so the keep-set is byte-stable per block.
+    """
+    # ponytail: a full extra compression pass, paid only under --session-delta (opt-in).
+    # Thread the tracker through delta_encode if that ever shows up in latency.
+    if not refetch_enabled():
+        return frozenset()
+    _refetch_tls.probe = True
+    try:
+        compress_messages(messages, keep=keep, evict=evict, persist=False)
+    finally:
+        _refetch_tls.probe = False
+    return frozenset(getattr(_refetch_tls, "hits", frozenset()))
 
 
 def place_cache_control(

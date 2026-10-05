@@ -305,27 +305,6 @@ def compress_or_forward(
             # an Azure Chat Completions path is exactly the guarantee-voiding bug this
             # block exists to fix, reintroduced by a second, narrower path test.
             is_chat = is_chat_completions_path(_path)
-            if session_delta:
-                # Cache-delta coding: cross-turn dedup + cross-version delta, applied to
-                # the ORIGINALS before compression so re-reads match across turns.
-                # Cache-monotonic (suffix-only) and reversible. Runs BEFORE compression
-                # and skips the exact-quote blocks (they stay delta bases): running it
-                # after would delta against digest stubs and rewrite cached blocks, and
-                # running it over them silently voided the 1.49.0 exact-quote guarantee.
-                try:
-                    from .cachedelta import delta_encode, get_session, session_key
-
-                    sess = get_session(scope + session_key(original))
-                    if is_chat:
-                        from .adapters.openai import exact_quote_tool_call_ids as _exact_ids
-                    else:
-                        from .adapters.anthropic import exact_quote_tool_use_ids as _exact_ids
-                    pre, dstore, dstats = delta_encode(
-                        original, session=sess, keep_ids=frozenset(_exact_ids(original))
-                    )
-                except Exception:  # noqa: BLE001 — never break a request
-                    log.debug("cache-delta encode failed", exc_info=True)
-                    pre, dstore, dstats = original, None, None
             # OpenAI Chat Completions needs its own adapter (role:"tool" list content is
             # Tier-1; the Anthropic adapter applies Tier-0 to generic list text items).
             if is_chat:
@@ -363,6 +342,33 @@ def compress_or_forward(
                 except Exception:  # noqa: BLE001 — never break a request for a saving
                     log.debug("cold-point plan failed; compressing as usual", exc_info=True)
                     cold_plan = None
+            if session_delta:
+                # Cache-delta coding: cross-turn dedup + cross-version delta, applied to
+                # the ORIGINALS before compression so re-reads match across turns.
+                # Cache-monotonic (suffix-only) and reversible. Runs BEFORE compression
+                # and skips the exact-quote blocks (they stay delta bases): running it
+                # after would delta against digest stubs and rewrite cached blocks, and
+                # running it over them silently voided the 1.49.0 exact-quote guarantee.
+                try:
+                    from .cachedelta import delta_encode, get_session, session_key
+
+                    sess = get_session(scope + session_key(original))
+                    if is_chat:
+                        from .adapters.openai import exact_quote_tool_call_ids as _exact_ids
+                    else:
+                        from .adapters.anthropic import exact_quote_tool_use_ids as _exact_ids
+                    keep_ids = frozenset(_exact_ids(original))
+                    if not (is_chat or verbatim):
+                        # A re-fetch of folded content goes out verbatim (ADR 0025). Delta
+                        # coding it first would turn it into a reference to the folded
+                        # copy, the stub the agent re-ran the command to get past.
+                        from .adapters.anthropic import refetch_tool_use_ids
+
+                        keep_ids |= refetch_tool_use_ids(original, keep=keep, **cold_kw)
+                    pre, dstore, dstats = delta_encode(original, session=sess, keep_ids=keep_ids)
+                except Exception:  # noqa: BLE001 — never break a request
+                    log.debug("cache-delta encode failed", exc_info=True)
+                    pre, dstore, dstats = original, None, None
             try:
                 compressed, store = compress_fn(pre, verbatim=verbatim, keep=keep, **cold_kw)
             except Exception:  # noqa: BLE001 — compression must never break a request

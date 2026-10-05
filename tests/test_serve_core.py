@@ -283,8 +283,12 @@ def test_cold_point_parity(servers, clock) -> None:
         assert [h[key] for h in gw_heads] == [h[key] for h in proxy_heads], key
 
 
-def test_cache_delta_parity(servers, clock) -> None:
-    """--session-delta: a re-read turn is delta-coded identically on both servers."""
+@pytest.mark.parametrize("refetch", ["0", "1"])
+def test_cache_delta_parity(servers, clock, monkeypatch, refetch) -> None:
+    """--session-delta: a re-read turn is delta-coded identically on both servers. The
+    re-read repeats a folded block, so with re-fetch verbatim on (ADR 0025) it is kept
+    whole instead of referenced — identically on both servers too."""
+    monkeypatch.setenv("DISTIL_REFETCH_VERBATIM", refetch)
     seq = [(0, "/v1/messages", _conv(3)), (5, "/v1/messages", _reread(_conv(3)))]
     seq += [(5, "/v1/chat/completions", _chat(3)), (5, "/v1/chat/completions", _chat(3))]
 
@@ -293,7 +297,12 @@ def test_cache_delta_parity(servers, clock) -> None:
     gw_bodies, gw_heads = _run(servers, "gateway", clock, seq, session_delta=True)
 
     assert all("x-distil-cache-refs" in h for h in proxy_heads), "delta did not run"
-    assert int(proxy_heads[1]["x-distil-cache-refs"]) > 0, "fixture no longer dedups"
+    if refetch == "0":
+        assert int(proxy_heads[1]["x-distil-cache-refs"]) > 0, "fixture no longer dedups"
+    else:
+        assert proxy_heads[1]["x-distil-cache-refs"] == "0", "a re-fetch was referenced"
+        last = json.loads(proxy_bodies[1])["messages"][-1]["content"][-1]["content"]
+        assert last == _log("run0"), "the re-fetch did not go out whole"
     assert gw_bodies == proxy_bodies
     for key in ("x-distil-cache-refs", "x-distil-cache-delta", "x-distil-cache-prefix-msgs"):
         assert [h[key] for h in gw_heads] == [h[key] for h in proxy_heads], key

@@ -134,7 +134,10 @@
 
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
-
+<h3>Added</h3>
+<ul>
+<li><strong>A re-fetch of folded content is forwarded verbatim</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>, <code>distil/compress/refetch.py</code>). When a tool result is mostly lines an earlier result carried but distil forwarded only as a digest, it goes out verbatim instead of digested — before, a byte-identical re-run came back as the same stub that had just failed the agent. The earlier digest is never rewritten (cached prefix), and the verdict is a function of the history alone, so it stays stateless and byte-stable. On by default; <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off. New census bucket <code>tool_result_refetch</code>. Proxy and gateway both apply it (shared serve path); it is off wherever serving is verbatim (certification hold, lossless-only, subscription). Under <code>--session-delta</code> the cache-delta pass now leaves a re-fetch whole instead of replacing it with a reference to the folded copy. Offline, on the 300 post-fix SWE-bench transcripts: re-reads of content the agent could only see as a digest 36 → 31, for 0.7 points of request-size savings (11.9% → 11.2%) and 0.5 points cache-aware; zero prefix rewrites. Not yet measured live. Replay and rejected alternatives in <code>benchmarks/results/reinflate-replay/</code>.</li>
+</ul>
 </section>
 
 <section class="changelog-entry">

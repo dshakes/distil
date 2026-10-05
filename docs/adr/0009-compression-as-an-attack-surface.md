@@ -107,3 +107,16 @@ discarded, checked against the five existing invariants plus the new **load-bear
 
 - **This constrains future work.** Any transform that ranks or budgets across blocks now has to
   argue against this ADR first.
+
+## Amendment — ADR 0025 (2026-10-04)
+
+Re-fetch verbatim makes one block's rendering depend on the blocks before it: a tool result
+whose lines an earlier result carried, but distil forwarded only as a digest, goes out
+verbatim. That is a cross-block dependency, argued in ADR 0025 and accepted on one ground —
+it is **monotone toward verbatim**. It can only stop a digest, so an earlier attacker block
+can cost a later block its savings (denial of savings, bounded by that block's own size, the
+same class as `decoy_verdict_flood`) but cannot remove a line from it. There is still no
+shared budget, cap or ranking, and the equality in
+`test_a_huge_untrusted_block_cannot_change_a_trusted_one` still holds: an attacker block that
+does not repeat the trusted block's lines does not change it. One that does is the case
+`tests/test_refetch.py::test_an_earlier_block_can_only_cost_a_later_one_its_savings` pins.

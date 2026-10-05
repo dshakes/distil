@@ -506,6 +506,19 @@ plain-versus-served harness graded by the official grader and McNemar's test. It
 built, and it has been run on all 300 SWE-bench Lite tasks with both agents using prompt caching (`benchmarks/results/swebench-outcome-300/report.md`): 201/299 paired tasks resolved with distil serving against 210/299 plain (discordant 9 vs 18), a paired difference of −3.0 pts with 95% Wald CI [−6.4, +0.4] and exact McNemar p = 0.12. Non-inferiority at the pre-registered 5-point margin is **not shown**, and the point estimate is on the wrong side. Serving cost 12.4% more ($8.07 vs $7.18) and took 29.9% more steps (1,629 vs 1,254). The extra tool calls are mostly searches and slice reads (`grep` 539 vs 410, `sed` 624 vs 406; `tool_calls.json`), while the agent called `distil_expand` 13 times in 300 tasks. Replaying each distil-arm final request through `compress_messages` offline (`digest_replay.json`) shows what it lost: 704 of 1,583 tool results were digested, including 436 of 539 shell `grep` results but only 105 of 595 `sed` reads, which the shell-read exemption already keeps verbatim. The agent's search results, its file:line map, were digested; it searched and re-read again rather than expanding. distil exempts a `Grep` tool's output by name, but not the same search run through `bash`. This supersedes a 100-task run (`benchmarks/results/swebench-outcome-100/`) that passed the margin by a tenth of a point without prompt caching. A fix that keeps shell search output verbatim (`is_shell_search`) was then measured by re-running only the distil arm on the same 300 tasks against the same plain rows (`benchmarks/results/swebench-outcome-300-grepfix/report.md`): steps over plain fell from +29.9% to +3.1%, cost from +12.4% to parity ($7.18 vs $7.18), give-ups from 4 to 1, and resolved rose to 204/299 (−2.0 pts, 95% CI [−5.5, +1.5], p = 0.34), a change within noise. Non-inferiority is still not shown, by half a point. The fix's price, measured offline on the unfixed run's transcripts, is request-size savings falling from 24.1% to 9.1%. A second run with the fix at medium effort and a 60-step limit (`benchmarks/results/swebench-outcome-300-medium/report.md`) points the same way: 213/298 vs 218/298, −1.7 pts (95% CI [−5.1, +1.7], p = 0.44), cost at parity ($8.44 vs $8.52). It was meant as a long-horizon check but was not one (median 4 steps), so savings on long sessions remain unmeasured. Decision record:
 `docs/adr/0021-served-path-certification.md`.
 
+After the fix the agent still re-read instead of expanding (5 `distil_expand` calls in 300
+tasks). Replaying the fixed run's 300 distil transcripts request by request
+(`benchmarks/results/reinflate-replay/`), 61 of 894 tool calls returned lines an earlier
+result already carried, and in 36 of them that earlier result had reached the model only as
+a digest. Because a caching client commits the newest turn, a re-run was itself digested on
+first sight, and an identical one came back as the same stub. distil now forwards such a
+re-fetch verbatim, never rewriting the earlier digest (ADR 0025). Offline that makes 5 of
+the 36 visible (36 → 31) for 0.7 points of request-size savings (11.9% → 11.2%; 9.3% →
+8.9% cache-aware) and no rewritten prefix. The larger lever, keeping compound read commands
+verbatim, makes 14 to 28 visible but gives back 2.7 to 6 points of the 9.3; it is recorded
+there and not adopted. Neither number says the agent would have skipped those calls; that
+needs a live distil-arm run, which has not been done.
+
 **Harness fixes and lessons.** The recovery loop now commits through the runner's
 structured decision tool (the free-text format difference alone had flipped about one action
 in five); live renders strip `DECISION:` annotation lines (offline-oracle markers
