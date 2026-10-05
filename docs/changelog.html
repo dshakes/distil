@@ -65,9 +65,9 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
-          <li><a href="scoreboard.html">Scoreboard</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="model-migration.html">Model Migration</a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
           <li><a href="benchmark.html">Live Benchmark</a></li>
           <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
@@ -134,6 +134,11 @@
 
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
+
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-57-0">1.57.0 — 2026-10-05 — the referee: distil says when compression hurts, and measures the others the same way</h2>
 <h3>Added</h3>
 <ul>
 <li><strong>LiteLLM Proxy hook</strong> (<code>distil.integrations.litellm_hook</code>, extra <code>distil-llm[litellm]</code>): a <code>CustomLogger.async_pre_call_hook</code> that compresses <code>completion</code>/<code>acompletion</code> (OpenAI Chat shape) and <code>anthropic_messages</code> requests through the serving adapters before LiteLLM routes them. Lossless-only by default (<code>digest=True</code> / <code>DISTIL_LITELLM_DIGEST=1</code> opts into digests, which have no <code>distil_expand</code> recovery in this path, so the opt-in logs a one-time warning pointing at <code>distil proxy</code>, and is refused with a warning on a subscription session, via the same <code>policy.session_auth_mode</code> check the proxy uses); fail-open; content never logged; savings go to the normal ledger. <code>litellm</code> is imported lazily; the logic (<code>HookCore</code>) is testable without it. Docs: <code>docs/litellm.html#hook</code>.</li>
