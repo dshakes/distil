@@ -132,6 +132,16 @@ def cost_truth(entry: dict[str, Any] | None) -> dict[str, Any]:
             rows.append({"arm": arm, "label": LABELS[name], "status": "pending run"})
         else:
             p = per[name]
+            cmp_ = res.get("comparisons", {}).get(name)
+            vs: dict[str, Any] = {}
+            if cmp_ is not None:
+                lo, hi = cmp_["success_diff_ci"]
+                vs = {
+                    "vs_plain_pts": round(cmp_["success_diff"] * 100, 1),
+                    "vs_plain_ci_pts": [round(lo * 100, 1), round(hi * 100, 1)],
+                    # analysis.json's own word ("not shown" for a pilot), never a winner
+                    "verdict": f"pilot, {cmp_['verdict']}",
+                }
             rows.append(
                 {
                     "arm": arm,
@@ -143,14 +153,17 @@ def cost_truth(entry: dict[str, Any] | None) -> dict[str, Any]:
                     "rate": round(p["success_rate"], 6),
                     "cost_usd": round(p["cost_usd"], 4),
                     "usd_per_solved": round(p["usd_per_solved"], 4) if p["solved"] else None,
+                    **vs,
                 }
             )
     return {
         "id": (entry or {}).get("id", "terminal-bench"),
-        "benchmark": "Terminal-Bench 2 (cost_truth, neutral meter)",
+        "benchmark": "Terminal-Bench 2.1"
+        + (" pilot" if entry else "")
+        + " (cost_truth, neutral meter)",
         "source": (entry or {}).get("dir"),
         "date": (entry or {}).get("date"),
-        "model": None,
+        "model": (entry or {}).get("model"),
         "effort": None,
         "n_common": res.get("tasks"),
         "note": (entry or {}).get("note")
