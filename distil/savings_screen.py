@@ -453,7 +453,9 @@ def digest_certification(now: float | None = None) -> dict[str, str]:
         if drift.held_now():
             return {"state": "held", "detail": "held — the drift alarm tripped"}
         since = (time.time() if now is None else now) - SHAPE_EVIDENCE_DAYS * 86400
-        eq = ShadowLedger.load(current_only=True, since_ts=since).equivalence_by_mode().get("digest")
+        eq = (
+            ShadowLedger.load(current_only=True, since_ts=since).equivalence_by_mode().get("digest")
+        )
         if eq is None or eq.below_floor or eq.diff_ci is None:
             n = eq.n_paired if eq is not None else 0
             return {
@@ -473,7 +475,9 @@ def digest_certification(now: float | None = None) -> dict[str, str]:
 def _digest_status_lines(w: dict[str, Any]) -> list[str]:
     cert = w.get("digest_certification") or {}
     out = [f"    digest on this machine: {cert.get('detail', 'not enough evidence yet')}"]
-    return out + ["    " + ln for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 84, break_on_hyphens=False)]
+    return out + [
+        "    " + ln for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 84, break_on_hyphens=False)
+    ]
 
 
 def _digest_held(w: dict[str, Any]) -> bool:
@@ -644,13 +648,21 @@ def _render_whatif(s: Screen) -> list[str]:
             "  you are on a flat plan: no per-token bill, so read this as rate-limit headroom",
             _tok_line("lossless-only", lo, days, usd=False) + "   ← your default",
             _tok_line("digest", dg, days, usd=False)
-            + ("   ← held here: not recommended" if _digest_held(w) else f"   ← opt in: {DIGEST_OPT_IN}"),
+            + (
+                "   ← held here: not recommended"
+                if _digest_held(w)
+                else f"   ← opt in: {DIGEST_OPT_IN}"
+            ),
         ]
     else:
         out += [
             _tok_line("lossless-only", lo, days, usd=True),
             _tok_line("digest", dg, days, usd=True)
-            + ("   ← held here: served as lossless-only" if _digest_held(w) else "   ← API-key default"),
+            + (
+                "   ← held here: served as lossless-only"
+                if _digest_held(w)
+                else "   ← API-key default"
+            ),
             "    priced cache-aware from your usage: reads 0.1x, writes 1.25x (5m) / 2x (1h);",
             "    a rewritten cached prefix is charged as a fresh write",
         ]
@@ -691,7 +703,10 @@ def _digest_would_add(s: Screen) -> list[str]:
         f"(+{more * 100:.1f}%) — {advice}",
         "           (offline replay estimate; `distil ab` measures it on live traffic)",
         f"           digest here: {cert.get('detail', 'not enough evidence yet')}",
-        *("           " + ln for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 78, break_on_hyphens=False)),
+        *(
+            "           " + ln
+            for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 78, break_on_hyphens=False)
+        ),
     ]
 
 
