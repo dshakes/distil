@@ -1,4 +1,4 @@
-# 0022 — distil as referee: score any compressor in dollars and decisions
+# 0024 — distil as referee: score any compressor in dollars and decisions
 
 - **Status:** proposed
 - **Date:** 2026-10-04

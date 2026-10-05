@@ -1217,7 +1217,7 @@ def build_handler(
                 _shadow_counters.note_sampled()
             if shadow_sampled:
                 extras["x-distil-shadow"] = "sampled"
-            # `distil audit` (distil/referee.py, ADR 0022): an opt-in, capped A/A'/B replay
+            # `distil audit` (distil/referee.py, ADR 0024): an opt-in, capped A/A'/B replay
             # of this request as ANOTHER compressor would shape it. One random draw here;
             # everything else runs in the background after the response is relayed.
             audit_sampled = _auditor is not None and not _hold and _auditor.should_sample()

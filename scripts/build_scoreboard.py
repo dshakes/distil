@@ -2,7 +2,7 @@
 """Render docs/scoreboard.{json,html} from committed benchmark artifacts.
 
 Rows are compressors, run by their real pinned packages through the existing harnesses
-(benchmarks/swebench_outcome arms, benchmarks/cost_truth arms; ADR 0022). Every number
+(benchmarks/swebench_outcome arms, benchmarks/cost_truth arms; ADR 0024). Every number
 is recomputed here from a run's own files, with the harness's own analysis code
 (swebench_outcome.report.analyse, cost_truth's analysis.json), so the page cannot say
 anything its artifacts do not. An arm with no rows is shown as "pending run", never
@@ -281,7 +281,7 @@ def render_html(data: dict[str, Any]) -> str:
 
     <h1>The <span class="g">scoreboard</span></h1>
     <p class="lead">Every context compressor claims a saving. This page scores them on what a user pays for: dollars per <b>solved</b> task, with every failed attempt's spend counted, and whether tasks still get solved. Each compressor is run by its own real, pinned package through the same harness and the same official grader. distil is one of the rows, not the referee's favourite: the same rules apply to it.</p>
-    <p>How it is measured, and why these estimators, is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0022-distil-as-referee.md">ADR 0022</a>. Paired against plain on the same tasks; the interval on the difference is the harness's Wald interval with an exact McNemar test, at a pre-registered 5-point non-inferiority margin. A row that says <i>pending run</i> has no committed data, and nothing here estimates it. The runs that will fill it, with their costs, are in <a href="https://github.com/dshakes/distil/blob/main/docs/research/referee-runs.md">the run plan</a>. To referee a compressor on your <em>own</em> traffic instead, see <code>distil audit</code> in the <a href="cli.html">CLI reference</a>.</p>
+    <p>How it is measured, and why these estimators, is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0024-distil-as-referee.md">ADR 0024</a>. Paired against plain on the same tasks; the interval on the difference is the harness's Wald interval with an exact McNemar test, at a pre-registered 5-point non-inferiority margin. A row that says <i>pending run</i> has no committed data, and nothing here estimates it. The runs that will fill it, with their costs, are in <a href="https://github.com/dshakes/distil/blob/main/docs/research/referee-runs.md">the run plan</a>. To referee a compressor on your <em>own</em> traffic instead, see <code>distil audit</code> in the <a href="cli.html">CLI reference</a>.</p>
 {sections}
 
     <h2 id="read">How to read it</h2>

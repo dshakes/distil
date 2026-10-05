@@ -5641,7 +5641,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     from .referee import register as _register_audit
 
-    # `distil audit` — distil as referee of any compressor (distil/referee.py, ADR 0022).
+    # `distil audit` — distil as referee of any compressor (distil/referee.py, ADR 0024).
     # Opt-in and capped; hidden from the front door like `distil ab`.
     _register_audit(sub)
 

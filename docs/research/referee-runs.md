@@ -1,6 +1,6 @@
 # Referee runs: what fills the scoreboard, and what it costs
 
-Companion to ADR 0022. `docs/scoreboard.html` shows only committed artifacts. Today
+Companion to ADR 0024. `docs/scoreboard.html` shows only committed artifacts. Today
 that means `plain` and `distil` on SWE-bench Lite, at two effort settings. Every other row
 reads *pending run*. This is the plan to fill those rows. **Nothing here has been run.** Each
 paid step is launched by hand after review, with the caps below. The total hard ceiling is
@@ -113,4 +113,4 @@ distil audit report
 - OpenAI compaction offline: the SWE-bench harness is Anthropic-only. It remains a live
   `distil audit` target, and the provider certificate already covers it
   (`benchmarks/results/provider-compaction/openai*`).
-- An RTK live audit: not faithful per request (ADR 0022, decision 4).
+- An RTK live audit: not faithful per request (ADR 0024, decision 4).

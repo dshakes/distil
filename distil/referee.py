@@ -13,7 +13,7 @@ ADR 0001; the estimator is :meth:`shadow.ShadowLedger.equivalence`):
 Per request the row stores ``1{A==B} - 1{A==A'}`` and the provider's billed tokens for
 each arm, so the report can say "changes decisions beyond the model's own noise" or
 "costs more than it saves" — or that it cannot tell yet, and how many more samples it
-needs. Decision of record: ``docs/adr/0022-distil-as-referee.md``.
+needs. Decision of record: ``docs/adr/0024-distil-as-referee.md``.
 
 What is faithful, per compressor (and so what is implemented):
 
