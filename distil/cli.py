@@ -3984,6 +3984,8 @@ def cmd_gateway(args: argparse.Namespace) -> int:
         tenant_rpm=args.tenant_rpm,
         tenant_daily_tokens=args.tenant_daily_tokens,
         prefix_replay=not getattr(args, "no_prefix_replay", False),
+        session_delta=getattr(args, "session_delta", False),
+        cold_point=not getattr(args, "no_cold_point", False),
     )
     return 0
 
@@ -6122,8 +6124,21 @@ def build_parser() -> argparse.ArgumentParser:
         "are issued.  Auth activates automatically once keys exist; this flag "
         "lets you lock down the gateway first.  "
         "Note: tenants share one process; no memory isolation. "
-        "The restore store (digest originals) is per-gateway, not per-tenant — "
+        "Digest originals live in one per-gateway restore store, but a tenant's "
+        "distil_expand resolves only handles issued to that tenant — "
         "see THREAT_MODEL.md for the full shared-gateway security model.",
+    )
+    gw.add_argument(
+        "--session-delta",
+        action="store_true",
+        help="cache-delta coding: cross-turn dedup + cross-version delta (re-reads after "
+        "edits sent as a diff), cache-monotonic and reversible; sessions scoped per tenant",
+    )
+    gw.add_argument(
+        "--no-cold-point",
+        action="store_true",
+        help="opt OUT of cold-point recompression (ADR 0014), scoped per tenant here. On by "
+        "default wherever the recoverable digest runs. Also: DISTIL_COLD_POINT=0.",
     )
     gw.add_argument(
         "--tenant-rpm",

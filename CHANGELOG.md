@@ -14,6 +14,15 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 - `plan --calibrate <run dir>` prices each arm from cached results (unmeasured arms at plain x1.5); `run --reuse-arm plain=<dir>` copies a finished arm's rows (same model/effort enforced, free against the budget, grades carried over, stated in the report). No paid head-to-head run is included; see `specs/swebench-outcome-eval.md`.
 - `benchmarks/session_replay.py`: offline replay of local Claude Code transcripts through the real `compress_messages` serving adapter, with per-session-length and per-context-size savings, cache-aware ($-weighted) savings, digest rate by tool and shell class, quote hazard, and the shell-search-exemption counterfactual. Committed artifact is aggregates only (`benchmarks/results/session-replay/`); method and results in `docs/EVALUATION.md` §6.10.
 
+### Changed
+
+- **The gateway compresses like a local `wrap`** (ADR 0023): proxy and gateway now share one compress-or-forward path (`distil/serve_core.py`). A PAYG gateway runs the recoverable digest with `distil_expand` injected and answered, cold-point recompression on by default (`--no-cold-point` to opt out) and `--session-delta` available. Cold-point lineages, expanded-handle exclusions and cache-delta sessions are keyed per tenant, and a tenant's `distil_expand` resolves only handles issued to that tenant. `--lossless-only` / `--verbatim` gateways are unchanged (Tier-0 only, no tool injection).
+
+### Fixed
+
+- Gateway tenant accounting and daily quotas now count image and thinking blocks (the gateway used an outdated copy of the proxy's token counter).
+- The gateway forwards an unmodified body byte-for-byte and re-encodes a modified one compactly, as the proxy does, so prefix replay models the bytes actually sent.
+
 ## [1.56.4] — 2026-10-03 — a second outcome run, and a harness fix
 
 ### Added

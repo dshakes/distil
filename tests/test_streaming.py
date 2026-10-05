@@ -241,9 +241,13 @@ def test_gateway_streams_sse_incrementally(tmp_path):
     gw = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=gw.serve_forever, daemon=True).start()
     try:
-        t_first, body, _headers, _f = _stream_request(gw.server_address[1], _payload())
+        t_first, body, headers, first = _stream_request(gw.server_address[1], _payload())
         assert t_first is not None and t_first < _DELAY * 0.75
-        assert _CHUNK1 in body and _CHUNK2 in body
+        # Same as the proxy (ADR 0023): this request digests, so it streams through the
+        # expand splice, which re-frames SSE JSON — assert on CONTENT, not exact bytes.
+        assert b"hello" in body and b"message_stop" in body
+        assert b"message_stop" not in first
+        assert headers.get("x-distil-compressed") == "1"
     finally:
         gw.shutdown()
         upstream.shutdown()

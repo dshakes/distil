@@ -29,14 +29,10 @@ from distil.pricing import get as pricing_get
 # Shared test data
 # ---------------------------------------------------------------------------
 
-# A large tool_result, as pretty-printed JSON rather than log prose.
-#
-# The gateway runs no expand loop, so it is Tier-0 only: it must never emit a digest
-# stub it cannot restore (see test_payg_never_emits_an_unrecoverable_stub). Tier-0's
-# win on real agent traffic is lossless minification, which needs structure to bite —
-# on 12 lines of prose it correctly finds nothing, and every "savings > 0" assertion
-# below would be asserting that the digest tier ran, which is exactly what must not
-# happen here.
+# A large tool_result, as pretty-printed JSON rather than log prose: Tier-0's lossless
+# minification bites on it in every mode, so "savings > 0" below holds whether or not
+# the digest tier runs (it does on a PAYG gateway since ADR 0023 — see
+# test_payg_stub_is_always_recoverable).
 _LONG_TOOL_RESULT = json.dumps(
     {
         "host": "build-07",
@@ -405,7 +401,7 @@ def test_gateway_state_save_oserror(tmp_path: Any) -> None:
 
 def test_count_tokens_nested_list_content() -> None:
     """_count_tokens handles non-dict blocks (line 346) and nested list values (lines 352-356)."""
-    from distil.gateway import _count_tokens
+    from distil.proxy import _count_messages as _count_tokens  # the gateway's counter
 
     msgs = [
         {
@@ -788,26 +784,23 @@ def test_azure_chat_path_is_compressed(gw_servers: Any) -> None:
     assert int(headers["x-distil-tokens-saved"]) > 0
 
 
-def test_payg_never_emits_an_unrecoverable_stub(gw_servers: Any) -> None:
-    """The gateway must not digest what it cannot restore.
+def test_payg_stub_is_always_recoverable(gw_servers: Any) -> None:
+    """A PAYG gateway digests like a local wrap proxy (ADR 0023) — and every stub it
+    forwards must be recoverable: distil_expand is injected in the same request.
 
-    It injects no distil_expand tool and runs no expand loop, so a Tier-1 stub here
-    names a recovery that does not exist: the tenant sees "<< +N lines, handle=… >>"
-    and has no way to get the lines back. That is the silent-lossy failure distil
-    exists to prevent, and it was live on every PAYG session — `verbatim` was folded
-    in for subscription only.
-
-    The fixture builds the handler with lossless_only=False, i.e. PAYG, which is
-    exactly the configuration that was lossy.
+    Before 1.57 the gateway had no expand loop and was forced Tier-0-only; a stub
+    without the tool would be the silent-lossy failure distil exists to prevent.
     """
     gw_port, _state = gw_servers
-    req = _post(gw_port, "/v1/messages", _messages_payload(), {"x-distil-tenant": "payg"})
+    big = "\n".join(f"line {i}: build step {i} finished in {i * 7 % 13}ms" for i in range(400))
+    req = _post(gw_port, "/v1/messages", _messages_payload(big), {"x-distil-tenant": "payg"})
     with urllib.request.urlopen(req) as resp:
         assert resp.status == 200
-        forwarded = resp.read().decode()  # the upstream echoes the body verbatim
+        assert resp.headers["x-distil-mode"] == "digest"
+        forwarded = json.loads(resp.read())  # the upstream echoes the body verbatim
 
-    assert "handle=" not in forwarded, "a digest stub the gateway cannot expand"
-    assert "distil_expand" not in forwarded, "a tool the gateway has no loop to answer"
+    assert "handle=" in json.dumps(forwarded["messages"]), "fixture no longer digests"
+    assert any(t.get("name") == "distil_expand" for t in forwarded["tools"])
 
 
 def test_unknown_path_is_still_passthrough(gw_servers: Any) -> None:
