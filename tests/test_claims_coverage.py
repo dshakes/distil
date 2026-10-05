@@ -97,7 +97,6 @@ NON_CLAIMS: dict[str, dict[str, str]] = {
     "docs/faq.html": {
         "7\u00d7": '"roughly 7x safer" restates v-provider-compaction\'s 92.5%-vs-12.5% ratio',
         "3×": "`--shadow 1.0` issues three replays per request; arithmetic, not a measurement",
-        "99%": "the status line's glyph threshold (distil/cli.py), a constant not a result",
     },
     "docs/output.html": {},
     "docs/benchmarks.html": {},

@@ -1671,6 +1671,20 @@ def serve_gateway(
         print(f"  daily quota: {tenant_daily_tokens:,} tokens/day per tenant")
     if not loopback and not (admin_token or os.environ.get("DISTIL_GATEWAY_TOKEN")):
         print("  ! non-loopback bind without --admin-token: /distil/* routes are disabled")
+    # The line above covers the management routes only. The inbound proxy has its own
+    # gate (the expression `_auth_required` evaluates per request), and with no keys,
+    # no --require-keys and no OIDC issuer it is OPEN: anyone who can reach the address
+    # spends the upstream credentials. Warn loudly; refusing to start would break
+    # deployments that sit behind their own authenticating front door.
+    if not loopback and not (
+        require_keys or key_store.has_any_keys() or _oidc_config_from_env().get("issuer")
+    ):
+        print(
+            f"  !! WARNING: inbound proxy is UNAUTHENTICATED on {host}:{port} — anyone who "
+            "can reach it spends your upstream credentials. Issue a key "
+            "(distil gateway keys issue --tenant NAME) or pass --require-keys, unless an "
+            "authenticating proxy fronts this port."
+        )
     print(f"  → upstream: {upstream}")
     # Turn SIGTERM (systemd stop / kill) into KeyboardInterrupt so the finally
     # block persists tenant accounting instead of a kill zeroing it.

@@ -368,3 +368,114 @@ def test_the_doctor_self_test_writes_no_drift_state_and_starts_no_watcher(home):
     assert (home / "drift.json").read_text(encoding="utf-8") == "{torn"
     assert not list(home.glob("drift.json.corrupt-*"))
     assert "distil-drift-guard" not in {t.name for t in threading.enumerate()} - before
+
+
+# --- per-mode certification (ADR 0022) ---------------------------------------
+#
+# The published counts from benchmarks/results/shadow-live-2026-09-15.json `by_mode`:
+#   digest         A/B 102/206, A/A 113/206   (paired harm -11/206 = 5.3 pp)
+#   lossless-only  A/B 109/192, A/A 109/193
+# Only marginals were published, so the rows below take the pairing MOST favourable to
+# digest that those counts allow (11 one-way flips, no flips back): the narrowest
+# interval. Any other pairing only widens it, so "uncertified" here holds for all of them.
+
+
+def _record(mode: str, harmed: int, clean: int, *, ts: float | None = None) -> None:
+    from distil.shadow import SIG_VERSION, _state_dir
+
+    rows = [(False, True)] * harmed + [(True, True)] * clean
+    p = _state_dir() / "shadow.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as fh:
+        for eq, aa in rows:
+            rec = {"kind": "paired", "equivalent": eq, "aa_equal": aa, "mode": mode}
+            rec.update(sig=SIG_VERSION, ts=time.time() if ts is None else ts)
+            fh.write(json.dumps(rec) + "\n")
+
+
+def _published_ledger() -> None:
+    _record("digest", 11, 195)
+    _record("lossless-only", 0, 192)
+
+
+def test_the_published_ledger_pooled_passes_but_digest_alone_is_not_certified(home):
+    from distil import conformal
+    from distil.shadow import ShadowLedger
+
+    _published_ledger()
+    led = ShadowLedger.load(current_only=True)
+    pooled = led.equivalence()
+    assert pooled.diff_ci is not None and conformal.within_budget(-pooled.diff_ci[0])
+    by_mode = led.equivalence_by_mode()
+    digest = by_mode["digest"]
+    assert digest.diff == pytest.approx(-11 / 206)
+    assert digest.diff_ci is not None and -digest.diff_ci[0] > conformal.BUDGET_ALPHA
+    lossless = by_mode["lossless-only"]
+    assert lossless.diff_ci is not None and conformal.within_budget(-lossless.diff_ci[0])
+
+    # Why the 1.54.0 guard never held: its e-process tests "breach PROVEN" and pooled
+    # both modes. Neither the pooled fold nor digest alone gets near 1/delta = 20.
+    pooled_mon = drift.DriftMonitor(alpha=drift._null_mean(), delta=conformal.BUDGET_DELTA)
+    pooled_mon.observe([drift.paired_loss(d) for d in led.paired_diffs])
+    digest_mon = drift.DriftMonitor(alpha=drift._null_mean(), delta=conformal.BUDGET_DELTA)
+    digest_mon.observe([drift.paired_loss(d) for d in by_mode_diffs(led, "digest")])
+    assert not pooled_mon.tripped and not digest_mon.tripped
+
+    # The per-mode rule does act on it — and names digest, not the pooled number.
+    why = drift.uncertified()
+    assert why.startswith("digest:") and "5%" in why
+    assert drift.DriftGuard.start(watch=False).engaged
+
+
+def by_mode_diffs(led: Any, mode: str) -> list[int]:
+    return list(led.by_mode[mode].diffs)
+
+
+def test_an_uncertified_digest_is_served_lossless_only(home, proxy):
+    _published_ledger()
+    _assert_held(_post(proxy(shape_output="aggressive"))[0])
+
+
+def test_the_certification_rule_is_not_trigger_happy(home):
+    # lossless-only harm cannot be fixed by holding at lossless-only: never a hold.
+    _record("lossless-only", 30, 170)
+    assert drift.uncertified() == ""
+    # below the shared reporting floor (50 paired rows) there is no verdict to act on
+    _record("digest", 20, 29)
+    assert drift.uncertified() == ""
+    # clean digest evidence above the floor certifies
+    (home / "shadow.jsonl").unlink()
+    _record("digest", 1, 300)
+    assert drift.uncertified() == ""
+
+
+def test_old_evidence_ages_out_so_a_hold_can_end(home):
+    _record("digest", 11, 195, ts=time.time() - 30 * 86400)
+    assert drift.uncertified() == ""
+    assert not drift.DriftGuard.start(watch=False).engaged
+
+
+def test_lossless_only_verdicts_never_feed_the_e_process(home):
+    g = drift.DriftGuard.start(watch=False)
+    for _ in range(300):
+        g.observe(-1, "lossless-only")
+    assert drift.LiveDrift.load().monitor.n == 0 and not g.engaged
+    _trip(g)  # mode unknown (None) still counts: unknown is not proof of safety
+
+
+def test_shadow_stats_reports_every_mode_with_its_interval(home, capsys):
+    import argparse
+
+    from distil.cli import cmd_shadow_stats
+
+    _published_ledger()
+    cmd_shadow_stats(argparse.Namespace(json=True, all=False, record=False))
+    by_mode = json.loads(capsys.readouterr().out)["by_mode"]
+    lo, hi = by_mode["digest"]["paired_difference_ci"]
+    assert lo < -0.05 < hi < 0 and by_mode["digest"]["below_reporting_floor"] is False
+    assert len(by_mode["lossless-only"]["paired_difference_ci"]) == 2
+
+    cmd_shadow_stats(argparse.Namespace(json=False, all=False, record=False))
+    out = capsys.readouterr().out
+    assert "POOLED across modes" in out
+    assert "digest" in out and "-5.3pp [" in out

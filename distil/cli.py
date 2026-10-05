@@ -210,6 +210,16 @@ def _release_drift_guard(stamp: str) -> bool | None:
         "drift alarm archived and reset — the lossless-only hold is released. Running "
         f"proxies resume lossy compression within {DriftGuard.POLL_S:.0f}s; no restart needed."
     )
+    from .drift import uncertified
+
+    why = uncertified()
+    if why:
+        # The certification hold is re-derived from the shadow evidence, so releasing
+        # the e-process does not lift it — say so rather than promise a resume.
+        print(
+            f"  still held: lossy compression is not certified ({why}). It lifts once "
+            "fresh evidence is inside the budget, or DISTIL_NO_DRIFT_GUARD=1."
+        )
     return True
 
 
@@ -1546,6 +1556,27 @@ def _print_shadow_sampling(_ctrs: dict) -> None:
             print(_line(_ctrs, "Sampling (lifetime — no samples yet on this build)"))
 
 
+def _by_mode_json(led: Any) -> dict[str, dict[str, Any]]:
+    """Per-mode counts plus the paired difference and its interval — never only the
+    pooled verdict, which averages lossless-only with digest."""
+    eqs = led.equivalence_by_mode()
+    return {
+        m: {
+            "ab_n": a.ab_n,
+            "ab_eq": a.ab_eq,
+            "aa_n": a.aa_n,
+            "aa_eq": a.aa_eq,
+            "n_paired": eqs[m].n_paired if m in eqs else 0,
+            "paired_difference": eqs[m].diff if m in eqs else None,
+            "paired_difference_ci": list(eqs[m].diff_ci or ()) if m in eqs else [],
+            "equivalence_pct": eqs[m].pct if m in eqs else None,
+            "equivalence_pct_ci": list(eqs[m].pct_ci or ()) if m in eqs else [],
+            "below_reporting_floor": eqs[m].below_floor if m in eqs else True,
+        }
+        for m, a in sorted(led.by_mode.items())
+    }
+
+
 def cmd_shadow_stats(args: argparse.Namespace) -> int:
     """Show the live decision-equivalence measured by shadow mode on real traffic."""
     from .shadow import ShadowCounters, ShadowLedger
@@ -1651,6 +1682,7 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                 "equivalence_pct": eqv.pct,
                 "equivalence_pct_ci": list(eqv.pct_ci or ()),
                 "below_reporting_floor": eqv.below_floor,
+                "by_mode": _by_mode_json(led),
             },
             gates=gates,
         )
@@ -1707,10 +1739,7 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                     "byte_identical_samples": led.identical,
                     "pinned_temperature_samples": led.pinned,
                     "hot_samples": led.unpinned,
-                    "by_mode": {
-                        m: {"ab_n": a.ab_n, "ab_eq": a.ab_eq, "aa_n": a.aa_n, "aa_eq": a.aa_eq}
-                        for m, a in sorted(led.by_mode.items())
-                    },
+                    "by_mode": _by_mode_json(led),
                     "output_token_delta": None if cost is None else cost.out_delta_mean,
                     "output_token_delta_ci": None if cost is None else list(cost.out_delta_ci),
                     "net_usd_after_output": None if cost is None else cost.net_usd,
@@ -1811,11 +1840,27 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
             f"  paired difference (A/B − A/A)           : {eqv.diff * 100:+6.2f}pp"
             f" [{eqv.diff_ci[0] * 100:+.1f}, {eqv.diff_ci[1] * 100:+.1f}]"
         )
+    _by_mode = led.equivalence_by_mode()
     if eqv.pct is not None:
         ci = eqv.pct_ci
         tail = f"  [{ci[0]:.1f}, {ci[1]:.1f}]" if ci else ""
-        label = f"decision-equivalence ({eqv.estimator})"
+        pooled = ", POOLED across modes" if len(_by_mode) > 1 else ""
+        label = f"decision-equivalence ({eqv.estimator}{pooled})"
         print(f"  {label:<39} : {eqv.pct:6.2f}%{tail}")
+    if _by_mode:
+        # lossless-only and digest are different experiments; the pooled number is the
+        # average of two things nobody runs, and can sit inside the budget while digest
+        # alone does not. Each mode gets its own paired difference AND interval.
+        print("\n  by compression mode (paired difference A/B − A/A, 95% CI):")
+        for _m, _e in _by_mode.items():
+            if _e.diff is None or _e.diff_ci is None or _e.below_floor:
+                _d = f"— ({_e.shortfall or 'no paired rows'})"
+            else:
+                _d = (
+                    f"{_e.diff * 100:+.1f}pp [{_e.diff_ci[0] * 100:+.1f}, "
+                    f"{_e.diff_ci[1] * 100:+.1f}]"
+                )
+            print(f"    {_m:<14} n={_e.n_ab} A/B, {_e.n_aa} A/A  {_d}")
     if eqv.estimator == "paired":
         print(
             "\n  Each sampled request was replayed THREE times — A and A' on the original"
@@ -1844,14 +1889,6 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
             "\n  agent's own sampling (extended thinking and current models reject a pinned"
             "\n  temperature). The A/A arm is what absorbs that noise."
         )
-    _modes = {m: a for m, a in sorted(led.by_mode.items()) if a.ab_n or a.aa_n}
-    if len(_modes) > 1:
-        # lossless-only and digest are different experiments; pooling them reports
-        # the average of two things nobody runs.
-        print("\n  by compression mode:")
-        for _m, _a in _modes.items():
-            _d = f"{sum(_a.diffs) / len(_a.diffs) * 100:+.1f}pp" if _a.diffs else "—"
-            print(f"    {_m:<14} n={_a.ab_n} A/B, {_a.aa_n} A/A, paired diff {_d}")
     _cost = led.cost()
     if _cost is not None:
         _lo, _hi = _cost.out_delta_ci
