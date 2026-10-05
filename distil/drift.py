@@ -206,6 +206,79 @@ def uncertified(path: Path | None = None, *, now: float | None = None) -> str:
     return ""
 
 
+#: Clear checks in a row before a certification hold lifts (ADR 0022). The hold engages
+#: on the first over-budget check; lifting it takes this many clear ones, at least
+#: :data:`CERT_CLEAR_GAP_S` apart, so a bound oscillating across the budget does not flip
+#: the served mode every re-check. Persisted (:func:`_cert_path`): a restart, or a second
+#: proxy re-checking a minute later, does not shorten it.
+CERT_CLEAR_CHECKS = 2
+CERT_CLEAR_GAP_S = 1800.0
+
+
+def _cert_path() -> Path:
+    return _home() / "cert-hold.json"
+
+
+def cert_hold_step(why: str, *, path: Path | None = None, now: float | None = None) -> str:
+    """Fold one :func:`uncertified` result into the persisted certification hold and
+    return the reason it is engaged (``""`` = not held).
+
+    Over budget engages (or keeps) the hold at once and zeroes the clear streak. A clear
+    check counts toward release only if it is :data:`CERT_CLEAR_GAP_S` after the last one
+    that counted; the hold lifts on the :data:`CERT_CLEAR_CHECKS`-th. An unreadable state
+    file fails closed (held, streak zero) — liveness is kept because clear checks still
+    release it. Never raises on I/O: an unwritable file leaves this call's answer intact.
+    """
+    from . import _filelock
+
+    p = path or _cert_path()
+    t = time.time() if now is None else now
+    with _locked(p):
+        try:
+            st = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(st, dict) or not isinstance(st.get("why", ""), str):
+                raise ValueError("bad certification state")
+            st = {
+                "why": st.get("why", ""),
+                "clear": int(st.get("clear", 0)),
+                "clear_ts": float(st.get("clear_ts", 0.0)),
+            }
+        except FileNotFoundError:
+            st = {"why": "", "clear": 0, "clear_ts": 0.0}
+        except (OSError, ValueError, TypeError):
+            st = {"why": "certification state unreadable", "clear": 0, "clear_ts": 0.0}
+        if why:
+            st = {"why": why, "clear": 0, "clear_ts": 0.0}
+        elif st["why"] and (st["clear"] == 0 or t - st["clear_ts"] >= CERT_CLEAR_GAP_S):
+            st["clear"] += 1
+            st["clear_ts"] = t
+            if st["clear"] >= CERT_CLEAR_CHECKS:
+                st = {"why": "", "clear": 0, "clear_ts": 0.0}
+        tmp = p.with_name(p.name + ".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(st))
+                fh.flush()
+                os.fsync(fh.fileno())
+            _filelock.replace_retrying(tmp, p)
+        except OSError:
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+    return str(st["why"])
+
+
+def cert_hold_reason(path: Path | None = None) -> str:
+    """The persisted certification hold's reason (``""`` = not held). Read-only, for
+    surfaces that report it; an unreadable file reads as held, as in :func:`cert_hold_step`."""
+    try:
+        st = json.loads((path or _cert_path()).read_text(encoding="utf-8"))
+        return str(st.get("why", "")) if isinstance(st, dict) else "certification state unreadable"
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError):
+        return "certification state unreadable"
+
+
 #: The one command that releases a hold. Printed by every surface that reports one.
 RELEASE_CMD = "distil reset --drift-guard"
 
@@ -604,8 +677,9 @@ class DriftGuard:
     held: bool = False
     disabled: bool = False
     #: :func:`uncertified`'s sentence while a guarded mode's harm bound is over budget.
-    #: Not sticky and not released by ``distil reset --drift-guard``: it is re-derived
-    #: from the evidence at start and every :attr:`CERT_RECHECK_S` by the watcher.
+    #: Not released by ``distil reset --drift-guard``: it is re-derived from the evidence
+    #: at start and every :attr:`CERT_RECHECK_S` by the watcher, with hysteresis
+    #: (:func:`cert_hold_step`: engages at once, lifts after two clear checks).
     uncertified: str = ""
     _seen: tuple[int, int] | None = None
     _cert_at: float = 0.0
@@ -648,7 +722,7 @@ class DriftGuard:
         """Re-run :func:`uncertified` against the ledger. Never raises; a failed read
         keeps the previous answer rather than releasing a hold on no evidence."""
         try:
-            why = uncertified()
+            why = cert_hold_step(uncertified())
         except Exception:  # noqa: BLE001 — the alarm must never break the proxy
             log.debug("drift guard recertify failed", exc_info=True)
             return

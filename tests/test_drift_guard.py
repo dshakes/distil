@@ -479,3 +479,49 @@ def test_shadow_stats_reports_every_mode_with_its_interval(home, capsys):
     out = capsys.readouterr().out
     assert "POOLED across modes" in out
     assert "digest" in out and "-5.3pp [" in out
+
+
+def test_certification_hold_does_not_flap_when_the_bound_oscillates(home):
+    # The bound crosses the budget every re-check: engaged at once, and never lifted,
+    # because a lift needs two clear checks in a row.
+    t = 1_800_000_000.0
+    for i in range(10):
+        why = "digest: over budget" if i % 2 == 0 else ""
+        assert drift.cert_hold_step(why, now=t + i * 3600) == "digest: over budget"
+
+
+def test_certification_hold_lifts_after_two_spaced_clear_checks(home):
+    t = 1_800_000_000.0
+    assert drift.cert_hold_step("", now=t) == "", "no evidence, no hold"
+    assert drift.cert_hold_step("digest: over budget", now=t) == "digest: over budget"
+    # a second proxy (or a restart) re-checking minutes later does not count twice
+    assert drift.cert_hold_step("", now=t + 3600) == "digest: over budget"
+    assert drift.cert_hold_step("", now=t + 3660) == "digest: over budget"
+    assert drift.cert_hold_step("", now=t + 7200) == "", "two clear checks release it"
+    assert drift.cert_hold_step("", now=t + 10800) == ""
+
+
+def test_an_unreadable_certification_state_fails_closed_but_still_lifts(home):
+    p = home / "cert-hold.json"
+    p.write_text('{"why": "dig', encoding="utf-8")
+    t = 1_800_000_000.0
+    assert drift.cert_hold_step("", now=t) != ""
+    assert drift.cert_hold_step("", now=t + 3600) == ""
+
+
+def test_aged_out_evidence_releases_the_guard_after_two_rechecks(home, monkeypatch):
+    # Liveness end to end: the published ledger holds digest; once that evidence leaves
+    # the window the guard lifts — after two clear re-checks, and a restart in between
+    # does not reset the count (it is persisted).
+    monkeypatch.setattr(drift, "CERT_CLEAR_GAP_S", 0.0)
+    _published_ledger()
+    g = drift.DriftGuard.start(watch=False)
+    assert g.engaged
+    (home / "shadow.jsonl").unlink()
+    assert drift.uncertified() == ""
+    g.recertify()
+    assert g.engaged, "one clear check is not enough"
+    g2 = drift.DriftGuard.start(watch=False)  # a restart: its start check is the second
+    assert not g2.engaged
+    g.recertify()
+    assert not g.engaged

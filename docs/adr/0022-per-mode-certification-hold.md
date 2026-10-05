@@ -55,12 +55,21 @@ of its paired-harm interval is. The guard and the verdicts used opposite burdens
    (`VERDICT_MIN_AB` = 50 paired rows *for that mode*), only on the last
    `SHAPE_EVIDENCE_DAYS` (7) of rows, and never on lossless-only or verbatim rows, whose
    harm a lossless-only hold cannot reduce.
-4. **Not sticky.** Unlike a proven breach, this hold is re-derived from evidence at proxy
-   start and hourly by the existing watcher. Rows served while held are booked as
-   lossless-only, so once the window passes digest drops below the floor, resumes, and has
-   to re-earn its certificate on fresh traffic. `distil reset --drift-guard` releases the
-   e-process only and says when the certification hold remains. `DISTIL_NO_DRIFT_GUARD=1`
-   opts out of both, as before.
+4. **Not sticky, but with hysteresis.** Unlike a proven breach, this hold is re-derived
+   from evidence at proxy start and hourly by the existing watcher. It **engages on the
+   first over-budget check** and **lifts only after two consecutive clear checks**
+   (`drift.CERT_CLEAR_CHECKS`), at least 30 minutes apart (`CERT_CLEAR_GAP_S`, so a
+   second proxy or a restart re-checking minutes later does not count twice). The state
+   (reason, clear streak, time of the last counted clear) is persisted in
+   `~/.distil/cert-hold.json` under the drift lock with an atomic replace, so a restart
+   does not reset it; an unreadable file fails closed (held, streak zero) and is released
+   by the same two clear checks. Without this, a bound sitting on the budget flipped the
+   served mode every hour — each flip rewrites the request shape and costs a prompt-cache
+   rebuild. Liveness is unchanged: rows served while held are booked as lossless-only, so
+   once the window passes digest drops below the floor, the next two checks are clear,
+   and digest resumes and has to re-earn its certificate on fresh traffic. `distil reset
+   --drift-guard` releases the e-process only and says when the certification hold
+   remains. `DISTIL_NO_DRIFT_GUARD=1` opts out of both, as before.
 5. **The e-process stays, folding guarded modes only** (`drift.guarded`; schema 3, so a
    pooled schema-2 state is rebuilt once from the ledger unless it is already held).
 
@@ -72,6 +81,9 @@ of its paired-harm interval is. The guard and the verdicts used opposite burdens
   evidence, or clean evidence, digest runs exactly as before.
 - Expect the hold to cycle on traffic whose true harm is near 5%: held for a window,
   resumed, re-measured. That is the honest behaviour for a mode that cannot be certified.
+  The hysteresis makes the cycle slow (at least two clear hourly checks to resume, one
+  bad one to hold), not absent; `tests/test_drift_guard.py` pins the oscillating-bound
+  case (never lifts) and the aged-out case (lifts after two clear checks, across a restart).
 - Public copy states the per-mode result instead of the pooled 97.5%.
 
 ## Alternatives considered
