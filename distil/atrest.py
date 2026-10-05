@@ -31,10 +31,12 @@ THE CONSTRUCTION
    This prevents chosen-ciphertext attacks and provides integrity. The tag is
    always verified with hmac.compare_digest (constant-time) before decryption.
 
-4. Nonce: 16 random bytes from secrets.token_bytes per write. Per-nonce
-   uniqueness is best practice; nonce reuse does NOT cause keystream reuse
-   because each HMAC block mixes the nonce AND a counter, but fresh nonces
-   are cheap and eliminate the concern entirely.
+4. Nonce: 16 random bytes from secrets.token_bytes per write. A fresh random
+   nonce per write is REQUIRED, not best practice: the keystream is a pure
+   function of (enc_key, nonce, counter), so reusing a (key, nonce) pair reuses
+   the keystream, and XOR-ing the two ciphertexts yields the XOR of the two
+   plaintexts. 16 random bytes make an accidental repeat negligible (~2^-64
+   after 2^32 writes under one key).
 
 ON-DISK FORMAT (magic b"DSTL1")
 --------------------------------
