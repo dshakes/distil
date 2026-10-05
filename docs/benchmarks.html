@@ -305,7 +305,7 @@ python benchmarks/swe_bench_e2e/aggregate.py</pre>
       <thead><tr><th>Number</th><th>How produced</th><th>What it proves</th><th>What it doesn&rsquo;t</th></tr></thead>
       <tbody>
         <tr>
-          <td><strong>83.2% savings / 0% decision-change</strong> (live head-to-head, 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0)</td>
+          <td><strong>83.2% savings / 0% decision-change</strong> (synthetic 120-turn corpus, live-graded head-to-head, 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0)</td>
           <td>Real packages, real model (<code>claude-opus-4-8</code> majority-of-3), 120-turn corpus</td>
           <td>On this corpus, distil preserves agent decisions at that compression level</td>
           <td>End-to-end task success on a different workload; E7 is the cautionary data point</td>
@@ -323,10 +323,10 @@ python benchmarks/swe_bench_e2e/aggregate.py</pre>
           <td>Compression ratio; orthogonal to the savings numbers</td>
         </tr>
         <tr>
-          <td><strong>E8: 36.8% / 42.0% pass@1</strong> (SWE-bench Verified)</td>
-          <td>500-instance long-horizon ReAct agent, 6 compression conditions, official SWE-bench harness</td>
-          <td>End-to-end task success under real agent conditions; non-inferiority to full context certified</td>
-          <td>Extrapolation to other workloads; always re-certify on your own traffic</td>
+          <td><strong>SWE-bench Lite: &minus;2.0 / &minus;1.7 pts, cost-neutral</strong> (shipped path, n=300, two runs)</td>
+          <td>Plain vs distil-served Claude agent on all 300 tasks, official grader, prompt caching on both arms</td>
+          <td>The shipped path is within about 2 points on task success and does not cost more on these tasks</td>
+          <td>Non-inferiority at the 5-point margin (not shown); long sessions (not measured); research configurations (E8&ndash;E14) say nothing about the shipped path</td>
         </tr>
         <tr>
           <td><strong>E7: 52% &rarr; 16%</strong> (aggressive tier)</td>
