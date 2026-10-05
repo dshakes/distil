@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from distil import doctor, ledger
+from distil import doctor, ledger, receipts
 
 
 def test_diagnose_runs_every_check_without_crashing() -> None:
@@ -583,7 +583,8 @@ def test_check_shadow_no_samples(monkeypatch):
 
     monkeypatch.setattr(shadow_mod.ShadowLedger, "load", classmethod(lambda cls, *a, **k: _Empty()))
     ch = doctor._check_shadow()
-    assert ch.status == doctor.WARN
+    # Never turned on (no shadow.jsonl): opt-in, so information rather than a warning.
+    assert ch.status == doctor.INFO
     assert "not running" in ch.detail
 
 
@@ -789,7 +790,32 @@ def test_check_ledger_zero_runs(monkeypatch):
     )
     ch = doctor._check_ledger()
     assert ch.status == doctor.INFO
-    assert "no runs" in ch.detail
+    # No runs AND no receipts: a never-used machine says "not set up" once.
+    assert "not set up" in ch.detail and "distil setup" in ch.hint
+
+    receipts.receipts_path().parent.mkdir(parents=True, exist_ok=True)
+    receipts.receipts_path().write_text("{}\n", encoding="utf-8")
+    ch = doctor._check_ledger()
+    assert ch.status == doctor.INFO and "no runs" in ch.detail
+
+
+def test_fresh_machine_doctor_has_no_warnings(tmp_path, monkeypatch):
+    """A clean HOME (nothing set up, no distil running) gets zero warnings and one
+    "not set up yet" line — never the 1e9-minute sentinel or a bypass alarm."""
+    import subprocess
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path / ".distil"))
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "", "returncode": 0})()
+    )
+    monkeypatch.setattr(doctor, "_find_all_distil", lambda: ["/usr/local/bin/distil"])
+    checks = doctor.diagnose()
+    text = " ".join(f"{c.detail} {c.hint}" for c in checks)
+    assert [c for c in checks if c.status in (doctor.WARN, doctor.FAIL)] == []
+    assert "1000000000" not in text and "1e+09" not in text
+    assert sum("not set up" in c.detail for c in checks) == 1
+    assert "this session" not in [c.name for c in checks]
 
 
 def test_check_ledger_subscription_no_dollars(monkeypatch):
@@ -844,8 +870,9 @@ def test_check_live_routing_no_last_ts(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _P())
     monkeypatch.setattr(ledger_mod, "latest_session", lambda: ("", 0.0))
     ch = doctor._check_live_routing()
-    # last_ts=0 → age is huge → WARN about bypass
+    # last_ts=0 → never any traffic → WARN about bypass, with no sentinel age in it
     assert ch.status == doctor.WARN
+    assert "ever" in ch.detail and "1000000000" not in ch.detail
 
 
 def test_check_claude_code_bad_json(tmp_path, monkeypatch):
