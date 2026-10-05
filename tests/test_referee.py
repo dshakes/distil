@@ -198,6 +198,20 @@ def test_budget_reserves_settles_and_rolls_over(tmp_path):
     assert b.reserve(0.2, now=day2), "a new day starts a new budget"
 
 
+def test_truncated_budget_file_fails_closed_not_reset(tmp_path):
+    p = tmp_path / "b.json"
+    b = rf.Budget(1.0, p)
+    day = 1_800_000_000.0
+    assert b.reserve(0.3, now=day)
+    b.settle(0.3, 0.9, now=day)
+    full = p.read_text(encoding="utf-8")
+    p.write_text(full[: len(full) // 2], encoding="utf-8")  # a torn write
+    assert not b.reserve(0.05, now=day), "an unreadable file must not reset today's spend"
+    assert b.today(now=day)["spent"] >= 1.0
+    assert b.reserve(0.05, now=day + 86400 * 2), "the next day starts clean"
+    assert not list(tmp_path.glob("*.tmp")), "the atomic write leaves no temp file"
+
+
 def test_the_cap_stops_the_sample_before_any_replay(tmp_path):
     post = FakePost()
     row = _auditor(cap=0.0001).run("/v1/messages", _req(), b"", {}, post, ledger=tmp_path / "l")

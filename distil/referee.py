@@ -42,6 +42,7 @@ already going (or to a loopback proxy the user named).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import math
@@ -362,15 +363,38 @@ class Budget:
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _filelock.locked(self.path):
+            day = self._day(now)
+            fresh = {"day": day, "spent": 0.0, "reserved": 0.0, "samples": 0, "skipped_cap": 0}
             try:
                 d = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                d = {}
-            day = self._day(now)
+                if not isinstance(d, dict):
+                    raise ValueError("budget file is not an object")
+                if d.get("day") == day:
+                    float(d["spent"]) + float(d["reserved"])  # malformed counters fail closed
+            except FileNotFoundError:
+                d = fresh
+            except (OSError, ValueError, KeyError, TypeError):
+                # Fail closed: a truncated or unreadable file must not reset today's
+                # spend to zero and re-open the cap. Treat today as exhausted; the next
+                # day starts clean.
+                d = {**fresh, "spent": self.cap, "unreadable": True}
             if d.get("day") != day:
-                d = {"day": day, "spent": 0.0, "reserved": 0.0, "samples": 0, "skipped_cap": 0}
+                d = fresh
             out = fn(d)
-            self.path.write_text(json.dumps(d, sort_keys=True) + "\n", encoding="utf-8")
+            # Atomic: tmp + fsync + replace, inside the lock (the lock is a sibling
+            # ``.lock`` file, so replacing the data file does not drop it). A crash
+            # mid-write leaves the previous file, never a truncated one.
+            tmp = self.path.with_name(self.path.name + ".tmp")
+            try:
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write(json.dumps(d, sort_keys=True) + "\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                _filelock.replace_retrying(tmp, self.path)
+            except OSError:
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
+                raise
             return out
 
     def reserve(self, est: float, now: float | None = None) -> bool:
