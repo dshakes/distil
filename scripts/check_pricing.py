@@ -51,16 +51,36 @@ def display_name(model_id: str) -> str:
     return f"Claude {family.capitalize()} {'.'.join(ver)}"
 
 
-def published(text: str, model_id: str) -> tuple[float, ...] | None:
-    """The five $/MTok figures after the model's display name, or None if not listed.
+#: Column order of the page's model table, by layout. The page has carried both: the
+#: older one (input, 5m write, 1h write, hit, output) and, from 2026-10, input and output
+#: first under a "Base tokens / Prompt caching" header.
+_OLD_ORDER = (0, 1, 2, 3, 4)
+_NEW_ORDER = (0, 4, 1, 2, 3)  # page position -> expected() index
+_NEW_HEADER = re.compile(r"Input\s+Output\s+5m writes\s+1h writes", re.I)
 
-    The name must not run on into a longer version ("Opus 4" must not match "Opus 4.8").
+
+def published(text: str, model_id: str) -> tuple[float, ...] | None:
+    """The five $/MTok figures of the model's table row, in :func:`expected`'s order, or
+    None if not listed.
+
+    The name must not run on into a longer version ("Opus 4" must not match "Opus 4.8"),
+    and must start a table row: the first price follows the name within a short run of
+    text that names no other model (a footnote glyph, "(limited availability)", or a
+    one-line description). The page names models in navigation and prose first, and in
+    later tables (batch, fast mode) whose first price is not the base input price.
     """
-    m = re.search(re.escape(display_name(model_id)) + r"(?![.\d])", text)
+    name = re.escape(display_name(model_id)) + r"(?![.\d])"
+    m = re.search(name + r"(?:(?!Claude )[^$]){0,120}?(?=\$)", text)
     if m is None:
         return None
     figures = [float(x) for x in _PRICE.findall(text[m.end() : m.end() + 400])[:5]]
-    return tuple(figures) if len(figures) == 5 else None
+    if len(figures) != 5:
+        return None
+    order = _NEW_ORDER if _NEW_HEADER.search(text, 0, m.start()) else _OLD_ORDER
+    out = [0.0] * 5
+    for pos, idx in enumerate(order):
+        out[idx] = figures[pos]
+    return tuple(out)
 
 
 def expected(p: pricing.Pricing) -> tuple[float, ...]:

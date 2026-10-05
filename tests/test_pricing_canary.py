@@ -74,7 +74,9 @@ def test_table_rows_are_self_consistent() -> None:
         assert p.name == key
         assert p.input_per_mtok > 0 and p.output_per_mtok >= p.input_per_mtok
         # Opus 5.5 and Fable 5.1 publish a cheaper cache hit; every other row is 0.1x.
-        read = {"claude-opus-5-5": 0.05, "claude-fable-5-1": 0.025}.get(key, pricing.CACHE_READ_MULT)
+        read = {"claude-opus-5-5": 0.05, "claude-fable-5-1": 0.025}.get(
+            key, pricing.CACHE_READ_MULT
+        )
         assert (p.cache_read_mult, p.cache_write_mult, p.cache_write_1h_mult) == (
             read,
             pricing.CACHE_WRITE_5M_MULT,
@@ -156,3 +158,28 @@ def test_check_pricing_script_parses_a_saved_page(tmp_path: Path) -> None:
     openai = tmp_path / "openai.html"
     openai.write_text("<p>gpt-5.2 Input $1.00 Output $2.00</p>", encoding="utf-8")
     assert mod.main(["--anthropic", str(page), "--openai", str(openai)]) == 0
+
+
+def test_check_pricing_script_reads_the_current_page_layout() -> None:
+    """The 2026-10 page: input and output first, a description between the name and the
+    prices, and the same names earlier in navigation and later in a fast-mode table."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "check_pricing", _PKG.parent / "scripts" / "check_pricing.py"
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def row(mid: str, p: pricing.Pricing) -> str:
+        i, w5, w1, hit, o = mod.expected(p)
+        cells = "".join(f"<td>${f:g} / MTok</td>" for f in (i, o, w5, w1, hit))
+        return f"<tr><td>{mod.display_name(mid)}</td><td>A model for work</td>{cells}</tr>"
+
+    nav = "<nav>" + " ".join(mod.display_name(m) for m in pricing.CATALOG) + " Guides</nav>"
+    head = "<tr><th>Name</th><th>Input</th><th>Output</th><th>5m writes</th><th>1h writes</th>"
+    body = "".join(row(m, p) for m, p in pricing.CATALOG.items())
+    fast = "<p>Model Input Output Claude Opus 5.5 $8 / MTok $40 / MTok</p>"
+    page = nav + "<p>" + "x " * 80 + "</p><table>" + head + body + "</table>" + fast
+    assert mod.check_anthropic(mod.page_text(page)) == []
