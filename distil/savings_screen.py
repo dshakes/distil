@@ -426,6 +426,58 @@ def _attach_whatif(s: Screen, since: float | None, progress: Any, deadline_s: fl
     if w.requests_replayed:
         t = s.tokens
         s.whatif = w.to_dict(t.uncached + t.cache_read + t.cache_write, s.requests)
+        s.whatif["digest_certification"] = digest_certification()
+
+
+#: What the maintainer's own live shadow says about digest (README, ADR 0022). Shown next
+#: to every "digest would save" figure so a token count is never read as a recommendation.
+PUBLISHED_DIGEST_STATE = (
+    "published: on the maintainer's live data digest is currently over its decision-change "
+    "budget (paired harm 5.3 pp against the 5% budget, 2026-09-15), so the drift guard "
+    "holds it at lossless-only there (ADR 0022)"
+)
+
+
+def digest_certification(now: float | None = None) -> dict[str, str]:
+    """Digest's certification on THIS machine, from its per-mode shadow evidence:
+    ``held`` (the per-mode hold or the drift alarm), ``certified``, or ``no-evidence``.
+    Read-only; never raises."""
+    try:
+        from . import drift
+        from .output import SHAPE_EVIDENCE_DAYS
+        from .shadow import VERDICT_MIN_AB, ShadowLedger
+
+        why = drift.cert_hold_reason() or drift.uncertified(now=now)
+        if why:
+            return {"state": "held", "detail": f"held by the per-mode hold — {why}"}
+        if drift.held_now():
+            return {"state": "held", "detail": "held — the drift alarm tripped"}
+        since = (time.time() if now is None else now) - SHAPE_EVIDENCE_DAYS * 86400
+        eq = ShadowLedger.load(current_only=True, since_ts=since).equivalence_by_mode().get("digest")
+        if eq is None or eq.below_floor or eq.diff_ci is None:
+            n = eq.n_paired if eq is not None else 0
+            return {
+                "state": "no-evidence",
+                "detail": f"not enough evidence yet — {n} paired digest shadow rows in the "
+                f"last {SHAPE_EVIDENCE_DAYS}d, a verdict needs {VERDICT_MIN_AB}",
+            }
+        return {
+            "state": "certified",
+            "detail": f"certified — paired harm upper bound {-eq.diff_ci[0] * 100:.1f} pp, "
+            f"inside the budget (n={eq.n_paired}, last {SHAPE_EVIDENCE_DAYS}d)",
+        }
+    except Exception:  # noqa: BLE001 — a status line must never break the screen
+        return {"state": "no-evidence", "detail": "not enough evidence yet (shadow unreadable)"}
+
+
+def _digest_status_lines(w: dict[str, Any]) -> list[str]:
+    cert = w.get("digest_certification") or {}
+    out = [f"    digest on this machine: {cert.get('detail', 'not enough evidence yet')}"]
+    return out + ["    " + ln for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 84, break_on_hyphens=False)]
+
+
+def _digest_held(w: dict[str, Any]) -> bool:
+    return (w.get("digest_certification") or {}).get("state") == "held"
 
 
 def build(since: float | None, *, progress: Any = None) -> Screen:
@@ -591,15 +643,18 @@ def _render_whatif(s: Screen) -> list[str]:
         out += [
             "  you are on a flat plan: no per-token bill, so read this as rate-limit headroom",
             _tok_line("lossless-only", lo, days, usd=False) + "   ← your default",
-            _tok_line("digest", dg, days, usd=False) + f"   ← opt in: {DIGEST_OPT_IN}",
+            _tok_line("digest", dg, days, usd=False)
+            + ("   ← held here: not recommended" if _digest_held(w) else f"   ← opt in: {DIGEST_OPT_IN}"),
         ]
     else:
         out += [
             _tok_line("lossless-only", lo, days, usd=True),
-            _tok_line("digest", dg, days, usd=True) + "   ← API-key default",
+            _tok_line("digest", dg, days, usd=True)
+            + ("   ← held here: served as lossless-only" if _digest_held(w) else "   ← API-key default"),
             "    priced cache-aware from your usage: reads 0.1x, writes 1.25x (5m) / 2x (1h);",
             "    a rewritten cached prefix is charged as a fresh write",
         ]
+    out += _digest_status_lines(w)
     if w.get("unpriced_requests"):
         out.append(
             f"    ({w['unpriced_requests']:,} replayed requests on an unpriced model, not in $)"
@@ -625,10 +680,18 @@ def _digest_would_add(s: Screen) -> list[str]:
     if more < MEANINGFUL_SHARE or extra <= 0:
         return []
     window = "on your last " + (f"{round(s.days, 1):g} days" if s.days else "history")
+    cert = w.get("digest_certification") or {}
+    advice = (
+        "but it is held on this machine, so not recommended"
+        if _digest_held(w)
+        else f"opt in: {DIGEST_OPT_IN}"
+    )
     return [
         f"  what-if  {window}, digest would remove ≈{_k(extra)} more input tokens "
-        f"(+{more * 100:.1f}%) — opt in: {DIGEST_OPT_IN}",
+        f"(+{more * 100:.1f}%) — {advice}",
         "           (offline replay estimate; `distil ab` measures it on live traffic)",
+        f"           digest here: {cert.get('detail', 'not enough evidence yet')}",
+        *("           " + ln for ln in textwrap.wrap(PUBLISHED_DIGEST_STATE, 78, break_on_hyphens=False)),
     ]
 
 

@@ -341,3 +341,49 @@ def test_render_names_a_cost_increase_the_time_cap_and_unpriced_requests():
     assert "≈$1.50 MORE (cache rewrites)" in out
     assert "stopped at the time cap" in out
     assert "2 replayed requests on an unpriced model" in out
+
+
+# --------------------------------------------------------------------------- digest status
+
+
+def test_whatif_names_digest_status_and_the_published_state(api_key, monkeypatch, capsys):
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+    assert cli.main(["savings"]) == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "digest on this machine: not enough evidence yet" in out
+    assert "over its decision-change budget" in out and "maintainer's live data" in out
+    assert cli.main(["savings", "--json"]) == 0
+    cert = json.loads(capsys.readouterr().out)["whatif"]["digest_certification"]
+    assert cert["state"] == "no-evidence"
+
+
+def test_a_held_digest_is_never_recommended(api_key, monkeypatch, capsys):
+    # The per-mode certification hold persisted by a proxy on this machine (ADR 0022).
+    (Path(os.environ["DISTIL_HOME"]) / "cert-hold.json").write_text(
+        json.dumps({"why": "digest: paired harm 5.3 pp, upper bound 8.7 pp > the 5% budget"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+    assert cli.main(["savings"]) == 0
+    out = capsys.readouterr().out
+    assert "held here: not recommended" in out and "held by the per-mode hold" in out
+    assert f"opt in: {ss.DIGEST_OPT_IN}" not in out
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
+    assert cli.main(["savings"]) == 0
+    out = capsys.readouterr().out
+    assert "held here: served as lossless-only" in out and "API-key default" not in out
+
+
+def test_ledger_digest_line_does_not_recommend_a_held_digest():
+    s = ss.Screen("ledger", None, 7.0)
+    arm = {"input_tokens_removed": 100, "share_of_billed_input": 0.01, "usd_saved": 0.0}
+    s.whatif = {
+        "lossless_only": dict(arm),
+        "digest": dict(arm, input_tokens_removed=900, share_of_billed_input=0.09),
+        "digest_certification": {"state": "held", "detail": "held by the per-mode hold — x"},
+    }
+    text = " ".join(" ".join(ss._digest_would_add(s)).split())
+    assert "digest would remove" in text and "not recommended" in text
+    assert ss.DIGEST_OPT_IN not in text and "maintainer's live data" in text
+    s.whatif["digest_certification"] = {"state": "certified", "detail": "certified — y"}
+    assert ss.DIGEST_OPT_IN in "\n".join(ss._digest_would_add(s))
