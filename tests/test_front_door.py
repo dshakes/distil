@@ -335,6 +335,7 @@ def _assistant(ts: float, mid: str, block: dict) -> dict:
         "uuid": "u-" + mid + str(block.get("type")),
         "message": {
             "id": mid,
+            "role": "assistant",
             "model": "claude-sonnet-4-6",
             "content": [block],
             "usage": {
@@ -429,9 +430,10 @@ def test_no_install_text_never_leaks_content(transcripts, capsys):
     assert cli.main(["savings", "--json"]) == 0
     out = capsys.readouterr().out
     assert SECRET not in out and PROMPT not in out and "thinking about" not in out
-    assert "ESTIMATE  distil would save" in out
-    assert "basis: realized saving in digest mode" in out
-    assert "distil wrap -- claude" in out
+    # the quoted ESTIMATE gives way to a replay of YOUR requests (distil.whatif)
+    assert "what distil would have changed  (replayed" in out
+    assert "ESTIMATE  distil would save" not in out
+    assert ss.NEXT_STEP in out
 
 
 def test_no_install_window_excludes_old_rows(transcripts, capsys):

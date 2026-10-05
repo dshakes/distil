@@ -65,6 +65,7 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
           <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
@@ -690,6 +691,23 @@ distil discover — where your remaining savings are
 <span class="d">$ distil ab --window 30 --json</span>
 <span class="d">$ distil ab --holdout-rate 0</span>   <span class="d"># opt out</span></pre>
 
+    <h2 id="audit">distil audit</h2>
+    <p>Referee another compressor on <strong>your own</strong> traffic: did it help or hurt, in dollars and in the agent's decisions? Off until you turn it on. For a sampled share of requests distil replays the request three more times on your key, in the background: twice as your client sent it (the model's own noise floor) and once as the named compressor shapes it, then compares the agent's next action and the provider's billed tokens. A hard daily dollar cap gates every sample before it starts; the ledger holds hashes, token counts and dollars, never content. <code>distil audit report</code> prints, per compressor, <em>helped</em>, <em>hurt</em> or <em>can't tell yet</em> with how many more samples it needs. RTK cannot be audited per request (it rewrites commands inside the agent, so there is no faithful uncompressed request); it is scored offline on the <a href="scoreboard.html">scoreboard</a>. Design: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0024-distil-as-referee.md">ADR 0024</a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="distil audit">
+    <table>
+      <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>--compressor</code></td><td>none</td><td>Turn the audit on for <code>distil</code>, <code>anthropic-context-editing</code>, <code>openai-compaction</code> or <code>headroom</code> (asks first; <code>--yes</code> confirms)</td></tr>
+      <tr><td><code>--rate</code></td><td>0.02</td><td>Sampled fraction of requests</td></tr>
+      <tr><td><code>--cap-usd</code></td><td>1</td><td>Hard per-day dollar cap on replay spend</td></tr>
+      <tr><td><code>--via</code></td><td>unset</td><td><code>headroom</code> only: your running Headroom proxy (loopback URLs only)</td></tr>
+      <tr><td><code>report</code> / <code>off</code></td><td></td><td>Print the verdicts (<code>--json</code> for machines) / turn it off, keeping the ledger</td></tr>
+    </table>
+    </div>
+    <pre class="term"><span class="d">$ distil audit --compressor anthropic-context-editing</span>
+<span class="d">$ distil audit --compressor headroom --via http://127.0.0.1:PORT --cap-usd 2</span>
+<span class="d">$ distil audit report</span>
+<span class="d">$ distil audit off</span></pre>
+
     <h2 id="memory">distil memory</h2>
 <p>The shared recall store every distil-routed agent reads. A block digested while
 compressing for one agent is expandable by <em>any</em> other reading the same
@@ -1048,6 +1066,9 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
         <tr><th scope="row"><code>gateway --require-keys</code></th><td>off</td><td>Force key auth even before any keys are issued.</td></tr>
         <tr><th scope="row"><code>gateway --tenant-rpm</code></th><td>0 (unlimited)</td><td>Gateway-wide requests-per-minute cap per tenant.</td></tr>
         <tr><th scope="row"><code>gateway --tenant-daily-tokens</code></th><td>0 (unlimited)</td><td>Gateway-wide daily input-token cap per tenant.</td></tr>
+        <tr><th scope="row"><code>gateway --digest</code></th><td>off (Tier-0)</td><td>Opt in to the recoverable digest for PAYG tenants, with <code>distil_expand</code> injected and answered (ADR 0023). Unguarded: no per-mode certification on the gateway yet &mdash; the hold that switches a local proxy&rsquo;s digest off when it is over budget (ADR 0022) is proxy-only.</td></tr>
+        <tr><th scope="row"><code>gateway --session-delta</code></th><td>off</td><td>Cache-delta coding, as on the proxy; sessions are scoped per tenant.</td></tr>
+        <tr><th scope="row"><code>gateway --no-cold-point</code></th><td>off (cold-point on)</td><td>Opt out of cold-point recompression (ADR 0014), which the gateway runs per tenant wherever the recoverable digest runs (<code>--digest</code>).</td></tr>
         <tr><th scope="row"><code>keys issue --tenant &lt;name&gt;</code></th><td>required</td><td>Tenant label to associate with the new key.</td></tr>
         <tr><th scope="row"><code>keys revoke &lt;prefix&gt;</code></th><td>required</td><td>First hex characters of the key to revoke (as shown by <code>keys list</code>).</td></tr>
       </tbody>

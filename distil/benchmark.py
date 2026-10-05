@@ -40,7 +40,7 @@ from .compress.strategies import Strategy
 from .compress.strategies import distil as _distil
 from .compress.tier0 import Tier0Lossless
 from .corpus import CorpusEntry, load_corpus
-from .pricing import Pricing
+from .pricing import DEFAULT_MODEL, Pricing
 from .pricing import get as get_pricing
 from .replay.ablation import discover
 from .replay.runner import AgentRunner
@@ -306,7 +306,7 @@ def run_benchmark(
 ) -> BenchReport:
     entries = entries if entries is not None else load_corpus()
     techniques = techniques if techniques is not None else builtin_techniques(runner)
-    price = pricing if pricing is not None else get_pricing("claude-opus-4-8")
+    price = pricing if pricing is not None else get_pricing(DEFAULT_MODEL)
 
     # Baseline cost: no compression, WITH caching — the realistic reference, so
     # the comparison isolates each method's COMPRESSION effect on top of caching

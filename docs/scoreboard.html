@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Scoreboard — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Scoreboard — Distil"/>
+<meta property="og:description" content="Compressors scored on solved tasks and dollars, failed attempts included: distil, RTK, Headroom, Selective Context and Anthropic context editing, each run by its real pinned package. Every number is recomputed from a committed artifact; arms not yet run say so."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/scoreboard.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Scoreboard — Distil"/>
+<meta name="twitter:description" content="Compressors scored on solved tasks and dollars, failed attempts included: distil, RTK, Headroom, Selective Context and Anthropic context editing, each run by its real pinned package. Every number is recomputed from a committed artifact; arms not yet run say so."/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode?</a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <details class="sidebar-group" open>
+        <summary class="sidebar-section">Getting started</summary>
+        <ul>
+          <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group" open>
+        <summary class="sidebar-section">Learn</summary>
+        <ul>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+            <ul class="sidebar-sub">
+              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+              <li><a href="learn-compression.html">2. Compression</a></li>
+              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+            </ul></li>
+          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="techniques.html">Techniques</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="research.html">Research &amp; Frontier</a></li>
+          <li><a href="cache-contract.html">Cache Contract</a></li>
+          <li><a href="subscription.html">Subscription</a></li>
+          <li><a href="provider-compaction.html">Provider Compaction</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group" open>
+        <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
+        <ul>
+          <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html" class="active" aria-current="page">Scoreboard</a></li>
+          <li><a href="ab.html">Task-level A/B</a></li>
+          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
+          <li><a href="benchmark.html">Live Benchmark</a></li>
+          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">Reference</summary>
+        <ul>
+          <li><a href="library.html">Library API</a></li>
+          <li><a href="cli.html">CLI Reference</a></li>
+          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
+          <li><a href="output.html">Output &amp; I/O</a></li>
+          <li><a href="corpus.html">Corpus</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">Agent tooling</summary>
+        <ul>
+          <li><a href="hooks.html">Post-tool Hooks</a></li>
+          <li><a href="code-skeletons.html">Code Skeletons</a></li>
+          <li><a href="mcp.html">MCP Compressor</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">Integrations</summary>
+        <ul>
+          <li><a href="integrations.html">Overview</a></li>
+          <li><a href="adapters.html">Adapters</a></li>
+          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+          <li><a href="litellm.html">LiteLLM</a></li>
+          <li><a href="langchain.html">LangChain</a></li>
+          <li><a href="langgraph.html">LangGraph</a></li>
+          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+          <li><a href="agno.html">Agno</a></li>
+          <li><a href="strands.html">Strands</a></li>
+          <li><a href="autogen.html">AutoGen</a></li>
+          <li><a href="llamaindex.html">LlamaIndex</a></li>
+          <li><a href="crewai.html">CrewAI</a></li>
+          <li><a href="asgi.html">ASGI Middleware</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">More</summary>
+        <ul>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="security.html">Security</a></li>
+          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+          <li><a href="index.html">← Landing page</a></li>
+        </ul>
+      </details>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>The <span class="g">scoreboard</span></h1>
+    <p class="lead">Every context compressor claims a saving. This page scores them on what a user pays for: dollars per <b>solved</b> task, with every failed attempt's spend counted, and whether tasks still get solved. Each compressor is run by its own real, pinned package through the same harness and the same official grader. distil is one of the rows, not the referee's favourite: the same rules apply to it.</p>
+    <p>How it is measured, and why these estimators, is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0024-distil-as-referee.md">ADR 0024</a>. Paired against plain on the same tasks; the interval on the difference is the harness's Wald interval with an exact McNemar test, at a pre-registered 5-point non-inferiority margin. A row that says <i>pending run</i> has no committed data, and nothing here estimates it. The runs that will fill it, with their costs, are in <a href="https://github.com/dshakes/distil/blob/main/docs/research/referee-runs.md">the run plan</a>. To referee a compressor on your <em>own</em> traffic instead, see <code>distil audit</code> in the <a href="cli.html">CLI reference</a>.</p>
+
+    <h2 id="swebench-lite-300-medium">SWE-bench Lite (official grader)</h2>
+    <p><code>claude-sonnet-5-5</code> · effort medium · n = 298 tasks graded in every arm · run 2026-10-03. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-outcome-300-medium"><code>benchmarks/results/swebench-outcome-300-medium</code></a>.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Lite (official grader) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>plain (no compression)</td><td>$0.0387</td><td>218/298 · 73.2% (67.9%–77.9%)</td><td>baseline</td><td>$8.44</td><td>6,810,575 / 357,562</td><td>1360</td><td>—</td></tr>
+        <tr><td>distil</td><td>$0.0393</td><td>213/298 · 71.5% (66.1%–76.3%)</td><td>-1.7 [-5.1, +1.7] · INCONCLUSIVE</td><td>$8.37</td><td>7,081,760 / 351,388</td><td>1427</td><td>1.56.3</td></tr>
+        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>not in this harness</i></td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2 id="swebench-lite-300-low">SWE-bench Lite (official grader)</h2>
+    <p><code>claude-sonnet-5-5</code> · effort low · n = 299 tasks graded in every arm · run 2026-10-02. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-outcome-300-grepfix"><code>benchmarks/results/swebench-outcome-300-grepfix</code></a>. Plain rows are reused from swebench-outcome-300 (same model, effort and tasks), as that run&#x27;s report.md says.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Lite (official grader) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>plain (no compression)</td><td>$0.0341</td><td>210/299 · 70.2% (64.8%–75.1%)</td><td>baseline</td><td>$7.17</td><td>5,114,011 / 303,228</td><td>1251</td><td>—</td></tr>
+        <tr><td>distil</td><td>$0.0351</td><td>204/299 · 68.2% (62.7%–73.2%)</td><td>-2.0 [-5.5, +1.4] · INCONCLUSIVE</td><td>$7.17</td><td>5,527,181 / 296,148</td><td>1290</td><td>1.56.3</td></tr>
+        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>not in this harness</i></td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2 id="terminal-bench">Terminal-Bench 2 (cost_truth, neutral meter)</h2>
+    <p>Pending. Not run yet: the pilot&#x27;s canary preflights are committed, no analysed attempts..</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Terminal-Bench 2 (cost_truth, neutral meter) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>control (no compression)</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>distil</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>not in this harness</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>not in this harness</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2 id="read">How to read it</h2>
+    <ul>
+      <li><b>$ per solved task</b> is the arm's total spend on the tasks graded in every arm, divided by the tasks it solved. A cheaper arm that solves fewer tasks can cost more per solved task.</li>
+      <li><b>vs plain</b> is the paired difference in tasks solved, in points, with its verdict at the 5-point margin. <i>PILOT</i>, <i>INCONCLUSIVE</i> and <i>INFERIOR</i> mean what they say; none of them is a pass.</li>
+      <li>Short tasks. On these runs the median task took a handful of steps, so contexts stayed short. A compressor built for long sessions is not exercised much here; the Terminal-Bench table runs longer agent sessions.</li>
+      <li>Every figure is regenerated by <code>scripts/build_scoreboard.py</code> from the run directories, and the machine-readable copy is <a href="scoreboard.json">scoreboard.json</a>.</li>
+    </ul>
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

@@ -53,6 +53,24 @@ def may_compress_lossy(mode: AuthMode) -> bool:
     return mode is AuthMode.PAYG
 
 
+def session_auth_mode(lossless_only: bool) -> AuthMode:
+    """The auth mode a proxy session runs under: real billing wins over the flag.
+
+    ``lossless_only`` is only one spelling of "flat-rate". A subscription user who
+    opts into the recoverable digest (``--expand``, or ``distil default --mode
+    expand``) arrives with ``lossless_only`` False, and deriving the mode from the
+    flag alone classified that session as PAYG — which turned output shaping on and
+    appended a system-role directive to a first-party session. ``--expand`` makes a
+    digest stub recoverable; it does nothing to make a rewritten *response*
+    recoverable, so the opt-in must not carry shaping with it.
+    """
+    if lossless_only:
+        return AuthMode.SUBSCRIPTION
+    from .doctor import subscription_mode  # lazy: doctor imports half the package
+
+    return AuthMode.SUBSCRIPTION if subscription_mode() else AuthMode.PAYG
+
+
 # There was a `may_inject_tools(mode)` here returning `mode is AuthMode.PAYG`,
 # with tests asserting it. Nothing ever called it. The rule it stated — tool
 # injection is PAYG-only — is not the rule distil actually implements: a

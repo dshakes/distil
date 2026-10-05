@@ -36,6 +36,7 @@ from .httpguard import (
     is_responses_path,
     safe_forward_path,
 )
+from .pricing import DEFAULT_MODEL
 from .tokenizer import DEFAULT as _tokenizer
 
 # Which endpoints carry a compressible body lives in httpguard.is_compressible_path —
@@ -148,12 +149,12 @@ def make_app(
     # lossless-only implies Tier-0-only: without an injected expand tool the agent
     # cannot recover a Tier-1 digest stub, so a stub there would be irreversibly
     # lossy. Fold it into verbatim (the flag that already disables Tier-1 digests).
-    from .policy import AuthMode, may_compress_lossy
+    from .policy import may_compress_lossy, session_auth_mode
 
     # Route the lossy-allowed decision through policy as the single source of truth:
     # subscription / OAuth sessions are lossless-only. Forces Tier-0-only (verbatim)
-    # and gates output shaping below.
-    _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
+    # and gates output shaping below — keyed on real billing, not just the flag.
+    _auth_mode = session_auth_mode(lossless_only)
     _lossy_ok = may_compress_lossy(_auth_mode)
     # Same adaptive rule as the sync proxy, resolved once at app build. `auto` must
     # never reach `shape_request`, which only knows concrete levels.
@@ -478,7 +479,7 @@ def serve(
     verbatim: bool = False,
     shape_output: str = "auto",
     record: bool = True,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     prefix_replay: bool = True,
 ) -> None:
     """Run an async aiohttp proxy server.

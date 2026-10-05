@@ -37,7 +37,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import multiprocessing
 import os
@@ -46,7 +45,7 @@ import re
 import statistics
 import sys
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
 from dataclasses import dataclass, field
@@ -56,14 +55,25 @@ from unittest import mock
 
 from distil.adapters import anthropic as adapter
 from distil.compress import provenance
-from distil.tokenizer import DEFAULT as TOKENIZER
+
+# Parsing, request reconstruction, the breakpoint rule and the request planner are the
+# shipped ones: `distil savings` replays the same requests on a user's own machine.
+from distil.whatif import (
+    Message,
+    Session,
+    _Sizer,
+    discover,
+    parse_transcript,
+    plan_requests,
+    request_indices,
+    with_breakpoint,
+)
 
 DEFAULT_ROOT = Path("~/.claude/projects")
 OUT_DIR = Path(__file__).parent / "results" / "session-replay"
 
 # Anthropic prompt-cache price multipliers on base input.
 READ, WRITE, BASE = 0.1, 1.25, 1.0
-MIN_REQUESTS = 10  # below this a budget-trimmed session is skipped, not sampled thinner
 
 LENGTH_BUCKETS = (("1-5", 5), ("6-20", 20), ("21-50", 50), ("51-100", 100), ("100+", 10**9))
 SIZE_BUCKETS = (
@@ -88,118 +98,10 @@ SHELL_CLASSES: dict[str, str] = {
     ),
     **dict.fromkeys("curl wget docker kubectl helm gcloud aws ssh".split(), "network_infra"),
 }
-_CC = {"type": "ephemeral"}
-_CC_JSON = ',"cache_control":{"type":"ephemeral"}'
 _MARKER = re.compile(r"handle=[0-9a-f]{8}")
-Message = dict[str, Any]
-
-
-# --------------------------------------------------------------------------- parsing
-
-
-@dataclass
-class Session:
-    messages: list[Message] = field(default_factory=list)
-    bad_lines: int = 0
-    cache_recorded: bool = False
-
-
-def _blocks(content: Any) -> list[Any] | None:
-    if isinstance(content, str):
-        return [{"type": "text", "text": content}]
-    return list(content) if isinstance(content, list) else None
-
-
-def parse_transcript(lines: Iterable[str]) -> Session:
-    """Reconstruct the main-thread message list from Claude Code JSONL lines.
-
-    Tolerant of schema variants: non-message record types are ignored, malformed JSON or a
-    message with a missing/ill-typed role or content is counted in ``bad_lines``.
-    """
-    sess = Session()
-    last_id: str | None = None
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-        except ValueError:
-            sess.bad_lines += 1
-            continue
-        if not isinstance(rec, dict):
-            sess.bad_lines += 1
-            continue
-        if rec.get("type") not in ("user", "assistant") or rec.get("isSidechain") is True:
-            continue
-        if rec.get("isApiErrorMessage") is True:
-            continue
-        msg = rec.get("message")
-        role = msg.get("role") if isinstance(msg, dict) else None
-        blocks = _blocks(msg.get("content")) if isinstance(msg, dict) else None
-        if role not in ("user", "assistant") or blocks is None or not blocks:
-            sess.bad_lines += 1
-            continue
-        if any(isinstance(b, dict) and b.get("cache_control") for b in blocks):
-            sess.cache_recorded = True
-        assert isinstance(msg, dict)  # role/blocks above were read from a dict
-        mid = msg.get("id") if role == "assistant" and isinstance(msg.get("id"), str) else None
-        prev = sess.messages[-1] if sess.messages else None
-        # Streamed assistant blocks share a message id; parallel tool_results are
-        # consecutive user lines. Both are ONE message in the real request.
-        if prev is not None and prev["role"] == role == "user":
-            prev["content"].extend(blocks)
-        elif prev is not None and role == "assistant" and mid is not None and mid == last_id:
-            prev["content"].extend(blocks)
-        else:
-            sess.messages.append({"role": role, "content": blocks})
-        last_id = mid
-    return sess
-
-
-def discover(root: Path) -> list[Path]:
-    """Top-level transcripts, sorted so sampling is reproducible."""
-    return sorted(p for p in root.rglob("*.jsonl") if "subagents" not in p.parts)
-
-
-def request_indices(messages: list[Message]) -> list[int]:
-    """Index of the last message of every request: each user message ends one."""
-    return [i for i, m in enumerate(messages) if m["role"] == "user"]
-
-
-def with_breakpoint(messages: list[Message], recorded: bool) -> list[Message]:
-    """The request as sent: shallow copies, plus a breakpoint on the newest message if the
-    transcript did not record any."""
-    if recorded or not messages:
-        return list(messages)
-    *head, last = messages
-    blocks = list(last["content"])
-    for k in range(len(blocks) - 1, -1, -1):
-        if isinstance(blocks[k], dict):
-            blocks[k] = {**blocks[k], "cache_control": dict(_CC)}
-            break
-    return [*head, {**last, "content": blocks}]
 
 
 # --------------------------------------------------------------------------- measuring
-
-
-def _dump(msg: Message) -> str:
-    return json.dumps(msg, ensure_ascii=False, separators=(",", ":")).replace(_CC_JSON, "")
-
-
-class _Sizer:
-    """Bytes / tokens / identity of messages, memoised per process on content digest."""
-
-    def __init__(self) -> None:
-        self._tok: dict[bytes, int] = {}
-
-    def of(self, msg: Message) -> tuple[bytes, int, int]:
-        text = _dump(msg)
-        key = hashlib.blake2b(text.encode(), digest_size=12).digest()
-        tok = self._tok.get(key)
-        if tok is None:
-            tok = self._tok[key] = TOKENIZER.count(text)
-        return key, len(text.encode()), tok
 
 
 def _result_text(blk: Message) -> str:
@@ -255,38 +157,6 @@ class Replayed:
 
 def _bucket(value: int, table: tuple[tuple[str, int], ...]) -> int:
     return next(i for i, (_, hi) in enumerate(table) if value <= hi)
-
-
-def plan_requests(
-    ends: list[int], msg_bytes: list[int], max_requests: int, budget_bytes: int
-) -> list[tuple[int, bool]] | None:
-    """``(end, recorded)`` in replay order, or None if even the smallest plan is over budget.
-
-    Replaying request i costs O(prefix bytes), so a thousand-request session is quadratic.
-    Past ``max_requests`` it keeps evenly spaced requests (always including the last), and
-    halves that until the bytes to compress fit ``budget_bytes``. Each kept request is preceded
-    by its real predecessor, replayed but not recorded, so the cache-prefix comparison is
-    against what the provider actually held.
-    """
-    cum = [0]
-    for b in msg_bytes:
-        cum.append(cum[-1] + b)
-    k = max_requests
-    while True:
-        if len(ends) <= k:
-            plan = [(e, True) for e in ends]
-        else:
-            keep = {round(j * (len(ends) - 1) / (k - 1)) for j in range(k)} if k > 1 else {0}
-            plan = []
-            for i in sorted(keep):
-                if i > 0 and (not plan or plan[-1][0] != ends[i - 1]):
-                    plan.append((ends[i - 1], False))
-                plan.append((ends[i], True))
-        if sum(cum[e + 1] for e, _ in plan) <= budget_bytes:
-            return plan
-        if k <= MIN_REQUESTS:
-            return None
-        k = max(MIN_REQUESTS, min(k, len(ends)) // 2)
 
 
 def replay_session(

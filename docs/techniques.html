@@ -65,6 +65,7 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
           <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
@@ -228,7 +229,7 @@ distil (cache-aware lossless)          0.01023         <span class="g">32.8%</sp
     <p>Protection is line-aware: the guard operates on individual lines, not blocks, so it can preserve a single critical row inside an otherwise-compressible table. The cost is a small savings reduction — roughly 2.4 percentage points on the benchmark corpus — in exchange for a structural guarantee.</p>
 
     <div class="callout good">
-      <strong>What this fixed.</strong> On the certified frontier, blind truncation at a 200-token target produced a 0/120 survival rate on decision-carrying lines — every compressed context dropped the directive. With salience protection enabled, that becomes 120/120 at approximately the same token budget. That is not a tuning improvement; it is a qualitative shift. This is why we call it a frontier shifter: it moves the boundary at which aggressive compression stays safe, rather than moving a point along the existing curve.
+      <strong>What this fixed.</strong> On the certified frontier, blind truncation at a 200-token target dropped the decision-carrying directive from the compressed context; with salience protection enabled it survives at approximately the same token budget. (The run that counted this was not committed, so no survival rate is quoted here.) That is not a tuning improvement; it is a qualitative shift. This is why we call it a frontier shifter: it moves the boundary at which aggressive compression stays safe, rather than moving a point along the existing curve.
     </div>
 
     <hr/>

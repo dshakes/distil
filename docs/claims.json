@@ -5,17 +5,12 @@
       "id": "v-e14-hero",
       "status": "verified",
       "page": [
-        "index.html",
-        "../README.md",
-        "benchmark.html",
-        "benchmarks.html",
-        "compare.html",
-        "llms.txt"
+        "research.html"
       ],
       "anchor": null,
       "snippet": "42.0% vs 39.2% tasks solved",
-      "claim": "E14: gated + surprise digest ties full context on SWE-bench Verified (42.0% vs 39.2% tasks solved, 95% CI -0.6..+6.2pp, non-inferiority certified).",
-      "note": "Backed by research.html E14 / compare.html; reproduced via the swebench harness. Also carried in README.md's task-success table (same snippet). pass@1 is resolved/500: the harness reports state resolved_instances 210 for gated+surprise and 196 for full context, which is the 42.0% vs 39.2% on the page.",
+      "claim": "Research configuration, NOT the shipped path: the v1.7 gated + surprise digest (benchmarks/long_horizon/run.py sets DISTIL_DIGEST_MODE=surprise, which nothing in distil/ reads) reached 42.0% vs 39.2% tasks solved against full context on 500 SWE-bench Verified instances (paired CI -0.6..+6.2pp). Shown only on research.html, labelled as research; the shipped path's task outcome is v-swebench-outcome-served.",
+      "note": "Was the hero on index.html, README.md, benchmark(s).html, compare.html and llms.txt, presented as what distil does. It describes a harness configuration, not the served path, so it was withdrawn from every public surface but the research page on 2026-10-04. pass@1 is resolved/500: the harness reports state resolved_instances 210 for gated+surprise and 196 for full context.",
       "values": [
         "210",
         "196"
@@ -39,7 +34,7 @@
       ],
       "anchor": "proof",
       "snippet": "83.2% token savings at a 0% decision-change rate",
-      "claim": "Live head-to-head, 2026-07-05: distil 1.10.1 causal-prune+lossless certifies 83.2% token savings at a 0% decision-change rate (<=5% at 95% confidence, hb_p=0.0058); LLMLingua-2 0.2.2 cuts 53.1% but flips 12.5% of decisions; headroom-ai 0.27.0 is decision-safe at 39.7%. Certified frontier from the same run: byte-exact 2.6%, lossless 47.9%, causal-prune 83.2%, prune+lossless 83.2%, truncate@400 61.6%, truncate@200 73.9% at 100% decision-change. Every surface that carries these numbers now dates them inline to 2026-07-05 and to headroom-ai 0.27.0.",
+      "claim": "Head-to-head on a SYNTHETIC offline corpus (seeded 120-turn corpus from benchmarks/gen_realworld.py, graded live by claude-opus-4-8), 2026-07-05: distil 1.10.1 causal-prune+lossless certifies 83.2% token savings at a 0% decision-change rate (<=5% at 95% confidence, hb_p=0.0058); LLMLingua-2 0.2.2 cuts 53.1% but flips 12.5% of decisions; headroom-ai 0.27.0 is decision-safe at 39.7%. Certified frontier from the same run: byte-exact 2.6%, lossless 47.9%, causal-prune 83.2%, prune+lossless 83.2%, truncate@400 61.6%, truncate@200 73.9% at 100% decision-change. Every surface that carries these numbers now dates them inline to 2026-07-05 and to headroom-ai 0.27.0.",
       "note": "Was 'verified' with no artifact on index.html while the identical numbers were 'stale' on faq.html and concepts.html. Now one entry, one artifact, dated on every page. The '2.1x less aggressive' ratio (83.2/39.7) was REMOVED from every page: it is a 0.27.0-era ratio and does not survive the 2026-09-04 re-run against headroom-ai 0.37.0 (v-compare-fresh-headtohead), where Headroom reads 1.7% on the warm corpus gate and 35.6% on codebench. benchmark.html:154 read 52.3% for the lossless rung against a log that says 47.9%; fixed.",
       "artifact": "docs/paper/results/derc_live_compare.2026-07-05.log",
       "values": [
@@ -109,16 +104,14 @@
       "status": "verified",
       "page": [
         "compare.html",
-        "index.html",
-        "benchmark.html",
-        "benchmarks.html",
+        "research.html",
         "concepts.html",
-        "../README.md"
+        "benchmark.html"
       ],
       "anchor": "e8-outcomes",
       "snippet": "36.8%",
-      "claim": "E8: six-condition ReAct agent on full 500-instance SWE-bench Verified, official harness. distil (relevance-gated) 36.8% vs Headroom 32.6% vs LLMLingua-2 2.4% vs no-compression baseline.",
-      "note": "Scored by the official swebench harness, not a proxy metric.",
+      "claim": "E8 (research configuration): six-condition ReAct agent on full 500-instance SWE-bench Verified, official harness. distil (relevance-gated) 36.8% vs Headroom 32.6% vs LLMLingua-2 2.4% vs full context 39.2%; vs full context -2.4pp, 95% CI [-5.7, +0.9] — not distinguishable from full, but past the 5pp margin, so non-inferiority at 5 points is NOT shown (no 'tied' badge).",
+      "note": "Scored by the official swebench harness, not a proxy metric. The '✅ tied' badge was removed on 2026-10-04: the CI's lower bound fails the page's own 5pt margin (research.html).",
       "values": [
         "36.8%",
         "32.6%",
@@ -187,53 +180,68 @@
       ]
     },
     {
-      "id": "u-corpus-domain-percentages",
-      "status": "unsourced",
+      "id": "v-corpus-domain-percentages",
+      "status": "verified",
       "page": "corpus.html",
       "anchor": null,
       "snippet": "aggregate 48.4%",
       "claim": "Per-domain lossless-savings percentages (32.8%-89.8%, aggregate 48.4% across 7,080 prunable tokens) are repeated on index.html, getting-started.html, cli.html and techniques.html with no on-page pointer to the corpus fixture or command that produced them.",
-      "note": "corpus.html carries the canonical table; consider linking a `distil bench --corpus` (or equivalent) invocation next to it."
+      "note": "Sourced 2026-10-04 to the committed `distil bench` output, which states every per-domain figure and the 48.4% aggregate.",
+      "artifact": "benchmarks/results/2026-09-06/distil-bench-after-reread-delta.out",
+      "values": [
+        "32.8%",
+        "25.5%",
+        "32.6%",
+        "25.7%",
+        "18.1%",
+        "22.8%",
+        "24.9%",
+        "89.8%",
+        "35.3%",
+        "48.4%"
+      ]
     },
     {
-      "id": "u-compare-crusher-numbers",
-      "status": "unsourced",
-      "page": "compare.html",
-      "anchor": null,
-      "snippet": "on enum-heavy tool output",
-      "claim": "Field-note callout cites a reversible nested-JSON fold at ~62% on enum-heavy tool output and a zero-dependency code skeleton at ~44% on a TS file, with no named benchmark or fixture.",
-      "note": "Approximate (~) figures presented inline in prose, not in a results table."
-    },
-    {
-      "id": "u-subscription-bytes",
-      "status": "unsourced",
+      "id": "v-subscription-bytes",
+      "status": "verified",
       "page": "subscription.html",
       "anchor": "measured",
       "snippet": "18,214",
-      "claim": "\"What it measures\" paired live A/B table (18,214B->11,178B tool_result, -67.4% cache_creation, -68.3% cost-weighted) is a single unlabeled session with no fixture name or reproduction command.",
-      "note": "n=1 session, presented as illustrative rather than a certified benchmark."
+      "claim": "'What it measures' paired live A/B table: one session, one task (18,214B->11,178B tool_result, -67.4% cache_creation, -68.3% cost-weighted). The page labels it a single session and links the raw file.",
+      "note": "Sourced 2026-10-04: e15_paired_ab.json carries every row of the table.",
+      "artifact": "benchmarks/results/subscription-hook/e15_paired_ab.json",
+      "values": [
+        "38.6%",
+        "67.4%",
+        "68.3%"
+      ]
     },
     {
-      "id": "u-subscription-decision-equiv",
-      "status": "unsourced",
+      "id": "v-subscription-decision-equiv",
+      "status": "verified",
       "page": "subscription.html",
       "anchor": "measured",
       "snippet": "Arms agreed (hook on vs off)",
       "claim": "Decision-equivalence table (5/5 arms agreed, 5/5 correct each arm, n=5 decision-bearing tasks) has no named task list or fixture.",
-      "note": "Page itself says n=5 with no A/A arm is \"not a certificate\" — self-scoped, but still unsourced as a locatable artifact."
+      "note": "Sourced 2026-10-04; the artifact names the five tasks and records 5/5 agreement and correctness. n=5: catches a gross regression, certifies nothing.",
+      "artifact": "benchmarks/results/subscription-hook/e15c_decision_equivalence.json"
     },
     {
-      "id": "u-subscription-corpus-tally",
-      "status": "unsourced",
+      "id": "v-subscription-corpus-tally",
+      "status": "verified",
       "page": "subscription.html",
       "anchor": "where-zero",
       "snippet": "corpus contains 43 tool-output blocks",
       "claim": "\"distil's corpus contains 43 tool-output blocks; the five over 2KB have zero consecutive duplicate lines and zero JSON\" — no corpus file or command named.",
-      "note": "Likely the same corpus as corpus.html; not cross-linked."
+      "note": "Sourced 2026-10-04 to e15b_corpus_measurement.json (43 blocks, 5 over 2KB, 0 compressed).",
+      "artifact": "benchmarks/results/subscription-hook/e15b_corpus_measurement.json",
+      "values": [
+        "43"
+      ]
     },
     {
-      "id": "u-techniques-keepmodel",
-      "status": "unsourced",
+      "id": "v-techniques-keepmodel",
+      "status": "verified",
       "page": [
         "techniques.html",
         "faq.html",
@@ -242,41 +250,39 @@
       ],
       "anchor": "keep-model",
       "snippet": "96.4%",
-      "claim": "Keep-model codec comparison table: LogisticKeepModel 96.4% accuracy / 0.98 F1, TransformerKeepModel 96.3% (demo) — held-out set not named or linked.",
-      "note": "One column literally says \"(demo)\" for the transformer row, but the logistic row's 96.4%/0.98 has no named eval set either.",
+      "claim": "Keep-model: LogisticKeepModel 96.4% held-out accuracy / 0.98 F1 on the bundled corpus split (labels distilled from the salience heuristic). The TransformerKeepModel's 96.3% is a demo checkpoint attached to the v0.1.0 release, not committed, and labelled '(demo)' on the page.",
+      "note": "Sourced 2026-10-04: distil/codec/metrics.json (accuracy 0.9643, f1 0.98) regenerates from `python -m distil.codec.learned`.",
       "values": [
-        "96.4%",
-        "96.3%"
+        "96.4%"
       ],
-      "check": "manual",
-      "check_reason": "the held-out eval set is not named on the page and no run output is committed"
+      "artifact": "distil/codec/metrics.json"
     },
     {
-      "id": "u-techniques-salience",
-      "status": "unsourced",
-      "page": "techniques.html",
-      "anchor": "salience-protection",
-      "snippet": "0/120 survival rate",
-      "claim": "\"Blind truncation at a 200-token target produced a 0/120 survival rate on decision-carrying lines ... with salience protection enabled, that becomes 120/120\" — no named corpus or reproduction command.",
-      "note": "The 120-trajectory corpus isn't identified on this page."
-    },
-    {
-      "id": "u-techniques-cache-sim",
-      "status": "unsourced",
+      "id": "v-techniques-cache-sim",
+      "status": "verified",
       "page": "techniques.html",
       "anchor": null,
       "snippet": "cache-aware lossless)          0.01023",
       "claim": "`distil savings --pricing claude-opus-4-8` sample output (32.8% vs baseline, 1,028 cache hits) is illustrative terminal output, not tied to a named trajectory fixture.",
-      "note": "Command is real and runnable, but the specific numbers shown depend on whatever trajectory is passed — none is named."
+      "note": "Sourced 2026-10-04: the committed `distil savings` simulation run states the same rows (0.01524 / 0.01023, 1,028 cache hits).",
+      "artifact": "benchmarks/results/cache-aware-vs-naive-2026-09-24.json",
+      "values": [
+        "32.8%",
+        "26.8%"
+      ]
     },
     {
-      "id": "u-architecture-precondition",
-      "status": "unsourced",
+      "id": "v-architecture-precondition",
+      "status": "verified",
       "page": "architecture.html",
       "anchor": "measure-discover-certify",
       "snippet": "tokens provably free to drop: 615",
-      "claim": "Step-2 \"Discover\" example output (doc-0/doc-1 PRUNE, obs-0/obs-1/system keep, 615 tokens free to drop) is illustrative sample output with no named input trajectory.",
-      "note": "Demonstrates the DERC mechanism; not presented as a benchmark result."
+      "claim": "Step-2 'Discover' sample is the real `distil prune` output on sre-disk-incident: 615 tokens provably free to drop across 11 blocks.",
+      "note": "Replaced on 2026-10-04: the page's hand-written listing (2 blocks) did not match what the command prints; the page now shows the committed output.",
+      "artifact": "benchmarks/results/prune-sre-disk-incident-2026-10-04.out",
+      "values": [
+        "615"
+      ]
     },
     {
       "id": "v-compare-headroom-audit",
@@ -323,7 +329,7 @@
       "anchor": null,
       "snippet": "id=\"te-turns\"",
       "claim": "The multi-turn-tax interactive calculator's illustrative defaults (12 turns, 40,000-token fixed prefix, 3,000 new tokens/turn) are not tied to any measured session — they're calculator seed values, not a claim per se.",
-      "note": "Flagged by the audit; recorded here rather than silently ignored, since it's numeric and reader-facing even though it's an adjustable widget rather than a fixed claim."
+      "note": "The page now says the starting values are arbitrary calculator defaults, not a measured session (2026-10-04)."
     },
     {
       "id": "v-curve-lossless",
@@ -510,11 +516,17 @@
       ],
       "anchor": null,
       "snippet": null,
-      "claim": "Live shadow reading, 2026-09-15, distil 1.53.0rc1, paired estimator at signature v5: 398 A/B and 399 A/A samples, digest 206 / lossless-only 192, paired equivalence 97.5% with a 95% CI of [95.5, 99.5] from a paired difference of -0.025 [-0.045, -0.005]. Above the 50 A/B + 30 A/A reporting floor and below 99%, so every surface shows the warning glyph, not a check: the status line prints '⚠de 97.5% (398)'. Replays run hot (399 of 399, temperature not pinned), so the paired difference is the statistic and raw agreement reads 53.0%.",
+      "claim": "Live shadow reading, 2026-09-15, distil 1.53.0rc1, paired estimator at signature v5, reported PER MODE: digest A/B 102/206 vs A/A 113/206 (-5.3 pp, over the 5% budget); lossless-only 109/192 vs 109/193 (about 0). Pooled, 398 A/B and 399 A/A read 97.5% with a 95% CI of [95.5, 99.5] from a paired difference of -0.025 [-0.045, -0.005] — inside the budget only because lossless-only is averaged in. The status line still prints the pooled '⚠de 97.5% (398)'; every surface that explains it now states the per-mode split. Replays run hot, raw agreement 53.0%.",
       "artifact": "benchmarks/results/shadow-live-2026-09-15.json",
       "values": [
         "97.5%",
-        "53.0%"
+        "53.0%",
+        "102",
+        "206",
+        "113",
+        "109",
+        "192",
+        "193"
       ],
       "note": "Replaces the invented '✓eq 99.5%' that appeared on index.html twice and plugins/distil/README.md twice — a verdict distil/cli.py:1826 prints only at eq>=0.99, with a sample size (1.2k) about 3x the real one. Content-free summary of ~/.distil/shadow.jsonl from `distil shadow-stats --json`. The prior below-floor reading is w-shadow-sample."
     },
@@ -593,69 +605,60 @@
         "18%",
         "80%"
       ],
-      "note": "Headroom's row here is 0.27.0, like the live head-to-head; the 0.37.0 re-run is v-compare-fresh-headtohead."
+      "note": "benchmark.html now labels the table 'Unaudited' — the run predates the claims gate and its raw output was not committed (2026-10-04)."
     },
     {
-      "id": "u-readme-retention-hotpotqa",
-      "status": "unsourced",
+      "id": "v-readme-retention",
+      "status": "verified",
       "page": "../README.md",
       "anchor": null,
       "snippet": null,
-      "claim": "`distil retention --dataset hotpotqa` (n=100, 8 distractor paragraphs): distil reversible 14.3% savings at 100.0% answer recall and 100.0% gold-sentence recall, against truncation tuned to matched savings at 14.1% / 91.6% / 82.7%. Reversibility instead of lossiness is worth 21.4% recall as a macro mean over 9 domains (the fact-weighted mean reads 62.6%). Tool-call name survival at matched savings 90.1% vs 89.3%. Single-document examples: a Wikipedia article 94.9% saved with 0 facts lost, a Python docs page 86.9% with 0 lost. One HTML fixture moved the fact-weighted mean from 9.8% to 62.6% without the compressor changing, which is why the macro mean is the one published.",
-      "check": "manual",
-      "check_reason": "Runnable offline against a public dataset, but no run output is committed; HotpotQA itself is downloaded at run time rather than vendored.",
+      "claim": "`distil retention --dataset hotpotqa` (n=100): distil reversible 14.3% savings at 100.0% answer and gold-sentence recall vs truncation at matched savings 14.1% / 91.6% / 82.7%. Corpus: reversibility is worth 23.1% recall as a macro mean over 9 domains (fact-weighted 62.3%). BFCL: 91.4% savings, every gold name recoverable (none visible).",
       "values": [
         "14.3%",
         "100.0%",
         "14.1%",
         "91.6%",
         "82.7%",
-        "21.4%",
-        "62.6%",
-        "90.1%",
-        "89.3%",
-        "94.9%",
-        "86.9%",
-        "9.8%"
+        "23.1%",
+        "62.3%",
+        "91.4%"
       ],
-      "note": "Reproduce with `distil retention --dataset hotpotqa`; see docs/RUNNING-EVALS.md."
+      "note": "Re-run and committed 2026-10-04. The README's earlier 21.4% / 62.6% corpus figures and 90.1% / 89.3% BFCL figures were stale and are replaced; the HTML real-page table (94.9% / 86.9%) had no artifact and was removed.",
+      "artifact": "benchmarks/results/retention-2026-10-04.json"
     },
     {
-      "id": "u-readme-shape-dependent-savings",
-      "status": "unsourced",
+      "id": "v-readme-shape-dependent-savings",
+      "status": "verified",
       "page": "../README.md",
       "anchor": null,
       "snippet": null,
-      "claim": "Lossless savings are shape-dependent: verbose JSON (npm/pip/kubectl/terraform) 28-33%, duplicated log runs up to 99%, unique-line logs / prose / `git log` / `git diff` 0%, and distil's own eval corpus 0.00% because it contains no JSON and no consecutive duplicate lines. The structured fold reaches ~70-79% on tabular tool output. On a flat-rate subscription distil runs --lossless-only and measures 0.27%.",
-      "check": "manual",
-      "check_reason": "Ranges over input shapes rather than one run; the 0.0% floor on distil's own corpus is asserted by v-curve-lossless-only-zero against benchmarks/results/curve.json, the rest is not tied to a committed artifact.",
+      "claim": "Lossless savings are shape-dependent: verbose JSON (npm/pip/kubectl/terraform) 28-33%, duplicated log runs up to 99%, unique-line logs / prose / `git log` / `git diff` 0%, and distil's own eval corpus 0.00% because it contains no JSON and no consecutive duplicate lines. The README states the 0.00% next to the lossless-mode description and in the subscription section.",
       "values": [
         "33%",
         "99%",
-        "0.00%",
-        "0.27%",
-        "79%"
+        "0.00%"
       ],
-      "note": "The 0.27% subscription figure is the same measurement the subscription page carries."
+      "note": "Sourced 2026-10-04 to e15b. The unsourced '~70-79% smaller' structured-fold figure and the unsourced 0.27% subscription reading were removed from the README rather than kept without an artifact.",
+      "artifact": "benchmarks/results/subscription-hook/e15b_corpus_measurement.json"
     },
     {
-      "id": "u-readme-subscription-ab",
-      "status": "unsourced",
+      "id": "v-readme-subscription-ab",
+      "status": "verified",
       "page": [
         "../README.md",
         "subscription.html"
       ],
       "anchor": null,
       "snippet": null,
-      "claim": "Paired live A/B on one subscription session, both arms answering correctly: tool_result -38.6%, cache_creation -67.4%, cost-weighted -68.3%.",
-      "check": "manual",
-      "check_reason": "n=1 unlabelled session; see u-subscription-bytes, which flags the same run.",
+      "claim": "Single-session observation (labelled as such on the page): one paired live A/B on one subscription task, both arms answering correctly: tool_result -38.6%, cache_creation -67.4%, cost-weighted -68.3%; plus 5/5 agreement on five verifiable tasks (e15c).",
       "values": [
         "38.6%",
         "67.4%",
         "68.3%"
       ],
-      "note": "Adds the README's tool_result percentage to the figures u-subscription-bytes already covers."
+      "note": "Sourced 2026-10-04. Still n=1 for the percentages — the README now says so in so many words.",
+      "artifact": "benchmarks/results/subscription-hook/e15_paired_ab.json"
     },
     {
       "id": "v-readme-reread-share",
@@ -682,14 +685,12 @@
       ],
       "anchor": null,
       "snippet": null,
-      "claim": "Output-side generation shaping, A/B measured: -72.5% output tokens with a 95% CI of 67.5-77.1%, answer preserved 100%. Light mode trims 20-35%; compressing both sides is described as cutting total API spend by 50%+ per run on a workload where input and output cost roughly the same.",
+      "claim": "Output-shaping sample block (72.5%, CI 67.5-77.1%) is a hand-written n=6 fixture, labelled '(illustrative)' on both pages. The unsupported 'cuts total API spend by 50%+' sentence was removed on 2026-10-04. The block reports answer preserved 100% with a 95% CI; both are the fixture's, not a corpus result.",
       "check": "manual",
-      "check_reason": "The A/B is real but its run output is not committed; the 50%+ and 20-35% figures are an arithmetic consequence stated as a range, not a measurement.",
+      "check_reason": "Illustrative fixture output, labelled as such on the page; no corpus run exists to commit.",
       "values": [
         "72.5%",
-        "77.1%",
-        "35%",
-        "50%"
+        "77.1%"
       ],
       "note": "cli.html carries the same 72.5% figure in a sample block labelled (illustrative)."
     },
@@ -728,7 +729,7 @@
       "values": [
         "2×"
       ],
-      "note": "Flagged rather than removed: the mechanism and the fix are real and tested, the incident's own live numbers were never committed."
+      "note": "cache-contract.html now labels the 2x as one live A/B whose raw output was not committed (2026-10-04)."
     },
     {
       "id": "v-in-window-breaks-ledger",
@@ -784,24 +785,6 @@
         "0"
       ],
       "note": "benchmarks/in_window_prefix_breaks.py on this branch; transcript_replay.distil_breaks and distil_break_bytes are both 0."
-    },
-    {
-      "id": "u-live-cache-saving",
-      "status": "unsourced",
-      "page": [
-        "index.html",
-        "concepts.html"
-      ],
-      "anchor": null,
-      "snippet": null,
-      "claim": "Measured on the live path since 1.45: an identical 10-turn agent conversation costs 60% less through distil than direct, checked against the provider's own reported cache_read. index.html also carries a rounded '83%' certified-savings stat tile.",
-      "check": "manual",
-      "check_reason": "A single live session on the maintainer's machine with no committed artifact; the 83% tile is a rounding of v-proof-rollup's 83.2%.",
-      "values": [
-        "60%",
-        "83%"
-      ],
-      "note": "Flagged rather than removed: the mechanism is documented, the specific session is not."
     },
     {
       "id": "v-concepts-ltt-bound",
@@ -1109,6 +1092,71 @@
       "artifact": "benchmarks/results/swebench-outcome-300-grepfix/report.md",
       "values": [
         "3.1%"
+      ]
+    },
+    {
+      "id": "v-swebench-outcome-served",
+      "status": "verified",
+      "page": [
+        "index.html",
+        "../README.md",
+        "compare.html",
+        "benchmark.html",
+        "benchmarks.html",
+        "llms.txt",
+        "research.html",
+        "concepts.html",
+        "output.html"
+      ],
+      "anchor": null,
+      "snippet": null,
+      "claim": "The shipped path on SWE-bench Lite (all 300 tasks, two runs after the shell-search fix, official grader, prompt caching on both arms): 204/299 vs 210/299 plain (-2.0 pts, 95% CI -5.5..+1.5, cost $7.18 vs $7.18) and 213/298 vs 218/298 (-1.7 pts, 95% CI -5.1..+1.7, cost $8.44 vs $8.52). Cost-neutral and within about 2 points on task success; not statistically distinguishable; non-inferiority at the 5-point margin not shown; long sessions not measured.",
+      "artifact": "benchmarks/results/swebench-outcome-300-medium/report.md",
+      "values": [
+        "213",
+        "218",
+        "298",
+        "1.7",
+        "5.1",
+        "2.0",
+        "5.5",
+        "8.44",
+        "8.52"
+      ],
+      "note": "Replaces the E14 research result as the public task-outcome claim (2026-10-04). The low-effort run's 204/299 and $7.18 are in swebench-outcome-300-grepfix/report.md (v-swebench-outcome-300-grepfix)."
+    },
+    {
+      "id": "v-scoreboard-swebench-lite-300-medium",
+      "status": "verified",
+      "page": "scoreboard.html",
+      "anchor": "swebench-lite-300-medium",
+      "claim": "Scoreboard, SWE-bench Lite: claude-sonnet-5-5 at effort medium: plain 218/298 (73.2%, 95% CI 67.9-77.9%), distil-served 213/298 (71.5%, 66.1-76.3%); $ per solved task $0.0387 vs $0.0393 over the 298 tasks graded in both arms. rtk, selective and provider-cm arms: pending run.",
+      "note": "docs/scoreboard.json is generated by scripts/build_scoreboard.py from benchmarks/results/swebench-outcome-300-medium/results.jsonl + grades.jsonl with benchmarks.swebench_outcome.report.analyse (the same numbers as that run's report.md); tests/test_scoreboard.py fails if docs/scoreboard.{json,html} drift from the run's files.",
+      "artifact": "docs/scoreboard.json",
+      "values": [
+        "73.2%",
+        "67.9%",
+        "77.9%",
+        "71.5%",
+        "66.1%",
+        "76.3%"
+      ]
+    },
+    {
+      "id": "v-scoreboard-swebench-lite-300-low",
+      "status": "verified",
+      "page": "scoreboard.html",
+      "anchor": "swebench-lite-300-low",
+      "claim": "Scoreboard, SWE-bench Lite: claude-sonnet-5-5 at effort low: plain 210/299 (70.2%, 95% CI 64.8-75.1%), distil-served 204/299 (68.2%, 62.7-73.2%); $ per solved task $0.0341 vs $0.0351. Plain rows reused from swebench-outcome-300.",
+      "note": "docs/scoreboard.json is generated by scripts/build_scoreboard.py from benchmarks/results/swebench-outcome-300-grepfix/results.jsonl + grades.jsonl with benchmarks.swebench_outcome.report.analyse (the same numbers as that run's report.md); tests/test_scoreboard.py fails if docs/scoreboard.{json,html} drift from the run's files.",
+      "artifact": "docs/scoreboard.json",
+      "values": [
+        "70.2%",
+        "64.8%",
+        "75.1%",
+        "68.2%",
+        "62.7%",
+        "73.2%"
       ]
     }
   ]

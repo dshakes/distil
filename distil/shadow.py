@@ -259,6 +259,23 @@ def cost_delta(rows: list[ReplayCost]) -> CostDelta | None:
     )
 
 
+def _equivalence(n_ab: int, eq_ab: int, n_aa: int, eq_aa: int, diffs: list[int]) -> Equivalence:
+    p_ab = (eq_ab / n_ab) if n_ab else None
+    p_aa = (eq_aa / n_aa) if n_aa else None
+    return Equivalence(
+        n_ab=n_ab,
+        n_aa=n_aa,
+        p_ab=p_ab,
+        p_ab_ci=wilson_ci(eq_ab, n_ab) if n_ab else None,
+        p_aa=p_aa,
+        p_aa_ci=wilson_ci(eq_aa, n_aa) if n_aa else None,
+        diff=(sum(diffs) / len(diffs)) if diffs else None,
+        diff_ci=bootstrap_ci(diffs) if diffs else None,
+        estimator="paired" if diffs else "legacy-unpaired",
+        n_paired=len(diffs),
+    )
+
+
 @dataclass
 class ModeArm:
     """Per-mode tallies. lossless-only and digest are different experiments —
@@ -951,20 +968,19 @@ class ShadowLedger:
             n_ab, n_aa = self.samples, self.aa_samples
             eq_ab, eq_aa = n_ab - self.changes, n_aa - self.aa_changes
             diffs = list(self.paired_diffs)
-        p_ab = (eq_ab / n_ab) if n_ab else None
-        p_aa = (eq_aa / n_aa) if n_aa else None
-        return Equivalence(
-            n_ab=n_ab,
-            n_aa=n_aa,
-            p_ab=p_ab,
-            p_ab_ci=wilson_ci(eq_ab, n_ab) if n_ab else None,
-            p_aa=p_aa,
-            p_aa_ci=wilson_ci(eq_aa, n_aa) if n_aa else None,
-            diff=(sum(diffs) / len(diffs)) if diffs else None,
-            diff_ci=bootstrap_ci(diffs) if diffs else None,
-            estimator="paired" if diffs else "legacy-unpaired",
-            n_paired=len(diffs),
-        )
+        return _equivalence(n_ab, eq_ab, n_aa, eq_aa, diffs)
+
+    def equivalence_by_mode(self) -> dict[str, Equivalence]:
+        """The same estimator, per compression mode. The pooled number averages
+        lossless-only (which barely changes a byte) with digest, so it can sit inside
+        the budget while digest alone does not — every surface that prints the pooled
+        verdict prints these beside it, and the drift guard decides on these alone."""
+        with self._lock:
+            arms = {
+                m: (a.ab_n, a.ab_eq, a.aa_n, a.aa_eq, list(a.diffs))
+                for m, a in self.by_mode.items()
+            }
+        return {m: _equivalence(*arm) for m, arm in sorted(arms.items()) if arm[0] or arm[2]}
 
     def cost(self) -> CostDelta | None:
         """Output-token and net-dollar effect of compression, or None with no rows."""

@@ -502,12 +502,11 @@
 <main>
 <section id="proof-first"><div class="wrap">
   <div class="seyebrow p">The proof, in depth</div>
-  <p class="sub"><b>Every other compressor asks you to <em>trust</em> it won't break your agent. Distil is the only one that <b>proves</b> it won't.</b></p>
-  <p class="sub" style="font-size:17px">On <b>500 real coding tasks</b>, compressed context <b>matched full context within statistical noise</b> —
-    <b>42.0% vs 39.2% tasks solved</b>
-    <small>(<a href="compare.html">SWE-bench Verified, E14</a>; 95% CI &minus;0.6..+6.2pp — no significant difference).
-    That pair is <em>task success</em>, not a compression ratio — how much smaller the context got is a
-    separate number, and it depends on your traffic: see <a href="research.html">the measured savings</a>.</small></p>
+  <p class="sub"><b>Distil is the compressor that tells you when it is hurting you — and measures any other compressor, or your provider's own compaction, the same way.</b></p>
+  <p class="sub" style="font-size:17px">On <b>SWE-bench Lite</b> the shipped path is <b>cost-neutral and within about 2 points on task success</b> — not statistically distinguishable at n=300.
+    <small>Two runs after the shell-search fix: 204/299 vs 210/299 plain (&minus;2.0 pts, 95% CI &minus;5.5..+1.5, cost $7.18 vs $7.18) and
+    213/298 vs 218/298 (&minus;1.7 pts, 95% CI &minus;5.1..+1.7, cost $8.44 vs $8.52). Non-inferiority at the pre-registered 5-point
+    margin is not shown, and long sessions are not yet measured at A/B grade. <a href="model-migration.html">Reports and method &rarr;</a></small></p>
   <p class="sub" style="font-size:15px;margin-top:26px">Four things are proven rather than promised, and each has its own page:
     a <a href="cache-contract.html"><b>cache contract</b></a> (compression may never rewrite bytes the provider already cached),
     a <a href="threat-model.html"><b>COMA-class adversarial gate</b></a> (with the two cases that don't come back clean published),
@@ -516,19 +515,19 @@
   <p class="sub" style="font-size:13px;opacity:.85">Honest scope: the certificate covers
       <b>decision-equivalence on a trajectory corpus</b>, not end-to-end task success — on real SWE-bench
       Verified the proxy <b>does not transfer</b> once compression gets aggressive, and we publish that.
-      Relevance-gated reversible compression is the one condition proven non-inferior to full context —
+      Research configurations that did better there are not what ships —
       <a href="concepts.html#honest-scope">full statement, CIs and ablations &rarr;</a></p>
 
   <div class="stats">
     <div class="stat hl">
-      <div class="n">83<s>%</s></div>
-      <div class="l">Certified savings, <b>live</b></div>
-      <div class="foot">graded by claude-opus-4-8 · decision-determined corpus</div>
+      <div class="n">~9<s>%</s></div>
+      <div class="l">Off a <b>real</b> bill</div>
+      <div class="foot">maintainer's metered traffic · Sep 2026 · net of distil's own spend</div>
     </div>
     <div class="stat hl">
-      <div class="n">0<s>%</s></div>
-      <div class="l">Live decision change</div>
-      <div class="foot">≤5% guaranteed at 95% confidence — Learn-Then-Test</div>
+      <div class="n">37/40</div>
+      <div class="l">Decisions changed by Anthropic's context clearing</div>
+      <div class="foot">measured with <a href="provider-compaction.html">certify-provider</a> · keep=0 · n=40</div>
     </div>
     <div class="stat">
       <div class="n">~1000<s>×</s></div>
@@ -546,7 +545,7 @@
 
 <section id="why"><div class="wrap">
   <div class="seyebrow p">The difference</div>
-  <h2 style="margin-top:0">Every other compressor <b class="w">trusts</b>.<br>Distil <b class="g">proves</b>.</h2>
+  <h2 style="margin-top:0">Most compressors ask for <b class="w">trust</b>.<br>Distil <b class="g">measures</b> — and says when it hurts.</h2>
   <div class="vs">
     <div class="col bad">
       <div class="vk">✗ Trust · every other compressor</div>
@@ -566,7 +565,7 @@
         <li><b>Tested against hostile input</b>, not just hard input — and the two cases that fail are on the page</li>
         <li><b>Fails closed</b> — if quality would drop, it doesn't compress</li>
       </ul>
-      <div class="vfoot">signed certificate · <span style="color:var(--warn)">live eq 97.5% [95.5, 99.5], n=398 · 2026-09-15</span></div>
+      <div class="vfoot">signed certificate · <span style="color:var(--warn)">live, per mode (2026-09-15): digest &minus;5.3 pp vs self-agreement, over budget · lossless-only ≈0</span></div>
     </div>
   </div>
 </div></section>
@@ -607,10 +606,10 @@
       context <b>size</b>. Distil keeps the prefix byte-stable and compresses only the
       volatile tail. Naive recompression sends fewer tokens yet costs <b>more</b>, because
       it rewrites the cached prefix every turn.</p>
-      <p class="note">Measured on the live path since 1.45: an identical 10-turn agent
-      conversation costs <b>60% less</b> through distil than direct, with the provider's own
-      <code>cache_read</code> confirming the prefix survived every turn. Before 1.45 the live
-      adapter had the failure it names above — it cost 2× direct. See
+      <p class="note">Since 1.45 the live adapter keeps the cached prefix byte-stable, and the
+      provider's own <code>cache_read</code> confirms the prefix survives every turn (a live A/B whose
+      raw output was not committed). Before 1.45 the live adapter had the failure it names above —
+      in that same A/B it cost 2× direct. See
       <a href="https://github.com/dshakes/distil/blob/main/docs/CACHE.md">CACHE.md</a>.</p>
     </div>
     <div class="card">
@@ -643,9 +642,11 @@
       <code>1{A=B} − 1{A=A′}</code> with a bootstrap 95% CI, <b>unclipped</b>. A ratio
       clamped at zero can never report harm; a difference can. One reporting floor
       (50 A/B + 30 A/A) gates every surface, and below it each one prints
-      <i>below reporting floor</i> instead of a number. The maintainer's live sample cleared
-      that floor on 2026-09-15: <b>97.5%</b> [95.5, 99.5] over n=398 A/B and 399 A/A,
-      paired difference −0.025 [−0.045, −0.005].</p>
+      <i>below reporting floor</i> instead of a number. It reports <b>per compression mode</b>,
+      because pooling hides the one that hurts: on the maintainer's 2026-09-15 sample, digest agreed
+      102/206 times against a self-agreement of 113/206 (<b>&minus;5.3 pp, over the budget</b>) while
+      lossless-only read 109/192 against 109/193 (≈0). The drift guard now holds digest at
+      lossless-only wherever its recent harm bound is over budget.</p>
     </div>
     <div class="card">
       <span class="tag">TECHNIQUE #5</span>
@@ -674,10 +675,10 @@
   <img loading="lazy" src="assets/head-to-head.svg" alt="Live head-to-head: Distil vs LLMLingua-2 vs Headroom" style="width:100%;border:1px solid var(--line);border-radius:16px;margin:6px 0 10px"/>
   <div class="callout" style="margin-bottom:22px">
     <b>On the decision-equivalence proxy, Distil is the most aggressive, fully decision-equivalent, and lowest-latency.</b>
-    Certified <b>83.2% token savings at a 0% decision-change rate</b> (≤5% at 95% confidence) — while LLMLingua-2 cuts 53% but flips
+    On a <b>synthetic</b> 120-turn offline corpus, certified <b>83.2% token savings at a 0% decision-change rate</b> (≤5% at 95% confidence) — while LLMLingua-2 cuts 53% but flips
     1-in-8 decisions. <a href="benchmark.html#live-head-to-head">See the full live benchmark →</a>
     <br><span style="font-size:12.5px;opacity:.8"><b>Dated:</b> 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0. Headroom has moved since: re-run 2026-09-04 against <b>headroom-ai 0.37.0</b>, distil-causal takes 52.9% tokens / 58.7% dollars at 100% decision-equivalence (PASS) against Headroom’s 1.7% / 2.0% / 81% (FAIL) on the warm corpus gate, and on the read→edit→re-read codebench workload Headroom takes 35.6% tokens for +4.9% dollars. The “2.1× less aggressive” ratio is from 0.27.0 and does not survive the re-run. <a href="compare.html#headroom-fresh">Fresh head-to-head →</a></span>
-    <br><span style="font-size:12.5px;opacity:.8"><b>Proxy caveat:</b> this is next-action equivalence on a (partly synthetically decision-determined) corpus — not end-to-end task success. On <a href="research.html#e7">real SWE-bench Verified (E7)</a> aggressive compression drops pass@1 52%→16%; the proxy certificate does not transfer. <a href="research.html#e8">E8</a> (500-instance long-horizon ReAct agent, 6 conditions, full 500-instance SWE-bench Verified) shows relevance-gated reversible compression is non-inferior to full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9]; McNemar p=0.19), beats Headroom by +4.2&nbsp;pp (p=0.035), and beats LLMLingua-2 by 34 points (36.8% vs 2.4% pass@1, p&lt;0.001) at nearly identical context-reduction ratios. The newest digest (<a href="compare.html">E14</a>) keeps this <b>on par with full context — 42.0% vs 39.2%</b> (paired CI &minus;0.6..+6.2pp; non-inferiority certified, superiority not yet significant). Distil is the only certified and reversible compressor in the comparison; it does not claim cheapest.</span>
+    <br><span style="font-size:12.5px;opacity:.8"><b>Proxy caveat:</b> this is next-action equivalence on a (partly synthetically decision-determined) corpus — not end-to-end task success. On <a href="research.html#e7">real SWE-bench Verified (E7)</a> aggressive compression drops pass@1 52%→16%; the proxy certificate does not transfer. Research configurations (<a href="research.html#e8">E8–E14</a>) did better on SWE-bench Verified; they are not the shipped path, and the shipped path's task outcome is the SWE-bench Lite result at the top of this page.</span>
   </div>
   <p class="lead" style="margin-top:8px">Underneath it: a strategy ships only if a pre-registered non-inferiority test certifies it.
     Lossless passes; quality-degrading compression is rejected.</p>

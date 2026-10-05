@@ -36,21 +36,33 @@ from typing import Any, Callable
 from . import config_wrap
 from . import coldpoint as _coldpoint
 from ._log import log
-from .adapters.anthropic import compress_messages
-from .adapters.gemini import compress_generate_request
-from .adapters.gemini import count_tokens
 from .adapters.gemini import is_gemini_path
 from .httpguard import (
     framing_rejection,
-    is_chat_completions_path,
     is_compressible_path,
     is_messages_path,
-    is_responses_path,
     parse_content_length,
     safe_forward_path,
     strip_query,
 )
 from .otel import request_span, set_result_attrs
+from .prefixreplay import credential_scope as _credential_scope
+from .pricing import DEFAULT_MODEL
+from .serve_core import (  # noqa: F401 — re-exported: tests and siblings import them from here
+    _STREAM_ONLY_FIELDS,
+    _ErrStream,
+    _expand_should_intercept,
+    _has_recoverable_stub,
+    _is_timeout,
+    _model_from_path,
+    _serialize_if_changed,
+    _unstream_path,
+    buffer_for_expand,
+    compress_or_forward,
+    open_stream,
+    run_expand,
+    sse_body,
+)
 from .tokenizer import DEFAULT as _tokenizer
 
 # ---------------------------------------------------------------------------
@@ -74,26 +86,6 @@ _HOP_BY_HOP = frozenset(
         "upgrade",
     }
 )
-
-# A distil digest stub embeds an 8-hex content handle ("<< +N lines, handle=1a2b3c4d >>",
-# columnar/delta variants). RestoreStore persists to disk, so a stub can outlive the
-# request that created it and be expanded turns later.
-_HANDLE_STUB_RE = re.compile(r"handle=[0-9a-fA-F]{6,}")
-
-
-def _has_recoverable_stub(body: dict) -> bool:
-    """True if the outgoing conversation still carries any distil digest handle.
-
-    Checks ``messages`` (Anthropic/OpenAI Chat), ``contents`` (Gemini), and
-    ``input`` (OpenAI Responses API) so cross-turn handle detection works for
-    all request shapes.
-    """
-    try:
-        msgs = body.get("messages") or body.get("contents") or body.get("input") or []
-        blob = json.dumps(msgs)
-    except (TypeError, ValueError):
-        return False
-    return _HANDLE_STUB_RE.search(blob) is not None
 
 
 def _cache_ttl(usage: dict[str, Any], key: str) -> int | None:
@@ -226,70 +218,6 @@ def requery_input_equiv(usage: dict[str, int] | None, model: str | None) -> int:
     return billed_input_equiv(usage, model, prefix="requery_")
 
 
-def _serialize_if_changed(raw: bytes, body: dict[str, Any]) -> bytes:
-    """Return the ORIGINAL bytes when the body is unchanged; re-serialize only if not.
-
-    The provider's prompt cache matches on exact bytes, and ``json.dumps`` is not a
-    byte-faithful round-trip of what arrived: key order survives, but separators
-    (``", "`` vs ``","``) and non-ASCII escaping (``\\uXXXX`` vs raw UTF-8) do not.
-    Re-encoding an *unmodified* body therefore rewrites the cached prefix and turns
-    cheap cache reads into expensive cache writes — while saving nothing, because
-    nothing was compressed. That is the worst possible trade, and it is exactly what
-    lossless-only mode did on a subscription: 0% savings at measured 1.56x baseline
-    cache-creation tokens (2.52x on short sessions).
-
-    Comparing the parsed body against a re-parse of the original is O(body) and runs
-    once per request — far cheaper than re-billing the prefix. When a transform did
-    change something we re-serialize compactly and accept the byte drift, because
-    then the bytes genuinely differ anyway.
-    """
-    try:
-        if json.loads(raw) == body:
-            return raw
-    except (ValueError, TypeError):
-        pass  # unparseable original — fall through and serialize what we have
-    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
-
-
-def _expand_should_intercept(expand: bool, store: object, body: dict) -> bool:
-    """Whether the expand tool must be injected AND the response buffered to run the
-    expand loop. True whenever expand mode is on and the outgoing conversation carries
-    ANY recoverable handle — one created THIS request, or one that persisted from an
-    earlier turn. Keying on ``store.handles`` alone (this request only) let a *streamed*
-    turn that digested nothing new but referenced an older stub emit a ``distil_expand``
-    tool_use with no tool injected and no expand loop, so the call escaped to the client
-    as "No such tool available" (#25). Cheap case (new handles this request) short-circuits
-    before the message scan.
-    ponytail: buffering whenever a stub is in context costs streaming TTFT on long expand
-    sessions; that is the price of never leaking an unresolvable tool call. Stream-intercept
-    of the tool_use frame would recover TTFT if it ever matters."""
-    if not expand:
-        return False
-    if getattr(store, "handles", None):
-        return True
-    return _has_recoverable_stub(body)
-
-
-# Body fields that are only legal on a streaming request. Dropped together when an
-# intercepted request is forced to buffered mode — a leftover stream_options with no
-# stream:true is a 400 from OpenAI, not a warning.
-_STREAM_ONLY_FIELDS = frozenset({"stream", "stream_options"})
-
-
-def _unstream_path(target: str) -> str:
-    """The non-streaming twin of a request target.
-
-    OpenAI names the streaming mode in the body (``stream: true``), but Gemini names
-    it in the URL (``:streamGenerateContent`` plus ``alt=sse``). Dropping ``stream``
-    from a Gemini body would leave it streaming anyway, so the path has to change too.
-    """
-    path, _, query = target.partition("?")
-    path = path.replace(":streamGenerateContent", ":generateContent")
-    if query:
-        query = "&".join(p for p in query.split("&") if p != "alt=sse")
-    return f"{path}?{query}" if query else path
-
-
 # Upstream socket timeout (seconds). Generous — LLM generations run minutes —
 # but finite, so a wedged upstream can never pin a worker thread forever.
 _UPSTREAM_TIMEOUT = float(os.environ.get("DISTIL_UPSTREAM_TIMEOUT", "600"))
@@ -302,10 +230,6 @@ _UPSTREAM_TIMEOUT = float(os.environ.get("DISTIL_UPSTREAM_TIMEOUT", "600"))
 # idle agent between turns is sitting in exactly this read — but finite, so a
 # stalled client leaks a thread for minutes instead of for the process's life.
 _CLIENT_TIMEOUT = float(os.environ.get("DISTIL_CLIENT_TIMEOUT", "600"))
-
-
-def _is_timeout(exc: urllib.error.URLError) -> bool:
-    return isinstance(exc.reason, (socket.timeout, TimeoutError))
 
 
 class QuietHTTPServer(ThreadingHTTPServer):
@@ -458,23 +382,6 @@ def _build_opener() -> urllib.request.OpenerDirector:
 _OPENER = _build_opener()
 
 
-class _ErrStream:
-    """Adapt a urllib error (or a synthetic status) to the streamexpand response
-    interface — ``.status`` / ``.headers.items()`` / ``.read1(n)`` — so the streaming
-    expand sender never raises and a non-2xx first response relays cleanly."""
-
-    def __init__(self, status: int, headers: Any, body: bytes) -> None:
-        self.status = status
-        self.headers = headers  # http.client.HTTPMessage or dict — both expose .items()
-        self._buf = body
-        self._i = 0
-
-    def read1(self, n: int) -> bytes:
-        out = self._buf[self._i : self._i + n]
-        self._i += len(out)
-        return out
-
-
 # ---------------------------------------------------------------------------
 # Token-saving estimator
 # ---------------------------------------------------------------------------
@@ -594,16 +501,6 @@ def _adapter_quote_hazard() -> dict[str, int] | None:
 def _tokens_saved(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> int:
     """Rough estimate of tokens saved via the default heuristic tokeniser."""
     return max(0, _count_messages(before) - _count_messages(after))
-
-
-def _model_from_path(path: str) -> str | None:
-    """Extract the model id from a Gemini-style URL (``.../models/<id>:action``)."""
-    marker = "/models/"
-    idx = path.find(marker)
-    if idx < 0:
-        return None
-    tail = path[idx + len(marker) :]
-    return tail.split(":", 1)[0].split("/", 1)[0] or None
 
 
 # ---------------------------------------------------------------------------
@@ -737,12 +634,14 @@ def build_handler(
     # agent can never recover a Tier-1 digest stub, so a stub there is irreversibly
     # lossy. Force Tier-0-only (verbatim) whenever lossless_only is set. The label
     # above stays distinct so x-distil-mode still reports which of the two it is.
-    from .policy import AuthMode, may_compress_lossy
+    from .policy import may_compress_lossy, session_auth_mode
 
     # Route the lossy-allowed decision through policy as the single source of truth:
     # subscription / OAuth sessions are lossless-only (a tightening boundary a project
     # can never loosen). This forces Tier-0-only (verbatim) and gates output shaping.
-    _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
+    # Keyed on real billing, not just the flag: `--expand` on a subscription leaves
+    # lossless_only False, and must still never get output shaping.
+    _auth_mode = session_auth_mode(lossless_only)
     _lossy_ok = may_compress_lossy(_auth_mode)
     # Resolve `auto` HERE, where the policy answer already is — every entry point
     # (serve, wrap_run's in-thread proxy, the hot-swap worker, aproxy) builds its
@@ -858,6 +757,21 @@ def build_handler(
     def _learn_keep(text: str) -> bool:
         return _outcome_keep(text) or (_expand_keep is not None and _expand_keep(text))
 
+    def _on_compressed(kind: str, original: Any, compressed: Any, store: Any) -> None:
+        """After the messages/contents compressors (serve_core): tally what was digested
+        by content-free signature, and feed the live retention meter (messages only)."""
+        if _learn_stats is not None and getattr(store, "handles", None):
+            from .learn import signature
+
+            for h in store.handles:
+                try:
+                    _learn_stats.record_digest(signature(store.expand(h)))
+                except Exception:  # noqa: BLE001 — learning never breaks a request
+                    log.debug("learning tally failed", exc_info=True)
+        # Live retention meter: sampled, content-free (counts only), fail-open.
+        if kind == "messages" and _retention_meter is not None and _retention_meter.enabled:
+            _retention_meter.observe(original, compressed, store)
+
     # Shadow-mode live decision-equivalence: sample a fraction of requests, run the
     # decision uncompressed too (in the background), and record whether it matched.
     _shadow_sampler = None
@@ -877,6 +791,17 @@ def build_handler(
         _shadow_sampler = ShadowSampler(shadow_rate)
         _shadow_ledger = ShadowLedger()
         _shadow_counters = ShadowCounters()
+
+    # `distil audit`: None unless the user opted in (distil/referee.py). Never on a
+    # held-out session (every lever off) or a diagnostic handler, and never on a
+    # subscription/OAuth session: `_lossy_ok` comes from real billing
+    # (policy.session_auth_mode), and a replay there draws on the plan's rate limit
+    # while the per-token dollar cap means nothing on flat-rate billing. Fail-open.
+    _auditor = None
+    if _lossy_ok and not (_holdout or diagnostic):
+        from .referee import Auditor
+
+        _auditor = Auditor.load()
 
     # Live fact-retention meter: same posture as shadow (sampled, off by default), but
     # cheaper — it needs no second upstream call, only an in-process scan, and it
@@ -909,7 +834,17 @@ def build_handler(
             held = False
         return held, ("lossless-only" if held and not verbatim else _mode_label)
 
-    if _request_mode()[0] and not verbatim:
+    if _request_mode()[0] and not verbatim and not _drift_guard.held:
+        import sys as _sys
+
+        print(
+            "distil: lossy compression is not certified on this machine's traffic — "
+            f"{_drift_guard.uncertified}. Serving lossless-only; it re-checks hourly and "
+            "resumes once fresh evidence is inside the budget. Opt out: "
+            "DISTIL_NO_DRIFT_GUARD=1.",
+            file=_sys.stderr,
+        )
+    elif _request_mode()[0] and not verbatim:
         import sys as _sys
 
         print(
@@ -1189,11 +1124,6 @@ def build_handler(
             if _held and savings is not None:
                 savings.mode = _req_mode
             _cold_scope = _coldpoint.account_scope(headers) if _cold_on else ""
-            # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
-            # conversation, and the items as the CLIENT sent them this turn. Set by
-            # whichever adapter branch runs; consumed once, just before serialization.
-            _replay_key: str | None = None
-            _replay_orig: list[Any] | None = None
             store: Any = None  # RestoreStore once messages are compressed (for expand)
             before_tok: int | None = None  # set only if a messages/gemini branch below runs
             after_tok: int | None = None
@@ -1242,318 +1172,34 @@ def build_handler(
                 # Control arm: the original bytes go upstream untouched (body is not
                 # reassigned, so _serialize_if_changed returns `raw`), nothing is booked.
                 extras = {"x-distil-mode": "verbatim", "x-distil-arm": "holdout"}
-            elif is_responses_path(_path) and isinstance(body.get("input"), list):
-                # OpenAI Responses API: compress ``function_call_output`` items
-                # (Tier-1 reversible digest) and user ``message`` items (Tier-0).
-                from .adapters.openai import compress_responses_input, count_responses_tokens
-
-                _orig_input: list[dict[str, Any]] = body["input"]
-                _replay_key, _replay_orig = "input", _orig_input
-                before_tok = count_responses_tokens(_orig_input)
-                try:
-                    _compressed_input, store = compress_responses_input(
-                        _orig_input, verbatim=_verb, keep=_learn_keep
-                    )
-                except Exception:  # noqa: BLE001 — compression must never break a request
-                    log.debug(
-                        "compress_responses_input failed; forwarding uncompressed", exc_info=True
-                    )
-                    _compressed_input, store = _orig_input, None
-                after_tok = count_responses_tokens(_compressed_input)
-                saved = max(0, before_tok - after_tok)
-                body = {**body, "input": _compressed_input}
-                extras = {
-                    "x-distil-compressed": "1",
-                    "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _req_mode,
-                    "x-distil-compressible-tokens": str(before_tok),
-                }
-                if savings is not None:
-                    _pending_savings = (before_tok, after_tok, body.get("model"))
-                # Recoverable compression: inject distil_expand so the model can pull
-                # back any digested block by handle. Session-sticky (see the messages
-                # path): a tools array that changes shape mid-session invalidates the
-                # provider's cached prefix, which costs far more than one tool def.
-                if expand:
-                    from .expand import inject_expand_tool_responses
-
-                    body = inject_expand_tool_responses(body)
-                # Output shaping: append verbosity directive to top-level ``instructions``.
-                if shape_output != "off" and _shape_ok:
-                    from .output import shape_request
-
-                    body = shape_request(body, level=shape_output, allow=True, shape="responses")
-                    extras["x-distil-output-shaping"] = shape_output
-
-            elif "messages" in body and isinstance(body["messages"], list):
-                original: list[dict[str, Any]] = body["messages"]
-                _replay_key, _replay_orig = "messages", original
-                # Cache-delta coding (opt-in): cross-turn dedup + cross-version delta,
-                # applied to the ORIGINALS before compression so re-reads match across
-                # turns. Cache-monotonic (suffix-only) and reversible.
-                pre = original
-                _dstats = None
-                _dstore = None
-                # Decided ONCE, above both users. The keep-list below and the compressor
-                # dispatch further down must agree on which shape this body is, or the
-                # exemption is computed by the wrong adapter and comes back empty — which
-                # on an Azure Chat Completions path is exactly the guarantee-voiding bug
-                # this block exists to fix, reintroduced by a second, narrower path test.
-                _is_chat = is_chat_completions_path(_path)
-                if session_delta:
-                    try:
-                        from .cachedelta import delta_encode, get_session, session_key
-
-                        _sess = get_session(session_key(original))
-                        # Order matters and used not to. delta_encode ran FIRST and
-                        # replaced tool_result bodies with references — including the
-                        # file reads compress_messages was about to keep byte-exact, so
-                        # turning --session-delta on silently voided the 1.49.0
-                        # exact-quote guarantee and the agent's next Edit could not
-                        # match. Running delta AFTER compression is not the fix: it
-                        # would delta against digest stubs and rewrite blocks the
-                        # provider already cached, breaking cache-monotonicity — the
-                        # one property delta_encode's suffix-only design exists to
-                        # preserve. So the order stands and delta simply skips the
-                        # exempt blocks. They stay registered as delta bases, so later
-                        # re-reads still dedup against them.
-                        if _is_chat:
-                            from .adapters.openai import (
-                                exact_quote_tool_call_ids as _exact_ids_fn,
-                            )
-                        else:
-                            from .adapters.anthropic import (
-                                exact_quote_tool_use_ids as _exact_ids_fn,
-                            )
-                        pre, _dstore, _dstats = delta_encode(
-                            original,
-                            session=_sess,
-                            keep_ids=frozenset(_exact_ids_fn(original)),
-                        )
-                    except Exception:  # noqa: BLE001 — never break a request
-                        log.debug("cache-delta encode failed", exc_info=True)
-                        pre, _dstore, _dstats = original, None, None
-                # Dispatch to the right compressor: OpenAI Chat Completions needs
-                # a dedicated adapter (role:"tool" list content is Tier-1; the
-                # Anthropic adapter applies Tier-0 to generic list text items).
-                # /v1/messages stays on the Anthropic adapter.
-                if _is_chat:
-                    from .adapters.openai import compress_chat_completions
-
-                    _compress_fn = compress_chat_completions
-                else:
-                    _compress_fn = compress_messages
-                # Cold-point recompression (ADR 0014), Anthropic Messages only. Fail-open:
-                # any error plans nothing and the request compresses exactly as before.
-                _cold_plan: Any = None
-                _cold_kw: dict[str, Any] = {}
-                if _cold_on and not _is_chat:
-                    try:
-                        from . import prefixreplay as _prep
-                        from .adapters.anthropic import cold_candidates
-
-                        # Account scope, not the credential: an OAuth bearer refreshes
-                        # mid-session and must not fork the lineage (ADR 0014).
-                        _ck = _cold_scope + _prep.lineage_key(body, original)
-                        _cold_plan = _coldpoint.plan(
-                            _ck,
-                            body,
-                            original,
-                            lambda: cold_candidates(
-                                original,
-                                keep=_learn_keep,
-                                exclude_handles=_coldpoint.expanded(_cold_scope),
-                            ),
-                            # A drift-guard hold decides nothing new: the evicted set
-                            # keeps applying (byte-stable prefix), no fresh eviction.
-                            held=_held,
-                        )
-                        self._distil_cold_key = _ck
-                        if _cold_plan.evict:
-                            _cold_kw = {"evict": _cold_plan.evict}
-                    except Exception:  # noqa: BLE001 — never break a request for a saving
-                        log.debug("cold-point plan failed; compressing as usual", exc_info=True)
-                        _cold_plan = None
-                try:
-                    compressed, store = _compress_fn(
-                        pre, verbatim=_verb, keep=_learn_keep, **_cold_kw
-                    )
-                except Exception:  # noqa: BLE001 — compression must never break a request
-                    log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
-                    compressed, store = pre, None
-                # Merge cache-delta references into the store so distil_expand recovers them.
-                if _dstore is not None and store is not None:
-                    for _h in _dstore.handles:
-                        try:
-                            store._record(_h, _dstore.expand(_h))
-                        except Exception:  # noqa: BLE001
-                            pass
-                # Learning: tally what we digested, by content-free signature.
-                if _learn_stats is not None and getattr(store, "handles", None):
-                    from .learn import signature
-
-                    for h in store.handles:
-                        try:
-                            _learn_stats.record_digest(signature(store.expand(h)))
-                        except Exception:  # noqa: BLE001 — learning never breaks a request
-                            log.debug("learning tally failed", exc_info=True)
-                # Live retention meter: sampled, content-free (counts only), fail-open.
-                if _retention_meter is not None and _retention_meter.enabled:
-                    _retention_meter.observe(original, compressed, store)
-                # Accounting is bookkeeping, and bookkeeping must never be
-                # load-bearing for the response. These feed headers and the savings
-                # ledger only, yet an exception here escaped the handler and closed
-                # the connection — the client saw RemoteDisconnected and the turn was
-                # lost. A tokenizer edge case on unusual content would end a live
-                # session over a number nobody reads in the moment.
-                try:
-                    before_tok = _count_messages(original)
-                    after_tok = _count_messages(compressed)
-                except Exception:  # noqa: BLE001 — a counter must never break a request
-                    log.debug("token accounting failed; serving without it", exc_info=True)
-                    before_tok = after_tok = None
-                saved = (
-                    max(0, before_tok - after_tok)
-                    if before_tok is not None and after_tok is not None
-                    else 0
-                )
-                body = {**body, "messages": compressed}
-                extras = {
-                    "x-distil-compressed": "1",
-                    "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _req_mode,
-                    # Bytes in the compressible zone (user/tool content distil is
-                    # allowed to touch) — when this is ~0, a ▼0 is "nothing large
-                    # to compress this turn", not a failure. System prompt, tool
-                    # definitions, images and assistant text are never counted.
-                    # Reuse the already-computed count rather than a third traversal
-                    # that could raise after the guarded pair above succeeded.
-                    "x-distil-compressible-tokens": str(
-                        before_tok if before_tok is not None else 0
-                    ),
-                }
-                if _dstats is not None:
-                    extras["x-distil-cache-refs"] = str(_dstats.exact_refs + _dstats.delta_refs)
-                    extras["x-distil-cache-delta"] = str(_dstats.delta_refs)
-                    extras["x-distil-cache-tokens-saved"] = str(_dstats.tokens_saved)
-                    # Cache-prefix observability: how many leading messages were
-                    # byte-stable vs the previous turn (the prompt-cache-read region).
-                    # Stateful, content-free — the verifiable benefit of a prefix-freeze
-                    # router, without the lossy rewrite (distil is cache-monotonic).
-                    extras["x-distil-cache-prefix-msgs"] = str(_dstats.prefix_msgs)
-                if _cold_plan is not None:
-                    # Why this turn did (or did not) evict, and how many ids the lineage
-                    # carries evicted. The tokens are in the census (tool_result_evicted)
-                    # and already inside tokens-saved: one accounting path, not two.
-                    extras["x-distil-cold"] = _cold_plan.reason
-                    extras["x-distil-cold-evicted"] = str(len(_cold_plan.evict))
-                # Recoverable compression: offer the model the distil_expand tool so it
-                # can pull back detail on demand.
-                #
-                # Injected on EVERY request while expand is on, not only when a handle
-                # exists. Anthropic caches the tools array at the very front of the
-                # prefix — ahead of the system prompt and all history — so a tools list
-                # that gains an entry mid-session invalidates the entire cached entry at
-                # the turn compression first fires. Session-sticky injection costs one
-                # tool definition on early turns and keeps the prefix byte-stable for
-                # the whole session, which is the cheaper side of that trade by orders
-                # of magnitude. (Interception of the RESPONSE still keys on
-                # _expand_should_intercept — that decision is per-response and cannot
-                # affect the cached request bytes.)
-                #
-                # Two tool schemas share this branch. ``messages`` is both Anthropic's
-                # and Chat Completions' body key, but their tool specs are not
-                # interchangeable: Anthropic wants a bare ``{name, input_schema}`` and
-                # OpenAI wants ``{"type":"function","function":{name, parameters}}``.
-                # Injecting the Anthropic one into a Chat Completions request made the
-                # whole request invalid, so every compressed OpenAI turn under --expand
-                # 400'd at the provider before the model ever saw a handle.
-                if expand:
-                    if _is_chat:
-                        from .expand import inject_expand_tool_chat
-
-                        body = inject_expand_tool_chat(body)
-                    else:
-                        from .expand import inject_expand_tool
-
-                        body = inject_expand_tool(body)
-                # Accumulate GENUINE savings from real traffic into the ledger,
-                # priced per the model THIS request names (agents mix models).
-                # Only when the counts are real: if accounting failed above, this
-                # request goes unbooked rather than entering the ledger with a
-                # fabricated zero. A wrong number in the savings history is worse
-                # than a missing one — every published percentage derives from it.
-                if savings is not None and before_tok is not None and after_tok is not None:
-                    _pending_savings = (before_tok, after_tok, body.get("model"))
-                # Output compression: gated by lossless_only (only on PAYG-style).
-                if shape_output != "off" and _shape_ok:
-                    from .output import shape_request
-
-                    _shape = "anthropic" if _path == "/v1/messages" else "openai"
-                    body = shape_request(body, level=shape_output, allow=True, shape=_shape)
-                    extras["x-distil-output-shaping"] = shape_output
-
-            elif "contents" in body and isinstance(body["contents"], list):
-                # Gemini generateContent shape. Content compression + output shaping.
-                _replay_key, _replay_orig = "contents", body["contents"]
-                before_tok = count_tokens(body)
-                try:
-                    body, store = compress_generate_request(body, verbatim=_verb, keep=_learn_keep)
-                except Exception:  # noqa: BLE001 — compression must never break a request
-                    log.debug("gemini compression failed; forwarding uncompressed", exc_info=True)
-                    store = None
-                if _learn_stats is not None and getattr(store, "handles", None):
-                    from .learn import signature
-
-                    for h in store.handles:
-                        try:
-                            _learn_stats.record_digest(signature(store.expand(h)))
-                        except Exception:  # noqa: BLE001 — learning never breaks a request
-                            log.debug("learning tally failed", exc_info=True)
-                after_tok = count_tokens(body)
-                saved = max(0, before_tok - after_tok)
-                extras = {
-                    "x-distil-compressed": "1",
-                    "x-distil-tokens-saved": str(saved),
-                    "x-distil-mode": _req_mode,
-                    "x-distil-compressible-tokens": str(before_tok),
-                }
-                if savings is not None:
-                    # Gemini requests carry the model in the URL path, not the body.
-                    _pending_savings = (before_tok, after_tok, _model_from_path(self.path))
-                # Output shaping: inject systemInstruction directive (PAYG only).
-                if shape_output != "off" and _shape_ok:
-                    from .output import shape_request
-
-                    body = shape_request(body, level=shape_output, allow=True, shape="gemini")
-                    extras["x-distil-output-shaping"] = shape_output
-                # Expand-tool injection (Gemini): offer distil_expand under functionDeclarations
-                # so the model can recover any digested block by handle.  Same PAYG/--expand
-                # gating as the messages path: session-sticky, so the declared function
-                # list never changes shape mid-session and the cached prefix survives.
-                if expand:
-                    from .expand import inject_expand_tool_gemini
-
-                    body = inject_expand_tool_gemini(body)
-
-            # Forwarded-bytes prefix replay (ADR 0011). Agentic clients rewrite their
-            # own history every turn without changing a token the model reads — the
-            # cache_control marker advances, an SDK adds `index`, a string becomes a
-            # single text block — and distil forwards what it receives, so the provider
-            # misses a prefix it already holds. For the longest canonically-equal
-            # leading prefix, forward the bytes we forwarded LAST turn instead.
-            # Runs last, on the final body, so it is the one thing between distil's
-            # decisions and the wire. Fail-open: any exception forwards as compressed.
-            if prefix_replay and _replay_orig is not None and _replay_key is not None:
-                from . import prefixreplay as _prep
-
-                body = _prep.apply(
+            else:
+                # One compress-or-forward path for proxy and gateway (ADR 0023): adapter
+                # dispatch by shape, Tier-1 digest, cache-delta, cold-point (ADR 0014),
+                # expand-tool injection, output shaping, prefix replay (ADR 0011) — each
+                # fail-open. `_count_messages` is looked up here, per request.
+                _out = compress_or_forward(
                     body,
-                    _replay_key,
-                    _replay_orig,
-                    scope=_prep.credential_scope(headers),
-                    extras=extras,
+                    self.path,
+                    count=_count_messages,
+                    verbatim=_verb,
+                    expand=expand,
+                    mode=_req_mode,
+                    keep=_learn_keep,
+                    session_delta=session_delta,
+                    cold=_cold_on,
+                    scope=_cold_scope,
+                    held=_held,
+                    shape_output=shape_output if _shape_ok else "off",
+                    replay_scope=_credential_scope(headers) if prefix_replay else None,
+                    on_compressed=_on_compressed,
                 )
+                if _out is None:  # only an `admit` hook rejects, and none is passed
+                    return
+                body, store, extras = _out.body, _out.store, _out.extras
+                before_tok, after_tok = _out.before_tok, _out.after_tok
+                self._distil_cold_key = _out.cold_key
+                if savings is not None:
+                    _pending_savings = _out.pending
 
             if _held and extras:
                 extras["x-distil-drift-guard"] = "held"
@@ -1571,6 +1217,10 @@ def build_handler(
                 _shadow_counters.note_sampled()
             if shadow_sampled:
                 extras["x-distil-shadow"] = "sampled"
+            # `distil audit` (distil/referee.py, ADR 0024): an opt-in, capped A/A'/B replay
+            # of this request as ANOTHER compressor would shape it. One random draw here;
+            # everything else runs in the background after the response is relayed.
+            audit_sampled = _auditor is not None and not _hold and _auditor.should_sample()
 
             # Streaming: relay upstream bytes as they arrive so time-to-first-token is
             # preserved. Recoverable-digest requests used to fall back to the buffered
@@ -1623,58 +1273,28 @@ def build_handler(
                     extras["x-distil-expand-miss"] = str(len(_expand_misses))
 
             if want_stream and _intercept and not is_messages_path(_path):
-                if isinstance(body.get("n"), int) and body["n"] > 1:
-                    # sse_from_response renders choices[0] only, so buffering an n>1
-                    # request would hand back one completion where the client asked
-                    # for several — a data loss the plain relay does not have. Give up
-                    # the expand instead: the model's distil_expand call reaches the
-                    # client as an unknown tool, which is visible and recoverable,
-                    # where silently dropping n-1 completions is neither.
-                    # ponytail: index-tagged deltas per choice would restore expand
-                    # here. Nobody has asked for n>1 alongside recoverable digest.
+                # sse_from_response renders choices[0] only, so an n>1 request gives up
+                # the expand instead (buffer_for_expand returns None): the model's
+                # distil_expand call reaches the client as an unknown tool, which is
+                # visible and recoverable, where silently dropping n-1 completions is not.
+                # ponytail: index-tagged deltas per choice would restore expand here.
+                _buf = buffer_for_expand(body, raw, self.path)
+                if _buf is None:
                     _intercept = False
                 else:
-                    if isinstance(body.get("contents"), list):
-                        _sse_shape = "gemini"
-                    elif isinstance(body.get("input"), list):
-                        _sse_shape = "responses"
-                    else:
-                        _sse_shape = "chat"
-                    # stream_options is only legal alongside stream:true — OpenAI 400s
-                    # on it otherwise, and clients set it routinely for include_usage.
-                    # Dropping `stream` without it turned an intercepted request into
-                    # a provider error.
-                    body = {k: v for k, v in body.items() if k not in _STREAM_ONLY_FIELDS}
-                    # Same serializer as the plain path above: a bare ``json.dumps``
-                    # spells the body with ``", "`` separators and ``\uXXXX`` escapes,
-                    # so the turn a stub first enters the conversation re-spells the
-                    # whole prefix and pays a cache write for it. It is also the
-                    # encoding ``prefixreplay._wire`` models.
-                    new_raw = _serialize_if_changed(raw, body)
-                    _fwd_path = _unstream_path(self.path)
+                    _sse_shape, body, new_raw, _fwd_path = _buf
                     want_stream = False  # buffer upstream; re-emit as SSE to the client
             if want_stream and _intercept:
                 from .streamexpand import stream_with_expand
 
                 def _send_stream(_b: dict[str, Any]) -> Any:
-                    _rb = _serialize_if_changed(raw, _b)
-                    _req = urllib.request.Request(
+                    return open_stream(
+                        _OPENER,
                         _upstream + self.path,
-                        data=_rb,
-                        headers={**headers, "Content-Length": str(len(_rb))},
-                        method="POST",
+                        _serialize_if_changed(raw, _b),
+                        headers,
+                        _UPSTREAM_TIMEOUT,
                     )
-                    try:
-                        return _OPENER.open(_req, timeout=_UPSTREAM_TIMEOUT)
-                    except urllib.error.HTTPError as exc:
-                        return _ErrStream(exc.code, exc.headers, exc.read() if exc.fp else b"")
-                    except (urllib.error.URLError, TimeoutError) as exc:
-                        _st = 504 if isinstance(exc, TimeoutError) or _is_timeout(exc) else 502
-                        return _ErrStream(
-                            _st,
-                            {"Content-Type": "application/json"},
-                            b'{"error":"upstream connection failed"}',
-                        )
 
                 _usage_x: dict[str, int] = {}
                 with request_span(_span_model, self.path) as _span:
@@ -1733,6 +1353,8 @@ def build_handler(
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
+                if audit_sampled:
+                    self._spawn_audit(raw, headers, new_raw)
                 return
             if want_stream:
                 from .streamrelay import stream_upstream
@@ -1786,6 +1408,8 @@ def build_handler(
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
+                if audit_sampled:
+                    self._spawn_audit(raw, headers, new_raw)
                 return
 
             with request_span(_span_model, self.path) as _span:
@@ -1824,12 +1448,6 @@ def build_handler(
                 except (ValueError, TypeError):
                     resp_json = None
                 if isinstance(resp_json, dict):
-                    from .expand import (
-                        run_expand_loop,
-                        run_expand_loop_chat,
-                        run_expand_loop_gemini,
-                        run_expand_loop_responses,
-                    )
 
                     def _post(b: dict[str, Any]) -> dict[str, Any]:
                         _s, _h, rb = self._post_upstream(_fwd_path, json.dumps(b).encode(), headers)
@@ -1842,25 +1460,7 @@ def build_handler(
                             pass
                         return json.loads(rb)
 
-                    if "contents" in body and isinstance(body.get("contents"), list):
-                        final = run_expand_loop_gemini(
-                            body, resp_json, store, _post, on_signal=_on_signal
-                        )
-                    elif "input" in body and isinstance(body.get("input"), list):
-                        final = run_expand_loop_responses(
-                            body, resp_json, store, _post, on_signal=_on_signal
-                        )
-                    elif is_chat_completions_path(_path):
-                        # Chat Completions shares the ``messages`` key with Anthropic but
-                        # not the tool-call shape: the request goes back as a role:"tool"
-                        # message keyed by tool_call_id, not an Anthropic tool_result
-                        # block. The Anthropic loop simply saw no tool_use and returned
-                        # the expand call to the client unanswered.
-                        final = run_expand_loop_chat(
-                            body, resp_json, store, _post, on_signal=_on_signal
-                        )
-                    else:
-                        final = run_expand_loop(body, resp_json, store, _post, on_signal=_on_signal)
+                    final = run_expand(body, resp_json, store, _post, self.path, _on_signal)
                     if final is not resp_json:
                         rbody = json.dumps(final).encode()
                         _note_expands()
@@ -1872,6 +1472,8 @@ def build_handler(
             # signal on real traffic. Never blocks the client's response.
             if shadow_sampled:
                 self._spawn_shadow(raw, headers, new_raw)
+            if audit_sampled:
+                self._spawn_audit(raw, headers, new_raw)
             # Per-request detail written synchronously before the relay: this guarantees
             # a record for every request (deterministic, none lost on abrupt shutdown) —
             # the property dissect relies on. The write is a bounded ~5-15ms of local disk
@@ -1902,21 +1504,9 @@ def build_handler(
             if _sse_shape is not None and 200 <= status < 300:
                 # The client asked for a stream and we buffered to run the expand
                 # loop; hand the finished answer back in the wire format it expects.
-                # A non-2xx or non-JSON body is relayed untouched — an error the SDK
-                # can read beats a well-formed stream carrying nothing.
-                try:
-                    _final = json.loads(rbody)
-                except (ValueError, TypeError):
-                    _final = None
-                if isinstance(_final, dict):
-                    from .streamexpand import sse_from_response
-
-                    rbody = sse_from_response(_sse_shape, _final)
-                    # Drop the upstream's own content-type rather than adding a
-                    # second one: two Content-Type headers is a malformed response,
-                    # and which one a client honours is anyone's guess.
-                    rhdrs = {k: v for k, v in rhdrs.items() if k.lower() != "content-type"}
-                    rhdrs["Content-Type"] = "text/event-stream"
+                _sse = sse_body(_sse_shape, rhdrs, rbody)
+                if _sse is not None:
+                    rhdrs, rbody = _sse
             self._relay(status, rhdrs, rbody, extras=extras)
 
         def _emit_detail(
@@ -2366,7 +1956,7 @@ def build_handler(
                     # Feed the drift guard the same paired difference the ledger just
                     # booked. Here, in the shadow thread — never on the request path.
                     if kind == "paired" and aa_equal is not None:
-                        _drift_guard.observe(int(equivalent) - int(aa_equal))
+                        _drift_guard.observe(int(equivalent) - int(aa_equal), ev["mode"])
                 except Exception:  # noqa: BLE001 — shadow must never affect the request
                     log.debug("shadow compare failed", exc_info=True)
                     if _attempted and not _written:
@@ -2404,6 +1994,25 @@ def build_handler(
                 # Prune finished threads and append under one lock — concurrent
                 # sampled requests otherwise race here and drop a thread, which
                 # _drain_shadow would then miss on shutdown.
+                _shadow_threads[:] = [t for t in _shadow_threads if t.is_alive()]
+                _shadow_threads.append(_t)
+            _t.start()
+
+        def _spawn_audit(self, orig_raw: bytes, headers: dict[str, str], served: bytes) -> None:
+            """Run one ``distil audit`` sample in the background, tracked with the shadow
+            threads so shutdown drains it. Never blocks the client's response."""
+            if _auditor is None:
+                return
+            _t = _auditor.thread(
+                self.path,
+                orig_raw,
+                served,
+                headers,
+                self._post_upstream,
+                _book_overhead,
+                getattr(self, "_distil_conv", "") or "",
+            )
+            with _shadow_threads_lock:
                 _shadow_threads[:] = [t for t in _shadow_threads if t.is_alive()]
                 _shadow_threads.append(_t)
             _t.start()
@@ -2539,7 +2148,7 @@ def serve(
     verbatim: bool = False,
     shape_output: str = "auto",
     record: bool = True,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     expand: bool = False,
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
@@ -2679,7 +2288,7 @@ def wrap_run(
     verbatim: bool = False,
     shape_output: str = "auto",
     record: bool = True,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     env_var: str = "ANTHROPIC_BASE_URL",
     expand: bool = False,
     session_delta: bool = False,
@@ -2752,11 +2361,11 @@ def wrap_run(
     # decision. Re-deciding per worker (hot-swap restarts one mid-session) would let
     # a session change its own shaping silently when the shadow ledger moved.
     from .output import resolve_shape_output as _resolve_shape
-    from .policy import AuthMode, may_compress_lossy
+    from .policy import may_compress_lossy, session_auth_mode
 
     shape = _resolve_shape(
         shape_output,
-        lossy_ok=may_compress_lossy(AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG),
+        lossy_ok=may_compress_lossy(session_auth_mode(lossless_only)),
     )
     shape_output = shape.level
     if shape.on or shape.requested not in ("auto", "off"):

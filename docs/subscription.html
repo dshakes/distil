@@ -65,6 +65,7 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
           <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
@@ -257,6 +258,7 @@ distil quota              # see the window it is saving</code></pre>
       </tbody>
     </table>
     </div>
+    <p class="note">Raw: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/subscription-hook"><code>benchmarks/results/subscription-hook/</code></a> (<code>e15_paired_ab.json</code> for this one-session A/B, <code>e15c_decision_equivalence.json</code> for the five tasks, <code>e15b_corpus_measurement.json</code> for the corpus tally). A single session and five tasks: enough to catch a gross regression, not to certify a rate.</p>
 
     <p>Cost weights: <code>input&nbsp;=&nbsp;1.0</code>, <code>cache_creation&nbsp;=&nbsp;1.25</code>,
     <code>cache_read&nbsp;=&nbsp;0.10</code>. The critical row is <code>cache_read</code>: it did

@@ -40,6 +40,9 @@ def _verdicts(home: Path) -> dict[str, object]:
     from distil.replay.runner import DeterministicRunner
 
     (home / "drift.json").unlink(missing_ok=True)
+    # From scratch means no persisted certification hold either: its hysteresis would
+    # (rightly) keep a hold the previous budget engaged until two clear re-checks.
+    (home / "cert-hold.json").unlink(missing_ok=True)
     drift.fold(_DIFFS)  # what the proxies did with each verdict, under this budget
     guard = drift.DriftGuard.start(watch=False)
     lines = dict(proof_lines())

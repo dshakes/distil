@@ -65,6 +65,7 @@
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
           <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
           <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
           <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
@@ -331,14 +332,27 @@
     <pre class="term"><span class="d">$ distil prune</span>
 causal ablation over 'sre-disk-incident' — what is free to drop?
 
-block                  occ   tokens  verdict
-doc-0                    4      312  <span class="g">PRUNE (causally inert)</span>
-doc-1                    4      303  <span class="g">PRUNE (causally inert)</span>
-obs-0                    4      234  <span class="d">keep (changed a decision)</span>
-obs-1                    4      198  <span class="d">keep (changed a decision)</span>
-system                   4      218  <span class="d">keep (changed a decision)</span>
+block                  occ  tokens  verdict
+doc-0                    1     164  <span class="g">PRUNE (causally inert)</span>
+doc-1                    1     101  <span class="g">PRUNE (causally inert)</span>
+doc-2                    1      86  <span class="g">PRUNE (causally inert)</span>
+doc-3                    1      73  <span class="g">PRUNE (causally inert)</span>
+hist-0                   3      48  <span class="g">PRUNE (causally inert)</span>
+hist-1                   2      47  <span class="g">PRUNE (causally inert)</span>
+hist-2                   1      44  <span class="g">PRUNE (causally inert)</span>
+user-0                   1      20  <span class="g">PRUNE (causally inert)</span>
+user-3                   1      12  <span class="g">PRUNE (causally inert)</span>
+user-2                   1      11  <span class="g">PRUNE (causally inert)</span>
+user-1                   1       9  <span class="g">PRUNE (causally inert)</span>
+obs-0                    1     343  <span class="d">keep (changed a decision)</span>
+obs-1                    1     303  <span class="d">keep (changed a decision)</span>
+obs-2                    1     257  <span class="d">keep (changed a decision)</span>
+tools                    4     213  <span class="d">keep (changed a decision)</span>
+obs-3                    1     206  <span class="d">keep (changed a decision)</span>
+system                   4      82  <span class="d">keep (changed a decision)</span>
 
-tokens provably free to drop: 615 across 2 block(s).</pre>
+tokens provably free to drop: 615 across 11 block(s).</pre>
+    <p class="note">Real output, committed as <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/prune-sre-disk-incident-2026-10-04.out"><code>benchmarks/results/prune-sre-disk-incident-2026-10-04.out</code></a>.</p>
 
     <h3>Step 3 — Certify</h3>
     <p>The conformal DERC certificate (<code>certify/stats.py</code> via <code>certify/gate.py</code> and <code>conformal.py</code>) computes the decision-change rate across all turns and certifies it. The implementation uses Learn-Then-Test with Hoeffding–Bentkus p-values — distribution-free, valid at finite sample size, zero scipy/numpy. The guarantee: <strong>P(R(λ̂) ≤ α) ≥ 1 − δ</strong>.</p>
