@@ -144,6 +144,23 @@ resp = litellm.completion(
 
     <p>Running the standalone LiteLLM Proxy instead? Set each model's <code>api_base</code> to the distil proxy in your config YAML; every request routed through LiteLLM is then compressed transparently.</p>
 
+    <h2 id="hook">In-process: the LiteLLM Proxy hook</h2>
+    <p>No sidecar needed on the standalone LiteLLM Proxy. Install the extra and register distil's <code>async_pre_call_hook</code>, which compresses each request just before LiteLLM routes it:</p>
+
+<pre class="term"><span class="d">$ pip install 'distil-llm[litellm]'</span>
+
+<span class="d"># config.yaml</span>
+litellm_settings:
+  callbacks: distil.integrations.litellm_hook.proxy_handler_instance</pre>
+
+    <p>Or choose options in your own callback file: <code>proxy_handler_instance = DistilCompressionHook(digest=False)</code>.</p>
+    <ul>
+      <li><b>Lossless-only by default.</b> Only the in-context-lossless Tier-0 transforms run. Set <code>digest=True</code> (or <code>DISTIL_LITELLM_DIGEST=1</code> with the YAML form) to opt into Tier-1 digests. A LiteLLM hook cannot inject the <code>distil_expand</code> tool, so digest stubs sent from here have no in-conversation recovery; use the sidecar proxy above if you want digest mode.</li>
+      <li><b>Fail-open.</b> Any error, unknown call type or unrecognized shape sends the original request unchanged.</li>
+      <li><b>Content-free.</b> Message text is never logged; token counts go to the normal savings ledger (<code>distil stats</code>, <code>distil dashboard</code>), tagged <code>verbatim</code> or <code>digest</code>.</li>
+      <li><b>Coverage.</b> <code>completion</code> / <code>acompletion</code> (OpenAI Chat shape, used for every provider) and <code>anthropic_messages</code>. Responses-API and embedding calls pass through. The hook is proxy-only: LiteLLM's SDK <code>litellm.callbacks</code> does not run <code>async_pre_call_hook</code>, so for SDK use see <code>distil.integrations.litellm.completion</code>.</li>
+    </ul>
+
     <h2 id="what-happens">What actually happens</h2>
     <p>The proxy intercepts only the compressible paths &mdash; <code>/v1/messages</code>, <code>/v1/chat/completions</code>, <code>/v1/responses</code> and the Gemini <code>generateContent</code> routes. Everything else passes through untouched, and your API key travels in the request headers exactly as normal: the proxy never logs or stores it.</p>
 
