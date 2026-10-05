@@ -23,10 +23,10 @@ def test_committed_scoreboard_matches_its_artifacts():
     """Regenerate-and-compare: a number on the page that its run files do not produce fails."""
     sb = _mod()
     data = sb.build()
-    assert (ROOT / "docs/scoreboard.json").read_text() == json.dumps(
+    assert (ROOT / "docs/scoreboard.json").read_text(encoding="utf-8") == json.dumps(
         data, indent=2, sort_keys=True
     ) + "\n", "stale: run python3 scripts/build_scoreboard.py"
-    assert (ROOT / "docs/scoreboard.html").read_text() == sb.render_html(data)
+    assert (ROOT / "docs/scoreboard.html").read_text(encoding="utf-8") == sb.render_html(data)
     assert sb.main(["x", "--check"]) == 0
 
 
@@ -100,7 +100,8 @@ def test_missing_arms_and_cost_truth_results_render(tmp_path, monkeypatch):
                     },
                 },
             }
-        )
+        ),
+        encoding="utf-8",
     )
     idx = tmp_path / "index.json"
     idx.write_text(
