@@ -7,6 +7,8 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+## [1.57.0] — 2026-10-05 — the referee: distil says when compression hurts, and measures the others the same way
+
 ### Added
 
 - **LiteLLM Proxy hook** (`distil.integrations.litellm_hook`, extra `distil-llm[litellm]`): a `CustomLogger.async_pre_call_hook` that compresses `completion`/`acompletion` (OpenAI Chat shape) and `anthropic_messages` requests through the serving adapters before LiteLLM routes them. Lossless-only by default (`digest=True` / `DISTIL_LITELLM_DIGEST=1` opts into digests, which have no `distil_expand` recovery in this path, so the opt-in logs a one-time warning pointing at `distil proxy`, and is refused with a warning on a subscription session, via the same `policy.session_auth_mode` check the proxy uses); fail-open; content never logged; savings go to the normal ledger. `litellm` is imported lazily; the logic (`HookCore`) is testable without it. Docs: `docs/litellm.html#hook`.

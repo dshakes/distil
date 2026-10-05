@@ -1203,7 +1203,7 @@ nvtx = [
 
 [[package]]
 name = "distil-llm"
-version = "1.56.4"
+version = "1.57.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
