@@ -42,6 +42,7 @@ dev = ["pytest>=8", "opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20"]
 live = ["anthropic>=0.40", "openai>=1.60"]
 onnx = ["onnxruntime>=1.17", "transformers>=4.40"]   # transformer keep-model inference
 train = ["torch>=2.2", "transformers>=4.40", "onnx>=1.16", "onnxscript>=0.1", "sentencepiece>=0.2"]  # training + ONNX export
+litellm = ["litellm>=1.50"]                         # LiteLLM Proxy pre-call hook (distil.integrations.litellm_hook)
 async = ["aiohttp>=3.9"]                              # async high-concurrency proxy (distil.aproxy)
 otel = ["opentelemetry-api>=1.20"]                    # GenAI semantic-convention spans (distil.otel)
 # OIDC RS256 verification for the gateway. HS256 needs nothing (stdlib hmac);
