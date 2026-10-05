@@ -62,6 +62,7 @@ from .proxy import (
     QuietHTTPServer,
     _install_sigterm_flush,
     _warn_if_version_skew,
+    requery_input_equiv,
 )
 from .serve_core import (
     Outbound,
@@ -1367,8 +1368,16 @@ def build_gateway_handler(
             body = out.body
             extras.update(out.extras)
             store = _grants.view(tenant, out.store)
-            # Tenant accounting is booked only after a confirmed 2xx (P0-1).
-            pending = (tenant, out.pending[0], out.pending[1]) if out.pending else None
+            # Tenant accounting is booked only after a confirmed 2xx (P0-1), and nets out
+            # what distil_expand re-queries cost (as the proxy's savings ledger does):
+            # the provider bills each round-trip, so it is spend distil caused.
+            usage: dict[str, int] = {}
+
+            def book() -> None:
+                if out.pending is not None:
+                    before, after, model = out.pending
+                    state.record(tenant, before, after + requery_input_equiv(usage, model))
+
             new_raw = _serialize_if_changed(raw, body)
             fwd_path = self.path
             want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
@@ -1405,6 +1414,7 @@ def build_gateway_handler(
                         store,
                         hop_by_hop=_HOP_BY_HOP,
                         extras=extras,
+                        usage_sink=usage,
                         on_signal=on_signal,
                     )
                 else:
@@ -1419,8 +1429,8 @@ def build_gateway_handler(
                         extras=extras,
                     )
                 # Book tenant accounting only after a fully-relayed 2xx (P0-1).
-                if pending is not None and 200 <= status_s < 300:
-                    state.record(*pending)
+                if 200 <= status_s < 300:
+                    book()
                 return
             status, rhdrs, rbody = self._post_upstream(fwd_path, new_raw, headers)
             if intercept and 200 <= status < 300:
@@ -1429,9 +1439,19 @@ def build_gateway_handler(
                 except (ValueError, TypeError):
                     resp_json = None
                 if isinstance(resp_json, dict):
+                    from .streamrelay import add_usage, scan_usage
 
                     def post(b: dict[str, Any]) -> dict[str, Any]:
                         _s, _h, rb = self._post_upstream(fwd_path, json.dumps(b).encode(), headers)
+                        usage["requeries"] = usage.get("requeries", 0) + 1
+                        try:
+                            add_usage(
+                                usage,
+                                scan_usage(rb[:16384] + b"\n" + rb[-16384:]),
+                                prefix="requery_",
+                            )
+                        except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                            pass
                         return json.loads(rb)
 
                     final = run_expand(body, resp_json, store, post, self.path, on_signal)
@@ -1439,8 +1459,8 @@ def build_gateway_handler(
                         rbody = json.dumps(final).encode()
             # Book tenant accounting only after a confirmed 2xx (P0-1): failed or
             # SDK-retried upstream calls must not inflate per-tenant savings.
-            if pending is not None and 200 <= status < 300:
-                state.record(*pending)
+            if 200 <= status < 300:
+                book()
             if sse_shape is not None and 200 <= status < 300:
                 sse = sse_body(sse_shape, rhdrs, rbody)
                 if sse is not None:

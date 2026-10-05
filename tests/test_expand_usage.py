@@ -371,3 +371,108 @@ def test_zero_baseline_spend_is_flushed_not_dropped(tmp_path):
     assert s.flush()
     (row,) = [json.loads(x) for x in (tmp_path / "l.jsonl").read_text().splitlines()]
     assert (row["baseline_input_tokens"], row["distil_input_tokens"]) == (0, 500)
+
+
+# --------------------------------------------------------------------------- #
+# Gateway `--digest`: per-tenant savings net out the expand re-query
+# --------------------------------------------------------------------------- #
+
+
+def _sse_upstream():
+    """Anthropic upstream that streams when asked: an expand call first, then a final."""
+
+    class _Up(BaseHTTPRequestHandler):
+        calls: list[bytes] = []
+
+        def log_message(self, fmt, *args):  # noqa: ARG002
+            pass
+
+        def do_POST(self):  # noqa: N802
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            _Up.calls.append(body)
+            m = _HANDLE.search(body.decode("utf-8", "replace"))
+            if len(_Up.calls) == 1 and m:
+                call = json.dumps({"handle": m.group(1)})
+                blocks = [
+                    _evt(
+                        type="content_block_start",
+                        index=0,
+                        content_block={
+                            "type": "tool_use",
+                            "id": "tu1",
+                            "name": "distil_expand",
+                            "input": {},
+                        },
+                    ),
+                    _evt(
+                        type="content_block_delta",
+                        index=0,
+                        delta={"type": "input_json_delta", "partial_json": call},
+                    ),
+                    _evt(type="content_block_stop", index=0),
+                ]
+                usage, stop = FIRST, "tool_use"
+            else:
+                blocks = [
+                    _evt(
+                        type="content_block_start",
+                        index=0,
+                        content_block={"type": "text", "text": ""},
+                    ),
+                    _evt(
+                        type="content_block_delta",
+                        index=0,
+                        delta={"type": "text_delta", "text": "done"},
+                    ),
+                    _evt(type="content_block_stop", index=0),
+                ]
+                usage, stop = REQUERY, "end_turn"
+            inp = {k: v for k, v in usage.items() if k != "output_tokens"}
+            out = _msg(inp, blocks, stop, usage["output_tokens"])
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    return _Up
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_gateway_digest_nets_the_expand_requery_out_of_tenant_savings(stream):
+    from distil.gateway import GatewayState, build_gateway_handler
+    from distil.pricing import get as pricing_get
+
+    up_cls = _sse_upstream() if stream else _upstream("anthropic")
+    up = _serve(up_cls)
+    price = pricing_get("claude-opus-4-8")
+    state = GatewayState(price)
+    gw = _serve(
+        build_gateway_handler(
+            f"http://127.0.0.1:{up.server_address[1]}",
+            state,
+            price,
+            trust_tenant_header=True,
+            digest=True,
+        )
+    )
+    try:
+        path, payload = _request("anthropic")
+        payload["stream"] = stream
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{gw.server_address[1]}{path}",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "x-distil-tenant": "t1"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as r:
+            saved = int(r.headers["x-distil-tokens-saved"])
+            r.read()
+    finally:
+        gw.shutdown()
+        up.shutdown()
+    assert len(up_cls.calls) == 2, "the fixture must make the model expand once"
+    assert saved > 0
+    t = state._tenants["t1"]
+    # distil side = what was forwarded + what the re-query cost (base-input equivalent)
+    assert t.tokens_compressed - (t.tokens_baseline - saved) == REQUERY_EQUIV
