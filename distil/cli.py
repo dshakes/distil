@@ -5580,6 +5580,12 @@ def build_parser() -> argparse.ArgumentParser:
     # harvest(), which folds session files on every call; add it with its own test.
     _register_ab(sub)
 
+    from .referee import register as _register_audit
+
+    # `distil audit` — distil as referee of any compressor (distil/referee.py, ADR 0022).
+    # Opt-in and capped; hidden from the front door like `distil ab`.
+    _register_audit(sub)
+
     dash = sub.add_parser(
         "dashboard",
         help="live dashboard of your savings (terminal, or --web for a browser)",
