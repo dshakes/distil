@@ -42,6 +42,7 @@ ADDED: dict[str, str] = {
     "code-skeletons.html": "1.55.0",
     "mcp.html": "1.55.0",
     "model-migration.html": "1.56.0",
+    "scoreboard.html": "1.57.0",
 }
 NEW_WINDOW = 1  # the current minor release only
 
@@ -90,6 +91,7 @@ COURSE_MODULES: list[tuple[str, str]] = [
 
 EVALUATION: list[tuple[str, str, str | None]] = [
     ("evals.html", "Evaluation", None),
+    ("scoreboard.html", "Scoreboard", None),
     ("ab.html", "Task-level A/B", None),
     ("model-migration.html", "Model Migration", None),
     ("benchmark-independent.html", "Independent Benchmark", None),

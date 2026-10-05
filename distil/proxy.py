@@ -792,6 +792,14 @@ def build_handler(
         _shadow_ledger = ShadowLedger()
         _shadow_counters = ShadowCounters()
 
+    # `distil audit`: None unless the user opted in (distil/referee.py). Never on a
+    # held-out session (every lever off) or a diagnostic handler. Fail-open.
+    _auditor = None
+    if not (_holdout or diagnostic):
+        from .referee import Auditor
+
+        _auditor = Auditor.load()
+
     # Live fact-retention meter: same posture as shadow (sampled, off by default), but
     # cheaper — it needs no second upstream call, only an in-process scan, and it
     # persists counts alone.
@@ -1206,6 +1214,10 @@ def build_handler(
                 _shadow_counters.note_sampled()
             if shadow_sampled:
                 extras["x-distil-shadow"] = "sampled"
+            # `distil audit` (distil/referee.py, ADR 0022): an opt-in, capped A/A'/B replay
+            # of this request as ANOTHER compressor would shape it. One random draw here;
+            # everything else runs in the background after the response is relayed.
+            audit_sampled = _auditor is not None and not _hold and _auditor.should_sample()
 
             # Streaming: relay upstream bytes as they arrive so time-to-first-token is
             # preserved. Recoverable-digest requests used to fall back to the buffered
@@ -1338,6 +1350,8 @@ def build_handler(
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
+                if audit_sampled:
+                    self._spawn_audit(raw, headers, new_raw)
                 return
             if want_stream:
                 from .streamrelay import stream_upstream
@@ -1391,6 +1405,8 @@ def build_handler(
                 )
                 if shadow_sampled:
                     self._spawn_shadow(raw, headers, new_raw)
+                if audit_sampled:
+                    self._spawn_audit(raw, headers, new_raw)
                 return
 
             with request_span(_span_model, self.path) as _span:
@@ -1453,6 +1469,8 @@ def build_handler(
             # signal on real traffic. Never blocks the client's response.
             if shadow_sampled:
                 self._spawn_shadow(raw, headers, new_raw)
+            if audit_sampled:
+                self._spawn_audit(raw, headers, new_raw)
             # Per-request detail written synchronously before the relay: this guarantees
             # a record for every request (deterministic, none lost on abrupt shutdown) —
             # the property dissect relies on. The write is a bounded ~5-15ms of local disk
@@ -1973,6 +1991,25 @@ def build_handler(
                 # Prune finished threads and append under one lock — concurrent
                 # sampled requests otherwise race here and drop a thread, which
                 # _drain_shadow would then miss on shutdown.
+                _shadow_threads[:] = [t for t in _shadow_threads if t.is_alive()]
+                _shadow_threads.append(_t)
+            _t.start()
+
+        def _spawn_audit(self, orig_raw: bytes, headers: dict[str, str], served: bytes) -> None:
+            """Run one ``distil audit`` sample in the background, tracked with the shadow
+            threads so shutdown drains it. Never blocks the client's response."""
+            if _auditor is None:
+                return
+            _t = _auditor.thread(
+                self.path,
+                orig_raw,
+                served,
+                headers,
+                self._post_upstream,
+                _book_overhead,
+                getattr(self, "_distil_conv", "") or "",
+            )
+            with _shadow_threads_lock:
                 _shadow_threads[:] = [t for t in _shadow_threads if t.is_alive()]
                 _shadow_threads.append(_t)
             _t.start()
