@@ -165,16 +165,16 @@
     </table>
     </div>
 
-    <h2 id="terminal-bench">Terminal-Bench 2 (cost_truth, neutral meter)</h2>
-    <p>Pending. Not run yet: the pilot&#x27;s canary preflights are committed, no analysed attempts..</p>
-    <div class="table-scroll" tabindex="0" role="region" aria-label="Terminal-Bench 2 (cost_truth, neutral meter) scoreboard">
+    <h2 id="terminal-bench-pilot">Terminal-Bench 2.1 pilot (cost_truth, neutral meter)</h2>
+    <p><code>claude-sonnet-5</code> · n = 10 tasks graded in every arm · run 2026-09-25. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/cost_truth/pilot-20260925-145427"><code>benchmarks/results/cost_truth/pilot-20260925-145427</code></a>. Pilot, not a comparison (protocol section 7): 18 paired attempts per arm after 10 infra_error runs were excluded, run under emulated x86_64, and billed while distil priced claude-sonnet-5 at $3/$15 instead of the official $2/$10, so absolute dollars are 1.5x too high and ratios are unaffected. analysis.json carries no passing verdict for any arm.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Terminal-Bench 2.1 pilot (cost_truth, neutral meter) scoreboard">
     <table>
       <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
       <tbody>
-        <tr><td>control (no compression)</td><td colspan="7"><i>pending run</i></td></tr>
-        <tr><td>distil</td><td colspan="7"><i>pending run</i></td></tr>
-        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
-        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>control (no compression)</td><td>$0.8088</td><td>14/18 · 77.8%</td><td>baseline</td><td>$11.32</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td>distil</td><td>$0.9823</td><td>14/18 · 77.8%</td><td>+0.0 [-33.3, +35.0] · pilot, not shown</td><td>$13.75</td><td>—</td><td>—</td><td>1.54.0</td></tr>
+        <tr><td>RTK</td><td>$0.5983</td><td>15/18 · 83.3%</td><td>+5.6 [-17.6, +25.0] · pilot, not shown</td><td>$8.97</td><td>—</td><td>—</td><td>0.50.0</td></tr>
+        <tr><td>Headroom</td><td>$0.7812</td><td>13/18 · 72.2%</td><td>-5.6 [-29.4, +11.8] · pilot, not shown</td><td>$10.16</td><td>—</td><td>—</td><td>0.38.0</td></tr>
         <tr><td>Selective Context</td><td colspan="7"><i>not in this harness</i></td></tr>
         <tr><td>Anthropic context editing</td><td colspan="7"><i>not in this harness</i></td></tr>
       </tbody>

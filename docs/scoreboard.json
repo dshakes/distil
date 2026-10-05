@@ -160,33 +160,75 @@
       "source": "benchmarks/results/swebench-outcome-300-grepfix"
     },
     {
-      "benchmark": "Terminal-Bench 2 (cost_truth, neutral meter)",
-      "date": null,
+      "benchmark": "Terminal-Bench 2.1 pilot (cost_truth, neutral meter)",
+      "date": "2026-09-25",
       "effort": null,
-      "id": "terminal-bench",
-      "model": null,
-      "n_common": null,
-      "note": "Not run yet: the pilot's canary preflights are committed, no analysed attempts.",
+      "id": "terminal-bench-pilot",
+      "model": "claude-sonnet-5",
+      "n_common": 10,
+      "note": "pilot, not a comparison (protocol section 7): 18 paired attempts per arm after 10 infra_error runs were excluded, run under emulated x86_64, and billed while distil priced claude-sonnet-5 at $3/$15 instead of the official $2/$10, so absolute dollars are 1.5x too high and ratios are unaffected. analysis.json carries no passing verdict for any arm",
       "rows": [
         {
           "arm": "plain",
+          "cost_usd": 11.3228,
           "label": "control (no compression)",
-          "status": "pending run"
+          "n": 18,
+          "rate": 0.777778,
+          "resolved": 14,
+          "status": "measured",
+          "usd_per_solved": 0.8088,
+          "version": null
         },
         {
           "arm": "distil",
+          "cost_usd": 13.752,
           "label": "distil",
-          "status": "pending run"
+          "n": 18,
+          "rate": 0.777778,
+          "resolved": 14,
+          "status": "measured",
+          "usd_per_solved": 0.9823,
+          "verdict": "pilot, not shown",
+          "version": "1.54.0",
+          "vs_plain_ci_pts": [
+            -33.3,
+            35.0
+          ],
+          "vs_plain_pts": 0.0
         },
         {
           "arm": "rtk",
+          "cost_usd": 8.9744,
           "label": "RTK",
-          "status": "pending run"
+          "n": 18,
+          "rate": 0.833333,
+          "resolved": 15,
+          "status": "measured",
+          "usd_per_solved": 0.5983,
+          "verdict": "pilot, not shown",
+          "version": "0.50.0",
+          "vs_plain_ci_pts": [
+            -17.6,
+            25.0
+          ],
+          "vs_plain_pts": 5.6
         },
         {
           "arm": "headroom",
+          "cost_usd": 10.1557,
           "label": "Headroom",
-          "status": "pending run"
+          "n": 18,
+          "rate": 0.722222,
+          "resolved": 13,
+          "status": "measured",
+          "usd_per_solved": 0.7812,
+          "verdict": "pilot, not shown",
+          "version": "0.38.0",
+          "vs_plain_ci_pts": [
+            -29.4,
+            11.8
+          ],
+          "vs_plain_pts": -5.6
         },
         {
           "arm": "selective",
@@ -199,7 +241,7 @@
           "status": "not in this harness"
         }
       ],
-      "source": null
+      "source": "benchmarks/results/cost_truth/pilot-20260925-145427"
     }
   ]
 }

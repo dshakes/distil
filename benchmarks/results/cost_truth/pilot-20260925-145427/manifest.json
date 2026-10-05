@@ -1,0 +1,40 @@
+{
+  "arms": [
+    "control",
+    "rtk",
+    "headroom",
+    "distil"
+  ],
+  "cap_usd": 92.065632,
+  "claude_code": "2.1.282",
+  "harbor": "0.23.0",
+  "min_gap_s": 360.0,
+  "mode": "live",
+  "model": "claude-sonnet-5",
+  "phase": "pilot",
+  "schedule_seed": 20260925,
+  "seeds": [
+    0,
+    1
+  ],
+  "spent_usd": 47.408811,
+  "tasks": [
+    "count-dataset-tokens",
+    "crack-7z-hash",
+    "fix-ocaml-gc",
+    "log-summary-date-ranges",
+    "overfull-hbox",
+    "protein-assembly",
+    "pytorch-model-cli",
+    "regex-log",
+    "sparql-university",
+    "tune-mjcf"
+  ],
+  "truncated": false,
+  "versions": {
+    "control": null,
+    "distil": "1.54.0",
+    "headroom": "0.38.0",
+    "rtk": "0.50.0"
+  }
+}

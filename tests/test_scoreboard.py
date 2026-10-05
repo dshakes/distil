@@ -44,8 +44,11 @@ def test_every_compressor_has_a_row_and_unrun_arms_say_pending():
         for r in s["rows"]:
             if r["status"] != "measured":
                 assert set(r) == {"arm", "label", "status"}, "nothing invented for an unrun arm"
-    ct = next(s for s in data["sections"] if s["id"] == "terminal-bench")
-    assert {r["status"] for r in ct["rows"]} == {"pending run", "not in this harness"}
+    ct = next(s for s in data["sections"] if s["id"] == "terminal-bench-pilot")
+    assert {r["status"] for r in ct["rows"]} == {"measured", "not in this harness"}
+    for r in ct["rows"]:
+        if r["status"] == "measured" and r["arm"] != "plain":
+            assert r["verdict"] == "pilot, not shown", "a pilot never names a winner"
 
 
 def test_missing_arms_and_cost_truth_results_render(tmp_path, monkeypatch):
