@@ -139,7 +139,9 @@ the provider never sees it; the provider credential (`x-api-key` /
 
 - **Restore store is per-gateway; expand is per-tenant.**  `compress_messages` writes
   digest originals to `~/.distil/restore/` (a directory shared across all
-  tenants of a single gateway process).  The gateway answers `distil_expand`
+  tenants of a single gateway process).  By default the gateway is Tier-0 and emits
+  no digest stub.  With the operator opt-in `--digest` (unguarded: no per-mode
+  certification on the gateway yet) it answers `distil_expand`
   tool calls (ADR 0023), but only for handles it issued to the asking tenant: a
   handle another tenant was issued — or one a tenant typed into its own history —
   resolves to the miss placeholder, never to content.  Cold-point lineages and

@@ -101,6 +101,8 @@ def servers():
             # Output shaping is a proxy-only lever (the gateway shapes nothing).
             handler = build_handler(url, shape_output="off", **kw)
         else:
+            # Parity is about the opted-in gateway: digest is `--digest` (ADR 0023).
+            kw.setdefault("digest", True)
             price = pricing_get("claude-opus-4-8")
             handler = build_gateway_handler(
                 url, GatewayState(price), price, trust_tenant_header=True, **kw

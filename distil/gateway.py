@@ -701,6 +701,7 @@ def build_gateway_handler(
     prefix_replay: bool = True,
     session_delta: bool = False,
     cold_point: bool = True,
+    digest: bool = False,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a BaseHTTPRequestHandler subclass for the multi-tenant gateway.
 
@@ -716,8 +717,13 @@ def build_gateway_handler(
         Policy mode (no tool injection): Tier-0 lossless only; no Tier-1 digest runs.
     verbatim:
         When *True*, skip the Tier-1 digest (Tier-0 only) — interactive-safe.
-        Otherwise a PAYG gateway runs the recoverable digest with the expand loop, the
-        same compression a local ``distil wrap`` user gets (ADR 0023).
+    digest:
+        Operator opt-in (``distil gateway --digest``): a PAYG gateway runs the
+        recoverable digest with the expand loop, the same compression a local
+        ``distil wrap`` user gets (ADR 0023). Off by default: the gateway stays Tier-0,
+        because the per-mode certification hold, shadow and drift guard that hold a
+        local proxy's digest when it is over its decision-change budget (ADR 0022) are
+        proxy-only — a gateway digest is UNGUARDED.
     admin_token:
         When set, ``/distil/stats`` and ``/distil/dashboard`` require
         ``Authorization: Bearer <token>``. When unset AND the server is bound
@@ -774,15 +780,20 @@ def build_gateway_handler(
     # Route the lossy-allowed decision through policy (single source of truth):
     # subscription / OAuth sessions are lossless-only, forcing Tier-0-only (verbatim).
     _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
-    # Same policy as the local proxy (ADR 0023): wherever lossy Tier-1 digest may run
-    # (PAYG, not --verbatim), the expand loop is ON so every stub is recoverable through
-    # distil_expand — which this gateway now injects and answers (buffered loops for
-    # every shape, the streaming splice for Anthropic Messages). Subscription / lossless
-    # sessions get no tool injection and stay Tier-0-only, as before.
+    # Tier-0 unless the operator opted in with --digest (ADR 0023). Where the digest does
+    # run (opt-in, PAYG, not --verbatim) the expand loop is ON so every stub is
+    # recoverable through distil_expand — which this gateway injects and answers
+    # (buffered loops for every shape, the streaming splice for Anthropic Messages). Not
+    # the default because nothing here holds a digest that is over its decision-change
+    # budget: the per-mode certification hold, shadow and drift guard are proxy-only.
     from .policy import may_compress_lossy
 
-    _mode_label = "verbatim" if verbatim else ("lossless-only" if lossless_only else "digest")
-    expand = may_compress_lossy(_auth_mode) and not verbatim
+    expand = digest and may_compress_lossy(_auth_mode) and not verbatim
+    _mode_label = (
+        "verbatim"
+        if verbatim or not (expand or lossless_only)
+        else ("lossless-only" if lossless_only else "digest")
+    )
     verbatim = verbatim or not expand
     # Cold-point recompression (ADR 0014) under the proxy's gating: only where the
     # recoverable digest runs, not alongside --session-delta, DISTIL_COLD_POINT=0 kills.
@@ -1622,6 +1633,7 @@ def serve_gateway(
     prefix_replay: bool = True,
     session_delta: bool = False,
     cold_point: bool = True,
+    digest: bool = False,
 ) -> None:
     """Run a blocking ThreadingHTTPServer gateway.
 
@@ -1646,6 +1658,8 @@ def serve_gateway(
                     Gateway-wide per-tenant daily input-token cap (0 = unlimited).
     session_delta:  Cache-delta coding, sessions scoped per tenant (off by default).
     cold_point:     Cold-point recompression (ADR 0014), scoped per tenant.
+    digest:         Operator opt-in to the recoverable digest (``--digest``). Unguarded:
+                    no per-mode certification on the gateway yet (ADR 0023).
     """
     price = pricing_get(pricing_model)
     state = GatewayState(price)
@@ -1668,9 +1682,16 @@ def serve_gateway(
         prefix_replay=prefix_replay,
         session_delta=session_delta,
         cold_point=cold_point,
+        digest=digest,
     )
     server = QuietHTTPServer((host, port), handler)
     print(f"distil gateway listening on http://{host}:{port}")
+    if digest and not (lossless_only or verbatim):
+        print(
+            "  ! --digest: recoverable digest on, UNGUARDED — the gateway has no per-mode "
+            "certification hold (ADR 0022 is proxy-only), so nothing switches it off if "
+            "it is over its decision-change budget"
+        )
     print(f"  dashboard: http://{host}:{port}/distil/dashboard")
     print(f"  metrics:   http://{host}:{port}/distil/metrics  (Prometheus)")
     auth_active = require_keys or key_store.has_active_keys()

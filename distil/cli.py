@@ -4041,6 +4041,7 @@ def cmd_gateway(args: argparse.Namespace) -> int:
         prefix_replay=not getattr(args, "no_prefix_replay", False),
         session_delta=getattr(args, "session_delta", False),
         cold_point=not getattr(args, "no_cold_point", False),
+        digest=getattr(args, "digest", False),
     )
     return 0
 
@@ -6159,6 +6160,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the Tier-1 digest (Tier-0 only) for all tenants — lower savings",
     )
     gw.add_argument(
+        "--digest",
+        action="store_true",
+        help="opt IN to the recoverable digest for PAYG tenants (distil_expand injected and "
+        "answered; ADR 0023). Off by default: the gateway serves Tier-0. UNGUARDED — the "
+        "per-mode certification hold, shadow and drift guard are proxy-only, so nothing "
+        "switches a gateway digest off when it is over its decision-change budget.",
+    )
+    gw.add_argument(
         "--admin-token",
         default=None,
         help="bearer token for /distil/stats and /distil/dashboard "
@@ -6200,7 +6209,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-cold-point",
         action="store_true",
         help="opt OUT of cold-point recompression (ADR 0014), scoped per tenant here. On by "
-        "default wherever the recoverable digest runs. Also: DISTIL_COLD_POINT=0.",
+        "default wherever the recoverable digest runs (--digest). Also: DISTIL_COLD_POINT=0.",
     )
     gw.add_argument(
         "--tenant-rpm",

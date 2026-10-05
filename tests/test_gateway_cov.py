@@ -691,10 +691,8 @@ def test_a_comma_list_content_length_is_served_not_413d(gw: Any) -> None:
     assert b"too large" not in raw, raw[:300]
     # The echo upstream returns the body it was sent, re-serialised by the
     # compressible path: equal as JSON is the proof all of it was read.
-    # (A PAYG gateway also injects distil_expand, session-sticky — ADR 0023.)
     _head, _, payload = raw.partition(b"\r\n\r\n")
-    sent = json.loads(payload)
-    assert {k: sent[k] for k in ("model", "messages")} == json.loads(body), payload
+    assert json.loads(payload) == json.loads(body), payload
 
 
 def test_rate_limited_429_cannot_smuggle_a_second_request(tmp_path: Any, monkeypatch: Any) -> None:
