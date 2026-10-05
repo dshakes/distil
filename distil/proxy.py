@@ -47,6 +47,7 @@ from .httpguard import (
 )
 from .otel import request_span, set_result_attrs
 from .prefixreplay import credential_scope as _credential_scope
+from .pricing import DEFAULT_MODEL
 from .serve_core import (  # noqa: F401 — re-exported: tests and siblings import them from here
     _STREAM_ONLY_FIELDS,
     _ErrStream,
@@ -2095,7 +2096,7 @@ def serve(
     verbatim: bool = False,
     shape_output: str = "auto",
     record: bool = True,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     expand: bool = False,
     shadow_rate: float = 0.0,
     retention_rate: float = 0.0,
@@ -2235,7 +2236,7 @@ def wrap_run(
     verbatim: bool = False,
     shape_output: str = "auto",
     record: bool = True,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     env_var: str = "ANTHROPIC_BASE_URL",
     expand: bool = False,
     session_delta: bool = False,

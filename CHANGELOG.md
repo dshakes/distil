@@ -22,6 +22,8 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 - Gateway tenant accounting and daily quotas now count image and thinking blocks (the gateway used an outdated copy of the proxy's token counter).
 - The gateway forwards an unmodified body byte-for-byte and re-encodes a modified one compactly, as the proxy does, so prefix replay models the bytes actually sent.
+- `claude-sonnet-5-5` (the replay grader's default) has its own pricing row at the repo's recorded $2/$10 per MTok; it was being priced as `claude-sonnet-5` through the prefix fallback. Trajectories without a model now default to `claude-opus-4-8` instead of the non-existent `claude-opus-4`, which reached `count_tokens` under `--tokenizer anthropic`.
+- `distil/pricing.py` is the single source for default model ids, cache multipliers and cache TTLs (previously restated in ~15 modules). A drift canary test fails when code names a model id the table does not list exactly, and `scripts/check_pricing.py` (manual, reads the live pages) compares the table with the providers' published prices.
 
 ## [1.56.4] — 2026-10-03 — a second outcome run, and a harness fix
 

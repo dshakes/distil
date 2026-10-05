@@ -36,6 +36,7 @@ from .httpguard import (
     is_responses_path,
     safe_forward_path,
 )
+from .pricing import DEFAULT_MODEL
 from .tokenizer import DEFAULT as _tokenizer
 
 # Which endpoints carry a compressible body lives in httpguard.is_compressible_path —
@@ -478,7 +479,7 @@ def serve(
     verbatim: bool = False,
     shape_output: str = "auto",
     record: bool = True,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     prefix_replay: bool = True,
 ) -> None:
     """Run an async aiohttp proxy server.

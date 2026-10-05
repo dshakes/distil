@@ -129,7 +129,7 @@ def cmd_savings_screen(args: argparse.Namespace) -> int:
 
 def cmd_savings(args: argparse.Namespace) -> int:
     traj = _load(args.trajectory)
-    price = pricing.get(args.pricing or "claude-opus-4-8")
+    price = pricing.get(args.pricing or pricing.DEFAULT_MODEL)
     tk = args.tokenizer or "heuristic"
     tok = tokenizer.resolve(tk, model=price.name)
     out_t = args.output_tokens_per_turn or 0
@@ -3913,7 +3913,9 @@ def cmd_certify_provider(args: argparse.Namespace) -> int:
     )
 
     arms_cls = OpenAIArms if args.provider == "openai" else ProviderArms
-    model = args.model or ("gpt-5.2" if args.provider == "openai" else "claude-opus-4-8")
+    model = args.model or (
+        pricing.DEFAULT_OPENAI_MODEL if args.provider == "openai" else pricing.DEFAULT_MODEL
+    )
     episodes = load_episodes(Path(args.episodes))
     cases = [c for c in (to_case(e, i) for i, e in enumerate(episodes)) if c is not None]
     if args.n is not None:
@@ -5092,7 +5094,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     be = sub.add_parser("bench", help="corpus-wide CI gate across every domain")
     add_tokenizer(be)
-    be.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    be.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     be.add_argument(
         "--margin",
         type=float,
@@ -5142,7 +5144,7 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--input", required=True, help="path to a .json/.jsonl of recorded requests")
     ig.add_argument("--out", default="./ingested-corpus", help="output corpus directory")
     ig.add_argument("--provider", default="anthropic", choices=("anthropic", "openai"))
-    ig.add_argument("--model", default="claude-opus-4-8")
+    ig.add_argument("--model", default=pricing.DEFAULT_MODEL)
     ig.set_defaults(func=cmd_ingest)
 
     pf = sub.add_parser("perf", help="latency/throughput benchmark (p50/p95)")
@@ -5219,7 +5221,7 @@ def build_parser() -> argparse.ArgumentParser:
     bn.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
     bn.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
     add_live(bn)
-    bn.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    bn.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     bn.add_argument("--tokenizer", default="heuristic", choices=("heuristic", "anthropic"))
     bn.add_argument(
         "--margin", type=float, default=_budget.CERT_MARGIN, help="TOST non-inferiority margin"
@@ -5381,7 +5383,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ho = sub.add_parser("holdout", help="holdout A/B savings with a bootstrap CI (phase 5)")
     add_tokenizer(ho)
-    ho.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    ho.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     ho.add_argument("--control-fraction", type=float, default=0.2)
     ho.set_defaults(func=cmd_holdout)
 
@@ -5422,7 +5424,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     px.add_argument(
         "--pricing",
-        default="claude-opus-4-8",
+        default=pricing.DEFAULT_MODEL,
         choices=sorted(pricing.CATALOG),
         help="model used to price genuine savings recorded to the ledger",
     )
@@ -5925,7 +5927,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     wr.add_argument(
         "--pricing",
-        default="claude-opus-4-8",
+        default=pricing.DEFAULT_MODEL,
         choices=sorted(pricing.CATALOG),
         help="model used to price genuine savings recorded to the ledger",
     )
@@ -6089,7 +6091,7 @@ def build_parser() -> argparse.ArgumentParser:
     gw.add_argument("--host", default="127.0.0.1")
     gw.add_argument("--port", type=int, default=8789)
     gw.add_argument("--upstream", default="https://api.anthropic.com")
-    gw.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    gw.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     gw.add_argument("--lossless-only", "--safe", action="store_true")
     gw.add_argument(
         "--verbatim",

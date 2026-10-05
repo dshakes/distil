@@ -52,7 +52,7 @@ from .httpguard import (
     safe_forward_path,
     strip_query,
 )
-from .pricing import Pricing, get as pricing_get
+from .pricing import DEFAULT_MODEL, Pricing, get as pricing_get
 from .expand import is_miss
 from .proxy import (
     _count_messages,
@@ -1611,7 +1611,7 @@ def serve_gateway(
     port: int = 8789,
     upstream: str = "https://api.anthropic.com",
     *,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     lossless_only: bool = False,
     verbatim: bool = False,
     admin_token: str | None = None,

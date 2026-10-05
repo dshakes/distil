@@ -13,15 +13,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# The single source of model facts the code relies on (drift canary:
+# tests/test_pricing_canary.py; offline maintainer check: scripts/check_pricing.py).
+
+#: Cache economics as multipliers of the base input price (Anthropic's documented model).
+CACHE_WRITE_5M_MULT = 1.25  # 5-minute TTL cache write
+CACHE_WRITE_1H_MULT = 2.0  # 1-hour TTL cache write (what Claude Code asks for)
+CACHE_READ_MULT = 0.10  # cache hit
+
+#: Prompt-cache lifetime in seconds by ``cache_control.ttl`` (``None`` = the default).
+CACHE_TTL_S: dict[str | None, float] = {None: 300.0, "5m": 300.0, "1h": 3600.0}
+
+#: The model distil prices and configures by default, per provider family.
+DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_OPENAI_MODEL = "gpt-5.2"
+
+#: Model ids distil routes but deliberately does NOT price: ``resolve()`` returns None
+#: for them and callers count their tokens unweighted (never at Claude rates).
+UNPRICED: frozenset[str] = frozenset({DEFAULT_OPENAI_MODEL})
+
 
 @dataclass(frozen=True)
 class Pricing:
     name: str
     input_per_mtok: float
     output_per_mtok: float
-    cache_write_mult: float = 1.25  # 5-minute TTL cache write
-    cache_read_mult: float = 0.10  # cache hit
-    cache_write_1h_mult: float = 2.0  # 1-hour TTL cache write (what Claude Code asks for)
+    cache_write_mult: float = CACHE_WRITE_5M_MULT
+    cache_read_mult: float = CACHE_READ_MULT
+    cache_write_1h_mult: float = CACHE_WRITE_1H_MULT
 
     # per-token USD
     @property
@@ -54,6 +73,10 @@ CATALOG: dict[str, Pricing] = {
     "claude-opus-4-6": Pricing("claude-opus-4-6", 5.0, 25.0),
     "claude-opus-4-5": Pricing("claude-opus-4-5", 5.0, 25.0),
     "claude-sonnet-5": Pricing("claude-sonnet-5", 3.0, 15.0),
+    # The replay grader's default. Without its own row the prefix match priced it as
+    # claude-sonnet-5; this is the repo's own recorded list price
+    # (benchmarks/swebench_outcome/agent.py PRICES).
+    "claude-sonnet-5-5": Pricing("claude-sonnet-5-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),

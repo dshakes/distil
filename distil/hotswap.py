@@ -59,6 +59,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 from ._log import log
+from .pricing import DEFAULT_MODEL
 
 _CONFIG_ENV = "DISTIL_WORKER_CONFIG"
 _FD_ENV = "DISTIL_WORKER_FD"
@@ -93,7 +94,7 @@ class WorkerConfig:
     verbatim: bool = False
     shape_output: str = "auto"
     record: bool = True
-    pricing_model: str = "claude-opus-4-8"
+    pricing_model: str = DEFAULT_MODEL
     expand: bool = False
     session_delta: bool = False
     prefix_replay: bool = True

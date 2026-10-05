@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..corpus import CorpusEntry
+from ..pricing import DEFAULT_MODEL
 from ..trajectory import Block, Kind, Stability, Trajectory, Turn
 
 
@@ -148,7 +149,7 @@ def _tau_messages(episode: dict) -> list[dict]:
     return episode.get("messages") or episode.get("traj") or episode.get("trajectory") or []
 
 
-def load_tau_bench(path: str | Path, *, model: str = "claude-opus-4-8") -> list[CorpusEntry]:
+def load_tau_bench(path: str | Path, *, model: str = DEFAULT_MODEL) -> list[CorpusEntry]:
     """Load τ-bench episodes into trajectories.
 
     Each assistant message that issues a tool call is a decision point: the context
@@ -399,7 +400,7 @@ def _swe_history_turns(raw: dict, inst: str) -> list[tuple[list[Block], str, str
     return out
 
 
-def load_swe_bench(path: str | Path, *, model: str = "claude-opus-4-8") -> list[CorpusEntry]:
+def load_swe_bench(path: str | Path, *, model: str = DEFAULT_MODEL) -> list[CorpusEntry]:
     """Load SWE-agent ``.traj`` trajectories (single file or a directory of them).
 
     Two shapes. A current SWE-agent ``.traj`` (top-level ``history``) is rebuilt from

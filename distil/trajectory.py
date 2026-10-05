@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from .pricing import DEFAULT_MODEL
+
 
 class Stability(str, Enum):
     STABLE = "stable"  # system prompt, tool schemas, settled facts -> cacheable prefix
@@ -100,7 +102,7 @@ class Trajectory:
             for i, t in enumerate(d["turns"])
         ]
         return Trajectory(
-            id=d.get("id", "trajectory"), model=d.get("model", "claude-opus-4"), turns=turns
+            id=d.get("id", "trajectory"), model=d.get("model", DEFAULT_MODEL), turns=turns
         )
 
     @staticmethod
