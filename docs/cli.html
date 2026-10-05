@@ -1048,6 +1048,8 @@ $ distil gateway --tenant-rpm 60 --tenant-daily-tokens 1000000 \
         <tr><th scope="row"><code>gateway --require-keys</code></th><td>off</td><td>Force key auth even before any keys are issued.</td></tr>
         <tr><th scope="row"><code>gateway --tenant-rpm</code></th><td>0 (unlimited)</td><td>Gateway-wide requests-per-minute cap per tenant.</td></tr>
         <tr><th scope="row"><code>gateway --tenant-daily-tokens</code></th><td>0 (unlimited)</td><td>Gateway-wide daily input-token cap per tenant.</td></tr>
+        <tr><th scope="row"><code>gateway --session-delta</code></th><td>off</td><td>Cache-delta coding, as on the proxy; sessions are scoped per tenant.</td></tr>
+        <tr><th scope="row"><code>gateway --no-cold-point</code></th><td>off (cold-point on)</td><td>Opt out of cold-point recompression (ADR 0014), which the gateway runs per tenant wherever the recoverable digest runs.</td></tr>
         <tr><th scope="row"><code>keys issue --tenant &lt;name&gt;</code></th><td>required</td><td>Tenant label to associate with the new key.</td></tr>
         <tr><th scope="row"><code>keys revoke &lt;prefix&gt;</code></th><td>required</td><td>First hex characters of the key to revoke (as shown by <code>keys list</code>).</td></tr>
       </tbody>

@@ -68,6 +68,9 @@ gateway tenant got a different product from a local user:
   `x-distil-cold*` and `x-distil-cache-*` headers.
 - Tenant accounting and quotas use the proxy's counter, which counts images and thinking:
   baselines go up for tenants that send them.
+- Isolation is exactly as strong as tenant identity. With the default (credential hash) or
+  dsk-/OIDC keys it holds; under the operator opt-in `--trust-tenant-header` a client that
+  claims another tenant's label gets that tenant's grants, as it already got its accounting.
 - The grant table is in memory and LRU-bounded (65,536 handles). After a gateway restart
   an older stub's expand returns the miss placeholder — fail-safe, but a regression in
   recoverability against the proxy, which falls back to the on-disk store. Persist grants
