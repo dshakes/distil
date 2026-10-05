@@ -117,12 +117,28 @@ def cmd_savings_screen(args: argparse.Namespace) -> int:
         return cmd_savings(args)
     from . import savings_screen as ss
 
+    days = getattr(args, "days", None)
     try:
-        since = None if args.all else time.time() - ss.parse_since(args.since)
+        if days is not None and days <= 0:
+            raise ValueError(f"--days must be positive, got {days:g}")
+        window = f"{days:g}d" if days is not None else args.since
+        since = None if args.all else time.time() - ss.parse_since(window)
     except ValueError as e:
         print(f"distil savings: {e}", file=sys.stderr)
         return 2
-    screen = ss.build(since)
+    t0 = time.monotonic()
+    shown = False
+
+    def progress(done: int, cap: int) -> None:
+        nonlocal shown
+        if time.monotonic() - t0 > 2.0 and sys.stderr.isatty():
+            print(f"\r  replaying your requests offline… {done}/{cap}", end="", file=sys.stderr)
+            sys.stderr.flush()
+            shown = True
+
+    screen = ss.build(since, progress=progress)
+    if shown:
+        print("\r\033[K", end="", file=sys.stderr)
     print(ss.to_json(screen) if args.json else ss.render(screen))
     return 0
 
@@ -4963,6 +4979,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     s.add_argument("--since", default="7d", help="window, e.g. 7d, 24h, 2w (default 7d)")
     s.add_argument("--all", action="store_true", help="all history, no window")
+    s.add_argument("--days", type=float, help="window in days, e.g. --days 7 (same as --since 7d)")
     s.add_argument("--json", action="store_true", help="machine-readable output")
     s.add_argument(
         "--strategies",
