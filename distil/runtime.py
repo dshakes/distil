@@ -30,7 +30,7 @@ class RuntimeSavings:
     savings with dollars=0 rather than being silently priced at Claude rates.
     """
 
-    model: str = "claude-opus-4-8"
+    model: str = pricing.DEFAULT_MODEL
     session_id: str = ""  # set in __post_init__; stamps every ledger record
     mode: str = ""  # compression mode (verbatim/lossless-only/digest); stamps rows
     requests: int = 0

@@ -180,7 +180,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
     <ul>
       <li><strong>No per-request behavioural check.</strong> There is no shadow or dual-send path anywhere in the codebase. <code>accuracy_guard="strict"</code> is echoed back on <code>/healthz</code> and <code>/stats</code>, but nothing branches on its value.</li>
       <li><strong>Recovery is a TTL cache, not a guarantee.</strong> The store expires entries after 1800 seconds with a 1000-entry FIFO cap and does no integrity or round-trip check on what it returns. Distil's is content-addressed, verified by a gate, and the agent can call it mid-task.</li>
-      <li><strong>Four lossy paths ship with no retrieval at all</strong> — OpenAI chat streaming, Responses under ChatGPT auth, Gemini streaming, and Bedrock. Distil's gateway ships Tier-0 only rather than emit a stub it cannot restore.</li>
+      <li><strong>Four lossy paths ship with no retrieval at all</strong> — OpenAI chat streaming, Responses under ChatGPT auth, Gemini streaming, and Bedrock. Every distil server that emits a digest stub, the multi-tenant gateway included, also answers the expand call that recovers it.</li>
       <li><strong>Savings are uncalibrated</strong>, falling back to <code>chars/3.5</code>; distil reconciles its count against the provider's billed <code>usage</code>.</li>
       <li><strong>Where it is genuinely strong</strong>, and we say so: its prompt-cache prefix replay is real engineering, and its breadth — 20 wrap targets, 6 framework integrations — is real.</li>
     </ul>

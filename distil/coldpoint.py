@@ -51,11 +51,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from .prefixreplay import canonical
+from .pricing import CACHE_TTL_S
 
 log = logging.getLogger("distil.coldpoint")
 
-TTL_DEFAULT_S = 300.0  # Anthropic's default ephemeral TTL
-_TTLS = {None: TTL_DEFAULT_S, "5m": TTL_DEFAULT_S, "1h": 3600.0}
+TTL_DEFAULT_S = CACHE_TTL_S[None]  # Anthropic's default ephemeral TTL
+_TTLS = CACHE_TTL_S
 # The ONE safety margin over the TTL, in seconds. It covers the gap between distil's clock
 # and the provider's (network latency, seconds); the paths that refresh the cache LATER
 # than the forward (streaming, expand re-queries, shadow replays) are tracked as in-flight

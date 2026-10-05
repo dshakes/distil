@@ -83,7 +83,8 @@ the client's side.
 
 **Known limitation, stated plainly:** tenants share one process. There is no
 memory isolation between tenants, and the restore store is per-gateway rather than
-per-tenant. For hard isolation, run one gateway per trust boundary. This is
+per-tenant (a tenant's `distil_expand` resolves only handles issued to that tenant —
+ADR 0023). For hard isolation, run one gateway per trust boundary. This is
 surfaced in `distil gateway --help`, not buried here.
 
 ### Credential lifetime
