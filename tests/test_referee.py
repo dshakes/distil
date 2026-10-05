@@ -174,11 +174,11 @@ def test_signature_reads_the_responses_api_too():
 
 def test_estimate_and_prices():
     est = rf.estimate_usd({"max_tokens": 32000}, b"x" * 350, MODEL)
-    assert est == pytest.approx(100 * 3e-6 + rf.OUT_TOKENS_EST * 15e-6)
+    assert est == pytest.approx(100 * 2e-6 + rf.OUT_TOKENS_EST * 10e-6)
     assert rf.estimate_usd({}, b"x", "unknown-model") is None
     u = {"input_tokens": 10, "cache_read_input_tokens": 1000, "output_tokens": 5}
     assert rf.total_input(u) == 1010
-    assert rf.list_usd(u, MODEL) == pytest.approx(1010 * 3e-6 + 5 * 15e-6)
+    assert rf.list_usd(u, MODEL) == pytest.approx(1010 * 2e-6 + 5 * 10e-6)
     assert rf.billed_usd(u, MODEL) < rf.list_usd(u, MODEL), "cache reads bill at 0.1x"
     assert rf.billed_usd(u, "unknown-model") == 0.0 and rf.list_usd(u, "unknown-model") is None
 
@@ -231,7 +231,7 @@ def test_a_sample_replays_three_arms_records_and_settles_actual_spend(tmp_path):
     t = rf.Budget(1).today()
     assert t["samples"] == 1 and t["reserved"] == pytest.approx(0.0)
     # billed (output at 5x input), not the reservation
-    assert t["spent"] == pytest.approx((2 * (1000 + 100) + (400 + 100)) * 3e-6)
+    assert t["spent"] == pytest.approx((2 * (1000 + 100) + (400 + 100)) * 2e-6)
 
 
 def test_a_failed_arm_stops_paying_and_records_nothing(tmp_path):

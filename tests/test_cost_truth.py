@@ -31,8 +31,8 @@ def test_usage_cost_known_answer_with_1h_split() -> None:
         "cache_creation": {"ephemeral_5m_input_tokens": 3000, "ephemeral_1h_input_tokens": 1000},
         "output_tokens": 500,
     }
-    # sonnet-5 $3/$15: 1000*3 + 2000*0.3 + 3000*3.75 + 1000*6 + 500*15, per Mtok
-    assert m.usage_cost("claude-sonnet-5", usage) == pytest.approx(0.02835)
+    # sonnet-5 $2/$10: 1000*2 + 2000*0.2 + 3000*2.5 + 1000*4 + 500*10, per Mtok
+    assert m.usage_cost("claude-sonnet-5", usage) == pytest.approx(0.0189)
 
 
 def test_usage_cost_without_split_bills_writes_at_5m_rate() -> None:
@@ -389,8 +389,8 @@ def test_warm_start_sensitivity_reprices_first_request_reads() -> None:
     runs = [_run("a", 0, "control", 1.0, True), _run("a", 0, "x", 1.0, True)]
     runs[1]["first_request_cache_read"] = 1_000_000  # x inherited a warm prefix
     c = an.analyze(runs, ["control", "x"], b=20)["comparisons"]["x"]
-    # 1M tokens moved from read ($0.30) to write ($3.75): x now costs $4.45 vs $1
-    assert c["secondary"]["warm_start_ratio"] == pytest.approx(4.45)
+    # sonnet-5 $2/MTok: 1M tokens moved from read ($0.20) to write ($2.50): x costs $3.30 vs $1
+    assert c["secondary"]["warm_start_ratio"] == pytest.approx(3.3)
 
 
 # --------------------------------------------------------------------------- power / estimate

@@ -65,18 +65,23 @@ class Pricing:
 
 
 # Public list prices (USD / Mtok), current Claude model IDs. VERIFY before billing use.
+# Checked against https://platform.claude.com/docs/en/about-claude/pricing on 2026-10-04.
+# Newer models whose cache hit is NOT 0.1x carry their own multiplier: Opus 5.5 reads
+# at 0.05x and Fable 5.1 at 0.025x; without a row they would resolve, through the
+# prefix fallback, to the older model's price.
 CATALOG: dict[str, Pricing] = {
+    "claude-fable-5-1": Pricing("claude-fable-5-1", 10.0, 50.0, cache_read_mult=0.025),
     "claude-fable-5": Pricing("claude-fable-5", 10.0, 50.0),
+    "claude-opus-5-5": Pricing("claude-opus-5-5", 4.0, 20.0, cache_read_mult=0.05),
     "claude-opus-5": Pricing("claude-opus-5", 5.0, 25.0),
     "claude-opus-4-8": Pricing("claude-opus-4-8", 5.0, 25.0),
     "claude-opus-4-7": Pricing("claude-opus-4-7", 5.0, 25.0),
     "claude-opus-4-6": Pricing("claude-opus-4-6", 5.0, 25.0),
     "claude-opus-4-5": Pricing("claude-opus-4-5", 5.0, 25.0),
-    "claude-sonnet-5": Pricing("claude-sonnet-5", 3.0, 15.0),
-    # The replay grader's default. Without its own row the prefix match priced it as
-    # claude-sonnet-5; this is the repo's own recorded list price
-    # (benchmarks/swebench_outcome/agent.py PRICES).
+    # $2/$10 is Sonnet 5's standard price: the scheduled 2026-09-01 rise to $3/$15
+    # was cancelled (the pricing page's footnote).
     "claude-sonnet-5-5": Pricing("claude-sonnet-5-5", 2.0, 10.0),
+    "claude-sonnet-5": Pricing("claude-sonnet-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),

@@ -73,8 +73,10 @@ def test_table_rows_are_self_consistent() -> None:
     for key, p in pricing.CATALOG.items():
         assert p.name == key
         assert p.input_per_mtok > 0 and p.output_per_mtok >= p.input_per_mtok
+        # Opus 5.5 and Fable 5.1 publish a cheaper cache hit; every other row is 0.1x.
+        read = {"claude-opus-5-5": 0.05, "claude-fable-5-1": 0.025}.get(key, pricing.CACHE_READ_MULT)
         assert (p.cache_read_mult, p.cache_write_mult, p.cache_write_1h_mult) == (
-            pricing.CACHE_READ_MULT,
+            read,
             pricing.CACHE_WRITE_5M_MULT,
             pricing.CACHE_WRITE_1H_MULT,
         )
