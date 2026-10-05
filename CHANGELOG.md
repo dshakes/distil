@@ -14,6 +14,11 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 - `plan --calibrate <run dir>` prices each arm from cached results (unmeasured arms at plain x1.5); `run --reuse-arm plain=<dir>` copies a finished arm's rows (same model/effort enforced, free against the budget, grades carried over, stated in the report). No paid head-to-head run is included; see `specs/swebench-outcome-eval.md`.
 - `benchmarks/session_replay.py`: offline replay of local Claude Code transcripts through the real `compress_messages` serving adapter, with per-session-length and per-context-size savings, cache-aware ($-weighted) savings, digest rate by tool and shell class, quote hazard, and the shell-search-exemption counterfactual. Committed artifact is aggregates only (`benchmarks/results/session-replay/`); method and results in `docs/EVALUATION.md` §6.10.
 
+### Fixed
+
+- **Security: a subscription session with `--expand` no longer gets output shaping.** The proxy, async proxy and `wrap` derived the auth mode from the `--lossless-only` flag, and `--expand` (or `distil default --mode expand`) leaves that flag off on a subscription — so the session was treated as metered and a system-role verbosity directive was appended to first-party traffic. The mode now comes from real billing (`policy.session_auth_mode`); the recoverable-digest opt-in still works.
+- Every third-party GitHub Action is pinned to a full commit SHA (`census-ingest` and `adoption-stats` ran a mutable `actions/checkout@v4` with `contents: write`).
+
 ## [1.56.4] — 2026-10-03 — a second outcome run, and a harness fix
 
 ### Added

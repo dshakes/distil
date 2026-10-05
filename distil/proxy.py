@@ -737,12 +737,14 @@ def build_handler(
     # agent can never recover a Tier-1 digest stub, so a stub there is irreversibly
     # lossy. Force Tier-0-only (verbatim) whenever lossless_only is set. The label
     # above stays distinct so x-distil-mode still reports which of the two it is.
-    from .policy import AuthMode, may_compress_lossy
+    from .policy import may_compress_lossy, session_auth_mode
 
     # Route the lossy-allowed decision through policy as the single source of truth:
     # subscription / OAuth sessions are lossless-only (a tightening boundary a project
     # can never loosen). This forces Tier-0-only (verbatim) and gates output shaping.
-    _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
+    # Keyed on real billing, not just the flag: `--expand` on a subscription leaves
+    # lossless_only False, and must still never get output shaping.
+    _auth_mode = session_auth_mode(lossless_only)
     _lossy_ok = may_compress_lossy(_auth_mode)
     # Resolve `auto` HERE, where the policy answer already is — every entry point
     # (serve, wrap_run's in-thread proxy, the hot-swap worker, aproxy) builds its
@@ -2752,11 +2754,11 @@ def wrap_run(
     # decision. Re-deciding per worker (hot-swap restarts one mid-session) would let
     # a session change its own shaping silently when the shadow ledger moved.
     from .output import resolve_shape_output as _resolve_shape
-    from .policy import AuthMode, may_compress_lossy
+    from .policy import may_compress_lossy, session_auth_mode
 
     shape = _resolve_shape(
         shape_output,
-        lossy_ok=may_compress_lossy(AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG),
+        lossy_ok=may_compress_lossy(session_auth_mode(lossless_only)),
     )
     shape_output = shape.level
     if shape.on or shape.requested not in ("auto", "off"):

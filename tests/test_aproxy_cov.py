@@ -204,6 +204,37 @@ def test_aproxy_shape_output_light_header() -> None:
     _run(_body())
 
 
+def test_aproxy_never_shapes_a_subscription(monkeypatch) -> None:
+    """Real billing, not the lossless_only flag, gates shaping: a subscription
+    session built with lossless_only=False still gets no directive."""
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+
+    async def _body() -> None:
+        async with TestServer(_echo_app()) as up:
+            app = make_app(
+                str(up.make_url("/")).rstrip("/"), lossless_only=False, shape_output="light"
+            )
+            async with TestClient(TestServer(app)) as client:
+                payload = {
+                    "model": "claude-opus-4-8",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "tool_result", "content": _LONG_TOOL_RESULT}],
+                        }
+                    ],
+                }
+                resp = await client.post(
+                    "/v1/messages",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                assert resp.status == 200
+                assert resp.headers.get("x-distil-output-shaping") is None
+
+    _run(_body())
+
+
 # ---------------------------------------------------------------------------
 # Tests: savings callback
 # ---------------------------------------------------------------------------
