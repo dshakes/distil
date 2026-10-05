@@ -23,7 +23,8 @@ Contract:
   ``DISTIL_LITELLM_DIGEST=1`` for the YAML form) opts into Tier-1 digests.
   A LiteLLM hook cannot inject the ``distil_expand`` tool, so a digest stub sent
   from here has no in-conversation recovery path; use the sidecar ``distil proxy``
-  when you want digest mode.
+  when you want digest mode. The opt-in warns once, and is refused (lossless-only,
+  with a warning) on a subscription machine — the same policy the proxy applies.
 * **Fail-open** — any error, unknown call type or unrecognized shape returns the
   original request untouched.
 * **Content-free** — message text is never logged or stored by this module; only
@@ -57,6 +58,36 @@ from ..runtime import RuntimeSavings
 __all__ = ["HookCore", "compress_request"]
 
 _log = logging.getLogger("distil.litellm")  # exception *types* only, never content
+
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, msg: str) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        _log.warning(msg)
+
+
+def _digest_allowed() -> bool:
+    """May the opt-in digest run here? Same policy as the proxy: never on a
+    subscription — and with no distil_expand to make it recoverable, there is no
+    ``--expand``-style exception either."""
+    from ..policy import may_compress_lossy, session_auth_mode
+
+    if may_compress_lossy(session_auth_mode(False)):
+        _warn_once(
+            "irrecoverable",
+            "distil litellm: digest=True sends Tier-1 stubs the model cannot recover "
+            "(no distil_expand from a LiteLLM hook); use `distil proxy` for a "
+            "recoverable digest",
+        )
+        return True
+    _warn_once(
+        "subscription",
+        "distil litellm: digest refused on a subscription session; running lossless-only",
+    )
+    return False
+
 
 _CHAT_CALLS = frozenset({"completion", "acompletion"})
 _ANTHROPIC_CALLS = frozenset({"anthropic_messages"})
@@ -92,9 +123,10 @@ class HookCore:
     """The hook's logic, independent of LiteLLM (so it is testable without it)."""
 
     def __init__(self, *, digest: bool = False, ledger_path: Path | str | None = None) -> None:
-        self.digest = digest
+        # The YAML form's DISTIL_LITELLM_DIGEST arrives here too, so one guard covers both.
+        self.digest = digest and _digest_allowed()
         self.savings = RuntimeSavings(
-            mode="digest" if digest else "verbatim",
+            mode="digest" if self.digest else "verbatim",
             ledger_path=Path(ledger_path) if ledger_path else None,
         )
         atexit.register(self._flush)
