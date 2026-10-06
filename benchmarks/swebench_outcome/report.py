@@ -164,15 +164,24 @@ _EXCLUDED = (
 )
 
 
-def markdown(a: dict[str, Any], reuse: dict[str, dict[str, Any]] | None = None) -> str:
+def dataset_title(dataset: str) -> str:
+    """'princeton-nlp/SWE-bench_Verified' -> 'SWE-bench Verified' (report heading)."""
+    return dataset.rsplit("/", 1)[-1].replace("_", " ")
+
+
+def markdown(
+    a: dict[str, Any],
+    reuse: dict[str, dict[str, Any]] | None = None,
+    title: str = "SWE-bench Lite",
+) -> str:
     arms = a["arms"]
     if set(arms) == {"plain", "distil"}:
-        return _markdown_pair(a)
-    return _markdown_multi(a, reuse or {})
+        return _markdown_pair(a, title)
+    return _markdown_multi(a, reuse or {}, title)
 
 
-def _markdown_pair(a: dict[str, Any]) -> str:
-    L = ["# SWE-bench Lite outcome eval", ""]
+def _markdown_pair(a: dict[str, Any], title: str = "SWE-bench Lite") -> str:
+    L = [f"# {title} outcome eval", ""]
     n = a["n_pairs"]
     L += [
         f"Paired instances with a graded outcome in both arms: **{n}**",
@@ -192,9 +201,11 @@ def _markdown_pair(a: dict[str, Any]) -> str:
     return "\n".join(L) + "\n"
 
 
-def _markdown_multi(a: dict[str, Any], reuse: dict[str, dict[str, Any]]) -> str:
+def _markdown_multi(
+    a: dict[str, Any], reuse: dict[str, dict[str, Any]], title: str = "SWE-bench Lite"
+) -> str:
     arms, comps = a["arms"], a["comparisons"]
-    L = ["# SWE-bench Lite outcome eval (head-to-head)", ""]
+    L = [f"# {title} outcome eval (head-to-head)", ""]
     L.append(
         f"Arms: {', '.join(arms)}. Summary rows are scored on the **{a['n_common']}** instances "
         "with a graded outcome in every arm; each comparison below uses the pairs graded in "
