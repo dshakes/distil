@@ -2367,7 +2367,12 @@ def cmd_setup_front(args: argparse.Namespace) -> int:
     if args.settings or args.statusline_only:
         return cmd_setup(args)
     if getattr(args, "hooks", False):
-        return cmd_hook(argparse.Namespace(action="install", client="auto", digest=args.digest))
+        rc = cmd_hook(argparse.Namespace(action="install", client="auto", digest=args.digest))
+        if getattr(args, "shell", False):
+            print()
+            shell_ns = argparse.Namespace(action="install", shell=True, digest=args.digest)
+            rc = max(rc, cmd_hook(shell_ns))
+        return rc
     if getattr(args, "vscode", False):
         return _print_vscode_entry(args.port)
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
@@ -3214,6 +3219,10 @@ def cmd_hook(args: argparse.Namespace) -> int:
             else [client]
         )
         digest = bool(getattr(args, "digest", False))
+        if getattr(args, "shell", False):
+            if action == "install":
+                return install_hook("claude", digest=digest, shell=True)
+            return uninstall_hook("claude", shell=True)
         rc = 0
         for i, key in enumerate(keys):
             if i:
@@ -3225,6 +3234,16 @@ def cmd_hook(args: argparse.Namespace) -> int:
     if getattr(args, "stats", False):
         return _hook_stats()
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
+def cmd_sh(args: argparse.Namespace) -> int:
+    """``distil sh -- <command>``: run it, print its output shaped at the source."""
+    from .shell import main as sh_main
+
+    command = list(args.command)
+    if command and command[0] == "--":  # argparse REMAINDER keeps the separator
+        command = command[1:]
+    return sh_main(command, digest=bool(args.digest))
 
 
 def cmd_expand(args: argparse.Namespace) -> int:
@@ -5754,6 +5773,12 @@ def build_parser() -> argparse.ArgumentParser:
         "get it by default; subscriptions stay lossless-only without this)",
     )
     su.add_argument(
+        "--shell",
+        action="store_true",
+        help="with --hooks: also rewrite Claude Code Bash test runs and `git status` to "
+        "`distil sh` (opt-in, ADR 0026)",
+    )
+    su.add_argument(
         "--vscode",
         action="store_true",
         help="print the VS Code Copilot Chat custom-endpoint entry that routes it via distil",
@@ -5956,7 +5981,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="install: opt a subscription login into the recoverable digest (recorded; "
         "metered keys get it by default, subscriptions stay lossless-only without it)",
     )
+    hk.add_argument(
+        "--shell",
+        action="store_true",
+        help="install/uninstall: the Claude Code PreToolUse rewrite that runs test runners and "
+        "`git status` under `distil sh` (opt-in, ADR 0026)",
+    )
     hk.set_defaults(func=cmd_hook)
+
+    shp = sub.add_parser(
+        "sh",
+        help="run a command and print its output shaped at the source "
+        "(e.g. distil sh -- pytest -q); failures stay verbatim",
+    )
+    shp.add_argument(
+        "--digest",
+        action="store_true",
+        help="allow the lossy filters on a subscription login (metered keys get them by "
+        "default; the full output stays behind a `distil expand` handle)",
+    )
+    shp.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
+    shp.set_defaults(func=cmd_sh)
 
     ex = sub.add_parser(
         "expand", help="print the original behind a digest handle (`<< … handle=XXXXXXXX >>`)"

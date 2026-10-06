@@ -126,6 +126,10 @@ def build_arms(names: tuple[str, ...], a: argparse.Namespace) -> tuple[list[Arm]
             if not binary.is_file():
                 raise ArmUnavailable(f"rtk: --rtk-bin {binary} is not a file")
             arms.append(rtk_arm(binary))
+        elif n == "distil-sh":
+            from .arm_distil_sh import distil_sh_arm
+
+            arms.append(distil_sh_arm())
         elif n == "selective":
             from .arm_selective import make_selective
 

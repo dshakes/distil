@@ -571,6 +571,7 @@ holdout A/B savings measurement (deterministic partition + bootstrap CI)
         <tr><th scope="row"><code>DISTIL_RESTORE_TTL_DAYS</code></th><td>14</td><td>Days a restore-store entry is kept.</td></tr>
         <tr><th scope="row"><code>DISTIL_COLD_POINT</code></th><td>1</td><td>0 turns off cold-point recompression (ADR 0014); same as --no-cold-point.</td></tr>
         <tr><th scope="row"><code>DISTIL_REFETCH_VERBATIM</code></th><td>1</td><td>0 turns off re-fetch verbatim (ADR 0025). Read per request.</td></tr>
+        <tr><th scope="row"><code>DISTIL_SH_OFF</code></th><td>unset</td><td>Set to 1 and distil sh runs every command untouched; the Claude Code shell rewrite leaves commands as written (ADR 0026).</td></tr>
         <tr><th scope="row"><code>DISTIL_SHADOW_PAIRED</code></th><td>1</td><td>0 restores the cheaper unpaired shadow estimator.</td></tr>
         <tr><th scope="row"><code>DISTIL_HOT_SWAP</code></th><td>1</td><td>0 keeps the historical in-thread proxy instead of the hot-swappable worker (POSIX).</td></tr>
         <tr><th scope="row"><code>DISTIL_SUBSCRIPTION</code></th><td>auto</td><td>1/0 forces subscription (tokens-only) or metered ($) reporting; auto detects an OAuth login.</td></tr>
@@ -742,6 +743,12 @@ Characters rather than tokens — the hook runs before any tokenizer and stays
 dependency-free — so read it as a floor on what the context window kept.</p>
 <pre class="term"><span class="d">$ distil hook --install</span>   <span class="d"># documented Claude Code extension point</span>
 <span class="d">$ distil hook --stats</span>     <span class="d"># totals, split by tool</span></pre>
+
+<h2 id="sh">distil sh</h2>
+<p>Run one command and print its output shaped at the source (<a href="shell.html">Shell at the source</a>, ADR 0026). Test runners (pytest, unittest/Django <code>runtests.py</code>, <code>cargo test</code>, <code>go test</code>, npm/yarn/pnpm test, jest, vitest) and <code>git status</code> have filters; any other command is executed untouched. Every failure, error, warning and summary line stays verbatim and the exit code is the command's own. On a subscription only the lossless filters run unless you pass <code>--digest</code>; passing-test lines are elided only with the full output kept behind a <code>distil expand</code> handle. <code>DISTIL_SH_OFF=1</code> turns it into a plain pass-through. <code>distil hook install --shell</code> (or <code>distil setup --hooks --shell</code>) installs the Claude Code <code>PreToolUse</code> rewrite that inserts it; <code>distil hook uninstall --shell</code> removes it.</p>
+<pre class="term"><span class="d">$ distil sh -- python -m pytest -v tests/</span>
+<span class="d">$ distil sh --digest -- cargo test</span>        <span class="d"># subscription: opt in to the elide tier</span>
+<span class="d">$ distil hook install --shell</span>             <span class="d"># Claude Code: rewrite test runs and git status</span></pre>
 
 <h2 id="learn">distil learn</h2>
     <p>Show the keep-byte-exact policy Distil has learned from your own <code>distil_expand</code> signals: content the agent kept pulling back is content that should not have been digested in the first place. Read-only — it reports the policy, it does not change it.</p>
@@ -1511,6 +1518,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <p>For agents a proxy cannot reach: install a post-tool hook in every detected client — Claude Code, Cursor (MCP output only), Gemini CLI, Codex CLI — that compresses tool output before it enters the agent's history. On a subscription it is lossless-only unless you add <code>--digest</code>; on a metered key the recoverable digest runs by default, with the original kept for <code>distil expand &lt;handle&gt;</code>. Only this runs; nothing else in <code>setup</code> does. Per client and to undo: <code>distil hook install|uninstall|status --client claude|cursor|gemini|codex|all</code>. Details, sources and what is not supported: <a href="hooks.html">Post-tool hooks</a>.</p>
     <pre class="term"><span class="d">$ distil setup --hooks</span>                      <span class="d"># every detected client</span>
 <span class="d">$ distil setup --hooks --digest</span>             <span class="d"># subscription: opt in to the digest</span>
+<span class="d">$ distil setup --hooks --shell</span>              <span class="d"># also rewrite Claude Code test runs to distil sh</span>
 <span class="d">$ distil hook status</span>                        <span class="d"># where it is installed, which tier, and why</span>
 <span class="d">$ distil hook uninstall --client all</span>        <span class="d"># removes only what distil added</span>
 <span class="d">$ distil expand 3f9a1c2e</span>                    <span class="d"># the original behind a digest handle</span></pre>

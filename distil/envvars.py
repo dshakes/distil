@@ -72,6 +72,12 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "1",
         "0 turns off re-fetch verbatim (ADR 0025). Read per request.",
     ),
+    (
+        "DISTIL_SH_OFF",
+        "user",
+        "unset",
+        "Set to 1 and distil sh runs every command untouched; the Claude Code shell rewrite leaves commands as written (ADR 0026).",
+    ),
     ("DISTIL_SHADOW_PAIRED", "user", "1", "0 restores the cheaper unpaired shadow estimator."),
     (
         "DISTIL_HOT_SWAP",
