@@ -46,80 +46,43 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html" class="active" aria-current="page">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
           <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration</a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
-      <details class="sidebar-group" open>
+      <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html" class="active" aria-current="page">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -192,10 +155,111 @@ distil proxy --session-delta  # cross-turn dedupe + cross-version deltas</code><
     <p><code>distil cache</code> reads the per-session request ledger, which only a wrap session writes. Run your agent under <code>distil wrap -- &lt;cmd&gt;</code> (or <code>distil default --always-on</code>), then re-run it.</p>
     <p>If <code>distil stats</code> shows near-zero recent compression, the cause is usually mode rather than cache: a subscription session defaults to lossless-only, which is Tier-0 only. <code>distil default --mode expand</code> turns the recoverable digest on permanently.</p>
 
+    <hr/>
+
+    <!-- merged from cache.html#cache-contract -->
+<div id="cache-contract"></div>
+<h2>The cache <span class="g">contract</span></h2>
+    <p class="lead">Prompt caching is the largest single lever on an agent's bill, and it is all-or-nothing: rewrite one byte at or before the provider's cache boundary and the entry for the <em>whole</em> prefix is discarded. This page states, precisely, what Distil guarantees about the bytes it forwards across turns — and what it does not. Every clause is enforced by <code>tests/test_cache_contract.py</code>, against all three provider shapes.</p>
+
+    <p class="note">This is the contract. <a href="cache.html">Prompt Caching</a> is the operational guide — how to mark a prefix, what <code>distil cache</code> reports, and how to read a miss. Start there if you are debugging a bill; start here if you are asking what Distil promises.</p>
+
+    <h3 id="why">Why this is written down</h3>
+    <p>Distil has been on the wrong side of this once. A recency carve-out that counted back from the <em>end</em> of the message list slides forward as a conversation grows, so every block was protected while fresh and rewritten one turn later — after the client had already committed it to a cached prefix. Measured against the real API, that produced <b>zero cache reads on every turn and 2× the cost of compressing nothing at all</b>: the entire prefix was re-written at 1.25× instead of re-read at 0.1×. (One 4-arm live A/B; its raw output was not committed, so treat the 2× as that run's reading, not a benchmark.)</p>
+    <p>The fix was to anchor the carve-out to the client's own <code>cache_control</code> breakpoint rather than to the end of the list. The reason it needs a contract and not just a fix is that the failure is <b>silent</b>. Every request still succeeds. The savings report still shows tokens removed. Nothing raises and nothing 5xxs. The only symptom is the invoice.</p>
+
+    <h3 id="boundary">Where the boundary is</h3>
+    <p>The contract is stated relative to the index the provider has cached through, and that differs by provider:</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Where the boundary is">
+    <table>
+      <thead><tr><th>Provider</th><th>Cache boundary</th><th>Recency carve-out</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic</td><td>the last <code>cache_control</code> marker the client placed</td><td>only after that marker</td></tr>
+        <tr><td>OpenAI</td><td>the last index — implicit prefix caching commits everything sent</td><td>none</td></tr>
+        <tr><td>Gemini</td><td>the last index — implicit prefix caching commits everything sent</td><td>none</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>The empty carve-out on OpenAI and Gemini is a decision, not an oversight. Those providers cache what they are sent the moment they are sent, so a window counted back from the end would digest, one turn later, content already committed. <code>_recent_chat_verbatim_indices</code> and its siblings return the empty set for exactly that reason, and say so in their docstrings.</p>
+    <p>The binding form of the contract uses a <b>high-water mark</b> rather than the current turn's boundary: once the provider has cached through index <em>i</em>, rewriting <em>i</em> on any later turn invalidates the entry, even if this turn's marker sits earlier.</p>
+
+    <h3 id="guarantees">What is guaranteed</h3>
+
+    <h4>(a) Prefix stability</h4>
+    <p>For every message the client re-sends <b>byte-identical</b> to the previous turn, Distil forwards it <b>byte-identical</b>, at every index at or before the cache boundary.</p>
+
+    <h4>(b) Compression touches only the volatile suffix</h4>
+    <p>Anything that does change lies strictly after the boundary. Two mechanisms enforce this and both are load-bearing. The recency carve-out anchors to the breakpoint. And query-aware salience is scoped to blocks <em>after</em> it — intent terms come from the newest user turn and change every turn by design, so letting them choose which lines survive inside an already-cached block would rewrite that block on every new question. That is the same cache bust from a second direction, and it is invisible to any single-request test.</p>
+
+    <h4>(c) Digest determinism</h4>
+    <p>A digest emitted for a block at turn N is byte-identical when the same block is forwarded at turn N+1. Handles are <b>content-addressed</b> — <code>sha256(text)[:8]</code>, with no per-request nonce, counter, or timestamp. This was checked in the code rather than assumed, and it is asserted on its own, because a random handle would rewrite every digest stub on every turn and bust the cache by itself while every other clause still passed.</p>
+
+    <h4>(e) Prefix determinism — the other way to satisfy (a)</h4>
+    <p>Clause (b) is how most of Distil stays inside the contract, but it is not the only way and it is not always available. Under the client shape that actually bills — Claude Code pins its newest turn, so the entire history is cached — there <em>is</em> no volatile suffix, and a transform gated on one would simply never run.</p>
+    <p>The <a href="techniques.html#reread-delta">re-read delta</a> takes the other route. Its plan is a pure function of the message <b>prefix</b>: what a block encodes to depends only on the blocks before it, never on where the boundary currently sits or on how long the conversation has grown. So the block's bytes never change at all, which is strictly stronger than (a) asks for — there is nothing to invalidate because nothing is ever rewritten. Cache-delta coding relies on the same construction. The recency carve-out still applies on top &mdash; the freshest tool output is never elided &mdash; and because that carve-out is itself anchored to the breakpoint, the one rendering change it causes lands strictly after the boundary, exactly as clause (d) describes.</p>
+    <p>A gate on the boundary would have been <em>worse</em> here, not safer: it flips a block from stub to verbatim exactly as the boundary advances past it, which is the failure clause (a) exists to catch. The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0010-the-re-read-delta.md">ADR 0010</a>.</p>
+
+    <h4>(f) A canonically-equal prefix is forwarded as previously sent</h4>
+    <p>Real agentic clients rewrite their own history on <em>every</em> turn without changing a token the model reads: the <code>cache_control</code> breakpoint advances to the newest block, an SDK stamps positional <code>index</code> fields, a string becomes a single text block or back again. Clause (d) below used to end the story there — the input is not the same input, so no promise — and that cost the whole prefix. Measured offline before the fix, a client doing nothing but renumbering an <code>index</code> field forwarded <b>0%</b> of its prefix byte-identical, on every provider, on every turn.</p>
+    <p>So Distil remembers the previous turn's forwarded bytes per conversation lineage, and for the longest <b>canonically-equal</b> leading prefix it forwards <b>the bytes it forwarded last turn</b> rather than the bytes it would produce now. The canonical comparison ignores <code>cache_control</code>, <code>index</code>, the interchangeable spellings of a single text block, and JSON key order. It ignores nothing else; a tool payload — the arguments going out, the result coming back — is compared exactly as it arrived, because a key called <code>index</code> one level down inside a tool result is data, not SDK bookkeeping. The client's current breakpoint markers are re-placed at the client's current block positions, because the marker delimits the cached span and is not part of it.</p>
+    <p>The guard that makes this safe is narrower than it looks. Replay restores <em>bytes</em>, never <em>decisions</em>: a message is replayed only when what Distil would send this turn is itself canonically equal to what it sent last turn. Distil's compressor is not a pure function of one message — the exact-quote guarantee keeps a tool result verbatim because of an edit that arrives <em>later</em> in the list — so overlaying an older stub there would break the agent's next edit to buy a cache hit. That trade is not made. <code>distil validate</code> carries the invariant.</p>
+    <p>On by default in all three servers — the threaded proxy, the async proxy, and the multi-tenant gateway, which scopes the lineage per tenant. <code>--no-prefix-replay</code> forwards exactly what the compressor produced. Any exception falls open to the same. The decision record is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0011-forwarded-bytes-prefix-replay.md">ADR 0011</a>.</p>
+
+    <h4 id="opaque">(g) Opaque, provider-signed content is never touched</h4>
+    <p><b>Anthropic.</b> Server-side compaction (beta <code>compact-2026-01-12</code> / <code>compact-2026-09-04</code>) returns a <code>compaction</code> content block whose <code>signature</code> the provider re-validates on the next request: alter it, move it or re-encode it, even losslessly, and that request fails with <code>compaction_signature_invalid</code>. Distil never touches it, on any path: <code>compress_messages</code> in every mode, the SDK <code>wrap()</code> adapter, the proxy (the <code>context_management</code> field and the <code>anthropic-beta</code> header pass through), and the streaming splice, including when the tool results around it <em>are</em> digested. The same guard already protected <code>thinking</code> and <code>redacted_thinking</code>: an unknown block type falls through untouched. <code>tests/test_compaction_passthrough.py</code> pins it. The block's tokens are censused (<code>compaction_billed</code>, and <code>signed_block_billed</code> for any future block carrying a <code>signature</code>), so a cost distil cannot reduce is not also hidden from the savings percentage.</p>
+    <p><b>OpenAI Responses.</b> Some content a client must return byte-identical not because of the cache, but because the provider validates it: the provider re-derives state from those exact bytes on the next turn, and altering them — even a lossless re-encode — can make the provider reject the request or silently lose state it never got back. The OpenAI Responses API (<code>/v1/responses</code>) carries two such item types in its <code>input</code> array:</p>
+    <ul>
+      <li>a <code>reasoning</code> item's <code>encrypted_content</code> field, present by default in stateless mode (<code>store: false</code>) or under Zero Data Retention — opaque bytes the provider re-derives the model's reasoning from;</li>
+      <li>a <code>compaction</code> item — precisely what <code>POST /v1/responses/compact</code> returns (and what <code>context_management: [{"type": "compaction", ...}]</code> appends inline on a regular create call). OpenAI's own docs say it plainly: <em>"do not prune /responses/compact output. The returned window is the canonical next context window, so pass it into your next /responses call as-is."</em></li>
+    </ul>
+    <p>Dispatch in <code>compress_responses_input</code> is by <code>item["type"]</code> — never by duck-typing an <code>output</code>/<code>encrypted_content</code> key — so neither item type is ever mistaken for a digestible <code>function_call_output</code>, and both survive every mode (verbatim, digest, recency, the <code>distil_expand</code> re-query, the buffered-stream re-emit) as the same object, not a copy. The generalisation is on the presence of <code>encrypted_content</code> rather than an allowlist of type names, so a future opaque item type is safe by construction. A <code>function_call_output</code> immediately before or after an opaque item still digests normally — an opaque item must never accidentally halt or exempt what surrounds it.</p>
+    <p>The request-side fields that anchor server state — <code>context_management</code> and <code>previous_response_id</code> — reach upstream unaltered; the proxy spreads the request body and replaces only the <code>input</code> key. <code>POST /v1/responses/compact</code> is a distinct endpoint from <code>/v1/responses</code> (a path, not a query-string variant of it) — it fails the compressible-path match entirely and is forwarded through the plain byte-for-byte relay, never parsed as a compressible body.</p>
+    <p>These items still cost tokens the provider bills, so they are censused (<code>reasoning_billed</code> / <code>compaction_billed</code> / <code>signed_item_billed</code> — heuristic counts of base64 ciphertext, an approximation of the provider's real billed reasoning tokens, not an exact figure) rather than silently absent from the eligibility breakdown — the same principle behind the Anthropic adapter's <code>thinking</code>/<code>compaction</code>-block census. A near-zero savings percentage on a request carrying thousands of these tokens is "billed, uncompressible, and now visible," not "the compressor gave up."</p>
+    <p>This is deliberately asymmetric with the Anthropic side. Anthropic's compressible-zone baseline (<code>proxy._count_messages</code>) counts <code>thinking</code>/<code>redacted_thinking</code> tokens even though it never rewrites them, so a signature-pinned block still shows up in the before/after diff. The OpenAI Responses baseline (<code>count_responses_tokens</code>) does not extend that same inclusion to <code>reasoning</code>/<code>compaction</code> items — it counts only content distil is actually allowed to touch, the same design choice that already excludes assistant text and <code>function_call</code> items. The consequence: on a reasoning- or compaction-heavy Responses session, the eligibility census total can legitimately <b>exceed</b> <code>x-distil-compressible-tokens</code>. That is the intended signal — a real, billed cost outside what the baseline claims to cover — not a bug in either number.</p>
+    <h4 id="cold-point">(h) Old bytes change only when the cache is already gone</h4>
+    <p>Every clause above protects a prefix the provider still holds. Anthropic keeps a cache entry for a fixed TTL after the last request that touched it (five minutes by default, one hour when the client marks <code>ttl: "1h"</code>). A turn that arrives after that pays to re-write the whole prefix whatever Distil forwards. That turn is the one moment old bytes can change for free.</p>
+    <p>So on a turn where expiry is <b>certain from Distil's own observation</b>, it replaces <em>older</em> tool output with a recoverable stub: <code>&lt;&lt;distil evicted older tool output (N lines); distil_expand handle=H recovers it&gt;&gt;</code>. It then forwards that stub on every later turn, so the smaller prefix is what gets cached. "Certain" is strict. The lineage has to be known to this process (first-seen or restarted means nothing happens). Nothing of it can be in flight, since a stream, an expand re-query or a shadow replay refreshes the entry after the request that started it. The monotonic gap since Distil last <em>finished</em> forwarding it has to exceed the longest TTL the lineage ever asked for, plus a margin. And the conversation has to be unambiguously one conversation. Two histories under one lineage key (parallel subagents, a fork, a rewind) turn the feature off for that lineage for good.</p>
+    <p>Eviction never touches the freshest tool turns, exact-quote results (the file reads an <code>Edit</code> quotes back, and <code>distil_expand</code> results), text an Edit already quotes, learned-keep content, or anything the model has expanded. The stub is a pure function of the block's content, and the evicted set only grows. It is persisted (content-free: hashed lineage keys and the provider's random tool-call ids), so a restart or an upgrade within the same wrap session re-applies the same stubs rather than un-evicting a warm prefix. A fresh <code>distil wrap</code> is a new session and starts with none. Every block goes into the existing restore store, so <code>distil_expand</code> recovers it. The feature runs only where the recoverable digest already runs, and lossless-only is untouched. Opt out with <code>--no-cold-point</code> or <code>DISTIL_COLD_POINT=0</code>. Anthropic only for now, because OpenAI's automatic cache gives no TTL Distil could call certain. <b>Not yet measured live:</b> the savings from this clause are unproven until an rc soak and a live A/B on <code>distil cache</code> read/write totals have run. The decision record, including those two gates, is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>.</p>
+    <h4 id="quote-guard">(i) The quote guard never rewrites the prefix for nothing</h4>
+    <p>The exact-quote guard is the one place a decision may legitimately change for a client item already sent — the reason (f) replays bytes and not decisions. It checks that every <code>Edit</code>'s <code>old_string</code> still occurs in the payload about to be forwarded, and on a miss re-compresses with the exemption widened. Until this release the widened pass was forwarded whether or not it found the quote. A quote no read ever carried byte-exact — text the agent <code>Write</code>-ed itself, or a multi-line quote against Claude Code's line-numbered <code>Read</code> output — is lost under both passes, and forwarding the widened one turned every re-read stub and superseded read already in the cached prefix back into verbatim text. That rewrote the prefix inside the cache window for zero rescued quotes, then kept the class off for the rest of the session.</p>
+    <p>The widened pass is now forwarded only when the quotes it loses are a strict subset of the ones the narrow pass loses: it must rescue at least one and lose none the narrow pass kept. Replayed over 12 local Claude Code transcripts (4,658 requests, rebuilt append-only, so any change to the forwarded prefix is Distil's by construction), the widened pass ran on 2,625 requests and rescued a quote on none. Before the change that replay found one in-window break, 176,944 bytes of prefix rewritten. After it, none. <code>benchmarks/in_window_prefix_breaks.py</code> reproduces both, offline. <code>tests/test_cache_contract.py</code> drives the case through the threaded proxy and asserts the forwarded prefix hashes are identical turn over turn.</p>
+    <h3 id="tools">Tool definitions are forwarded untouched</h3>
+    <p>Distil never rewrites the request <code>tools</code> array. Tool definitions come first in the cached prefix, so on real traffic they bill almost entirely at the cache-read rate. Only a small fraction of a real array can be removed without changing what the model can call, such as a <code>$schema</code> URI or a <code>title</code> that repeats the property name. A rewrite would save little, and one non-deterministic byte would turn every cache read into a cache write. The measurement and the condition for reopening the question are in <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0012-tool-definitions-are-left-alone.md">ADR 0012</a>. To cut tool overhead, remove unused connectors; <code>distil discover</code> ranks them by cost, and names MCP servers whose definitions were sent on 20 or more requests and never called.</p>
+    <p>Leaving the array alone also covers Claude Code's own tool search. Claude Code defers MCP tool definitions and loads one only when the model asks for it, but turns that off whenever <code>ANTHROPIC_BASE_URL</code> names a non-first-party host. <code>distil wrap -- claude</code> therefore sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (an exported <code>ENABLE_TOOL_SEARCH=false</code> still wins), and <code>distil default --always-on</code> adds the same key to Claude Code's settings only if it is absent. Distil forwards <code>defer_loading</code>, <code>tool_reference</code> blocks and the beta header byte-identical. <b>Verified live (2026-09-25):</b> a wrapped Claude Code session that called an MCP tool recorded deferred tools on every request, cache reads intact, no failures. It is confirmed when a session that uses an MCP tool records <code>tools_deferred &gt; 0</code> in its request log with no request failures. Why Distil does not hide unused tools itself: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>.</p>
+
+    <h3 id="not-guaranteed">(d) What is <em>not</em> guaranteed</h3>
+    <ul>
+      <li><b>A client that rewrites its own history <em>semantically</em>.</b> If the client edits content, re-orders messages, or changes a tool call, the input is not the same input and the contract does not apply. Distil cannot make an unstable client stable. Non-semantic churn — a moved marker, an added <code>index</code>, a re-spelled text block, a re-ordered JSON object — is now repaired by clause (f); a real edit is still a real edit, and replay stops at it, at exactly its index.</li>
+      <li><b>Provider TTL.</b> Cache entries expire on the provider's schedule. Byte-stability is necessary for a hit, not sufficient.</li>
+      <li><b>A client that sends no cache marker at all.</b> With nothing marked there is no Anthropic prefix to protect, so the plain last-<em>k</em> recency window applies and a block does go verbatim on one turn and digested on the next. Nothing is being invalidated, so this is intended. It is bounded rather than unbounded, and the test asserts the bound in both directions: the churn must occur strictly <em>after</em> the boundary, and it must still occur at all — a silently-dead carve-out fails too.</li>
+    </ul>
+
+    <h3 id="proof">How it is enforced</h3>
+    <p><code>tests/test_cache_contract.py</code> replays growing six-turn synthetic sessions through the same public entry points the proxy calls — <code>compress_messages</code>, <code>compress_chat_completions</code>, <code>compress_responses_input</code>, and <code>compress_generate_request</code> — and fails on any same-input byte drift at or before the boundary. Three Anthropic marker placements are covered: pinned at the head, moved forward each turn, and absent entirely.</p>
+    <p>Every transform that touches cross-block state is replayed the same way. The re-read delta gets its own assertion under the moving-marker (fully-cached) shape in <code>tests/test_reread_delta.py</code>, plus a test that fails if it stops firing — a silently-dead transform must not pass as a silently-safe one.</p>
+    <p>Clause (f) is driven the same way, with a control arm: each of the three rewrite shapes is replayed against every provider both with replay on and with it off, and the test fails unless the rewrite demonstrably shortened the byte-stable prefix <em>without</em> replay and demonstrably did not <em>with</em> it. A stability assertion whose control never destabilises proves nothing. <code>benchmarks/prefix_replay_stability.py</code> reports the same measurement as a table, offline and with no API calls.</p>
+    <p>Measured at adoption, the contract <b>holds on all three providers</b>. That includes the realistic Claude Code shape, where the client pins its newest turn so the entire history is cached: there is no uncached tail in that configuration and nothing moves at all. No bug was found. The test codifies a property that was true and undefended.</p>
+    <p>Clause (g) is driven by <code>tests/test_openai_opaque_passthrough.py</code>: identity preservation for <code>reasoning</code>/<code>compaction</code> items across verbatim and digest mode, a still-compresses control on a neighbouring <code>function_call_output</code>, a duck-typing-immunity check, the <code>/v1/responses/compact</code> routing exclusion, and the census assertions that failed before the fix landed (see the changelog entry) and pass now.</p>
+
+    <h3 id="verify">Checking it against the provider</h3>
+    <p>The clauses above are what Distil intends. The provider's own accounting is what actually happened, and <code>distil dissect</code> now reports it per session:</p>
+<pre><code>cache-read share: 87.4% of billed input was served from the
+                  provider's prompt cache (at ~0.1x)</code></pre>
+    <p>Beside it, what Distil did to hold that share:</p>
+<pre><code>prefix replay: 812 messages forwarded as previously sent,
+               96 compressed fresh; 143 client rewrites repaired</code></pre>
+    <p><em>Repaired</em> is the number that moved money — messages the client rewrote non-semantically and Distil forwarded as previously sent, so the prefix survived a rewrite it would otherwise have lost. Hits with zero repairs is the healthy steady state, not a dead feature, which is why the two are never added together. The line reads <em>not recorded</em> for sessions proxied before 1.52 or run with <code>--no-prefix-replay</code>.</p>
+    <p>The number is <code>cache_read_input_tokens</code> over total billed input, taken from the fields the ledger already recorded. A near-zero share on a long session means something rewrote the prefix, and it is the only signal that says so — the requests all still succeed either way.</p>
+    <p>When the records predate those fields the line reads <em>not captured</em> and the JSON field is <code>null</code>, never <code>0.0</code>. “We did not measure this” and “the cache never hit” are opposite diagnoses and must not share a rendering. This matters for a specific shape: older sessions carry only the aggregate <code>usage_cache_tokens</code> and neither split field, so summing reads over them gives zero against a nonzero input total — a confident 0.0% for a session nobody measured. At least one record must carry a split field before the number is reported at all.</p>
+    <p>Each request's ledger record also says <em>why</em> replay stopped, in <code>replay_stop</code>: <code>held</code> (every earlier item went out as before), <code>client</code> (the client changed or dropped an item it had already sent), <code>distil</code> (same client item, a different compression decision), <code>marker</code> (a breakpoint with nowhere to sit), <code>cold</code> (no state for this conversation: first turn, a restart, or eviction), or <code>untracked</code> (a history over the state cap). An in-window cache write on a <code>client</code> turn is not Distil's to fix. One on a <code>distil</code> turn is a bug against this page.</p>
+    <p>Why that field exists: on the maintainer's own ledger (16,093 requests, $2,793.40 billed), in-window breaks of every cause cost $35.83, or 1.28% of billed. That counts cache writes on a request the provider had seen the whole of less than five minutes earlier. $10.42 of it followed a change to the system prompt or the tool list, which is the client's. $0.16 came on turns where Distil re-sent every earlier item unchanged. The remaining $25.26 came on turns where replay diverged before this field was recorded, so the ledger cannot say whose rewrite it was. The transcript replay under (i) bounds Distil's part: one break in 4,658 requests before the fix and none after it.</p>
+
+    <p>The decision records are <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0008-the-cache-contract.md">ADR 0008</a> (the contract) and <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0011-forwarded-bytes-prefix-replay.md">ADR 0011</a> (forwarded-bytes prefix replay). For the mechanics of what gets compressed, see <a href="techniques.html">Techniques</a>; for the adversarial side of the same surface, see the <a href="security.html#threat-model">Threat Model</a>.</p>
+
+
     <div class="site-footer">
       Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
-    </div>
-</main>
+    </div></main>
 </div>
 
 <script src="site.js" defer></script>

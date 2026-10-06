@@ -43,6 +43,7 @@ def test_default_is_silent(monkeypatch):
     """No consent → no network, even with an endpoint configured."""
     calls: list = []
     _arm_network_tripwire(monkeypatch, calls)
+    monkeypatch.setenv("DISTIL_TESTING", "1")
     monkeypatch.setenv("DISTIL_CENSUS_ENDPOINT", "http://127.0.0.1:1/ping")
     assert census.enabled() is False
     assert census.maybe_ping() is False

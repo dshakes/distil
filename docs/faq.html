@@ -46,80 +46,43 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
           <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration</a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group" open>
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html" class="active" aria-current="page">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -170,7 +133,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <p><strong>Those three numbers are from 2026-06 and are superseded.</strong> A fresh head-to-head was run on 2026-09-04 against <code>headroom-ai</code> 0.37.0 <code>[ml,code]</code>, <code>llmlingua</code> 0.2.2 and distil 1.51.1 on Python 3.12, with raw output committed at <code>benchmarks/results/2026-09-04/</code>: on the 9-domain corpus gate (warm, with Headroom's Kompress model preloaded) distil-causal reaches <strong>52.9% tokens / 58.7% $ / 100% decision-equivalent / PASS</strong> against Headroom's <strong>1.7% / 2.0% / 81% / FAIL</strong>. See <a href="compare.html#headroom-fresh">the fresh head-to-head</a> for the coding-agent workload too, where the ordering reverses for a reason worth reading.</p>
 
-    <p>Full methodology, corpus generation script, and caveats are in <a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md" target="_blank" rel="noopener">BENCHMARKS.md</a>. For a step-by-step walkthrough of every headline number — all three CI gates, real-model grading via <code>prove.py</code>, the invariant scorecard, and the E7 negative result — see <a href="benchmarks.html"><strong>Reproduce the Numbers</strong></a>.</p>
+    <p>Full methodology, corpus generation script, and caveats are in <a href="https://github.com/dshakes/distil/blob/main/BENCHMARKS.md" target="_blank" rel="noopener">BENCHMARKS.md</a>. For a step-by-step walkthrough of every headline number — all three CI gates, real-model grading via <code>prove.py</code>, the invariant scorecard, and the E7 negative result — see <a href="benchmark.html#benchmarks"><strong>Reproduce the Numbers</strong></a>.</p>
 
     <hr/>
 
@@ -192,9 +155,9 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <h2>"Isn't provider-native context compaction the same thing?"</h2>
 
-    <p>No, and we measured it rather than argued it. <code>distil certify-provider</code> ran pre-registered, replicated experiments (n=40 per run) against both providers' own context management. Anthropic's <strong>default</strong> context-editing policy (<code>keep=3</code>) changed the agent's next action in <strong>95–100%</strong> of cases against a 2.5% A/A noise floor — keeping the three most recent tool uses did not lower the change rate, it turned <em>stalling</em> into <em>acting on missing facts</em>. OpenAI's compaction changed <strong>12.5–20%</strong>. Summarisation is roughly 7× safer than deletion, and neither certifies at α=0.1. <a href="provider-compaction.html">The study, and how to re-run it on your own config →</a></p>
+    <p>No, and we measured it rather than argued it. <code>distil certify-provider</code> ran pre-registered, replicated experiments (n=40 per run) against both providers' own context management. Anthropic's <strong>default</strong> context-editing policy (<code>keep=3</code>) changed the agent's next action in <strong>95–100%</strong> of cases against a 2.5% A/A noise floor — keeping the three most recent tool uses did not lower the change rate, it turned <em>stalling</em> into <em>acting on missing facts</em>. OpenAI's compaction changed <strong>12.5–20%</strong>. Summarisation is roughly 7× safer than deletion, and neither certifies at α=0.1. <a href="research.html#provider-compaction">The study, and how to re-run it on your own config →</a></p>
 
-    <p>If you run both, distil leaves the provider's output alone: Anthropic's signed <code>compaction</code> block and OpenAI's <code>reasoning</code>/<code>compaction</code> items are forwarded byte-identical and pinned by contract tests (<a href="cache-contract.html#opaque">cache contract, clause (g)</a>).</p>
+    <p>If you run both, distil leaves the provider's output alone: Anthropic's signed <code>compaction</code> block and OpenAI's <code>reasoning</code>/<code>compaction</code> items are forwarded byte-identical and pinned by contract tests (<a href="cache.html#opaque">cache contract, clause (g)</a>).</p>
 
     <p>The structural difference: provider compaction is server-side, on by default, and reports nothing about what it removed. Distil's folds are reversible, declared in-context, and the agent can pull the original back. The two are not alternatives — you can run distil precisely to <em>measure</em> what the provider's compaction is costing you.</p>
 
@@ -209,7 +172,7 @@ distil <span class="c">benchmark</span> --corpus benchmarks/corpus_xl --runner a
 
     <h2>"My status line says <code>drift hold</code> — what happened?"</h2>
 
-    <p>Shadow mode's paired replays proved, with the anytime-valid e-process, that live decision change on your traffic crossed the risk budget (≤5% at 95% confidence). That alarm used to print and do nothing. Now every proxy on the machine serves the next request lossless-only — Tier-0, no digest, no output shaping — and keeps doing so across restarts, because a new session must not resume what the last one proved harmful. <code>distil_expand</code> stays available so stubs already in your history still resolve. Recalibrate on your own traffic with <code>distil calibrate</code>, then release with <code>distil reset --drift-guard</code>; running proxies resume within 30s and your savings history is untouched. <code>DISTIL_NO_DRIFT_GUARD=1</code> keeps compressing through a breach (the alarm still prints). The multi-tenant gateway is exempt (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>). Details: <a href="evals.html#exit-summary">what the exit summary proves</a>.</p>
+    <p>Shadow mode's paired replays proved, with the anytime-valid e-process, that live decision change on your traffic crossed the risk budget (≤5% at 95% confidence). That alarm used to print and do nothing. Now every proxy on the machine serves the next request lossless-only — Tier-0, no digest, no output shaping — and keeps doing so across restarts, because a new session must not resume what the last one proved harmful. <code>distil_expand</code> stays available so stubs already in your history still resolve. Recalibrate on your own traffic with <code>distil calibrate</code>, then release with <code>distil reset --drift-guard</code>; running proxies resume within 30s and your savings history is untouched. <code>DISTIL_NO_DRIFT_GUARD=1</code> keeps compressing through a breach (the alarm still prints). The multi-tenant gateway is exempt (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>). Details: <a href="benchmark.html#exit-summary">what the exit summary proves</a>.</p>
 
     <hr/>
 
@@ -422,7 +385,7 @@ distil shadow-stats                  <span class="d"># check the de rate</span>
 
     <p>No. SSE (Server-Sent Events) responses are relayed <strong>chunk-by-chunk</strong> as the upstream produces them — the proxy, the async proxy, and the gateway all route through the same relay (<code>distil/streamrelay.py</code>), so Distil preserves time-to-first-token like a direct connection. Nothing is buffered start-to-finish before it reaches the client.</p>
 
-    <p>Content-free accounting is teed off that same stream rather than requiring a separate buffered pass: the complete body is assembled in memory as it streams by, so token-saved headers and shadow-mode decision comparison run exactly as they would on a non-streaming response. A slow or unreachable upstream is bounded by <code>DISTIL_UPSTREAM_TIMEOUT</code> (default 600s) and maps to a <code>504</code> — see <a href="deploy-security.html#streaming">Deploy &amp; Security &rarr; Streaming and upstream timeouts</a>.</p>
+    <p>Content-free accounting is teed off that same stream rather than requiring a separate buffered pass: the complete body is assembled in memory as it streams by, so token-saved headers and shadow-mode decision comparison run exactly as they would on a non-streaming response. A slow or unreachable upstream is bounded by <code>DISTIL_UPSTREAM_TIMEOUT</code> (default 600s) and maps to a <code>504</code> — see <a href="security.html#streaming">Deploy &amp; Security &rarr; Streaming and upstream timeouts</a>.</p>
 
     <hr/>
 

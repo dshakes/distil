@@ -46,80 +46,43 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
           <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration</a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html" class="active" aria-current="page">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -150,6 +113,10 @@
       <b>Global flag:</b> <code>distil --version</code> prints the installed version.
       <br/>
       <b>Default trajectory:</b> when <code>--trajectory</code> is omitted, the bundled <code>sre-disk-incident</code> sample trajectory is used.
+    </div>
+
+    <div class="callout">
+      <b>Research and CI gates live under <code>distil research</code>.</b> <code>distil research --help</code> lists <code>prune</code>, <code>certify</code>, <code>certify-trajectories</code>, <code>certify-provider</code>, <code>bench</code>, <code>output-savings</code>, <code>ingest</code>, <code>perf</code>, <code>eval</code>, <code>retention</code>, <code>fidelity</code>, <code>benchmark</code>, <code>frontier</code>, <code>learn</code>, <code>conformal</code>, <code>verify</code>, <code>suite</code>, <code>validate</code>, <code>holdout</code>, <code>online</code>, <code>query-relevance</code>, <code>federated-leaderboard</code>, <code>train-transformer</code>. The sections below keep their old headings; run any of them as <code>distil research &lt;name&gt;</code>. The bare <code>distil &lt;name&gt;</code> spelling still works and prints a one-line note to stderr.
     </div>
 
     <hr/>
@@ -267,9 +234,9 @@ note: naive compression costs $0.01696 — <span class="w">66% MORE</span> than 
       <thead><tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>--trajectory, -t</code></th><td>bundled sample</td><td>Path to a trajectory JSON file</td></tr>
-        <tr><th scope="row"><code>--strategy</code></th><td><code>distil</code></td><td>Strategy to certify: <code>distil</code>, <code>served</code>, <code>aggressive</code>, <code>naive</code>, <code>none</code>, <code>vision</code>. <code>served</code> runs the real serving adapter (<code>compress_messages</code>) on the request a caching tool-use client sends, so the certificate covers the digests of <em>earlier</em> tool outputs; see <a href="model-migration.html#served">Model Migration</a></td></tr>
+        <tr><th scope="row"><code>--strategy</code></th><td><code>distil</code></td><td>Strategy to certify: <code>distil</code>, <code>served</code>, <code>aggressive</code>, <code>naive</code>, <code>none</code>, <code>vision</code>. <code>served</code> runs the real serving adapter (<code>compress_messages</code>) on the request a caching tool-use client sends, so the certificate covers the digests of <em>earlier</em> tool outputs; see <a href="ab.html#served">Model Migration</a></td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, uses ground-truth markers) or <code>anthropic</code> (live model, requires key)</td></tr>
-        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="ab.html#model-migration">Model Migration</a>)</td></tr>
         <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--margin</code></th><td><code>0.02</code></td><td>TOST indifference margin</td></tr>
         <tr><th scope="row"><code>--alpha</code></th><td><code>0.05</code></td><td>Significance level</td></tr>
@@ -318,7 +285,7 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
     <h2 id="certify-provider">distil certify-provider</h2>
     <p>A/B-certify the <em>provider's own</em> context manipulation — Anthropic context editing (clear-tool-uses) and OpenAI server-side compaction — using the same decision-equivalence machinery distil holds itself to. Pre-registered, so the result stands whichever way it falls.</p>
 
-    <p>Published findings, aggressive configs, n=40 per arm: Anthropic clearing changed the agent's decision in <strong>92.5%</strong> of runs (37/40 turned a tool call into text — the agent stops acting); OpenAI compaction in <strong>12.5%</strong>. Neither certifies at &alpha;=0.1. Summarization is roughly 7&times; safer than deletion. Full write-up: <a href="provider-compaction.html">Provider Compaction</a>.</p>
+    <p>Published findings, aggressive configs, n=40 per arm: Anthropic clearing changed the agent's decision in <strong>92.5%</strong> of runs (37/40 turned a tool call into text — the agent stops acting); OpenAI compaction in <strong>12.5%</strong>. Neither certifies at &alpha;=0.1. Summarization is roughly 7&times; safer than deletion. Full write-up: <a href="research.html#provider-compaction">Provider Compaction</a>.</p>
 
     <pre class="term"><span class="d">$ distil certify-provider episodes.json --provider anthropic --n 40</span></pre>
 
@@ -587,10 +554,60 @@ holdout A/B savings measurement (deterministic partition + bootstrap CI)
 
     <hr/>
 
+    <h2 id="env">Environment variables</h2>
+    <p>Every <code>DISTIL_*</code> variable a user may set. The table is generated from <code>distil/envvars.py</code>, and a test fails if code and docs disagree. Variables distil sets for its own child processes are not listed; test hooks are read only when <code>DISTIL_TESTING=1</code>.</p>
+    <!-- envvars:begin (generated by python -m distil.envvars --write) -->
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Environment variables">
+    <table>
+      <thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>DISTIL_HOME</code></th><td>~/.distil</td><td>State directory: ledger, restore store, config. Isolates a test or CI run from your real state.</td></tr>
+        <tr><th scope="row"><code>DISTIL_NO_TELEMETRY</code></th><td>unset</td><td>Set to 1 to disable the opt-in census regardless of a stored opt-in (as does DO_NOT_TRACK=1).</td></tr>
+        <tr><th scope="row"><code>DISTIL_NO_UPDATE_CHECK</code></th><td>unset</td><td>Set to 1 to skip the once-a-day new-version check.</td></tr>
+        <tr><th scope="row"><code>DISTIL_NO_LEDGER</code></th><td>unset</td><td>Set to 1 to stop the proof ledger being printed on exit.</td></tr>
+        <tr><th scope="row"><code>DISTIL_NO_DRIFT_GUARD</code></th><td>unset</td><td>Set to 1 to opt out of the drift guard that holds compression after evidence of drift.</td></tr>
+        <tr><th scope="row"><code>DISTIL_NO_ENCRYPT_AT_REST</code></th><td>unset</td><td>Set to 1 to store the restore data unencrypted (strict-FS setups).</td></tr>
+        <tr><th scope="row"><code>DISTIL_RESTORE_CAP</code></th><td>5000</td><td>Max entries in the restore store (LRU). Older digests then expand to a placeholder.</td></tr>
+        <tr><th scope="row"><code>DISTIL_RESTORE_TTL_DAYS</code></th><td>14</td><td>Days a restore-store entry is kept.</td></tr>
+        <tr><th scope="row"><code>DISTIL_COLD_POINT</code></th><td>1</td><td>0 turns off cold-point recompression (ADR 0014); same as --no-cold-point.</td></tr>
+        <tr><th scope="row"><code>DISTIL_REFETCH_VERBATIM</code></th><td>1</td><td>0 turns off re-fetch verbatim (ADR 0025). Read per request.</td></tr>
+        <tr><th scope="row"><code>DISTIL_SHADOW_PAIRED</code></th><td>1</td><td>0 restores the cheaper unpaired shadow estimator.</td></tr>
+        <tr><th scope="row"><code>DISTIL_HOT_SWAP</code></th><td>1</td><td>0 keeps the historical in-thread proxy instead of the hot-swappable worker (POSIX).</td></tr>
+        <tr><th scope="row"><code>DISTIL_SUBSCRIPTION</code></th><td>auto</td><td>1/0 forces subscription (tokens-only) or metered ($) reporting; auto detects an OAuth login.</td></tr>
+        <tr><th scope="row"><code>DISTIL_HOLDOUT_RATE</code></th><td>unset</td><td>Holdout share for new sessions, 0-1 (0 off); beats ab.json.</td></tr>
+        <tr><th scope="row"><code>DISTIL_AB_COST_CAP</code></th><td>built in</td><td>Overrides the per-task cost cap in `distil ab` (changing it changes the estimand).</td></tr>
+        <tr><th scope="row"><code>DISTIL_GATEWAY_TOKEN</code></th><td>unset</td><td>Admin token for `distil gateway`; required on a non-loopback bind.</td></tr>
+        <tr><th scope="row"><code>DISTIL_OIDC_ISSUER</code></th><td>unset</td><td>Gateway OIDC: expected token issuer.</td></tr>
+        <tr><th scope="row"><code>DISTIL_OIDC_AUDIENCE</code></th><td>unset</td><td>Gateway OIDC: expected audience.</td></tr>
+        <tr><th scope="row"><code>DISTIL_OIDC_HS256_SECRET</code></th><td>unset</td><td>Gateway OIDC: HS256 shared secret.</td></tr>
+        <tr><th scope="row"><code>DISTIL_OIDC_PUBLIC_KEY</code></th><td>unset</td><td>Gateway OIDC: PEM public key for RS/ES tokens.</td></tr>
+        <tr><th scope="row"><code>DISTIL_OIDC_ROLE_CLAIM</code></th><td>role</td><td>Gateway OIDC: claim carrying the role.</td></tr>
+        <tr><th scope="row"><code>DISTIL_OIDC_TENANT_CLAIM</code></th><td>tenant</td><td>Gateway OIDC: claim carrying the tenant.</td></tr>
+        <tr><th scope="row"><code>DISTIL_CA_BUNDLE</code></th><td>unset</td><td>CA bundle for upstream TLS (also honours REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, SSL_CERT_FILE).</td></tr>
+        <tr><th scope="row"><code>DISTIL_UPSTREAM_TIMEOUT</code></th><td>600</td><td>Seconds to wait on the provider.</td></tr>
+        <tr><th scope="row"><code>DISTIL_CLIENT_TIMEOUT</code></th><td>600</td><td>Seconds to wait on the calling client.</td></tr>
+        <tr><th scope="row"><code>DISTIL_MCP_TIMEOUT</code></th><td>600</td><td>Seconds to wait on a proxied MCP server.</td></tr>
+        <tr><th scope="row"><code>DISTIL_WORKER_READY_TIMEOUT</code></th><td>30</td><td>Seconds the hot-swap supervisor waits for a replacement worker before rolling back.</td></tr>
+        <tr><th scope="row"><code>DISTIL_DRAIN_BUDGET_S</code></th><td>300</td><td>Seconds a retiring worker may drain in-flight requests during a hot swap.</td></tr>
+        <tr><th scope="row"><code>DISTIL_DEBUG</code></th><td>unset</td><td>Set to 1 to write swallowed (fail-open) exceptions to stderr.</td></tr>
+        <tr><th scope="row"><code>DISTIL_LOG_LEVEL</code></th><td>unset</td><td>DEBUG, INFO, ... for the same log; DISTIL_DEBUG=1 is DEBUG.</td></tr>
+        <tr><th scope="row"><code>DISTIL_STATUSLINE</code></th><td>full</td><td>minimal, lite or compact selects the two-fact status line.</td></tr>
+        <tr><th scope="row"><code>DISTIL_IGNORE_SETTINGS_PRECEDENCE</code></th><td>unset</td><td>Set to skip the settings-precedence check in `distil wrap`.</td></tr>
+        <tr><th scope="row"><code>DISTIL_VISION</code></th><td>auto</td><td>1/0 force-enables or hard-disables image compression.</td></tr>
+        <tr><th scope="row"><code>DISTIL_VISION_DOWNSCALE</code></th><td>auto</td><td>1/0 force-enables or disables image downscaling (needs a passing local certify).</td></tr>
+        <tr><th scope="row"><code>DISTIL_LITELLM_DIGEST</code></th><td>unset</td><td>Set to 1 to opt the LiteLLM hook into Tier-1 digests.</td></tr>
+        <tr><th scope="row"><code>DISTIL_CORPUS</code></th><td>packaged</td><td>Corpus directory for bench, savings and the research commands.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <!-- envvars:end -->
+
+    <hr/>
+
     <!-- reset -->
     <h2 id="reset">distil reset</h2>
     <p>Archives the savings ledger to <code>savings.jsonl.reset-&lt;utc-timestamp&gt;</code> (non-destructive — history stays on disk for audit) so the statusline and <code>distil stats</code> restart from zero on current accounting (records booked only after a confirmed upstream 2xx). Use it when a ledger is dominated by pre-1.10 records, whose savings may be overstated — <code>distil stats</code> warns when that is the case. <code>--shadow</code> also archives and resets the decision-equivalence counter, the drift alarm and its hold.</p>
-    <p><code>--drift-guard</code> releases only a drift-alarm hold. When shadow mode's paired verdicts prove live decision change has crossed the risk budget, every proxy on the machine serves lossless-only until released (see <a href="evals.html#exit-summary">what the exit summary proves</a>); the status line shows <code>⚠ drift hold · distil reset --drift-guard</code>. The release archives the drift state (<code>drift.json.reset-*</code>) and writes a fresh one, so the next start does not re-fold the same rows into the same breach. Savings and shadow stats are untouched, and running proxies resume within 30s. If it cannot archive the old state or write the new one it says so on stderr and exits 1. Run <a href="#calibrate"><code>distil calibrate</code></a> first: the hold is the alarm doing its job.</p>
+    <p><code>--drift-guard</code> releases only a drift-alarm hold. When shadow mode's paired verdicts prove live decision change has crossed the risk budget, every proxy on the machine serves lossless-only until released (see <a href="benchmark.html#exit-summary">what the exit summary proves</a>); the status line shows <code>⚠ drift hold · distil reset --drift-guard</code>. The release archives the drift state (<code>drift.json.reset-*</code>) and writes a fresh one, so the next start does not re-fold the same rows into the same breach. Savings and shadow stats are untouched, and running proxies resume within 30s. If it cannot archive the old state or write the new one it says so on stderr and exits 1. Run <a href="#calibrate"><code>distil calibrate</code></a> first: the hold is the alarm doing its job.</p>
     <pre class="term"><span class="d">$ distil reset</span>
 savings ledger archived → ~/.distil/savings.jsonl.reset-20260705-213313Z
   651 runs, 114,079,320 tokens saved (643 pre-1.10 records) — kept for audit, no longer counted
@@ -764,7 +781,7 @@ dependency-free — so read it as a floor on what the context window kept.</p>
     </div>
     <img src="assets/receipt-segments.svg" alt="Receipt segments and proof pin levels: the active receipts.jsonl is sealed into numbered segments, each with a checkpoint holding its row count, first and last receipt hash and a Merkle root. An inclusion proof checked against a pinned checkpoint hash proves content, segment and position; against a pinned root alone it proves membership only; with nothing pinned it is self-consistent only." class="svg-embed"/>
     <p>A line that is a JSON object but not a valid receipt is <b>BROKEN</b> at that line, because a torn write never produces a well-formed object. A line that is not a JSON object at all (a torn trailing write after a crash) does not invalidate the receipts around it, but the verdict reads <code>VERIFIED WITH GAPS</code> and says how many lines were skipped.</p>
-    <p>The chain is also verified at the end of every <code>wrap</code> session — see <a href="evals.html#exit-summary">what the exit summary proves</a>.</p>
+    <p>The chain is also verified at the end of every <code>wrap</code> session — see <a href="benchmark.html#exit-summary">what the exit summary proves</a>.</p>
 
     <h2 id="mcp">distil mcp</h2>
     <p>Run the zero-dependency MCP server over stdio, exposing <code>distil_compress</code>, <code>distil_expand</code> and <code>distil_savings</code> to any MCP client. This is how an agent recovers a digested block on demand — the mechanism that makes Tier-1 reversible in practice and not just in principle.</p>
@@ -789,12 +806,12 @@ dependency-free — so read it as a floor on what the context window kept.</p>
         <tr><th scope="row"><code>--upstream</code></th><td><code>https://api.anthropic.com</code></td><td>Real LLM API base URL to forward to</td></tr>
         <tr><th scope="row"><code>--lossless-only</code></th><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
         <tr><th scope="row"><code>--verbatim</code></th><td>off</td><td>Skip the Tier-1 digest; Tier-0 only (JSON minify + collapse exact-duplicate runs). Interactive-safe, lower savings. Use where <code>distil_expand</code> recovery is unavailable.</td></tr>
-        <tr><th scope="row"><code>--shape-output</code></th><td><code>auto</code></td><td>Generation-side verbosity shaping. <code>auto</code> (the default) turns it on only while the live shadow referee says it is safe and paying — see <a href="output.html#adaptive">the adaptive rule</a> — and prints the reason either way. <code>light</code> / <code>aggressive</code> force a level, <code>off</code> disables it. Always off on a subscription / OAuth session, whatever is asked for: distil does not alter a flat-rate prompt.</td></tr>
+        <tr><th scope="row"><code>--shape-output</code></th><td><code>auto</code></td><td>Generation-side verbosity shaping. <code>auto</code> (the default) turns it on only while the live shadow referee says it is safe and paying — see <a href="techniques.html#adaptive">the adaptive rule</a> — and prints the reason either way. <code>light</code> / <code>aggressive</code> force a level, <code>off</code> disables it. Always off on a subscription / OAuth session, whatever is asked for: distil does not alter a flat-rate prompt.</td></tr>
         <tr><th scope="row"><code>--expand</code></th><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
         <tr><th scope="row"><code>--shadow</code></th><td>off (direct use; <code>distil wrap</code> defaults to 0.02)</td><td>Shadow-mode sampling rate (0–1): re-run a fraction of requests uncompressed to measure live decision-equivalence. <code>--shadow 0</code> disables; <code>--shadow 1.0</code> = full-sampling validation (~3× tokens — prove equivalence in minutes, then drop back).</td></tr>
         <tr><th scope="row"><code>--session-delta</code></th><td>off</td><td>Enable cross-turn cache-delta encoding (deduplicates repeated stable blocks across the session)</td></tr>
-        <tr><th scope="row"><code>--no-prefix-replay</code></th><td>off (replay on)</td><td>Opt out of forwarded-bytes prefix replay (ADR 0011) and forward exactly what the compressor produced. See <a href="cache-contract.html">the cache contract</a>, clause (f).</td></tr>
-        <tr><th scope="row"><code>--no-cold-point</code></th><td>off (cold point on)</td><td>Opt out of cold-point recompression (ADR 0014); also <code>DISTIL_COLD_POINT=0</code>. On by default wherever the recoverable digest runs, Anthropic only. Not yet measured live — see <a href="cache-contract.html#cold-point">clause (h)</a>.</td></tr>
+        <tr><th scope="row"><code>--no-prefix-replay</code></th><td>off (replay on)</td><td>Opt out of forwarded-bytes prefix replay (ADR 0011) and forward exactly what the compressor produced. See <a href="cache.html#cache-contract">the cache contract</a>, clause (f).</td></tr>
+        <tr><th scope="row"><code>--no-cold-point</code></th><td>off (cold point on)</td><td>Opt out of cold-point recompression (ADR 0014); also <code>DISTIL_COLD_POINT=0</code>. On by default wherever the recoverable digest runs, Anthropic only. Not yet measured live — see <a href="cache.html#cold-point">clause (h)</a>.</td></tr>
         <tr><th scope="row"><code>DISTIL_REFETCH_VERBATIM=0</code></th><td>unset (on)</td><td>Environment variable, no flag. Turns off re-fetch verbatim (ADR 0025): a tool result that repeats lines distil forwarded only as a digest otherwise goes out verbatim. Read per request. Offline-measured only.</td></tr>
         <tr><th scope="row"><code>--async</code></th><td>off</td><td>Use the async aiohttp backend (<code>distil/aproxy.py</code>) for high-concurrency streaming. Requires <code>pip install 'distil-llm[async]'</code>. Async event loop handles thousands of concurrent sessions. Note: the async backend supports lossless / verbatim / output-shaping, but not <code>--expand</code>, <code>--session-delta</code>, or <code>--shadow</code> yet — pass those on the standard (sync) proxy, which handles typical agent concurrency. Combining them with <code>--async</code> prints a notice and ignores them.</td></tr>
         <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model used to price the genuine dollar savings recorded to the ledger</td></tr>
@@ -832,18 +849,18 @@ response = litellm.completion(api_base=<span class="g">"http://localhost:8788"</
       <li><code>x-distil-mode: &lt;mode&gt;</code> — the compression mode this request was served in (<code>lossless-only</code> while a drift hold is on)</li>
       <li><code>x-distil-drift-guard: held</code> — the drift alarm has tripped and this request was held at lossless-only; release with <a href="#reset"><code>distil reset --drift-guard</code></a></li>
       <li><code>x-distil-cold</code> / <code>x-distil-cold-evicted</code> — the cold-point decision for this turn and the lineage's evicted-block count</li>
-      <li><code>x-distil-replay-stop: held|client|distil|marker|cold|untracked</code> — why prefix replay stopped, so an in-window cache write can be blamed on the right side (<a href="cache-contract.html#verify">how to read it</a>)</li>
+      <li><code>x-distil-replay-stop: held|client|distil|marker|cold|untracked</code> — why prefix replay stopped, so an in-window cache write can be blamed on the right side (<a href="cache.html#verify">how to read it</a>)</li>
     </ul>
     <p>All other paths and HTTP methods are forwarded unchanged.</p>
 
-    <p>See <a href="adapters.html">Adapters</a> for the full story on in-process vs. proxy adoption.</p>
+    <p>See <a href="integrations.html#adapters">Adapters</a> for the full story on in-process vs. proxy adoption.</p>
 
     <!-- wrap -->
     <h2 id="wrap">distil wrap</h2>
     <p>The zero-config way to route an existing agent or CLI through Distil. <code>distil wrap</code> starts the proxy on an ephemeral local port, injects the right env var into the child process's environment, runs your command to completion, then tears the proxy down — flushing genuine savings to your ledger and printing the <strong>Proof Ledger</strong> on exit. No code change, no manual env wiring, no leftover server.</p>
 
     <p><strong>Per-agent presets</strong> — when the command name is a known agent, distil auto-selects how to route it: an environment variable (<code>claude</code>, <code>codex</code>, <code>gemini</code>, <code>aider</code>, <code>opencode</code>, <code>qwen</code>, <code>goose</code>, <code>grok</code>, <code>openhands</code>, <code>copilot</code>, <code>kimi</code>, <code>vibe</code>, <code>kilo</code>, …) or, for agents with no env-var contract, a config file distil claims for the session and restores on exit (<code>cline</code>, <code>crush</code>, <code>droid</code>, <code>omp</code>, <code>cn</code>). <code>distil wrap --list</code> prints every target with its mechanism, wire shape and the primary doc its contract was read from — and the agents it cannot reach, with the reason. A <code>preset: &lt;agent&gt; detected → &lt;VAR&gt;</code> line confirms the selection at startup. Explicit <code>--env-var</code> and <code>--upstream</code> always override the preset. <strong><code>codex</code> is unverified:</strong> codex-rs reads its base URL from the <code>openai_base_url</code> config key and no mapping from <code>OPENAI_BASE_URL</code> was found, so the preset may route nothing; the zero-traffic warning at exit is how you would know. Full matrix: <a href="integrations.html">Integrations</a>.</p>
-    <p><strong>Claude Code's tool search stays on.</strong> Claude Code turns off its own deferred loading of MCP tool definitions whenever <code>ANTHROPIC_BASE_URL</code> names a non-first-party host, so every connector's full schema would ride along on every turn. <code>distil wrap -- claude</code> sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (an exported <code>ENABLE_TOOL_SEARCH=false</code> still wins), and distil forwards <code>defer_loading</code> and <code>tool_reference</code> blocks untouched. Verified live on 1.54.0 (2026-09-25): a wrapped session recorded <code>tools_deferred</code> of 4–5 on every request, tool payload 9,733 tokens, cache reads intact, no request failures; see <a href="cache-contract.html#tools">the cache contract</a> for how to confirm it on yours and ADR 0013 for why distil does not hide tools itself.</p>
+    <p><strong>Claude Code's tool search stays on.</strong> Claude Code turns off its own deferred loading of MCP tool definitions whenever <code>ANTHROPIC_BASE_URL</code> names a non-first-party host, so every connector's full schema would ride along on every turn. <code>distil wrap -- claude</code> sets <code>ENABLE_TOOL_SEARCH=true</code> for the child (an exported <code>ENABLE_TOOL_SEARCH=false</code> still wins), and distil forwards <code>defer_loading</code> and <code>tool_reference</code> blocks untouched. Verified live on 1.54.0 (2026-09-25): a wrapped session recorded <code>tools_deferred</code> of 4–5 on every request, tool payload 9,733 tokens, cache reads intact, no request failures; see <a href="cache.html#tools">the cache contract</a> for how to confirm it on yours and ADR 0013 for why distil does not hide tools itself.</p>
 
     <pre class="term"><span class="d"># claude → ANTHROPIC_BASE_URL auto-set</span>
 $ distil <span class="c">wrap</span> -- claude -p <span class="g">"summarize this repo"</span>
@@ -873,7 +890,7 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
         <tr><th scope="row"><code>--env-var</code></th><td><code>ANTHROPIC_BASE_URL</code></td><td>Environment variable to point at the proxy in the child process</td></tr>
         <tr><th scope="row"><code>--lossless-only</code></th><td>off</td><td>Policy mode: Tier-0 verbatim only — no lossy output-shaping, no tool injection (<code>--expand</code>), no Tier-1 digest stubs. Folds directly into verbatim (no separate <code>--verbatim</code> needed). Use for subscription / OAuth sessions.</td></tr>
         <tr><th scope="row"><code>--verbatim</code></th><td>off</td><td>Skip the Tier-1 digest; Tier-0 only. Interactive-safe, lower savings.</td></tr>
-        <tr><th scope="row"><code>--shape-output</code></th><td><code>auto</code></td><td>Generation-side verbosity shaping; <code>auto</code> decides from the live shadow evidence at session start and records the decision in the session manifest. See <a href="output.html#adaptive">the adaptive rule</a>.</td></tr>
+        <tr><th scope="row"><code>--shape-output</code></th><td><code>auto</code></td><td>Generation-side verbosity shaping; <code>auto</code> decides from the live shadow evidence at session start and records the decision in the session manifest. See <a href="techniques.html#adaptive">the adaptive rule</a>.</td></tr>
         <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model used to price genuine dollar savings recorded to the ledger</td></tr>
         <tr><th scope="row"><code>--no-record</code></th><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
         <tr><th scope="row"><code>--expand</code></th><td>off</td><td>Inject the <code>distil_expand</code> tool so the model can pull digested blocks back on demand</td></tr>
@@ -900,7 +917,7 @@ $ distil <span class="c">wrap</span> --env-var MY_BASE_URL --upstream https://ap
     output   not enough samples yet (12/50)
     receipts 87 receipts, chain intact — 3 re-checked since this machine's last pass; `distil receipts` re-hashes all</pre>
 
-    <p>The last four lines are the statistical verdicts — an anytime-valid alarm on the certified risk budget (which, once tripped, holds every proxy at lossless-only until <code>distil reset --drift-guard</code>, a release that leaves savings and shadow stats untouched; opt out with <code>DISTIL_NO_DRIFT_GUARD=1</code>), a distribution-free upper bound on the live decision-change rate, compression's measured effect on reply length, and the receipt chain. Each can come back negative, and below the reporting floor each withholds its number rather than guessing. The same four print in <code>distil stats</code> and <code>distil dissect</code>, from one shared function. <a href="evals.html#exit-summary">What the exit summary proves</a> explains each one and the method behind it.</p>
+    <p>The last four lines are the statistical verdicts — an anytime-valid alarm on the certified risk budget (which, once tripped, holds every proxy at lossless-only until <code>distil reset --drift-guard</code>, a release that leaves savings and shadow stats untouched; opt out with <code>DISTIL_NO_DRIFT_GUARD=1</code>), a distribution-free upper bound on the live decision-change rate, compression's measured effect on reply length, and the receipt chain. Each can come back negative, and below the reporting floor each withholds its number rather than guessing. The same four print in <code>distil stats</code> and <code>distil dissect</code>, from one shared function. <a href="benchmark.html#exit-summary">What the exit summary proves</a> explains each one and the method behind it.</p>
 
     <p>All numbers come from the same on-disk sources as the leaderboard — no new estimators. The <strong>shadow line</strong> respects the verdict-threshold gates (<code>VERDICT_MIN_AB=50</code>, <code>VERDICT_MIN_AA=30</code>): below threshold it shows sample counts with a "gathering" label rather than claiming equivalence over thin evidence. The <strong>cost line</strong> shows "calibrated to your billed usage (n=N, ±X%)" once enough proxy traffic has accumulated to correct the heuristic; "estimated · calibrating (N/20 samples)" until then. The <strong>restore line</strong> checks that every handle written this session is still live (not expired past <code>DISTIL_RESTORE_TTL_DAYS</code>).</p>
 
@@ -1034,7 +1051,7 @@ distil gateway listening on http://127.0.0.1:8789
   }
 }</pre>
 
-    <p>See <a href="deploy-security.html#gateway">Deploy &amp; Security → Managed gateway</a> for the full deployment guide including multi-tenant setup and security model.</p>
+    <p>See <a href="security.html#gateway">Deploy &amp; Security → Managed gateway</a> for the full deployment guide including multi-tenant setup and security model.</p>
 
     <h3 id="gateway-keys">distil gateway keys</h3>
     <p>Issue, list, and revoke <strong>dsk- gateway keys</strong> for inbound auth. Keys are stored hashed (SHA-256) — the gateway never keeps the raw secret. Auth fails closed: a bad or missing key returns 401. The upstream (Anthropic / OpenAI key) is never exposed to callers.</p>
@@ -1159,7 +1176,7 @@ Load with: TransformerKeepModel.from_pretrained('./my-keep-model/model.onnx', '.
       <tbody>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir (e.g. from <code>distil ingest</code> on benchmark traces)</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline, structural equivalence) or <code>anthropic</code> (live model, requires API key)</td></tr>
-        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="ab.html#model-migration">Model Migration</a>)</td></tr>
         <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--out</code></th><td>off</td><td>Write the raw curve as a timestamped JSONL file to this directory</td></tr>
       </tbody>
@@ -1196,7 +1213,7 @@ certified ceiling: 8.4% savings (beyond this, lossy compression drops decisions 
         <tr><th scope="row"><code>--external</code></th><td>—</td><td><code>module:function[:Name]</code> — register a real compressor (<code>list[str]→list[str]</code> over per-turn block texts), measured on the identical axes. Repeatable.</td></tr>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir (e.g. ingested benchmark traces)</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> (offline) or <code>anthropic</code> (live model)</td></tr>
-        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="ab.html#model-migration">Model Migration</a>)</td></tr>
         <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model pricing for the cache-aware cost model</td></tr>
         <tr><th scope="row"><code>--tokenizer</code></th><td><code>heuristic</code></td><td><code>heuristic</code> or <code>anthropic</code> (billing-grade)</td></tr>
@@ -1235,7 +1252,7 @@ LEADER (certified $ savings): distil-causal — 37.4% cheaper, 100% decision-equ
         <tr><th scope="row"><code>--targets</code></th><td><code>1.0,0.97,0.95,0.90,0.80</code></td><td>Comma-separated equivalence targets in (0,1]</td></tr>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Custom corpus dir</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
-        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="ab.html#model-migration">Model Migration</a>)</td></tr>
         <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>
@@ -1268,7 +1285,7 @@ savings-vs-equivalence dial  (runner=deterministic)
         <tr><th scope="row"><code>--method</code></th><td><code>ltt</code></td><td><code>ltt</code> (high-probability bound) or <code>crc</code> (expected-rate bound)</td></tr>
         <tr><th scope="row"><code>--corpus</code></th><td>bundled corpus</td><td>Calibration corpus dir (use your own traffic via <code>distil ingest</code>)</td></tr>
         <tr><th scope="row"><code>--runner</code></th><td><code>deterministic</code></td><td><code>deterministic</code> or <code>anthropic</code> (live model)</td></tr>
-        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="model-migration.html">Model Migration</a>)</td></tr>
+        <tr><th scope="row"><code>--model</code></th><td><code>claude-sonnet-5-5</code></td><td>Live grader for <code>--runner anthropic</code> (the measured certifier; see <a href="ab.html#model-migration">Model Migration</a>)</td></tr>
         <tr><th scope="row"><code>--effort</code></th><td><code>low</code> for the default model, none for any other</td><td><code>output_config.effort</code> for <code>--runner anthropic</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, or <code>none</code> to send no <code>output_config</code> (<code>claude-haiku-4-5</code> rejects one)</td></tr>
         <tr><th scope="row"><code>--samples</code></th><td><code>3</code></td><td>Majority-vote samples for the anthropic runner</td></tr>
       </tbody>

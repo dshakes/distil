@@ -95,11 +95,10 @@ NON_CLAIMS: dict[str, dict[str, str]] = {
         "81%": "~81% rounds the offline standings' 80.5%, covered by u-benchmark-offline-standings",
     },
     "docs/faq.html": {
-        "7\u00d7": '"roughly 7x safer" restates v-provider-compaction\'s 92.5%-vs-12.5% ratio',
+        "7×": '"roughly 7x safer" restates v-provider-compaction\'s 92.5%-vs-12.5% ratio',
         "3×": "`--shadow 1.0` issues three replays per request; arithmetic, not a measurement",
     },
-    "docs/output.html": {},
-    "docs/benchmarks.html": {},
+    "docs/techniques.html": {},
     "docs/llms.txt": {},
     "README.md": {
         "10×": "Anthropic's published cache-read discount, not a distil measurement",
@@ -129,22 +128,50 @@ NON_CLAIMS: dict[str, dict[str, str]] = {
 # of these pages still fails the test below. Clearing a page means adding its
 # entries to docs/claims.json and deleting its row here.
 LEDGER_DEBT: dict[str, frozenset[str]] = {
-    "docs/adapters.html": frozenset(["0.1×"]),
-    "docs/benchmark-independent.html": frozenset(["0.0%"]),
-    "docs/cache-contract.html": frozenset(["0%", "0.0%", "0.1×", "1.25×", "2×"]),
-    "docs/cache.html": frozenset(["50%", "75%", "90%"]),
+    "docs/benchmark.html": frozenset(
+        [
+            "0%",
+            "0.0%",
+            "100%",
+            "16%",
+            "18.1%",
+            "22.8%",
+            "24.9%",
+            "25.5%",
+            "25.7%",
+            "32.6%",
+            "35.3%",
+            "4×",
+            "52%",
+            "56%",
+            "7%",
+            "86%",
+        ]
+    ),
+    "docs/cache.html": frozenset(["0%", "0.0%", "0.1×", "1.25×", "2×", "50%", "75%", "90%"]),
     "docs/cli.html": frozenset(["10%", "12.5%", "2%", "39%", "3×", "92.5%", "99%"]),
     "docs/compare.html": frozenset(["20%", "4.8%"]),
-    "docs/corpus.html": frozenset(["18.1%", "22.8%", "24.9%", "25.5%", "25.7%", "32.6%", "35.3%"]),
-    "docs/evals.html": frozenset(["0%", "100%", "16%", "4×", "52%", "56%", "7%", "86%"]),
-    "docs/learn-compression.html": frozenset(
-        ["0.10×", "0.1×", "1.0×", "1.25×", "10×", "20×", "26.8%", "26×", "3×", "4×", "6×"]
+    "docs/concepts.html": frozenset(
+        [
+            "0.10×",
+            "0.1×",
+            "1.0×",
+            "1.25×",
+            "10×",
+            "20×",
+            "26.8%",
+            "26×",
+            "2×",
+            "30%",
+            "37%",
+            "3×",
+            "4×",
+            "5×",
+            "6×",
+            "90%",
+        ]
     ),
-    "docs/learn-distil.html": frozenset(["0.1×", "1.0×", "10×", "90%"]),
-    "docs/learn-tokens.html": frozenset(["2×", "30%", "37%", "5×"]),
-    "docs/provider-compaction.html": frozenset(
-        ["27.8%", "36.7%", "5×", "7.5%", "95%", "98.6%", "99.5%"]
-    ),
+    "docs/integrations.html": frozenset(["0.1×"]),
     "docs/research.html": frozenset(
         [
             "0%",
@@ -204,6 +231,7 @@ LEDGER_DEBT: dict[str, frozenset[str]] = {
             "54.0%",
             "55.5%",
             "58%",
+            "5×",
             "60%",
             "60.0%",
             "7.0%",
@@ -226,9 +254,6 @@ LEDGER_DEBT: dict[str, frozenset[str]] = {
             "98.8%",
             "99.5%",
         ]
-    ),
-    "docs/subscription.html": frozenset(
-        ["0%", "0.0%", "0.00%", "25%", "33%", "33.3%", "96%", "99%"]
     ),
     "docs/techniques.html": frozenset(
         [
@@ -253,7 +278,7 @@ LEDGER_DEBT: dict[str, frozenset[str]] = {
             "96%",
         ]
     ),
-    "docs/which-mode.html": frozenset(["0%", "0.00%", "33%", "99%"]),
+    "docs/which-mode.html": frozenset(["0%", "0.0%", "0.00%", "25%", "33%", "33.3%", "96%", "99%"]),
 }
 
 
