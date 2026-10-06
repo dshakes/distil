@@ -141,3 +141,14 @@ Main run, as amended:
 - Consequence, stated now: with ~12 tasks the success comparison has no power (the harness will
   print `PILOT (no verdict)`), and the $-per-solved interval will be wide. This is a
   long-horizon **measurement at the size the cap buys**, not a verdict.
+
+## Run record (2026-10-06, after the main run; not an amendment)
+
+- Main run spend $72.07 (shards $24.00, $24.07, $24.00); with the pilots, **$83.43** of the $100
+  cap. No api/env/internal errors, so nothing was re-run and the $16.57 reserve was not spent.
+- 7 tasks completed in all three arms; three further attempts ran before their shard's budget
+  stopped and are unpaired. Results: `benchmarks/results/swebench-verified-hard-max/`
+  (README states every caveat).
+- Two attempts (distil on pytest-10356, rtk on pytest-6197) still ended with `stop=max_tokens`
+  at 32k. As pre-registered they count as `gave_up` / unresolved; the README reports the
+  headline with and without the affected task.
