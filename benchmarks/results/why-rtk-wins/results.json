@@ -1,0 +1,1010 @@
+{
+  "prices": {
+    "in": 2.0,
+    "out": 10.0,
+    "write_x": 1.25,
+    "read_x": 0.1
+  },
+  "token_model": {
+    "coef_tokens_per_char": {
+      "S": 1804.7533,
+      "problem": 0.3704,
+      "tool_result": 0.3707,
+      "tool_use": 0.4117,
+      "text": 1.8148,
+      "thinking_sig": 0.2385
+    },
+    "lite_heldout_total_prompt_ratio": {
+      "n": 246,
+      "median": 0.999,
+      "p10": 0.93,
+      "p90": 1.046
+    },
+    "longh_final_prompt_ratio": {
+      "n": 17,
+      "median": 1.019,
+      "p10": 0.93,
+      "p90": 1.086
+    },
+    "longh_total_prompt_ratio": {
+      "n": 17,
+      "median": 0.995,
+      "p10": 0.912,
+      "p90": 1.073
+    }
+  },
+  "lite": {
+    "common_tasks": 298,
+    "arms": {
+      "plain": {
+        "tasks": 298,
+        "steps": 1360,
+        "steps_per_task": 4.56,
+        "usd": 8.4416,
+        "usd_by_component": {
+          "uncached_in": 0.0066,
+          "cache_write": 3.8021,
+          "cache_read": 1.0573,
+          "output": 3.5756
+        },
+        "share_by_component": {
+          "uncached_in": 0.0008,
+          "cache_write": 0.4504,
+          "cache_read": 0.1252,
+          "output": 0.4236
+        },
+        "tokens_per_step": {
+          "input": 2.4,
+          "output": 262.9,
+          "cache_write": 1118.3,
+          "cache_read": 3887.1
+        },
+        "prompt_tokens_total": 6810575,
+        "cache_hit_ratio": 0.7762,
+        "write_fraction_of_prompt": 0.2233,
+        "usd_per_task": 0.02833,
+        "usd_per_step": 0.006207,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 218,
+        "usd_per_solved": 0.0387,
+        "tasks_with_precached_prompt": 0
+      },
+      "distil": {
+        "tasks": 298,
+        "steps": 1427,
+        "steps_per_task": 4.79,
+        "usd": 8.3653,
+        "usd_by_component": {
+          "uncached_in": 0.0069,
+          "cache_write": 3.727,
+          "cache_read": 1.1175,
+          "output": 3.5139
+        },
+        "share_by_component": {
+          "uncached_in": 0.0008,
+          "cache_write": 0.4455,
+          "cache_read": 0.1336,
+          "output": 0.4201
+        },
+        "tokens_per_step": {
+          "input": 2.4,
+          "output": 246.2,
+          "cache_write": 1044.7,
+          "cache_read": 3915.6
+        },
+        "prompt_tokens_total": 7081760,
+        "cache_hit_ratio": 0.789,
+        "write_fraction_of_prompt": 0.2105,
+        "usd_per_task": 0.02807,
+        "usd_per_step": 0.005862,
+        "expand_calls": 4,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 213,
+        "usd_per_solved": 0.0393,
+        "tasks_with_precached_prompt": 0
+      },
+      "rtk": {
+        "tasks": 298,
+        "steps": 1307,
+        "steps_per_task": 4.39,
+        "usd": 6.6917,
+        "usd_by_component": {
+          "uncached_in": 0.0064,
+          "cache_write": 2.308,
+          "cache_read": 0.9769,
+          "output": 3.4003
+        },
+        "share_by_component": {
+          "uncached_in": 0.001,
+          "cache_write": 0.3449,
+          "cache_read": 0.146,
+          "output": 0.5081
+        },
+        "tokens_per_step": {
+          "input": 2.5,
+          "output": 260.2,
+          "cache_write": 706.3,
+          "cache_read": 3737.4
+        },
+        "prompt_tokens_total": 5811151,
+        "cache_hit_ratio": 0.8406,
+        "write_fraction_of_prompt": 0.1589,
+        "usd_per_task": 0.02246,
+        "usd_per_step": 0.00512,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 219,
+        "usd_per_solved": 0.0306,
+        "tasks_with_precached_prompt": 189
+      },
+      "selective": {
+        "tasks": 298,
+        "steps": 2053,
+        "steps_per_task": 6.89,
+        "usd": 9.8588,
+        "usd_by_component": {
+          "uncached_in": 0.0094,
+          "cache_write": 2.9802,
+          "cache_read": 1.915,
+          "output": 4.9543
+        },
+        "share_by_component": {
+          "uncached_in": 0.001,
+          "cache_write": 0.3023,
+          "cache_read": 0.1942,
+          "output": 0.5025
+        },
+        "tokens_per_step": {
+          "input": 2.3,
+          "output": 241.3,
+          "cache_write": 580.6,
+          "cache_read": 4663.9
+        },
+        "prompt_tokens_total": 10771687,
+        "cache_hit_ratio": 0.8889,
+        "write_fraction_of_prompt": 0.1107,
+        "usd_per_task": 0.03308,
+        "usd_per_step": 0.004802,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 210,
+        "usd_per_solved": 0.0469,
+        "tasks_with_precached_prompt": 167
+      },
+      "provider-cm": {
+        "tasks": 298,
+        "steps": 1419,
+        "steps_per_task": 4.76,
+        "usd": 8.1546,
+        "usd_by_component": {
+          "uncached_in": 0.0212,
+          "cache_write": 3.9141,
+          "cache_read": 0.8134,
+          "output": 3.4059
+        },
+        "share_by_component": {
+          "uncached_in": 0.0026,
+          "cache_write": 0.48,
+          "cache_read": 0.0998,
+          "output": 0.4177
+        },
+        "tokens_per_step": {
+          "input": 7.5,
+          "output": 240.0,
+          "cache_write": 1103.3,
+          "cache_read": 2866.2
+        },
+        "prompt_tokens_total": 5643391,
+        "cache_hit_ratio": 0.7207,
+        "write_fraction_of_prompt": 0.2774,
+        "usd_per_task": 0.02736,
+        "usd_per_step": 0.005747,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 210,
+        "usd_per_solved": 0.0388,
+        "tasks_with_precached_prompt": 138
+      }
+    },
+    "cold_cache_repriced": {
+      "rtk": {
+        "tasks": 298,
+        "steps": 1307,
+        "steps_per_task": 4.39,
+        "usd": 7.894,
+        "usd_by_component": {
+          "uncached_in": 0.0064,
+          "cache_write": 3.6148,
+          "cache_read": 0.8724,
+          "output": 3.4003
+        },
+        "share_by_component": {
+          "uncached_in": 0.0008,
+          "cache_write": 0.4579,
+          "cache_read": 0.1105,
+          "output": 0.4307
+        },
+        "tokens_per_step": {
+          "input": 2.5,
+          "output": 260.2,
+          "cache_write": 1106.3,
+          "cache_read": 3337.4
+        },
+        "prompt_tokens_total": 5811150.999999999,
+        "cache_hit_ratio": 0.7506,
+        "write_fraction_of_prompt": 0.2488,
+        "usd_per_task": 0.02649,
+        "usd_per_step": 0.00604,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 219,
+        "usd_per_solved": 0.036,
+        "tasks_repriced": 298
+      },
+      "provider-cm": {
+        "tasks": 298,
+        "steps": 1419,
+        "steps_per_task": 4.76,
+        "usd": 8.7828,
+        "usd_by_component": {
+          "uncached_in": 0.0212,
+          "cache_write": 4.5969,
+          "cache_read": 0.7588,
+          "output": 3.4059
+        },
+        "share_by_component": {
+          "uncached_in": 0.0024,
+          "cache_write": 0.5234,
+          "cache_read": 0.0864,
+          "output": 0.3878
+        },
+        "tokens_per_step": {
+          "input": 7.5,
+          "output": 240.0,
+          "cache_write": 1295.8,
+          "cache_read": 2673.7
+        },
+        "prompt_tokens_total": 5643391.0,
+        "cache_hit_ratio": 0.6723,
+        "write_fraction_of_prompt": 0.3258,
+        "usd_per_task": 0.02947,
+        "usd_per_step": 0.006189,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 298
+        },
+        "solved": 210,
+        "usd_per_solved": 0.0418,
+        "tasks_repriced": 192
+      }
+    },
+    "paired_vs_plain": {
+      "distil": {
+        "pairs": 298,
+        "mean_usd_diff": -0.000256,
+        "ci95": [
+          -0.002559,
+          0.001993
+        ],
+        "mean_step_diff": 0.225,
+        "step_ci95": [
+          -0.107383,
+          0.57047
+        ],
+        "mean_prompt_token_diff": 910,
+        "prompt_token_ci95": [
+          -3502.258389,
+          5249.402685
+        ],
+        "plain_mean_usd": 0.028328
+      },
+      "rtk": {
+        "pairs": 298,
+        "mean_usd_diff": -0.005872,
+        "ci95": [
+          -0.007797,
+          -0.003977
+        ],
+        "mean_step_diff": -0.178,
+        "step_ci95": [
+          -0.432886,
+          0.060403
+        ],
+        "mean_prompt_token_diff": -3354,
+        "prompt_token_ci95": [
+          -6868.45302,
+          -208.892617
+        ],
+        "plain_mean_usd": 0.028328,
+        "cold_cache_pairs": 298,
+        "cold_cache_mean_usd_diff": -0.001838,
+        "cold_cache_ci95": [
+          -0.003724,
+          3.1e-05
+        ]
+      },
+      "provider-cm": {
+        "pairs": 298,
+        "mean_usd_diff": -0.000963,
+        "ci95": [
+          -0.004688,
+          0.003879
+        ],
+        "mean_step_diff": 0.198,
+        "step_ci95": [
+          -0.107383,
+          0.533557
+        ],
+        "mean_prompt_token_diff": -3917,
+        "prompt_token_ci95": [
+          -8644.030201,
+          149.083893
+        ],
+        "plain_mean_usd": 0.028328,
+        "cold_cache_pairs": 192,
+        "cold_cache_mean_usd_diff": -0.001457,
+        "cold_cache_ci95": [
+          -0.002428,
+          -0.000622
+        ]
+      },
+      "selective": {
+        "pairs": 298,
+        "mean_usd_diff": 0.004756,
+        "ci95": [
+          0.002256,
+          0.007544
+        ],
+        "mean_step_diff": 2.326,
+        "step_ci95": [
+          1.926174,
+          2.761745
+        ],
+        "mean_prompt_token_diff": 13292,
+        "prompt_token_ci95": [
+          8708.993289,
+          18504.053691
+        ],
+        "plain_mean_usd": 0.028328
+      }
+    },
+    "where_the_money_goes_rawtraj": {
+      "tasks": 192,
+      "reconstructed_usd": 3.4862,
+      "by_source": {
+        "system+tools": {
+          "write_usd": 0.8663,
+          "reread_usd": 0.1675,
+          "share": 0.2965
+        },
+        "task statement": {
+          "write_usd": 0.3045,
+          "reread_usd": 0.0575,
+          "share": 0.1038
+        },
+        "tool output (results)": {
+          "write_usd": 0.3711,
+          "reread_usd": 0.0305,
+          "share": 0.1152
+        },
+        "assistant history (tool calls, text, thinking re-sent)": {
+          "write_usd": 0.2109,
+          "reread_usd": 0.0059,
+          "share": 0.0622
+        },
+        "output tokens (incl. thinking)": {
+          "usd": 1.472,
+          "share": 0.4222
+        }
+      },
+      "tool_output_tokens_entered": 148443,
+      "tool_output_cost_per_entered_token_x_input_price": 1.353
+    },
+    "tool_output": {
+      "rtk_rewrites": {
+        "commands": 1265,
+        "rewritten": 537
+      },
+      "totals": {
+        "rtk": {
+          "calls": 1265,
+          "total_chars": 1224137,
+          "mean_chars_per_call": 968
+        },
+        "provider-cm": {
+          "calls": 1371,
+          "total_chars": 1466570,
+          "mean_chars_per_call": 1070
+        },
+        "selective": {
+          "calls": 2036,
+          "total_chars": 1926589,
+          "mean_chars_per_call": 946
+        }
+      },
+      "by_class": {
+        "grep": {
+          "rtk": {
+            "calls": 408,
+            "mean_chars": 1388,
+            "total_chars": 566432
+          },
+          "provider-cm": {
+            "calls": 463,
+            "mean_chars": 1492,
+            "total_chars": 690837
+          },
+          "selective": {
+            "calls": 604,
+            "mean_chars": 1184,
+            "total_chars": 715355
+          }
+        },
+        "sed": {
+          "rtk": {
+            "calls": 343,
+            "mean_chars": 1036,
+            "total_chars": 355498
+          },
+          "provider-cm": {
+            "calls": 395,
+            "mean_chars": 1157,
+            "total_chars": 457107
+          },
+          "selective": {
+            "calls": 497,
+            "mean_chars": 1077,
+            "total_chars": 535201
+          }
+        },
+        "python": {
+          "rtk": {
+            "calls": 249,
+            "mean_chars": 400,
+            "total_chars": 99498
+          },
+          "provider-cm": {
+            "calls": 233,
+            "mean_chars": 364,
+            "total_chars": 84780
+          },
+          "selective": {
+            "calls": 464,
+            "mean_chars": 651,
+            "total_chars": 302259
+          }
+        },
+        "python -c": {
+          "rtk": {
+            "calls": 89,
+            "mean_chars": 577,
+            "total_chars": 51317
+          },
+          "provider-cm": {
+            "calls": 102,
+            "mean_chars": 643,
+            "total_chars": 65551
+          },
+          "selective": {
+            "calls": 91,
+            "mean_chars": 652,
+            "total_chars": 59357
+          }
+        },
+        "git": {
+          "rtk": {
+            "calls": 45,
+            "mean_chars": 294,
+            "total_chars": 13233
+          },
+          "provider-cm": {
+            "calls": 63,
+            "mean_chars": 970,
+            "total_chars": 61120
+          },
+          "selective": {
+            "calls": 174,
+            "mean_chars": 573,
+            "total_chars": 99687
+          }
+        },
+        "pytest": {
+          "rtk": {
+            "calls": 65,
+            "mean_chars": 298,
+            "total_chars": 19374
+          },
+          "provider-cm": {
+            "calls": 51,
+            "mean_chars": 346,
+            "total_chars": 17642
+          },
+          "selective": {
+            "calls": 75,
+            "mean_chars": 634,
+            "total_chars": 47587
+          }
+        },
+        "sed -n": {
+          "rtk": {
+            "calls": 30,
+            "mean_chars": 1814,
+            "total_chars": 54431
+          },
+          "provider-cm": {
+            "calls": 26,
+            "mean_chars": 1356,
+            "total_chars": 35262
+          },
+          "selective": {
+            "calls": 56,
+            "mean_chars": 1275,
+            "total_chars": 71385
+          }
+        },
+        "cat": {
+          "rtk": {
+            "calls": 21,
+            "mean_chars": 1807,
+            "total_chars": 37954
+          },
+          "provider-cm": {
+            "calls": 22,
+            "mean_chars": 2017,
+            "total_chars": 44378
+          },
+          "selective": {
+            "calls": 33,
+            "mean_chars": 1437,
+            "total_chars": 47433
+          }
+        },
+        "rm": {
+          "rtk": {
+            "calls": 1,
+            "mean_chars": 267,
+            "total_chars": 267
+          },
+          "provider-cm": {
+            "calls": 2,
+            "mean_chars": 225,
+            "total_chars": 450
+          },
+          "selective": {
+            "calls": 8,
+            "mean_chars": 681,
+            "total_chars": 5449
+          }
+        },
+        "ls": {
+          "rtk": {
+            "calls": 2,
+            "mean_chars": 3148,
+            "total_chars": 6295
+          },
+          "provider-cm": {
+            "calls": 2,
+            "mean_chars": 1536,
+            "total_chars": 3073
+          },
+          "selective": {
+            "calls": 3,
+            "mean_chars": 2458,
+            "total_chars": 7373
+          }
+        },
+        "PYTHONPATH=.": {
+          "rtk": {
+            "calls": 0,
+            "mean_chars": null,
+            "total_chars": 0
+          },
+          "provider-cm": {
+            "calls": 7,
+            "mean_chars": 519,
+            "total_chars": 3632
+          },
+          "selective": {
+            "calls": 0,
+            "mean_chars": null,
+            "total_chars": 0
+          }
+        },
+        "file": {
+          "rtk": {
+            "calls": 0,
+            "mean_chars": null,
+            "total_chars": 0
+          },
+          "provider-cm": {
+            "calls": 0,
+            "mean_chars": null,
+            "total_chars": 0
+          },
+          "selective": {
+            "calls": 6,
+            "mean_chars": 636,
+            "total_chars": 3816
+          }
+        },
+        "true": {
+          "rtk": {
+            "calls": 2,
+            "mean_chars": 0,
+            "total_chars": 0
+          },
+          "provider-cm": {
+            "calls": 1,
+            "mean_chars": 0,
+            "total_chars": 0
+          },
+          "selective": {
+            "calls": 2,
+            "mean_chars": 0,
+            "total_chars": 0
+          }
+        },
+        "mkdir": {
+          "rtk": {
+            "calls": 3,
+            "mean_chars": 832,
+            "total_chars": 2495
+          },
+          "provider-cm": {
+            "calls": 2,
+            "mean_chars": 1154,
+            "total_chars": 2308
+          },
+          "selective": {
+            "calls": 0,
+            "mean_chars": null,
+            "total_chars": 0
+          }
+        }
+      }
+    },
+    "behaviour": {
+      "rtk": {
+        "steps": 1307,
+        "tool_calls": 1265,
+        "tool_calls_per_step": 0.968,
+        "identical_reruns": 1,
+        "identical_rerun_rate": 0.0008
+      },
+      "selective": {
+        "steps": 2053,
+        "tool_calls": 2036,
+        "tool_calls_per_step": 0.992,
+        "identical_reruns": 0,
+        "identical_rerun_rate": 0.0
+      },
+      "provider-cm": {
+        "steps": 1419,
+        "tool_calls": 1371,
+        "tool_calls_per_step": 0.966,
+        "identical_reruns": 2,
+        "identical_rerun_rate": 0.0015
+      }
+    },
+    "distil_replay_on_raw_plain_trajectories": {
+      "steps": 659,
+      "raw_prompt_tokens": 2015693,
+      "sent_prompt_tokens": 1996013,
+      "prompt_reduction": 0.0098,
+      "sim_write": 692917,
+      "sim_read": 1303096,
+      "actual_write": null,
+      "actual_read": null,
+      "steps_that_rewrote_an_earlier_message": 0,
+      "tokens_rewritten_by_those_steps": 0,
+      "entry_tool_chars_raw": 403068,
+      "entry_tool_chars_sent": 372056,
+      "entry_tool_reduction": 0.0769,
+      "tasks": 193
+    }
+  },
+  "longh": {
+    "common_tasks": 7,
+    "arms": {
+      "plain": {
+        "tasks": 7,
+        "steps": 463,
+        "steps_per_task": 66.14,
+        "usd": 21.6298,
+        "usd_by_component": {
+          "uncached_in": 0.0019,
+          "cache_write": 3.1038,
+          "cache_read": 10.2693,
+          "output": 8.2548
+        },
+        "share_by_component": {
+          "uncached_in": 0.0001,
+          "cache_write": 0.1435,
+          "cache_read": 0.4748,
+          "output": 0.3816
+        },
+        "tokens_per_step": {
+          "input": 2.0,
+          "output": 1782.9,
+          "cache_write": 2681.4,
+          "cache_read": 110899.6
+        },
+        "prompt_tokens_total": 52588959,
+        "cache_hit_ratio": 0.9764,
+        "write_fraction_of_prompt": 0.0236,
+        "usd_per_task": 3.08997,
+        "usd_per_step": 0.046717,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 6,
+          "step_limit": 1
+        },
+        "solved": 6,
+        "usd_per_solved": 3.605,
+        "tasks_with_precached_prompt": 0
+      },
+      "distil": {
+        "tasks": 7,
+        "steps": 475,
+        "steps_per_task": 67.86,
+        "usd": 18.1602,
+        "usd_by_component": {
+          "uncached_in": 0.0019,
+          "cache_write": 2.3711,
+          "cache_read": 9.2016,
+          "output": 6.5856
+        },
+        "share_by_component": {
+          "uncached_in": 0.0001,
+          "cache_write": 0.1306,
+          "cache_read": 0.5067,
+          "output": 0.3626
+        },
+        "tokens_per_step": {
+          "input": 2.0,
+          "output": 1386.4,
+          "cache_write": 1996.7,
+          "cache_read": 96859.2
+        },
+        "prompt_tokens_total": 46957534,
+        "cache_hit_ratio": 0.9798,
+        "write_fraction_of_prompt": 0.0202,
+        "usd_per_task": 2.59432,
+        "usd_per_step": 0.038232,
+        "expand_calls": 37,
+        "stops": {
+          "end_turn": 4,
+          "step_limit": 2,
+          "max_tokens": 1
+        },
+        "solved": 6,
+        "usd_per_solved": 3.0267,
+        "tasks_with_precached_prompt": 0
+      },
+      "rtk": {
+        "tasks": 7,
+        "steps": 512,
+        "steps_per_task": 73.14,
+        "usd": 21.5408,
+        "usd_by_component": {
+          "uncached_in": 0.0021,
+          "cache_write": 2.9863,
+          "cache_read": 10.8185,
+          "output": 7.7339
+        },
+        "share_by_component": {
+          "uncached_in": 0.0001,
+          "cache_write": 0.1386,
+          "cache_read": 0.5022,
+          "output": 0.359
+        },
+        "tokens_per_step": {
+          "input": 2.0,
+          "output": 1510.5,
+          "cache_write": 2333.1,
+          "cache_read": 105649.8
+        },
+        "prompt_tokens_total": 55288254,
+        "cache_hit_ratio": 0.9784,
+        "write_fraction_of_prompt": 0.0216,
+        "usd_per_task": 3.07726,
+        "usd_per_step": 0.042072,
+        "expand_calls": 0,
+        "stops": {
+          "end_turn": 5,
+          "step_limit": 2
+        },
+        "solved": 7,
+        "usd_per_solved": 3.0773,
+        "tasks_with_precached_prompt": 0
+      }
+    },
+    "where_the_money_goes_plain": {
+      "tasks": 7,
+      "reconstructed_usd": 21.5518,
+      "by_source": {
+        "system+tools": {
+          "write_usd": 0.0316,
+          "reread_usd": 0.1646,
+          "share": 0.0091
+        },
+        "task statement": {
+          "write_usd": 0.0167,
+          "reread_usd": 0.0941,
+          "share": 0.0051
+        },
+        "tool output (results)": {
+          "write_usd": 0.9502,
+          "reread_usd": 3.5448,
+          "share": 0.2086
+        },
+        "assistant history (tool calls, text, thinking re-sent)": {
+          "write_usd": 2.135,
+          "reread_usd": 6.36,
+          "share": 0.3942
+        },
+        "output tokens (incl. thinking)": {
+          "usd": 8.2548,
+          "share": 0.383
+        }
+      },
+      "tool_output_tokens_entered": 380079,
+      "tool_output_cost_per_entered_token_x_input_price": 5.913
+    },
+    "tool_output": {
+      "plain": {
+        "calls": 556,
+        "mean_chars_per_call": 1844
+      },
+      "distil": {
+        "calls": 563,
+        "mean_chars_per_call": 1677
+      },
+      "rtk": {
+        "calls": 597,
+        "mean_chars_per_call": 1717
+      }
+    },
+    "behaviour": {
+      "plain": {
+        "steps": 463,
+        "tool_calls": 556,
+        "tool_calls_per_step": 1.201,
+        "identical_reruns": 2,
+        "identical_rerun_rate": 0.0036
+      },
+      "distil": {
+        "steps": 475,
+        "tool_calls": 563,
+        "tool_calls_per_step": 1.185,
+        "identical_reruns": 1,
+        "identical_rerun_rate": 0.0018
+      },
+      "rtk": {
+        "steps": 512,
+        "tool_calls": 597,
+        "tool_calls_per_step": 1.166,
+        "identical_reruns": 2,
+        "identical_rerun_rate": 0.0034
+      }
+    },
+    "distil_replay": {
+      "steps": 475,
+      "raw_prompt_tokens": 49646433,
+      "sent_prompt_tokens": 46468439,
+      "prompt_reduction": 0.064,
+      "sim_write": 964153,
+      "sim_read": 45504287,
+      "actual_write": 949394,
+      "actual_read": 46008140,
+      "steps_that_rewrote_an_earlier_message": 0,
+      "tokens_rewritten_by_those_steps": 0,
+      "entry_tool_chars_raw": 943848,
+      "entry_tool_chars_sent": 755508,
+      "entry_tool_reduction": 0.1995
+    }
+  },
+  "tbench_pilot": {
+    "control": {
+      "runs": 18,
+      "solved": 14,
+      "requests": 358,
+      "usd_at_2_10": 7.771,
+      "usd_per_solved": 0.5551,
+      "share_by_component": {
+        "uncached_in": 0.0942,
+        "cache_write": 0.1972,
+        "cache_read": 0.3461,
+        "output": 0.3625
+      },
+      "tokens_per_request": {
+        "input": 1022,
+        "output": 787,
+        "cache_write": 1712,
+        "cache_read": 37561
+      },
+      "cache_hit_ratio": 0.9321,
+      "prefix_breaks": 9,
+      "prefix_break_extra_usd": 0.3005
+    },
+    "distil": {
+      "runs": 18,
+      "solved": 14,
+      "requests": 573,
+      "usd_at_2_10": 9.203,
+      "usd_per_solved": 0.6573,
+      "share_by_component": {
+        "uncached_in": 0.0354,
+        "cache_write": 0.2126,
+        "cache_read": 0.4715,
+        "output": 0.2805
+      },
+      "tokens_per_request": {
+        "input": 285,
+        "output": 450,
+        "cache_write": 1366,
+        "cache_read": 37864
+      },
+      "cache_hit_ratio": 0.9582,
+      "prefix_breaks": 18,
+      "prefix_break_extra_usd": 0.5766
+    },
+    "headroom": {
+      "runs": 18,
+      "solved": 13,
+      "requests": 315,
+      "usd_at_2_10": 6.799,
+      "usd_per_solved": 0.523,
+      "share_by_component": {
+        "uncached_in": 0.0059,
+        "cache_write": 0.3698,
+        "cache_read": 0.3459,
+        "output": 0.2783
+      },
+      "tokens_per_request": {
+        "input": 64,
+        "output": 601,
+        "cache_write": 3193,
+        "cache_read": 37332
+      },
+      "cache_hit_ratio": 0.9198,
+      "prefix_breaks": 15,
+      "prefix_break_extra_usd": 0.832
+    },
+    "rtk": {
+      "runs": 18,
+      "solved": 15,
+      "requests": 329,
+      "usd_at_2_10": 6.001,
+      "usd_per_solved": 0.4001,
+      "share_by_component": {
+        "uncached_in": 0.0036,
+        "cache_write": 0.2081,
+        "cache_read": 0.4551,
+        "output": 0.3332
+      },
+      "tokens_per_request": {
+        "input": 33,
+        "output": 608,
+        "cache_write": 1519,
+        "cache_read": 41509
+      },
+      "cache_hit_ratio": 0.964,
+      "prefix_breaks": 1,
+      "prefix_break_extra_usd": 0.1249
+    }
+  }
+}
