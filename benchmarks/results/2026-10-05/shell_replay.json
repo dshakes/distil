@@ -1,0 +1,94 @@
+{
+  "filters": "sh-v1",
+  "tokenizer": "heuristic",
+  "method": "each fixture (real tool output over a synthetic project, see benchmarks/shell_replay.py) through distil.shell.shape; 'lossless' is the subscription default, 'elide' the metered-key default (handle stubbed)",
+  "corpus_limits": "9 fixtures from synthetic projects (60-test suites with 2 failures) plus one real all-passing slice of this repo's suite; ratios are per command, NOT weighted by any real agent's command mix",
+  "fixtures": [
+    {
+      "fixture": "git_status.txt",
+      "command": "git status",
+      "filter": "git-status",
+      "tier_applied": "lossless",
+      "raw": 158,
+      "lossless": 57,
+      "elide": 57
+    },
+    {
+      "fixture": "pytest_default.txt",
+      "command": "python -m pytest -p no:cacheprovider",
+      "filter": "pytest",
+      "tier_applied": "none",
+      "raw": 680,
+      "lossless": 680,
+      "elide": 680
+    },
+    {
+      "fixture": "pytest_verbose.txt",
+      "command": "python -m pytest -v -p no:cacheprovider",
+      "filter": "pytest",
+      "tier_applied": "elide",
+      "raw": 1502,
+      "lossless": 1502,
+      "elide": 712
+    },
+    {
+      "fixture": "pytest_verbose_color.txt",
+      "command": "python -m pytest -v --color=yes -p no:cacheprovider",
+      "filter": "pytest",
+      "tier_applied": "elide",
+      "raw": 3248,
+      "lossless": 1518,
+      "elide": 728
+    },
+    {
+      "fixture": "pytest_distil_suite_verbose.txt",
+      "command": "python -m pytest -v -p no:cacheprovider tests/test_keep_policy.py tests/test_keeptags.py",
+      "filter": "pytest",
+      "tier_applied": "elide",
+      "raw": 786,
+      "lossless": 786,
+      "elide": 367
+    },
+    {
+      "fixture": "unittest_verbose.txt",
+      "command": "python -m unittest -v",
+      "filter": "unittest",
+      "tier_applied": "elide",
+      "raw": 1700,
+      "lossless": 1700,
+      "elide": 841
+    },
+    {
+      "fixture": "cargo_test.txt",
+      "command": "cargo test",
+      "filter": "cargo-test",
+      "tier_applied": "elide",
+      "raw": 988,
+      "lossless": 988,
+      "elide": 356
+    },
+    {
+      "fixture": "go_test_verbose.txt",
+      "command": "go test -v ./...",
+      "filter": "go-test",
+      "tier_applied": "elide",
+      "raw": 1299,
+      "lossless": 1299,
+      "elide": 117
+    },
+    {
+      "fixture": "node_test.txt",
+      "command": "npm test",
+      "filter": "js-test",
+      "tier_applied": "elide",
+      "raw": 1161,
+      "lossless": 1161,
+      "elide": 598
+    }
+  ],
+  "aggregate": {
+    "raw_tokens": 11522,
+    "lossless_reduction_pct": 15.9,
+    "elide_reduction_pct": 61.3
+  }
+}
