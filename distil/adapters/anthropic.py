@@ -195,6 +195,20 @@ def _refetch_verbatim(content: Any, tool_id: Any = None) -> bool:
     return True
 
 
+def _refetch_open(refetch: bool | None, verbatim: bool) -> None:
+    """Open the ADR 0025 tracker for one compression pass (``None`` when the rule is off).
+    The Chat Completions, Responses and Gemini walks call this once per pass, as
+    ``compress_messages`` does inline."""
+    use = (refetch_enabled() if refetch is None else refetch) and not verbatim
+    _refetch_tls.tracker = _refetch.Tracker() if use else None
+
+
+def _refetch_close() -> None:
+    """Close the pass: its hits outlive it for a keep-set probe, the tracker does not."""
+    _refetch_tls.hits = frozenset(getattr(_refetch_tls.tracker, "hits", ()))
+    _refetch_tls.tracker = None
+
+
 def _tool_result_text(content: Any) -> str:
     """Every text part of a tool_result, joined — what the agent read, for line tracking."""
     if isinstance(content, str):

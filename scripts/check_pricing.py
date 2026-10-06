@@ -98,6 +98,8 @@ def check_anthropic(text: str) -> list[str]:
     problems = []
     labels = ("input", "5m write", "1h write", "cache hit", "output")
     for mid, p in pricing.CATALOG.items():
+        if not mid.startswith("claude-"):
+            continue  # OpenAI / Gemini rows: see report_unpriced's informational pass
         got = published(text, mid)
         if got is None:
             problems.append(f"{mid}: '{display_name(mid)}' not found with 5 prices on the page")
@@ -114,11 +116,21 @@ def check_anthropic(text: str) -> list[str]:
 
 
 def report_unpriced(text: str) -> None:
-    for mid in sorted(pricing.UNPRICED):
+    """Information only: the figures published next to each OpenAI id, beside distil's
+    row (input, cached input, output) or "unpriced". The page's tab layout varies too
+    much to parse as a check; a human compares the two."""
+    rows = {m: p for m, p in pricing.CATALOG.items() if m.startswith(("gpt-", "o"))}
+    for mid in sorted(set(pricing.UNPRICED) | set(rows)):
         i = text.lower().find(mid.lower())
         figs = _DOLLARS.findall(text[i : i + 300]) if i >= 0 else []
-        shown = ", ".join(f"${f}" for f in figs[:3]) or "not found"
-        print(f"  {mid:<22} unpriced in distil; published near the id: {shown}")
+        shown = ", ".join(f"${f}" for f in figs[:4]) or "not found"
+        p = rows.get(mid)
+        ours = (
+            f"{p.input_per_mtok:g}/{p.input_per_mtok * p.cache_read_mult:g}/{p.output_per_mtok:g}"
+            if p
+            else "unpriced"
+        )
+        print(f"  {mid:<22} distil {ours}; published near the id: {shown}")
 
 
 def _read(path: str | None, url: str) -> str:

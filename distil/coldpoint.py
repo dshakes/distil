@@ -52,6 +52,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from .prefixreplay import canonical
 from .pricing import CACHE_TTL_S
+from .pricing import resolve as resolve_price
 
 log = logging.getLogger("distil.coldpoint")
 
@@ -139,7 +140,7 @@ def reset() -> None:
 # Credential headers whose value is a long-lived key. `Authorization` is deliberately NOT
 # here: Claude Code's OAuth bearer token refreshes mid-session, and keying on it forked
 # the lineage and un-evicted a warm prefix at every refresh.
-_STATIC_KEY_HEADERS = ("x-api-key", "api-key", "x-goog-api-key")
+_STATIC_KEY_HEADERS = ("x-api-key", "api-key", "x-goog-api-key", "?key")  # ?key: URL form
 
 
 def account_scope(headers: Mapping[str, str]) -> str:
@@ -301,6 +302,34 @@ def request_ttl(body: dict[str, Any]) -> float:
     return ttl
 
 
+# OpenAI caches prefixes automatically; the request can only name a RETENTION policy, and
+# the lifetime the docs give for each is an upper bound distil can wait out
+# (https://developers.openai.com/api/docs/guides/prompt-caching, read 2026-10-06):
+#   "in_memory: Entries typically remain active for around 5 to 10 minutes of inactivity,
+#    up to one hour."
+#   "24h: ... can retain them for up to 24 hours."
+#   "Organizations without Zero Data Retention enabled default to 24h" (ZDR orgs default to
+#    in_memory, so 24h bounds an unset field either way).
+# GPT-5.6 and later take ``prompt_cache_options.ttl`` instead: "A cached prefix remains
+# eligible for reuse for 30 minutes after its most recent write or reuse ... though OpenAI
+# may retain it longer" — a minimum with no maximum, so expiry is never certain: inf. Those
+# are exactly the models whose price row carries a cache-write surcharge (the same pricing
+# page change), so the row says which caching model a request is on; a model distil cannot
+# price is not assumed to be on the old one.
+# Gemini's implicit caching documents no lifetime at all
+# (https://ai.google.dev/gemini-api/docs/generate-content/caching), so it gets no plan.
+_OPENAI_RETENTION_S: dict[Any, float] = {None: 86400.0, "24h": 86400.0, "in_memory": 3600.0}
+
+
+def openai_request_ttl(body: dict[str, Any]) -> float:
+    """The longest the provider may keep this OpenAI request's prefix, in seconds; inf
+    when the docs give no upper bound (GPT-5.6+, an unknown model or retention value)."""
+    row = resolve_price(str(body.get("model") or ""))
+    if "prompt_cache_options" in body or row is None or row.cache_write_mult != 1.0:
+        return math.inf
+    return _OPENAI_RETENTION_S.get(body.get("prompt_cache_retention"), math.inf)
+
+
 def _sig(msg: Any) -> str:
     return hashlib.sha256(canonical(msg).encode("utf-8", "replace")).hexdigest()[:16]
 
@@ -313,16 +342,18 @@ def plan(
     *,
     held: bool = False,
     now: float | None = None,
+    ttl: float | None = None,
 ) -> Plan:
     """Decide this request's eviction set and mark the lineage in flight.
 
     Every call must be paired with :func:`end` once the request (and anything it spawned
     that talks to the provider) is finished. *candidates* is called only on a cold turn,
     outside the lock. *held* is the drift guard's hook: a held lineage keeps applying the
-    set it has but decides nothing new.
+    set it has but decides nothing new. *ttl* overrides the Anthropic ``cache_control``
+    reading for a provider without one (:func:`openai_request_ttl`).
     """
     now = _clock() if now is None else now
-    ttl = request_ttl(body)
+    ttl = request_ttl(body) if ttl is None else ttl
     # A lineage new to THIS process may still have a set on the wire from the previous
     # one. Read outside the lock; only first-seen lineages ever touch the disk here.
     persisted = _load(key) if key not in _STATES else frozenset()

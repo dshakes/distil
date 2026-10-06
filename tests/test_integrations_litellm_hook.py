@@ -192,3 +192,39 @@ def test_env_digest_opt_in_goes_through_the_subscription_guard(tmp_path, monkeyp
     monkeypatch.setattr(lh, "_cache", {})
     monkeypatch.setattr(lh, "_warned", set())
     assert lh.proxy_handler_instance.core.digest is False
+
+
+def test_responses_calls_compress_the_input_array():
+    """LiteLLM's Responses route carries Codex-shaped ``input`` items, not ``messages``."""
+    big = "\n".join(f"row {i}: value_{i} status=ok detail=lorem" for i in range(60))
+    data = {
+        "model": "gpt-5.2",
+        "input": [
+            {"type": "function_call", "call_id": "c1", "name": "shell", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "c1", "output": big},
+        ],
+    }
+    for call_type in ("responses", "aresponses"):
+        out = lh.compress_request(data, call_type, digest=True)
+        assert out is not None
+        new, before, after = out
+        assert after < before and "handle=" in new["input"][1]["output"]
+    assert lh.compress_request({"input": "hi"}, "responses") is None
+
+
+def test_in_process_wrapper_uses_the_chat_adapter_and_the_policy(monkeypatch):
+    """``litellm.completion`` messages are Chat-shaped for every provider: a list-shaped
+    tool message is tool output (Tier-1), and a subscription session never digests."""
+    from distil.integrations import litellm as dll
+
+    big = "\n".join(f"row {i}: value_{i} status=ok detail=lorem" for i in range(60))
+    msgs = [
+        {"role": "user", "content": "go"},
+        {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": big}]},
+    ]
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
+    out = dll.compress({"model": "gpt-5.2", "messages": msgs})
+    assert "handle=" in out["messages"][1]["content"][0]["text"]
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+    out = dll.compress({"model": "gpt-5.2", "messages": msgs})
+    assert "handle=" not in json.dumps(out["messages"])

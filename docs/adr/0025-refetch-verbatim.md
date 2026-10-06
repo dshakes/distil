@@ -135,9 +135,12 @@ block disappear, and the trusted block's bytes, when they differ, are its origin
   verbatim too. Its description "each block's served bytes depend only on its own text"
   becomes "on its own text and the blocks before it" — still prefix-deterministic, which is
   the property ADR 0008 needs.
-- Scope: the Anthropic Messages adapter, including `role: "tool"` string messages that pass
-  through it. The OpenAI Responses and Gemini walkers do not have the rule yet; the measured
-  traffic is Anthropic.
+- Scope: every adapter — Anthropic Messages, OpenAI Chat Completions (`role: "tool"`
+  messages, string or text-part list), OpenAI Responses (`function_call_output`) and Gemini
+  (`functionResponse`, its string leaves joined). Same tracker, same placement (after the
+  exact-quote exemption, before the digester). The rule matters more off Anthropic: those
+  providers cache implicitly and keep no recency window, so every result is digested on
+  first sight. The measured traffic is still Anthropic.
 - Proxy and gateway reach the rule through the one serve path, `serve_core.compress_or_forward`
   (ADR 0023). Wherever that path serves verbatim — the per-mode certification hold (ADR 0022),
   `--lossless-only`, a subscription session, a Tier-0 gateway — nothing is folded, so nothing
