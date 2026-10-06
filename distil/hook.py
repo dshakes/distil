@@ -198,6 +198,14 @@ def is_exact_quote(tool_name: str, tool_input: Any = None) -> bool:
     return bool(whole_file_read_paths(command_text(tool_input)))
 
 
+def _shaped_at_source(tool_input: Any) -> bool:
+    """Output of ``distil sh`` is already shaped (ADR 0026); a second pass would blur
+    which transform did what and could elide what the filter deliberately kept."""
+    from .compress.provenance import command_text
+
+    return "distil sh " in command_text(tool_input)
+
+
 def _compress_bash(out: dict[str, Any]) -> dict[str, Any] | None:
     """Compress a Claude Code ``Bash`` result: ``{stdout, stderr, interrupted, isImage}``.
 
@@ -253,6 +261,8 @@ def compress_tool_output(tool_name: str, tool_output: Any, tool_input: Any = Non
     """
     if is_exact_quote(tool_name, tool_input):
         return None
+    if _shaped_at_source(tool_input):
+        return None
     if tool_name == "Bash":
         return _compress_bash(tool_output) if isinstance(tool_output, dict) else None
     if tool_name.startswith("mcp__"):
@@ -273,7 +283,13 @@ def _receipt_path() -> Path:
 
 
 def record_receipt(
-    tool_name: str, before: int, after: int, *, path: Path | None = None, client: str = "claude"
+    tool_name: str,
+    before: int,
+    after: int,
+    *,
+    path: Path | None = None,
+    client: str = "claude",
+    **extra: str,
 ) -> None:
     """Append one content-free line: what this hook actually did.
 
@@ -296,6 +312,7 @@ def record_receipt(
                         "chars_after": after,
                         "chars_saved": max(0, before - after),
                         "ts": time.time(),
+                        **extra,
                     }
                 )
                 + "\n"
@@ -431,10 +448,26 @@ def run(stdin_text: str, client: str = "claude", tier: str | None = "auto") -> s
         _TIER = prev
 
 
+def run_pre(stdin_text: str, tier: str = "auto") -> str:
+    """Claude Code PreToolUse: rewrite a Bash command to run under ``distil sh``.
+    Never raises; ``{}`` leaves the command exactly as the agent wrote it."""
+    try:
+        from .shell import pre_tool_use
+
+        event = json.loads(stdin_text)
+        out = pre_tool_use(event, digest=tier == "digest") if isinstance(event, dict) else None
+        return json.dumps(out) if out else "{}"
+    except Exception:
+        return "{}"
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if "--selftest" in argv:
         return _selftest()
+    if "--pre" in argv:
+        sys.stdout.write(run_pre(sys.stdin.read(), _flag(argv, "--tier") or "auto"))
+        return 0
     client = _flag(argv, "--client") or "claude"
     # No --tier = an entry written before tiers existed: it keeps lossless-only.
     tier = _flag(argv, "--tier") if "--tier" in argv else "lossless"
@@ -709,6 +742,20 @@ def _entry(client: str = "claude", tier: str = "auto") -> dict[str, Any]:
     return {"matcher": "Bash|mcp__.*", "hooks": [hook]}
 
 
+#: The PreToolUse entry that rewrites Bash commands to run under ``distil sh`` (ADR 0026).
+#: Claude Code only: its PreToolUse ``updatedInput`` is the documented way to change a
+#: command before it runs. Its command carries the marker, so ``_ours`` finds it.
+SHELL_EVENT = "PreToolUse"
+
+
+def _shell_entry(tier: str = "auto") -> dict[str, Any]:
+    exe = f'"{sys.executable}"' if " " in sys.executable else sys.executable
+    return {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": f"{exe} -m distil.hook --pre --tier {tier}"}],
+    }
+
+
 def _scaffold(client: str) -> dict[str, Any]:
     """Top-level keys a brand-new config file needs (Cursor's schema is versioned)."""
     return {"version": 1} if client == "cursor" else {}
@@ -752,17 +799,24 @@ def _load(path: Path) -> tuple[dict[str, Any] | None, str]:
     return _load_settings(path)
 
 
-def install_hook(client: str = "claude", *, digest: bool = False) -> int:
+def install_hook(client: str = "claude", *, digest: bool = False, shell: bool = False) -> int:
     """Install (or re-install) distil's hook for *client*.
 
     ``digest`` is the explicit opt-in to the Tier-1 digest on a subscription login; it
     is written into the hook's own command (``--tier digest``) and recorded with a
     timestamp. Without it the tier is ``auto``: the proxy's billing policy decides
-    per call (metered key → digest, subscription → lossless-only)."""
+    per call (metered key → digest, subscription → lossless-only).
+
+    ``shell`` installs the Claude Code PreToolUse rewrite to ``distil sh`` instead
+    (ADR 0026), with the same tier rule for its lossy filters."""
     from .setup import _write_settings
 
     tier = "digest" if digest else "auto"
     meta = CLIENTS[client]
+    if shell and client != "claude":
+        print(f"distil: shell rewrite is Claude Code only; skipped {meta.label}")
+        return 0
+    event = SHELL_EVENT if shell else meta.event
     path = config_path(client)
     existed = path.exists()
     data, why = _load(path)
@@ -772,32 +826,32 @@ def install_hook(client: str = "claude", *, digest: bool = False) -> int:
         return 1
 
     hooks = data.get("hooks", {})
-    event_list = hooks.get(meta.event, []) if isinstance(hooks, dict) else None
+    event_list = hooks.get(event, []) if isinstance(hooks, dict) else None
     if not isinstance(hooks, dict) or not isinstance(event_list, list):
-        print(f"distil: {path} has an unexpected hooks.{meta.event} shape; not touching it.")
+        print(f"distil: {path} has an unexpected hooks.{event} shape; not touching it.")
         return 1
     created = [
         name
         for name, absent in (
             ("file", not existed),
             ("hooks", "hooks" not in data),
-            ("event", meta.event not in hooks),
+            ("event", event not in hooks),
         )
         if absent
     ]
 
     # Idempotent: replace our own entry, never duplicate it, never touch anyone else's.
     kept = [e for e in event_list if not _ours(e)]
-    kept.append(_entry(client, tier))
+    kept.append(_shell_entry(tier) if shell else _entry(client, tier))
     new = {**_scaffold(client), **data} if not existed else data
-    new["hooks"] = {**hooks, meta.event: kept}
+    new["hooks"] = {**hooks, event: kept}
     try:
         _write_settings(path, new)
     except OSError as exc:  # nothing written, so nothing may be recorded as ours
         print(f"distil: could not write {path} ({exc}) — left untouched")
         return 1
 
-    key = os.path.abspath(path)
+    key = os.path.abspath(path) + ("#" + SHELL_EVENT if shell else "")
     owned = _read_owned()
     prior = owned.get(key, {}).get("created", [])
     # A re-install must not forget that an earlier install created the file.
@@ -809,6 +863,15 @@ def install_hook(client: str = "claude", *, digest: bool = False) -> int:
     except OSError as exc:
         print(f"distil: hook installed, but the ownership record was not updated ({exc})")
 
+    if shell:
+        print(f"distil: {meta.label} shell rewrite installed in {path} ({SHELL_EVENT})")
+        print(
+            "  scope:   git status and test runners run under `distil sh` (search stays verbatim)"
+        )
+        print(f"  tier:    {tier_decision(tier)[1]}")
+        print("  off:     DISTIL_SH_OFF=1, or `distil hook uninstall --shell`")
+        print(f"\n  Restart {meta.label} for it to take effect.")
+        return 0
     print(f"distil: {meta.label} hook installed in {path}")
     print(f"  command: {_hook_command(client, tier)}")
     print(f"  scope:   {meta.scope}, results >= 2 KB")
@@ -821,10 +884,13 @@ def install_hook(client: str = "claude", *, digest: bool = False) -> int:
     return 0
 
 
-def uninstall_hook(client: str = "claude") -> int:
+def uninstall_hook(client: str = "claude", *, shell: bool = False) -> int:
     from .setup import _write_settings
 
     meta = CLIENTS[client]
+    if shell and client != "claude":
+        return 0
+    event = SHELL_EVENT if shell else meta.event
     path = config_path(client)
     if not path.is_file():
         print(f"distil: nothing to remove ({path} does not exist)")
@@ -835,7 +901,7 @@ def uninstall_hook(client: str = "claude") -> int:
         return 1
 
     hooks = data.get("hooks")
-    event_list = hooks.get(meta.event) if isinstance(hooks, dict) else None
+    event_list = hooks.get(event) if isinstance(hooks, dict) else None
     if not isinstance(event_list, list):
         print("distil: no distil hook found")
         return 0
@@ -844,14 +910,14 @@ def uninstall_hook(client: str = "claude") -> int:
         print("distil: no distil hook found")
         return 0
 
-    key = os.path.abspath(path)
+    key = os.path.abspath(path) + ("#" + SHELL_EVENT if shell else "")
     owned = _read_owned()
     created = set(owned.get(key, {}).get("created", []))
     assert isinstance(hooks, dict)
-    hooks[meta.event] = kept
+    hooks[event] = kept
     # Remove only containers distil itself created, and only once they are empty.
     if not kept and "event" in created:
-        del hooks[meta.event]
+        del hooks[event]
     if not hooks and "hooks" in created:
         del data["hooks"]
     try:
@@ -868,16 +934,17 @@ def uninstall_hook(client: str = "claude") -> int:
             _write_owned(owned)
         except OSError:
             pass  # a stale record only means a later undo keeps empty containers
-    print(f"distil: {meta.label} hook removed from {path}")
+    print(f"distil: {meta.label} {'shell rewrite' if shell else 'hook'} removed from {path}")
     return 0
 
 
-def hook_status(client: str) -> tuple[bool, Path]:
+def hook_status(client: str, *, shell: bool = False) -> tuple[bool, Path]:
     """Is distil's hook present in *client*'s config? ``(installed, path)``."""
     path = config_path(client)
     data, _ = _load(path) if path.is_file() else (None, "")
     hooks = data.get("hooks") if isinstance(data, dict) else None
-    entries = hooks.get(CLIENTS[client].event) if isinstance(hooks, dict) else None
+    event = SHELL_EVENT if shell else CLIENTS[client].event
+    entries = hooks.get(event) if isinstance(hooks, dict) else None
     return (isinstance(entries, list) and any(_ours(e) for e in entries)), path
 
 
@@ -914,6 +981,8 @@ def print_status() -> int:
         print(f"  {'':<12} scope: {meta.scope}")
         if installed:
             print(f"  {'':<12} tier:  {tier_decision(installed_tier(key))[1]}")
+    if hook_status("claude", shell=True)[0]:
+        print(f"  {'Claude Code':<12} ✓ shell rewrite ({SHELL_EVENT} → distil sh)")
     for label, why, url, date in UNSUPPORTED.values():
         print(f"  {label:<12} ✗ unsupported: {why} ({url}, checked {date})")
     return 0
