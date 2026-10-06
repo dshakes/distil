@@ -1210,7 +1210,10 @@
     {
       "id": "v-shell-swebench-replay",
       "status": "verified",
-      "page": "shell.html",
+      "page": [
+        "shell.html",
+        "../README.md"
+      ],
       "anchor": "evidence",
       "snippet": "only 27 calls match and 0.06% of bash-output tokens go",
       "claim": "Offline replay of distil sh (sh-v1) over the 1,390 bash calls in 300 SWE-bench Lite transcripts (provider-cm arm, head-to-head run): 27 calls match a filter and 0.06% of all bash-output heuristic tokens are removed. The transcripts are not committed; the aggregate is.",
@@ -1273,9 +1276,7 @@
       "status": "verified",
       "page": [
         "../README.md",
-        "index.html",
         "compare.html",
-        "benchmark.html",
         "research.html",
         "llms.txt"
       ],
@@ -1284,6 +1285,39 @@
       "artifact": "benchmarks/results/swebench-verified-hard-max/README.md",
       "values": [
         "9.7%"
+      ]
+    },
+    {
+      "id": "v-policysim-headline",
+      "status": "verified",
+      "page": [
+        "../README.md",
+        "index.html",
+        "compare.html",
+        "research.html",
+        "llms.txt"
+      ],
+      "claim": "Offline policy simulator: fitted on half the SWE-bench Lite trajectories, it predicts the held-out long-horizon plain/rtk bill within -2.5% in dollars (distil arm replay -2.8%). Every cache-stable lossless policy (distil-lossless, entry-lossless, rtk-like) lands within 0.2% of plain on every corpus and provider; lossy entry compression saves only below a breakeven of extra agent steps per 1,000 tokens removed, so its sign needs a live A/B.",
+      "note": "benchmarks/policysim (python -m benchmarks.policysim); calibration.long_plain_rtk_heldout.usd = -0.0251, results.*.*.{distil-lossless,entry-lossless,rtk-like}.vs_plain_pure all within +-0.0018; write-up docs/research/policy-simulator.md.",
+      "artifact": "benchmarks/results/policysim/policysim.json",
+      "values": [
+        "2.5%",
+        "0.2%"
+      ]
+    },
+    {
+      "id": "v-why-rtk-wins-tool-output-share",
+      "status": "verified",
+      "page": [
+        "research.html"
+      ],
+      "anchor": "referee-2026-10",
+      "claim": "On the SWE-bench Lite head-to-head, tool output entering context (plus its re-reads) is about 11.5% of a cold plain-equivalent bill, so no tool-output compressor can show a significant cost win there; replaying distil 1.57's served transform made 0 prefix rewrites in 1,134 steps (475 long-horizon, 659 Lite).",
+      "note": "benchmarks/why_rtk_wins.py over the h2h and long-horizon run dirs (transcripts not committed; aggregates are): lite.where_the_money_goes_rawtraj.by_source['tool output (results)'].share = 0.1152; write-up docs/research/why-rtk-wins.md.",
+      "artifact": "benchmarks/results/why-rtk-wins/results.json",
+      "values": [
+        "11.5%",
+        "659"
       ]
     }
   ]

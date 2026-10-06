@@ -74,6 +74,7 @@
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
+          <li><a href="shell.html">Shell at the Source</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
           <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
@@ -409,13 +410,24 @@
 
     <hr/>
 
+    <h2 id="referee-2026-10">The referee, turned on itself (2026-10)</h2>
+    <p>Three studies that ask whether <em>any</em> compressor, distil included, lowers what a coding agent costs. All three are offline re-analyses of committed runs, or committed runs, and none is quoted as a saving for the shipped path.</p>
+    <ul>
+      <li><strong>Why RTK looked cheaper</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/research/why-rtk-wins.md">docs/research/why-rtk-wins.md</a>, $0). On the SWE-bench Lite head-to-head, three competitor arms ran the same day with byte-identical first requests and read each other's prompt cache (rows whose <code>cache_write + input &lt; cache_read / (steps &minus; 1)</code>, impossible for a cold run: rtk 190/300, selective 167/300, provider-cm 139/300; plain and distil 0/300). Re-priced as a cold run, RTK goes from &minus;20.7% to &minus;6.5% per task vs plain, [&minus;13.1%, +0.1%], not significant. On those short tasks tool output is about 11.5% of the bill, so no tool-output compressor can show a significant cost win there; distil 1.57 made 0 prefix rewrites in 1,134 replayed steps. The harness now gives each arm its own cache namespace and flags any run that fails the check; the <a href="scoreboard.html#swebench-lite-300-h2h-cost-confound">scoreboard</a> shows the corrected figures.</li>
+      <li><strong>Long-horizon pilot</strong> (<a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/swebench-verified-hard-max/README.md">run</a>, protocol <a href="https://github.com/dshakes/distil/blob/main/docs/research/long-horizon-protocol.md">pre-registered</a>). 7 SWE-bench Verified hard tasks at effort max, median 63&ndash;69 steps: no cost difference shown for distil or RTK; on the 6 tasks without one crashed attempt distil cost 9.7% more than plain. Every row passes the cold-cache check. Inconclusive at this size.</li>
+      <li><strong>Policy simulator</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/research/policy-simulator.md">docs/research/policy-simulator.md</a>, <code>benchmarks/policysim/</code>, $0). Replays real trajectories through a compression policy and an exact Anthropic / OpenAI / Gemini prompt-cache cost model. It reproduces the bill of a run it was not fitted on within 2.5%. Every lossless policy lands within 0.2% of plain; rewriting cached history costs more than it saves; lossy entry compression saves only while the agent spends fewer extra steps than a breakeven the simulator computes, so its sign has to be measured live. Its recommendation is drafted as <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0027-cache-aware-entry-compression.md">ADR 0027</a>. Research tooling, not a shipped mode.</li>
+      <li><strong>Cross-provider parity</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/research/provider-parity.md">matrix</a>). Every mechanism now runs on Anthropic Messages, OpenAI Chat Completions and Responses, and Gemini, and OpenAI and Gemini are priced, so the same referee questions can be asked of those providers' traffic.</li>
+    </ul>
+
+    <hr/>
+
     <h2 id="live-bill">Where the live bill goes, and the levers measured against it</h2>
     <p>A decomposition of one machine's live Claude Code bill by what each dollar paid for — cache reads, cache writes, output, and which content rode in the prefix — with every figure labelled measured or estimated: <a href="https://github.com/dshakes/distil/blob/main/docs/research/live-savings-gap.md">docs/research/live-savings-gap.md</a> (#189). It ranked the remaining levers, and each has since been decided by measurement rather than argument:</p>
     <ul>
       <li><strong>Cold-point recompression</strong> — built, on by default in the rc, not yet measured live (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>).</li>
       <li><strong>In-window prefix breaks</strong> — the quote guard's widened pass no longer rewrites the cached prefix for nothing, and every request now records why replay stopped (<a href="cache.html#quote-guard">cache contract (i)</a>).</li>
       <li><strong>Tool definitions</strong> — measured and left alone (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0012-tool-definitions-are-left-alone.md">ADR 0012</a>); unused connectors are Claude Code's to defer (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>).</li>
-      <li><strong>Per-command shell profiles</strong> — measured on real transcripts and not built (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0015-no-per-command-shell-profiles.md">ADR 0015</a>).</li>
+      <li><strong>Per-command shell profiles</strong> — measured on real transcripts and not built (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0015-no-per-command-shell-profiles.md">ADR 0015</a>); an opt-in shape for test runners and <code>git status</code>, applied at the source, was built later as <a href="shell.html"><code>distil sh</code></a> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0026-shell-output-at-the-source.md">ADR 0026</a>).</li>
       <li><strong>First-sight digest markers</strong> — a dropped run no longer than its marker is now shown inline; the gain is small and zero on the bundled corpus.</li>
     </ul>
 
