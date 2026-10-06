@@ -8,6 +8,7 @@ branches on the arm's name.
                   `client.beta.messages.create(betas=[...])`, the SDK's documented mechanism.
 - `wrap_env`:     (env, stats) -> env; the tool-output boundary (e.g. RTK rewrites bash commands).
 - `on_response`:  (response, stats) -> None; harvest per-call arm telemetry into `stats`.
+- `client`:       overrides the run's API client (the headroom arm points it at its proxy).
 - `meta`:         library + version (+ config), copied into every result row.
 
 "plain" has no hooks, so its requests are exactly the baseline's.
@@ -46,6 +47,7 @@ class Arm:
     wrap_env: Callable[[Env, dict[str, Any]], Env] | None = None
     on_response: Callable[[Any, dict[str, Any]], None] | None = None
     meta: Mapping[str, Any] = field(default_factory=dict)
+    client: Any = None  # per-arm API client (e.g. one whose base_url is a local proxy)
 
 
 def pkg_version(name: str) -> str | None:

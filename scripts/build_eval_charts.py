@@ -33,6 +33,7 @@ ARM_STYLE = {
     "selective": ("#e5738e", "Selective Context"),
     "provider-cm": ("#6db7f2", "Anthropic context editing"),
     "distil-sh": ("#7fd1b9", "distil sh (rewrite at source)"),
+    "headroom": ("#a3d977", "Headroom (proxy)"),
 }
 EXTRA_COLORS = ("#a3d977", "#d98fe0", "#c9c9c9")  # arms outside ARM_STYLE, in sorted order
 FONT = "Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif"

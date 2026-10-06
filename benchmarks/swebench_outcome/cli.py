@@ -98,6 +98,10 @@ def _parser() -> argparse.ArgumentParser:
                 "--selective-python",
                 help="python with selective-context installed (default: this interpreter)",
             )
+            s.add_argument(
+                "--headroom-python",
+                help="python with headroom-ai[proxy]==0.40.0 installed (default: this interpreter)",
+            )
             s.add_argument("--cm-trigger", type=int, default=CM_TRIGGER, help="provider-cm trigger")
             s.add_argument("--cm-keep", type=int, default=CM_KEEP, help="provider-cm keep")
             s.add_argument("--cm-clear-at-least", type=int, default=CM_CLEAR_AT_LEAST)
@@ -112,6 +116,18 @@ def build_arms(names: tuple[str, ...], a: argparse.Namespace) -> tuple[list[Arm]
     """Real arms for `run`. Returns (arms, things to close). Raises ArmUnavailable before spend."""
     arms: list[Arm] = []
     closers: list[Any] = []
+    try:
+        _build(names, a, arms, closers)
+    except ArmUnavailable:
+        for c in closers:  # a later arm refusing must not leak an earlier arm's process
+            c.close()
+        raise
+    return arms, closers
+
+
+def _build(
+    names: tuple[str, ...], a: argparse.Namespace, arms: list[Arm], closers: list[Any]
+) -> None:
     for n in names:
         if n == "plain":
             arms.append(plain_arm())
@@ -136,7 +152,12 @@ def build_arms(names: tuple[str, ...], a: argparse.Namespace) -> tuple[list[Arm]
             arm, worker = make_selective(a.selective_python or sys.executable)
             arms.append(arm)
             closers.append(worker)
-    return arms, closers
+        elif n == "headroom":
+            from .arm_headroom import make_headroom
+
+            arm, proxy = make_headroom(a.headroom_python or sys.executable)
+            arms.append(arm)
+            closers.append(proxy)
 
 
 def _plan(a: argparse.Namespace, cfg: Cfg, ids: list[str], names: tuple[str, ...]) -> int:
