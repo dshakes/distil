@@ -213,10 +213,11 @@ def run_agent(
                 tool_choice={"type": "auto"},
             )
             kwargs.update(arm.params)
-            create = client.messages.create
+            api = arm.client or client
+            create = api.messages.create
             if arm.betas:
                 kwargs["betas"] = list(arm.betas)
-                create = client.beta.messages.create
+                create = api.beta.messages.create
             try:
                 resp = create(**kwargs)
             except anthropic.APIError as e:
