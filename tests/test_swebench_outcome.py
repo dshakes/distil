@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
@@ -393,3 +394,31 @@ def test_env_run_survives_non_utf8_output():
         [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok\\x8c\\xa1')"]
     )
     assert r.returncode == 0 and r.stdout.startswith("ok") and "�" in r.stdout
+
+
+def test_grade_hands_the_grader_a_path_that_resolves_from_its_own_cwd(tmp_path, monkeypatch):
+    """The grader runs with cwd=out; a relative --out made it look for out/out/predictions_*."""
+    import sys as _sys
+    import types
+
+    g = grade
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(_sys.modules, "swebench", types.ModuleType("swebench"))
+    monkeypatch.setattr(g.shutil, "which", lambda _: "/usr/bin/docker")
+    out = Path("rel-out")
+    out.mkdir()
+    row = {"instance_id": "a__b-1", "arm": "rtk", "patch": "diff", "failure_class": None}
+    (out / "results.jsonl").write_text(json.dumps(row) + "\n")
+
+    def fake_run(argv, cwd, check):
+        pred = Path(argv[argv.index("--predictions_path") + 1])
+        resolved = pred if pred.is_absolute() else Path(cwd) / pred
+        assert resolved.exists(), f"grader cannot find {resolved}"
+        rid = argv[argv.index("--run_id") + 1]
+        rep = Path(cwd) / "logs" / "run_evaluation" / rid / "results.json"
+        rep.parent.mkdir(parents=True)
+        rep.write_text(json.dumps({"resolved_ids": ["a__b-1"]}))
+
+    rows = g.grade(out, run=fake_run)
+    assert rows == [{"instance_id": "a__b-1", "arm": "rtk", "status": "resolved"}]

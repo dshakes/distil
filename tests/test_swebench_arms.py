@@ -834,10 +834,17 @@ def test_committed_runs_still_re_report_identically(run_dir):
     if not (rp.exists() and gp.exists()):
         pytest.skip("run has no committed report/grades")
     grades = [json.loads(ln) for ln in gp.read_text().splitlines()]
-    a = report.analyse(
-        run.read_results(run_dir / "results.jsonl"), grades, 0.05, ("plain", "distil")
-    )
-    assert rp.read_text().startswith(report.markdown(a))
+    text = rp.read_text()
+    # a head-to-head report names its arms on an "Arms:" line; older ones are plain vs distil
+    arms = ("plain", "distil")
+    for ln in text.splitlines():
+        if ln.startswith("Arms: "):
+            arms = tuple(x.strip() for x in ln[6:].split(".")[0].split(","))
+            break
+    a = report.analyse(run.read_results(run_dir / "results.jsonl"), grades, 0.05, arms)
+    manifest = run_dir / run.REUSE_MANIFEST
+    reuse = json.loads(manifest.read_text()) if manifest.exists() else None
+    assert text.startswith(report.markdown(a, reuse))
 
 
 def test_selective_arm_records_what_it_pruned():
