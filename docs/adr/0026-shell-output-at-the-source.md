@@ -72,6 +72,16 @@ does not recognise it, when it cannot start it, or when `DISTIL_SH_OFF=1`; if sh
 raises, the raw output is printed. The exit code is always the command's own (signals as
 128+n).
 
+**Windows.** Claude Code runs its Bash tool through Git Bash there, so the shell that
+receives the rewritten command is still bash: it parses quoting, globs and `cd DIR &&`
+exactly as on POSIX and hands `distil sh` an argv. `distil sh` does not start a second
+shell; it applies the leading `VAR=value` words itself (in every path, fail-open
+included), resolves the program through `PATH`/`PATHEXT` (so `npm` finds `npm.cmd`,
+which `CreateProcess` alone does not), classifies on the bare program name
+(`C:\…\python.exe` is `python`), and treats the child's CRLF as LF. There is no `exec`,
+so the fail-open path runs the command and returns its code; there are no POSIX signals,
+so a terminated child's code is whatever `TerminateProcess` was given, not 128+n.
+
 **Permissions.** Claude Code evaluates permission rules against the *rewritten* input, so
 a rewrite could widen what a user allowed. Therefore: a command any `deny`/`ask` Bash rule
 could touch is never rewritten (over-matching on purpose — a hit just means Claude Code's

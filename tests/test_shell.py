@@ -106,7 +106,7 @@ def test_visible_strips_ansi_and_resolves_carriage_returns():
 
 
 def test_git_status_drops_only_advice():
-    raw = (FIX / "git_status.txt").read_text()
+    raw = (FIX / "git_status.txt").read_text(encoding="utf-8")
     out, tier = shell.shape(raw, "git-status", lossy=False, save=_keep)
     assert tier == "lossless"
     kept = [ln for ln in raw.splitlines() if '(use "git' not in ln]
@@ -117,7 +117,7 @@ def test_git_status_drops_only_advice():
 @pytest.mark.parametrize("name,kind", sorted(RUNNERS.items()))
 @pytest.mark.parametrize("lossy", [False, True])
 def test_no_failure_error_or_summary_line_is_ever_dropped(name, kind, lossy):
-    raw = (FIX / name).read_text()
+    raw = (FIX / name).read_text(encoding="utf-8")
     out, _ = shell.shape(raw, kind, lossy=lossy, save=_keep)
     seen = shell.visible(out).splitlines()
     for ln in shell.visible(raw).splitlines():
@@ -127,7 +127,7 @@ def test_no_failure_error_or_summary_line_is_ever_dropped(name, kind, lossy):
 
 @pytest.mark.parametrize("name,kind", sorted(RUNNERS.items()))
 def test_lossless_tier_keeps_every_distinct_visible_line(name, kind):
-    raw = (FIX / name).read_text()
+    raw = (FIX / name).read_text(encoding="utf-8")
     out, _ = shell.shape(raw, kind, lossy=False, save=_keep)
     assert set(shell.visible(raw).splitlines()) <= set(out.splitlines())
     assert "distil expand" not in out
@@ -138,11 +138,39 @@ def test_lossless_tier_keeps_every_distinct_visible_line(name, kind):
     [(n, k) for n, k in sorted(RUNNERS.items()) if n != "pytest_default.txt"],
 )
 def test_elide_tier_shrinks_and_points_at_the_full_output(name, kind):
-    raw = (FIX / name).read_text()
+    raw = (FIX / name).read_text(encoding="utf-8")
     out, tier = shell.shape(raw, kind, lossy=True, save=_keep)
     assert tier == "elide" and len(out) < len(raw) * 0.75
     assert out.rstrip().endswith("Full output: `distil expand deadbeef`]")
     assert shell.FILTERS_VERSION in out
+
+
+@pytest.mark.parametrize(
+    "name,kind",
+    [(n, k) for n, k in sorted(RUNNERS.items()) if n != "pytest_default.txt"],
+)
+def test_crlf_output_shapes_the_same(name, kind):
+    """A Windows child writes CRLF; the filters must still see whole lines."""
+    raw = (FIX / name).read_text(encoding="utf-8")
+    out, tier = shell.shape(raw.replace("\n", "\r\n"), kind, lossy=True, save=_keep)
+    assert tier == "elide" and out == shell.shape(raw, kind, lossy=True, save=_keep)[0]
+
+
+@pytest.mark.parametrize(
+    "argv,kind",
+    [
+        (["C:\\v\\Scripts\\python.exe", "-m", "pytest"], "pytest"),
+        (["D:\\py\\python3.12.EXE", "C:\\t\\runtests.py"], "unittest"),
+        ([".venv/bin/python3", "-m", "unittest"], "unittest"),
+        (["pytest.exe", "-q"], "pytest"),
+        (["npm.cmd", "test"], "js-test"),
+        (["git.exe", "status"], "git-status"),
+        (["C:\\bin\\cargo.exe", "test"], "cargo-test"),
+        (["pythonista", "-m", "pytest"], None),
+    ],
+)
+def test_classify_windows_and_relative_program_paths(argv, kind):
+    assert shell.classify(argv) == kind
 
 
 def test_property_random_interleavings_never_lose_a_failure():
@@ -181,7 +209,7 @@ def test_property_random_interleavings_never_lose_a_failure():
 
 
 def test_nothing_lossy_without_a_stored_original():
-    raw = (FIX / "pytest_verbose.txt").read_text()
+    raw = (FIX / "pytest_verbose.txt").read_text(encoding="utf-8")
     out, tier = shell.shape(raw, "pytest", lossy=True, save=lambda t: None)
     assert tier == "none" and out == raw
 
@@ -246,6 +274,10 @@ def test_shaping_failure_prints_the_raw_output(tmp_path, capsys, monkeypatch):
     assert "test_3 (m.C.test_3) ... ok" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX signals: on Windows os.kill(SIGTERM) is TerminateProcess(15), a plain exit code",
+)
 def test_signal_exit_maps_to_the_shell_convention(tmp_path):
     body = "import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n"
     assert shell.main(_script(tmp_path, body)) == 143
@@ -256,7 +288,7 @@ def test_env_assignments_reach_the_child(tmp_path, capsys):
     p.write_text("import os; print(os.environ['SH_PROBE'])\n")
     assert shell.main(["SH_PROBE=hello", sys.executable, str(p)]) == 0
     assert capsys.readouterr().out.strip() == "hello"
-    assert shell.main(["ONLY=assignments"]) == 127  # unclassified: exec'd untouched, fails
+    assert shell.main(["ONLY=assignments"]) == 0  # nothing to run, as in a shell
 
 
 def test_usage_without_a_command(capsys):
@@ -278,6 +310,9 @@ def test_unclassified_and_kill_switch_exec_the_command_untouched(tmp_path):
     script = _script(tmp_path, _RUNNER)
     r = _run_cli(["--", *script], {"DISTIL_SH_OFF": "1"})
     assert r.returncode == 3 and "test_3 (m.C.test_3) ... ok" in r.stdout
+    probe = [sys.executable, "-c", "import os; print(os.environ['SH_PROBE'])"]
+    r = _run_cli(["--", "SH_PROBE=hi", *probe], {})  # assignments honoured when fail-open too
+    assert r.returncode == 0 and r.stdout.strip() == "hi"
 
 
 def test_missing_command_is_127(tmp_path, capsys):
@@ -466,7 +501,22 @@ def test_windows_fail_open_keeps_the_commands_exit_code(monkeypatch):
         returncode = 3
 
     monkeypatch.setattr(shell.sys, "platform", "win32")
-    monkeypatch.setattr(shell.subprocess, "run", lambda argv: calls.append(argv) or Done())
-    monkeypatch.setattr(shell.os, "execvp", lambda *a: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(shell.subprocess, "run", lambda argv, env: calls.append(argv) or Done())
+    monkeypatch.setattr(shell.os, "execvpe", lambda *a: (_ for _ in ()).throw(AssertionError))
     assert shell._exec_untouched(["make", "lint"]) == 3
     assert calls == [["make", "lint"]]
+
+
+def test_windows_resolves_the_program_through_pathext(monkeypatch):
+    """CreateProcess does not apply PATHEXT: `npm` must become `npm.cmd` before spawning."""
+    seen = {}
+
+    def which(cmd, path=None):
+        seen["path"] = path
+        return "C:\\node\\npm.cmd"
+
+    monkeypatch.setattr(shell.sys, "platform", "win32")
+    monkeypatch.setattr("shutil.which", which)
+    argv, env = shell._split_env(["PATH=C:\\node", "CI=1", "npm", "test"])
+    assert argv == ["C:\\node\\npm.cmd", "test"] and env["CI"] == "1"
+    assert seen["path"] == "C:\\node"  # resolved on the child's PATH, as a shell would

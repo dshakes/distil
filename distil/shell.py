@@ -42,8 +42,13 @@ FILTERS_VERSION = "sh-v1"
 # Which commands have a filter
 # ----------------------------------------------------------------------------------
 
-_PY = re.compile(r"^(?:.*/)?python(?:\d+(?:\.\d+)?)?$")
+_PY = re.compile(r"^python(?:\d+(?:\.\d+)?)?$")
 _ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
+
+
+def _name(arg: str) -> str:
+    """A program's bare name: ``C:\\x\\Scripts\\python.exe`` and ``./bin/python`` -> ``python``."""
+    return re.sub(r"\.(?:exe|cmd|bat)$", "", re.split(r"[/\\]", arg)[-1], flags=re.I)
 
 
 def classify(argv: list[str]) -> str | None:
@@ -59,18 +64,19 @@ def classify(argv: list[str]) -> str | None:
     a = argv[i:]
     if not a:
         return None
-    head = os.path.basename(a[0])
-    if a[:2] == ["git", "status"]:
+    head = _name(a[0])
+    py = _PY.match(head) is not None
+    if head == "git" and a[1:2] == ["status"]:
         return "git-status"
-    if head in ("pytest", "py.test") or (_PY.match(a[0]) and a[1:3] == ["-m", "pytest"]):
+    if head in ("pytest", "py.test") or (py and a[1:3] == ["-m", "pytest"]):
         return "pytest"
-    if _PY.match(a[0]) and a[1:3] == ["-m", "unittest"]:
+    if py and a[1:3] == ["-m", "unittest"]:
         return "unittest"
-    if head == "runtests.py" or (_PY.match(a[0]) and a[1:2] and a[1].endswith("runtests.py")):
+    if head == "runtests.py" or (py and a[1:2] and a[1].endswith("runtests.py")):
         return "unittest"  # Django's runner prints unittest's `... ok` lines
-    if a[:2] == ["cargo", "test"]:
+    if head == "cargo" and a[1:2] == ["test"]:
         return "cargo-test"
-    if a[:2] == ["go", "test"]:
+    if head == "go" and a[1:2] == ["test"]:
         return "go-test"
     if head in ("npm", "yarn", "pnpm") and (a[1:2] == ["test"] or a[1:3] == ["run", "test"]):
         return "js-test"
@@ -230,17 +236,36 @@ def _save(raw: str) -> str | None:
 # ----------------------------------------------------------------------------------
 
 
-def _exec_untouched(argv: list[str]) -> int:
+def _split_env(argv: list[str]) -> tuple[list[str], dict[str, str]]:
+    """Leading ``VAR=value`` words applied to a copy of the environment, as a shell would.
+    On Windows the program is resolved through PATH and PATHEXT (``npm`` -> ``npm.cmd``),
+    which CreateProcess alone does not do."""
+    env = dict(os.environ)
+    i = 0
+    while i < len(argv) and _ASSIGN.match(argv[i]):
+        k, _, v = argv[i].partition("=")
+        env[k] = v
+        i += 1
+    argv = argv[i:]
+    if argv and sys.platform == "win32":
+        import shutil
+
+        argv = [shutil.which(argv[0], path=env.get("PATH")) or argv[0], *argv[1:]]
+    return argv, env
+
+
+def _exec_untouched(argv: list[str], env: dict[str, str] | None = None) -> int:
     """Fail-open: become the original command, so nothing distil does can change it."""
+    env = dict(os.environ) if env is None else env
     if sys.platform == "win32":
         # Windows has no exec: os.execvp spawns and exits 0, hiding the command's code.
         try:
-            return subprocess.run(argv).returncode
+            return subprocess.run(argv, env=env).returncode
         except OSError as exc:
             sys.stderr.write(f"distil sh: {argv[0]}: {exc.strerror or exc}\n")
             return 127
     try:
-        os.execvp(argv[0], argv)
+        os.execvpe(argv[0], argv, env)
     except OSError as exc:
         sys.stderr.write(f"distil sh: {argv[0]}: {exc.strerror or exc}\n")
         return 127
@@ -253,18 +278,15 @@ def main(argv: list[str], *, digest: bool = False) -> int:
         sys.stderr.write("usage: distil sh [--digest] -- <command> [args...]\n")
         return 2
     kind = classify(argv)
-    if os.environ.get("DISTIL_SH_OFF") == "1" or kind is None:
-        return _exec_untouched(argv)
-    env = dict(os.environ)
-    while argv and _ASSIGN.match(argv[0]):
-        k, _, v = argv.pop(0).partition("=")
-        env[k] = v
+    argv, env = _split_env(argv)
     if not argv:
-        return 0
+        return 0  # `VAR=x` alone: nothing to run, as in a shell
+    if os.environ.get("DISTIL_SH_OFF") == "1" or kind is None:
+        return _exec_untouched(argv, env)
     try:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     except OSError:
-        return _exec_untouched(argv)
+        return _exec_untouched(argv, env)
 
     def _forward(signum: int, _frame: Any) -> None:  # a timeout kill must reach the child
         proc.send_signal(signum)
@@ -274,7 +296,9 @@ def main(argv: list[str], *, digest: bool = False) -> int:
         data, _ = proc.communicate()
     finally:
         signal.signal(signal.SIGTERM, prev)
-    raw = data.decode("utf-8", errors="replace")
+    # CRLF -> LF: on Windows a child writes CRLF, and sys.stdout writes it back on output;
+    # left in, the receipt would book a line-ending change as a saving.
+    raw = data.decode("utf-8", errors="replace").replace("\r\n", "\n")
     out, tier = raw, "none"
     try:
         from .hook import tier_decision
