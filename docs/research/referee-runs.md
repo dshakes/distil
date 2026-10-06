@@ -4,7 +4,7 @@ Companion to ADR 0024. `docs/scoreboard.html` shows only committed artifacts. To
 that means `plain` and `distil` on SWE-bench Lite, at two effort settings. Every other row
 reads *pending run*. This is the plan to fill those rows. **Nothing here has been run.** Each
 paid step is launched by hand after review, with the caps below. The total hard ceiling is
-**$180.07**, under the $250 envelope.
+**$200.07**, under the $250 envelope.
 
 ## Per-task cost, from the committed artifacts
 
@@ -19,7 +19,7 @@ The "~$0.028/task/arm on Lite medium" figure is confirmed. `plan --calibrate` pr
 arm with no cached rows at plain × 1.5 (`run.UNMEASURED_FACTOR`), which gives $0.0426 a
 task. That margin covers an arm that adds steps or busts the cache.
 
-## Run 1: SWE-bench Lite 300 × {rtk, selective, provider-cm}, reusing plain and distil
+## Run 1: SWE-bench Lite 300 × {rtk, selective, provider-cm, headroom}, reusing plain and distil
 
 The new arms run on the same 300 tasks, at the same model and effort as the medium run.
 `plain` and `distil` are copied from it with `--reuse-arm`. The harness checks that model
@@ -28,29 +28,52 @@ and effort match, the copies cost nothing, and the report says they were reused.
 ```bash
 OUT=benchmarks/results/swebench-outcome-300-h2h
 SRC=benchmarks/results/swebench-outcome-300-medium
-ARMS=plain,distil,rtk,selective,provider-cm
+ARMS=plain,distil,rtk,selective,provider-cm,headroom
 COMMON="--out $OUT --arms $ARMS --effort medium --max-steps 60 --reuse-arm plain=$SRC --reuse-arm distil=$SRC"
 
-# $0: the estimate (verified offline 2026-10-04: $38.35 = 3 arms x 300 x $0.0426)
+# $0: the estimate (verified offline: $51.13 = 4 arms x 300 x $0.0426; the first three
+# arms were $38.35 on 2026-10-04, headroom adds $12.78)
 python -m benchmarks.swebench_outcome plan $COMMON --calibrate $SRC
 
-# PAID: hard stop at $60 (1.56x the estimate)
+# PAID: hard stop at $80 (1.56x the estimate)
 python -m benchmarks.swebench_outcome run $COMMON \
     --selective-python /path/to/python-with-selective-context \
-    --budget-usd 60 --i-understand-this-costs-money
+    --headroom-python /path/to/python-with-headroom-ai-proxy \
+    --budget-usd 80 --i-understand-this-costs-money
 
 # $0 (local Docker grader), then the report
 python -m benchmarks.swebench_outcome grade --out $OUT --arms $ARMS
 python -m benchmarks.swebench_outcome report --out $OUT --arms $ARMS
 ```
 
-- **Estimated $38.35, capped at $60.**
+- **Estimated $51.13, capped at $80.**
 - Without the `datasets` package, `plan` and `run` need `--instances FILE`: the 300 ids from
   `$SRC/results.jsonl`, one per line.
 - Before any spend, the arms refuse to run if their pinned dependency is missing:
   - `rtk` downloads and verifies RTK v0.51.0. `--rtk-bin` overrides it.
   - `selective` needs `selective-context==0.1.4` in a numpy<2 Python. See #227.
   - `provider-cm` needs nothing installed.
+  - `headroom` needs `headroom-ai[proxy]==0.40.0` in a CPython >= 3.10 (3.12 works):
+    `uv venv --python 3.12 hr-venv && uv pip install --python hr-venv/bin/python
+    'headroom-ai[proxy]==0.40.0'`, then `--headroom-python hr-venv/bin/python`. A missing
+    package, a missing `[proxy]` extra, a version other than 0.40.0, or a proxy that dies or
+    is not live on `/livez` within 300 s makes `run` print `refusing: ...` and exit 2, before
+    any API call.
+- `headroom` is the real proxy, not a re-implementation. The harness starts
+  `python -m headroom.cli proxy --port N --workers 1` (the command `headroom wrap claude` runs,
+  with `HEADROOM_AGENT_TYPE=claude`, `HEADROOM_STACK=wrap_claude` and Headroom's own default
+  `cache` mode) and sends only this arm's requests to it, with the run's API key; the proxy
+  forwards to api.anthropic.com. It is started per run and stopped at the end. Harness-only
+  deviations, recorded in each row's `arm_meta`: `--no-subscription-tracking`, and a throwaway
+  HOME/`HEADROOM_WORKSPACE_DIR` so the run never touches `~/.headroom` or `~/.claude`. Headroom's
+  CCR retrieval is handled inside the proxy, so the agent loop has no extra tool for it. The proxy
+  loads its ML models on first start (HF cache), so the first start can take minutes.
+  The arm is priced as unmeasured (plain x1.5) until it has a run of its own.
+  Reviewed against Headroom `main` (0.40.0 source in `temp/headroom-main`): the pinned wheel's
+  proxy launch path (`cli/wrap.py _start_proxy`) is identical, but `main` has unreleased changes
+  to `transforms/content_router.py` (~190 lines), `transforms/kompress_*.py` and
+  `cli/wrap.py` (provider key checks). Compression behaviour of `main` can therefore differ from
+  the pinned 0.40.0 release; the scoreboard row is labelled with the pinned version.
 - `provider-cm` runs at the harness's aggressive setting (`--cm-trigger 3000 --cm-keep 2
   --cm-clear-at-least 1000`), so it fires on short SWE-bench contexts. The live
   `distil audit` uses Anthropic's documented defaults instead. These are two different
@@ -61,10 +84,9 @@ python -m benchmarks.swebench_outcome report --out $OUT --arms $ARMS
   `tests/test_claims_coverage.py` names any that are missing.
 - Caveat already on the page: median tasks are about 4 steps, so this is a short-context test.
 
-## Run 2: Terminal-Bench pilot (cost_truth), the only harness with a Headroom arm
+## Run 2: Terminal-Bench pilot (cost_truth), Headroom through `wrap claude`
 
-`benchmarks/swebench_outcome` has no `headroom` arm. Adding one belongs to that harness's
-owner. `benchmarks/cost_truth` already installs `headroom-ai==0.38.0`, RTK and distil
+This is the other Headroom measurement (the SWE-bench arm above is Run 1). `benchmarks/cost_truth` already installs `headroom-ai==0.38.0`, RTK and distil
 through `harbor`, behind a neutral meter (ADR 0018).
 
 ```bash
@@ -101,15 +123,13 @@ distil audit report
 
 | run | estimate | hard cap |
 |---|---|---|
-| 1. SWE-bench Lite × {rtk, selective, provider-cm} | $38.35 | $60.00 |
+| 1. SWE-bench Lite × {rtk, selective, provider-cm, headroom} | $51.13 | $80.00 |
 | 2. Terminal-Bench pilot (control, rtk, headroom, distil) | $73.65 | $92.07 |
 | 3. `distil audit` dogfood, 2 × 14 days | ≤ $28.00 | $28.00 |
-| **total** | **≈ $140.00** | **$180.07** |
+| **total** | **≈ $152.78** | **$200.07** |
 
 ## Not planned (and why)
 
-- A Headroom arm in `swebench_outcome`: that harness has another owner. The Terminal-Bench
-  pilot covers Headroom for now.
 - OpenAI compaction offline: the SWE-bench harness is Anthropic-only. It remains a live
   `distil audit` target, and the provider certificate already covers it
   (`benchmarks/results/provider-compaction/openai*`).
