@@ -106,7 +106,7 @@ def swebench(entry: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "id": entry["id"],
-        "benchmark": "SWE-bench Lite (official grader)",
+        "benchmark": entry.get("benchmark", "SWE-bench Lite") + " (official grader)",
         "source": entry["dir"],
         "date": entry["date"],
         "model": first.get("model"),
