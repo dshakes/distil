@@ -284,7 +284,7 @@ distil shadow-stats            # what shadow mode measured
 
 The decision-equivalence eval that chose the default live certifier
 (`claude-sonnet-5-5` at `effort=low`) and graded the `served` strategy. Method, results
-and diagrams: <https://dshakes.github.io/distil/model-migration.html>.
+and diagrams: <https://dshakes.github.io/distil/ab.html#model-migration>.
 
 ```bash
 python benchmarks/model_migration_eval.py --fetch-tau-bench          # pinned, sha256-verified

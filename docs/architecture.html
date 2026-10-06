@@ -46,80 +46,43 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html" class="active" aria-current="page">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
           <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration</a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -163,7 +126,7 @@
 
       <g font-size="12" text-anchor="middle">
         <a href="#request-path" aria-label="Drift guard — serves lossless-only while a proven budget breach is held"><title>Drift guard — serves lossless-only while a proven budget breach is held</title><g><rect x="340" y="150" width="98" height="48" rx="10" fill="#1a1420" stroke="#5a3a4a"/><text x="389" y="172" fill="#dbe0ee" font-weight="700">drift guard</text><text x="389" y="188" fill="#9aa0b2" font-size="10">hold on breach</text></g></a>
-        <a href="cache-contract.html#cold-point" aria-label="Cold point — evicts older tool output only when the provider's cache has certainly expired"><title>Cold point — evicts older tool output only when the provider's cache has certainly expired</title><g><rect x="445" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="494" y="172" fill="#dbe0ee" font-weight="700">cold point</text><text x="494" y="188" fill="#9aa0b2" font-size="10">cache expired only</text></g></a>
+        <a href="cache.html#cold-point" aria-label="Cold point — evicts older tool output only when the provider's cache has certainly expired"><title>Cold point — evicts older tool output only when the provider's cache has certainly expired</title><g><rect x="445" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="494" y="172" fill="#dbe0ee" font-weight="700">cold point</text><text x="494" y="188" fill="#9aa0b2" font-size="10">cache expired only</text></g></a>
         <a href="techniques.html#salience-protection" aria-label="Salience protection — model-free needle-keeping"><title>Salience protection — model-free needle-keeping</title><g><rect x="550" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="599" y="172" fill="#dbe0ee" font-weight="700">salience</text><text x="599" y="188" fill="#9aa0b2" font-size="10">keeps the needle</text></g></a>
         <a href="techniques.html#tiers" aria-label="Tier-0 lossless transforms and the Tier-1 reversible digest"><title>Tier-0 lossless transforms and the Tier-1 reversible digest</title><g><rect x="655" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="704" y="172" fill="#dbe0ee" font-weight="700">Tier-0 · Tier-1</text><text x="704" y="188" fill="#9aa0b2" font-size="10">lossless · digest</text></g></a>
         <a href="#cache-aware" aria-label="Prefix replay — forwards last turn's bytes for a canonically-equal prefix"><title>Prefix replay — forwards last turn's bytes for a canonically-equal prefix</title><g><rect x="760" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a5740"/><text x="809" y="172" fill="#dbe0ee" font-weight="700">prefix replay</text><text x="809" y="188" fill="#9aa0b2" font-size="10">last turn's bytes</text></g></a>
@@ -203,7 +166,7 @@
         <text x="20" y="52" font-size="11.5" fill="#9aa0b2">conformal risk control (LTT/CRC) · distribution-free</text>
         <text x="20" y="69" font-size="11.5" fill="#9aa0b2">P(decision-change ≤ α) ≥ 1 − δ</text>
       </g></a>
-      <a href="evals.html#exit-summary" aria-label="Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach"><title>Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach</title><g transform="translate(420,504)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
+      <a href="benchmark.html#exit-summary" aria-label="Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach"><title>Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach</title><g transform="translate(420,504)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
         <circle cx="26" cy="31" r="6" fill="#5ad1c9"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Shadow mode → drift alarm</text>
         <text x="20" y="52" font-size="11.5" fill="#9aa0b2">paired replays feed an anytime-valid e-process</text>
         <text x="20" y="69" font-size="11.5" fill="#9aa0b2">a proven breach holds the guard at lossless-only</text>
@@ -218,17 +181,17 @@
     <p class="archfig-hint"><b>Interactive</b> — select any block (click, or Tab then Enter) to open the concept or technique behind it.</p>
 
     <div class="callout">
-      <strong>The six-layer story.</strong> (1) Cache-aware compression keeps the prefix byte-stable. (2) Tier-0 lossless transforms run unconditionally. (3) Tier-1 reversible digests handle large tool outputs behind content handles. (4) Causal/counterfactual pruning discovers what is safe to drop. (5) The conformal DERC certificate gates everything lossy. (6) Salience protection and a sub-millisecond, model-free hot path make it viable as an inline proxy. Two constraints run <em>across</em> all six rather than sitting in one of them: <strong>exact-quote provenance</strong> (<code>compress/provenance.py</code>) exempts any block whose bytes are a verbatim slice of a file — read from the shell command, not just the tool name — so a later <code>Edit(old_string=…)</code> still matches; and <strong>no keep budget is shared between blocks anywhere</strong>, which is what makes an untrusted block unable to starve a trusted one (<a href="threat-model.html">threat model</a>).
+      <strong>The six-layer story.</strong> (1) Cache-aware compression keeps the prefix byte-stable. (2) Tier-0 lossless transforms run unconditionally. (3) Tier-1 reversible digests handle large tool outputs behind content handles. (4) Causal/counterfactual pruning discovers what is safe to drop. (5) The conformal DERC certificate gates everything lossy. (6) Salience protection and a sub-millisecond, model-free hot path make it viable as an inline proxy. Two constraints run <em>across</em> all six rather than sitting in one of them: <strong>exact-quote provenance</strong> (<code>compress/provenance.py</code>) exempts any block whose bytes are a verbatim slice of a file — read from the shell command, not just the tool name — so a later <code>Edit(old_string=…)</code> still matches; and <strong>no keep budget is shared between blocks anywhere</strong>, which is what makes an untrusted block unable to starve a trusted one (<a href="security.html#threat-model">threat model</a>).
     </div>
 
     <h2 id="request-path">The request path, in order</h2>
     <p>What one Anthropic Messages request passes through on <code>distil proxy</code> or <code>distil wrap</code>, left to right in the diagram. The OpenAI and Gemini adapters run the same compression and replay; the drift guard and the cold point are noted where they differ.</p>
     <ol>
       <li><strong>Drift guard</strong> (<code>distil/drift.py</code>). If shadow mode's paired verdicts have pushed the anytime-valid drift alarm over the one risk budget (<code>distil.conformal.BUDGET_ALPHA</code>), the request is served lossless-only: Tier-0, no digest, no output shaping. The response carries <code>x-distil-mode: lossless-only</code> and <code>x-distil-drift-guard: held</code>. <code>distil_expand</code> stays injected, so stubs already in the history remain recoverable. The hold is one per machine, survives restarts, is written to the receipt chain, and is released with <code>distil reset --drift-guard</code>. Checking it costs one attribute read per request. A guard that fails serves the request as configured. The multi-tenant gateway runs no shadow and is exempt by design (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>). New since 1.53.0rc1 and still to pass an rc soak.</li>
-      <li><strong>Cold-point planner</strong> (<code>distil/coldpoint.py</code>). When a turn arrives after the provider's cache entry has <em>certainly</em> expired, the whole prefix is re-billed anyway, so older tool output is replaced by <code>distil_expand</code>-recoverable stubs there and those stubs are forwarded on every later turn. Anthropic only, only where the recoverable digest runs; <code>--no-cold-point</code> opts out. <strong>Not yet measured live</strong>: the rc soak and a live A/B are its gate. Contract: <a href="cache-contract.html#cold-point">clause (h)</a>; decision record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>.</li>
+      <li><strong>Cold-point planner</strong> (<code>distil/coldpoint.py</code>). When a turn arrives after the provider's cache entry has <em>certainly</em> expired, the whole prefix is re-billed anyway, so older tool output is replaced by <code>distil_expand</code>-recoverable stubs there and those stubs are forwarded on every later turn. Anthropic only, only where the recoverable digest runs; <code>--no-cold-point</code> opts out. <strong>Not yet measured live</strong>: the rc soak and a live A/B are its gate. Contract: <a href="cache.html#cold-point">clause (h)</a>; decision record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>.</li>
       <li><strong>Compression.</strong> Salience pins the load-bearing lines, Tier-0 runs lossless transforms, Tier-1 digests large tool output behind a content handle, and the re-read delta references lines the conversation already holds. Exact-quote provenance exempts anything an <code>Edit</code> may quote back. A tool result that re-fetches lines the agent was only ever shown as a digest is forwarded verbatim; the earlier digest is left as cached (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>, <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off). A dropped run no longer than its <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code> marker is shown inline rather than pointed at; that gain is small, and zero on the bundled corpus.</li>
       <li><strong>Prefix replay</strong> (<code>distil/prefixreplay.py</code>). For the longest canonically-equal leading prefix, the bytes forwarded last turn are forwarded again. Each request records why replay stopped (<code>replay_stop</code>, and <code>x-distil-replay-stop</code> on the response), so an in-window cache write can be attributed to the client or to distil. See <a href="#cache-aware">below</a>.</li>
-      <li><strong>Upstream.</strong> Streams are relayed chunk by chunk. Provider-signed, opaque content is forwarded untouched: Anthropic <code>thinking</code> and server-side <code>compaction</code> blocks, OpenAI <code>reasoning</code> <code>encrypted_content</code> and <code>compaction</code> items (<a href="cache-contract.html#opaque">clause (g)</a>). So is the request <code>tools</code> array (<a href="cache-contract.html#tools">why</a>).</li>
+      <li><strong>Upstream.</strong> Streams are relayed chunk by chunk. Provider-signed, opaque content is forwarded untouched: Anthropic <code>thinking</code> and server-side <code>compaction</code> blocks, OpenAI <code>reasoning</code> <code>encrypted_content</code> and <code>compaction</code> items (<a href="cache.html#opaque">clause (g)</a>). So is the request <code>tools</code> array (<a href="cache.html#tools">why</a>).</li>
       <li><strong>After the response.</strong> One content-free receipt is appended to the hash chain; when the active file reaches the segment size it is sealed with a Merkle-root checkpoint (<a href="cli.html#receipts"><code>distil receipts</code></a>). A shadow-sampled request is replayed off the request path, and its paired verdict is folded into the drift e-process the guard reads.</li>
     </ol>
 
@@ -245,7 +208,7 @@
       <li><strong>Per machine, lifetime</strong> — <code>distil leaderboard</code> rolls up the local savings ledger (<code>~/.distil/savings.jsonl</code>); <code>--html</code> exports a page.</li>
       <li><strong>Community, verifiable</strong> — <code>distil federated-leaderboard</code> aggregates HMAC-signed, content-free, tamper-evident savings across instances; only certified submissions count, and sharing is opt-in (no telemetry by default).</li>
       <li><strong>OTel traces (opt-in)</strong> — <code>pip install 'distil-llm[otel]'</code> emits GenAI semantic-convention spans plus <code>distil.tokens.original</code>, <code>distil.tokens.compressed</code>, <code>distil.compression.ratio</code>, <code>distil.shadow.sampled</code>, and <code>distil.session.id</code> for per-session trace correlation, plus OTel counters (<code>distil.requests</code>, <code>distil.tokens.baseline</code>/<code>.sent</code>/<code>.saved</code>) recorded at the same point. Module: <code>distil/otel.py</code>.</li>
-      <li><strong>Prometheus scrape</strong> — the gateway serves text exposition at <code>/distil/metrics</code> (stdlib-only, no client library), behind the same admin gate as <code>/distil/stats</code> because the series are tenant-labelled. Module: <code>distil/metrics.py</code>; see <a href="metrics.html">Metrics &amp; Observability</a>.</li>
+      <li><strong>Prometheus scrape</strong> — the gateway serves text exposition at <code>/distil/metrics</code> (stdlib-only, no client library), behind the same admin gate as <code>/distil/stats</code> because the series are tenant-labelled. Module: <code>distil/metrics.py</code>; see <a href="adoption.html#metrics">Metrics &amp; Observability</a>.</li>
       <li><strong>Dry run, before you trust it</strong> — <code>distil simulate</code> runs the real pipeline with no model in the path and reports what would be compressed, what would be left alone, and <em>which rule</em> protected it. Module: <code>distil/simulate.py</code>; see the <a href="cli.html#simulate">CLI reference</a>.</li>
       <li><strong>Vision</strong> — repeated byte-identical images are replaced by recoverable references; the first occurrence and every distinct image are untouched, and nothing is ever re-encoded or downscaled. Gated on a certificate and certified at 100% decision-equivalence against a live vision model. Module: <code>distil/compress/vision.py</code>; see <a href="techniques.html#vision">Techniques &sect; Vision</a>.</li>
     </ul>
@@ -270,7 +233,7 @@
     </div>
 
     <p>Both of those keep <em>Distil's</em> output stable. The other half of the problem is the client, which rewrites its own history every turn without changing a token the model reads — the <code>cache_control</code> breakpoint advances to the newest block, an SDK stamps positional <code>index</code> fields, a string becomes a single text block. Distil forwards what it receives, so each of those reached the provider as changed bytes and missed a prefix it was already holding. Measured offline, that cost <strong>the entire prefix, on every provider, on every turn</strong>.</p>
-    <p><strong>Forwarded-bytes prefix replay</strong> (<code>prefixreplay.py</code>, on by default) closes it. Distil remembers the previous turn's forwarded bytes per conversation lineage and, for the longest canonically-equal leading prefix, forwards <em>the bytes it forwarded last turn</em> rather than the bytes it would produce now — re-placing the client's current breakpoint markers at the client's current positions, and stopping at the first real divergence. The comparison ignores <code>cache_control</code>, <code>index</code>, the interchangeable spellings of a single text block, and JSON key order, and nothing else. Replay restores bytes, never decisions: a message is replayed only when what Distil would send this turn is itself canonically equal to what it sent last turn, so the exact-quote guarantee can never be overwritten by an older stub. See <a href="cache-contract.html">the cache contract</a>, clause (f).</p>
+    <p><strong>Forwarded-bytes prefix replay</strong> (<code>prefixreplay.py</code>, on by default) closes it. Distil remembers the previous turn's forwarded bytes per conversation lineage and, for the longest canonically-equal leading prefix, forwards <em>the bytes it forwarded last turn</em> rather than the bytes it would produce now — re-placing the client's current breakpoint markers at the client's current positions, and stopping at the first real divergence. The comparison ignores <code>cache_control</code>, <code>index</code>, the interchangeable spellings of a single text block, and JSON key order, and nothing else. Replay restores bytes, never decisions: a message is replayed only when what Distil would send this turn is itself canonically equal to what it sent last turn, so the exact-quote guarantee can never be overwritten by an older stub. See <a href="cache.html#cache-contract">the cache contract</a>, clause (f).</p>
 
     <img src="assets/cache-aware.svg" alt="Cache-aware savings vs naive recompression" class="svg-embed"/>
 
@@ -424,7 +387,7 @@ VERDICT: <span class="w">FAIL</span>  (NOT certified — would degrade quality)<
 
     <p>Two structural invariants are enforced across the entire corpus by the verify gate. A second gate, <code>distil validate</code>, re-asserts them (plus reject-if-bigger, recency-exactness, fail-open, and content-free telemetry) against <em>hostile</em> inputs the corpus never contains — huge/unicode/nested/malformed tool output, content that mimics distil's own <code>&lt;&lt; handle &gt;&gt;</code> stubs, secret-looking strings — because that is where real-traffic bugs hide. Both run in CI on every push.</p>
 
-    <p>A third gate closes the synthetic-vs-live gap: a <strong>nightly</strong> job (<a href="https://github.com/dshakes/distil/blob/main/.github/workflows/live-cert.yml" target="_blank" rel="noopener"><code>live-cert.yml</code></a>) re-certifies every corpus trajectory against a real model (<code>claude-sonnet-5-5</code> at low effort, the measured <a href="model-migration.html">default certifier</a>) via <code>distil certify --runner anthropic</code>, budget-capped with <code>--max-live-calls 60</code> per trajectory so an unattended run cannot spend silently. Per-commit gates = synthetic oracle; nightly gate = live model; both are labeled as such.</p>
+    <p>A third gate closes the synthetic-vs-live gap: a <strong>nightly</strong> job (<a href="https://github.com/dshakes/distil/blob/main/.github/workflows/live-cert.yml" target="_blank" rel="noopener"><code>live-cert.yml</code></a>) re-certifies every corpus trajectory against a real model (<code>claude-sonnet-5-5</code> at low effort, the measured <a href="ab.html#model-migration">default certifier</a>) via <code>distil certify --runner anthropic</code>, budget-capped with <code>--max-live-calls 60</code> per trajectory so an unattended run cannot spend silently. Per-commit gates = synthetic oracle; nightly gate = live model; both are labeled as such.</p>
 
     <h3>Reversibility</h3>
     <p>Every original block is recoverable — either because the compressed text is byte-identical to the original, or because the original lives in the local restore table (keyed by block ID for Tier-0, by content handle for Tier-1). Recovery is confirmed via SHA-256 equality: auditable and machine-checkable.</p>

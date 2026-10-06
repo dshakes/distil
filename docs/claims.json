@@ -23,14 +23,13 @@
       "page": [
         "index.html",
         "benchmark.html",
-        "benchmarks.html",
-        "output.html",
+        "techniques.html",
         "architecture.html",
         "concepts.html",
         "faq.html",
         "llms.txt",
         "../README.md",
-        "model-migration.html"
+        "ab.html"
       ],
       "anchor": "proof",
       "snippet": "83.2% token savings at a 0% decision-change rate",
@@ -72,7 +71,7 @@
       "id": "v-provider-compaction",
       "status": "verified",
       "page": [
-        "provider-compaction.html",
+        "research.html",
         "faq.html",
         "llms.txt",
         "../README.md"
@@ -93,7 +92,7 @@
     {
       "id": "v-subscription-selftest",
       "status": "verified",
-      "page": "subscription.html",
+      "page": "which-mode.html",
       "anchor": null,
       "snippet": "21/21 checks passed",
       "claim": "distil hook --selftest verifies the schema adapters offline (Claude Code, Cursor, Gemini CLI and Codex CLI envelopes): 21/21 checks passed.",
@@ -182,7 +181,7 @@
     {
       "id": "v-corpus-domain-percentages",
       "status": "verified",
-      "page": "corpus.html",
+      "page": "benchmark.html",
       "anchor": null,
       "snippet": "aggregate 48.4%",
       "claim": "Per-domain lossless-savings percentages (32.8%-89.8%, aggregate 48.4% across 7,080 prunable tokens) are repeated on index.html, getting-started.html, cli.html and techniques.html with no on-page pointer to the corpus fixture or command that produced them.",
@@ -204,7 +203,7 @@
     {
       "id": "v-subscription-bytes",
       "status": "verified",
-      "page": "subscription.html",
+      "page": "which-mode.html",
       "anchor": "measured",
       "snippet": "18,214",
       "claim": "'What it measures' paired live A/B table: one session, one task (18,214B->11,178B tool_result, -67.4% cache_creation, -68.3% cost-weighted). The page labels it a single session and links the raw file.",
@@ -219,7 +218,7 @@
     {
       "id": "v-subscription-decision-equiv",
       "status": "verified",
-      "page": "subscription.html",
+      "page": "which-mode.html",
       "anchor": "measured",
       "snippet": "Arms agreed (hook on vs off)",
       "claim": "Decision-equivalence table (5/5 arms agreed, 5/5 correct each arm, n=5 decision-bearing tasks) has no named task list or fixture.",
@@ -229,7 +228,7 @@
     {
       "id": "v-subscription-corpus-tally",
       "status": "verified",
-      "page": "subscription.html",
+      "page": "which-mode.html",
       "anchor": "where-zero",
       "snippet": "corpus contains 43 tool-output blocks",
       "claim": "\"distil's corpus contains 43 tool-output blocks; the five over 2KB have zero consecutive duplicate lines and zero JSON\" — no corpus file or command named.",
@@ -325,7 +324,7 @@
     {
       "id": "u-learn-compression-calculator",
       "status": "unsourced",
-      "page": "learn-compression.html",
+      "page": "concepts.html",
       "anchor": null,
       "snippet": "id=\"te-turns\"",
       "claim": "The multi-turn-tax interactive calculator's illustrative defaults (12 turns, 40,000-token fixed prefix, 3,000 new tokens/turn) are not tied to any measured session — they're calculator seed values, not a claim per se.",
@@ -371,7 +370,7 @@
     {
       "id": "v-coma-decoy-denial-of-savings",
       "status": "verified",
-      "page": "threat-model.html",
+      "page": "security.html",
       "anchor": "unmitigated",
       "snippet": "savings drop to <b>0.0%</b>",
       "claim": "COMA battery: decoy verdict flooding cannot evict the genuine verdict, but drives that block's savings to exactly 0.0% — denial-of-savings, real and unmitigated.",
@@ -533,7 +532,7 @@
     {
       "id": "v-drift-null-false-alarm",
       "status": "verified",
-      "page": "evals.html",
+      "page": "benchmark.html",
       "anchor": null,
       "snippet": "it alarms on 99 of those 2,000 runs (4.95%, against a δ of 5%)",
       "claim": "Build gate on the anytime-valid drift monitor: 2,000 simulated runs at exactly the certified budget alarm 99 times, a 4.95% false-alarm rate against a delta of 5%, and a true rate ten points over budget is caught on 500 of 500 runs within a median of 172 requests. The 95% figure is the confidence the budget line is breached at, which is 1 - delta by construction.",
@@ -551,7 +550,6 @@
       "page": [
         "index.html",
         "benchmark.html",
-        "benchmarks.html",
         "concepts.html",
         "../README.md"
       ],
@@ -570,8 +568,7 @@
       "id": "u-benchmark-offline-standings",
       "status": "unsourced",
       "page": [
-        "benchmark.html",
-        "benchmarks.html"
+        "benchmark.html"
       ],
       "anchor": null,
       "snippet": null,
@@ -647,7 +644,7 @@
       "status": "verified",
       "page": [
         "../README.md",
-        "subscription.html"
+        "which-mode.html"
       ],
       "anchor": null,
       "snippet": null,
@@ -680,7 +677,7 @@
       "id": "u-output-generation-shaping",
       "status": "unsourced",
       "page": [
-        "output.html",
+        "techniques.html",
         "cli.html"
       ],
       "anchor": null,
@@ -717,7 +714,7 @@
       "id": "u-live-cache-naive-2x",
       "status": "unsourced",
       "page": [
-        "cache-contract.html",
+        "cache.html",
         "benchmark.html",
         "changelog.html"
       ],
@@ -735,7 +732,7 @@
       "id": "v-in-window-breaks-ledger",
       "status": "verified",
       "page": [
-        "cache-contract.html"
+        "cache.html"
       ],
       "anchor": "verify",
       "snippet": "or 1.28% of billed",
@@ -756,7 +753,7 @@
       "id": "v-quote-guard-widen-transcripts",
       "status": "verified",
       "page": [
-        "cache-contract.html"
+        "cache.html"
       ],
       "anchor": "quote-guard",
       "snippet": "rescued a quote on none",
@@ -773,7 +770,7 @@
       "id": "v-quote-guard-widen-transcripts-after",
       "status": "verified",
       "page": [
-        "cache-contract.html"
+        "cache.html"
       ],
       "anchor": "quote-guard",
       "snippet": "After it, none.",
@@ -807,7 +804,7 @@
       "page": [
         "index.html",
         "benchmark.html",
-        "output.html",
+        "techniques.html",
         "architecture.html",
         "../README.md"
       ],
@@ -826,7 +823,7 @@
     {
       "id": "v-output-shaping-auto",
       "status": "verified",
-      "page": "output.html",
+      "page": "techniques.html",
       "anchor": "adaptive",
       "snippet": "below the reporting floor",
       "claim": "Output shaping defaults to --shape-output auto on a metered session and is ON only when all three hold: the paired decision-equivalence verdict is at or above the shared reporting floor (50 A/B + 30 A/A), its harm bound (lower end of the paired difference interval) is inside the pre-registered +/-2pp certification margin, and the shadow output-token delta excludes zero on the saving side over at least 50 priced samples. Otherwise OFF with a stated reason. Turn-on evidence comes only from shadow rows tagged levers.shape == off, so shaped rows cannot keep shaping on; shaped rows at or above the floor whose harm bound is outside the budget turn it off; both sets are read over the last 7 days. Always off on subscription/OAuth. The last published live sample (398 A/B, 399 A/A) predates the lever tag and counts as zero rows; its harm bound (-4.5pp) is outside the 2pp budget regardless, so auto resolves to OFF.",
@@ -837,7 +834,7 @@
       "id": "v-treesitter-skeletons",
       "status": "verified",
       "page": [
-        "code-skeletons.html"
+        "techniques.html"
       ],
       "anchor": "measured",
       "snippet": "26.0% to 40.4%",
@@ -977,8 +974,8 @@
       "id": "v-migration-certifier-table",
       "status": "verified",
       "page": [
-        "model-migration.html",
-        "evals.html",
+        "ab.html",
+        "benchmark.html",
         "../README.md"
       ],
       "anchor": "certifier",
@@ -1022,8 +1019,8 @@
       "id": "v-served-coverage",
       "status": "verified",
       "page": [
-        "model-migration.html",
-        "evals.html",
+        "ab.html",
+        "benchmark.html",
         "../README.md",
         "llms.txt"
       ],
@@ -1042,8 +1039,8 @@
       "id": "v-served-decision-gap",
       "status": "verified",
       "page": [
-        "model-migration.html",
-        "evals.html",
+        "ab.html",
+        "benchmark.html",
         "../README.md"
       ],
       "anchor": "served",
@@ -1065,7 +1062,7 @@
       "id": "v-swebench-outcome-300",
       "status": "verified",
       "page": [
-        "model-migration.html",
+        "ab.html",
         "../README.md"
       ],
       "anchor": "served",
@@ -1082,7 +1079,7 @@
       "id": "v-swebench-outcome-300-grepfix",
       "status": "verified",
       "page": [
-        "model-migration.html",
+        "ab.html",
         "../README.md"
       ],
       "anchor": "served",
@@ -1102,11 +1099,10 @@
         "../README.md",
         "compare.html",
         "benchmark.html",
-        "benchmarks.html",
         "llms.txt",
         "research.html",
         "concepts.html",
-        "output.html"
+        "techniques.html"
       ],
       "anchor": null,
       "snippet": null,

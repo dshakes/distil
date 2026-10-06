@@ -405,7 +405,7 @@
     <p class="sub" style="font-size:15px"><b>Why trust the number</b></p>
     <ul style="font-size:14px;color:var(--mut);margin:8px 0 12px;padding-left:20px;line-height:1.6;max-width:760px">
       <li><b>It doesn't break your prompt cache.</b> Distil never rewrites bytes the provider still has
-        cached; older context changes only once that cache has already expired — an enforced invariant. <a href="cache-contract.html">The cache contract &rarr;</a></li>
+        cached; older context changes only once that cache has already expired — an enforced invariant. <a href="cache.html#cache-contract">The cache contract &rarr;</a></li>
       <li><b>Every compressed byte is recoverable.</b> Folded content stays in a local store; the agent calls
         <code>distil_expand</code> to get the exact original back mid-task. <a href="techniques.html#skeleton-digest">How &rarr;</a></li>
       <li><b>It's measured on your own bill.</b> Savings are calibrated against the <code>usage</code> your provider
@@ -422,7 +422,7 @@
     </a>
     <div class="door door-alt">
       <span class="door-ico" aria-hidden="true">🔬</span>
-      <span class="door-body"><span class="door-t"><a href="compare.html">See the proof</a></span><span class="door-d">Benchmarks &amp; <a href="subscription.html">Subscription</a>
+      <span class="door-body"><span class="door-t"><a href="compare.html">See the proof</a></span><span class="door-d">Benchmarks &amp; <a href="which-mode.html#subscription">Subscription</a>
         <a href="research.html">full research</a></span></span>
     </div>
   </div>
@@ -506,10 +506,10 @@
   <p class="sub" style="font-size:17px">On <b>SWE-bench Lite</b> the shipped path is <b>cost-neutral and within about 2 points on task success</b> — not statistically distinguishable at n=300.
     <small>Two runs after the shell-search fix: 204/299 vs 210/299 plain (&minus;2.0 pts, 95% CI &minus;5.5..+1.5, cost $7.18 vs $7.18) and
     213/298 vs 218/298 (&minus;1.7 pts, 95% CI &minus;5.1..+1.7, cost $8.44 vs $8.52). Non-inferiority at the pre-registered 5-point
-    margin is not shown, and long sessions are not yet measured at A/B grade. <a href="model-migration.html">Reports and method &rarr;</a></small></p>
+    margin is not shown, and long sessions are not yet measured at A/B grade. <a href="ab.html#model-migration">Reports and method &rarr;</a></small></p>
   <p class="sub" style="font-size:15px;margin-top:26px">Four things are proven rather than promised, and each has its own page:
-    a <a href="cache-contract.html"><b>cache contract</b></a> (compression may never rewrite bytes the provider already cached),
-    a <a href="threat-model.html"><b>COMA-class adversarial gate</b></a> (with the two cases that don't come back clean published),
+    a <a href="cache.html#cache-contract"><b>cache contract</b></a> (compression may never rewrite bytes the provider already cached),
+    a <a href="security.html#threat-model"><b>COMA-class adversarial gate</b></a> (with the two cases that don't come back clean published),
     a <a href="benchmark.html#degradation-curve"><b>degradation curve</b></a> across every rung of the dial,
     and an <a href="benchmark.html#coding-agent"><b>exact-quote guarantee</b></a> so an <code>Edit</code> still matches the file the agent read.</p>
   <p class="sub" style="font-size:13px;opacity:.85">Honest scope: the certificate covers
@@ -527,7 +527,7 @@
     <div class="stat hl">
       <div class="n">37/40</div>
       <div class="l">Decisions changed by Anthropic's context clearing</div>
-      <div class="foot">measured with <a href="provider-compaction.html">certify-provider</a> · keep=0 · n=40</div>
+      <div class="foot">measured with <a href="research.html#provider-compaction">certify-provider</a> · keep=0 · n=40</div>
     </div>
     <div class="stat">
       <div class="n">~1000<s>×</s></div>
@@ -654,7 +654,7 @@
       <p>A certificate is only as good as the model that graded it. The live certifier was
       changed under a pre-registered, paired migration eval on real traces, and the served
       path is graded separately from the certified one.
-      <a href="model-migration.html">Model migration &rarr;</a></p>
+      <a href="ab.html#model-migration">Model migration &rarr;</a></p>
     </div>
   </div>
 
@@ -789,7 +789,7 @@ VERDICT: <span class="w">FAIL</span>  (would degrade quality — blocked)</pre>
     <tr><th scope="row">Session dissect</th><td><code>distil dissect</code> — per-session deep-dive with an anomaly list that catches silent failures automatically</td><td><span class="new">1.15</span></td></tr>
     <tr><th scope="row">Savings discovery</th><td><code>distil discover</code> — what is still costing you across recent sessions, ranked, each with its derivation and the command to act on it; median and p10/p90 printed beside the best session, and silent where it cannot measure</td><td>report</td></tr>
     <tr><th scope="row">Drift guard</th><td>When live paired verdicts prove decision change has crossed the one risk budget, every proxy on the machine serves lossless-only until <code>distil reset --drift-guard</code> — an alarm that acts, not a log line</td><td><span class="new">safety · rc soak</span></td></tr>
-    <tr><th scope="row">Cold-point recompression</th><td>Shrinks older tool output only on a turn the provider's cache has certainly expired for, then holds those bytes stable — <a href="cache-contract.html#cold-point">clause (h)</a>; not yet measured live</td><td><span class="new">reversible · rc soak</span></td></tr>
+    <tr><th scope="row">Cold-point recompression</th><td>Shrinks older tool output only on a turn the provider's cache has certainly expired for, then holds those bytes stable — <a href="cache.html#cold-point">clause (h)</a>; not yet measured live</td><td><span class="new">reversible · rc soak</span></td></tr>
     <tr><th scope="row">Sealed receipt chain</th><td>A content-free, hash-chained receipt per request, sealed into segments with Merkle-root checkpoints: hand an auditor one receipt and its inclusion proof, not the whole log (<code>distil receipts --prove</code>)</td><td>audit</td></tr>
     <tr><th scope="row">Opaque-block passthrough</th><td>Anthropic <code>compaction</code>/<code>thinking</code> blocks and OpenAI <code>reasoning</code>/<code>compaction</code> items reach the provider byte-identical, pinned by contract tests, and are censused rather than hidden</td><td>untouched</td></tr>
     <tr><th scope="row">Tool definitions left alone</th><td>The <code>tools</code> array is never rewritten (measured: too little to gain, ADR 0012); <code>distil wrap -- claude</code> keeps Claude Code's own MCP tool search on instead — verified live on 1.54.0 (<code>tools_deferred</code> 4–5, tool payload 9,733 tokens)</td><td>untouched</td></tr>
