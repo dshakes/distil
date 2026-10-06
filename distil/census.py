@@ -646,12 +646,12 @@ def status() -> dict:
         "install_id": _id_path().read_text(encoding="utf-8").strip()
         if _id_path().exists()
         else None,
-        "endpoint": _testing.hook("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT),
+        "endpoint": str(_testing.hook("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT)),
     }
 
 
 def _send(payload: dict) -> None:
-    endpoint = _testing.hook("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT)
+    endpoint = str(_testing.hook("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT))
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),
@@ -758,7 +758,7 @@ def maybe_heartbeat() -> bool:
 
 
 def _send_beat(payload: dict) -> None:
-    endpoint = _testing.hook("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT)
+    endpoint = str(_testing.hook("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT))
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),
