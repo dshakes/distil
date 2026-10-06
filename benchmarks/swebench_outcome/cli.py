@@ -80,9 +80,18 @@ def _parser() -> argparse.ArgumentParser:
             s.add_argument("--limit", type=int)
             s.add_argument("--seed", type=int, default=0)
             s.add_argument("--model", default="claude-sonnet-5-5")
-            s.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
+            s.add_argument(
+                "--effort", choices=["low", "medium", "high", "xhigh", "max"], default="medium"
+            )
             s.add_argument("--max-steps", type=int, default=40)
             s.add_argument("--task-timeout", type=float, default=1800.0)
+            s.add_argument(
+                "--max-tokens",
+                type=int,
+                default=16_000,
+                help="per-response cap; raise it at effort xhigh/max, where adaptive thinking "
+                "can spend 16k before any tool call",
+            )
             s.add_argument("--price-in", type=float)
             s.add_argument("--price-out", type=float)
             s.add_argument(
@@ -194,7 +203,15 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(a.out)
     names = parse_arms(a.arms)
     if a.cmd in ("plan", "run"):
-        cfg = Cfg(a.model, a.effort, a.max_steps, a.task_timeout, pin=a.price_in, pout=a.price_out)
+        cfg = Cfg(
+            a.model,
+            a.effort,
+            a.max_steps,
+            a.task_timeout,
+            max_tokens=a.max_tokens,
+            pin=a.price_in,
+            pout=a.price_out,
+        )
         diff = [d.strip() for d in a.difficulty.split(",") if d.strip()] if a.difficulty else None
         ids = select_ids(load_ids(a.instances, a.dataset, diff), a.seed, a.limit)
     if a.cmd == "plan":  # never touches the Anthropic API, the network, or any arm dependency

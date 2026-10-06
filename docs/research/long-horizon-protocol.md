@@ -100,4 +100,44 @@ the shards' `--budget-usd` never exceeds the remaining cap.
 
 ## Amendments
 
-(none yet)
+### A1 — 2026-10-06, before the main run: effort `max`, 3 arms, N set by the budget
+
+Pilots (all set aside, none counted in the main run; rows kept outside the repository):
+
+| pilot | config | tasks × arms | spend | steps |
+|---|---|---|---|---|
+| P1 | effort `high`, max-tokens 16k | 3 × 5 | $0.91 | median 7 (5–14) |
+| P2 | effort `max`, max-tokens 16k, `--budget-usd 10` | astropy-13579 × plain, distil, rtk, provider-cm (selective stopped by the budget mid-task) | $10.01 | plain 50, rtk 49, provider-cm 72; distil 8 |
+| P3 | effort `xhigh`, max-tokens 32k, plain only | 3 × 1 | $0.44 | 5, 19, 10 (median 10) |
+
+Total pilot spend: **$11.36** (harness accounting, including P2's unrecorded partial task).
+
+Findings that force the amendment:
+
+1. **Horizon.** Only effort `max` reaches the long horizon this run exists to measure (P2: ~50
+   steps; `high` and `xhigh` median 7 and 10). Effort becomes **`max`**.
+2. **max-tokens.** At `max`, P2's distil attempt ended after 8 steps with `stop=max_tokens`:
+   adaptive thinking spent the whole 16k response budget before any tool call, which the harness
+   records as `gave_up`. That is a harness ceiling, not an arm outcome, and could hit any arm.
+   max-tokens becomes **32,000** (new `--max-tokens` option; the client now sets an explicit
+   1800 s request timeout, which the SDK requires for a non-streaming request above ~21k).
+3. **Cost.** At `max` one task costs about $2 per arm (plain $1.96, rtk $1.95) and provider-cm
+   $5.03 (its 70 context-clearing edits rewrote the prompt prefix every step: 1.48M cache-write
+   tokens against plain's 0.14M). Five arms × 45 tasks would cost ~$600. Applying §5.3 in order:
+   **selective is dropped, then provider-cm is dropped**; the run keeps **plain, distil, rtk**
+   (~$6 per task for the three), and N is whatever the budget completes.
+
+Main run, as amended:
+
+- Arms: plain, distil, rtk. Effort `max`, max-tokens 32,000, max-steps 100, task timeout 3600 s,
+  model and everything else as §3.
+- Tasks: the 45 of §2, split round-robin by the seeded order into 3 shards (task i → shard
+  i mod 3); each shard runs its slice in the harness's seeded order (`--instances shard_k.txt
+  --seed 0`). Shards run concurrently to cut wall time (~11 min per attempt at `max`).
+- Budget: **$24 per shard, $72 for the main run**, so main + pilots ≤ $83.36; the remaining
+  ~$16.6 is held for the one re-run of infra failures (§7). The stopping rule (§7) decides N:
+  each shard stops when its budget is spent, and the analysis uses the tasks completed in all
+  three arms. Expect roughly 10–13 tasks.
+- Consequence, stated now: with ~12 tasks the success comparison has no power (the harness will
+  print `PILOT (no verdict)`), and the $-per-solved interval will be wide. This is a
+  long-horizon **measurement at the size the cap buys**, not a verdict.
