@@ -10,6 +10,11 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 ### Added
 
 - **A re-fetch of folded content is forwarded verbatim** ([ADR 0025](docs/adr/0025-refetch-verbatim.md), `distil/compress/refetch.py`). When a tool result is mostly lines an earlier result carried but distil forwarded only as a digest, it goes out verbatim instead of digested — before, a byte-identical re-run came back as the same stub that had just failed the agent. The earlier digest is never rewritten (cached prefix), and the verdict is a function of the history alone, so it stays stateless and byte-stable. On by default; `DISTIL_REFETCH_VERBATIM=0` turns it off. New census bucket `tool_result_refetch`. Proxy and gateway both apply it (shared serve path); it is off wherever serving is verbatim (certification hold, lossless-only, subscription). Under `--session-delta` the cache-delta pass now leaves a re-fetch whole instead of replacing it with a reference to the folded copy. Offline, on the 300 post-fix SWE-bench transcripts: re-reads of content the agent could only see as a digest 36 → 31, for 0.7 points of request-size savings (11.9% → 11.2%) and 0.5 points cache-aware; zero prefix rewrites. Not yet measured live. Replay and rejected alternatives in `benchmarks/results/reinflate-replay/`.
+- **eval: SWE-bench Lite head-to-head result** (`benchmarks/results/swebench-outcome-300-h2h/`, `docs/scoreboard.html`): claude-sonnet-5-5, effort medium, 298 tasks graded in every arm, $25.07 live spend. RTK was the only arm shown non-inferior (+0.3 pts [-2.7, +3.3]) and the cheapest per solved task ($0.0306 vs $0.0387 plain). distil was cost-neutral ($0.0393) and inconclusive (-1.7 [-5.1, +1.7]); selective and provider context editing were also inconclusive. plain and distil are reused from the 2026-10-03 run, provider drift between dates is not controlled, and provider-cm ran at an aggressive setting. The scoreboard's separate medium section is folded into this one.
+
+### Fixed
+
+- **swebench-outcome grader gets an absolute predictions path**: the grader runs with cwd set to the output dir, so a relative path pointed nowhere.
 
 ## [1.57.0] — 2026-10-05 — the referee: distil says when compression hurts, and measures the others the same way
 
