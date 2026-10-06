@@ -4838,15 +4838,45 @@ everyday commands:
   version, upgrade                    show version / update distil in place
 
 analysis & tuning:
-  compress, savings, bench, prune, calibrate, certify, certify-trajectories
+  compress, simulate, dissect, discover, calibrate, audit, ab
 
-research / CI internals:
-  verify, holdout, conformal, frontier, eval, online,
-  train-transformer, federated-leaderboard
+research / CI (distil research <command>):
+  bench, certify, certify-trajectories, certify-provider, verify, validate,
+  holdout, conformal, frontier, eval, online, retention, fidelity, benchmark,
+  suite, perf, prune, ingest, learn, output-savings, query-relevance,
+  federated-leaderboard, train-transformer
 
 `distil <command> --help` shows each command's flags.
 """
 
+
+#: Maker-side research and CI gates: not on a user's hot path. Reached as
+#: `distil research <name>`; the bare `distil <name>` spelling still works, deprecated.
+RESEARCH_COMMANDS = (
+    "prune",
+    "certify",
+    "certify-trajectories",
+    "certify-provider",
+    "bench",
+    "output-savings",
+    "ingest",
+    "perf",
+    "eval",
+    "retention",
+    "fidelity",
+    "benchmark",
+    "frontier",
+    "learn",
+    "conformal",
+    "verify",
+    "suite",
+    "validate",
+    "holdout",
+    "online",
+    "query-relevance",
+    "federated-leaderboard",
+    "train-transformer",
+)
 
 #: What a newcomer sees. Everything else still parses; `--help-all` lists it.
 FRONT_DOOR = ("setup", "wrap", "savings", "doctor")
@@ -6286,6 +6316,21 @@ def build_parser() -> argparse.ArgumentParser:
     tt.add_argument("--base-model", default="google/bert_uncased_L-2_H-128_A-2")
     tt.add_argument("--epochs", type=int, default=3)
     tt.set_defaults(func=cmd_train_transformer)
+
+    # `distil research <name>` is the one door for maker-side research and CI gates.
+    # The SAME parser objects stay registered at top level (hidden from --help-all)
+    # so every old `distil <name>` script keeps working; main() prints a one-line note.
+    rs = sub.add_parser(
+        "research", help="maker-side research and CI gates (distil research --help)"
+    )
+    rsub = rs.add_subparsers(dest="research_cmd", required=True, metavar="<command>")
+    shown = {a.dest: a for a in sub._choices_actions}
+    for name in RESEARCH_COMMANDS:
+        # One parser object serves both spellings; its usage/errors name the new one.
+        sub.choices[name].prog = f"{rs.prog} {name}"
+        rsub.choices[name] = sub.choices[name]
+        rsub._choices_actions.append(shown[name])
+        sub._choices_actions.remove(shown[name])
     return p
 
 
@@ -6328,7 +6373,16 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass  # a wrapped/non-reconfigurable stream is not worth failing over
 
+    _argv = sys.argv[1:] if argv is None else argv
+    if _argv and _argv[0] in RESEARCH_COMMANDS:
+        print(
+            f"distil: `distil {_argv[0]}` is now `distil research {_argv[0]}` "
+            "(the old name still works)",
+            file=sys.stderr,
+        )
     args = build_parser().parse_args(argv)
+    # "distil research bench: ..." not "distil research: ..." when a research command fails.
+    where = " ".join(filter(None, (getattr(args, "cmd", ""), getattr(args, "research_cmd", ""))))
     try:
         rc = args.func(args)
     except BrokenPipeError:
@@ -6338,17 +6392,17 @@ def main(argv: list[str] | None = None) -> int:
         # a clean message beats an 8-line pathlib traceback. Covers every
         # file-reading command at the dispatch chokepoint (no per-command patch).
         # NotADirectoryError = a --corpus that points at a file, not a dir.
-        print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
+        print(f"distil {where}: {e}", file=sys.stderr)
         return 2
     except json.JSONDecodeError as e:
         path = getattr(args, "trajectory", None) or getattr(args, "outcomes", None) or "input"
-        print(f"distil {getattr(args, 'cmd', '')}: {path} is not valid JSON — {e}", file=sys.stderr)
+        print(f"distil {where}: {path} is not valid JSON — {e}", file=sys.stderr)
         return 2
     except OSError as e:
         # e.g. EADDRINUSE when a proxy/gateway port is already taken, or any other
         # OS-level failure the specific handlers above didn't catch — a one-line
         # message beats a full traceback for what is almost always a user setup issue.
-        print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
+        print(f"distil {where}: {e}", file=sys.stderr)
         return 2
 
     # The status line is piped to a consumer (Claude Code) that may close the

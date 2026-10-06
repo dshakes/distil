@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 # Pages with their own bespoke navigation, not the shared template.
-SKIP = {"index.html"}
+SKIP = {"index.html"}  # extended with REDIRECTS below
 
 # The release that introduced each page (from `git log --diff-filter=A` + the first
 # tag containing it). A page shows a "New" badge only while that release is within
@@ -29,19 +29,11 @@ SKIP = {"index.html"}
 # releases ship instead of every page staying "New" forever. Add a row for each
 # new page; pages without a row never get the badge.
 ADDED: dict[str, str] = {
-    "provider-compaction.html": "1.33.0",
     "cache.html": "1.41.0",
-    "library.html": "1.42.0",
-    "subscription.html": "1.48.0",
     "which-mode.html": "1.48.1",
-    "benchmark-independent.html": "1.50.1",
-    "cache-contract.html": "1.52.0",
-    "threat-model.html": "1.52.0",
     "ab.html": "1.55.0",
     "hooks.html": "1.55.0",
-    "code-skeletons.html": "1.55.0",
     "mcp.html": "1.55.0",
-    "model-migration.html": "1.56.0",
     "scoreboard.html": "1.57.0",
 }
 NEW_WINDOW = 1  # the current minor release only
@@ -72,93 +64,90 @@ GETTING_STARTED: list[tuple[str, str, str | None]] = [
 
 LEARN: list[tuple[str, str, str | None]] = [
     ("token-economics.html", "Token Economics", "Start here"),
-    ("concepts.html", "Concepts", None),
+    ("concepts.html", "Concepts &amp; Course", None),
     ("techniques.html", "Techniques", None),
     ("architecture.html", "Architecture", None),
+    ("cache.html", "Prompt Caching", None),
     ("research.html", "Research &amp; Frontier", None),
-    ("cache-contract.html", "Cache Contract", None),
-    ("subscription.html", "Subscription", None),
-    ("provider-compaction.html", "Provider Compaction", None),
-]
-
-# Nested under Token Economics — the 3-module course, previously two clicks deep
-# (sidebar -> hub -> module) on every other page.
-COURSE_MODULES: list[tuple[str, str]] = [
-    ("learn-tokens.html", "1. Fundamentals"),
-    ("learn-compression.html", "2. Compression"),
-    ("learn-distil.html", "3. Distil &amp; Proof"),
 ]
 
 EVALUATION: list[tuple[str, str, str | None]] = [
-    ("evals.html", "Evaluation", None),
     ("scoreboard.html", "Scoreboard", None),
+    ("benchmark.html", "Benchmarks &amp; Evals", None),
     ("ab.html", "Task-level A/B", None),
-    ("model-migration.html", "Model Migration", None),
-    ("benchmark-independent.html", "Independent Benchmark", None),
-    ("benchmark.html", "Live Benchmark", None),
-    ("benchmarks.html", "Reproduce Benchmarks", None),
     ("compare.html", "Compare", None),
-    ("adoption.html", "Adoption", "Live"),
+    ("adoption.html", "Adoption &amp; Metrics", "Live"),
 ]
 
 REFERENCE: list[tuple[str, str, str | None]] = [
-    ("library.html", "Library API", None),
     ("cli.html", "CLI Reference", None),
-    ("metrics.html", "Metrics &amp; Observability", None),
-    ("cache.html", "Prompt Caching", None),
-    ("output.html", "Output &amp; I/O", None),
-    ("corpus.html", "Corpus", None),
 ]
 
 AGENT_TOOLING: list[tuple[str, str, str | None]] = [
     ("hooks.html", "Post-tool Hooks", None),
-    ("code-skeletons.html", "Code Skeletons", None),
     ("mcp.html", "MCP Compressor", None),
-]
-
-INTEGRATIONS: list[tuple[str, str, str | None]] = [
-    ("integrations.html", "Overview", None),
-    ("adapters.html", "Adapters", None),
-    ("anthropic-sdk.html", "Anthropic SDK", None),
-    ("openai-sdk.html", "OpenAI SDK", None),
-    ("litellm.html", "LiteLLM", None),
-    ("langchain.html", "LangChain", None),
-    ("langgraph.html", "LangGraph", None),
-    ("vercel-ai-sdk.html", "Vercel AI SDK", None),
-    ("agno.html", "Agno", None),
-    ("strands.html", "Strands", None),
-    ("autogen.html", "AutoGen", None),
-    ("llamaindex.html", "LlamaIndex", None),
-    ("crewai.html", "CrewAI", None),
-    ("asgi.html", "ASGI Middleware", None),
+    ("integrations.html", "Integrations &amp; Library", None),
 ]
 
 MORE: list[tuple[str, str, str | None]] = [
     ("faq.html", "FAQ", None),
-    ("security.html", "Security", None),
-    ("deploy-security.html", "Deploy &amp; Security", None),
-    ("threat-model.html", "Threat Model", None),
+    ("security.html", "Security &amp; Deploy", None),
     ("changelog.html", "Changelog", None),
 ]
 
 # Sidebar sections in order: (title, entries, open by default). Every section is a
 # native <details> — no JS, keyboard and screen-reader accessible — and the one
-# holding the current page is always open, so a flat ~60-link list reads as 7 groups.
+# holding the current page is always open, so a flat link list reads as 6 groups.
 SECTIONS: list[tuple[str, list[tuple[str, str, str | None]], bool]] = [
     ("Getting started", GETTING_STARTED, True),
     ("Learn", LEARN, True),
     ("Evaluation &amp; benchmarks", EVALUATION, False),
     ("Reference", REFERENCE, False),
     ("Agent tooling", AGENT_TOOLING, False),
-    ("Integrations", INTEGRATIONS, False),
     ("More", MORE, False),
 ]
 
+# Pages that were merged into another (2026-10 surface cleanup). Each old URL stays
+# alive as a tiny redirect stub so no inbound link 404s; the stub is written by
+# main() and skipped by every nav/table/search generator and check.
+REDIRECTS: dict[str, str] = {
+    "adapters.html": "integrations.html#adapters",
+    "agno.html": "integrations.html#agno-page",
+    "anthropic-sdk.html": "integrations.html#anthropic-sdk",
+    "asgi.html": "integrations.html#asgi-page",
+    "autogen.html": "integrations.html#autogen-page",
+    "benchmark-independent.html": "benchmark.html#benchmark-independent",
+    "benchmarks.html": "benchmark.html#benchmarks",
+    "cache-contract.html": "cache.html#cache-contract",
+    "code-skeletons.html": "techniques.html#code-skeletons",
+    "corpus.html": "benchmark.html#corpus-page",
+    "crewai.html": "integrations.html#crewai-page",
+    "deploy-security.html": "security.html#deploy-security",
+    "evals.html": "benchmark.html#evals",
+    "langchain.html": "integrations.html#langchain",
+    "langgraph.html": "integrations.html#langgraph",
+    "learn-compression.html": "concepts.html#learn-compression",
+    "learn-distil.html": "concepts.html#learn-distil",
+    "learn-tokens.html": "concepts.html#learn-tokens",
+    "library.html": "integrations.html#library",
+    "litellm.html": "integrations.html#litellm",
+    "llamaindex.html": "integrations.html#llamaindex-page",
+    "metrics.html": "adoption.html#metrics",
+    "model-migration.html": "ab.html#model-migration",
+    "openai-sdk.html": "integrations.html#openai-sdk",
+    "output.html": "techniques.html#output",
+    "provider-compaction.html": "research.html#provider-compaction",
+    "strands.html": "integrations.html#strands-page",
+    "subscription.html": "which-mode.html#subscription",
+    "threat-model.html": "security.html#threat-model",
+    "vercel-ai-sdk.html": "integrations.html#vercel-ai-sdk",
+}
+
 # Every href the canonical sidebar/topbar can render — used by check_nav.py and
 # by the completeness self-test below.
-ALL_SIDEBAR_HREFS = {h for _, entries, _ in SECTIONS for h, _, _ in entries} | {
-    h for h, _ in COURSE_MODULES
-}
+ALL_SIDEBAR_HREFS = {h for _, entries, _ in SECTIONS for h, _, _ in entries}
+
+SKIP = SKIP | set(REDIRECTS)  # stubs carry no sidebar, footer or tables
 
 
 def _badge(text: str | None) -> str:
@@ -188,23 +177,12 @@ def render_sidebar(active: str) -> str:
     lines = ['  <aside class="sidebar" id="sidebar">', '    <nav aria-label="Documentation">']
     for title, entries, default_open in SECTIONS:
         hrefs = {h for h, _, _ in entries}
-        if entries is LEARN:
-            hrefs |= {h for h, _ in COURSE_MODULES}
         is_open = default_open or active in hrefs
         lines.append(f'      <details class="sidebar-group"{" open" if is_open else ""}>')
         lines.append(f'        <summary class="sidebar-section">{title}</summary>')
         lines.append("        <ul>")
         for href, label, badge in entries:
-            if href == "token-economics.html":
-                cls = ' class="active" aria-current="page"' if href == active else ""
-                lines.append(f'          <li><a href="{href}"{cls}>{label}{_badge(badge)}</a>')
-                lines.append('            <ul class="sidebar-sub">')
-                for mhref, mlabel in COURSE_MODULES:
-                    mcls = ' class="active" aria-current="page"' if mhref == active else ""
-                    lines.append(f'              <li><a href="{mhref}"{mcls}>{mlabel}</a></li>')
-                lines.append("            </ul></li>")
-            else:
-                lines.append(_li(active, href, label, badge, indent="          "))
+            lines.append(_li(active, href, label, badge, indent="          "))
         if entries is MORE:
             lines.append(_li(active, "index.html", "← Landing page", indent="          "))
         lines.append("        </ul>")
@@ -262,9 +240,42 @@ def refresh_new_badges(text: str) -> str:
     return _LINK_BADGE_RE.sub(fix, text)
 
 
+_STUB = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moved - Distil</title>
+<meta name="robots" content="noindex">
+<meta name="distil-redirect" content="{to}">
+<link rel="canonical" href="https://dshakes.github.io/distil/{to}">
+<meta http-equiv="refresh" content="0; url={to}">
+</head>
+<body>
+<p>This page moved to <a href="{to}">{to}</a>.</p>
+</body>
+</html>
+"""
+
+
+def is_redirect(text: str) -> bool:
+    return 'name="distil-redirect"' in text
+
+
+def write_redirects(docs: Path) -> int:
+    n = 0
+    for old, to in REDIRECTS.items():
+        stub = _STUB.format(to=to)
+        p = docs / old
+        if not p.exists() or p.read_text(encoding="utf-8") != stub:
+            p.write_text(stub, encoding="utf-8")
+            n += 1
+    return n
+
+
 def main(argv: list[str]) -> int:
     docs = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent / "docs"
-    changed = 0
+    changed = write_redirects(docs)
     for path in sorted(docs.glob("*.html")):
         before = path.read_text(encoding="utf-8")
         if path.name in SKIP:

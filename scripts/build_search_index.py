@@ -30,7 +30,12 @@ from pathlib import Path
 # so a query for "install" or "quality contract" skipped the front door. Body
 # text is capped and collected only inside <main>, the same swamping guard
 # every other page already relies on.
-SKIP: set[str] = set()
+# Moved-page stubs (scripts/site_nav.py REDIRECTS) are not content.
+SKIP: set[str] = {
+    p.name
+    for p in (Path(__file__).resolve().parent.parent / "docs").glob("*.html")
+    if 'name="distil-redirect"' in p.read_text(encoding="utf-8", errors="replace")
+}
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -127,8 +132,11 @@ def build(docs: Path) -> list[dict]:
     for path in sorted(docs.glob("*.html")):
         if path.name in SKIP:
             continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if 'name="distil-redirect"' in text:
+            continue  # a moved-page stub (scripts/site_nav.py REDIRECTS), not content
         p = _Extractor()
-        p.feed(path.read_text(encoding="utf-8", errors="replace"))
+        p.feed(text)
         title = (p.title or path.stem).split("—")[0].strip()
         out.append(
             {

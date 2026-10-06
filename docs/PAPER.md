@@ -741,7 +741,7 @@ certifier was changed from `claude-opus-4-8` to `claude-sonnet-5-5` at `effort=l
 a recorded acceptance test (ADR 0020), and what grading the *served* path instead of the
 certified one showed (ADR 0021). Every figure below is from
 `benchmarks/results/model-migration/summary.json`; page-level tables are in
-`docs/model-migration.html`.
+`docs/ab.html#model-migration`.
 
 **Design.** `benchmarks/model_migration_eval.py` calls distil's real runners
 (`AnthropicRunner`, `ExpandAwareRunner`) on real traces: 100 τ-bench turns (60 held out)

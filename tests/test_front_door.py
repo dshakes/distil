@@ -542,3 +542,50 @@ def test_doctor_deep_runs_both_gates(monkeypatch, capsys):
     assert cli.main(["doctor", "--deep", "--json"]) == 2
     monkeypatch.setattr(cli, "cmd_doctor", lambda a: 0)
     assert cli.main(["doctor"]) == 0
+
+
+# ---------------------------------------------------------------- distil research
+
+
+def test_research_door_and_hidden_aliases(capsys):
+    """Maker-side commands live under `distil research`; the old top-level names still
+    parse to the SAME handler, are hidden from --help-all's command list, and say so on
+    stderr (never stdout, so scripts that parse output don't break)."""
+    parser = cli.build_parser()
+    shown = {a.dest for a in _sub(parser)._choices_actions}
+    assert "research" in shown
+    for name in cli.RESEARCH_COMMANDS:
+        assert name not in shown, f"{name} should be hidden at top level"
+        # same parser object behind both doors; (some need required args to parse)
+        assert _sub(parser).choices[name] is _sub(_sub(parser).choices["research"]).choices[name]
+    with pytest.raises(SystemExit):
+        cli.main(["research", "--help"])
+    out = capsys.readouterr().out
+    assert all(name in out for name in cli.RESEARCH_COMMANDS)
+
+
+def test_old_research_name_prints_a_deprecation_note(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["verify", "--help"])
+    cap = capsys.readouterr()
+    assert (
+        "distil research verify" in cap.err and "distil research" not in cap.out.split("usage")[0]
+    )
+    with pytest.raises(SystemExit):
+        cli.main(["research", "verify", "--help"])
+    assert "now `distil research" not in capsys.readouterr().err
+
+
+def test_research_command_help_and_errors_name_the_research_path(capsys, monkeypatch):
+    with pytest.raises(SystemExit):
+        cli.main(["research", "bench", "--help"])
+    assert capsys.readouterr().out.startswith("usage: distil research bench")
+
+    def boom(args):
+        raise FileNotFoundError("no such corpus")
+
+    monkeypatch.setattr(cli, "cmd_bench", boom)
+    assert cli.main(["research", "bench"]) == 2
+    assert capsys.readouterr().err.startswith("distil research bench: no such corpus")
+    assert cli.main(["bench"]) == 2  # hidden alias: same handler, still a clean message
+    assert "distil bench: no such corpus" in capsys.readouterr().err

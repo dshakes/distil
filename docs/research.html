@@ -46,80 +46,43 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html" class="active" aria-current="page">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
           <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration</a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -140,7 +103,7 @@
 
     <!-- E14: provider-native context manipulation -->
     <h2 id="e14">E14: provider-native context manipulation (the instrument turned outward)</h2>
-    <p><strong>Harness:</strong> <code>distil certify-provider</code> &middot; <strong>Numbers:</strong> <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/provider-compaction"><code>benchmarks/results/provider-compaction/</code></a> &middot; <strong>Full study:</strong> <a href="provider-compaction.html">Provider Compaction</a></p>
+    <p><strong>Harness:</strong> <code>distil certify-provider</code> &middot; <strong>Numbers:</strong> <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/provider-compaction"><code>benchmarks/results/provider-compaction/</code></a> &middot; <strong>Full study:</strong> <a href="research.html#provider-compaction">Provider Compaction</a></p>
 
     <p>E1&ndash;E13 point the decision-equivalence contract at distil&rsquo;s own compressor. E14 points the same
     instrument at the two features that now rewrite the context window <em>by default, server-side</em>: Anthropic
@@ -189,7 +152,7 @@
     when load-bearing facts age out, not how often that arises in your traffic. The trigger is lowered to 3k (from
     the 100k default) so 40 cases fit a budget; the retention rule is the real default. Decision-equivalence is the
     measured invariant, not task success &mdash; E7 showed those can diverge. Point-in-time, 2026-07-26, on the
-    models named. Reproduce, don&rsquo;t extrapolate &mdash; <a href="provider-compaction.html#reproduce">the
+    models named. Reproduce, don&rsquo;t extrapolate &mdash; <a href="research.html#reproduce">the
     commands are published</a>.</p>
 
     <hr/>
@@ -250,7 +213,7 @@
       <strong>42.0% vs 39.2% tasks solved</strong> against full context (paired CI &minus;0.6..+6.2&nbsp;pp). It is a harness configuration
       (<code>benchmarks/long_horizon/run.py</code> sets <code>DISTIL_DIGEST_MODE=surprise</code>, which the shipped package does not read), so it says
       nothing about what <code>distil wrap</code> serves. The shipped path&rsquo;s task outcome is measured separately, on SWE-bench Lite:
-      cost-neutral and within about 2 points (<a href="model-migration.html">reports</a>).
+      cost-neutral and within about 2 points (<a href="ab.html#model-migration">reports</a>).
     </div>
 
     <h3 id="e8-techniques">New techniques in E8: skeleton digest and sticky expansion</h3>
@@ -450,7 +413,7 @@
     <p>A decomposition of one machine's live Claude Code bill by what each dollar paid for — cache reads, cache writes, output, and which content rode in the prefix — with every figure labelled measured or estimated: <a href="https://github.com/dshakes/distil/blob/main/docs/research/live-savings-gap.md">docs/research/live-savings-gap.md</a> (#189). It ranked the remaining levers, and each has since been decided by measurement rather than argument:</p>
     <ul>
       <li><strong>Cold-point recompression</strong> — built, on by default in the rc, not yet measured live (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>).</li>
-      <li><strong>In-window prefix breaks</strong> — the quote guard's widened pass no longer rewrites the cached prefix for nothing, and every request now records why replay stopped (<a href="cache-contract.html#quote-guard">cache contract (i)</a>).</li>
+      <li><strong>In-window prefix breaks</strong> — the quote guard's widened pass no longer rewrites the cached prefix for nothing, and every request now records why replay stopped (<a href="cache.html#quote-guard">cache contract (i)</a>).</li>
       <li><strong>Tool definitions</strong> — measured and left alone (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0012-tool-definitions-are-left-alone.md">ADR 0012</a>); unused connectors are Claude Code's to defer (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md">ADR 0013</a>).</li>
       <li><strong>Per-command shell profiles</strong> — measured on real transcripts and not built (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0015-no-per-command-shell-profiles.md">ADR 0015</a>).</li>
       <li><strong>First-sight digest markers</strong> — a dropped run no longer than its marker is now shown inline; the gain is small and zero on the bundled corpus.</li>
@@ -762,10 +725,115 @@ verifiable savings — 3 verified instance(s), 0 rejected
     </table>
     </div>
 
+    <hr/>
+
+    <!-- merged from research.html#provider-compaction -->
+<div id="provider-compaction"></div>
+<h2>Provider Compaction <span class="g">— certifying the provider's own context manipulation</span></h2>
+    <p class="lead">Anthropic context editing silently <em>clears</em> old tool results before the model sees them. OpenAI server-side compaction silently <em>summarizes</em> them into an opaque item. Every customer of these features is exposed to them; neither vendor publishes what they do to an agent's decisions. That is a structural conflict of interest, not a roadmap gap — <strong>no vendor will ship a tool that measures its own degradation</strong>. A third party on the wire can. <code>distil certify-provider</code> is that measurement.</p>
+
+    <div class="callout">
+      <strong>Method — the same contract distil applies to itself.</strong> Each case is a multi-turn tool transcript replayed three ways against the same model: <strong>baseline</strong> (manipulation off), <strong>edited</strong> (manipulation on), and a <strong>second independent baseline</strong> — the A/A arm that measures the model's self-agreement on identical input, without which any change rate is uninterpretable sampling noise. Decisions are majority-of-3 per arm and compared with the same normalized signature the <a href="research.html">shadow gate</a> uses (SIG v3). All three arms run on the <em>same</em> case, so the headline is a <strong>paired</strong> statistic: the per-case difference <code>1{edited &ne; baseline} &minus; 1{baseline&prime; &ne; baseline}</code>, averaged, with a bootstrap 95% interval. It is signed and unclipped on purpose &mdash; an estimator that cannot go negative cannot report that a manipulation was harmless, only that it was harmful. Firing is <strong>ground-truthed per request</strong> — Anthropic's <code>applied_edits</code> response field, OpenAI's <code>compaction</code> output item — and cases where the manipulation never fired are excluded from the sample rather than diluting it. The protocol (n, α, δ, votes, trigger, model) is written to disk <em>before the first API call</em>; live calls are hard-capped in code; the decision-change rate carries a distribution-free Hoeffding–Bentkus upper bound. Pre-registration matters because deciding n after seeing results is exactly the failure mode this project criticises in others.
+    </div>
+
+    <hr/>
+
+    <h3 id="worst-case">Experiment 1 — the worst-case regime: manipulation fires on decision-bearing content</h3>
+    <p><strong>Corpus:</strong> 40 seeded synthetic support transcripts (~1.7k tokens, two tool rounds) built so every decision-bearing fact lives in a tool result buried in log noise, with no directive telling the model what to do &middot; <strong>Config:</strong> maximally aggressive — Anthropic <code>clear_tool_uses</code> with <code>keep=0</code>, trigger 500 tokens; OpenAI <code>compact_threshold=1000</code> (the API minimum) &middot; <strong>Subjects:</strong> <code>claude-opus-4-8</code>, <code>gpt-5.2</code> &middot; <strong>Spend:</strong> 360 hard-capped calls per provider &middot; <strong>Numbers:</strong> <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/provider-compaction">benchmarks/results/provider-compaction/</a></p>
+
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Experiment 1 — the worst-case regime: manipulation fires on decision-bearing content">
+    <table>
+      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Paired excess (95% CI)</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic context editing (clear, <code>keep=0</code>)</td><td>40/40</td><td><strong>92.5%</strong></td><td>7.5%</td><td>+85.0pp [+70.0, +95.0]</td><td>98.6%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction</td><td>40/40</td><td><strong>12.5%</strong></td><td>0.0%</td><td>+12.5pp [+2.5, +22.5]</td><td>27.8%</td><td>No</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>The <em>shape</em> of the failures says more than the rates. Anthropic's clearing produced <strong>37 tool→text flips out of 40</strong>: with the load-bearing tool results deleted (mean 2,355 input tokens cleared per case, reported by the API itself), the agent does not pick a <em>wrong</em> action — it stops acting altogether and falls back to prose. Zero tool→different-tool flips. OpenAI's compaction preserved the decision on 35/40, its five flips concentrated in the one deliberately ambiguous scenario (cancel-after-shipment), and <code>gpt-5.2</code> was perfectly self-consistent (A/A floor 0.0%).</p>
+
+    <div class="callout good">
+      <b>The headline contrast.</b> In the same regime, on the same corpus, <strong>summarization preserved agent decisions roughly 7× better than deletion</strong> (12.5% vs 92.5% decision change). And the dominant failure mode of deletion is not corruption but <em>stalling</em>: the agent loses the facts it needed and stops acting. Neither feature certifies decision-safe at α=0.1 — and per the house rule (see E7 on the <a href="research.html">Research page</a>), the numbers are published either way.
+    </div>
+
+    <hr/>
+
+    <h3 id="default-policy">Experiment 2 — the default clearing policy (<code>keep=3</code>)</h3>
+    <p>Experiment 1 could be dismissed as a strawman: <code>keep=0</code> deletes everything, so of course decisions move. The question that matters to a customer is what the <em>shipped default</em> does. Anthropic's default clearing policy keeps the 3 most recent tool uses — so this experiment holds <code>keep=3</code> fixed and asks whether that retention is protection or decoration.</p>
+
+    <p><strong>Corpus:</strong> 40 seeded transcripts of <strong>7 tool rounds</strong> (~4.3k tokens): two decision-bearing rounds at the head (the order and billing records), then four routine ones — inventory, shipping scans, comms log, promotions — carrying no decision-relevant fact &middot; <strong>Config:</strong> <code>keep=3</code>, the default policy, at a 3k-token trigger &middot; <strong>Subjects:</strong> <code>claude-opus-4-8</code>, <code>gpt-5.2</code> &middot; <strong>Spend:</strong> 360 hard-capped calls per run</p>
+
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Experiment 2 — the default clearing policy ( keep=3 )">
+    <table>
+      <thead><tr><th>Provider manipulation</th><th>Fired</th><th>A/B change</th><th>A/A floor</th><th>Paired excess (95% CI)</th><th>95% upper bound</th><th>Certified at α=0.1</th></tr></thead>
+      <tbody>
+        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 1</td><td>40/40</td><td><strong>95.0%</strong></td><td>2.5%</td><td>+92.5pp [+85.0, +100.0]</td><td>99.5%</td><td>No</td></tr>
+        <tr><td>Anthropic context editing (clear, <code>keep=3</code>) — run 2</td><td>40/40</td><td><strong>100%</strong></td><td>2.5%</td><td>+97.5pp [+92.5, +100.0]</td><td>100%</td><td>No</td></tr>
+        <tr><td>OpenAI server-side compaction (<code>compact_threshold=3000</code>)</td><td>40/40</td><td><strong>20.0%</strong></td><td>2.5%</td><td>+17.5pp [+7.5, +30.0]</td><td>36.7%</td><td>No</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>The pre-registered protocol was executed twice against Anthropic. Both runs are published — selecting the kinder or the crueler one after the fact is precisely the practice this page exists to refuse. They agree on the finding and disagree on the last two cases.</p>
+
+    <p><strong>The default is not a weaker version of Experiment 1 — it is a different failure.</strong> Under <code>keep=0</code> the agent lost everything and stopped acting: 37 of 40 flips were tool&rarr;text. Under the default <code>keep=3</code> the stalls nearly vanish and <strong>29–31 of 40 flips become tool&rarr;<em>wrong</em> tool</strong>. The three surviving tool results are the routine ones — inventory, shipping, promotions — and they are enough to keep the agent confidently in acting mode while the records the policy depends on are gone. It refunds where it should escalate fraud, cancels where it should offer credit. A stalled agent is a visible incident; a wrong one is a silent write.</p>
+
+    <div class="callout">
+      <b>What retention buys.</b> Keeping the 3 most recent tool uses did not reduce the decision-change rate at all (92.5% &rarr; 95.0/100%). It converted a loud failure into a quiet one. Retention counted in <em>recency</em> cannot protect a decision that depends on <em>relevance</em> — and in a long agent trajectory the load-bearing facts are gathered early, then buried under routine calls. That ordering is the normal shape of agentic work, not an adversarial construction.
+    </div>
+
+    <div class="callout good">
+      <b>The contrast holds at the default.</b> Summarization changed 20.0% of decisions where deletion changed 95–100% — roughly a <strong>5× gap</strong>, consistent with the ~7× seen in Experiment 1. OpenAI's compaction left 32 of 40 decisions untouched. Neither certifies decision-safe at α=0.1, and both numbers are published either way.
+    </div>
+
+    <hr/>
+
+    <h3 id="alongside">Running distil alongside provider compaction</h3>
+    <p>Measuring the provider's compaction is one question; not breaking it is another. Both providers return compaction output that must come back byte-identical on the next request. Anthropic re-validates a <code>compaction</code> block's <code>signature</code> and rejects the request with <code>compaction_signature_invalid</code> if it was altered, moved or even re-encoded; OpenAI's docs say to pass <code>/v1/responses/compact</code> output into the next call as-is, and a <code>reasoning</code> item's <code>encrypted_content</code> is state the provider cannot rebuild without.</p>
+    <ul>
+      <li><strong>Untouched on every path.</strong> Anthropic <code>compaction</code> blocks survive <code>compress_messages</code> in every mode, the SDK adapter, the proxy (with <code>context_management</code> and the <code>anthropic-beta</code> header forwarded) and the streaming splice, even when the tool results around them are digested. OpenAI <code>reasoning</code> and <code>compaction</code> items survive every mode as the same object; <code>/v1/responses/compact</code> is relayed byte-for-byte and never parsed. Pinned by <code>tests/test_compaction_passthrough.py</code> and <code>tests/test_openai_opaque_passthrough.py</code>.</li>
+      <li><strong>Counted, not hidden.</strong> Those tokens are billed and distil cannot reduce them, so the eligibility census books them (<code>compaction_billed</code>, <code>reasoning_billed</code>, <code>signed_block_billed</code> / <code>signed_item_billed</code>) and <code>distil dissect</code> reads them as policy holding rather than as a missed opportunity. The OpenAI counts are a heuristic over base64 ciphertext, not the provider's exact reasoning-token count.</li>
+    </ul>
+    <p>The rule is stated as a clause of the <a href="cache.html#opaque">cache contract, (g)</a>.</p>
+
+    <h3 id="scope">Honest scope</h3>
+    <ul>
+      <li><strong>Synthetic corpora, and Experiment 2's is built to be cleared.</strong> Experiment 1 bounds the regime where the manipulation fires on decision-bearing content. Experiment 2's corpus is deliberately ordered so that <code>keep=3</code> retains only routine rounds — it measures what the default policy does when the load-bearing facts are older than the three most recent tool uses, not how often that ordering arises in your traffic. It is a claim about the policy's <em>mechanism</em>, not a prevalence estimate.</li>
+      <li><strong>The trigger is lowered, the policy is not.</strong> Experiment 2 keeps Anthropic's real default <code>keep=3</code> but fires it at 3k tokens rather than the default 100k, because a 4.3k-token episode cannot cross 100k. What generalises is the retention rule; the threshold is a lever to make it fire at a budget we can afford 40 cases of.</li>
+      <li><strong>Decision-equivalence, not task success.</strong> The measured invariant is the agent's next action. distil's own E7 showed per-step equivalence can pass while end-to-end success collapses; the same caveat applies here in both directions.</li>
+      <li><strong>The true default-threshold number on long real traffic</strong> (100k+-token transcripts crossing the default triggers naturally) remains open — it needs real long-horizon dumps and a proportionally larger budget. The harness runs it unchanged when the transcripts exist.</li>
+      <li><strong>Point-in-time.</strong> Both features are beta surfaces measured on 2026-07-26 against the models named above; vendors can change behavior without notice. Reproduce, don't extrapolate.</li>
+    </ul>
+
+    <h3 id="reproduce">Reproduce it</h3>
+    <pre><code># corpus (seeded, byte-reproducible)
+python benchmarks/fixtures/make_provider_episodes.py
+
+# dry-run prints the exact call budget before anything is spent
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json --dry-run
+
+# experiment 1 (360 hard-capped live calls per provider)
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json \
+  --n 40 --votes 3 --alpha 0.1 --delta 0.05 --trigger-tokens 500 --keep 0 \
+  --max-live-calls 360 --out results/anthropic
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes.json \
+  --provider openai --trigger-tokens 1000 --n 40 --votes 3 \
+  --max-live-calls 360 --out results/openai
+
+# experiment 2 — the default keep=3 policy, on the 7-round corpus
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes_long.json \
+  --n 40 --votes 3 --trigger-tokens 3000 --keep 3 \
+  --max-live-calls 360 --out results/anthropic-default-policy
+distil certify-provider benchmarks/fixtures/provider_compaction_episodes_long.json \
+  --provider openai --n 40 --votes 3 --trigger-tokens 3000 \
+  --max-live-calls 360 --out results/openai-threshold-3000</code></pre>
+    <p>Each output directory carries <code>protocol.json</code> (written before the first call; its hash is embedded in the report) and <code>report.json</code> with per-case signatures. Runs are resumable: every finished case is appended to <code>cases.jsonl</code> stamped with the protocol hash, so an interrupted run replays what it already bought instead of re-buying it — and a changed parameter orphans the ledger rather than blending two experiments. Re-invoke the same command to continue. The same test design extends to <strong>model-version migration, routing, quantization, and RAG changes</strong> — anything that manipulates what the model sees between you and your agent.</p>
+
+
     <div class="site-footer">
       Distil &middot; compression with a quality contract &middot; Apache-2.0 &middot; <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
-    </div>
-  </main>
+    </div></main>
 </div>
 
 <script src="site.js" defer></script>

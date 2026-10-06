@@ -9,6 +9,7 @@ file never pollutes the real data file it protects.
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
 import threading
@@ -58,19 +59,25 @@ def test_posix_two_threads_serialize_through_the_lock(tmp_path):
 def _install_fake_msvcrt(monkeypatch) -> threading.Lock:
     """A minimal stand-in for the stdlib msvcrt module, backed by a real
     threading.Lock so it enforces the same mutual exclusion a real Windows
-    byte-range lock would, letting the win32 branch run on any platform."""
+    byte-range lock would, letting the win32 branch run on any platform.
+
+    It keeps the CRT's give-up semantics, which an earlier always-blocking fake hid:
+    LK_NBLCK raises EACCES while another handle holds the byte, and LK_LOCK gives up
+    and raises EDEADLOCK (real: after 10 tries one second apart; here: 50 ms)."""
     real_lock = threading.Lock()
     held_by: dict[int, bool] = {}
 
     def locking(fd: int, mode: int, nbytes: int) -> None:
-        if mode == 1:  # LK_LOCK
-            real_lock.acquire()
+        if mode in (1, 2):  # LK_LOCK, LK_NBLCK
+            if not real_lock.acquire(timeout=0.05 if mode == 1 else -1, blocking=mode == 1):
+                code = 36 if mode == 1 else errno.EACCES  # 36 = Windows EDEADLOCK
+                raise OSError(code, "Resource deadlock avoided" if mode == 1 else "Locked")
             held_by[fd] = True
         elif mode == 0:  # LK_UNLCK
             if held_by.pop(fd, False):
                 real_lock.release()
 
-    fake = types.SimpleNamespace(LK_LOCK=1, LK_UNLCK=0, locking=locking)
+    fake = types.SimpleNamespace(LK_UNLCK=0, LK_LOCK=1, LK_NBLCK=2, locking=locking)
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
     monkeypatch.setattr(sys, "platform", "win32")
     return real_lock
@@ -106,6 +113,64 @@ def test_windows_branch_serializes_two_threads(tmp_path, monkeypatch):
     tb.join(5)
 
     assert order == ["a-start", "a-end", "b-start"]
+
+
+def test_windows_waiter_outlasting_lk_lock_budget_still_waits(tmp_path, monkeypatch):
+    """The receipt-chain fork on windows-latest: msvcrt's LK_LOCK gives up after ~10 s
+    and raises, ``locked`` failed open, and the starved waiter ran its read-modify-write
+    UNLOCKED. A holder that outlasts that budget must still keep the waiter out."""
+    _install_fake_msvcrt(monkeypatch)
+    path = tmp_path / "data.json"
+    order: list[str] = []
+    a_inside = threading.Event()
+
+    def writer_a():
+        with _filelock.locked(path):
+            order.append("a-start")
+            a_inside.set()
+            threading.Event().wait(0.3)  # 6x the fake LK_LOCK budget
+            order.append("a-end")
+
+    def writer_b():
+        a_inside.wait(5)
+        with _filelock.locked(path):
+            order.append("b-start")
+
+    ta, tb = threading.Thread(target=writer_a), threading.Thread(target=writer_b)
+    ta.start()
+    assert a_inside.wait(5)
+    tb.start()
+    ta.join(5)
+    tb.join(5)
+    assert order == ["a-start", "a-end", "b-start"]
+
+
+def test_windows_lock_error_other_than_contention_fails_open(tmp_path, monkeypatch):
+    """Only EACCES (held elsewhere) is waited out; a genuine error degrades to no lock."""
+    _install_fake_msvcrt(monkeypatch)
+
+    def bad(fd, mode, n):
+        raise OSError(errno.EBADF, "Bad file descriptor")
+
+    monkeypatch.setattr(sys.modules["msvcrt"], "locking", bad)
+    ran = False
+    with _filelock.locked(tmp_path / "data.json"):
+        ran = True
+    assert ran
+
+
+def test_windows_contention_gives_up_after_the_ceiling(tmp_path, monkeypatch):
+    """A lock wedged past the ceiling fails open rather than hanging a request."""
+    real = _install_fake_msvcrt(monkeypatch)
+    monkeypatch.setattr(_filelock, "_WIN_LOCK_GIVE_UP", 0.05)
+    real.acquire()  # someone else holds it, forever
+    try:
+        ran = False
+        with _filelock.locked(tmp_path / "data.json"):
+            ran = True
+        assert ran
+    finally:
+        real.release()
 
 
 def test_windows_branch_reuses_the_sidecar_across_calls(tmp_path, monkeypatch):

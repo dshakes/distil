@@ -26,6 +26,7 @@ the Windows branch on a POSIX CI runner.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import sys
 import time
@@ -88,12 +89,31 @@ def _lock_path(path: Path) -> Path:
     return path.with_name(path.name + ".lock")
 
 
+_WIN_LOCK_POLL = 0.005
+_WIN_LOCK_GIVE_UP = 60.0  # seconds of contention before failing open
+
+
 def _lock(fh: BinaryIO) -> None:
     if sys.platform == "win32":
         import msvcrt
 
         fh.seek(0)
-        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        # Not LK_LOCK: it retries 10 times one second apart, then raises. ``locked`` reads
+        # that as "locking unavailable" and fails OPEN, so the 11th-second waiter ran its
+        # read-modify-write unlocked — a forked receipt chain on a slow Windows runner
+        # with 16 overlapping appends. Contention is not failure: poll the non-blocking
+        # lock (EACCES = held by someone else) the way flock(LOCK_EX) simply waits.
+        # ponytail: fixed poll, no fairness; a minute of contention still fails open,
+        # because a request path must not hang on bookkeeping that is wedged.
+        deadline = time.monotonic() + _WIN_LOCK_GIVE_UP
+        while True:
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except OSError as exc:
+                if exc.errno != errno.EACCES or time.monotonic() >= deadline:
+                    raise
+            time.sleep(_WIN_LOCK_POLL)
     else:
         import fcntl
 

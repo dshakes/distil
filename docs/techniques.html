@@ -46,80 +46,43 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html" class="active" aria-current="page">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
           <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration</a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -206,7 +169,7 @@ distil (cache-aware lossless)          0.01023         <span class="g">32.8%</sp
 
     <h3 id="cold-point">Cold-point recompression</h3>
     <p><strong>Module:</strong> <code>distil/coldpoint.py</code> &middot; <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a> &middot; Loss profile: reversible &middot; <strong>not yet measured live</strong></p>
-    <p>Keeping the prefix byte-stable means an old tool result, once sent, is billed at the cache-read rate on every later turn for the rest of the session. The one moment it can shrink for free is a turn that arrives after the provider's cache entry has already expired: the whole prefix is re-written then anyway. On such a turn distil replaces older tool output with a <code>distil_expand</code>-recoverable stub and forwards those same stubs on every later turn, so the smaller prefix is what gets cached from then on. It acts only when expiry is certain from distil's own clock and the lineage is unambiguously one conversation; the freshest turns, exact-quote reads, expanded blocks and anything an <code>Edit</code> quotes are never touched. Anthropic only, wherever the recoverable digest runs. <code>--no-cold-point</code> opts out. Its gate is an rc soak plus a live A/B on the provider's own cache read/write totals, and neither has run yet. Contract: <a href="cache-contract.html#cold-point">clause (h)</a>.</p>
+    <p>Keeping the prefix byte-stable means an old tool result, once sent, is billed at the cache-read rate on every later turn for the rest of the session. The one moment it can shrink for free is a turn that arrives after the provider's cache entry has already expired: the whole prefix is re-written then anyway. On such a turn distil replaces older tool output with a <code>distil_expand</code>-recoverable stub and forwards those same stubs on every later turn, so the smaller prefix is what gets cached from then on. It acts only when expiry is certain from distil's own clock and the lineage is unambiguously one conversation; the freshest turns, exact-quote reads, expanded blocks and anything an <code>Edit</code> quotes are never touched. Anthropic only, wherever the recoverable digest runs. <code>--no-cold-point</code> opts out. Its gate is an rc soak plus a live A/B on the provider's own cache read/write totals, and neither has run yet. Contract: <a href="cache.html#cold-point">clause (h)</a>.</p>
 
     <hr/>
 
@@ -549,7 +512,7 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
       <li>The <strong>freshest</strong> tool output is never elided. A re-read the agent has just issued is exactly the output it reasons over to choose its next action, so the recency carve-out applies here like everywhere else.</li>
     </ul>
 
-    <p>It is cache-safe by the same construction as cache-delta and for the reason <a href="cache-contract.html">the cache contract</a> actually requires: the plan is a pure function of the message <em>prefix</em>, so a block encodes to the same bytes on every later turn and there is never anything to invalidate. The elided lines are recoverable byte-exact via <code>distil_expand</code>.</p>
+    <p>It is cache-safe by the same construction as cache-delta and for the reason <a href="cache.html#cache-contract">the cache contract</a> actually requires: the plan is a pure function of the message <em>prefix</em>, so a block encodes to the same bytes on every later turn and there is never anything to invalidate. The elided lines are recoverable byte-exact via <code>distil_expand</code>.</p>
 
     <div class="callout good">
       <b>Measured.</b> On the read &rarr; edit &rarr; re-read workload (<code>benchmarks/codebench.py</code>, 20 sessions / 320 turns) under the client shape that bills &mdash; newest turn pinned, whole history cached &mdash; the PAYG digest row moves from <strong>31.4% to 41.7% token savings</strong> and 35.8% to 49.1% cache-aware dollar savings, with the quote-survival invariant intact. That corpus is nothing but reads, so it is an upper bound; on real traffic the addressable share is about <strong>2.8% of tool-result mass</strong>. <code>distil bench</code> is unchanged &mdash; its corpus has no re-read of one path.
@@ -594,10 +557,228 @@ score = model.score(<span class="g">"ERROR: disk at 94% capacity"</span>, <span 
 
     <p>Salience protection's fourth signal, <strong>surprise</strong> (<a href="#salience-protection">above</a>), applies this same intuition ahead of time: error, failure, timeout, and anomaly lines are over-retained by default, because a lossy compressor drops the incongruent detail first — and that detail is what decides the next action.</p>
 
+    <hr/>
+
+    <!-- merged from techniques.html#code-skeletons -->
+<div id="code-skeletons"></div>
+<h2>Code skeletons <span class="g">from a real parse</span></h2>
+    <p class="lead">When a tool result is source code, the reversible tier keeps its structure — imports, types, every function signature — and folds function bodies behind a handle the agent can expand. Python has always used the standard library's <code>ast</code>. Other languages used a brace-counting heuristic; with the optional <code>[code]</code> extra they get a real parse.</p>
+
+<pre class="term"><span class="d">$ pipx install 'distil-llm[code]'</span>     <span class="d"># or: pip install 'distil-llm[code]'</span></pre>
+
+    <h3 id="what">What changes</h3>
+    <ul>
+      <li><strong>Languages:</strong> Go, Rust, Java, C, C++, Ruby, TypeScript, JavaScript. Ruby is new ground: it has no braces, so the heuristic never saw it.</li>
+      <li><strong>Bodies elided, signatures kept.</strong> A function body becomes <code>...</code>; the signature line, doc comments above it and the closing line stay. A body that holds a <em>named</em> function stays open so that name stays visible — a factory, a <code>describe</code> wrapper or an IIFE module does not swallow the file. Callbacks and closures go with their body.</li>
+      <li><strong>Conservative on errors.</strong> A subtree the grammar could not parse is left whole, and a text that is mostly parse errors is treated as not this language.</li>
+      <li><strong>Recoverable, deterministic.</strong> The byte-exact original sits behind the same handle as every other digest; same input, same skeleton.</li>
+    </ul>
+
+    <h3 id="deps">Dependencies</h3>
+    <p>The extra installs the official per-language tree-sitter grammar wheels: prebuilt, bundled, nothing downloaded when a file is parsed. <code>tree-sitter-language-pack</code> was considered and not used: its 1.x series fetches grammar bundles from the network on first use and needs Python 3.10, and distil runs on 3.9 and offline. Without the extra — or for a language it does not cover — distil uses the heuristic exactly as before.</p>
+
+    <h3 id="measured">Measured</h3>
+    <p>On eleven real source files (eight pinned public files across the eight languages plus three of this repo's own), the skeletons went from <strong>26.0% to 40.4%</strong> smaller than the source, and every named function's signature line survived; the heuristic dropped signatures on the Java and C++ files and could not skeleton Rust's <code>string.rs</code> or any Ruby at all. On the bundled corpus the <code>bench</code>, <code>verify</code>, <code>validate</code> and <code>retention</code> gates print identical results with and without the extra: its trajectories carry no non-Python source, so this path is not exercised there. Artifact: <code>benchmarks/results/skeleton_treesitter.json</code>; reproduce with:</p>
+<pre class="term"><span class="d">$ uv run --extra code python benchmarks/skeleton_treesitter.py</span></pre>
+
+
+    <hr/>
+
+    <!-- merged from techniques.html#output -->
+<div id="output"></div>
+<h2>Output <span class="g">&amp; I/O</span></h2>
+    <p class="lead">Most compressors only touch the input side; Distil compresses <strong>both sides</strong> — input context in, generation verbosity out — plus a lossless re-entry digest that keeps long outputs from re-billing as full history. This page covers all three, plus real-trace ingestion and the performance benchmark.</p>
+
+    <img src="assets/io.svg" alt="Distil compresses both input and output tokens" class="svg-embed"/>
+
+    <hr/>
+
+    <h3>Input and output, together</h3>
+    <p>Input compression has always been Distil's core: cache-aware pruning certified to change 0% of live agent decisions at 83.2% token savings (2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0). Output compression closes the other half of the invoice:</p>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="tag">Input side</div>
+        <h4>Context compression</h4>
+        <p>Cache-aware pruning + lossless transforms. Certified <strong>83.2% token savings at 0% live decision-change</strong> (≤5% @ 95% confidence, <code>claude-opus-4-8</code>; 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0). Always on. See <a href="benchmark.html">Benchmark</a>.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Output side</div>
+        <h4>Generation shaping</h4>
+        <p>A gated <code>role:"system"</code> directive shapes verbosity before generation. Lossy, so it is <strong>adaptive</strong>: on only while the live shadow referee says it is safe and paying, off with a stated reason otherwise, and never on a subscription. <abbr title="pay-as-you-go">PAYG</abbr>-only.</p>
+      </div>
+    </div>
+
+    <div class="callout good">
+      <b>Combined effect:</b> compressing both sides attacks both halves of the bill, with no application changes. How much it saves is not a constant: on short SWE-bench tasks the shipped path measured cost-neutral overall, so measure it on your own traffic (<code>distil shadow-stats</code> reports the output-token delta).
+    </div>
+
+    <hr/>
+
+    <h3>Output compression</h3>
+    <p><strong>Module:</strong> <code>distil/output.py</code></p>
+
+    <p>Two mechanisms work together, with different fidelity guarantees:</p>
+
+    <h4 id="adaptive">Generation-side shaping (<code>--shape-output</code>)</h4>
+    <p>Before forwarding the request, the proxy injects a verbosity-control directive instructing the model to be concise — routed the way each provider accepts it. The Anthropic Messages API rejects a <code>role:"system"</code> entry inside <code>messages</code> (400), so the directive is appended to the top-level <code>system</code> field there instead; the OpenAI chat shape takes an appended <code>role:"system"</code> message, and Gemini takes a <code>systemInstruction</code> part.</p>
+
+    <p>This changes the model&rsquo;s own words, so unlike input compression it cannot be justified by construction — it has to be justified by evidence. That is what <code>auto</code> is. It is the default on a metered session, and it decides once, at session start, from the same live referee every other surface reports.</p>
+
+    <h4>The rule</h4>
+    <p>Shaping is <strong>on</strong> only when all three of these hold:</p>
+    <ol>
+      <li>the paired decision-equivalence verdict is at or above the one reporting floor the whole product shares — 50 A/B and 30 A/A shadow samples;</li>
+      <li>its harm bound (the lower end of the paired difference interval) is inside the pre-registered certification budget of 2 percentage points — the same margin <code>distil certify</code> tests against, read from the same constant; and</li>
+      <li>the shadow output-token delta excludes zero on the saving side, over at least as many samples as the verdict floor.</li>
+    </ol>
+    <p>Miss any one and shaping is <strong>off</strong>, with the reason printed at startup, written into the session manifest, and shown by <code>distil dissect</code>. There is no silent state: &ldquo;off&rdquo; always comes with why.</p>
+
+    <p><strong>All three are read from rows measured with shaping off.</strong> Once shaping is on, the shadow replay of the served request carries the directive, so &ldquo;replies got shorter&rdquo; on those rows is shaping measuring itself — a gate that counted them would keep itself on by construction. Every shadow row now records the levers that were active when it was measured (<code>"levers": {"compression": …, "shape": …}</code>), and <code>auto</code> turns shaping on only from <code>shape: off</code> rows. Rows written before the tag existed are excluded too: their shaping state is unknown, not off.</p>
+    <p><strong>Shaped rows can still turn it off.</strong> They are the only rows that measure the directive's own effect on decisions, so once they clear the reporting floor their harm bound has to sit inside the same 2pp budget — if it does not, <code>auto</code> resolves off. And all of this is read over the last 7 days only, so an &ldquo;on&rdquo; decision never rests on traffic that has since changed.</p>
+
+    <p>Condition 3 deserves a caveat, because it is not a measurement of shaping. It measures what <em>input</em> compression already does to reply length on your traffic, which is the only live output-side evidence that exists before the session runs. Read it as an enabling signal — replies on this traffic move shorter when the prompt changes — not as a forecast of what shaping itself will save. A shaping A/B needs a live model and is what <code>distil output-savings</code> measures after the fact.</p>
+
+    <p>Two things <code>auto</code> never does. It never picks <code>aggressive</code>: an automatic decision gets the conservative directive, and the strongest lossy setting stays something you ask for. And it never runs on a subscription or OAuth session — that is a policy boundary (<code>policy.may_compress_lossy</code>), not a preference, so an explicit <code>--shape-output aggressive</code> there is suppressed and says so.</p>
+
+    <div class="callout warn">
+      <b>What the evidence says today.</b> The last published live sample — 398 A/B and 399 A/A, <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/shadow-live-2026-09-15.json">benchmarks/results/shadow-live-2026-09-15.json</a> — predates the lever tag, so for this gate it counts as zero rows and the verdict is below the reporting floor. It would not turn shaping on even if it counted: its harm bound, &minus;4.5pp, is outside the 2pp budget. So <code>auto</code> resolves to <strong>off</strong> and prints why. That is the feature working: the referee has not been given evidence to say yes, so the answer is no.
+    </div>
+
+    <p>Explicit levels override the evidence, on a metered session:</p>
+    <ul>
+      <li><strong><code>light</code></strong> — trims preamble, restatement and closing recaps. What <code>auto</code> turns on.</li>
+      <li><strong><code>aggressive</code></strong> — strong brevity constraint; omits elaboration and hedging.</li>
+      <li><strong><code>off</code></strong> — never shape, whatever the evidence says.</li>
+    </ul>
+
+    <pre class="term"><span class="d"># Default: the referee decides, and says why</span>
+<span class="d">$ distil proxy --port 8788</span>
+distil proxy listening on http://127.0.0.1:8788
+  → upstream: https://api.anthropic.com
+
+<span class="d"># Forced on, metered session</span>
+<span class="d">$ distil proxy --port 8788 --shape-output aggressive</span>
+  → output shaping: <span class="g">aggressive</span> (explicitly requested)
+
+<span class="d"># Forced on, subscription session — refused, with the reason</span>
+<span class="d">$ distil proxy --lossless-only --shape-output aggressive</span>
+  ⚠ --shape-output aggressive SUPPRESSED: subscription/OAuth session — distil never alters a flat-rate prompt</pre>
+
+    <p>Reply length is reported on its own line — the <code>output</code> verdict in the proof ledger, <code>distil stats</code> and <code>distil dissect</code> — never folded into the input-token saving: a shorter reply has no per-request counterfactual, so the only honest figure is the shadow estimate with its interval.</p>
+
+    <h4>Lossless re-entry digest</h4>
+    <p>When a long model response is about to re-enter history on the next turn, Distil compresses it using the same Tier-1 digest mechanism used for input blocks: the full output is stored in the local RestoreStore under an 8-hex handle, and only the handle travels as history. The model never re-reads the full prior output.</p>
+
+    <p>This is fully lossless and transparent to the application. The digest expands back to the original on any path that reads history — certify, replay, or export.</p>
+
+    <h4>Measuring output savings</h4>
+    <pre class="term"><span class="d">$ distil output-savings --input shaped_pairs.jsonl</span>
+output-token A/B — n=8 turns
+
+  baseline mean output tokens:   487
+  shaped   mean output tokens:   134
+
+  reduction: <span class="g">72.5%</span>  [95% CI: 67.5%–77.1%]  (illustrative)
+  answer preserved: <span class="g">100%</span>  (semantic match gate, n=8)</pre>
+
+    <div class="callout">
+      <b>Honest scope:</b> the 72.5% figure above is illustrative — it is a hand-written n=6 fixture that checks the measurement path, not a corpus result. Reply length cannot be measured offline at all: the offline oracle decides from context blocks and emits no prose, so there is no reply to count. The gate above is therefore live evidence, not a benchmark number. <code>distil output-savings</code> reads a JSONL file of <code>{"baseline": ..., "shaped": ...}</code> pairs (default: bundled fixture); pass <code>--input &lt;file&gt;</code> to measure your own traffic. Always verify output savings with a live run against your own workload, since verbosity shaping interacts with prompt design.
+    </div>
+
+    <hr/>
+
+    <h3>Real-trace ingestion</h3>
+    <p><strong>Module:</strong> <code>distil/ingest.py</code> · Command: <code>distil ingest</code></p>
+
+    <p>Distil ships a bundled synthetic corpus, but production traffic differs. <code>distil ingest</code> converts recorded API request logs into a Distil corpus so you can measure savings on real traffic.</p>
+
+    <h4>Supported formats</h4>
+    <p>Pass <code>--provider anthropic</code> (default) or <code>--provider openai</code> to select the input format. One input file produces one trajectory — there is no session grouping.</p>
+    <ul>
+      <li><strong>anthropic</strong> (default) — JSONL where each record is an Anthropic <code>messages.create</code> request body.</li>
+      <li><strong>openai</strong> — JSONL where each record is an OpenAI <code>chat.completions.create</code> request body.</li>
+    </ul>
+
+    <pre class="term"><span class="d">$ distil ingest --input prod.jsonl --out ./mycorpus</span>
+ingesting prod.jsonl → ./mycorpus
+
+corpus written to ./mycorpus/</pre>
+
+    <h4>Benchmarking real traces</h4>
+    <p>Real-trace corpora have no <code>DECISION</code> labels, so the offline non-inferiority gate cannot run. Use <code>--savings-only</code> to measure input-token savings; certify quality with a live runner:</p>
+
+    <pre class="term"><span class="d"># Savings gate on real traces (no DECISION labels required)</span>
+<span class="d">$ distil bench --corpus ./mycorpus --savings-only</span>
+corpus gate — 42 trajectories | savings-only (no DECISION labels)
+
+  aggregate savings: <span class="g">28.3%</span>  [95% CI: 25.1%–31.6%]
+  <span class="d">note: certify with --runner anthropic for a live quality gate.</span>
+
+<span class="d"># Live quality gate on a single trajectory from your corpus</span>
+<span class="d">$ distil certify --trajectory ./mycorpus/session_abc123.json --runner anthropic</span>
+certifying strategy 'distil' on 'session_abc123' (runner=anthropic)
+  ...
+VERDICT: <span class="g">PASS</span>  (certified non-inferior)</pre>
+
+    <hr/>
+
+    <h3>Performance benchmark</h3>
+    <p><strong>Module:</strong> <code>distil/perf.py</code> · Command: <code>distil perf</code></p>
+
+    <p>Distil is designed to add negligible latency to the critical path. The performance benchmark measures raw compression throughput and per-request overhead of the in-process adapter.</p>
+
+    <div class="stat-row">
+      <div class="stat-box hl">
+        <div class="stat-n">~27k<s>/s</s></div>
+        <div class="stat-l">distil-compressions per second (in-process)</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-n">0.006<s>ms</s></div>
+        <div class="stat-l">in-process adapter p50 latency</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-n">0.026<s>ms</s></div>
+        <div class="stat-l">per-turn overhead (live benchmark)</div>
+      </div>
+    </div>
+
+    <pre class="term"><span class="d">$ distil perf</span>
+distil performance benchmark
+
+  compressor throughput:   <span class="g">~27,000</span> distil-compressions/sec
+  in-process adapter p50:  <span class="g">0.006 ms</span>
+  in-process adapter p95:  0.011 ms
+  in-process adapter p99:  0.018 ms
+
+  (measured on Apple M-series, CPython 3.12, bundled sre-disk-incident trajectory)</pre>
+
+    <p>At 0.006 ms p50, the in-process adapter adds under 1% to a typical LLM round-trip (which runs in seconds). The live head-to-head benchmark confirms 0.026 ms per turn — <strong>~1,000× faster</strong> than LLMLingua-2's ~1,480 ms and ~1,000× faster than Headroom's ~26 ms. The proxy path adds a small network hop; the compression cost is the same either way.</p>
+
+    <div class="callout">
+      <b>What the benchmark measures:</b> the bundled <code>sre-disk-incident</code> trajectory (4 turns, ~8,000 tokens) is compressed in a tight loop with no warm-up exclusion. The throughput reflects realistic multi-turn context, not a trivial microbenchmark. Run <code>distil perf</code> on your hardware for a machine-specific baseline.
+    </div>
+
+    <hr/>
+
+    <h3>Quick reference</h3>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Quick reference">
+    <table>
+      <thead><tr><th>Command / Flag</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>distil output-savings</code></td><td>Measure realized output-token reduction via live A/B</td></tr>
+        <tr><td><code>proxy --shape-output auto|light|aggressive</code></td><td>Generation-side verbosity shaping (PAYG-only, lossy). <code>auto</code> is the default and decides from the live shadow evidence</td></tr>
+        <tr><td><code>distil ingest --input &lt;file&gt; --out &lt;dir&gt;</code></td><td>Convert production API logs into a Distil corpus</td></tr>
+        <tr><td><code>bench --corpus &lt;dir&gt; --savings-only</code></td><td>Savings gate on a real-trace corpus (no labels required)</td></tr>
+        <tr><td><code>distil perf</code></td><td>Throughput and latency benchmark</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+
     <div class="site-footer">
       Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
-    </div>
-  </main>
+    </div></main>
 </div>
 
 <script src="site.js" defer></script>
