@@ -267,6 +267,14 @@ class _Handler(BaseHTTPRequestHandler):
                 cfg.spend.settle(reservation, actual)
         if billable or usage is not None:
             self._record(model, status, usage, actual, t0, len(body), resp_bytes, stream, note)
+        if note is None:
+            # settle()/_record() above must land before the client can observe end-of-stream,
+            # or a reader of the log racing the still-open connection sees an incomplete total.
+            try:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except OSError:
+                pass
 
     def _forward(self, body: bytes) -> tuple[int, dict[str, Any] | None, str | None, int]:
         cfg = self.server.cfg
@@ -302,8 +310,6 @@ class _Handler(BaseHTTPRequestHandler):
                     buf += chunk
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
                 self.wfile.flush()
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
         finally:
             conn.close()
         if sse is not None:
