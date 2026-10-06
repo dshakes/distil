@@ -567,6 +567,8 @@ holdout A/B savings measurement (deterministic partition + bootstrap CI)
         <tr><th scope="row"><code>DISTIL_NO_LEDGER</code></th><td>unset</td><td>Set to 1 to stop the proof ledger being printed on exit.</td></tr>
         <tr><th scope="row"><code>DISTIL_NO_DRIFT_GUARD</code></th><td>unset</td><td>Set to 1 to opt out of the drift guard that holds compression after evidence of drift.</td></tr>
         <tr><th scope="row"><code>DISTIL_NO_ENCRYPT_AT_REST</code></th><td>unset</td><td>Set to 1 to store the restore data unencrypted (strict-FS setups).</td></tr>
+        <tr><th scope="row"><code>DISTIL_CENSUS_ENDPOINT</code></th><td>distil-census.vercel.app/v1/ping</td><td>Where the opt-in, content-free daily census is POSTed (self-hosted ingest). https:// only, or http://localhost / 127.0.0.1; any other value is ignored with a note.</td></tr>
+        <tr><th scope="row"><code>DISTIL_BEAT_ENDPOINT</code></th><td>distil-census.vercel.app/v1/beat</td><td>Where the opt-in, content-free savings heartbeat is POSTed. Same rules as DISTIL_CENSUS_ENDPOINT.</td></tr>
         <tr><th scope="row"><code>DISTIL_RESTORE_CAP</code></th><td>5000</td><td>Max entries in the restore store (LRU). Older digests then expand to a placeholder.</td></tr>
         <tr><th scope="row"><code>DISTIL_RESTORE_TTL_DAYS</code></th><td>14</td><td>Days a restore-store entry is kept.</td></tr>
         <tr><th scope="row"><code>DISTIL_COLD_POINT</code></th><td>1</td><td>0 turns off cold-point recompression (ADR 0014); same as --no-cold-point.</td></tr>

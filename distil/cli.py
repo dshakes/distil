@@ -6326,6 +6326,8 @@ def build_parser() -> argparse.ArgumentParser:
     rsub = rs.add_subparsers(dest="research_cmd", required=True, metavar="<command>")
     shown = {a.dest: a for a in sub._choices_actions}
     for name in RESEARCH_COMMANDS:
+        # One parser object serves both spellings; its usage/errors name the new one.
+        sub.choices[name].prog = f"{rs.prog} {name}"
         rsub.choices[name] = sub.choices[name]
         rsub._choices_actions.append(shown[name])
         sub._choices_actions.remove(shown[name])
@@ -6379,6 +6381,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     args = build_parser().parse_args(argv)
+    # "distil research bench: ..." not "distil research: ..." when a research command fails.
+    where = " ".join(filter(None, (getattr(args, "cmd", ""), getattr(args, "research_cmd", ""))))
     try:
         rc = args.func(args)
     except BrokenPipeError:
@@ -6388,17 +6392,17 @@ def main(argv: list[str] | None = None) -> int:
         # a clean message beats an 8-line pathlib traceback. Covers every
         # file-reading command at the dispatch chokepoint (no per-command patch).
         # NotADirectoryError = a --corpus that points at a file, not a dir.
-        print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
+        print(f"distil {where}: {e}", file=sys.stderr)
         return 2
     except json.JSONDecodeError as e:
         path = getattr(args, "trajectory", None) or getattr(args, "outcomes", None) or "input"
-        print(f"distil {getattr(args, 'cmd', '')}: {path} is not valid JSON — {e}", file=sys.stderr)
+        print(f"distil {where}: {path} is not valid JSON — {e}", file=sys.stderr)
         return 2
     except OSError as e:
         # e.g. EADDRINUSE when a proxy/gateway port is already taken, or any other
         # OS-level failure the specific handlers above didn't catch — a one-line
         # message beats a full traceback for what is almost always a user setup issue.
-        print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
+        print(f"distil {where}: {e}", file=sys.stderr)
         return 2
 
     # The status line is piped to a consumer (Claude Code) that may close the

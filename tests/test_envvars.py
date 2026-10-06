@@ -28,8 +28,8 @@ def test_docs_table_matches_registry() -> None:
 
 
 def test_test_hooks_are_inert_without_the_switch(monkeypatch) -> None:
-    monkeypatch.setenv("DISTIL_CENSUS_ENDPOINT", "http://evil.example/")
+    monkeypatch.setenv("DISTIL_HOTSWAP_TEST_FAIL_READY", "/tmp/x")
     monkeypatch.delenv("DISTIL_TESTING", raising=False)
-    assert _testing.hook("DISTIL_CENSUS_ENDPOINT", "d") == "d"
+    assert _testing.hook("DISTIL_HOTSWAP_TEST_FAIL_READY") is None
     monkeypatch.setenv("DISTIL_TESTING", "1")
-    assert _testing.hook("DISTIL_CENSUS_ENDPOINT", "d") == "http://evil.example/"
+    assert _testing.hook("DISTIL_HOTSWAP_TEST_FAIL_READY") == "/tmp/x"

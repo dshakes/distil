@@ -574,3 +574,18 @@ def test_old_research_name_prints_a_deprecation_note(capsys):
     with pytest.raises(SystemExit):
         cli.main(["research", "verify", "--help"])
     assert "now `distil research" not in capsys.readouterr().err
+
+
+def test_research_command_help_and_errors_name_the_research_path(capsys, monkeypatch):
+    with pytest.raises(SystemExit):
+        cli.main(["research", "bench", "--help"])
+    assert capsys.readouterr().out.startswith("usage: distil research bench")
+
+    def boom(args):
+        raise FileNotFoundError("no such corpus")
+
+    monkeypatch.setattr(cli, "cmd_bench", boom)
+    assert cli.main(["research", "bench"]) == 2
+    assert capsys.readouterr().err.startswith("distil research bench: no such corpus")
+    assert cli.main(["bench"]) == 2  # hidden alias: same handler, still a clean message
+    assert "distil bench: no such corpus" in capsys.readouterr().err

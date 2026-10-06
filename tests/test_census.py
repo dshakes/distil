@@ -21,6 +21,8 @@ def _isolate(tmp_path, monkeypatch):
     monkeypatch.delenv("DO_NOT_TRACK", raising=False)
     monkeypatch.delenv("DISTIL_NO_TELEMETRY", raising=False)
     monkeypatch.delenv("DISTIL_CENSUS_ENDPOINT", raising=False)
+    monkeypatch.delenv("DISTIL_BEAT_ENDPOINT", raising=False)
+    monkeypatch.delenv("DISTIL_TESTING", raising=False)
 
 
 def _arm_network_tripwire(monkeypatch, calls: list):
@@ -43,7 +45,6 @@ def test_default_is_silent(monkeypatch):
     """No consent → no network, even with an endpoint configured."""
     calls: list = []
     _arm_network_tripwire(monkeypatch, calls)
-    monkeypatch.setenv("DISTIL_TESTING", "1")
     monkeypatch.setenv("DISTIL_CENSUS_ENDPOINT", "http://127.0.0.1:1/ping")
     assert census.enabled() is False
     assert census.maybe_ping() is False
@@ -805,6 +806,53 @@ def test_send_beat_posts_to_endpoint(monkeypatch):
     monkeypatch.setattr(census.urllib.request, "urlopen", fake_urlopen)
     census._send_beat({"v": 1, "id": "a" * 32, "tokens": 5, "rate": 1.0, "ts": 1})
     assert seen["url"].endswith("/v1/beat") and seen["body"]["tokens"] == 5
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://census.example.org/v1/ping",
+        "http://localhost:8080/p",
+        "http://127.0.0.1/p",
+        "http://[::1]:9/p",
+    ],
+)
+def test_endpoint_override_is_honoured_without_test_switch(monkeypatch, url):
+    """ADR 0002: operators may self-host the ingest; the override is a real knob."""
+    seen: list = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen.append(req.full_url)
+        return _Resp()
+
+    monkeypatch.setattr(census.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("DISTIL_CENSUS_ENDPOINT", url)
+    monkeypatch.setenv("DISTIL_BEAT_ENDPOINT", url)
+    census._send({"schema": 4})
+    census._send_beat({"v": 1})
+    assert seen == [url, url]
+    assert census.status()["endpoint"] == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://census.example.org/p", "ftp://x/p", "https://", "x/p", "http://localhost.evil.com/p"],
+)
+def test_unsafe_endpoint_override_is_ignored_with_a_note(monkeypatch, capsys, url):
+    """Cleartext to a remote host (or junk) never becomes the census destination."""
+    monkeypatch.setenv("DISTIL_CENSUS_ENDPOINT", url)
+    monkeypatch.setenv("DISTIL_BEAT_ENDPOINT", url)
+    assert census._endpoint("DISTIL_CENSUS_ENDPOINT", "d") == "d"
+    assert census._endpoint("DISTIL_BEAT_ENDPOINT", "b") == "b"
+    err = capsys.readouterr().err
+    assert "ignoring DISTIL_CENSUS_ENDPOINT" in err and "ignoring DISTIL_BEAT_ENDPOINT" in err
 
 
 def test_heartbeat_corrupt_marker_recovers(tmp_path, monkeypatch):

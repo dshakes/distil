@@ -1,9 +1,8 @@
 """The one door for test hooks: a hook is read only when ``DISTIL_TESTING=1``.
 
 Production code must not grow behaviour switches that exist for the test suite
-(a stray `DISTIL_HOTSWAP_TEST_FAIL_READY` in a user's shell would kill a worker;
-a stray endpoint override would redirect telemetry). Every such hook reads its
-variable through :func:`hook`, which returns the default unless the opt-in is set.
+(a stray `DISTIL_HOTSWAP_TEST_FAIL_READY` in a user's shell would kill a worker).
+Every such hook reads its variable through :func:`hook`, which returns the default unless the opt-in is set.
 """
 
 from __future__ import annotations
