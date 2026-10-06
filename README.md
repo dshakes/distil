@@ -19,8 +19,6 @@
 <!-- TODO(first-impression): replace with a real screenshot of `distil savings` once that
      screen ships. No mock here on purpose: a made-up savings screen is a made-up number. -->
 
-**About 9% off the real bill** — the maintainer's own metered Claude Code traffic, 13,191 requests in September 2026, cache reads and writes priced in and distil's own spend netted out ([source data](benchmarks/results/2026-09-24/live_savings_decomposition.json), [how the 8.3–9.2% range is derived](docs/research/expand-undercount.md)). Your share depends on how much large, repetitive tool output your agent reads.
-
 ```bash
 uv tool install distil-llm && distil setup
 ```
@@ -33,11 +31,18 @@ distil savings             # what it saved you, from your own traffic
 distil doctor              # if something looks off
 ```
 
-**Why trust the number**
+**What the measurements say today** (2026-10-06; every figure links to its artifact)
+
+- **On short coding tasks no compressor is shown to save money.** SWE-bench Lite, 298 tasks, same model and grader: distil is at parity with no compression ($0.0393 vs $0.0387 per solved task). RTK looked 20.7% cheaper per task until we found that its arm read other arms' prompt cache; re-priced as a cold run it is −6.5% [−13.1%, +0.1%], not significant. Selective Context and Anthropic context editing are not cheaper. Headroom has not run there yet. [Scoreboard →](https://dshakes.github.io/distil/scoreboard.html#swebench-lite-300-h2h-cost-confound)
+- **Long sessions: inconclusive.** A 7-task long-horizon pilot (median 63–69 steps) shows no cost difference for distil or RTK; on the 6 tasks without one crashed attempt, distil cost 9.7% more than plain. [Run →](benchmarks/results/swebench-verified-hard-max/README.md)
+- **Why.** An offline simulator that reproduces the provider's bill within 2.5% on runs it never saw finds that lossless policies change cost by less than 0.2%, and that lossy compression saves money only if the agent does not take extra steps to make up for what was removed. Measuring that is the next live A/B. [Simulator →](docs/research/policy-simulator.md) · [Why RTK looked cheaper →](docs/research/why-rtk-wins.md)
+- On the maintainer's own metered Claude Code traffic (13,191 requests, September 2026) distil removed an estimated 8.3–9.2% of the bill, cache priced in, its own spend netted out ([source](benchmarks/results/2026-09-24/live_savings_decomposition.json), [method](docs/research/expand-undercount.md)). That is a same-trajectory estimate: it assumes the agent behaved the same, which is exactly what the A/B above has to check.
+
+**Why trust the measurements**
 
 - **It doesn't break your prompt cache.** Distil never rewrites bytes the provider still has cached; older context changes only once that cache has already expired. We shipped that bug once, measured what it cost, and made the rule an enforced invariant. [The cache contract →](https://dshakes.github.io/distil/cache.html#cache-contract)
 - **Every compressed byte is recoverable.** What distil folds away it keeps in a local store, and the agent gets a `distil_expand` tool to pull the exact original back mid-task. [How the digest works →](https://dshakes.github.io/distil/techniques.html#skeleton-digest)
-- **It's measured on a real bill, receipts included.** Savings are counted per request and calibrated against the `usage` your provider actually bills; every request writes a hash-chained receipt you can verify. The number above is one real bill. [How it's measured →](https://dshakes.github.io/distil/benchmark.html)
+- **It's measured on a real bill, receipts included.** Savings are counted per request and calibrated against the `usage` your provider actually bills; every request writes a hash-chained receipt you can verify. The same harness runs every other compressor, and when it found a flaw in its own head-to-head it published the correction. [How it's measured →](https://dshakes.github.io/distil/benchmark.html)
 
 **And it tells you when it is hurting you.** Shadow mode replays a sample of requests on the original and the compressed context and reports the difference per compression mode; when the digest's harm bound goes over budget, the proxy holds itself at lossless-only. Pointed at the providers instead, the same check found Anthropic's context clearing changed the agent's next action in 37 of 40 cases ([study](https://dshakes.github.io/distil/research.html#provider-compaction)).
 
@@ -57,6 +62,8 @@ distil doctor              # if something looks off
   subscription unless you add `--digest`; every digest recoverable with `distil expand <handle>`.
   No proxy, no credentials touched. `distil quota` shows the rate-limit
   window it buys back. [Hooks →](https://dshakes.github.io/distil/hooks.html)
+- **Shape shell output at the source** — `distil sh -- <command>` (opt-in, [ADR 0026](docs/adr/0026-shell-output-at-the-source.md)) keeps every failure, error and summary line of a test run or `git status` verbatim and folds the passing-test noise behind a `distil expand` handle; `distil hook install --shell` makes Claude Code use it. On SWE-bench Lite transcripts test runs are rare, so it removes 0.06% of bash output there and stays opt-in. [Shell →](https://dshakes.github.io/distil/shell.html)
+- **Same mechanisms on every provider** — re-fetch verbatim, cold-point eviction, the edit-quote guard and census run on Anthropic Messages, OpenAI Chat and Responses, and Gemini; OpenAI and Gemini are priced, so savings and `distil audit` stop booking $0 there; the `distil savings` what-if replays Codex CLI and Gemini CLI sessions as well as Claude Code's. [Parity matrix →](docs/research/provider-parity.md)
 - **VS Code Copilot Chat** — its BYOK Custom Endpoint can point at a distil proxy: `distil setup --vscode`.
 - **Keep a span verbatim** — `<distil:keep>…</distil:keep>` in a prompt or tool output is never compressed.
 - **Keeps MCP tool search on** — `distil wrap -- claude` keeps Claude Code's MCP tool search switched on, which Claude Code otherwise turns off behind a proxy, so unused connectors stay deferred instead of riding along on every turn. Verified live on 1.54.0 (2026-09-25): `tools_deferred` of 4–5 on every request, tool payload 9,733 tokens, prompt-cache reads intact. ([ADR 0013](docs/adr/0013-unused-connectors-are-claude-codes-to-defer.md))
@@ -75,17 +82,18 @@ uv tool install distil-llm && distil setup    # detects your agent + billing, wi
 </p>
 
 > **Will it save you money?** On **metered billing** (an API key) it cuts the tokens you send —
-> about 9% of the bill on the maintainer's traffic. Whether that shows up as a lower bill depends on
-> the workload: on short SWE-bench tasks the net cost effect measured **cost-neutral**, and long
-> sessions are not yet measured at A/B grade. On a **flat-rate Pro/Max subscription** there is no per-token bill to cut, but there *is* a
+> an estimated 8.3–9.2% of the bill on the maintainer's traffic, if the agent behaves the same. Whether that shows up as a
+> lower bill depends on the workload: on short SWE-bench tasks the net cost effect measured **cost-neutral**, and the
+> long-session pilot (7 tasks) is **inconclusive**. On a **flat-rate Pro/Max subscription** there is no per-token bill to cut, but there *is* a
 > rate-limit window, and spending fewer tokens per turn leaves more of it for the next task.
 > `distil quota` shows that window live. Savings come from **large, repetitive** tool output:
 > verbose JSON and duplicated log runs compress 25–99%, while prose and unique-line output
 > compress ~0% — a short session that never reads a big file showing near 0% is the tool working
 > correctly, not failing. [Why →](#-compression-modes--in-plain-english)
-> Shell output (`grep`, `git`, test runs, ad-hoc scripts) goes through that same generic,
-> reversible digest; there are deliberately no per-command profiles, because measured on real
-> transcripts they would add too little on top of it. [ADR 0015 →](docs/adr/0015-no-per-command-shell-profiles.md)
+> Shell output (`grep`, `git`, ad-hoc scripts) goes through that same generic, reversible digest
+> ([ADR 0015](docs/adr/0015-no-per-command-shell-profiles.md)); search, listing and reads stay verbatim.
+> The one exception is opt-in: `distil sh` shapes test-runner and `git status` output at the
+> source ([ADR 0026](docs/adr/0026-shell-output-at-the-source.md)).
 
 <!-- ═══ LIVE community counter — fed by the opt-in census, re-polls every 5 min ═══ -->
 <p align="center"><sub>◉ &nbsp;<b>LIVE</b> · measured from the opt-in census on a <a href="https://github.com/dshakes/distil/tree/metrics">public git branch</a>, never estimated</sub></p>
@@ -181,7 +189,7 @@ OpenAI's compaction changed **12.5–20%**. Pre-registered, replicated, n=40 per
 
 <p align="center"><b>On SWE-bench Lite the shipped path is cost-neutral and within about 2 points on task success — not statistically distinguishable at n=300.</b></p>
 
-<p align="center"><sub>Two runs after the shell-search fix, distil-served vs plain Claude: 204/299 vs 210/299 (−2.0 pts, 95% CI −5.5..+1.5; cost $7.18 vs $7.18) and 213/298 vs 218/298 (−1.7 pts, 95% CI −5.1..+1.7; cost $8.44 vs $8.52). Non-inferiority at the pre-registered 5-point margin is <b>not shown</b>; long sessions are not yet measured. Reports: <a href="benchmarks/results/swebench-outcome-300-grepfix/report.md">low effort</a> · <a href="benchmarks/results/swebench-outcome-300-medium/report.md">medium effort</a>.</sub></p>
+<p align="center"><sub>Two runs after the shell-search fix, distil-served vs plain Claude: 204/299 vs 210/299 (−2.0 pts, 95% CI −5.5..+1.5; cost $7.18 vs $7.18) and 213/298 vs 218/298 (−1.7 pts, 95% CI −5.1..+1.7; cost $8.44 vs $8.52). Non-inferiority at the pre-registered 5-point margin is <b>not shown</b>; the long-session pilot (7 tasks) is inconclusive. Every other compressor is scored the same way on the <a href="https://dshakes.github.io/distil/scoreboard.html">scoreboard</a>. Reports: <a href="benchmarks/results/swebench-outcome-300-grepfix/report.md">low effort</a> · <a href="benchmarks/results/swebench-outcome-300-medium/report.md">medium effort</a>.</sub></p>
 
 <p align="center"><img src="docs/assets/head-to-head.svg" alt="Distil vs LLMLingua-2 vs Headroom — token savings, decision-change rate, latency" width="100%"/></p>
 
@@ -297,7 +305,7 @@ distil shadow-stats                  # live decision-equivalence rate
 
 Honest scope: that's next-action equivalence — a **proxy**, not task success ([E7](#-the-proof) shows it doesn't fully transfer under aggressive *lossy* compression). Distil fails safe to full context.
 
-> **Will it save money?** On **metered** billing (API key) — fewer tokens: about 9% of the bill on the maintainer's traffic. On short SWE-bench tasks the net cost effect measured cost-neutral; long sessions are not yet measured at A/B grade. On a flat-rate **subscription** there is no per-token bill, so the saving is **rate-limit headroom**: fewer tokens per turn means more turns before you hit the window (`distil quota` shows it live). Coding agents: short sessions ~7%, big wins on **long, many-turn** sessions the model never re-reads.
+> **Will it save money?** On **metered** billing (API key) — fewer tokens: about 9% of the bill on the maintainer's traffic. On short SWE-bench tasks the net cost effect measured cost-neutral; the long-session pilot (7 tasks) is inconclusive, and whether lossy compression pays depends on whether the agent takes extra steps, which the next live A/B measures. On a flat-rate **subscription** there is no per-token bill, so the saving is **rate-limit headroom**: fewer tokens per turn means more turns before you hit the window (`distil quota` shows it live).
 
 ---
 
@@ -374,7 +382,7 @@ python benchmarks/model_migration_summary.py                     # paired CIs ->
 
 Live runs spend money; add `--fake oracle` to check the wiring offline first. Gates, tables and the rest of the commands: [Model Migration](https://dshakes.github.io/distil/ab.html#model-migration) ([`docs/ab.html#model-migration`](docs/ab.html#model-migration)). Decision records: [ADR 0020](docs/adr/0020-default-live-certifier.md) (default certifier) and [ADR 0021](docs/adr/0021-served-path-certification.md) (served-path certification).
 
-**An open risk on coding traffic.** The certified `distil` strategy digests only the latest tool output and saves 2.6% of tokens on real SWE-agent trajectories; the serving adapter digests every earlier tool output and saves 52.6%, so most served bytes were never certified. `distil certify --strategy served` now grades the real adapter, and its first result is not a pass: with recovery it keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two identical uncompressed calls. Whether that costs solved tasks is what the SWE-bench outcome eval ([spec](specs/swebench-outcome-eval.md), `benchmarks/swebench_outcome/`) is for; on all 300 SWE-bench Lite tasks ([report](benchmarks/results/swebench-outcome-300/report.md)), with both agents using prompt caching, the distil-served agent resolved 201 of 299 paired tasks against 210 for the plain agent: −3.0 pts (95% CI −6.4 to +0.4, McNemar p = 0.12). That does **not** show non-inferiority at the pre-registered 5-point margin, and it supersedes an earlier 100-task run that had passed narrowly. Serving also cost 12.4% more and took 29.9% more steps. Replaying the compression offline shows why: distil digested most of the agent's shell `grep` output, its map of where things are, and the agent searched and re-read again instead of calling `distil_expand`. distil already kept a `Grep` tool's output verbatim, but not the same search run through `bash`; it now keeps both. Re-running the distil arm with that fix ([report](benchmarks/results/swebench-outcome-300-grepfix/report.md)) removes the penalty: steps over plain fall from +29.9% to +3.1% and cost from +12.4% to parity. Task success is still not shown: 204 of 299 against 210 (−2.0 pts, 95% CI −5.5 to +1.5), just outside the margin. A second run at higher effort ([report](benchmarks/results/swebench-outcome-300-medium/report.md)) points the same way. Treat the served path on coding agents as cost-neutral and not yet proven for task success; savings on long sessions are not yet measured. Method, tables and rerun commands: [Model Migration](https://dshakes.github.io/distil/ab.html#model-migration); every dataset used, with sources and pins: [EVALUATION.md §6.9](docs/EVALUATION.md#69-datasets-used-model-migration-served-path-task-outcome).
+**An open risk on coding traffic.** The certified `distil` strategy digests only the latest tool output and saves 2.6% of tokens on real SWE-agent trajectories; the serving adapter digests every earlier tool output and saves 52.6%, so most served bytes were never certified. `distil certify --strategy served` now grades the real adapter, and its first result is not a pass: with recovery it keeps the next action in 78.0% of held-out coding decisions, against 94.1% for two identical uncompressed calls. Whether that costs solved tasks is what the SWE-bench outcome eval ([spec](specs/swebench-outcome-eval.md), `benchmarks/swebench_outcome/`) is for; on all 300 SWE-bench Lite tasks ([report](benchmarks/results/swebench-outcome-300/report.md)), with both agents using prompt caching, the distil-served agent resolved 201 of 299 paired tasks against 210 for the plain agent: −3.0 pts (95% CI −6.4 to +0.4, McNemar p = 0.12). That does **not** show non-inferiority at the pre-registered 5-point margin, and it supersedes an earlier 100-task run that had passed narrowly. Serving also cost 12.4% more and took 29.9% more steps. Replaying the compression offline shows why: distil digested most of the agent's shell `grep` output, its map of where things are, and the agent searched and re-read again instead of calling `distil_expand`. distil already kept a `Grep` tool's output verbatim, but not the same search run through `bash`; it now keeps both. Re-running the distil arm with that fix ([report](benchmarks/results/swebench-outcome-300-grepfix/report.md)) removes the penalty: steps over plain fall from +29.9% to +3.1% and cost from +12.4% to parity. Task success is still not shown: 204 of 299 against 210 (−2.0 pts, 95% CI −5.5 to +1.5), just outside the margin. A second run at higher effort ([report](benchmarks/results/swebench-outcome-300-medium/report.md)) points the same way. Treat the served path on coding agents as cost-neutral and not yet proven for task success; on long sessions a 7-task pilot is inconclusive ([run](benchmarks/results/swebench-verified-hard-max/README.md)). Method, tables and rerun commands: [Model Migration](https://dshakes.github.io/distil/ab.html#model-migration); every dataset used, with sources and pins: [EVALUATION.md §6.9](docs/EVALUATION.md#69-datasets-used-model-migration-served-path-task-outcome).
 
 ```
 domain            trajectory                $ saved   distil   aggr  pruned
@@ -412,6 +420,8 @@ Three results, all reproducible, all published with caveats:
 - **Head-to-head on a synthetic corpus** vs real `llmlingua` / `headroom-ai` (a seeded 120-turn corpus from `benchmarks/gen_realworld.py`, graded by `claude-opus-4-8`; 2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0): **83.2% savings at 0% decision-change**, ~1,000× faster (no ML model loaded vs. competitors' local transformer inference). The live proxy behavior is pinned to the certified strategy by `tests/test_live_certified_equivalence.py`; the one reviewed delta is a recency carve-out that keeps the freshest tool-result turns verbatim (an agent needs its freshest output byte-exact). Since 1.45 that carve-out applies only to content the provider has *not* cached — anchored to the client's `cache_control` breakpoint, and dropped entirely for providers that cache implicitly. A carve-out counted back from the end of the conversation slid forward as it grew, rewriting already-cached content one turn later and costing more in re-billed prefix than the digest saved. → [benchmark](https://dshakes.github.io/distil/benchmark.html)
 - **E7 (SWE-bench Verified):** aggressive *lossy* compression **craters** task success (52% → 16%) — a per-step certificate doesn't transfer to multi-turn. The **reversible** tier survives (56% vs 52%). We publish it because it's true. → [E7](https://dshakes.github.io/distil/research.html#e7)
 - **SWE-bench Lite, the shipped path (n=300, twice):** cost-neutral and within about 2 points on task success (−2.0 pts, 95% CI −5.5..+1.5; −1.7 pts, 95% CI −5.1..+1.7) — not statistically distinguishable, and non-inferiority at the 5-point margin not shown. → [reports](benchmarks/results/swebench-outcome-300-medium/report.md). Research configurations (E8–E14, SWE-bench Verified) are on the [research page](https://dshakes.github.io/distil/research.html#e8) and are not the shipped path.
+
+- **Head-to-head against other compressors (SWE-bench Lite, 298 tasks; long-horizon pilot, 7 tasks):** success rates on the [scoreboard](https://dshakes.github.io/distil/scoreboard.html); RTK is the only arm shown non-inferior on success, and no arm is shown cheaper once a shared-prompt-cache confound in that run is removed (RTK −6.5% per task [−13.1%, +0.1%], not significant). The long-horizon pilot shows no cost difference. → [cost confound](benchmarks/results/swebench-outcome-300-h2h/README.md) · [why](docs/research/why-rtk-wins.md)
 
 Full methodology, McNemar tests, per-instance data: [`docs/PAPER.md`](docs/PAPER.md) · [PDF](docs/paper/main.pdf).
 
@@ -693,9 +703,12 @@ Basics are in [Use it now](#-use-it-now) and [Works with every SDK](#-works-with
 | Deep-dive one session (savings, anomalies) | `distil dissect` (`--html` / `--serve`) |
 | Where you're still leaving savings on the table | `distil discover` (`--since 7` / `--json`) |
 | Live decision-equivalence on real traffic | `distil wrap --shadow 0.1 -- claude` → `distil shadow-stats` |
-| Certify on *your* domain | `distil ingest --input prod.jsonl --out ./mycorpus` → `distil conformal --corpus ./mycorpus` |
+| Certify on *your* domain | `distil research ingest --input prod.jsonl --out ./mycorpus` → `distil research conformal --corpus ./mycorpus` |
 | Recover digested detail from any agent (MCP) | `distil mcp` |
-| Self-improving keep policy | `distil learn` / `distil online` |
+| Self-improving keep policy | `distil research learn` / `distil research online` |
+| Shape a test run's output at the source | `distil sh -- pytest -q` · Claude Code: `distil hook install --shell` |
+| What distil would have saved, from Claude Code / Codex / Gemini CLI transcripts | `distil savings` (no install: `uvx --from distil-llm distil savings`) |
+| Maker-side research and CI gates (bench, certify, verify, validate, ...) | `distil research <command>` (`distil research --help`) |
 
 > **Status line** — one pattern in every state: `distil · <live> · total ▼<lifetime>`.
 >

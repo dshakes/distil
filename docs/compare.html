@@ -98,6 +98,17 @@
 
     <hr/>
 
+    <h2 id="money">Does any of them save money? Measured head-to-head</h2>
+    <p>Every compressor below was run by its own real, pinned package through the same SWE-bench harness, model and official grader; the per-arm table is the <a href="scoreboard.html">scoreboard</a>.</p>
+    <ul>
+      <li><strong>Short tasks (SWE-bench Lite, 298 tasks graded in every arm): no compressor is shown to save money.</strong> distil is at parity with no compression ($0.0393 vs $0.0387 per solved task). RTK is the only arm shown non-inferior on success, and it looked &minus;20.7% per task on cost &mdash; but its arm, Selective Context's and Anthropic context editing's ran the same day with byte-identical first requests and <a href="scoreboard.html#swebench-lite-300-h2h-cost-confound">read each other's prompt cache</a> (rtk 190/300 rows, selective 167/300, provider-cm 139/300; plain and distil 0/300). Re-priced as a cold run, RTK is &minus;6.5% per task [&minus;13.1%, +0.1%], not significant. Selective Context and context editing are not cheaper. Headroom has not run on this harness yet.</li>
+      <li><strong>Long sessions: inconclusive.</strong> A 7-task long-horizon pilot (SWE-bench Verified hard tasks, effort max) shows no cost difference for distil or RTK; on the 6 tasks without one crashed attempt, distil cost 9.7% more than plain.</li>
+      <li><strong>Why.</strong> On short tasks tool output is a small share of the bill, so there is little for any tool-output compressor to remove (<a href="https://github.com/dshakes/distil/blob/main/docs/research/why-rtk-wins.md">root-cause analysis</a>). An offline <a href="https://github.com/dshakes/distil/blob/main/docs/research/policy-simulator.md">policy simulator</a>, within 2.5% of the provider's bill on held-out runs, finds every lossless policy within 0.2% of plain; lossy compression saves only if the agent does not take extra steps to recover what was removed. Measuring that is the next live A/B.</li>
+    </ul>
+    <p>This is the referee result, and distil is one of the rows: the same rules, and the same correction, apply to it.</p>
+
+    <hr/>
+
     <h2>Capability matrix</h2>
     <p>Marked from what each project documents or ships, not from marketing. Distil's own claims are the ones audited throughout this site — see <a href="concepts.html">Concepts</a> and <a href="security.html#deploy-security">Deploy &amp; Security</a> for the code behind each ✔.</p>
 

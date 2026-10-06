@@ -209,6 +209,26 @@ library only; install it before spending); `provider-cm` against the live API (b
 whether `bash_20250124`/`text_editor_20250728` + adaptive thinking are accepted on the beta
 endpoint); the effect sizes of any arm.
 
+## Cost accounting: each arm pays for its own cache
+
+The 2026-10-05 Lite head-to-head arms (rtk, selective, provider-cm) ran the same day with
+byte-identical first requests and read each other's prompt cache, so their billed cost was not
+their own (`benchmarks/results/swebench-outcome-300-h2h/README.md`, "Cost confound";
+`docs/research/why-rtk-wins.md`). Two guards follow.
+
+- **Cache namespace (default on).** `run` sets a per-run nonce (`Cfg.cache_ns`) and each arm's
+  system prompt starts with `[cache namespace ARM-NONCE]`, so no two arms (and no two runs) share
+  a cached prefix. Within one arm the prompt is identical from task to task, as a real agent's is.
+  The row records `cache_ns`. `--no-cache-namespace` sends the bare prompt (what runs before
+  2026-10-06 sent); use it only to reproduce one of them.
+- **Cold-accounting check.** An append-only run that starts cold writes at least its largest
+  prompt, so `cache_write + input >= cache_read / (steps - 1)` for every row with 2+ steps.
+  `report.cache_check` lists the arms with rows below that and `report` appends it to
+  `report.md` as `## Cost confound`; `scripts/build_scoreboard.py` applies the same check
+  (`report.cache_contamination`) and shows such an arm's dollars only as a full cold re-pricing
+  (named per run in `benchmarks/results/scoreboard-runs.json`, `cold_repriced`), otherwise
+  "confounded". Success rates are not affected by either.
+
 ## Threats to validity
 - **Competitor arms are not like-for-like layers.** RTK shrinks bash output only (the editor
   tool is untouched); Selective Context is lossy and question-agnostic and flattens whitespace;
@@ -225,7 +245,7 @@ endpoint); the effect sizes of any arm.
 - **Compression is applied to the full history each call**: matches the served transform, but the
   harness does no prompt-cache interplay, so cost savings are not a caching-aware estimate.
 - **Expand tool is model-discoverable only via the digest markers**: the system prompt is identical
-  across arms by design; if distil injects extra instructions in deployment, this under-represents it.
+  across arms by design apart from the one-line cache namespace; if distil injects extra instructions in deployment, this under-represents it.
 - **Env**: each bash call is a fresh shell (no persistent cwd/env); the patch includes untracked
   files; grading uses the official harness, so eval-time flakiness affects both arms equally.
 - **Class exclusion** can bias the paired set if api/env failures correlate with arm (check the

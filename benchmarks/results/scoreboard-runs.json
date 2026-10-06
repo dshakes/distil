@@ -2,6 +2,18 @@
   "_note": "Which committed runs scripts/build_scoreboard.py puts on docs/scoreboard.html, newest first. Every number on the page is recomputed from each dir's results.jsonl + grades.jsonl (swebench_outcome) or analysis.json (cost_truth). `date` and `versions` are run metadata copied from the run's report.md notes and git history; arm_meta in the rows wins when present. Add a dir here after a run lands; an arm with no rows shows 'pending run'.",
   "runs": [
     {
+      "id": "swebench-verified-hard-max",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-verified-hard-max",
+      "date": "2026-10-06",
+      "benchmark": "SWE-bench Verified, hard tasks, effort max",
+      "versions": {
+        "distil": "1.57.0",
+        "rtk": "0.51.0"
+      },
+      "note": "long-horizon pilot, not a verdict: 7 tasks (the hard '1-4 hours'/'>4 hours' Verified buckets, as many as the $100 cap bought) at effort max, median 63-69 steps per task. No cost difference is shown for distil or rtk (both $-per-solved intervals cross 1). distil's lower $ per solved comes from one attempt that crashed after 4 steps on max_tokens; on the other 6 tasks distil cost 9.7% more than plain. selective and provider-cm were dropped to fit the cap (pre-registered rule)"
+    },
+    {
       "id": "terminal-bench-pilot",
       "kind": "cost_truth",
       "dir": "benchmarks/results/cost_truth/pilot-20260925-145427",
@@ -15,13 +27,20 @@
       "note": "pilot, not a comparison (protocol section 7): 18 paired attempts per arm after 10 infra_error runs were excluded, run under emulated x86_64, and billed while distil priced claude-sonnet-5 at $3/$15 instead of the official $2/$10, so absolute dollars are 1.5x too high and ratios are unaffected. analysis.json carries no passing verdict for any arm"
     },
     {
-      "id": "swebench-lite-300-medium",
+      "id": "swebench-lite-300-h2h",
       "kind": "swebench_outcome",
-      "dir": "benchmarks/results/swebench-outcome-300-medium",
-      "date": "2026-10-03",
+      "dir": "benchmarks/results/swebench-outcome-300-h2h",
+      "date": "2026-10-05",
       "versions": {
         "distil": "1.56.3"
-      }
+      },
+      "note": "plain and distil are the swebench-outcome-300-medium run (2026-10-03), reused unchanged, so this section supersedes that run's own table; rtk, selective and provider-cm ran 2026-10-05 on the same model and effort, provider drift between the two dates is not controlled, and provider-cm used an aggressive clearing setting rather than Anthropic's defaults",
+      "cold_repriced": {
+        "file": "benchmarks/results/why-rtk-wins/results.json",
+        "totals": "lite.cold_cache_repriced",
+        "paired": "lite.paired_vs_plain"
+      },
+      "cost_note": "rtk, selective and provider-cm ran the same day with byte-identical first requests and read each other's prompt cache; plain and distil ran alone and did not. Re-pricing as a cold run keeps each task's exact prompt and output tokens and moves only the cache write/read split (benchmarks/why_rtk_wins.py, docs/research/why-rtk-wins.md). The analysis did not re-price selective, and re-priced provider-cm only on the 192 of 298 tasks without server-side edits, so neither shows a dollar figure. Success rates and verdicts are unaffected."
     },
     {
       "id": "swebench-lite-300-low",
