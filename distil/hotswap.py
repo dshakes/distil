@@ -58,6 +58,7 @@ import time
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
+from . import _testing
 from ._log import log
 from .pricing import DEFAULT_MODEL
 
@@ -186,7 +187,7 @@ def worker_main() -> int:  # pragma: no cover — subprocess entry point: exerci
     # Test hook: if the named file exists, die before READY — lets the suite
     # break only the *replacement* worker (touch the file after the first spawn)
     # and prove the supervisor rolls back instead of killing the session.
-    _fail_marker = os.environ.get("DISTIL_HOTSWAP_TEST_FAIL_READY")
+    _fail_marker = _testing.hook("DISTIL_HOTSWAP_TEST_FAIL_READY")
     if _fail_marker and os.path.exists(_fail_marker):
         return 3
 

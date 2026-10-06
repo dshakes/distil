@@ -32,7 +32,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from distil import _filelock
+from distil import _filelock, _testing
 
 DEFAULT_ENDPOINT = "https://distil-census.vercel.app/v1/ping"
 DEFAULT_BEAT_ENDPOINT = "https://distil-census.vercel.app/v1/beat"
@@ -646,12 +646,12 @@ def status() -> dict:
         "install_id": _id_path().read_text(encoding="utf-8").strip()
         if _id_path().exists()
         else None,
-        "endpoint": os.environ.get("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT),
+        "endpoint": _testing.hook("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT),
     }
 
 
 def _send(payload: dict) -> None:
-    endpoint = os.environ.get("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT)
+    endpoint = _testing.hook("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT)
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),
@@ -758,7 +758,7 @@ def maybe_heartbeat() -> bool:
 
 
 def _send_beat(payload: dict) -> None:
-    endpoint = os.environ.get("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT)
+    endpoint = _testing.hook("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT)
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),
