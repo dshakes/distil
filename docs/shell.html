@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Shell at the Source — Distil</title>
+<link rel="stylesheet" href="site.css"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="Distil"/>
+<meta property="og:title" content="Shell at the Source — Distil"/>
+<meta property="og:description" content="distil sh runs a test runner or git status and prints its output already shaped, so the compact form is the only one the agent ever sees. Failures verbatim, exit code untouched, opt-in."/>
+<meta property="og:url" content="https://dshakes.github.io/distil/shell.html"/>
+<meta property="og:image" content="https://dshakes.github.io/distil/og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Shell at the Source — Distil"/>
+<meta name="twitter:image" content="https://dshakes.github.io/distil/og.png"/>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<script>(function(){try{var t=localStorage.getItem("distil-theme");if(t!=="light"&&t!=="dark")t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to main content</a>
+
+<header class="topbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button>
+  <a href="index.html" class="topbar-logo"><img src="assets/logo.svg" alt="" width="22" height="22" style="border-radius:6px;vertical-align:-6px;margin-right:8px"/>Dist<b>il</b></a>
+  <span class="topbar-pill">compression with a quality contract</span>
+  <nav class="topbar-links">
+    <a href="which-mode.html">Which Mode?</a>
+    <a href="getting-started.html">Docs</a>
+    <a href="https://github.com/dshakes/distil" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Documentation">
+      <details class="sidebar-group" open>
+        <summary class="sidebar-section">Getting started</summary>
+        <ul>
+          <li><a href="getting-started.html">Install &amp; Quickstart</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group" open>
+        <summary class="sidebar-section">Learn</summary>
+        <ul>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
+            <ul class="sidebar-sub">
+              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
+              <li><a href="learn-compression.html">2. Compression</a></li>
+              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
+            </ul></li>
+          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="techniques.html">Techniques</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="research.html">Research &amp; Frontier</a></li>
+          <li><a href="cache-contract.html">Cache Contract</a></li>
+          <li><a href="subscription.html">Subscription</a></li>
+          <li><a href="provider-compaction.html">Provider Compaction</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
+        <ul>
+          <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="ab.html">Task-level A/B</a></li>
+          <li><a href="model-migration.html">Model Migration</a></li>
+          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
+          <li><a href="benchmark.html">Live Benchmark</a></li>
+          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">Reference</summary>
+        <ul>
+          <li><a href="library.html">Library API</a></li>
+          <li><a href="cli.html">CLI Reference</a></li>
+          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
+          <li><a href="output.html">Output &amp; I/O</a></li>
+          <li><a href="corpus.html">Corpus</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group" open>
+        <summary class="sidebar-section">Agent tooling</summary>
+        <ul>
+          <li><a href="hooks.html">Post-tool Hooks</a></li>
+          <li><a href="shell.html" class="active" aria-current="page">Shell at the Source</a></li>
+          <li><a href="code-skeletons.html">Code Skeletons</a></li>
+          <li><a href="mcp.html">MCP Compressor</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">Integrations</summary>
+        <ul>
+          <li><a href="integrations.html">Overview</a></li>
+          <li><a href="adapters.html">Adapters</a></li>
+          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
+          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
+          <li><a href="litellm.html">LiteLLM</a></li>
+          <li><a href="langchain.html">LangChain</a></li>
+          <li><a href="langgraph.html">LangGraph</a></li>
+          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
+          <li><a href="agno.html">Agno</a></li>
+          <li><a href="strands.html">Strands</a></li>
+          <li><a href="autogen.html">AutoGen</a></li>
+          <li><a href="llamaindex.html">LlamaIndex</a></li>
+          <li><a href="crewai.html">CrewAI</a></li>
+          <li><a href="asgi.html">ASGI Middleware</a></li>
+        </ul>
+      </details>
+      <details class="sidebar-group">
+        <summary class="sidebar-section">More</summary>
+        <ul>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="security.html">Security</a></li>
+          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
+          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+          <li><a href="index.html">← Landing page</a></li>
+        </ul>
+      </details>
+    </nav>
+  </aside>
+
+  <main class="content" id="content" tabindex="-1">
+
+    <h1>Shell output <span class="g">shaped at the source</span></h1>
+    <p class="lead">The proxy digest folds a tool result after the agent has read it, and an agent that wants what was folded runs the command again. <code>distil sh</code> works one step earlier: it runs the command, applies one small deterministic filter chosen by what the command is, and prints the result. The compact form is the only one that ever enters the context. Opt-in; design and boundaries in <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0026-shell-output-at-the-source.md">ADR 0026</a>.</p>
+
+<pre class="term"><span class="d">$ distil sh -- python -m pytest -v tests/</span>   <span class="d"># run one command shaped</span>
+<span class="d">$ distil hook install --shell</span>              <span class="d"># Claude Code: rewrite Bash test runs to distil sh</span>
+<span class="d">$ distil hook uninstall --shell</span>
+<span class="d">$ distil hook --stats</span>                       <span class="d"># receipts, by filter (sh:pytest, sh:git-status, …)</span></pre>
+
+    <h2 id="what">What it does to the output</h2>
+    <ul>
+      <li><strong>Always (lossless):</strong> ANSI colour codes stripped and carriage-return progress overwrites resolved, so the visible text is unchanged; exact repeated lines collapsed to <code>&lt;&lt;xN&gt;&gt;</code>; for <code>git status</code>, the advice lines about how to use git (<code>(use "git add &lt;file&gt;..." …)</code>) dropped.</li>
+      <li><strong>Metered key, or opted in (elide):</strong> for test runners, the line printed for each <em>passing</em> test is dropped. Every failure, error, traceback, warning and the result summary stays verbatim, and one marker line says how many lines went and how to get them back:</li>
+    </ul>
+<pre class="term">FAILED tests/test_m.py::test_bad - AssertionError: boom
+=================== 1 failed, 31 passed in 0.02s ===================
+[distil sh sh-v1: 31 passing-test lines elided; failures, errors and the summary are verbatim above. Full output: `distil expand 24d14dad`]</pre>
+    <p>The full output is written to distil's encrypted restore store and read back byte-exact before that line is printed; if it cannot be, you get the lossless form. <code>distil expand &lt;handle&gt; | grep …</code> recovers a slice.</p>
+
+    <h2 id="which">Which commands</h2>
+    <div class="table-scroll">
+    <table>
+      <thead><tr><th scope="col">Filter</th><th scope="col">Commands</th><th scope="col">Tier</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>git-status</code></th><td><code>git status</code></td><td>lossless</td></tr>
+        <tr><th scope="row"><code>pytest</code></th><td><code>pytest</code>, <code>py.test</code>, <code>python -m pytest</code></td><td>elide</td></tr>
+        <tr><th scope="row"><code>unittest</code></th><td><code>python -m unittest</code>, Django <code>runtests.py</code></td><td>elide</td></tr>
+        <tr><th scope="row"><code>cargo-test</code> · <code>go-test</code></th><td><code>cargo test</code> · <code>go test</code></td><td>elide</td></tr>
+        <tr><th scope="row"><code>js-test</code></th><td><code>npm|yarn|pnpm test</code>, <code>jest</code>, <code>vitest</code>, <code>npx jest|vitest</code></td><td>elide</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><strong>Never rewritten:</strong> search and listing (<code>grep</code>, <code>rg</code>, <code>find</code>, <code>ls</code>), <code>git diff/log/show</code>, file reads. Search output is the agent's map of the code; in 1.56.3, digesting it cost extra steps on SWE-bench, so it stays verbatim. Any other command run through <code>distil sh</code> is executed untouched.</p>
+
+    <h2 id="tier">Subscriptions</h2>
+    <p>The same rule as the <a href="hooks.html#tier">post-tool hook</a>: on a Claude Pro/Max login only the lossless tier runs, unless you install with <code>--digest</code> (<code>distil hook install --shell --digest</code>) or run <code>distil sh --digest -- …</code>. On a metered API key the elide tier is on. Installing the rewrite is itself an explicit command; nothing installs it for you.</p>
+
+    <h2 id="safe">Fail-open, and your permissions</h2>
+    <ul>
+      <li>The Claude Code hook only prefixes <code>distil sh --</code> onto one simple command (optionally after <code>cd DIR &amp;&amp;</code>, optionally with <code>2&gt;&amp;1</code> and <code>| tail</code>/<code>| head</code>). Chains, redirects, <code>$(…)</code> and backticks are left exactly as written.</li>
+      <li>Any hook error, <code>distil</code> missing from PATH, or <code>DISTIL_SH_OFF=1</code>: the command runs as the agent wrote it. <code>distil sh</code> runs a command it does not recognise untouched, and prints the raw output if a filter fails. The exit code is always the command's own.</li>
+      <li>Claude Code checks permission rules against the rewritten command, so distil never rewrites a command a <code>deny</code> or <code>ask</code> rule could touch, and auto-approves only when one of <em>your</em> allow rules matches the original command. Otherwise you get Claude Code's normal prompt. Do not add a blanket <code>Bash(distil sh:*)</code> allow rule: it would allow anything typed after it.</li>
+    </ul>
+
+    <h2 id="evidence">What it is worth, measured offline</h2>
+    <p>On real tool output from synthetic projects (<code>tests/fixtures/shell/</code>), the lossless tier removes 15.9% of the tokens and the elide tier 61.3%. On the commands a SWE-bench Lite agent actually ran (300 tasks, 1,390 bash calls), only 27 calls match and 0.06% of bash-output tokens go: that workload is mostly <code>grep</code> and <code>sed -n</code>, which stay verbatim. So expect it to matter where agents run test suites, not on SWE-bench. It is opt-in until an outcome run shows it is non-inferior; the <code>distil-sh</code> arm of the SWE-bench harness exists to run that comparison. Numbers: <code>benchmarks/results/2026-10-05/shell_replay*.json</code>, regenerated by <code>benchmarks/shell_replay.py</code>.</p>
+
+    <p>Claude Code only for the automatic rewrite: Cursor's pre-shell hook can allow or deny but not rewrite, and Gemini CLI's and Codex CLI's were not verified to rewrite input. Any agent can be told to call <code>distil sh --</code> itself.</p>
+
+
+    <div class="site-footer">
+      Distil · compression with a quality contract · Apache-2.0 · <a href="https://github.com/dshakes/distil">github.com/dshakes/distil</a>
+    </div>
+  </main>
+</div>
+
+<script src="site.js" defer></script>
+</body>
+</html>

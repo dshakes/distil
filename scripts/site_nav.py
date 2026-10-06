@@ -43,6 +43,7 @@ ADDED: dict[str, str] = {
     "mcp.html": "1.55.0",
     "model-migration.html": "1.56.0",
     "scoreboard.html": "1.57.0",
+    "shell.html": "1.58.0",
 }
 NEW_WINDOW = 1  # the current minor release only
 
@@ -112,6 +113,7 @@ REFERENCE: list[tuple[str, str, str | None]] = [
 
 AGENT_TOOLING: list[tuple[str, str, str | None]] = [
     ("hooks.html", "Post-tool Hooks", None),
+    ("shell.html", "Shell at the Source", None),
     ("code-skeletons.html", "Code Skeletons", None),
     ("mcp.html", "MCP Compressor", None),
 ]

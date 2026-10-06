@@ -90,6 +90,7 @@
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
+          <li><a href="shell.html">Shell at the Source</a></li>
           <li><a href="code-skeletons.html">Code Skeletons</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
         </ul>
@@ -726,6 +727,12 @@ dependency-free — so read it as a floor on what the context window kept.</p>
 <pre class="term"><span class="d">$ distil hook --install</span>   <span class="d"># documented Claude Code extension point</span>
 <span class="d">$ distil hook --stats</span>     <span class="d"># totals, split by tool</span></pre>
 
+<h2 id="sh">distil sh</h2>
+<p>Run one command and print its output shaped at the source (<a href="shell.html">Shell at the source</a>, ADR 0026). Test runners (pytest, unittest/Django <code>runtests.py</code>, <code>cargo test</code>, <code>go test</code>, npm/yarn/pnpm test, jest, vitest) and <code>git status</code> have filters; any other command is executed untouched. Every failure, error, warning and summary line stays verbatim and the exit code is the command's own. On a subscription only the lossless filters run unless you pass <code>--digest</code>; passing-test lines are elided only with the full output kept behind a <code>distil expand</code> handle. <code>DISTIL_SH_OFF=1</code> turns it into a plain pass-through. <code>distil hook install --shell</code> (or <code>distil setup --hooks --shell</code>) installs the Claude Code <code>PreToolUse</code> rewrite that inserts it; <code>distil hook uninstall --shell</code> removes it.</p>
+<pre class="term"><span class="d">$ distil sh -- python -m pytest -v tests/</span>
+<span class="d">$ distil sh --digest -- cargo test</span>        <span class="d"># subscription: opt in to the elide tier</span>
+<span class="d">$ distil hook install --shell</span>             <span class="d"># Claude Code: rewrite test runs and git status</span></pre>
+
 <h2 id="learn">distil learn</h2>
     <p>Show the keep-byte-exact policy Distil has learned from your own <code>distil_expand</code> signals: content the agent kept pulling back is content that should not have been digested in the first place. Read-only — it reports the policy, it does not change it.</p>
     <pre class="term"><span class="d">$ distil learn</span>              <span class="d"># the policy your traffic implies</span>
@@ -796,6 +803,7 @@ dependency-free — so read it as a floor on what the context window kept.</p>
         <tr><th scope="row"><code>--no-prefix-replay</code></th><td>off (replay on)</td><td>Opt out of forwarded-bytes prefix replay (ADR 0011) and forward exactly what the compressor produced. See <a href="cache-contract.html">the cache contract</a>, clause (f).</td></tr>
         <tr><th scope="row"><code>--no-cold-point</code></th><td>off (cold point on)</td><td>Opt out of cold-point recompression (ADR 0014); also <code>DISTIL_COLD_POINT=0</code>. On by default wherever the recoverable digest runs, Anthropic only. Not yet measured live — see <a href="cache-contract.html#cold-point">clause (h)</a>.</td></tr>
         <tr><th scope="row"><code>DISTIL_REFETCH_VERBATIM=0</code></th><td>unset (on)</td><td>Environment variable, no flag. Turns off re-fetch verbatim (ADR 0025): a tool result that repeats lines distil forwarded only as a digest otherwise goes out verbatim. Read per request. Offline-measured only.</td></tr>
+        <tr><th scope="row"><code>DISTIL_SH_OFF=1</code></th><td>unset (on)</td><td>Environment variable, no flag. <a href="#sh"><code>distil sh</code></a> runs every command untouched and the Claude Code shell rewrite leaves every command as written (ADR 0026).</td></tr>
         <tr><th scope="row"><code>--async</code></th><td>off</td><td>Use the async aiohttp backend (<code>distil/aproxy.py</code>) for high-concurrency streaming. Requires <code>pip install 'distil-llm[async]'</code>. Async event loop handles thousands of concurrent sessions. Note: the async backend supports lossless / verbatim / output-shaping, but not <code>--expand</code>, <code>--session-delta</code>, or <code>--shadow</code> yet — pass those on the standard (sync) proxy, which handles typical agent concurrency. Combining them with <code>--async</code> prints a notice and ignores them.</td></tr>
         <tr><th scope="row"><code>--pricing</code></th><td><code>claude-opus-4-8</code></td><td>Model used to price the genuine dollar savings recorded to the ledger</td></tr>
         <tr><th scope="row"><code>--no-record</code></th><td>off</td><td>Do not record genuine savings to the local ledger</td></tr>
@@ -1494,6 +1502,7 @@ distil &middot; &Sigma;27.0M saved &minus;50% $96.10</pre>
     <p>For agents a proxy cannot reach: install a post-tool hook in every detected client — Claude Code, Cursor (MCP output only), Gemini CLI, Codex CLI — that compresses tool output before it enters the agent's history. On a subscription it is lossless-only unless you add <code>--digest</code>; on a metered key the recoverable digest runs by default, with the original kept for <code>distil expand &lt;handle&gt;</code>. Only this runs; nothing else in <code>setup</code> does. Per client and to undo: <code>distil hook install|uninstall|status --client claude|cursor|gemini|codex|all</code>. Details, sources and what is not supported: <a href="hooks.html">Post-tool hooks</a>.</p>
     <pre class="term"><span class="d">$ distil setup --hooks</span>                      <span class="d"># every detected client</span>
 <span class="d">$ distil setup --hooks --digest</span>             <span class="d"># subscription: opt in to the digest</span>
+<span class="d">$ distil setup --hooks --shell</span>              <span class="d"># also rewrite Claude Code test runs to distil sh</span>
 <span class="d">$ distil hook status</span>                        <span class="d"># where it is installed, which tier, and why</span>
 <span class="d">$ distil hook uninstall --client all</span>        <span class="d"># removes only what distil added</span>
 <span class="d">$ distil expand 3f9a1c2e</span>                    <span class="d"># the original behind a digest handle</span></pre>

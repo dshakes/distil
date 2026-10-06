@@ -1184,6 +1184,33 @@
         "5.6",
         "-5.6"
       ]
+    },
+    {
+      "id": "v-shell-fixture-replay",
+      "status": "verified",
+      "page": "shell.html",
+      "anchor": "evidence",
+      "snippet": "the lossless tier removes 15.9% of the tokens and the elide tier 61.3%",
+      "claim": "distil sh filters sh-v1 over 9 captured fixtures (real git/pytest/unittest/cargo/go/node:test output over synthetic projects, plus one real all-passing slice of this repo's suite): lossless tier removes 15.9% of heuristic tokens, elide tier 61.3%. Per-command ratios, not weighted by any agent's command mix.",
+      "note": "benchmarks/shell_replay.py capture (fixtures in tests/fixtures/shell/) then replay; tests/test_shell.py checks every failure/error/summary line survives both tiers.",
+      "artifact": "benchmarks/results/2026-10-05/shell_replay.json",
+      "values": [
+        "15.9%",
+        "61.3%"
+      ]
+    },
+    {
+      "id": "v-shell-swebench-replay",
+      "status": "verified",
+      "page": "shell.html",
+      "anchor": "evidence",
+      "snippet": "only 27 calls match and 0.06% of bash-output tokens go",
+      "claim": "Offline replay of distil sh (sh-v1) over the 1,390 bash calls in 300 SWE-bench Lite transcripts (provider-cm arm, head-to-head run): 27 calls match a filter and 0.06% of all bash-output heuristic tokens are removed. The transcripts are not committed; the aggregate is.",
+      "note": "benchmarks/shell_replay.py swebench <transcripts/provider-cm>; same distil.shell.plan the PreToolUse hook uses.",
+      "artifact": "benchmarks/results/2026-10-05/shell_replay_swebench.json",
+      "values": [
+        "0.06%"
+      ]
     }
   ]
 }
