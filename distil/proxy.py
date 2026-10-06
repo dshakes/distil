@@ -47,6 +47,7 @@ from .httpguard import (
 )
 from .otel import request_span, set_result_attrs
 from .prefixreplay import credential_scope as _credential_scope
+from .prefixreplay import query_credentials as _query_credentials
 from .pricing import DEFAULT_MODEL
 from .serve_core import (  # noqa: F401 — re-exported: tests and siblings import them from here
     _STREAM_ONLY_FIELDS,
@@ -1123,7 +1124,9 @@ def build_handler(
             _shape_ok = _lossy_ok and not _held
             if _held and savings is not None:
                 savings.mode = _req_mode
-            _cold_scope = _coldpoint.account_scope(headers) if _cold_on else ""
+            # The URL's ?key= (Gemini) is a credential too: see prefixreplay.query_credentials.
+            _creds = {**headers, **_query_credentials(self.path)}
+            _cold_scope = _coldpoint.account_scope(_creds) if _cold_on else ""
             store: Any = None  # RestoreStore once messages are compressed (for expand)
             before_tok: int | None = None  # set only if a messages/gemini branch below runs
             after_tok: int | None = None
@@ -1190,7 +1193,7 @@ def build_handler(
                     scope=_cold_scope,
                     held=_held,
                     shape_output=shape_output if _shape_ok else "off",
-                    replay_scope=_credential_scope(headers) if prefix_replay else None,
+                    replay_scope=_credential_scope(_creds) if prefix_replay else None,
                     on_compressed=_on_compressed,
                 )
                 if _out is None:  # only an `admit` hook rejects, and none is passed
@@ -1604,7 +1607,14 @@ def build_handler(
                 system_tok = tools_tok = tools_deferred = 0
                 tool_costs: list[dict[str, Any]] = []
                 if isinstance(body, dict):
-                    sys_val = body.get("system")
+                    # The system prompt, under whichever key the provider uses for it:
+                    # Responses ``instructions``, Gemini ``systemInstruction``. Without
+                    # them the calibrator compared a smaller estimate to the same bill.
+                    sys_val = (
+                        body.get("system")
+                        or body.get("instructions")
+                        or body.get("systemInstruction")
+                    )
                     if sys_val:
                         system_tok = _tokenizer.count(
                             sys_val if isinstance(sys_val, str) else json.dumps(sys_val)
@@ -1620,7 +1630,23 @@ def build_handler(
                                 continue
                             n = _tokenizer.count(json.dumps(tool))
                             tools_tok += n
-                            name = tool.get("name") if isinstance(tool, dict) else None
+                            name = None
+                            if isinstance(tool, dict):
+                                # Anthropic/Responses ``name``, Chat ``function.name``,
+                                # Gemini ``functionDeclarations[].name``.
+                                fn = tool.get("function")
+                                decls = tool.get("functionDeclarations")
+                                name = (
+                                    tool.get("name")
+                                    or (fn.get("name") if isinstance(fn, dict) else None)
+                                    or (
+                                        ",".join(
+                                            str(d.get("name")) for d in decls if isinstance(d, dict)
+                                        )
+                                        if isinstance(decls, list)
+                                        else None
+                                    )
+                                )
                             tool_costs.append({"name": str(name or "?"), "tokens": n})
                         except Exception:  # noqa: BLE001 — one odd tool must not drop the rest
                             continue

@@ -465,6 +465,14 @@ def _sig_gemini(name: Any, args: Any) -> str:
     return "tool:" + _canon({"name": name, "args": _normalize_decision(args)})
 
 
+def _decision_from_output_items(items: list[Any]) -> str:
+    """Decision from a Responses API ``output`` list: first function_call, else text."""
+    for it in items:
+        if isinstance(it, dict) and it.get("type") == "function_call":
+            return _sig_openai(it.get("name"), it.get("arguments"))
+    return "text"
+
+
 def decision_signature(resp_json: Any) -> str:
     """A content-free signature of the agent's chosen next action.
 
@@ -492,6 +500,11 @@ def decision_signature(resp_json: Any) -> str:
             fn = tcs[0].get("function") or {}
             return _sig_openai(fn.get("name"), fn.get("arguments"))
         return "text"
+
+    # OpenAI Responses API (reasoning items are ignored, as thinking is for Anthropic)
+    output = resp_json.get("output")
+    if isinstance(output, list):
+        return _decision_from_output_items(output)
 
     # Gemini generateContent
     candidates = resp_json.get("candidates")
@@ -521,6 +534,22 @@ def _decision_from_chunks(chunks: list[Any]) -> str:
       ``arguments`` string.
     * Gemini ``streamGenerateContent`` — ``candidates[].content.parts[].functionCall``.
     """
+    # OpenAI Responses SSE: response.completed carries the full output; otherwise
+    # accumulate response.output_item.done items.
+    r_items: list[Any] = []
+    r_full: list[Any] | None = None
+    for ch in chunks:
+        if not isinstance(ch, dict):
+            continue
+        if ch.get("type") == "response.output_item.done" and isinstance(ch.get("item"), dict):
+            r_items.append(ch["item"])
+        elif ch.get("type") == "response.completed":
+            out = (ch.get("response") or {}).get("output")
+            if isinstance(out, list) and out:
+                r_full = out
+    if r_full is not None or r_items:
+        return _decision_from_output_items(r_full if r_full is not None else r_items)
+
     a_name = None
     a_buf = ""
     a_tool = False
@@ -717,6 +746,12 @@ def deterministic_body(raw: bytes | None) -> ReplayBody | None:
     thinking_on = isinstance(thinking, dict) and thinking.get("type") not in (None, "disabled")
     if "temperature" in obj and not thinking_on:
         obj["temperature"] = 0
+        pinned = True
+    # Gemini keeps temperature in generationConfig; same rule — pin only if present,
+    # never inject (the top-level field would be rejected).
+    gc = obj.get("generationConfig")
+    if "contents" in obj and isinstance(gc, dict) and "temperature" in gc:
+        obj["generationConfig"] = {**gc, "temperature": 0}
         pinned = True
     _strip_thinking_blocks(obj)
     model = obj.get("model")

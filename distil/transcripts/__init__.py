@@ -10,9 +10,13 @@ from pathlib import Path
 
 from .base import ToolCall, ToolResult, Transcript, TranscriptAdapter, UserTurn
 from .claude_code import ClaudeCodeAdapter
+from .codex import CodexAdapter
+from .gemini_cli import GeminiCliAdapter
 
 ADAPTERS: dict[str, TranscriptAdapter] = {
     "claude": ClaudeCodeAdapter(),
+    "codex": CodexAdapter(),
+    "gemini": GeminiCliAdapter(),
 }
 
 __all__ = [
@@ -40,14 +44,16 @@ def find_transcript(
     """
     if path is not None:
         p = Path(path).expanduser()
-        adapter = ADAPTERS.get(tool)
-        candidates = [adapter] if adapter is not None else list(ADAPTERS.values())
+        # A file the user pointed at may be any agent's: the named adapter first, then the rest.
+        candidates = sorted(ADAPTERS.values(), key=lambda a: a.name != tool)
         for a in candidates:
             tr = a.load(p)
             if tr.turns or tr.tool_results:
                 return tr
         return None
-    adapters = [ADAPTERS[tool]] if tool in ADAPTERS else list(ADAPTERS.values())
+    # Registered agents used to be Claude-only: keep the old fallback to every adapter, the
+    # named one first, so a manifest naming "codex"/"gemini" still correlates a Claude log.
+    adapters = sorted(ADAPTERS.values(), key=lambda a: a.name != tool)
     for a in adapters:
         for candidate in a.discover(window, cwd)[:3]:
             tr = a.load(candidate)

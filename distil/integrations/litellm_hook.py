@@ -35,7 +35,8 @@ Contract:
 
 Covered ``call_type`` values: ``completion`` / ``acompletion`` (OpenAI Chat shape,
 which LiteLLM uses for every provider) and ``anthropic_messages`` (the native
-``/v1/messages`` route). Responses-API and embedding calls pass through unchanged.
+``/v1/messages`` route), plus ``responses`` / ``aresponses`` (the Responses API's
+``input`` array). Embedding calls pass through unchanged.
 
 LiteLLM's SDK-side ``litellm.callbacks`` list does not run ``async_pre_call_hook``
 (that is proxy-only); for in-process SDK use see
@@ -91,6 +92,9 @@ def _digest_allowed() -> bool:
 
 _CHAT_CALLS = frozenset({"completion", "acompletion"})
 _ANTHROPIC_CALLS = frozenset({"anthropic_messages"})
+# LiteLLM's ``/v1/responses`` route (``litellm.responses`` / ``aresponses``): the body's
+# ``input`` array, the shape Codex speaks.
+_RESPONSES_CALLS = frozenset({"responses", "aresponses"})
 
 
 def _count(messages: list[dict[str, Any]]) -> int:
@@ -107,6 +111,18 @@ def compress_request(
     Pure and framework-free. Raises nothing the caller must handle beyond what the
     adapters raise; :meth:`HookCore.apply` wraps it fail-open.
     """
+    if call_type in _RESPONSES_CALLS:
+        items = data.get("input")
+        if not isinstance(items, list):
+            return None  # a bare-string input has no tool output to compress
+        from ..adapters.openai import compress_responses_input, count_responses_tokens
+
+        new_items, _store = compress_responses_input(items, verbatim=not digest)
+        return (
+            {**data, "input": new_items},
+            count_responses_tokens(items),
+            count_responses_tokens(new_items),
+        )
     messages = data.get("messages")
     if not isinstance(messages, list):
         return None

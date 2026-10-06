@@ -763,3 +763,131 @@ def test_linux_picks_a_boot_clock_when_the_platform_has_one() -> None:
         assert picked() == 42.0
     else:  # no CLOCK_BOOTTIME on this interpreter: the plain monotonic clock, not a guess
         assert picked is time.monotonic
+
+
+# --------------------------------------------------------------------------- OpenAI shapes
+#
+# OpenAI caches automatically and the request names only a retention policy, whose
+# documented lifetime is an upper bound distil can wait out. Gemini documents none.
+
+
+@pytest.mark.parametrize(
+    "body, ttl",
+    [
+        ({"model": "gpt-5.2"}, 86400.0),  # unset: the org default is 24h (or in_memory)
+        ({"model": "gpt-5.2", "prompt_cache_retention": "24h"}, 86400.0),
+        ({"model": "gpt-5.2", "prompt_cache_retention": "in_memory"}, 3600.0),
+        ({"model": "gpt-5.2", "prompt_cache_retention": "forever"}, float("inf")),
+        ({"model": "gpt-5.6-sol"}, float("inf")),  # 30m minimum, no maximum
+        ({"model": "gpt-6.1-sol", "prompt_cache_retention": "in_memory"}, float("inf")),
+        ({"model": "gpt-5.2", "prompt_cache_options": {"ttl": "30m"}}, float("inf")),
+        ({"model": "gpt-unknown-9"}, float("inf")),  # cannot tell which caching model
+    ],
+)
+def test_openai_ttl_is_the_documented_upper_bound(body: dict[str, Any], ttl: float) -> None:
+    assert coldpoint.openai_request_ttl(body) == ttl
+
+
+def _chat_conv(rounds: int, **extra: Any) -> dict[str, Any]:
+    msgs: list[dict[str, Any]] = [{"role": "user", "content": "fix the build"}]
+    for k in range(rounds):
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"call_{k}",
+                        "type": "function",
+                        "function": {
+                            "name": "shell",
+                            "arguments": json.dumps({"command": f"make t{k}"}),
+                        },
+                    }
+                ],
+            }
+        )
+        msgs.append({"role": "tool", "tool_call_id": f"call_{k}", "content": _log(f"run{k}")})
+    return {"model": "gpt-5.2", "messages": msgs, **extra}
+
+
+def _responses_conv(rounds: int, **extra: Any) -> dict[str, Any]:
+    items: list[dict[str, Any]] = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix"}]}
+    ]
+    for k in range(rounds):
+        items.append(
+            {
+                "type": "function_call",
+                "call_id": f"call_{k}",
+                "name": "shell",
+                "arguments": json.dumps({"command": ["make", f"t{k}"]}),
+            }
+        )
+        items.append(
+            {"type": "function_call_output", "call_id": f"call_{k}", "output": _log(f"run{k}")}
+        )
+    return {"model": "gpt-5.2", "input": items, **extra}
+
+
+@pytest.mark.parametrize(
+    "path, conv, key",
+    [
+        ("/v1/chat/completions", _chat_conv, "messages"),
+        ("/v1/responses", _responses_conv, "input"),
+    ],
+)
+def test_openai_shapes_evict_only_after_the_documented_lifetime(
+    clock: list[float], path: str, conv: Any, key: str
+) -> None:
+    """Same invariant as Messages: a byte changes only on a turn the provider cache is
+    certainly gone, then stays changed. ``in_memory`` is gone within an hour."""
+    from distil.serve_core import compress_or_forward
+
+    def send(rounds: int) -> Any:
+        body = conv(rounds, prompt_cache_retention="in_memory")
+        out = compress_or_forward(
+            body, path, count=lambda m: 0, verbatim=False, expand=True, mode="t", cold=True
+        )
+        assert out is not None
+        coldpoint.end(out.cold_key)
+        return out
+
+    assert send(6).extras["x-distil-cold"] == "first-seen"
+    clock[0] += 1800  # inside the hour: warm, nothing evicted
+    warm = send(7)
+    assert warm.extras["x-distil-cold"] == "warm"
+    assert not _STUB.search(json.dumps(warm.body[key]))
+    clock[0] += 3600 + coldpoint.MARGIN_S + 1
+    cold = send(8)
+    assert cold.extras["x-distil-cold"] == "cold"
+    evicted = _STUB.findall(json.dumps(cold.body[key]))
+    assert evicted and int(cold.extras["x-distil-cold-evicted"]) == len(evicted)
+    # The newest turns are never evicted (the agent reasons over them), and a recovered
+    # handle restores the original.
+    assert "run7 line 0" in json.dumps(cold.body[key])
+    assert cold.store.expand(evicted[0]).startswith("run0 line 0")
+    # Byte-stable afterwards: the next warm turn forwards the same evicted prefix.
+    clock[0] += 10
+    later = send(9)
+    assert later.extras["x-distil-cold"] == "warm"
+    assert json.dumps(later.body[key][: len(cold.body[key])]) == json.dumps(cold.body[key])
+
+
+def test_openai_default_retention_waits_a_day(clock: list[float]) -> None:
+    """Unset retention defaults to 24h for most orgs: an hour's idle is not cold."""
+    from distil.serve_core import compress_or_forward
+
+    for rounds, gap in ((6, 0), (7, 7200)):
+        clock[0] += gap
+        out = compress_or_forward(
+            _chat_conv(rounds),
+            "/v1/chat/completions",
+            count=lambda m: 0,
+            verbatim=False,
+            expand=True,
+            mode="t",
+            cold=True,
+        )
+        coldpoint.end(out.cold_key)
+    assert out.extras["x-distil-cold"] == "warm"
