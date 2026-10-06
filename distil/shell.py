@@ -232,6 +232,13 @@ def _save(raw: str) -> str | None:
 
 def _exec_untouched(argv: list[str]) -> int:
     """Fail-open: become the original command, so nothing distil does can change it."""
+    if sys.platform == "win32":
+        # Windows has no exec: os.execvp spawns and exits 0, hiding the command's code.
+        try:
+            return subprocess.run(argv).returncode
+        except OSError as exc:
+            sys.stderr.write(f"distil sh: {argv[0]}: {exc.strerror or exc}\n")
+            return 127
     try:
         os.execvp(argv[0], argv)
     except OSError as exc:
@@ -284,7 +291,7 @@ def main(argv: list[str], *, digest: bool = False) -> int:
         out = raw  # shaping is optional; the command's own output is not
     sys.stdout.write(out)
     sys.stdout.flush()
-    return proc.returncode if proc.returncode >= 0 else 128 - proc.returncode
+    return proc.returncode if proc.returncode >= 0 else 128 - proc.returncode  # signal -N -> 128+N
 
 
 # ----------------------------------------------------------------------------------

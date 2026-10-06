@@ -456,3 +456,17 @@ def test_cli_hook_shell_and_setup(capsys):
     )
     assert cmd_setup_front(ns) == 0
     assert hook_status("claude", shell=True)[0] and hook_status("claude")[0]
+
+
+def test_windows_fail_open_keeps_the_commands_exit_code(monkeypatch):
+    """Windows has no exec; os.execvp would spawn the command and exit 0, hiding a failure."""
+    calls = []
+
+    class Done:
+        returncode = 3
+
+    monkeypatch.setattr(shell.sys, "platform", "win32")
+    monkeypatch.setattr(shell.subprocess, "run", lambda argv: calls.append(argv) or Done())
+    monkeypatch.setattr(shell.os, "execvp", lambda *a: (_ for _ in ()).throw(AssertionError))
+    assert shell._exec_untouched(["make", "lint"]) == 3
+    assert calls == [["make", "lint"]]
