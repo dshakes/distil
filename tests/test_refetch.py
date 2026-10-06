@@ -452,3 +452,133 @@ def test_offline_replay_reads_claude_code_transcripts(tmp_path: Any) -> None:
     # The first re-run cannot be helped (its source is cached as a digest); the second can.
     assert (base["redundant"], base["avoidable"], new["avoidable"]) == (2, 2, 1)
     assert "repro" not in json.dumps(out), "no command text in the aggregate"
+
+
+# --------------------------------------------------------------------------- every provider
+#
+# The same scenario through each adapter: a folded result, then a re-fetch of its lines.
+# OpenAI and Gemini cache implicitly and keep no recency window, so every result digests
+# on first sight there — exactly the shape the rule exists for.
+
+
+def _chat(*outputs: str) -> list[dict[str, Any]]:
+    msgs: list[dict[str, Any]] = [{"role": "user", "content": "fix the bug"}]
+    for n, out in enumerate(outputs):
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"t{n}",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "python r.py"}'},
+                    }
+                ],
+            }
+        )
+        msgs.append({"role": "tool", "tool_call_id": f"t{n}", "content": out})
+    return msgs
+
+
+def _responses(*outputs: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix"}]}
+    ]
+    for n, out in enumerate(outputs):
+        items.append(
+            {
+                "type": "function_call",
+                "call_id": f"t{n}",
+                "name": "shell",
+                "arguments": '{"command": ["python", "r.py"]}',
+            }
+        )
+        items.append({"type": "function_call_output", "call_id": f"t{n}", "output": out})
+    return items
+
+
+def _gemini(*outputs: str) -> dict[str, Any]:
+    contents: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": "fix the bug"}]}]
+    for out in outputs:
+        contents.append(
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "run_shell_command",
+                            "args": {"command": "python r.py"},
+                        }
+                    }
+                ],
+            }
+        )
+        contents.append(
+            {
+                "role": "user",
+                "parts": [
+                    {"functionResponse": {"name": "run_shell_command", "response": {"output": out}}}
+                ],
+            }
+        )
+    return {"contents": contents}
+
+
+def _through(shape: str, outputs: tuple[str, ...], refetch: bool) -> list[str]:
+    """The forwarded text of every tool result, in order, for *shape*."""
+    from distil.adapters.gemini import compress_generate_request
+    from distil.adapters.openai import compress_chat_completions, compress_responses_input
+
+    if shape == "messages":
+        out = _send(_session(*(("python r.py", o) for o in outputs)), refetch=refetch)
+        return [_result(out, f"t{n}") for n in range(len(outputs))]
+    if shape == "chat":
+        msgs, _ = compress_chat_completions(_chat(*outputs), persist=False, refetch=refetch)
+        return [m["content"] for m in msgs if m.get("role") == "tool"]
+    if shape == "responses":
+        items, _ = compress_responses_input(_responses(*outputs), persist=False, refetch=refetch)
+        return [i["output"] for i in items if i.get("type") == "function_call_output"]
+    body, _ = compress_generate_request(_gemini(*outputs), persist=False, refetch=refetch)
+    return [
+        p["functionResponse"]["response"]["output"]
+        for c in body["contents"]
+        for p in c["parts"]
+        if "functionResponse" in p
+    ]
+
+
+_SHAPES = ("messages", "chat", "responses", "gemini")
+
+
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_every_provider_answers_a_repeat_verbatim(shape: str) -> None:
+    off = _through(shape, (FILE, FILE), refetch=False)
+    assert "handle=" in off[0] and off[1] == off[0], "without the rule: the same stub twice"
+    on = _through(shape, (FILE, FILE), refetch=True)
+    assert "handle=" in on[0], "the earlier digest stays (cached prefix)"
+    assert on[1] == FILE
+    assert (take_census() or {}).get("tool_result_refetch", 0) > 0
+
+
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_every_provider_digests_new_lines_and_stops_after_one_copy(shape: str) -> None:
+    on = _through(shape, (_window(1, 80), _window(20, 60), _window(81, 120), FILE, FILE), True)
+    assert on[1] == _window(20, 60), "a narrower window of folded lines is a re-fetch"
+    assert "handle=" in on[2], "lines never sent digest as usual"
+    assert on[4] != FILE, "one verbatim copy exists; the next fetch digests"
+
+
+@pytest.mark.parametrize("shape", _SHAPES)
+def test_every_provider_closes_the_tracker(shape: str) -> None:
+    """Stateless: nothing survives the call, so unrelated traffic cannot change a verdict."""
+    first = _through(shape, (FILE, FILE), refetch=True)
+    assert getattr(A._refetch_tls, "tracker", None) is None
+    assert _through(shape, (FILE, FILE), refetch=True) == first
+
+
+def test_chat_cache_delta_keeps_the_refetch_out_of_the_delta() -> None:
+    from distil.adapters.openai import refetch_tool_call_ids
+
+    assert refetch_tool_call_ids(_chat(FILE, FILE)) == {"t1"}
+    assert refetch_tool_call_ids(_chat(FILE)) == frozenset()

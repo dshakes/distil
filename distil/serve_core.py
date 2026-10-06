@@ -199,6 +199,48 @@ def _model_from_path(path: str) -> str | None:
     return tail.split(":", 1)[0].split("/", 1)[0] or None
 
 
+def _cold_plan(
+    scope: str,
+    body: dict[str, Any],
+    items: list[Any],
+    candidates: Callable[..., frozenset[str]],
+    keep: Any,
+    held: bool,
+    *,
+    openai: bool = True,
+) -> tuple[Any, str | None, dict[str, Any]]:
+    """Plan this request's cold-point eviction: ``(plan, lineage key, compressor kwargs)``,
+    or ``(None, None, {})`` when planning failed (never break a request for a saving)."""
+    try:
+        from . import prefixreplay as _prep
+
+        # Account/tenant scope, not the credential: an OAuth bearer refreshes mid-session
+        # and must not fork the lineage (ADR 0014).
+        ck = scope + _prep.lineage_key(body, items)
+        cold_plan = _coldpoint.plan(
+            ck,
+            body,
+            items,
+            lambda: candidates(items, keep=keep, exclude_handles=_coldpoint.expanded(scope)),
+            # A drift-guard hold decides nothing new: the evicted set keeps applying
+            # (byte-stable prefix), no fresh eviction.
+            held=held,
+            ttl=_coldpoint.openai_request_ttl(body) if openai else None,
+        )
+    except Exception:  # noqa: BLE001 — never break a request for a saving
+        log.debug("cold-point plan failed; compressing as usual", exc_info=True)
+        return None, None, {}
+    return cold_plan, ck, ({"evict": cold_plan.evict} if cold_plan.evict else {})
+
+
+def _cold_extras(extras: dict[str, str], cold_plan: Any) -> None:
+    """Why this turn did (or did not) evict, and how many ids the lineage carries evicted.
+    The tokens are already inside tokens-saved."""
+    if cold_plan is not None:
+        extras["x-distil-cold"] = cold_plan.reason
+        extras["x-distil-cold-evicted"] = str(len(cold_plan.evict))
+
+
 def compress_or_forward(
     body: dict[str, Any],
     path: str,
@@ -227,8 +269,8 @@ def compress_or_forward(
     *count* is the messages token counter (passed in so the caller's module-level
     counter is the one used). *scope* partitions per-identity state: cold-point lineages
     and expanded-handle exclusions (``coldpoint``) and cache-delta sessions
-    (``cachedelta``). *cold* enables cold-point recompression on Anthropic Messages.
-    *replay_scope* enables forwarded-bytes prefix replay (ADR 0011) under that scope;
+    (``cachedelta``). *cold* enables cold-point recompression on Anthropic Messages and
+    both OpenAI shapes (Gemini documents no cache lifetime to wait out). *replay_scope* enables forwarded-bytes prefix replay (ADR 0011) under that scope;
     ``None`` turns it off. *on_compressed(kind, original, compressed, store)* runs right
     after the messages/contents compressors (learning, retention metering). *admit* is
     called with the pre-compression token count before anything stateful happens;
@@ -242,6 +284,8 @@ def compress_or_forward(
     replay_key: str | None = None
     replay_orig: list[Any] | None = None
     cold_key: str | None = None
+    cold_plan: Any = None  # ADR 0014 plan, when cold-point runs on this shape
+    cold_kw: dict[str, Any] = {}
     _path = strip_query(path)
 
     try:
@@ -255,9 +299,15 @@ def compress_or_forward(
             before_tok = count_responses_tokens(orig_input)
             if admit is not None and not admit(before_tok):
                 return None
+            if cold:
+                from .adapters.openai import cold_candidates_responses
+
+                cold_plan, cold_key, cold_kw = _cold_plan(
+                    scope, body, orig_input, cold_candidates_responses, keep, held
+                )
             try:
                 new_input, store = compress_responses_input(
-                    orig_input, verbatim=verbatim, keep=keep
+                    orig_input, verbatim=verbatim, keep=keep, **cold_kw
                 )
             except Exception:  # noqa: BLE001 — compression must never break a request
                 log.debug("compress_responses_input failed; forwarding uncompressed", exc_info=True)
@@ -271,6 +321,7 @@ def compress_or_forward(
                 "x-distil-compressible-tokens": str(before_tok),
             }
             pending = (before_tok, after_tok, body.get("model"))
+            _cold_extras(extras, cold_plan)
             # Recoverable compression: inject distil_expand so the model can pull back
             # any digested block by handle. Session-sticky (see the messages branch).
             if expand:
@@ -313,35 +364,17 @@ def compress_or_forward(
                 compress_fn: Callable[..., Any] = compress_chat_completions
             else:
                 compress_fn = compress_messages
-            # Cold-point recompression (ADR 0014), Anthropic Messages only. Fail-open:
-            # any error plans nothing and the request compresses exactly as before.
-            cold_plan: Any = None
-            cold_kw: dict[str, Any] = {}
-            if cold and not is_chat:
-                try:
-                    from . import prefixreplay as _prep
-                    from .adapters.anthropic import cold_candidates
-
-                    # Account/tenant scope, not the credential: an OAuth bearer refreshes
-                    # mid-session and must not fork the lineage (ADR 0014).
-                    ck = scope + _prep.lineage_key(body, original)
-                    cold_plan = _coldpoint.plan(
-                        ck,
-                        body,
-                        original,
-                        lambda: cold_candidates(
-                            original, keep=keep, exclude_handles=_coldpoint.expanded(scope)
-                        ),
-                        # A drift-guard hold decides nothing new: the evicted set keeps
-                        # applying (byte-stable prefix), no fresh eviction.
-                        held=held,
-                    )
-                    cold_key = ck
-                    if cold_plan.evict:
-                        cold_kw = {"evict": cold_plan.evict}
-                except Exception:  # noqa: BLE001 — never break a request for a saving
-                    log.debug("cold-point plan failed; compressing as usual", exc_info=True)
-                    cold_plan = None
+            # Cold-point recompression (ADR 0014). Fail-open: any error plans nothing and
+            # the request compresses exactly as before. Chat's TTL comes from OpenAI's
+            # documented retention bounds (coldpoint.openai_request_ttl).
+            if cold:
+                if is_chat:
+                    from .adapters.openai import cold_candidates_chat as _cands
+                else:
+                    from .adapters.anthropic import cold_candidates as _cands
+                cold_plan, cold_key, cold_kw = _cold_plan(
+                    scope, body, original, _cands, keep, held, openai=is_chat
+                )
             if session_delta:
                 # Cache-delta coding: cross-turn dedup + cross-version delta, applied to
                 # the ORIGINALS before compression so re-reads match across turns.
@@ -358,7 +391,12 @@ def compress_or_forward(
                     else:
                         from .adapters.anthropic import exact_quote_tool_use_ids as _exact_ids
                     keep_ids = frozenset(_exact_ids(original))
-                    if not (is_chat or verbatim):
+                    if is_chat and not verbatim:
+                        # Same rule, Chat shape (no cold-point on this path, so no evict).
+                        from .adapters.openai import refetch_tool_call_ids
+
+                        keep_ids |= refetch_tool_call_ids(original, keep=keep)
+                    elif not verbatim:
                         # A re-fetch of folded content goes out verbatim (ADR 0025). Delta
                         # coding it first would turn it into a reference to the folded
                         # copy, the stub the agent re-ran the command to get past.
@@ -410,11 +448,7 @@ def compress_or_forward(
                 extras["x-distil-cache-tokens-saved"] = str(dstats.tokens_saved)
                 # How many leading messages were byte-stable vs the previous turn.
                 extras["x-distil-cache-prefix-msgs"] = str(dstats.prefix_msgs)
-            if cold_plan is not None:
-                # Why this turn did (or did not) evict, and how many ids the lineage
-                # carries evicted. The tokens are already inside tokens-saved.
-                extras["x-distil-cold"] = cold_plan.reason
-                extras["x-distil-cold-evicted"] = str(len(cold_plan.evict))
+            _cold_extras(extras, cold_plan)
             # Injected on EVERY request while expand is on, not only when a handle
             # exists: Anthropic caches the tools array at the very front of the prefix,
             # so a tools list that gains an entry mid-session invalidates the whole
@@ -503,7 +537,8 @@ def buffer_for_expand(
     if isinstance(body.get("n"), int) and body["n"] > 1:
         return None
     if isinstance(body.get("contents"), list):
-        shape = "gemini"
+        # The client's own stream format: SSE frames with alt=sse, else a JSON array.
+        shape = "gemini" if "alt=sse" in path else "gemini-array"
     elif isinstance(body.get("input"), list):
         shape = "responses"
     else:
@@ -558,7 +593,7 @@ def sse_body(
 
     # Drop the upstream's own content-type rather than adding a second one.
     hdrs = {k: v for k, v in rhdrs.items() if k.lower() != "content-type"}
-    hdrs["Content-Type"] = "text/event-stream"
+    hdrs["Content-Type"] = "application/json" if shape == "gemini-array" else "text/event-stream"
     return hdrs, sse_from_response(shape, final)
 
 

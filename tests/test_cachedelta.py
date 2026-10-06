@@ -254,3 +254,26 @@ def test_azure_chat_completions_resolves_the_keep_list_with_the_openai_extractor
     assert keep == {"c1"}
     out, _store, _stats = delta_encode(messages, keep_ids=keep)
     assert out[1]["content"] == V1, "the exempt read must reach the wire byte-exact"
+
+
+def test_chat_list_shaped_tool_messages_are_delta_coded_too():
+    """Chat Completions' list form of a tool message was neither remembered nor
+    rewritten — the string form and Anthropic's tool_result were the only shapes."""
+
+    def tool(cid: str, text: str) -> dict:
+        return {"role": "tool", "tool_call_id": cid, "content": [{"type": "text", "text": text}]}
+
+    s = DeltaSession()
+    delta_encode([_u("q"), tool("c1", V1)], session=s)
+    out, store, stats = delta_encode(
+        [_u("q"), tool("c1", V1), _u("again"), tool("c2", V1)], session=s
+    )
+    assert stats.exact_refs == 1
+    assert "«distil-ref handle=" in out[3]["content"][0]["text"]
+    assert any(store.expand(h) == V1 for h in store.handles)
+    kept, _, _ = delta_encode(
+        [_u("q"), tool("c1", V1), _u("again"), tool("c2", V1)],
+        session=s,
+        keep_ids=frozenset({"c2"}),
+    )
+    assert kept[3]["content"][0]["text"] == V1

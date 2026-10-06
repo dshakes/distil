@@ -71,6 +71,11 @@ class Session:
     #: Assistant message index -> billed input tokens (uncached + cache read + write) of the
     #: response, i.e. what the request ending just before it actually cost in tokens.
     billed: dict[int, int] = field(default_factory=dict)
+    #: Wire shape of ``messages``: ``anthropic`` (Claude Code), ``responses`` (Codex CLI: an
+    #: OpenAI Responses ``input`` list) or ``gemini`` (Gemini CLI: ``contents``).
+    shape: str = "anthropic"
+    #: Request-ending message indices when the shape has no user-message rule (non-Anthropic).
+    ends: list[int] | None = None
 
     @property
     def model(self) -> str | None:
@@ -157,6 +162,18 @@ def _note_usage(sess: Session, msg: dict[str, Any], index: int) -> None:
     sess.cache_write_1h += min(w1h, write)
     if billed:
         sess.billed[index] = billed
+
+
+def _read(path: Path, shape: str) -> Session:
+    """Parse one transcript of *shape* (raises OSError; the non-Claude readers are fail-open)."""
+    if shape == "responses":
+        from .transcripts.codex import session
+    elif shape == "gemini":
+        from .transcripts.gemini_cli import session
+    else:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            return parse_transcript(fh)
+    return session(path)
 
 
 def discover(root: Path) -> list[Path]:
@@ -322,6 +339,17 @@ def _cost(read: int, write: int, price: Any, w1h_share: float) -> float:
     return read * price.cache_read + write * w
 
 
+def _compress_other(shape: str, req: list[Message], verbatim: bool) -> list[Message]:
+    """Compress a Codex (Responses ``input``) or Gemini (``contents``) request through its
+    shipped adapter, memory-only (``persist=False``) so this module stays read-only."""
+    from .adapters import gemini, openai
+
+    if shape == "responses":
+        return openai.compress_responses_input(req, verbatim=verbatim, persist=False)[0]
+    body = gemini.compress_generate_request({"contents": req}, verbatim=verbatim, persist=False)
+    return body[0]["contents"]
+
+
 def _replay(
     sess: Session,
     plan: list[tuple[int, bool]],
@@ -336,6 +364,7 @@ def _replay(
     stopped at the deadline)."""
     from .adapters import anthropic as adapter
 
+    shape = sess.shape
     orig = [sizer.of(m) for m in sess.messages]
     w1h = sess.cache_write_1h / sess.cache_write if sess.cache_write else 0.0
     prev_end = -1
@@ -347,12 +376,20 @@ def _replay(
         # No billed response (an interrupted last request): replayed for the cache state,
         # not counted — there is nothing to measure it against.
         recorded = recorded and end + 1 in sess.billed
-        req = with_breakpoint(sess.messages[: end + 1], sess.cache_recorded)
+        # Only Anthropic needs an explicit breakpoint; OpenAI and Gemini cache prefixes themselves.
+        req = (
+            with_breakpoint(sess.messages[: end + 1], sess.cache_recorded)
+            if shape == "anthropic"
+            else sess.messages[: end + 1]
+        )
         tb = sum(s[2] for s in orig[: end + 1])
         read_b = sum(s[2] for s in orig[: prev_end + 1])
         for verbatim, arm in arms.items():
-            comp, _store = adapter.compress_messages(req, verbatim=verbatim, persist=False)
-            adapter.take_quote_hazard()  # per-thread state the served path would consume
+            if shape == "anthropic":
+                comp, _store = adapter.compress_messages(req, verbatim=verbatim, persist=False)
+                adapter.take_quote_hazard()  # per-thread state the served path would consume
+            else:
+                comp = _compress_other(shape, req, verbatim)
             sized = [sizer.of(m) for m in comp]
             keys = [s[0] for s in sized]
             if recorded:
@@ -382,6 +419,22 @@ def claude_projects_root() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))) / "projects"
 
 
+def other_roots() -> list[tuple[Path, str]]:
+    """Codex CLI and Gemini CLI transcript roots, each with its session shape."""
+    from .transcripts.codex import sessions_root
+    from .transcripts.gemini_cli import tmp_root
+
+    return [(sessions_root(), "responses"), (tmp_root(), "gemini")]
+
+
+def _discover_any(root: Path, shape: str) -> list[Path]:
+    if shape == "responses":
+        return sorted(root.rglob("rollout-*.jsonl"))
+    if shape == "gemini":
+        return sorted(p for p in root.glob("*/chats/session-*") if p.suffix in (".json", ".jsonl"))
+    return discover(root)
+
+
 def run(
     since: float | None,
     *,
@@ -397,14 +450,19 @@ def run(
 
     t0 = time.monotonic()
     deadline = t0 + deadline_s
-    root = root or claude_projects_root()
+    # An explicit root is Claude Code's; with none, every agent's transcripts are replayed.
+    roots = (
+        [(root, "anthropic")] if root else [(claude_projects_root(), "anthropic"), *other_roots()]
+    )
     out = WhatIf()
-    try:
-        files = [(p.stat().st_mtime, p) for p in discover(root)]
-    except OSError:
-        files = []
-    files = sorted(((m, p) for m, p in files if since is None or m >= since), reverse=True)
-    for _m, path in files:
+    found: list[tuple[float, Path, str]] = []
+    for r, shape in roots:
+        try:
+            found += [(p.stat().st_mtime, p, shape) for p in _discover_any(r, shape)]
+        except OSError:
+            continue
+    found = sorted(((m, p, sh) for m, p, sh in found if since is None or m >= since), reverse=True)
+    for _m, path, shape in found:
         left = max_requests - out.requests_replayed
         if left <= 0:
             break
@@ -412,12 +470,15 @@ def run(
             out.stopped_early = True
             break
         try:
-            with path.open(encoding="utf-8", errors="replace") as fh:
-                sess = parse_transcript(fh)
+            sess = _read(path, shape)
         except OSError:
             continue
         out.unparseable_lines += sess.bad_lines
-        ends = [e for e in request_indices(sess.messages) if since is None or sess.ts[e] >= since]
+        ends = [
+            e
+            for e in (request_indices(sess.messages) if sess.ends is None else sess.ends)
+            if since is None or sess.ts[e] >= since
+        ]
         if not ends:
             continue
         sizer = _Sizer()

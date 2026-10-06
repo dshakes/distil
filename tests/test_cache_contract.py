@@ -1253,6 +1253,21 @@ def test_the_credential_scope_is_a_hash_and_nothing_else() -> None:
     ), "a changed second credential was ignored"
 
 
+def test_a_gemini_key_in_the_url_scopes_like_the_header_form() -> None:
+    """Gemini also takes its API key as ``?key=``. Read from headers only, every such
+    caller of one proxy shared the empty scope; now the URL key is a credential too."""
+    from distil import coldpoint
+
+    path = "/v1beta/models/gemini-2.5-pro:generateContent?key=AIza-one&alt=sse"
+    q = prefixreplay.query_credentials(path)
+    a = prefixreplay.credential_scope(q)
+    assert a and "AIza-one" not in a
+    other = path.replace("AIza-one", "AIza-two")
+    assert a != prefixreplay.credential_scope(prefixreplay.query_credentials(other))
+    assert prefixreplay.query_credentials("/v1beta/models/m:generateContent") == {}
+    assert coldpoint.account_scope(q) not in ("", coldpoint.account_scope({}))
+
+
 def test_the_gateway_holds_the_prefix_and_never_shares_it_between_tenants() -> None:
     """Plus the property that only the gateway has: a cached prefix belongs to one
     credential at the provider, so two tenants posting the identical conversation must
