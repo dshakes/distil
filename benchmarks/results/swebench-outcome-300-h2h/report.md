@@ -47,3 +47,7 @@ At the observed discordance (6.7%) ~211 pairs would be needed for 80% power at t
 4 comparisons against one baseline: the McNemar p-values and CIs are per-comparison and uncorrected (Bonferroni alpha = 0.0125).
 
 Excluded (api_error/env_error/internal_error/budget) instances are listed in `classes`, never counted as unresolved.
+
+## Cost confound
+
+These arms read a prompt cache they did not write (cache_write + input < cache_read / (steps - 1), impossible for a cold run): provider-cm 139/300, rtk 190/300, selective 167/300. Their cost columns are not their own cold cost; success rates are unaffected. New runs give each arm its own cache namespace (on by default, `--no-cache-namespace` turns it off).

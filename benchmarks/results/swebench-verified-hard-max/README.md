@@ -43,6 +43,11 @@ is noise.
   any comparison. The `cost $` column of the first table in `report.md` sums every row of an
   arm, including plain's unpaired django-14631 ($3.12); the `$ per solved` table uses only the 7
   common tasks.
+- **No cross-arm cache sharing.** Unlike the Lite head-to-head (see its README, "Cost
+  confound"), every row passes the cold-cache accounting check `cache_write + input >=
+  cache_read / (steps - 1)`: plain 0/8, distil 0/7, rtk 0/9 rows read a cache they did not
+  write (`report.cache_check`, pinned in `tests/test_swebench_outcome.py`). The billed dollars
+  are each arm's own; cache hit ratio is 97.6-98.0% in every arm.
 - **No infrastructure failures.** No api/env/internal errors, so nothing was re-run.
 - Run under emulated x86_64 on an arm64 Mac (7-37 min per attempt); task timeout 3600 s was
   never reached. Three shards ran concurrently on 2026-10-06.

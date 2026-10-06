@@ -3,6 +3,8 @@
   "sections": [
     {
       "benchmark": "SWE-bench Verified, hard tasks, effort max (official grader)",
+      "cost_confound": {},
+      "cost_note": null,
       "date": "2026-10-06",
       "effort": "max",
       "id": "swebench-verified-hard-max",
@@ -12,10 +14,15 @@
       "rows": [
         {
           "arm": "plain",
+          "cost_basis": "cold",
           "cost_usd": 21.6298,
           "label": "plain (no compression)",
           "library": null,
           "n": 7,
+          "precached_rows": [
+            0,
+            8
+          ],
           "rate": 0.857143,
           "rate_ci": [
             0.486872,
@@ -34,10 +41,15 @@
         },
         {
           "arm": "distil",
+          "cost_basis": "cold",
           "cost_usd": 18.1602,
           "label": "distil",
           "library": "distil",
           "n": 7,
+          "precached_rows": [
+            0,
+            7
+          ],
           "rate": 0.857143,
           "rate_ci": [
             0.486872,
@@ -59,10 +71,15 @@
         },
         {
           "arm": "rtk",
+          "cost_basis": "cold",
           "cost_usd": 21.5408,
           "label": "RTK",
           "library": "rtk",
           "n": 7,
+          "precached_rows": [
+            0,
+            9
+          ],
           "rate": 1.0,
           "rate_ci": [
             0.64567,
@@ -85,7 +102,7 @@
         {
           "arm": "headroom",
           "label": "Headroom",
-          "status": "not in this harness"
+          "status": "pending run"
         },
         {
           "arm": "selective",
@@ -102,6 +119,17 @@
     },
     {
       "benchmark": "SWE-bench Lite (official grader)",
+      "cost_confound": {
+        "rtk": {
+          "per_task_vs_plain_ci_pct_cold": [
+            -13.1,
+            0.1
+          ],
+          "per_task_vs_plain_pct_billed": -20.7,
+          "per_task_vs_plain_pct_cold": -6.5
+        }
+      },
+      "cost_note": "rtk, selective and provider-cm ran the same day with byte-identical first requests and read each other's prompt cache; plain and distil ran alone and did not. Re-pricing as a cold run keeps each task's exact prompt and output tokens and moves only the cache write/read split (benchmarks/why_rtk_wins.py, docs/research/why-rtk-wins.md). The analysis did not re-price selective, and re-priced provider-cm only on the 192 of 298 tasks without server-side edits, so neither shows a dollar figure. Success rates and verdicts are unaffected.",
       "date": "2026-10-05",
       "effort": "medium",
       "id": "swebench-lite-300-h2h",
@@ -111,10 +139,15 @@
       "rows": [
         {
           "arm": "plain",
+          "cost_basis": "cold",
           "cost_usd": 8.4416,
           "label": "plain (no compression)",
           "library": null,
           "n": 298,
+          "precached_rows": [
+            0,
+            300
+          ],
           "rate": 0.731544,
           "rate_ci": [
             0.678516,
@@ -133,10 +166,15 @@
         },
         {
           "arm": "distil",
+          "cost_basis": "cold",
           "cost_usd": 8.3653,
           "label": "distil",
           "library": null,
           "n": 298,
+          "precached_rows": [
+            0,
+            300
+          ],
           "rate": 0.714765,
           "rate_ci": [
             0.661021,
@@ -158,10 +196,16 @@
         },
         {
           "arm": "rtk",
-          "cost_usd": 6.6917,
+          "cost_basis": "cold re-priced",
+          "cost_usd": 7.894,
+          "cost_usd_billed": 6.6917,
           "label": "RTK",
           "library": "rtk",
           "n": 298,
+          "precached_rows": [
+            190,
+            300
+          ],
           "rate": 0.734899,
           "rate_ci": [
             0.682026,
@@ -172,7 +216,8 @@
           "steps": 1307,
           "tokens_in": 5811151,
           "tokens_out": 340032,
-          "usd_per_solved": 0.0306,
+          "usd_per_solved": 0.036,
+          "usd_per_solved_billed": 0.0306,
           "verdict": "NON-INFERIOR",
           "version": "0.51.0",
           "vs_plain_ci_pts": [
@@ -184,14 +229,20 @@
         {
           "arm": "headroom",
           "label": "Headroom",
-          "status": "not in this harness"
+          "status": "pending run"
         },
         {
           "arm": "selective",
-          "cost_usd": 9.8588,
+          "cost_basis": "confounded",
+          "cost_usd": null,
+          "cost_usd_billed": 9.8588,
           "label": "Selective Context",
           "library": "selective-context",
           "n": 298,
+          "precached_rows": [
+            167,
+            300
+          ],
           "rate": 0.704698,
           "rate_ci": [
             0.650564,
@@ -202,7 +253,8 @@
           "steps": 2053,
           "tokens_in": 10771687,
           "tokens_out": 495426,
-          "usd_per_solved": 0.0469,
+          "usd_per_solved": null,
+          "usd_per_solved_billed": 0.0469,
           "verdict": "INCONCLUSIVE",
           "version": "0.1.4",
           "vs_plain_ci_pts": [
@@ -213,10 +265,16 @@
         },
         {
           "arm": "provider-cm",
-          "cost_usd": 8.1546,
+          "cost_basis": "confounded",
+          "cost_usd": null,
+          "cost_usd_billed": 8.1546,
           "label": "Anthropic context editing",
           "library": "anthropic",
           "n": 298,
+          "precached_rows": [
+            139,
+            300
+          ],
           "rate": 0.704698,
           "rate_ci": [
             0.650564,
@@ -227,7 +285,8 @@
           "steps": 1419,
           "tokens_in": 5643391,
           "tokens_out": 340589,
-          "usd_per_solved": 0.0388,
+          "usd_per_solved": null,
+          "usd_per_solved_billed": 0.0388,
           "verdict": "INCONCLUSIVE",
           "version": "1.11.0",
           "vs_plain_ci_pts": [
@@ -241,6 +300,8 @@
     },
     {
       "benchmark": "SWE-bench Lite (official grader)",
+      "cost_confound": {},
+      "cost_note": null,
       "date": "2026-10-02",
       "effort": "low",
       "id": "swebench-lite-300-low",
@@ -250,10 +311,15 @@
       "rows": [
         {
           "arm": "plain",
+          "cost_basis": "cold",
           "cost_usd": 7.1662,
           "label": "plain (no compression)",
           "library": null,
           "n": 299,
+          "precached_rows": [
+            0,
+            300
+          ],
           "rate": 0.702341,
           "rate_ci": [
             0.648215,
@@ -272,10 +338,15 @@
         },
         {
           "arm": "distil",
+          "cost_basis": "cold",
           "cost_usd": 7.1663,
           "label": "distil",
           "library": null,
           "n": 299,
+          "precached_rows": [
+            0,
+            300
+          ],
           "rate": 0.682274,
           "rate_ci": [
             0.627473,
@@ -303,7 +374,7 @@
         {
           "arm": "headroom",
           "label": "Headroom",
-          "status": "not in this harness"
+          "status": "pending run"
         },
         {
           "arm": "selective",

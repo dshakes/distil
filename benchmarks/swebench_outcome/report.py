@@ -325,3 +325,46 @@ def cost_section(
             f"{p['usd_per_solved']:.4f} | {cmp_} | {median(steps) if steps else '-'} |"
         )
     return "\n".join(L) + "\n"
+
+
+def precached(r: dict[str, Any]) -> bool:
+    """True when a row's cache accounting is impossible for a cold, append-only run.
+
+    Each step's prompt contains the previous one, so a run that started on a cold cache wrote
+    at least its largest prompt: cache_write + input >= cache_read / (steps - 1). Below that,
+    the provider served prompt this run never wrote: a cache entry left by another arm (same
+    first request) or an earlier attempt. Such a row's cost is not its own cold cost."""
+    u, n = r.get("usage") or {}, r.get("steps", 0)
+    if n < 2 or not u:
+        return False
+    return u.get("cache_write", 0) + u.get("input", 0) < u.get("cache_read", 0) / (n - 1)
+
+
+def cache_contamination(results: list[dict[str, Any]]) -> dict[str, tuple[int, int]]:
+    """{arm: (precached rows, rows)}, every arm, every row."""
+    out: dict[str, list[int]] = {}
+    for r in results:
+        c = out.setdefault(r["arm"], [0, 0])
+        c[0] += precached(r)
+        c[1] += 1
+    return {a: (c[0], c[1]) for a, c in out.items()}
+
+
+def cache_check(results: list[dict[str, Any]]) -> str:
+    """A '## Cost confound' section when any arm read a prompt cache it did not write; '' when
+    every row passes. Success rates are unaffected; the cost columns are not this arm's cost."""
+    cc = cache_contamination(results)
+    bad = {a: v for a, v in cc.items() if v[0]}
+    if not bad:
+        return ""
+    L = [
+        "## Cost confound",
+        "",
+        "These arms read a prompt cache they did not write (cache_write + input < "
+        "cache_read / (steps - 1), impossible for a cold run): "
+        + ", ".join(f"{a} {b}/{n}" for a, (b, n) in sorted(bad.items()))
+        + ". Their cost columns are not their own cold cost; success rates are unaffected. "
+        "New runs give each arm its own cache namespace (on by default, `--no-cache-namespace` "
+        "turns it off).",
+    ]
+    return "\n".join(L) + "\n"

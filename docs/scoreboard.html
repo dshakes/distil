@@ -74,6 +74,7 @@
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
+          <li><a href="shell.html">Shell at the Source</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
           <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
@@ -96,21 +97,38 @@
     <p class="lead">Every context compressor claims a saving. This page scores them on what a user pays for: dollars per <b>solved</b> task, with every failed attempt's spend counted, and whether tasks still get solved. Each compressor is run by its own real, pinned package through the same harness and the same official grader. distil is one of the rows, not the referee's favourite: the same rules apply to it.</p>
     <p>How it is measured, and why these estimators, is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0024-distil-as-referee.md">ADR 0024</a>. Paired against plain on the same tasks; the interval on the difference is the harness's Wald interval with an exact McNemar test, at a pre-registered 5-point non-inferiority margin. A row that says <i>pending run</i> has no committed data, and nothing here estimates it. The runs that will fill it, with their costs, are in <a href="https://github.com/dshakes/distil/blob/main/docs/research/referee-runs.md">the run plan</a>. To referee a compressor on your <em>own</em> traffic instead, see <code>distil audit</code> in the <a href="cli.html">CLI reference</a>.</p>
 
+    <h2 id="swebench-verified-hard-max">SWE-bench Verified, hard tasks, effort max (official grader)</h2>
+    <p><code>claude-sonnet-5-5</code> · effort max · n = 7 tasks graded in every arm · run 2026-10-06. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-verified-hard-max"><code>benchmarks/results/swebench-verified-hard-max</code></a>. Long-horizon pilot, not a verdict: 7 tasks (the hard &#x27;1-4 hours&#x27;/&#x27;&gt;4 hours&#x27; Verified buckets, as many as the $100 cap bought) at effort max, median 63-69 steps per task. No cost difference is shown for distil or rtk (both $-per-solved intervals cross 1). distil&#x27;s lower $ per solved comes from one attempt that crashed after 4 steps on max_tokens; on the other 6 tasks distil cost 9.7% more than plain. selective and provider-cm were dropped to fit the cap (pre-registered rule).</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Verified, hard tasks, effort max (official grader) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>plain (no compression)</td><td>$3.6050</td><td>6/7 · 85.7% (48.7%–97.4%)</td><td>baseline</td><td>$21.63</td><td>52,588,959 / 825,483</td><td>463</td><td>—</td></tr>
+        <tr><td>distil</td><td>$3.0267</td><td>6/7 · 85.7% (48.7%–97.4%)</td><td>+0.0 [+0.0, +0.0] · PILOT (no verdict)</td><td>$18.16</td><td>46,957,534 / 658,560</td><td>475</td><td>distil 1.57.0</td></tr>
+        <tr><td>RTK</td><td>$3.0773</td><td>7/7 · 100.0% (64.6%–100.0%)</td><td>+14.3 [-11.6, +40.2] · PILOT (no verdict)</td><td>$21.54</td><td>55,288,254 / 773,387</td><td>512</td><td>rtk 0.51.0</td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
     <h2 id="swebench-lite-300-h2h">SWE-bench Lite (official grader)</h2>
     <p><code>claude-sonnet-5-5</code> · effort medium · n = 298 tasks graded in every arm · run 2026-10-05. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-outcome-300-h2h"><code>benchmarks/results/swebench-outcome-300-h2h</code></a>. Plain and distil are the swebench-outcome-300-medium run (2026-10-03), reused unchanged, so this section supersedes that run&#x27;s own table; rtk, selective and provider-cm ran 2026-10-05 on the same model and effort, provider drift between the two dates is not controlled, and provider-cm used an aggressive clearing setting rather than Anthropic&#x27;s defaults.</p>
     <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Lite (official grader) scoreboard">
     <table>
-      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <thead><tr><th>Compressor</th><th>$ per solved task (cold cache)</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
       <tbody>
         <tr><td>plain (no compression)</td><td>$0.0387</td><td>218/298 · 73.2% (67.9%–77.9%)</td><td>baseline</td><td>$8.44</td><td>6,810,575 / 357,562</td><td>1360</td><td>—</td></tr>
         <tr><td>distil</td><td>$0.0393</td><td>213/298 · 71.5% (66.1%–76.3%)</td><td>-1.7 [-5.1, +1.7] · INCONCLUSIVE</td><td>$8.37</td><td>7,081,760 / 351,388</td><td>1427</td><td>1.56.3</td></tr>
-        <tr><td>RTK</td><td>$0.0306</td><td>219/298 · 73.5% (68.2%–78.2%)</td><td>+0.3 [-2.7, +3.3] · NON-INFERIOR</td><td>$6.69</td><td>5,811,151 / 340,032</td><td>1307</td><td>rtk 0.51.0</td></tr>
-        <tr><td>Headroom</td><td colspan="7"><i>not in this harness</i></td></tr>
-        <tr><td>Selective Context</td><td>$0.0469</td><td>210/298 · 70.5% (65.1%–75.4%)</td><td>-2.7 [-6.7, +1.4] · INCONCLUSIVE</td><td>$9.86</td><td>10,771,687 / 495,426</td><td>2053</td><td>selective-context 0.1.4</td></tr>
-        <tr><td>Anthropic context editing</td><td>$0.0388</td><td>210/298 · 70.5% (65.1%–75.4%)</td><td>-2.7 [-5.6, +0.2] · INCONCLUSIVE</td><td>$8.15</td><td>5,643,391 / 340,589</td><td>1419</td><td>anthropic 1.11.0</td></tr>
+        <tr><td>RTK</td><td>$0.0360†</td><td>219/298 · 73.5% (68.2%–78.2%)</td><td>+0.3 [-2.7, +3.3] · NON-INFERIOR</td><td>$7.89†</td><td>5,811,151 / 340,032</td><td>1307</td><td>rtk 0.51.0</td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Selective Context</td><td><i>confounded — <a href="#swebench-lite-300-h2h-cost-confound">see note</a></i></td><td>210/298 · 70.5% (65.1%–75.4%)</td><td>-2.7 [-6.7, +1.4] · INCONCLUSIVE</td><td><i>confounded — <a href="#swebench-lite-300-h2h-cost-confound">see note</a></i></td><td>10,771,687 / 495,426</td><td>2053</td><td>selective-context 0.1.4</td></tr>
+        <tr><td>Anthropic context editing</td><td><i>confounded — <a href="#swebench-lite-300-h2h-cost-confound">see note</a></i></td><td>210/298 · 70.5% (65.1%–75.4%)</td><td>-2.7 [-5.6, +0.2] · INCONCLUSIVE</td><td><i>confounded — <a href="#swebench-lite-300-h2h-cost-confound">see note</a></i></td><td>5,643,391 / 340,589</td><td>1419</td><td>anthropic 1.11.0</td></tr>
       </tbody>
     </table>
     </div>
+    <p id="swebench-lite-300-h2h-cost-confound" class="note"><b>Cost confound.</b> rtk, selective and provider-cm ran the same day with byte-identical first requests and read each other&#x27;s prompt cache; plain and distil ran alone and did not. Re-pricing as a cold run keeps each task&#x27;s exact prompt and output tokens and moves only the cache write/read split (benchmarks/why_rtk_wins.py, docs/research/why-rtk-wins.md). The analysis did not re-price selective, and re-priced provider-cm only on the 192 of 298 tasks without server-side edits, so neither shows a dollar figure. Success rates and verdicts are unaffected. Cold re-priced, RTK vs plain per task: -6.5% [-13.1%, +0.1%] (as billed -20.7%). † re-priced as a cold run. As billed, not comparable: RTK $0.0306 per solved, $6.69 total (190/300 rows read another arm's cache); Selective Context $0.0469 per solved, $9.86 total (167/300 rows read another arm's cache); Anthropic context editing $0.0388 per solved, $8.15 total (139/300 rows read another arm's cache).</p>
 
     <h2 id="swebench-lite-300-low">SWE-bench Lite (official grader)</h2>
     <p><code>claude-sonnet-5-5</code> · effort low · n = 299 tasks graded in every arm · run 2026-10-02. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-outcome-300-grepfix"><code>benchmarks/results/swebench-outcome-300-grepfix</code></a>. Plain rows are reused from swebench-outcome-300 (same model, effort and tasks), as that run&#x27;s report.md says.</p>
@@ -121,7 +139,7 @@
         <tr><td>plain (no compression)</td><td>$0.0341</td><td>210/299 · 70.2% (64.8%–75.1%)</td><td>baseline</td><td>$7.17</td><td>5,114,011 / 303,228</td><td>1251</td><td>—</td></tr>
         <tr><td>distil</td><td>$0.0351</td><td>204/299 · 68.2% (62.7%–73.2%)</td><td>-2.0 [-5.5, +1.4] · INCONCLUSIVE</td><td>$7.17</td><td>5,527,181 / 296,148</td><td>1290</td><td>1.56.3</td></tr>
         <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
-        <tr><td>Headroom</td><td colspan="7"><i>not in this harness</i></td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
         <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
         <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
       </tbody>
@@ -147,6 +165,7 @@
     <h2 id="read">How to read it</h2>
     <ul>
       <li><b>$ per solved task</b> is the arm's total spend on the tasks graded in every arm, divided by the tasks it solved. A cheaper arm that solves fewer tasks can cost more per solved task.</li>
+      <li><b>Cold cache.</b> Each arm's dollars must be its own. The builder checks every row: a run that started cold writes at least its largest prompt, so <code>cache_write + input &lt; cache_read / (steps &minus; 1)</code> means it read a prompt cache another arm wrote. Such an arm shows a cold re-pricing, or no dollar figure, never the billed one.</li>
       <li><b>vs plain</b> is the paired difference in tasks solved, in points, with its verdict at the 5-point margin. <i>PILOT</i>, <i>INCONCLUSIVE</i> and <i>INFERIOR</i> mean what they say; none of them is a pass.</li>
       <li>Short tasks. On these runs the median task took a handful of steps, so contexts stayed short. A compressor built for long sessions is not exercised much here; the Terminal-Bench table runs longer agent sessions.</li>
       <li>Every figure is regenerated by <code>scripts/build_scoreboard.py</code> from the run directories, and the machine-readable copy is <a href="scoreboard.json">scoreboard.json</a>.</li>

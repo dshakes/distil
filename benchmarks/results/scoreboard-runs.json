@@ -34,7 +34,13 @@
       "versions": {
         "distil": "1.56.3"
       },
-      "note": "plain and distil are the swebench-outcome-300-medium run (2026-10-03), reused unchanged, so this section supersedes that run's own table; rtk, selective and provider-cm ran 2026-10-05 on the same model and effort, provider drift between the two dates is not controlled, and provider-cm used an aggressive clearing setting rather than Anthropic's defaults"
+      "note": "plain and distil are the swebench-outcome-300-medium run (2026-10-03), reused unchanged, so this section supersedes that run's own table; rtk, selective and provider-cm ran 2026-10-05 on the same model and effort, provider drift between the two dates is not controlled, and provider-cm used an aggressive clearing setting rather than Anthropic's defaults",
+      "cold_repriced": {
+        "file": "benchmarks/results/why-rtk-wins/results.json",
+        "totals": "lite.cold_cache_repriced",
+        "paired": "lite.paired_vs_plain"
+      },
+      "cost_note": "rtk, selective and provider-cm ran the same day with byte-identical first requests and read each other's prompt cache; plain and distil ran alone and did not. Re-pricing as a cold run keeps each task's exact prompt and output tokens and moves only the cache write/read split (benchmarks/why_rtk_wins.py, docs/research/why-rtk-wins.md). The analysis did not re-price selective, and re-priced provider-cm only on the 192 of 298 tasks without server-side edits, so neither shows a dollar figure. Success rates and verdicts are unaffected."
     },
     {
       "id": "swebench-lite-300-low",

@@ -493,3 +493,69 @@ def test_cost_section_is_dollars_per_solved_with_failed_attempts_counted():
     assert "6 tasks graded in every arm" in md  # the api_error task is not scored
     assert "| plain | 4/6 | 6.00 | 1.5000 | 1 |" in md
     assert "| rtk | 4/6 | 3.00 | 0.7500 | 0.500 |" in md
+
+
+# ------------------------------------------------- cross-arm prompt-cache confound guard
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _row(arm, w, i, r, steps=5):
+    return {"arm": arm, "steps": steps, "usage": {"cache_write": w, "input": i, "cache_read": r}}
+
+
+def test_precached_flags_cache_a_cold_run_cannot_produce():
+    assert not report.precached(_row("plain", 4000, 2, 12000))  # 4002 >= 12000/4
+    assert report.precached(_row("rtk", 500, 2, 12000))  # read prompt it never wrote
+    assert not report.precached(_row("rtk", 0, 0, 9000, steps=1))  # one step: no evidence
+    assert not report.precached({"arm": "x", "steps": 3})  # no usage recorded
+    rows = [_row("plain", 4000, 2, 12000), _row("rtk", 500, 2, 12000), _row("rtk", 4000, 2, 1)]
+    assert report.cache_contamination(rows) == {"plain": (0, 1), "rtk": (1, 2)}
+    md = report.cache_check(rows)
+    assert md.startswith("## Cost confound") and "rtk 1/2" in md and "plain" not in md
+    assert report.cache_check(rows[:1]) == ""
+
+
+def test_committed_runs_cache_check():
+    """The 2026-10-05 Lite head-to-head arms read each other's cache; the long-horizon run and
+    the plain/distil runs did not. Pinned so a re-pricing can never silently go stale."""
+
+    def cc(d):
+        return report.cache_contamination(
+            run.read_results(ROOT / "benchmarks/results" / d / "results.jsonl")
+        )
+
+    h2h = cc("swebench-outcome-300-h2h")
+    assert h2h == {
+        "plain": (0, 300),
+        "distil": (0, 300),
+        "rtk": (190, 300),
+        "selective": (167, 300),
+        "provider-cm": (139, 300),
+    }
+    assert cc("swebench-verified-hard-max") == {"plain": (0, 8), "distil": (0, 7), "rtk": (0, 9)}
+    assert (
+        "## Cost confound"
+        in (ROOT / "benchmarks/results/swebench-outcome-300-h2h/report.md").read_text()
+    )
+
+
+def test_each_arm_gets_its_own_cache_namespace():
+    r, c, _ = go(EDIT, cfg=ag.Cfg(cache_ns="ab12cd34"))
+    assert c.calls[0]["system"] == "[cache namespace plain-ab12cd34]\n" + ag.SYSTEM
+    assert {k["system"] for k in c.calls} == {c.calls[0]["system"]}  # stable within a run
+    assert r["cache_ns"] == "plain-ab12cd34"
+    _, c2, _ = go(EDIT)
+    assert c2.calls[0]["system"] == ag.SYSTEM  # Cfg() default: unchanged prompt
+    assert ag.system_prompt("rtk", "ab12cd34") != ag.system_prompt("plain", "ab12cd34")
+
+
+def test_cli_namespaces_runs_by_default(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "_plan", lambda a, cfg, ids, names: seen.append(cfg) or 0)
+    monkeypatch.setattr(run, "load_records", lambda ids, dataset=None: [{"instance_id": "x"}])
+    monkeypatch.setattr(cli, "load_ids", lambda *a, **k: ["x"], raising=False)
+    assert cli.main(["plan"]) == 0 and seen[-1].cache_ns and len(seen[-1].cache_ns) == 8
+    p = cli._parser()
+    assert p.parse_args(["run", "--no-cache-namespace"]).no_cache_namespace is True
+    assert p.parse_args(["run"]).no_cache_namespace is False

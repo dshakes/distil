@@ -24,7 +24,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from benchmarks.swebench_outcome.report import analyse, outcomes  # noqa: E402
+from benchmarks.swebench_outcome.report import (  # noqa: E402
+    analyse,
+    cache_contamination,
+    outcomes,
+)
 
 import site_nav  # noqa: E402
 
@@ -42,7 +46,7 @@ LABELS = {
     "provider-cm": "Anthropic context editing",
 }
 #: Arms each harness can run (benchmarks/swebench_outcome/names.py, cost_truth/arms.py).
-SWE_ARMS = ("plain", "distil", "rtk", "selective", "provider-cm")
+SWE_ARMS = ("plain", "distil", "rtk", "selective", "provider-cm", "headroom")
 CT_ARMS = ("control", "distil", "rtk", "headroom")
 #: The scoreboard's rows: every compressor, in both tables, so a gap is visible.
 ROWS = ("plain", "distil", "rtk", "headroom", "selective", "provider-cm")
@@ -54,9 +58,31 @@ def _jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
+def _cold(entry: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Cold-cache re-pricing for a run whose arms read each other's prompt cache: the index's
+    `cold_repriced` names a committed results.json and the keys holding the per-arm totals and
+    the paired per-task differences vs plain (benchmarks/why_rtk_wins.py's
+    lite.cold_cache_repriced and lite.paired_vs_plain)."""
+    src = entry.get("cold_repriced")
+    if not src:
+        return {}, {}
+    doc: Any = json.loads((ROOT / src["file"]).read_text(encoding="utf-8"))
+
+    def at(key: str) -> dict[str, Any]:
+        node = doc
+        for k in key.split("."):
+            node = node[k]
+        return node
+
+    return at(src["totals"]), at(src["paired"])
+
+
 def swebench(entry: dict[str, Any]) -> dict[str, Any]:
     d = ROOT / entry["dir"]
     results, grades = _jsonl(d / "results.jsonl"), _jsonl(d / "grades.jsonl")
+    contaminated = cache_contamination(results)
+    cold, paired = _cold(entry)
+    confound: dict[str, Any] = {}
     a = analyse(results, grades)
     oc = outcomes(results, grades)
     graded = [x for x in a["arms"] if oc.get(x)]
@@ -75,6 +101,32 @@ def swebench(entry: dict[str, Any]) -> dict[str, Any]:
         cost = sum(r.get("cost_usd", 0.0) for r in mine)
         c = a["comparisons"].get(arm)
         meta = s["meta"]
+        pre, n_rows = contaminated.get(arm, (0, 0))
+        # The cost columns are the arm's own cold-cache cost. A row that read another arm's
+        # cache (report.precached) is not; such an arm shows a cold re-pricing when every one
+        # of its tasks was re-priced, and otherwise no dollar figure at all.
+        billed = round(cost, 4)
+        billed_per = round(cost / s["resolved"], 4) if s["resolved"] else None
+        if not pre:
+            basis, cost_v, per_v = "cold", billed, billed_per
+        elif arm in cold and cold[arm].get("tasks_repriced") == cold[arm]["tasks"] == len(mine):
+            basis = "cold re-priced"
+            cost_v = round(cold[arm]["usd"], 4)
+            per_v = round(cold[arm]["usd"] / s["resolved"], 4) if s["resolved"] else None
+            p = paired.get(arm, {})
+            if p.get("cold_cache_pairs") == p.get("pairs") == len(mine):
+                base = p["plain_mean_usd"]
+                confound[arm] = {
+                    "per_task_vs_plain_pct_cold": round(
+                        p["cold_cache_mean_usd_diff"] / base * 100, 1
+                    ),
+                    "per_task_vs_plain_ci_pct_cold": [
+                        round(x / base * 100, 1) for x in p["cold_cache_ci95"]
+                    ],
+                    "per_task_vs_plain_pct_billed": round(p["mean_usd_diff"] / base * 100, 1),
+                }
+        else:
+            basis, cost_v, per_v = "confounded", None, None
         rows.append(
             {
                 "arm": arm,
@@ -91,8 +143,15 @@ def swebench(entry: dict[str, Any]) -> dict[str, Any]:
                 if c is None
                 else [round(c["ci"][0] * 100, 2), round(c["ci"][1] * 100, 2)],
                 "verdict": None if c is None else c["verdict"],
-                "cost_usd": round(cost, 4),
-                "usd_per_solved": round(cost / s["resolved"], 4) if s["resolved"] else None,
+                "cost_usd": cost_v,
+                "usd_per_solved": per_v,
+                "cost_basis": basis,
+                "precached_rows": [pre, n_rows],
+                **(
+                    {"cost_usd_billed": billed, "usd_per_solved_billed": billed_per}
+                    if basis != "cold"
+                    else {}
+                ),
                 "tokens_in": sum(
                     sum(
                         (r.get("usage") or {}).get(k, 0)
@@ -113,6 +172,8 @@ def swebench(entry: dict[str, Any]) -> dict[str, Any]:
         "effort": first.get("effort"),
         "n_common": len(common),
         "note": entry.get("note"),
+        "cost_note": entry.get("cost_note"),
+        "cost_confound": confound,
         "rows": rows,
     }
 
@@ -192,7 +253,7 @@ def _pct(x: float) -> str:
     return f"{x * 100:.1f}%"
 
 
-def _row_html(r: dict[str, Any]) -> str:
+def _row_html(r: dict[str, Any], sid: str = "") -> str:
     name = html.escape(r["label"])
     if r["status"] != "measured":
         return f'<tr><td>{name}</td><td colspan="7"><i>{r["status"]}</i></td></tr>'
@@ -204,12 +265,18 @@ def _row_html(r: dict[str, Any]) -> str:
     if r.get("vs_plain_pts") is not None:
         lo, hi = r["vs_plain_ci_pts"]
         vs = f"{r['vs_plain_pts']:+.1f} [{lo:+.1f}, {hi:+.1f}] · {r['verdict']}"
-    per = "—" if r.get("usd_per_solved") is None else f"${r['usd_per_solved']:.4f}"
+    basis = r.get("cost_basis")
+    mark = "†" if basis == "cold re-priced" else ""
+    if basis == "confounded":
+        per = total = f'<i>confounded — <a href="#{sid}-cost-confound">see note</a></i>'
+    else:
+        per = "—" if r.get("usd_per_solved") is None else f"${r['usd_per_solved']:.4f}{mark}"
+        total = f"${r['cost_usd']:.2f}{mark}"
     toks = f"{r['tokens_in']:,} / {r['tokens_out']:,}" if r.get("tokens_in") is not None else "—"
     ver = html.escape(" ".join(x for x in (r.get("library"), r.get("version")) if x) or "—")
     return (
         f"<tr><td>{name}</td><td>{per}</td><td>{rate}</td><td>{vs}</td>"
-        f"<td>${r['cost_usd']:.2f}</td><td>{toks}</td><td>{r.get('steps', '—')}</td>"
+        f"<td>{total}</td><td>{toks}</td><td>{r.get('steps', '—')}</td>"
         f"<td>{ver}</td></tr>"
     )
 
@@ -232,17 +299,42 @@ def _section_html(s: dict[str, Any]) -> str:
         else ""
     )
     note = f" {html.escape(s['note'][0].upper() + s['note'][1:])}." if s.get("note") else ""
+    measured = [r for r in s["rows"] if r["status"] == "measured"]
+    confound = any(r.get("cost_basis", "cold") != "cold" for r in measured)
+    per_head = "$ per solved task (cold cache)" if confound else "$ per solved task"
+    foot, sid = "", s["id"]
+    if confound:
+        billed = "; ".join(
+            f"{html.escape(r['label'])} ${r['usd_per_solved_billed']:.4f} per solved, "
+            f"${r['cost_usd_billed']:.2f} total ({r['precached_rows'][0]}/"
+            f"{r['precached_rows'][1]} rows read another arm's cache)"
+            for r in measured
+            if r.get("cost_basis", "cold") != "cold"
+        )
+        paired = "".join(
+            f" Cold re-priced, {html.escape(LABELS[a])} vs plain per task: "
+            f"{c['per_task_vs_plain_pct_cold']:+.1f}% "
+            f"[{c['per_task_vs_plain_ci_pct_cold'][0]:+.1f}%, "
+            f"{c['per_task_vs_plain_ci_pct_cold'][1]:+.1f}%] (as billed "
+            f"{c['per_task_vs_plain_pct_billed']:+.1f}%)."
+            for a, c in (s.get("cost_confound") or {}).items()
+        )
+        foot = (
+            f'\n    <p id="{sid}-cost-confound" class="note"><b>Cost confound.</b> '
+            f"{html.escape(s.get('cost_note') or '')}{paired} † re-priced as a cold run. "
+            f"As billed, not comparable: {billed}.</p>"
+        )
     return f"""
     <h2 id="{s["id"]}">{html.escape(s["benchmark"])}</h2>
     <p>{cfg or "Pending"}.{src}{note}</p>
     <div class="table-scroll" tabindex="0" role="region" aria-label="{html.escape(s["benchmark"])} scoreboard">
     <table>
-      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <thead><tr><th>Compressor</th><th>{per_head}</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
       <tbody>
-        {chr(10).join("        " + _row_html(r) for r in s["rows"]).lstrip()}
+        {chr(10).join("        " + _row_html(r, s["id"]) for r in s["rows"]).lstrip()}
       </tbody>
     </table>
-    </div>"""
+    </div>{foot}"""
 
 
 _DESC = (
@@ -300,6 +392,7 @@ def render_html(data: dict[str, Any]) -> str:
     <h2 id="read">How to read it</h2>
     <ul>
       <li><b>$ per solved task</b> is the arm's total spend on the tasks graded in every arm, divided by the tasks it solved. A cheaper arm that solves fewer tasks can cost more per solved task.</li>
+      <li><b>Cold cache.</b> Each arm's dollars must be its own. The builder checks every row: a run that started cold writes at least its largest prompt, so <code>cache_write + input &lt; cache_read / (steps &minus; 1)</code> means it read a prompt cache another arm wrote. Such an arm shows a cold re-pricing, or no dollar figure, never the billed one.</li>
       <li><b>vs plain</b> is the paired difference in tasks solved, in points, with its verdict at the 5-point margin. <i>PILOT</i>, <i>INCONCLUSIVE</i> and <i>INFERIOR</i> mean what they say; none of them is a pass.</li>
       <li>Short tasks. On these runs the median task took a handful of steps, so contexts stayed short. A compressor built for long sessions is not exercised much here; the Terminal-Bench table runs longer agent sessions.</li>
       <li>Every figure is regenerated by <code>scripts/build_scoreboard.py</code> from the run directories, and the machine-readable copy is <a href="scoreboard.json">scoreboard.json</a>.</li>

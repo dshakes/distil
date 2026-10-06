@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import sys
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,12 @@ def _parser() -> argparse.ArgumentParser:
             s.add_argument("--cm-trigger", type=int, default=CM_TRIGGER, help="provider-cm trigger")
             s.add_argument("--cm-keep", type=int, default=CM_KEEP, help="provider-cm keep")
             s.add_argument("--cm-clear-at-least", type=int, default=CM_CLEAR_AT_LEAST)
+            s.add_argument(
+                "--no-cache-namespace",
+                action="store_true",
+                help="send every arm the same system prompt; by default each arm's system prompt "
+                "starts with its own per-run nonce so arms never read each other's prompt cache",
+            )
         if name == "grade":
             s.add_argument("--max-workers", type=int, default=4)
         if name == "report":
@@ -236,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             max_tokens=a.max_tokens,
             pin=a.price_in,
             pout=a.price_out,
+            cache_ns=None if getattr(a, "no_cache_namespace", False) else secrets.token_hex(4),
         )
         diff = [d.strip() for d in a.difficulty.split(",") if d.strip()] if a.difficulty else None
         ids = select_ids(load_ids(a.instances, a.dataset, diff), a.seed, a.limit)
@@ -278,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = grade(out, a.max_workers, dataset=a.dataset, arms=names)
         print(f"graded {len(rows)} (instance, arm) rows -> {out / 'grades.jsonl'}")
         return 0
-    from .report import analyse, cost_section, dataset_title, markdown
+    from .report import analyse, cache_check, cost_section, dataset_title, markdown
 
     gp = out / "grades.jsonl"
     grades = [json.loads(ln) for ln in gp.read_text().splitlines()] if gp.exists() else []
@@ -288,6 +296,9 @@ def main(argv: list[str] | None = None) -> int:
         {k: v for k, v in read_manifest(out).items() if k in names},
         title=dataset_title(a.dataset),
     )
+    check = cache_check([r for r in results if r["arm"] in names])
+    if check:
+        md += "\n" + check
     if a.cost_per_solved:
         md += "\n" + cost_section(results, grades, names)
     (out / "report.md").write_text(md)

@@ -3,6 +3,42 @@
 Five arms on the same 300 SWE-bench Lite tasks: plain, distil, rtk, selective, provider-cm.
 `report.md` is the verdict table; `results.jsonl` and `grades.jsonl` are the raw rows.
 
+## Cost confound: the as-billed cost columns are not comparable
+
+**Success rates and verdicts are unaffected. The dollar columns for rtk, selective and
+provider-cm are not those arms' own cost.** Found 2026-10-06 by the offline analysis in
+`docs/research/why-rtk-wins.md` (`benchmarks/why_rtk_wins.py`, results in
+`benchmarks/results/why-rtk-wins/results.json`).
+
+- **What happened.** rtk, selective and provider-cm ran the same day and send a byte-identical
+  first request (system prompt + tools + task statement). Whichever arm reached a task first
+  paid to write that prefix to the prompt cache; the others read it at 0.1x. plain and distil
+  ran alone two days earlier and are clean.
+- **How it is detected.** A run that starts on a cold cache writes at least its largest prompt,
+  so `cache_write + input >= cache_read / (steps - 1)`. Rows below that read a cache they did
+  not write. Counted over every row (`usage` keys `cache_read`/`cache_write`/`input`/`output`):
+
+  | arm | rows that read another arm's cache |
+  |---|---|
+  | plain | 0/300 |
+  | distil | 0/300 |
+  | rtk | **190/300** |
+  | selective | **167/300** |
+  | provider-cm | **139/300** |
+
+- **Re-priced as a cold run** (each task's exact total prompt and output tokens kept, only the
+  cache write/read split moved to the append-only model's prediction): **rtk vs plain is
+  -6.5% per task, 95% CI [-13.1%, +0.1%], not significant**, not the -20.7% the billed rows
+  give. rtk's $ per solved task is $0.0360 cold ($0.0306 as billed); plain's is $0.0387.
+  selective was not re-priced, and provider-cm only on the 192 of 298 tasks without
+  server-side edits, so neither has a comparable dollar figure. `docs/scoreboard.html` shows
+  the cold figure for rtk and "confounded" for those two.
+- **Guard.** `report` now appends a `## Cost confound` section whenever any arm fails this
+  check (`report.cache_check`; it does for this run), the scoreboard builder applies the same
+  check to every run, and new runs give each arm its own cache namespace by default (a per-run
+  nonce at the start of each arm's system prompt; `--no-cache-namespace` turns it off). See
+  `specs/swebench-outcome-eval.md`.
+
 ## Read this before the numbers
 
 - **plain and distil are reused**, unchanged, from `swebench-outcome-300-medium`

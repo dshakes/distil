@@ -133,3 +133,66 @@ def test_missing_arms_and_cost_truth_results_render(tmp_path, monkeypatch):
     )
     page = sb.render_html(data)
     assert "pending run" in page and "$1.0000" in page and "rtk 0.51.0" in page
+
+
+def test_cross_arm_cache_reads_never_show_as_an_arms_own_cost(tmp_path, monkeypatch):
+    """The 2026-10-05 Lite arms read each other's prompt cache. Their billed dollars must not be
+    shown as theirs: a full cold re-pricing, or 'confounded', never the billed figure."""
+    sb = _mod()
+    h2h = next(s for s in sb.build()["sections"] if s["id"] == "swebench-lite-300-h2h")
+    by = {r["arm"]: r for r in h2h["rows"]}
+    assert by["plain"]["cost_basis"] == by["distil"]["cost_basis"] == "cold"
+    assert by["rtk"]["cost_basis"] == "cold re-priced" and by["rtk"]["precached_rows"] == [190, 300]
+    assert by["rtk"]["usd_per_solved"] == 0.036 and by["rtk"]["usd_per_solved_billed"] == 0.0306
+    for arm in ("selective", "provider-cm"):
+        assert by[arm]["cost_basis"] == "confounded" and by[arm]["usd_per_solved"] is None
+    assert by["selective"]["verdict"] == "INCONCLUSIVE"  # success columns untouched
+    assert h2h["cost_confound"]["rtk"] == {
+        "per_task_vs_plain_pct_cold": -6.5,
+        "per_task_vs_plain_ci_pct_cold": [-13.1, 0.1],
+        "per_task_vs_plain_pct_billed": -20.7,
+    }
+    for s in sb.build()["sections"]:
+        if s["id"] != "swebench-lite-300-h2h":
+            assert all(r.get("cost_basis", "cold") == "cold" for r in s["rows"]), s["id"]
+    page = sb.render_html(sb.build())
+    assert "$ per solved task (cold cache)" in page and "$0.0360†" in page
+    assert "confounded — " in page and 'id="swebench-lite-300-h2h-cost-confound"' in page
+
+    # A contaminated run with no committed cold re-pricing shows no dollar figure at all.
+    run = tmp_path / "run"
+    run.mkdir()
+    rows = [
+        {
+            "instance_id": f"i{i}",
+            "arm": a,
+            "cost_usd": 0.5,
+            "steps": 5,
+            "usage": {
+                "input": 2,
+                "output": 9,
+                "cache_write": 10 if a == "rtk" else 5000,
+                "cache_read": 4000,
+            },
+        }
+        for i in range(3)
+        for a in ("plain", "rtk")
+    ]
+    (run / "results.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    (run / "grades.jsonl").write_text(
+        "\n".join(
+            json.dumps({"instance_id": f"i{i}", "arm": a, "status": "resolved"})
+            for i in range(3)
+            for a in ("plain", "rtk")
+        )
+    )
+    idx = tmp_path / "index.json"
+    idx.write_text(
+        json.dumps(
+            {"runs": [{"id": "a", "kind": "swebench_outcome", "dir": str(run), "date": "d"}]}
+        )
+    )
+    monkeypatch.setattr(sb, "INDEX", idx)
+    rtk = {r["arm"]: r for r in sb.build()["sections"][0]["rows"]}["rtk"]
+    assert rtk["cost_basis"] == "confounded" and rtk["cost_usd"] is None
+    assert rtk["cost_usd_billed"] == 1.5 and rtk["precached_rows"] == [3, 3]

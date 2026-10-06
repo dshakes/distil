@@ -83,6 +83,14 @@ class Cfg:
     max_tokens: int = 16_000
     pin: float | None = None
     pout: float | None = None
+    #: Per-run nonce. When set, each arm's system prompt starts with `[cache namespace ARM-NONCE]`
+    #: so arms that send byte-identical first requests cannot read each other's prompt cache
+    #: (the 2026-10-05 Lite head-to-head did; see report.cache_check). The CLI sets it by default.
+    cache_ns: str | None = None
+
+
+def system_prompt(arm: str, cache_ns: str | None) -> str:
+    return f"[cache namespace {arm}-{cache_ns}]\n{SYSTEM}" if cache_ns else SYSTEM
 
 
 def build_tools(arm: str | Arm) -> list[dict[str, Any]]:
@@ -177,6 +185,9 @@ def run_agent(
         "expand_calls": 0,
         "expand_misses": 0,
     }
+    if cfg.cache_ns:
+        res["cache_ns"] = f"{arm.name}-{cfg.cache_ns}"
+    system = system_prompt(arm.name, cfg.cache_ns)
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": "Resolve this issue:\n\n" + task["problem_statement"]}
     ]
@@ -207,7 +218,7 @@ def run_agent(
             kwargs: dict[str, Any] = dict(
                 model=cfg.model,
                 max_tokens=cfg.max_tokens,
-                system=SYSTEM,
+                system=system,
                 tools=tools,
                 messages=send,
                 thinking={"type": "adaptive"},
