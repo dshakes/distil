@@ -116,6 +116,11 @@ def _parser() -> argparse.ArgumentParser:
             s.add_argument("--max-workers", type=int, default=4)
         if name == "report":
             s.add_argument("--margin", type=float, default=0.05)
+            s.add_argument(
+                "--cost-per-solved",
+                action="store_true",
+                help="append $ per solved task vs plain (paired cluster bootstrap)",
+            )
     return p
 
 
@@ -231,15 +236,18 @@ def main(argv: list[str] | None = None) -> int:
         rows = grade(out, a.max_workers, dataset=a.dataset, arms=names)
         print(f"graded {len(rows)} (instance, arm) rows -> {out / 'grades.jsonl'}")
         return 0
-    from .report import analyse, dataset_title, markdown
+    from .report import analyse, cost_section, dataset_title, markdown
 
     gp = out / "grades.jsonl"
     grades = [json.loads(ln) for ln in gp.read_text().splitlines()] if gp.exists() else []
+    results = read_results(out / "results.jsonl")
     md = markdown(
-        analyse(read_results(out / "results.jsonl"), grades, a.margin, names),
+        analyse(results, grades, a.margin, names),
         {k: v for k, v in read_manifest(out).items() if k in names},
         title=dataset_title(a.dataset),
     )
+    if a.cost_per_solved:
+        md += "\n" + cost_section(results, grades, names)
     (out / "report.md").write_text(md)
     print(md)
     return 0

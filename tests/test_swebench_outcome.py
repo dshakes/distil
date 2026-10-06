@@ -474,3 +474,22 @@ def test_grade_passes_the_dataset_to_the_grader(tmp_path, monkeypatch):
 
     grade.grade(tmp_path, dataset="princeton-nlp/SWE-bench_Verified", run=fake_run)
     assert got == ["princeton-nlp/SWE-bench_Verified"]
+
+
+def test_cost_section_is_dollars_per_solved_with_failed_attempts_counted():
+    rows, grades = [], []
+    for i in range(6):
+        for arm, cost, ok in (("plain", 1.0, i < 4), ("rtk", 0.5, i < 4)):
+            rows.append(
+                {"instance_id": f"t-{i}", "arm": arm, "cost_usd": cost, "steps": 3, "patch": "d"}
+            )
+            grades.append(
+                {"instance_id": f"t-{i}", "arm": arm, "status": "resolved" if ok else "unresolved"}
+            )
+    rows.append(
+        {"instance_id": "t-9", "arm": "plain", "cost_usd": 9.0, "failure_class": "api_error"}
+    )
+    md = report.cost_section(rows, grades, ("plain", "rtk"), b=200)
+    assert "6 tasks graded in every arm" in md  # the api_error task is not scored
+    assert "| plain | 4/6 | 6.00 | 1.5000 | 1 |" in md
+    assert "| rtk | 4/6 | 3.00 | 0.7500 | 0.500 |" in md
