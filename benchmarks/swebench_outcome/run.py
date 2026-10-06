@@ -28,23 +28,39 @@ def select_ids(ids: list[str], seed: int, limit: int | None) -> list[str]:
     return ids[:limit] if limit else ids
 
 
-def load_ids(path: str | None) -> list[str]:
+def load_ids(
+    path: str | None, dataset: str = DATASET, difficulty: Iterable[str] | None = None
+) -> list[str]:
+    """Ids from *path*, else every test instance of *dataset* (optionally only the given
+    `difficulty` annotations, e.g. SWE-bench Verified's "1-4 hours")."""
     if path:
+        if difficulty:
+            raise SystemExit(
+                "--difficulty filters the dataset; it cannot be combined with --instances"
+            )
         return [
             ln.strip()
             for ln in Path(path).read_text().splitlines()
             if ln.strip() and not ln.startswith("#")
         ]
-    return [r["instance_id"] for r in load_records(None)]
+    rows = load_records(None, dataset)
+    if difficulty:
+        want = set(difficulty)
+        if rows and "difficulty" not in rows[0]:
+            raise SystemExit(
+                f"{dataset} has no `difficulty` field; --difficulty needs SWE-bench Verified"
+            )
+        rows = [r for r in rows if r["difficulty"] in want]
+    return [r["instance_id"] for r in rows]
 
 
-def load_records(ids: Iterable[str] | None) -> list[dict[str, Any]]:
+def load_records(ids: Iterable[str] | None, dataset: str = DATASET) -> list[dict[str, Any]]:
     """Full instance records (need problem_statement). Network: HuggingFace only, not Anthropic."""
     try:
         from datasets import load_dataset  # type: ignore
     except ImportError as e:
         raise SystemExit("the `datasets` package is required (pip install datasets)") from e
-    rows = list(load_dataset(DATASET, split="test"))
+    rows = list(load_dataset(dataset, split="test"))
     want = set(ids) if ids is not None else None
     return [dict(r) for r in rows if want is None or r["instance_id"] in want]
 

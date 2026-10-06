@@ -422,3 +422,74 @@ def test_grade_hands_the_grader_a_path_that_resolves_from_its_own_cwd(tmp_path, 
 
     rows = g.grade(out, run=fake_run)
     assert rows == [{"instance_id": "a__b-1", "arm": "rtk", "status": "resolved"}]
+
+
+def test_dataset_and_difficulty_select_verified_hard_tasks(tmp_path, monkeypatch, capsys):
+    """--dataset/--difficulty: default stays Lite; the filter keeps only annotated buckets."""
+    seen = []
+
+    def fake_records(ids, dataset=run.DATASET):
+        seen.append(dataset)
+        return [
+            {"instance_id": "a__a-1", "difficulty": "<15 min fix"},
+            {"instance_id": "b__b-2", "difficulty": "1-4 hours"},
+            {"instance_id": "c__c-3", "difficulty": ">4 hours"},
+        ]
+
+    monkeypatch.setattr(run, "load_records", fake_records)
+    v = "princeton-nlp/SWE-bench_Verified"
+    assert sorted(run.load_ids(None, v, ["1-4 hours", ">4 hours"])) == ["b__b-2", "c__c-3"]
+    assert len(run.load_ids(None, v)) == 3
+    assert cli.main(["plan", "--dataset", v, "--difficulty", "1-4 hours, >4 hours"]) == 0
+    assert "tasks=2" in capsys.readouterr().out
+    assert cli.main(["plan"]) == 0 and seen[-1] == run.DATASET == "princeton-nlp/SWE-bench_Lite"
+    monkeypatch.setattr(run, "load_records", lambda ids, dataset=None: [{"instance_id": "x"}])
+    with pytest.raises(SystemExit, match="no `difficulty`"):
+        run.load_ids(None, run.DATASET, ["1-4 hours"])
+    f = tmp_path / "ids.txt"
+    f.write_text("x\n")
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        run.load_ids(str(f), v, ["1-4 hours"])
+    assert report.dataset_title(v) == "SWE-bench Verified"
+    assert report.markdown(
+        report.analyse([], [], arms=("plain", "rtk")), title="SWE-bench Verified"
+    ).startswith("# SWE-bench Verified outcome eval")
+
+
+def test_grade_passes_the_dataset_to_the_grader(tmp_path, monkeypatch):
+    import sys as _sys
+    import types
+
+    monkeypatch.setitem(_sys.modules, "swebench", types.ModuleType("swebench"))
+    monkeypatch.setattr(grade.shutil, "which", lambda _: "/usr/bin/docker")
+    row = {"instance_id": "a__b-1", "arm": "plain", "patch": "diff", "failure_class": None}
+    (tmp_path / "results.jsonl").write_text(json.dumps(row) + "\n")
+    got = []
+
+    def fake_run(argv, cwd, check):
+        got.append(argv[argv.index("--dataset_name") + 1])
+        rep = Path(cwd) / "logs" / "run_evaluation" / "swo-plain" / "results.json"
+        rep.parent.mkdir(parents=True)
+        rep.write_text("{}")
+
+    grade.grade(tmp_path, dataset="princeton-nlp/SWE-bench_Verified", run=fake_run)
+    assert got == ["princeton-nlp/SWE-bench_Verified"]
+
+
+def test_cost_section_is_dollars_per_solved_with_failed_attempts_counted():
+    rows, grades = [], []
+    for i in range(6):
+        for arm, cost, ok in (("plain", 1.0, i < 4), ("rtk", 0.5, i < 4)):
+            rows.append(
+                {"instance_id": f"t-{i}", "arm": arm, "cost_usd": cost, "steps": 3, "patch": "d"}
+            )
+            grades.append(
+                {"instance_id": f"t-{i}", "arm": arm, "status": "resolved" if ok else "unresolved"}
+            )
+    rows.append(
+        {"instance_id": "t-9", "arm": "plain", "cost_usd": 9.0, "failure_class": "api_error"}
+    )
+    md = report.cost_section(rows, grades, ("plain", "rtk"), b=200)
+    assert "6 tasks graded in every arm" in md  # the api_error task is not scored
+    assert "| plain | 4/6 | 6.00 | 1.5000 | 1 |" in md
+    assert "| rtk | 4/6 | 3.00 | 0.7500 | 0.500 |" in md

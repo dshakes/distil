@@ -164,15 +164,24 @@ _EXCLUDED = (
 )
 
 
-def markdown(a: dict[str, Any], reuse: dict[str, dict[str, Any]] | None = None) -> str:
+def dataset_title(dataset: str) -> str:
+    """'princeton-nlp/SWE-bench_Verified' -> 'SWE-bench Verified' (report heading)."""
+    return dataset.rsplit("/", 1)[-1].replace("_", " ")
+
+
+def markdown(
+    a: dict[str, Any],
+    reuse: dict[str, dict[str, Any]] | None = None,
+    title: str = "SWE-bench Lite",
+) -> str:
     arms = a["arms"]
     if set(arms) == {"plain", "distil"}:
-        return _markdown_pair(a)
-    return _markdown_multi(a, reuse or {})
+        return _markdown_pair(a, title)
+    return _markdown_multi(a, reuse or {}, title)
 
 
-def _markdown_pair(a: dict[str, Any]) -> str:
-    L = ["# SWE-bench Lite outcome eval", ""]
+def _markdown_pair(a: dict[str, Any], title: str = "SWE-bench Lite") -> str:
+    L = [f"# {title} outcome eval", ""]
     n = a["n_pairs"]
     L += [
         f"Paired instances with a graded outcome in both arms: **{n}**",
@@ -192,9 +201,11 @@ def _markdown_pair(a: dict[str, Any]) -> str:
     return "\n".join(L) + "\n"
 
 
-def _markdown_multi(a: dict[str, Any], reuse: dict[str, dict[str, Any]]) -> str:
+def _markdown_multi(
+    a: dict[str, Any], reuse: dict[str, dict[str, Any]], title: str = "SWE-bench Lite"
+) -> str:
     arms, comps = a["arms"], a["comparisons"]
-    L = ["# SWE-bench Lite outcome eval (head-to-head)", ""]
+    L = [f"# {title} outcome eval (head-to-head)", ""]
     L.append(
         f"Arms: {', '.join(arms)}. Summary rows are scored on the **{a['n_common']}** instances "
         "with a graded outcome in every arm; each comparison below uses the pairs graded in "
@@ -241,4 +252,76 @@ def _markdown_multi(a: dict[str, Any], reuse: dict[str, dict[str, Any]]) -> str:
             f"per-comparison and uncorrected (Bonferroni alpha = {0.05 / len(comps):.4f}).",
         ]
     L += ["", _EXCLUDED]
+    return "\n".join(L) + "\n"
+
+
+def cost_section(
+    results: list[dict[str, Any]],
+    grades: list[dict[str, str]],
+    arms: tuple[str, ...] | None = None,
+    b: int = 10_000,
+) -> str:
+    """$ per solved task, every arm vs plain, on the tasks graded in every arm. Same estimand and
+    paired cluster bootstrap as benchmarks/cost_truth (Bonferroni over the comparisons). Kept
+    out of `markdown()` so the generated part of older committed reports is unchanged."""
+    from statistics import median
+
+    from benchmarks.cost_truth.analysis import analyze
+
+    oc = outcomes(results, grades)
+    names = list(arms) if arms else arm_order({r["arm"] for r in results})
+    runs = []
+    for r in results:
+        res = oc.get(r["arm"], {}).get(r["instance_id"])
+        u = r.get("usage") or {}
+        runs.append(
+            {
+                "task": r["instance_id"],
+                "seed": 0,
+                "arm": r["arm"],
+                "status": "excluded" if res is None else "solved" if res else "failed",
+                "solved": bool(res),
+                "cost_usd": r.get("cost_usd", 0.0),
+                "turns": r.get("steps", 0),
+                "model": r.get("model", ""),
+                "first_request_cache_read": 0,  # warm-start sensitivity: not measured here
+                "wall_s": r.get("wall_s", 0.0),
+                "usage": {
+                    "input_tokens": u.get("input", 0),
+                    "cache_read_input_tokens": u.get("cache_read", 0),
+                    "cache_creation_input_tokens": u.get("cache_write", 0),
+                },
+            }
+        )
+    a = analyze(runs, names, control=BASELINE, b=b)
+    level = 1 - a["alpha_per_comparison"]
+    L = [
+        "## $ per solved task",
+        "",
+        f"{a['tasks']} tasks graded in every arm. $ per solved = the arm's whole spend on those "
+        "tasks (failed attempts included) / tasks it solved. Ratio vs plain with a paired "
+        f"cluster bootstrap over tasks ({a['bootstrap_b']} resamples, {level:.2%} level: "
+        "Bonferroni over the comparisons).",
+        "",
+        "| arm | solved | total $ | $ per solved | ratio vs plain | CI | cost verdict | "
+        "median steps |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    kept = {
+        t for t in {r["task"] for r in runs} if all(oc.get(x, {}).get(t) is not None for x in names)
+    }
+    for arm in names:
+        p = a["per_arm"][arm]
+        steps = [r["turns"] for r in runs if r["arm"] == arm and r["task"] in kept]
+        c = a["comparisons"].get(arm)
+        cmp_ = (
+            f"{c['usd_per_solved_ratio']:.3f} | [{c['ratio_ci'][0]:.3f}, {c['ratio_ci'][1]:.3f}] | "
+            f"{c['cost_verdict']}"
+            if c
+            else "1 | - | baseline"
+        )
+        L.append(
+            f"| {arm} | {p['solved']}/{p['attempts']} | {p['cost_usd']:.2f} | "
+            f"{p['usd_per_solved']:.4f} | {cmp_} | {median(steps) if steps else '-'} |"
+        )
     return "\n".join(L) + "\n"

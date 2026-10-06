@@ -23,6 +23,7 @@ from .arms import (
 )
 from .run import (
     ARMS,
+    DATASET,
     UNMEASURED_FACTOR,
     calibrate,
     estimate,
@@ -58,6 +59,11 @@ def _parser() -> argparse.ArgumentParser:
         s = sub.add_parser(name)
         s.add_argument("--out", default=DEFAULT_OUT)
         s.add_argument(
+            "--dataset",
+            default=DATASET,
+            help=f"HuggingFace dataset, test split (default: {DATASET})",
+        )
+        s.add_argument(
             "--arms",
             default=",".join(ARMS),
             help=f"comma list from {','.join(ARM_NAMES)} (default: {','.join(ARMS)})",
@@ -66,12 +72,26 @@ def _parser() -> argparse.ArgumentParser:
             s.add_argument(
                 "--instances", help="file of instance ids (default: SWE-bench Lite test)"
             )
+            s.add_argument(
+                "--difficulty",
+                help="comma list of `difficulty` annotations to keep (SWE-bench Verified only), "
+                "e.g. '1-4 hours,>4 hours'",
+            )
             s.add_argument("--limit", type=int)
             s.add_argument("--seed", type=int, default=0)
             s.add_argument("--model", default="claude-sonnet-5-5")
-            s.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
+            s.add_argument(
+                "--effort", choices=["low", "medium", "high", "xhigh", "max"], default="medium"
+            )
             s.add_argument("--max-steps", type=int, default=40)
             s.add_argument("--task-timeout", type=float, default=1800.0)
+            s.add_argument(
+                "--max-tokens",
+                type=int,
+                default=16_000,
+                help="per-response cap; raise it at effort xhigh/max, where adaptive thinking "
+                "can spend 16k before any tool call",
+            )
             s.add_argument("--price-in", type=float)
             s.add_argument("--price-out", type=float)
             s.add_argument(
@@ -109,6 +129,11 @@ def _parser() -> argparse.ArgumentParser:
             s.add_argument("--max-workers", type=int, default=4)
         if name == "report":
             s.add_argument("--margin", type=float, default=0.05)
+            s.add_argument(
+                "--cost-per-solved",
+                action="store_true",
+                help="append $ per solved task vs plain (paired cluster bootstrap)",
+            )
     return p
 
 
@@ -203,8 +228,17 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(a.out)
     names = parse_arms(a.arms)
     if a.cmd in ("plan", "run"):
-        cfg = Cfg(a.model, a.effort, a.max_steps, a.task_timeout, pin=a.price_in, pout=a.price_out)
-        ids = select_ids(load_ids(a.instances), a.seed, a.limit)
+        cfg = Cfg(
+            a.model,
+            a.effort,
+            a.max_steps,
+            a.task_timeout,
+            max_tokens=a.max_tokens,
+            pin=a.price_in,
+            pout=a.price_out,
+        )
+        diff = [d.strip() for d in a.difficulty.split(",") if d.strip()] if a.difficulty else None
+        ids = select_ids(load_ids(a.instances, a.dataset, diff), a.seed, a.limit)
     if a.cmd == "plan":  # never touches the Anthropic API, the network, or any arm dependency
         return _plan(a, cfg, ids, names)
     if a.cmd == "run":
@@ -228,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
             if not arms:
                 print("nothing to run: every requested arm was reused")
                 return 0
-            tasks = {r["instance_id"]: r for r in load_records(ids)}
+            tasks = {r["instance_id"]: r for r in load_records(ids, a.dataset)}
             ordered = [tasks[i] for i in ids if i in tasks]
             budget = Budget(a.budget_usd)
             budget.spent = spent_in(out / "results.jsonl")
@@ -241,17 +275,21 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "grade":
         from .grade import grade
 
-        rows = grade(out, a.max_workers, arms=names)
+        rows = grade(out, a.max_workers, dataset=a.dataset, arms=names)
         print(f"graded {len(rows)} (instance, arm) rows -> {out / 'grades.jsonl'}")
         return 0
-    from .report import analyse, markdown
+    from .report import analyse, cost_section, dataset_title, markdown
 
     gp = out / "grades.jsonl"
     grades = [json.loads(ln) for ln in gp.read_text().splitlines()] if gp.exists() else []
+    results = read_results(out / "results.jsonl")
     md = markdown(
-        analyse(read_results(out / "results.jsonl"), grades, a.margin, names),
+        analyse(results, grades, a.margin, names),
         {k: v for k, v in read_manifest(out).items() if k in names},
+        title=dataset_title(a.dataset),
     )
+    if a.cost_per_solved:
+        md += "\n" + cost_section(results, grades, names)
     (out / "report.md").write_text(md)
     print(md)
     return 0

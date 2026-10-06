@@ -42,7 +42,9 @@ def direct_client() -> Any:
     base = os.environ.get("ANTHROPIC_BASE_URL")
     if base and "api.anthropic.com" not in base:
         print(f"note: ignoring ANTHROPIC_BASE_URL={base}; calling api.anthropic.com directly")
-    return anthropic.Anthropic(base_url="https://api.anthropic.com", max_retries=4)
+    # An explicit timeout: the SDK refuses a non-streaming request whose max_tokens implies more
+    # than 10 minutes (> ~21k) unless the client timeout is set, and --max-tokens may exceed it.
+    return anthropic.Anthropic(base_url="https://api.anthropic.com", max_retries=4, timeout=1800.0)
 
 
 def price(model: str, pin: float | None = None, pout: float | None = None) -> tuple[float, float]:

@@ -732,7 +732,9 @@ def test_cli_run_reuses_arms_and_only_runs_the_rest(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(cli, "run_all", fake_run_all)
     monkeypatch.setattr(cli, "direct_client", lambda: object())
     monkeypatch.setattr(
-        cli, "load_records", lambda ids: [{"instance_id": i, "problem_statement": "p"} for i in ids]
+        cli,
+        "load_records",
+        lambda ids, *_: [{"instance_id": i, "problem_statement": "p"} for i in ids],
     )
     monkeypatch.setattr(envmod, "DockerEnv", object)
     base = ["run", "--instances", str(tmp_path / "ids.txt"), "--out", str(out)]
