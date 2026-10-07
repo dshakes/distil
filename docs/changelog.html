@@ -57,7 +57,7 @@
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="scoreboard.html">Scoreboard <span class="nav-badge">New</span></a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
           <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
           <li><a href="compare.html">Compare</a></li>
@@ -74,7 +74,7 @@
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="shell.html">Shell at the Source</a></li>
+          <li><a href="shell.html">Shell at the Source <span class="nav-badge">New</span></a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
           <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
@@ -98,6 +98,11 @@
 
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
+
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-58-0">1.58.0 — 2026-10-07 — the referee, turned on itself: a confound corrected, every provider at parity, shell output at the source</h2>
 <h3>Added</h3>
 <ul>
 <li><strong>Cross-provider parity: every mechanism on Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini</strong> (matrix: <code>docs/research/provider-parity.md</code>). Re-fetch verbatim (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>) now runs in the Chat, Responses and Gemini walkers, where it matters most (no recency window, so every result digests on first sight), and Chat's <code>--session-delta</code> pass leaves a re-fetch whole. Cold-point eviction (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>) runs on both OpenAI shapes, keyed on the documented upper bound of the request's <code>prompt_cache_retention</code> (<code>in_memory</code> 1h, <code>24h</code>/unset 24h; GPT-5.6+ and Gemini document no maximum, so never). The edit-quote guard now measures Chat Completions and Gemini (Gemini CLI's <code>replace</code> tool counts as an edit), and Gemini's census attributes text, exact-quote reads and tool output like the other adapters. OpenAI and Gemini price rows (<code>distil/pricing.py</code>, each provider's cached-input discount, GPT-5.6+/6.x cache writes at 1.25x, checked 2026-10-06; long-context tiers not modelled), and <code>resolve()</code> reads LiteLLM <code>openai/</code>-style and Gemini <code>models/</code> prefixes — so savings, <code>distil audit</code>, what-if and the census price those providers instead of booking $0. The <code>distil savings</code> what-if (<code>distil/whatif.py</code>) replays Codex CLI (<code>~/.codex/sessions</code>) and Gemini CLI (<code>~/.gemini/tmp/*/chats</code>) sessions through their own adapters, and <code>dissect</code> correlates them. Shadow sampling reads Responses answers (they were all dropped as "none" while still billed), pins Gemini's <code>generationConfig.temperature</code>, and the referee reads Gemini's model from the URL. The LiteLLM hook compresses <code>responses</code>/<code>aresponses</code>; the async proxy shapes Gemini output.</li>
