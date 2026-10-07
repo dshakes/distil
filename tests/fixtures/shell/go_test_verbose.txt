@@ -1,0 +1,123 @@
+=== RUN   TestCase00
+--- PASS: TestCase00 (0.01s)
+=== RUN   TestCase01
+--- PASS: TestCase01 (0.01s)
+=== RUN   TestCase02
+--- PASS: TestCase02 (0.01s)
+=== RUN   TestCase03
+--- PASS: TestCase03 (0.01s)
+=== RUN   TestCase04
+--- PASS: TestCase04 (0.01s)
+=== RUN   TestCase05
+--- PASS: TestCase05 (0.01s)
+=== RUN   TestCase06
+--- PASS: TestCase06 (0.01s)
+=== RUN   TestCase07
+--- PASS: TestCase07 (0.01s)
+=== RUN   TestCase08
+--- PASS: TestCase08 (0.01s)
+=== RUN   TestCase09
+--- PASS: TestCase09 (0.01s)
+=== RUN   TestCase10
+--- PASS: TestCase10 (0.01s)
+=== RUN   TestCase11
+--- PASS: TestCase11 (0.01s)
+=== RUN   TestCase12
+--- PASS: TestCase12 (0.01s)
+=== RUN   TestCase13
+--- PASS: TestCase13 (0.01s)
+=== RUN   TestCase14
+--- PASS: TestCase14 (0.01s)
+=== RUN   TestCase15
+--- PASS: TestCase15 (0.01s)
+=== RUN   TestCase16
+--- PASS: TestCase16 (0.01s)
+=== RUN   TestCase17
+--- PASS: TestCase17 (0.01s)
+=== RUN   TestCase18
+--- PASS: TestCase18 (0.01s)
+=== RUN   TestCase19
+--- PASS: TestCase19 (0.01s)
+=== RUN   TestCase20
+--- PASS: TestCase20 (0.01s)
+=== RUN   TestCase21
+--- PASS: TestCase21 (0.01s)
+=== RUN   TestCase22
+--- PASS: TestCase22 (0.01s)
+=== RUN   TestCase23
+--- PASS: TestCase23 (0.01s)
+=== RUN   TestCase24
+--- PASS: TestCase24 (0.01s)
+=== RUN   TestCase25
+--- PASS: TestCase25 (0.01s)
+=== RUN   TestCase26
+--- PASS: TestCase26 (0.01s)
+=== RUN   TestCase27
+--- PASS: TestCase27 (0.01s)
+=== RUN   TestCase28
+--- PASS: TestCase28 (0.01s)
+=== RUN   TestCase29
+--- PASS: TestCase29 (0.01s)
+=== RUN   TestCase30
+--- PASS: TestCase30 (0.01s)
+=== RUN   TestCase31
+--- PASS: TestCase31 (0.01s)
+=== RUN   TestCase32
+--- PASS: TestCase32 (0.01s)
+=== RUN   TestCase33
+--- PASS: TestCase33 (0.01s)
+=== RUN   TestCase34
+--- PASS: TestCase34 (0.01s)
+=== RUN   TestCase35
+--- PASS: TestCase35 (0.01s)
+=== RUN   TestCase36
+--- PASS: TestCase36 (0.01s)
+=== RUN   TestCase37
+--- PASS: TestCase37 (0.01s)
+=== RUN   TestCase38
+--- PASS: TestCase38 (0.01s)
+=== RUN   TestCase39
+--- PASS: TestCase39 (0.01s)
+=== RUN   TestCase40
+--- PASS: TestCase40 (0.01s)
+=== RUN   TestCase41
+--- PASS: TestCase41 (0.01s)
+=== RUN   TestCase42
+--- PASS: TestCase42 (0.01s)
+=== RUN   TestCase43
+--- PASS: TestCase43 (0.01s)
+=== RUN   TestCase44
+--- PASS: TestCase44 (0.01s)
+=== RUN   TestCase45
+--- PASS: TestCase45 (0.01s)
+=== RUN   TestCase46
+--- PASS: TestCase46 (0.01s)
+=== RUN   TestCase47
+--- PASS: TestCase47 (0.01s)
+=== RUN   TestCase48
+--- PASS: TestCase48 (0.01s)
+=== RUN   TestCase49
+--- PASS: TestCase49 (0.01s)
+=== RUN   TestCase50
+--- PASS: TestCase50 (0.01s)
+=== RUN   TestCase51
+--- PASS: TestCase51 (0.01s)
+=== RUN   TestCase52
+--- PASS: TestCase52 (0.01s)
+=== RUN   TestCase53
+--- PASS: TestCase53 (0.01s)
+=== RUN   TestCase54
+--- PASS: TestCase54 (0.01s)
+=== RUN   TestCase55
+--- PASS: TestCase55 (0.01s)
+=== RUN   TestCase56
+--- PASS: TestCase56 (0.01s)
+=== RUN   TestParsesHeader
+    demo_test.go:62: got 2 fields, want 3
+--- FAIL: TestParsesHeader (0.01s)
+=== RUN   TestRaisesOnEmpty
+    demo_test.go:63: empty input: expected at least one row
+--- FAIL: TestRaisesOnEmpty (0.01s)
+FAIL
+FAIL	demo	0.01s
+FAIL

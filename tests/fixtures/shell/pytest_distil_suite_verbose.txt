@@ -1,0 +1,39 @@
+============================= test session starts ==============================
+platform x -- Python 3.x, pytest-x, pluggy-x -- python
+rootdir: /tmp/proj
+configfile: pyproject.toml
+collecting ... collected 31 items
+
+tests/test_keep_policy.py::test_classify_log_vitest PASSED               [  3%]
+tests/test_keep_policy.py::test_classify_traceback PASSED                [  6%]
+tests/test_keep_policy.py::test_classify_diff PASSED                     [  9%]
+tests/test_keep_policy.py::test_classify_generic PASSED                  [ 12%]
+tests/test_keep_policy.py::test_classify_log_wins_over_traceback PASSED  [ 16%]
+tests/test_keep_policy.py::test_generic_keeps_decision_and_errors PASSED [ 19%]
+tests/test_keep_policy.py::test_log_policy_keeps_verdict_lines PASSED    [ 22%]
+tests/test_keep_policy.py::test_log_policy_does_not_over_keep_per_test_lines PASSED [ 25%]
+tests/test_keep_policy.py::test_traceback_policy_keeps_frames PASSED     [ 29%]
+tests/test_keep_policy.py::test_diff_policy_keeps_hunk_and_file_headers PASSED [ 32%]
+tests/test_keep_policy.py::test_summarize_dropped_counts_error_and_warn PASSED [ 35%]
+tests/test_keep_policy.py::test_summarize_dropped_empty_when_no_flagged PASSED [ 38%]
+tests/test_keep_policy.py::test_traceback_frames_survive_digest PASSED   [ 41%]
+tests/test_keep_policy.py::test_diff_hunk_headers_survive_digest PASSED  [ 45%]
+tests/test_keep_policy.py::test_log_verdict_survives_digest PASSED       [ 48%]
+tests/test_keep_policy.py::test_url_lines_survive_digestion_every_kind PASSED [ 51%]
+tests/test_keep_policy.py::test_url_spam_is_still_bounded_by_shape_dedup PASSED [ 54%]
+tests/test_keep_policy.py::test_generic_literals_match_the_regex_exactly PASSED [ 58%]
+tests/test_keep_policy.py::test_summary_literals_cover_every_alternative PASSED [ 61%]
+tests/test_keeptags.py::test_apply[none] PASSED                          [ 64%]
+tests/test_keeptags.py::test_apply[middle] PASSED                        [ 67%]
+tests/test_keeptags.py::test_apply[whole] PASSED                         [ 70%]
+tests/test_keeptags.py::test_apply[two] PASSED                           [ 74%]
+tests/test_keeptags.py::test_apply[unclosed] PASSED                      [ 77%]
+tests/test_keeptags.py::test_apply[stray-close] PASSED                   [ 80%]
+tests/test_keeptags.py::test_apply[nested] PASSED                        [ 83%]
+tests/test_keeptags.py::test_proxy_adapter_keeps_the_span_and_compresses_around_it PASSED [ 87%]
+tests/test_keeptags.py::test_proxy_adapter_same_text_without_tag_digests_the_span PASSED [ 90%]
+tests/test_keeptags.py::test_user_text_span_survives_tier0 PASSED        [ 93%]
+tests/test_keeptags.py::test_hook_keeps_the_span PASSED                  [ 96%]
+tests/test_keeptags.py::test_offline_tier1_leaves_a_tagged_block_whole PASSED [100%]
+
+============================== 31 passed in 0.01s ==============================

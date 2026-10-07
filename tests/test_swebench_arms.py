@@ -866,3 +866,72 @@ def test_selective_arm_records_what_it_pruned():
     arm.on_response(None, stats)
     assert stats["tool_results"] == 2 and stats["pruned_results"] == 1
     assert stats["chars_before"] == 1005 and stats["chars_after"] < stats["chars_before"]
+
+
+# ---------------------------------------------------------------------------- distil-sh
+
+_PYTEST_OUT = (
+    "".join(f"tests/test_m.py::test_{i} PASSED  [{i:3d}%]\n" for i in range(30))
+    + "tests/test_m.py::test_bad FAILED  [100%]\n"
+    + "E   AssertionError: boom\n=== 1 failed, 30 passed in 0.1s ===\n[exit 1]"
+)
+
+
+def _sh_exec(cmd):
+    if cmd.startswith("cat /tmp/distil-sh/"):
+        return "PIPED"
+    return _PYTEST_OUT if "pytest" in cmd else f"ran:{cmd}"
+
+
+def test_distil_sh_arm_shapes_test_output_and_keeps_failures_and_exit():
+    from benchmarks.swebench_outcome import arm_distil_sh
+
+    script = [
+        resp([tu("t1", "bash", command="python -m pytest tests/test_m.py -v")]),
+        resp([tu("t2", "bash", command="grep -rn foo .")]),
+        resp([txt("done")], stop="end_turn"),
+    ]
+    env = FakeEnv({"f.py": "x = 1\n"}, exec_fn=_sh_exec)
+    r, c, env = go(script, arms.resolve_arm(arm_distil_sh.distil_sh_arm()), env=env)
+    assert env.cmds == ["python -m pytest tests/test_m.py -v 2>&1", "grep -rn foo ."]
+    seen = c.calls[1]["messages"][-1]["content"][0]["content"]
+    assert "test_bad FAILED" in seen and "AssertionError: boom" in seen
+    assert "1 failed, 30 passed" in seen and seen.endswith("\n[exit 1]")
+    assert "test_3 PASSED" not in seen and "distil expand " in seen
+    assert c.calls[2]["messages"][-1]["content"][0]["content"] == "ran:grep -rn foo ."
+    st = r["arm_stats"]
+    assert st["commands"] == 2 and st["shaped"] == 1 and st["elided"] == 1
+    assert st["chars_after"] < st["chars_before"]
+    assert r["arm_meta"]["filters"] == "sh-v1" and r["arm_meta"]["library"] == "distil"
+    assert c.calls[0]["tools"] == ag.build_tools("plain")  # same tools, same prompt as plain
+
+
+def test_distil_sh_arm_answers_expand_and_runs_pipes_in_the_container():
+    from benchmarks.swebench_outcome import arm_distil_sh
+
+    stats: dict = {}
+    env = FakeEnv(exec_fn=_sh_exec)
+    sh = arm_distil_sh.ShEnv(env, stats)
+    out = sh.exec("pytest -v")
+    h = out.rsplit("distil expand ", 1)[1][:8]
+    assert "test_3 PASSED" in sh.exec(f"distil expand {h}")
+    assert sh.exec(f"distil expand {h} | grep FAILED") == "PIPED"
+    assert "no original found" in sh.exec("distil expand 00000000")
+    assert stats["expand_calls"] == 3 and stats["expand_misses"] == 1
+    assert sh.exec("cd /testbed && pytest -v 2>&1 | tail -5") == "PIPED"
+    assert env.cmds[-2] == "cd /testbed && pytest -v 2>&1"
+    assert env.cmds[-1].startswith("cat /tmp/distil-sh/out-") and env.cmds[-1].endswith("| tail -5")
+    assert sh.exec("git status") == "ran:git status 2>&1"  # nothing to shape: verbatim
+    # pass-throughs
+    sh.write_file("a.py", "1")
+    assert sh.read_file("a.py") == "1" and sh.exec_raw(["true"]) == (0, "", "")
+    sh.install_file(Path("/x"), "/y")
+    assert "a.py" in sh.diff()
+    sh.close()
+    assert env.closed
+
+
+def test_build_arms_knows_distil_sh():
+    built, closers = cli.build_arms(("distil-sh",), NS())
+    assert [a.name for a in built] == ["distil-sh"] and not closers
+    assert arms.parse_arms("plain,distil-sh") == ("plain", "distil-sh")
