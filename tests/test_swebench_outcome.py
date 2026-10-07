@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
@@ -393,3 +394,168 @@ def test_env_run_survives_non_utf8_output():
         [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok\\x8c\\xa1')"]
     )
     assert r.returncode == 0 and r.stdout.startswith("ok") and "�" in r.stdout
+
+
+def test_grade_hands_the_grader_a_path_that_resolves_from_its_own_cwd(tmp_path, monkeypatch):
+    """The grader runs with cwd=out; a relative --out made it look for out/out/predictions_*."""
+    import sys as _sys
+    import types
+
+    g = grade
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(_sys.modules, "swebench", types.ModuleType("swebench"))
+    monkeypatch.setattr(g.shutil, "which", lambda _: "/usr/bin/docker")
+    out = Path("rel-out")
+    out.mkdir()
+    row = {"instance_id": "a__b-1", "arm": "rtk", "patch": "diff", "failure_class": None}
+    (out / "results.jsonl").write_text(json.dumps(row) + "\n")
+
+    def fake_run(argv, cwd, check):
+        pred = Path(argv[argv.index("--predictions_path") + 1])
+        resolved = pred if pred.is_absolute() else Path(cwd) / pred
+        assert resolved.exists(), f"grader cannot find {resolved}"
+        rid = argv[argv.index("--run_id") + 1]
+        rep = Path(cwd) / "logs" / "run_evaluation" / rid / "results.json"
+        rep.parent.mkdir(parents=True)
+        rep.write_text(json.dumps({"resolved_ids": ["a__b-1"]}))
+
+    rows = g.grade(out, run=fake_run)
+    assert rows == [{"instance_id": "a__b-1", "arm": "rtk", "status": "resolved"}]
+
+
+def test_dataset_and_difficulty_select_verified_hard_tasks(tmp_path, monkeypatch, capsys):
+    """--dataset/--difficulty: default stays Lite; the filter keeps only annotated buckets."""
+    seen = []
+
+    def fake_records(ids, dataset=run.DATASET):
+        seen.append(dataset)
+        return [
+            {"instance_id": "a__a-1", "difficulty": "<15 min fix"},
+            {"instance_id": "b__b-2", "difficulty": "1-4 hours"},
+            {"instance_id": "c__c-3", "difficulty": ">4 hours"},
+        ]
+
+    monkeypatch.setattr(run, "load_records", fake_records)
+    v = "princeton-nlp/SWE-bench_Verified"
+    assert sorted(run.load_ids(None, v, ["1-4 hours", ">4 hours"])) == ["b__b-2", "c__c-3"]
+    assert len(run.load_ids(None, v)) == 3
+    assert cli.main(["plan", "--dataset", v, "--difficulty", "1-4 hours, >4 hours"]) == 0
+    assert "tasks=2" in capsys.readouterr().out
+    assert cli.main(["plan"]) == 0 and seen[-1] == run.DATASET == "princeton-nlp/SWE-bench_Lite"
+    monkeypatch.setattr(run, "load_records", lambda ids, dataset=None: [{"instance_id": "x"}])
+    with pytest.raises(SystemExit, match="no `difficulty`"):
+        run.load_ids(None, run.DATASET, ["1-4 hours"])
+    f = tmp_path / "ids.txt"
+    f.write_text("x\n")
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        run.load_ids(str(f), v, ["1-4 hours"])
+    assert report.dataset_title(v) == "SWE-bench Verified"
+    assert report.markdown(
+        report.analyse([], [], arms=("plain", "rtk")), title="SWE-bench Verified"
+    ).startswith("# SWE-bench Verified outcome eval")
+
+
+def test_grade_passes_the_dataset_to_the_grader(tmp_path, monkeypatch):
+    import sys as _sys
+    import types
+
+    monkeypatch.setitem(_sys.modules, "swebench", types.ModuleType("swebench"))
+    monkeypatch.setattr(grade.shutil, "which", lambda _: "/usr/bin/docker")
+    row = {"instance_id": "a__b-1", "arm": "plain", "patch": "diff", "failure_class": None}
+    (tmp_path / "results.jsonl").write_text(json.dumps(row) + "\n")
+    got = []
+
+    def fake_run(argv, cwd, check):
+        got.append(argv[argv.index("--dataset_name") + 1])
+        rep = Path(cwd) / "logs" / "run_evaluation" / "swo-plain" / "results.json"
+        rep.parent.mkdir(parents=True)
+        rep.write_text("{}")
+
+    grade.grade(tmp_path, dataset="princeton-nlp/SWE-bench_Verified", run=fake_run)
+    assert got == ["princeton-nlp/SWE-bench_Verified"]
+
+
+def test_cost_section_is_dollars_per_solved_with_failed_attempts_counted():
+    rows, grades = [], []
+    for i in range(6):
+        for arm, cost, ok in (("plain", 1.0, i < 4), ("rtk", 0.5, i < 4)):
+            rows.append(
+                {"instance_id": f"t-{i}", "arm": arm, "cost_usd": cost, "steps": 3, "patch": "d"}
+            )
+            grades.append(
+                {"instance_id": f"t-{i}", "arm": arm, "status": "resolved" if ok else "unresolved"}
+            )
+    rows.append(
+        {"instance_id": "t-9", "arm": "plain", "cost_usd": 9.0, "failure_class": "api_error"}
+    )
+    md = report.cost_section(rows, grades, ("plain", "rtk"), b=200)
+    assert "6 tasks graded in every arm" in md  # the api_error task is not scored
+    assert "| plain | 4/6 | 6.00 | 1.5000 | 1 |" in md
+    assert "| rtk | 4/6 | 3.00 | 0.7500 | 0.500 |" in md
+
+
+# ------------------------------------------------- cross-arm prompt-cache confound guard
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _row(arm, w, i, r, steps=5):
+    return {"arm": arm, "steps": steps, "usage": {"cache_write": w, "input": i, "cache_read": r}}
+
+
+def test_precached_flags_cache_a_cold_run_cannot_produce():
+    assert not report.precached(_row("plain", 4000, 2, 12000))  # 4002 >= 12000/4
+    assert report.precached(_row("rtk", 500, 2, 12000))  # read prompt it never wrote
+    assert not report.precached(_row("rtk", 0, 0, 9000, steps=1))  # one step: no evidence
+    assert not report.precached({"arm": "x", "steps": 3})  # no usage recorded
+    rows = [_row("plain", 4000, 2, 12000), _row("rtk", 500, 2, 12000), _row("rtk", 4000, 2, 1)]
+    assert report.cache_contamination(rows) == {"plain": (0, 1), "rtk": (1, 2)}
+    md = report.cache_check(rows)
+    assert md.startswith("## Cost confound") and "rtk 1/2" in md and "plain" not in md
+    assert report.cache_check(rows[:1]) == ""
+
+
+def test_committed_runs_cache_check():
+    """The 2026-10-05 Lite head-to-head arms read each other's cache; the long-horizon run and
+    the plain/distil runs did not. Pinned so a re-pricing can never silently go stale."""
+
+    def cc(d):
+        return report.cache_contamination(
+            run.read_results(ROOT / "benchmarks/results" / d / "results.jsonl")
+        )
+
+    h2h = cc("swebench-outcome-300-h2h")
+    assert h2h == {
+        "plain": (0, 300),
+        "distil": (0, 300),
+        "rtk": (190, 300),
+        "selective": (167, 300),
+        "provider-cm": (139, 300),
+    }
+    assert cc("swebench-verified-hard-max") == {"plain": (0, 8), "distil": (0, 7), "rtk": (0, 9)}
+    assert (
+        "## Cost confound"
+        in (ROOT / "benchmarks/results/swebench-outcome-300-h2h/report.md").read_text()
+    )
+
+
+def test_each_arm_gets_its_own_cache_namespace():
+    r, c, _ = go(EDIT, cfg=ag.Cfg(cache_ns="ab12cd34"))
+    assert c.calls[0]["system"] == "[cache namespace plain-ab12cd34]\n" + ag.SYSTEM
+    assert {k["system"] for k in c.calls} == {c.calls[0]["system"]}  # stable within a run
+    assert r["cache_ns"] == "plain-ab12cd34"
+    _, c2, _ = go(EDIT)
+    assert c2.calls[0]["system"] == ag.SYSTEM  # Cfg() default: unchanged prompt
+    assert ag.system_prompt("rtk", "ab12cd34") != ag.system_prompt("plain", "ab12cd34")
+
+
+def test_cli_namespaces_runs_by_default(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "_plan", lambda a, cfg, ids, names: seen.append(cfg) or 0)
+    monkeypatch.setattr(run, "load_records", lambda ids, dataset=None: [{"instance_id": "x"}])
+    monkeypatch.setattr(cli, "load_ids", lambda *a, **k: ["x"], raising=False)
+    assert cli.main(["plan"]) == 0 and seen[-1].cache_ns and len(seen[-1].cache_ns) == 8
+    p = cli._parser()
+    assert p.parse_args(["run", "--no-cache-namespace"]).no_cache_namespace is True
+    assert p.parse_args(["run"]).no_cache_namespace is False

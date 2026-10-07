@@ -371,7 +371,7 @@ def _replay(
     prev_keys: dict[bool, list[bytes]] = {v: [] for v in arms}
     n_rec = billed = 0
     for end, recorded in plan:
-        if time.monotonic() > deadline:
+        if time.monotonic() >= deadline:
             return n_rec, billed, True
         # No billed response (an interrupted last request): replayed for the cache state,
         # not counted — there is nothing to measure it against.
@@ -466,7 +466,7 @@ def run(
         left = max_requests - out.requests_replayed
         if left <= 0:
             break
-        if time.monotonic() > deadline:
+        if time.monotonic() >= deadline:
             out.stopped_early = True
             break
         try:

@@ -102,11 +102,19 @@ def _outcome_runs(results_dir: Path) -> list[tuple[Path, list[dict], list[dict]]
         s = d.name.removeprefix("swebench-outcome-")
         return (0, int(s)) if s.isdigit() else (1, s)
 
-    return [
-        (d, rows(d / "results.jsonl"), rows(d / "grades.jsonl"))
-        for d in sorted(results_dir.glob("swebench-outcome-*"), key=run_key)
-        if (d / "results.jsonl").exists() and (d / "grades.jsonl").exists()
-    ]
+    sys.path.insert(0, str(ROOT))
+    from benchmarks.swebench_outcome.report import cache_contamination
+
+    out = []
+    for d in sorted(results_dir.glob("swebench-outcome-*"), key=run_key):
+        if not ((d / "results.jsonl").exists() and (d / "grades.jsonl").exists()):
+            continue
+        res = rows(d / "results.jsonl")
+        # A cost axis: an arm that read another arm's prompt cache has no cost of its own
+        # (report.cache_check), so it is left off rather than plotted at its billed cost.
+        bad = {a for a, (n_pre, _) in cache_contamination(res).items() if n_pre}
+        out.append((d, [r for r in res if r["arm"] not in bad], rows(d / "grades.jsonl")))
+    return out
 
 
 def _unknown_arms(runs: list[tuple[Path, list[dict], list[dict]]]) -> list[str]:

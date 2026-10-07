@@ -1,0 +1,10 @@
+{
+  "distil": {
+    "from": "benchmarks/results/swebench-outcome-300-medium",
+    "rows": 300
+  },
+  "plain": {
+    "from": "benchmarks/results/swebench-outcome-300-medium",
+    "rows": 300
+  }
+}

@@ -732,7 +732,9 @@ def test_cli_run_reuses_arms_and_only_runs_the_rest(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(cli, "run_all", fake_run_all)
     monkeypatch.setattr(cli, "direct_client", lambda: object())
     monkeypatch.setattr(
-        cli, "load_records", lambda ids: [{"instance_id": i, "problem_statement": "p"} for i in ids]
+        cli,
+        "load_records",
+        lambda ids, *_: [{"instance_id": i, "problem_statement": "p"} for i in ids],
     )
     monkeypatch.setattr(envmod, "DockerEnv", object)
     base = ["run", "--instances", str(tmp_path / "ids.txt"), "--out", str(out)]
@@ -834,10 +836,17 @@ def test_committed_runs_still_re_report_identically(run_dir):
     if not (rp.exists() and gp.exists()):
         pytest.skip("run has no committed report/grades")
     grades = [json.loads(ln) for ln in gp.read_text().splitlines()]
-    a = report.analyse(
-        run.read_results(run_dir / "results.jsonl"), grades, 0.05, ("plain", "distil")
-    )
-    assert rp.read_text().startswith(report.markdown(a))
+    text = rp.read_text()
+    # a head-to-head report names its arms on an "Arms:" line; older ones are plain vs distil
+    arms = ("plain", "distil")
+    for ln in text.splitlines():
+        if ln.startswith("Arms: "):
+            arms = tuple(x.strip() for x in ln[6:].split(".")[0].split(","))
+            break
+    a = report.analyse(run.read_results(run_dir / "results.jsonl"), grades, 0.05, arms)
+    manifest = run_dir / run.REUSE_MANIFEST
+    reuse = json.loads(manifest.read_text()) if manifest.exists() else None
+    assert text.startswith(report.markdown(a, reuse))
 
 
 def test_selective_arm_records_what_it_pruned():

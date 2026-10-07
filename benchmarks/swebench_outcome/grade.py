@@ -108,7 +108,7 @@ def grade(
                 "--dataset_name",
                 dataset,
                 "--predictions_path",
-                str(pred),
+                str(pred.resolve()),  # the grader runs with cwd=out
                 "--max_workers",
                 str(max_workers),
                 "--timeout",
@@ -116,7 +116,7 @@ def grade(
                 "--run_id",
                 run_id,
             ],
-            cwd=out,
+            cwd=out.resolve(),
             check=True,
         )
         rep = json.loads(find_report(out, run_id, f"swo-{arm}").read_text())

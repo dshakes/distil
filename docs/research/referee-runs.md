@@ -1,8 +1,9 @@
 # Referee runs: what fills the scoreboard, and what it costs
 
 Companion to ADR 0024. `docs/scoreboard.html` shows only committed artifacts. Today
-that means `plain` and `distil` on SWE-bench Lite, at two effort settings. Every other row
-reads *pending run*. This is the plan to fill those rows. **Nothing here has been run.** Each
+that means `plain` and `distil` on SWE-bench Lite, at two effort settings, plus the Run 1
+head-to-head (rtk, selective, provider-cm). Every other row reads *pending run*. **Run 1 has
+been run (2026-10-05); Runs 2 onward have not.** Each
 paid step is launched by hand after review, with the caps below. The total hard ceiling is
 **$200.07**, under the $250 envelope.
 
@@ -46,7 +47,12 @@ python -m benchmarks.swebench_outcome grade --out $OUT --arms $ARMS
 python -m benchmarks.swebench_outcome report --out $OUT --arms $ARMS
 ```
 
-- **Estimated $51.13, capped at $80.**
+- **Ran 2026-10-05 without the headroom arm (it landed later): estimated $38.35, capped at $60,
+  cost $25.07.** Results: `benchmarks/results/swebench-outcome-300-h2h/` (README.md has the
+  caveats, including the cost confound) and the head-to-head section of `docs/scoreboard.html`.
+  rtk NON-INFERIOR (+0.3 pts [-2.7, +3.3]); distil, selective and provider-cm INCONCLUSIVE.
+- **The headroom arm alone: estimated $12.78 of the $51.13 above, capped at $80 for the full
+  command.** Not run yet. Run it with `--arms plain,distil,headroom` and the same `--reuse-arm`s.
 - Without the `datasets` package, `plan` and `run` need `--instances FILE`: the 300 ids from
   `$SRC/results.jsonl`, one per line.
 - Before any spend, the arms refuse to run if their pinned dependency is missing:
