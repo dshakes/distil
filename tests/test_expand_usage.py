@@ -159,9 +159,14 @@ def _responses(shape: str, handle: str | None) -> dict:
             }
         ]
     )
+    # Responses spells them like Anthropic but counts like Chat: input is inclusive.
     return {
         "output": out,
-        "usage": {"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"]},
+        "usage": {
+            "input_tokens": usage["input_tokens"] + cached,
+            "input_tokens_details": {"cached_tokens": cached},
+            "output_tokens": usage["output_tokens"],
+        },
     }
 
 
@@ -275,11 +280,9 @@ def test_buffered_expand_records_and_nets_every_call(shape, monkeypatch, tmp_pat
     assert len(calls) == 2, "the fixture must make the model expand once"
     rec = recs[-1]
     assert rec["upstream_calls"] == 2
-    if shape == "responses":  # Responses reports no cache split; input is inclusive
-        assert rec["usage_input_tokens"] == 2200
-    else:
-        assert rec["usage_input_tokens"] == 2200  # was 1200 (last call) or None (Chat)
-        assert rec["usage_cache_read"] == 10_000
+    # Was 1200 (last call), None (Chat), or the cached prefix booked as input (Responses).
+    assert rec["usage_input_tokens"] == 2200
+    assert rec["usage_cache_read"] == 10_000
     assert rec["usage_output_tokens"] == 50
     assert rec["expand_requery_usage"]["output_tokens"] == 30
     # The savings ledger nets the re-query out: distil side = compressed + re-query cost.
@@ -288,8 +291,7 @@ def test_buffered_expand_records_and_nets_every_call(shape, monkeypatch, tmp_pat
         {"requeries": 1, **{"requery_" + k: v for k, v in rec["expand_requery_usage"].items()}},
         "claude-opus-4-8",
     )
-    if shape != "responses":
-        assert equiv == REQUERY_EQUIV
+    assert equiv == REQUERY_EQUIV
     compressed = rec["compressible_tokens"] - rec["tokens_saved"]
     assert row["distil_input_tokens"] == compressed + equiv
     assert row["baseline_input_tokens"] == rec["compressible_tokens"]
@@ -345,6 +347,64 @@ def test_scan_usage_reads_chat_and_gemini_in_the_anthropic_convention():
     }
     anth = json.dumps({"usage": {"input_tokens": 5, "output_tokens": 2}}).encode()
     assert scan_usage(anth) == {"input_tokens": 5, "output_tokens": 2}
+
+
+def test_scan_usage_reads_the_responses_api_and_gemini_thinking():
+    """Every provider's usage lands in one convention: input EXCLUDES the cache hit and
+    the cache write. The Responses API names its counts like Anthropic's but counts them
+    like OpenAI's — read as Anthropic, a cached Codex turn booked no cache read at all."""
+    resp = {
+        "usage": {
+            "input_tokens": 1000,
+            "input_tokens_details": {"cached_tokens": 700, "cache_write_tokens": 200},
+            "output_tokens": 50,
+            "output_tokens_details": {"reasoning_tokens": 30},
+        }
+    }
+    want = {
+        "input_tokens": 100,
+        "cache_read_input_tokens": 700,
+        "cache_creation_input_tokens": 200,
+        "output_tokens": 50,
+    }
+    assert scan_usage(json.dumps(resp).encode()) == want
+    # Streamed: response.created carries no usage; response.completed carries the final.
+    sse = (
+        b'event: response.created\ndata: {"type":"response.created","response":{"usage":null}}\n\n'
+        b"event: response.completed\ndata: "
+        + json.dumps({"type": "response.completed", "response": resp}).encode()
+        + b"\n\n"
+    )
+    assert scan_usage(sse) == want
+    # Pre-5.6 models report no write: input is input minus the hit.
+    old = {"usage": {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 4}}}
+    assert scan_usage(json.dumps(old).encode()) == {
+        "input_tokens": 6,
+        "cache_read_input_tokens": 4,
+    }
+    # Chat Completions with a cache write (same details object, prompt_* names).
+    chat = {
+        "usage": {
+            "prompt_tokens": 90,
+            "completion_tokens": 4,
+            "prompt_tokens_details": {"cached_tokens": 60, "cache_write_tokens": 20},
+        }
+    }
+    assert scan_usage(json.dumps(chat).encode()) == {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 60,
+        "cache_creation_input_tokens": 20,
+        "output_tokens": 4,
+    }
+    # Gemini bills thinking as output but reports it apart from the candidates.
+    gem = {
+        "usageMetadata": {
+            "promptTokenCount": 50,
+            "candidatesTokenCount": 9,
+            "thoughtsTokenCount": 21,
+        }
+    }
+    assert scan_usage(json.dumps(gem).encode()) == {"input_tokens": 50, "output_tokens": 30}
 
 
 def test_input_equivalents():
@@ -476,3 +536,47 @@ def test_gateway_digest_nets_the_expand_requery_out_of_tenant_savings(stream):
     t = state._tenants["t1"]
     # distil side = what was forwarded + what the re-query cost (base-input equivalent)
     assert t.tokens_compressed - (t.tokens_baseline - saved) == REQUERY_EQUIV
+
+
+@pytest.mark.parametrize(
+    "shape, key, val, tool",
+    [
+        (
+            "responses",
+            "instructions",
+            "You are a careful coding agent. " * 20,
+            {"type": "function", "name": "shell", "parameters": {}},
+        ),
+        (
+            "chat",
+            "tools",
+            None,
+            {"type": "function", "function": {"name": "shell", "parameters": {}}},
+        ),
+    ],
+)
+def test_overhead_reads_every_providers_system_prompt_and_tool_names(
+    shape, key, val, tool, monkeypatch, tmp_path
+):
+    """The calibrator compares the estimate (overhead + compressible) with the bill, so
+    the overhead must count the system prompt under the provider's own key, and a tool's
+    name must be found where that provider puts it."""
+    import sys
+
+    monkeypatch.setenv("DISTIL_SESSION", "s7-7")
+    mod = sys.modules[__name__]
+    base = mod._request
+
+    def with_extras(s):
+        path, payload = base(s)
+        if val is not None:
+            payload[key] = val
+        payload["tools"] = [tool]
+        return path, payload
+
+    monkeypatch.setattr(mod, "_request", with_extras)
+    _, recs, _ = _roundtrip(shape, {}, tmp_path)
+    rec = recs[-1]
+    if val is not None:
+        assert rec["system_tokens"] > 50
+    assert sorted(t["name"] for t in rec["tools"]) == ["distil_expand", "shell"]

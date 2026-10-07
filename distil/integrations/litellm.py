@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..adapters.anthropic import compress_messages
+from .litellm_hook import _digest_allowed, compress_request
 
 
 def compress(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -31,15 +31,19 @@ def compress(kwargs: dict[str, Any]) -> dict[str, Any]:
     A ``distil_verbatim=True`` kwarg (consumed here, not forwarded) selects the
     verbatim, in-context-lossless mode (Tier-0 only, no digest). Non-list
     ``messages`` are returned untouched.
+
+    ``litellm.completion`` takes OpenAI Chat-shaped messages whatever the provider, so
+    this is the Chat Completions adapter — the hook's own path — not the Anthropic one,
+    which read a list-shaped ``role:"tool"`` message as user text. And the digest is
+    the hook's opt-in under the same policy: refused on a subscription session.
     """
     messages = kwargs.get("messages")
     if not isinstance(messages, list):
         return kwargs
     verbatim = bool(kwargs.get("distil_verbatim", False))
-    compressed, _store = compress_messages(messages, verbatim=verbatim)
     new = {k: v for k, v in kwargs.items() if k != "distil_verbatim"}
-    new["messages"] = compressed
-    return new
+    out = compress_request(new, "completion", digest=not verbatim and _digest_allowed())
+    return out[0] if out is not None else new
 
 
 def completion(**kwargs: Any) -> Any:

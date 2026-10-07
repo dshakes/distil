@@ -151,7 +151,7 @@ def test_fold_prices_cache_inclusive_and_counts_tasks():
         _row(13, user_turn=True),
         _row(14, model="claude-haiku-4-5", user_turn=True),  # tasks count on every model
         _row(15, status=529),
-        {"ts": 16, "model": "gemini-2.5-pro", "status": 200, "usage_input_tokens": 5},
+        {"ts": 16, "model": "mystery-model-1", "status": 200, "usage_input_tokens": 5},
     ]
     o = fold_session(man, rows, exit_text="child exit code 0 at …", src=20.0, now=30.0)
     assert o is not None
@@ -181,7 +181,7 @@ def test_fold_end_states_and_unrandomised():
     assert o is not None and o.cost == 0.0 and o.tasks == 1 and o.turns == 0
     failed = fold_session(man, [_row(1, status=529), _row(2, status=500)], now=5)
     assert failed is not None and failed.cost == 0.0 and failed.errors == 2
-    gem = {"ts": 1, "model": "gemini-2.5-pro", "status": 200, "usage_input_tokens": 5}
+    gem = {"ts": 1, "model": "mystery-model-1", "status": 200, "usage_input_tokens": 5}
     assert fold_session(man, [gem], now=5).cost is None  # billed, but not priceable
     assert fold_session({"sid": "s2"}, [_row(1)]) is None
     assert fold_session({"sid": "s2", "ab": {"arm": ""}}, [_row(1)]) is None

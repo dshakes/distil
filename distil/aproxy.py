@@ -373,8 +373,21 @@ def make_app(
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
                 }
+                # Same gate as the other two shapes; Gemini was the one left unshaped.
+                if shape_output != "off" and _lossy_ok and not _drift_guard.engaged:
+                    from .output import shape_request
+
+                    body = shape_request(body, level=shape_output, allow=True, shape="gemini")
+                    extras["x-distil-output-shaping"] = shape_output
                 if savings is not None:
-                    _pending_savings = (before_tok, before_tok - saved, None)
+                    from .serve_core import _model_from_path
+
+                    # Gemini names the model in the URL path, not the body.
+                    _pending_savings = (
+                        before_tok,
+                        before_tok - saved,
+                        _model_from_path(request.path),
+                    )
 
             # Forwarded-bytes prefix replay (ADR 0011). Same point as the threaded
             # proxy: the final body, after every transform, right before it is
@@ -388,7 +401,9 @@ def make_app(
                     body,
                     _replay_key,
                     _replay_orig,
-                    scope=_prep.credential_scope(fwd_headers),
+                    scope=_prep.credential_scope(
+                        {**fwd_headers, **_prep.query_credentials(request.path_qs)}
+                    ),
                     extras=extras,
                 )
             body_bytes = json.dumps(body).encode()

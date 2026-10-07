@@ -213,16 +213,19 @@ def shape(
     to it (wrong endpoint, not JSON). Both sides go through the shadow's own replay
     preparation (temperature pinned where allowed, prior thinking stripped)."""
     from .httpguard import is_messages_path, is_responses_path
+    from .serve_core import _model_from_path
     from .shadow import deterministic_body
 
     ra = deterministic_body(raw)
     if ra is None:
         return None
+    # Gemini carries the model in the URL path, not the body.
+    model = ra.model or _model_from_path(path)
     if compressor == "distil":
         rb = deterministic_body(served)
-        return None if rb is None else Shaped(ra.body, rb.body, dict(headers), None, ra.model)
+        return None if rb is None else Shaped(ra.body, rb.body, dict(headers), None, model)
     if compressor == "headroom":
-        return Shaped(ra.body, ra.body, dict(headers), via, ra.model)
+        return Shaped(ra.body, ra.body, dict(headers), via, model)
     obj = json.loads(ra.body)
     if compressor == "anthropic-context-editing":
         if not is_messages_path(path):
@@ -244,7 +247,7 @@ def shape(
         b_obj = obj
     else:
         a_obj, b_obj = obj, {**obj, "context_management": param}
-    return Shaped(_dumps(a_obj), _dumps(b_obj), hdrs, None, ra.model)
+    return Shaped(_dumps(a_obj), _dumps(b_obj), hdrs, None, model)
 
 
 _APPLIED = re.compile(rb'"applied_edits"\s*:\s*\[\s*\{')

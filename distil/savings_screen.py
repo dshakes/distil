@@ -129,7 +129,9 @@ def request_cost(model: str | None, t: Tokens, write_1h: int = 0) -> float | Non
     """Dollars for one request's billed usage, or None for a model we cannot price.
 
     ``write_1h`` is the part of ``t.cache_write`` written with a 1-hour TTL (2x input);
-    the rest is priced as a 5-minute write (1.25x). Reads are 0.10x."""
+    the rest is priced as a 5-minute write (1.25x). Both multipliers, and the read's,
+    come from the model's row: Anthropic 0.1x reads (less on some models), OpenAI and Gemini
+    their own cached-input price with no write surcharge unless the row carries one."""
     p = pricing.resolve(model)
     if p is None:
         return None

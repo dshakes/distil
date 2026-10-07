@@ -285,7 +285,17 @@ def lineage_key(body: Mapping[str, Any], items: List[Any]) -> str:
 
 # Header names that carry the upstream credential, lower-cased. A cached prefix belongs
 # to one credential at the provider, so two credentials must never share a lineage.
-_CREDENTIAL_HEADERS = ("authorization", "x-api-key", "api-key", "x-goog-api-key")
+_CREDENTIAL_HEADERS = ("authorization", "x-api-key", "api-key", "x-goog-api-key", "?key")
+
+
+def query_credentials(target: str) -> dict[str, str]:
+    """The Gemini API key a request carries in its URL (``?key=``) as a pseudo-header,
+    so it scopes a lineage exactly as the ``x-goog-api-key`` header form does. Without it
+    every key-in-URL caller of one proxy shared the unscoped ``""`` lineage."""
+    from urllib.parse import parse_qs, urlsplit
+
+    keys = parse_qs(urlsplit(target).query).get("key")
+    return {"?key": keys[0]} if keys and keys[0] else {}
 
 
 def credential_scope(headers: Mapping[str, str]) -> str:

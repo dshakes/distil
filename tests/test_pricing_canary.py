@@ -29,6 +29,10 @@ _PKG = Path(pricing.__file__).parent
 _MODEL_ID = re.compile(r"(claude|gpt|gemini|o\d)-[a-z0-9.-]*\d[a-z0-9.-]*")
 
 
+# The Anthropic page lists Claude rows only; OpenAI and Gemini rows are checked by hand.
+_CLAUDE = {m: p for m, p in pricing.CATALOG.items() if m.startswith("claude-")}
+
+
 def _normalise(mid: str) -> str:
     """The table key *mid* names: Bedrock prefix and Vertex/snapshot suffixes dropped."""
     mid = mid.removeprefix("anthropic.").split("@", 1)[0]
@@ -73,6 +77,12 @@ def test_table_rows_are_self_consistent() -> None:
     for key, p in pricing.CATALOG.items():
         assert p.name == key
         assert p.input_per_mtok > 0 and p.output_per_mtok >= p.input_per_mtok
+        if not key.startswith("claude-"):
+            # Automatic-caching providers: a discounted hit, no 1h tier, and a write
+            # surcharge only where the page lists one (OpenAI GPT-5.6+ / 6.x, 1.25x).
+            assert 0 < p.cache_read_mult <= 1.0
+            assert p.cache_write_mult == p.cache_write_1h_mult in (1.0, 1.25)
+            continue
         # Opus 5.5 and Fable 5.1 publish a cheaper cache hit; every other row is 0.1x.
         read = {"claude-opus-5-5": 0.05, "claude-fable-5-1": 0.025}.get(
             key, pricing.CACHE_READ_MULT
@@ -93,6 +103,13 @@ def test_table_rows_are_self_consistent() -> None:
         ("anthropic.claude-opus-4-8", "claude-opus-4-8"),
         ("claude-opus-4-8@20260101", "claude-opus-4-8"),
         ("claude-sonnet-5-5", "claude-sonnet-5-5"),  # its own row, not sonnet-5's
+        ("anthropic/claude-opus-4-8", "claude-opus-4-8"),  # LiteLLM provider prefix
+        ("openai/gpt-5.2", "gpt-5.2"),
+        ("gpt-5.2-codex", "gpt-5.2"),
+        ("gpt-5-pro", "gpt-5-pro"),  # its own row, not gpt-5's
+        ("o3-mini-2025-01-31", "o3-mini"),
+        ("models/gemini-2.5-pro", "gemini-2.5-pro"),  # Gemini resource name
+        ("gemini/gemini-2.5-flash", "gemini-2.5-flash"),
     ],
 )
 def test_resolve_spellings(wire: str, row: str) -> None:
@@ -100,7 +117,9 @@ def test_resolve_spellings(wire: str, row: str) -> None:
     assert p is not None and p.name == row
 
 
-@pytest.mark.parametrize("mid", [None, "", "gemini-2.5-pro", "mystery-model", *pricing.UNPRICED])
+@pytest.mark.parametrize(
+    "mid", [None, "", "gemini-0.1-mystery", "mystery-model", *pricing.UNPRICED]
+)
 def test_unknown_and_unpriced_models_resolve_to_none(mid: str | None) -> None:
     assert pricing.resolve(mid) is None
     with pytest.raises(KeyError):
@@ -144,7 +163,7 @@ def test_check_pricing_script_parses_a_saved_page(tmp_path: Path) -> None:
         cells = "".join(f"<td>${f:g} / MTok</td>" for f in figs)
         return f"<tr><td>{mod.display_name(mid)}</td>{cells}</tr>"
 
-    rows = {mid: mod.expected(p) for mid, p in pricing.CATALOG.items()}
+    rows = {mid: mod.expected(p) for mid, p in _CLAUDE.items()}
     good = "<table>" + "".join(row(m, f) for m, f in rows.items()) + "</table>"
     assert mod.check_anthropic(mod.page_text(good)) == []
 
@@ -177,9 +196,9 @@ def test_check_pricing_script_reads_the_current_page_layout() -> None:
         cells = "".join(f"<td>${f:g} / MTok</td>" for f in (i, o, w5, w1, hit))
         return f"<tr><td>{mod.display_name(mid)}</td><td>A model for work</td>{cells}</tr>"
 
-    nav = "<nav>" + " ".join(mod.display_name(m) for m in pricing.CATALOG) + " Guides</nav>"
+    nav = "<nav>" + " ".join(mod.display_name(m) for m in _CLAUDE) + " Guides</nav>"
     head = "<tr><th>Name</th><th>Input</th><th>Output</th><th>5m writes</th><th>1h writes</th>"
-    body = "".join(row(m, p) for m, p in pricing.CATALOG.items())
+    body = "".join(row(m, p) for m, p in _CLAUDE.items())
     fast = "<p>Model Input Output Claude Opus 5.5 $8 / MTok $40 / MTok</p>"
     page = nav + "<p>" + "x " * 80 + "</p><table>" + head + body + "</table>" + fast
     assert mod.check_anthropic(mod.page_text(page)) == []
