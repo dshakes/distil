@@ -1,0 +1,26 @@
+{
+  "filters": "sh-v1",
+  "tokenizer": "heuristic",
+  "source": "300 SWE-bench Lite transcripts, `provider-cm` arm of the 300-task head-to-head run (tool outputs are what the container returned; context editing acts server-side). Transcripts are not committed; this file is the aggregate.",
+  "bash_calls": 1390,
+  "matched_calls": 27,
+  "matched_by_filter": {
+    "unittest": 15,
+    "pytest": 12
+  },
+  "bash_output_tokens": 458217,
+  "matched_output_tokens": 2115,
+  "lossless_saved_pct_of_all_bash_output": 0.06,
+  "elide_saved_pct_of_all_bash_output": 0.06,
+  "elide_saved_pct_of_matched_output": 12.4,
+  "output_token_share_by_first_word": {
+    "grep": 40.3,
+    "sed": 21.4,
+    "cd": 19.6,
+    "python": 12.2,
+    "git": 3.4,
+    "cat": 2.6,
+    "ls": 0.2,
+    "PYTHONPATH=.": 0.2
+  }
+}

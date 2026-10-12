@@ -115,6 +115,7 @@ from pathlib import Path
 from typing import Any
 
 from distil import _filelock
+from .pricing import DEFAULT_MODEL, DEFAULT_OPENAI_MODEL
 
 #: Wraps a marker-fenced block spliced into a "patch"-strategy file, so a
 #: human (or a future distil session) can tell our block apart from the rest
@@ -640,9 +641,9 @@ def _continue_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Itera
         )
     family = _family(upstream)
     provider, model, key_var = (
-        ("anthropic", "claude-opus-4-8", "ANTHROPIC_API_KEY")
+        ("anthropic", DEFAULT_MODEL, "ANTHROPIC_API_KEY")
         if family == "anthropic"
-        else ("openai", "gpt-5.2", "OPENAI_API_KEY")
+        else ("openai", DEFAULT_OPENAI_MODEL, "OPENAI_API_KEY")
     )
     api_key = os.environ.get(key_var, "")
     if not api_key:
@@ -785,7 +786,7 @@ def _omp_models_path() -> Path:
 
 def _omp_fenced_block(family: str, base: str, api_key: str) -> str:
     api = "anthropic-messages" if family == "anthropic" else "openai-completions"
-    model_id = "claude-opus-4-8" if family == "anthropic" else "gpt-5.2"
+    model_id = DEFAULT_MODEL if family == "anthropic" else DEFAULT_OPENAI_MODEL
     return (
         f"{_MARKER_BEGIN}\n"
         "  distil:\n"

@@ -1,0 +1,81 @@
+{
+  "_note": "Raw output of three free, offline-or-public-data distil runs, committed so the README's recall figures cite an artifact. No prompt or response text; counts and rates only.",
+  "date": "2026-10-04",
+  "distil_build": "1.56.4 + fix/trust-repair",
+  "commands": {
+    "hotpotqa": "distil retention --dataset hotpotqa --json",
+    "corpus": "distil retention --json",
+    "bfcl": "distil suite --only bfcl --json"
+  },
+  "hotpotqa": {
+    "dataset": "hotpotqa",
+    "shape": "json",
+    "compression_engaged": true,
+    "ungraded_unanswerable": 0,
+    "ungraded_abstractive": 5,
+    "distil": {
+      "cases": 100,
+      "savings": 0.1431,
+      "answer_graded": 95,
+      "answer_recall_visible": 1.0,
+      "answer_recall": 1.0,
+      "support_facts": 243,
+      "support_recall_visible": 0.9918,
+      "support_recall": 1.0,
+      "support_unadjudicable": 0
+    },
+    "baseline": {
+      "label": "truncation @ matched savings",
+      "cases": 100,
+      "savings": 0.1412,
+      "answer_graded": 95,
+      "answer_recall_visible": 0.9158,
+      "answer_recall": 0.9158,
+      "support_facts": 243,
+      "support_recall_visible": 0.8272,
+      "support_recall": 0.8272,
+      "support_unadjudicable": 0
+    }
+  },
+  "corpus": {
+    "macro": {
+      "domains": 9,
+      "visible_recall": 0.7692,
+      "recall": 1.0,
+      "gap": 0.2308
+    },
+    "micro": {
+      "visible_recall": 0.3766,
+      "recall": 1.0,
+      "gap": 0.6234,
+      "note": "fact-weighted; moves with corpus composition"
+    },
+    "overall": {
+      "total": 1094,
+      "retained": 412,
+      "recoverable": 682,
+      "lost": 0,
+      "visible_recall": 0.3766,
+      "recall": 1.0
+    }
+  },
+  "bfcl": {
+    "name": "bfcl",
+    "payload": "rich",
+    "cases": 100,
+    "requested": 100,
+    "answer_graded": 0,
+    "support_facts": 370,
+    "support_unadjudicable": 15,
+    "engaged": true,
+    "short": false,
+    "savings": 0.914,
+    "answer_recall": 1.0,
+    "support_recall": 1.0,
+    "answer_recall_visible": 1.0,
+    "support_recall_visible": 0.0,
+    "lost": 0,
+    "error": "",
+    "failure": ""
+  }
+}

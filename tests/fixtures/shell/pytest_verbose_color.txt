@@ -1,0 +1,94 @@
+[1m============================= test session starts ==============================[0m
+platform x -- Python 3.x, pytest-x, pluggy-x -- python
+rootdir: /tmp/proj
+[1mcollecting ... [0mcollected 60 items
+
+test_demo.py::test_case_00 [32mPASSED[0m[32m                                        [  1%][0m
+test_demo.py::test_case_01 [32mPASSED[0m[32m                                        [  3%][0m
+test_demo.py::test_case_02 [32mPASSED[0m[32m                                        [  5%][0m
+test_demo.py::test_case_03 [32mPASSED[0m[32m                                        [  6%][0m
+test_demo.py::test_case_04 [32mPASSED[0m[32m                                        [  8%][0m
+test_demo.py::test_case_05 [32mPASSED[0m[32m                                        [ 10%][0m
+test_demo.py::test_case_06 [32mPASSED[0m[32m                                        [ 11%][0m
+test_demo.py::test_case_07 [32mPASSED[0m[32m                                        [ 13%][0m
+test_demo.py::test_case_08 [32mPASSED[0m[32m                                        [ 15%][0m
+test_demo.py::test_case_09 [32mPASSED[0m[32m                                        [ 16%][0m
+test_demo.py::test_case_10 [32mPASSED[0m[32m                                        [ 18%][0m
+test_demo.py::test_case_11 [32mPASSED[0m[32m                                        [ 20%][0m
+test_demo.py::test_case_12 [32mPASSED[0m[32m                                        [ 21%][0m
+test_demo.py::test_case_13 [32mPASSED[0m[32m                                        [ 23%][0m
+test_demo.py::test_case_14 [32mPASSED[0m[32m                                        [ 25%][0m
+test_demo.py::test_case_15 [32mPASSED[0m[32m                                        [ 26%][0m
+test_demo.py::test_case_16 [32mPASSED[0m[32m                                        [ 28%][0m
+test_demo.py::test_case_17 [32mPASSED[0m[32m                                        [ 30%][0m
+test_demo.py::test_case_18 [32mPASSED[0m[32m                                        [ 31%][0m
+test_demo.py::test_case_19 [32mPASSED[0m[32m                                        [ 33%][0m
+test_demo.py::test_case_20 [32mPASSED[0m[32m                                        [ 35%][0m
+test_demo.py::test_case_21 [32mPASSED[0m[32m                                        [ 36%][0m
+test_demo.py::test_case_22 [32mPASSED[0m[32m                                        [ 38%][0m
+test_demo.py::test_case_23 [32mPASSED[0m[32m                                        [ 40%][0m
+test_demo.py::test_case_24 [32mPASSED[0m[32m                                        [ 41%][0m
+test_demo.py::test_case_25 [32mPASSED[0m[32m                                        [ 43%][0m
+test_demo.py::test_case_26 [32mPASSED[0m[32m                                        [ 45%][0m
+test_demo.py::test_case_27 [32mPASSED[0m[32m                                        [ 46%][0m
+test_demo.py::test_case_28 [32mPASSED[0m[32m                                        [ 48%][0m
+test_demo.py::test_case_29 [32mPASSED[0m[32m                                        [ 50%][0m
+test_demo.py::test_case_30 [32mPASSED[0m[32m                                        [ 51%][0m
+test_demo.py::test_case_31 [32mPASSED[0m[32m                                        [ 53%][0m
+test_demo.py::test_case_32 [32mPASSED[0m[32m                                        [ 55%][0m
+test_demo.py::test_case_33 [32mPASSED[0m[32m                                        [ 56%][0m
+test_demo.py::test_case_34 [32mPASSED[0m[32m                                        [ 58%][0m
+test_demo.py::test_case_35 [32mPASSED[0m[32m                                        [ 60%][0m
+test_demo.py::test_case_36 [32mPASSED[0m[32m                                        [ 61%][0m
+test_demo.py::test_case_37 [32mPASSED[0m[32m                                        [ 63%][0m
+test_demo.py::test_case_38 [32mPASSED[0m[32m                                        [ 65%][0m
+test_demo.py::test_case_39 [32mPASSED[0m[32m                                        [ 66%][0m
+test_demo.py::test_case_40 [32mPASSED[0m[32m                                        [ 68%][0m
+test_demo.py::test_case_41 [32mPASSED[0m[32m                                        [ 70%][0m
+test_demo.py::test_case_42 [32mPASSED[0m[32m                                        [ 71%][0m
+test_demo.py::test_case_43 [32mPASSED[0m[32m                                        [ 73%][0m
+test_demo.py::test_case_44 [32mPASSED[0m[32m                                        [ 75%][0m
+test_demo.py::test_case_45 [32mPASSED[0m[32m                                        [ 76%][0m
+test_demo.py::test_case_46 [32mPASSED[0m[32m                                        [ 78%][0m
+test_demo.py::test_case_47 [32mPASSED[0m[32m                                        [ 80%][0m
+test_demo.py::test_case_48 [32mPASSED[0m[32m                                        [ 81%][0m
+test_demo.py::test_case_49 [32mPASSED[0m[32m                                        [ 83%][0m
+test_demo.py::test_case_50 [32mPASSED[0m[32m                                        [ 85%][0m
+test_demo.py::test_case_51 [32mPASSED[0m[32m                                        [ 86%][0m
+test_demo.py::test_case_52 [32mPASSED[0m[32m                                        [ 88%][0m
+test_demo.py::test_case_53 [32mPASSED[0m[32m                                        [ 90%][0m
+test_demo.py::test_case_54 [32mPASSED[0m[32m                                        [ 91%][0m
+test_demo.py::test_case_55 [32mPASSED[0m[32m                                        [ 93%][0m
+test_demo.py::test_case_56 [32mPASSED[0m[32m                                        [ 95%][0m
+test_demo.py::test_parses_header [31mFAILED[0m[31m                                  [ 96%][0m
+test_demo.py::test_raises_on_empty [31mFAILED[0m[31m                                [ 98%][0m
+test_demo.py::test_fetch [33mSKIPPED[0m (needs network)[31m                         [100%][0m
+
+=================================== FAILURES ===================================
+[31m[1m______________________________ test_parses_header ______________________________[0m
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mtest_parses_header[39;49;00m():[90m[39;49;00m
+>       [94massert[39;49;00m [33m'[39;49;00m[33ma,b[39;49;00m[33m'[39;49;00m.split([33m'[39;49;00m[33m,[39;49;00m[33m'[39;49;00m) == [[33m'[39;49;00m[33ma[39;49;00m[33m'[39;49;00m, [33m'[39;49;00m[33mb[39;49;00m[33m'[39;49;00m, [33m'[39;49;00m[33mc[39;49;00m[33m'[39;49;00m][90m[39;49;00m
+[1m[31mE       AssertionError: assert ['a', 'b'] == ['a', 'b', 'c'][0m
+[1m[31mE         [0m
+[1m[31mE         Right contains one more item: [0m[33m'[39;49;00m[33mc[39;49;00m[33m'[39;49;00m[90m[39;49;00m[0m
+[1m[31mE         [0m
+[1m[31mE         Full diff:[0m
+[1m[31mE         [0m[90m [39;49;00m [[90m[39;49;00m[0m
+[1m[31mE         [90m [39;49;00m     'a',[90m[39;49;00m[0m
+[1m[31mE         [90m [39;49;00m     'b',[90m[39;49;00m[0m
+[1m[31mE         [91m-     'c',[39;49;00m[90m[39;49;00m[0m
+[1m[31mE         [90m [39;49;00m ][90m[39;49;00m[0m
+
+[1m[31mtest_demo.py[0m:174: AssertionError
+[31m[1m_____________________________ test_raises_on_empty _____________________________[0m
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mtest_raises_on_empty[39;49;00m():[90m[39;49;00m
+>       [94mraise[39;49;00m [96mValueError[39;49;00m([33m'[39;49;00m[33mempty input: expected at least one row[39;49;00m[33m'[39;49;00m)[90m[39;49;00m
+[1m[31mE       ValueError: empty input: expected at least one row[0m
+
+[1m[31mtest_demo.py[0m:177: ValueError
+[36m[1m=========================== short test summary info ============================[0m
+[31mFAILED[0m test_demo.py::[1mtest_parses_header[0m - AssertionError: assert ['a', 'b'] == ['a', 'b', 'c']
+[31mFAILED[0m test_demo.py::[1mtest_raises_on_empty[0m - ValueError: empty input: expected at least one row
+[31m=================== [31m[1m2 failed[0m, [32m57 passed[0m, [33m1 skipped[0m[31m in 0.01s[0m[31m ====================[0m

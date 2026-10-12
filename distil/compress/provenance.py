@@ -136,6 +136,7 @@ _EDIT_TOOLS = frozenset(
         "str_replace_editor",
         "str_replace_based_edit_tool",
         "apply_patch",
+        "replace",  # Gemini CLI's edit tool: {file_path, old_string, new_string}
     }
 )
 
@@ -654,7 +655,8 @@ def _is_model_output(entry: Any) -> bool:
     """Whether this message/item is something the MODEL wrote rather than something it saw."""
     if not isinstance(entry, dict):
         return False
-    return entry.get("role") == "assistant" or entry.get("type") in _MODEL_OUTPUT_ITEMS
+    # Gemini names its own turns ``role: "model"``.
+    return entry.get("role") in ("assistant", "model") or entry.get("type") in _MODEL_OUTPUT_ITEMS
 
 
 def observed_view(messages: Iterable[Any]) -> str:
@@ -685,6 +687,41 @@ def edit_quotes(messages: Iterable[Any]) -> list[str]:
         for blk in content:
             if isinstance(blk, dict) and blk.get("type") == "tool_use":
                 pairs.append((str(blk.get("name", "")), blk.get("input")))
+    return required_quotes(pairs)
+
+
+def chat_edit_quotes(messages: Iterable[Any]) -> list[str]:
+    """:func:`required_quotes` over a Chat Completions history: every assistant
+    ``tool_calls[].function`` (``arguments`` a JSON string, or a freeform patch body)."""
+    pairs: list[tuple[str, Any]] = []
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or ():
+            fn = tc.get("function") if isinstance(tc, dict) else None
+            if not isinstance(fn, dict):
+                continue
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    pass  # not JSON: a freeform patch body
+            pairs.append((str(fn.get("name", "")), args))
+    return required_quotes(pairs)
+
+
+def gemini_edit_quotes(contents: Iterable[Any]) -> list[str]:
+    """:func:`required_quotes` over a Gemini ``contents`` history: every model
+    ``functionCall`` part (``args`` an object)."""
+    pairs: list[tuple[str, Any]] = []
+    for content in contents:
+        if not isinstance(content, dict) or content.get("role") != "model":
+            continue
+        for part in content.get("parts") or ():
+            fc = part.get("functionCall") if isinstance(part, dict) else None
+            if isinstance(fc, dict):
+                pairs.append((str(fc.get("name", "")), fc.get("args")))
     return required_quotes(pairs)
 
 

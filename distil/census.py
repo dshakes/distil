@@ -25,7 +25,9 @@ from __future__ import annotations
 import json
 import os
 import platform
+import sys
 import time
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Iterator
@@ -36,6 +38,35 @@ from distil import _filelock
 
 DEFAULT_ENDPOINT = "https://distil-census.vercel.app/v1/ping"
 DEFAULT_BEAT_ENDPOINT = "https://distil-census.vercel.app/v1/beat"
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _endpoint(var: str, default: str) -> str:
+    """The operator's override from ``var`` (self-hosted ingest), else ``default``.
+
+    Only https://, or plain http:// to a loopback host, is accepted; anything
+    else is ignored with a note on stderr so the census never leaves the machine
+    in cleartext by accident.
+    """
+    url = os.environ.get(var, "").strip()
+    if not url:
+        return default
+    parsed = urllib.parse.urlsplit(url)
+    try:
+        host = parsed.hostname
+    except ValueError:  # malformed authority, e.g. an unclosed IPv6 bracket
+        host = None
+    if parsed.scheme == "https" and host:
+        return url
+    if parsed.scheme == "http" and host in _LOCAL_HOSTS:
+        return url
+    print(
+        f"distil: ignoring {var}={url!r}: only https:// or http://localhost is accepted",
+        file=sys.stderr,
+    )
+    return default
+
+
 SEND_TIMEOUT_S = 1.5
 MIN_INTERVAL_S = 24 * 3600
 # Heartbeat: the near-real-time community signal. A tiny content-free
@@ -155,8 +186,6 @@ def maybe_ask_consent(*, out=None, inp=None) -> bool | None:
     no value to share their numbers is both a worse question and a worse
     experience than not asking at all.
     """
-    import sys
-
     out = out or sys.stdout
     inp = inp or sys.stdin
     try:
@@ -646,12 +675,12 @@ def status() -> dict:
         "install_id": _id_path().read_text(encoding="utf-8").strip()
         if _id_path().exists()
         else None,
-        "endpoint": os.environ.get("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT),
+        "endpoint": _endpoint("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT),
     }
 
 
 def _send(payload: dict) -> None:
-    endpoint = os.environ.get("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT)
+    endpoint = _endpoint("DISTIL_CENSUS_ENDPOINT", DEFAULT_ENDPOINT)
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),
@@ -758,7 +787,7 @@ def maybe_heartbeat() -> bool:
 
 
 def _send_beat(payload: dict) -> None:
-    endpoint = os.environ.get("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT)
+    endpoint = _endpoint("DISTIL_BEAT_ENDPOINT", DEFAULT_BEAT_ENDPOINT)
     req = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),

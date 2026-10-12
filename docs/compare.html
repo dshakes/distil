@@ -46,79 +46,44 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html" class="active" aria-current="page">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
+          <li><a href="shell.html">Shell at the Source <span class="nav-badge">New</span></a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -133,8 +98,19 @@
 
     <hr/>
 
+    <h2 id="money">Does any of them save money? Measured head-to-head</h2>
+    <p>Every compressor below was run by its own real, pinned package through the same SWE-bench harness, model and official grader; the per-arm table is the <a href="scoreboard.html">scoreboard</a>.</p>
+    <ul>
+      <li><strong>Short tasks (SWE-bench Lite, 298 tasks graded in every arm): no compressor is shown to save money.</strong> distil is at parity with no compression ($0.0393 vs $0.0387 per solved task). RTK is the only arm shown non-inferior on success, and it looked &minus;20.7% per task on cost &mdash; but its arm, Selective Context's and Anthropic context editing's ran the same day with byte-identical first requests and <a href="scoreboard.html#swebench-lite-300-h2h-cost-confound">read each other's prompt cache</a> (rtk 190/300 rows, selective 167/300, provider-cm 139/300; plain and distil 0/300). Re-priced as a cold run, RTK is &minus;6.5% per task [&minus;13.1%, +0.1%], not significant. Selective Context and context editing are not cheaper. Headroom has not run on this harness yet.</li>
+      <li><strong>Long sessions: inconclusive.</strong> A 7-task long-horizon pilot (SWE-bench Verified hard tasks, effort max) shows no cost difference for distil or RTK; on the 6 tasks without one crashed attempt, distil cost 9.7% more than plain.</li>
+      <li><strong>Why.</strong> On short tasks tool output is a small share of the bill, so there is little for any tool-output compressor to remove (<a href="https://github.com/dshakes/distil/blob/main/docs/research/why-rtk-wins.md">root-cause analysis</a>). An offline <a href="https://github.com/dshakes/distil/blob/main/docs/research/policy-simulator.md">policy simulator</a>, within 2.5% of the provider's bill on held-out runs, finds every lossless policy within 0.2% of plain; lossy compression saves only if the agent does not take extra steps to recover what was removed. Measuring that is the next live A/B.</li>
+    </ul>
+    <p>This is the referee result, and distil is one of the rows: the same rules, and the same correction, apply to it.</p>
+
+    <hr/>
+
     <h2>Capability matrix</h2>
-    <p>Marked from what each project documents or ships, not from marketing. Distil's own claims are the ones audited throughout this site — see <a href="concepts.html">Concepts</a> and <a href="deploy-security.html">Deploy &amp; Security</a> for the code behind each ✔.</p>
+    <p>Marked from what each project documents or ships, not from marketing. Distil's own claims are the ones audited throughout this site — see <a href="concepts.html">Concepts</a> and <a href="security.html#deploy-security">Deploy &amp; Security</a> for the code behind each ✔.</p>
 
     <div class="table-scroll" tabindex="0" role="region" aria-label="Capability matrix">
     <table>
@@ -200,7 +176,7 @@
         </tr>
               <tr>
           <th scope="row">Cache contract (compression may never rewrite already-cached bytes)</th>
-          <td><span class="badge-pass">✔</span> suffix-only and cache-monotonic, enforced as an invariant — <a href="cache-contract.html">the contract</a></td>
+          <td><span class="badge-pass">✔</span> suffix-only and cache-monotonic, enforced as an invariant — <a href="cache.html#cache-contract">the contract</a></td>
           <td><span class="badge-pass">✔</span> genuinely strong prefix replay (<code>overlay_cached_prefix</code>, <code>prefix_tracker.py:456-463</code>) — real engineering</td>
           <td>n/a — not an LLM API relay</td>
           <td><span class="badge-fail">✘</span> no prefix-stability mechanism — the compressed prompt changes as the conversation grows</td>
@@ -208,7 +184,7 @@
         </tr>
         <tr>
           <th scope="row">Adversarial validation (COMA-class, in CI)</th>
-          <td><span class="badge-pass">✔</span> <code>distil validate --adversarial</code>, seven COMA-class cases; no keep budget shared between blocks, asserted as an equality — <a href="threat-model.html">threat model</a></td>
+          <td><span class="badge-pass">✔</span> <code>distil validate --adversarial</code>, seven COMA-class cases; no keep budget shared between blocks, asserted as an equality — <a href="security.html#threat-model">threat model</a></td>
           <td>not published</td>
           <td>not published</td>
           <td>not published</td>
@@ -240,7 +216,7 @@
         </tr>
         <tr>
           <th scope="row">Live alarm that acts (stops lossy compression on a proven budget breach)</th>
-          <td><span class="badge-pass">✔</span> anytime-valid e-process over the paired verdicts; a breach holds every proxy at lossless-only until released (on by default, rc soak pending) — <a href="evals.html#exit-summary">exit summary</a></td>
+          <td><span class="badge-pass">✔</span> anytime-valid e-process over the paired verdicts; a breach holds every proxy at lossless-only until released (on by default, rc soak pending) — <a href="benchmark.html#exit-summary">exit summary</a></td>
           <td><span class="badge-fail">✘</span> no shadow or dual-send path to feed one</td>
           <td>— no decision risk to measure</td>
           <td>not published</td>
@@ -271,7 +247,7 @@
     </div>
 
     <div class="callout" style="border-color:#2a2550">
-      <strong>Field note — read the numbers honestly (2026).</strong> Headroom's headline is <em>60–95% (JSON) / 15–20% (coding)</em>, but its own published production telemetry shows a <strong>fleet-median compression of ~4.8%</strong> — the big ratios are best-case content, not what a typical agent session gets. Its accuracy claims (GSM8K, BFCL) are cited in the README but <strong>not reproduced on its own benchmarks page</strong>. And correctness is verified <strong>offline only</strong> (benchmark regression + Rust↔Python byte-parity) — there is no per-request check that the compressed request yields the same decision at runtime. Distil's wedge is exactly there: a <strong>live decision-equivalence gate on every request</strong>, savings <strong>calibrated to your billed usage</strong>, and a <strong>pure-Python install</strong> (Headroom's Rust core is mandatory — a missing native extension hard-exits). Where Headroom is genuinely strong: a real shipped model (Kompress-v2, ModernBERT/ONNX), prefix-freeze cache economics, its SmartCrusher JSON folder, and its multi-language CodeCompressor — all four Distil matches (learned salience; cache-aware compression; a <strong>reversible nested-JSON fold with constant-column collapse</strong>, ~62% on enum-heavy tool output; a <strong>zero-dependency code skeleton</strong> across JS/TS/Go/Rust/Java/C, ~44% on a TS file) without giving up the runtime proof its crusher can't offer — and Distil's code skeleton needs <em>no</em> native grammar, where a tree-sitter core would be one more mandatory native extension.
+      <strong>Field note — read the numbers honestly (2026).</strong> Headroom's headline is <em>60–95% (JSON) / 15–20% (coding)</em>, but its own published production telemetry shows a <strong>fleet-median compression of ~4.8%</strong> — the big ratios are best-case content, not what a typical agent session gets. Its accuracy claims (GSM8K, BFCL) are cited in the README but <strong>not reproduced on its own benchmarks page</strong>. And correctness is verified <strong>offline only</strong> (benchmark regression + Rust↔Python byte-parity) — there is no per-request check that the compressed request yields the same decision at runtime. Distil's wedge is exactly there: a <strong>live decision-equivalence gate on every request</strong>, savings <strong>calibrated to your billed usage</strong>, and a <strong>pure-Python install</strong> (Headroom's Rust core is mandatory — a missing native extension hard-exits). Where Headroom is genuinely strong: a real shipped model (Kompress-v2, ModernBERT/ONNX), prefix-freeze cache economics, its SmartCrusher JSON folder, and its multi-language CodeCompressor — all four Distil matches (learned salience; cache-aware compression; a <strong>reversible nested-JSON fold with constant-column collapse</strong>; a <strong>zero-dependency code skeleton</strong> across JS/TS/Go/Rust/Java/C) without giving up the runtime proof its crusher can't offer — and Distil's code skeleton needs <em>no</em> native grammar, where a tree-sitter core would be one more mandatory native extension.
     </div>
 
     <div class="callout" id="headroom-v0370-audit" style="border-color:#2a2550">
@@ -316,23 +292,18 @@
 
     <hr/>
 
-    <h2 id="e8-outcomes">Real task success — SWE-bench Verified, official harness</h2>
-    <p>Capability tables can't settle whether any of this holds up on a real, long-horizon coding agent. <a href="research.html#e8">E8</a> runs six conditions of the identical ReAct agent (only the compressor differs) end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker) — not a proxy metric.</p>
+    <h2 id="e8-outcomes">Real task success</h2>
+    <p><strong>The shipped path</strong>, on SWE-bench Lite (300 tasks, run twice after the shell-search fix, official grader): <strong>cost-neutral and within about 2 points on task success</strong> &mdash; 204/299 vs 210/299 plain (&minus;2.0&nbsp;pts, 95% CI &minus;5.5..+1.5) and 213/298 vs 218/298 (&minus;1.7&nbsp;pts, 95% CI &minus;5.1..+1.7). Not statistically distinguishable; non-inferiority at the pre-registered 5-point margin is not shown. <a href="ab.html#model-migration">Reports &rarr;</a></p>
+    <p><strong>Research configurations, not the shipped path.</strong> <a href="research.html#e8">E8</a> runs six conditions of the identical ReAct agent (only the compressor differs) end-to-end on the <strong>full 500-instance SWE-bench Verified set</strong>, scored by the <strong>official <code>swebench</code> harness</strong> (hidden tests, per-instance Docker) — not a proxy metric.</p>
 
     <div class="table-scroll" tabindex="0" role="region" aria-label="Real task success — SWE-bench Verified, official harness">
     <table>
-      <thead><tr><th scope="col">Condition</th><th scope="col" style="text-align:center">Task success</th><th scope="col" style="text-align:center">Tied with full context?</th><th scope="col" style="text-align:center">Reversible + certified?</th></tr></thead>
+      <thead><tr><th scope="col">Condition</th><th scope="col" style="text-align:center">Task success</th><th scope="col" style="text-align:center">vs full context</th><th scope="col" style="text-align:center">Reversible?</th></tr></thead>
       <tbody>
-        <tr style="background:rgba(90,209,154,.16)">
-          <th scope="row"><strong>Distil</strong> (gated + surprise digest, v1.7)</th>
-          <td style="text-align:center"><strong>42.0%</strong></td>
-          <td style="text-align:center"><span class="badge-pass">✔ tied with full</span> <small>(paired CI &minus;0.6..+6.2pp)</small></td>
-          <td style="text-align:center"><span class="badge-pass">✔</span></td>
-        </tr>
-        <tr style="background:rgba(90,209,154,.10)">
-          <th scope="row"><strong>Distil</strong> (relevance-gated, E8)</th>
+        <tr>
+          <th scope="row"><strong>Distil</strong> (relevance-gated, E8 &mdash; research configuration)</th>
           <td style="text-align:center"><strong>36.8%</strong></td>
-          <td style="text-align:center"><span class="badge-pass">✔</span></td>
+          <td style="text-align:center">&minus;2.4&nbsp;pp <small>(95% CI &minus;5.7..+0.9 &mdash; fails the 5-point margin)</small></td>
           <td style="text-align:center"><span class="badge-pass">✔</span></td>
         </tr>
         <tr>
@@ -356,7 +327,7 @@
       </tbody>
     </table>
     </div>
-    <p style="font-size:12.5px;color:#5b6177;">500-instance long-horizon ReAct agent, full SWE-bench Verified, official <code>swebench</code> harness (hidden tests, per-instance Docker), paired McNemar across all six conditions. Distil's gate is the only condition statistically non-inferior to full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19) and beats Headroom with significance (+4.2&nbsp;pp, p=0.035). rtk was not run in this harness — it does not compress arbitrary agent context (see above), so it has no comparable condition. Full methodology, CIs, and the recovery-round-trip ablation: <a href="research.html#e8">Research &rarr; E8</a>.</p>
+    <p style="font-size:12.5px;color:#5b6177;">500-instance long-horizon ReAct agent, full SWE-bench Verified, official <code>swebench</code> harness (hidden tests, per-instance Docker), paired McNemar across all six conditions. Distil's gate is not distinguishable from full context (&minus;2.4&nbsp;pp, 95% CI [&minus;5.7, +0.9], McNemar p=0.19) but its lower bound is past the 5-point margin, so non-inferiority is not shown; it beats Headroom with significance (+4.2&nbsp;pp, p=0.035). A later research digest (E14) is on the research page; neither is the shipped path. rtk was not run in this harness — it does not compress arbitrary agent context (see above), so it has no comparable condition. Full methodology, CIs, and the recovery-round-trip ablation: <a href="research.html#e8">Research &rarr; E8</a>.</p>
 
     <div class="callout warn">
       <strong>Honest scope.</strong> This table is task success on one harness (SWE-bench Verified), one agent design, one base model (<code>claude-haiku-4-5</code>) — not a claim that Distil wins every workload (see <a href="research.html#e7">E7</a> for the negative result that motivated the trajectory-level certificate). It's a claim that when someone measured end-to-end outcomes instead of raw compression ratios, the guarantee-carrying compressor led on the number that pays the bills.

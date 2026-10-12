@@ -74,6 +74,7 @@ def _echo_app() -> web.Application:
     app.router.add_post("/v1/messages", _echo_post)
     app.router.add_post("/v1/chat/completions", _echo_post)
     app.router.add_post("/v1/responses", _echo_post)
+    app.router.add_post("/v1beta/models/{m}", _echo_post)  # Gemini :generateContent
     app.router.add_route("*", "/{p:.*}", _echo_path)
     return app
 
@@ -200,6 +201,64 @@ def test_aproxy_shape_output_light_header() -> None:
                 )
                 assert resp.status == 200
                 assert resp.headers.get("x-distil-output-shaping") == "light"
+
+    _run(_body())
+
+
+@pytest.mark.parametrize("sub", ["0", "1"])
+def test_aproxy_shapes_gemini_like_the_other_shapes(monkeypatch, sub) -> None:
+    """Gemini was the one shape the async proxy never shaped; same gate as the rest,
+    so a subscription session still gets no directive."""
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", sub)
+
+    async def _body() -> None:
+        async with TestServer(_echo_app()) as up:
+            app = make_app(str(up.make_url("/")).rstrip("/"), shape_output="light")
+            async with TestClient(TestServer(app)) as client:
+                payload = {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]}
+                resp = await client.post(
+                    "/v1beta/models/gemini-2.5-pro:generateContent",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                assert resp.status == 200
+                shaped = resp.headers.get("x-distil-output-shaping")
+                echoed = await resp.json()
+                if sub == "1":
+                    assert shaped is None and "systemInstruction" not in echoed
+                else:
+                    assert shaped == "light" and "systemInstruction" in echoed
+
+    _run(_body())
+
+
+def test_aproxy_never_shapes_a_subscription(monkeypatch) -> None:
+    """Real billing, not the lossless_only flag, gates shaping: a subscription
+    session built with lossless_only=False still gets no directive."""
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+
+    async def _body() -> None:
+        async with TestServer(_echo_app()) as up:
+            app = make_app(
+                str(up.make_url("/")).rstrip("/"), lossless_only=False, shape_output="light"
+            )
+            async with TestClient(TestServer(app)) as client:
+                payload = {
+                    "model": "claude-opus-4-8",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "tool_result", "content": _LONG_TOOL_RESULT}],
+                        }
+                    ],
+                }
+                resp = await client.post(
+                    "/v1/messages",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                assert resp.status == 200
+                assert resp.headers.get("x-distil-output-shaping") is None
 
     _run(_body())
 

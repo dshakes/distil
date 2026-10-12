@@ -75,12 +75,19 @@ from ..compress import provenance as _provenance
 from ..compress import vision as _vision
 from ..httpguard import strip_query
 from ..tokenizer import DEFAULT as _tokenizer
+from .openai import _guard_quotes_with
 from .anthropic import (
     RestoreStore,
     _active_vision,
+    _census,
     _census_tls,
     _census_tokens,
     _hazard_tls,
+    _observe_result,
+    _refetch_close,
+    _refetch_open,
+    _refetch_tls,
+    _refetch_verbatim,
     _compress_text_content,
     _compress_tool_result_text,
     _intent_tls,
@@ -176,8 +183,11 @@ def _recent_gemini_verbatim_indices(contents: list[Any], k: int) -> set[int]:
 # ---------------------------------------------------------------------------
 
 
-def _exact_quote_positions(contents: list[Any]) -> set[tuple[int, int]]:
-    """``(content index, part index)`` of every ``functionResponse`` to keep byte-exact.
+def _exact_quote_positions(
+    contents: list[Any], *, widen: bool = False
+) -> dict[tuple[int, int], str]:
+    """``(content index, part index)`` of every ``functionResponse`` to keep byte-exact,
+    mapped to its census bucket.
 
     Gemini gives a ``functionCall`` no id — the response is matched to its call by
     ``name`` alone. So calls and responses are paired positionally: the k-th response
@@ -220,8 +230,8 @@ def _exact_quote_positions(contents: list[Any]) -> set[tuple[int, int]]:
                 name = str(fr.get("name", ""))
                 k = answered[name] = answered.get(name, 0) + 1
                 positions[f"{name}#{k}"] = (ci, pi)
-    keep = _provenance.exact_quote_ids(calls, cached_through=len(contents) - 1)
-    return {positions[i] for i in keep if i in positions}
+    keep = _provenance.exact_quote_ids(calls, cached_through=len(contents) - 1, widen=widen)
+    return {positions[i]: bucket for i, bucket in keep.items() if i in positions}
 
 
 # ---------------------------------------------------------------------------
@@ -265,31 +275,51 @@ def _compress_json_value(
     return val
 
 
+def _json_text(val: Any) -> str:
+    """Every string leaf of a ``functionResponse.response``, joined — what the agent read.
+    Gemini CLI puts a tool's output in one string field (``{"output": "..."}``), so this
+    is that string; a structured response contributes each of its strings."""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        return "\n".join(_json_text(v) for v in val.values())
+    if isinstance(val, list):
+        return "\n".join(_json_text(v) for v in val)
+    return ""
+
+
 def _compress_part(
     part: Any,
     store: RestoreStore,
     role: str,
     verbatim: bool,
     is_recent: bool = False,
-    exact_quote: bool = False,
+    exact_quote: str = "",
 ) -> Any:
-    """Compress a single Gemini ``part``; returns the same object when unchanged."""
+    """Compress a single Gemini ``part``; returns the same object when unchanged.
+    *exact_quote* is the census bucket of a result kept byte-exact, else empty."""
     if not isinstance(part, dict):
         return part
     if exact_quote:
         # File content the agent must quote back verbatim to edit it.
+        fr = part.get("functionResponse")
+        _census(exact_quote, _json_text(fr.get("response") if isinstance(fr, dict) else None))
         return part
 
     text = part.get("text")
     if isinstance(text, str):
         if role == "model":
+            _census("assistant_text", text)
             return part  # never rewrite the model's own words
+        _census("user_text", text)
         new_text = _compress_text_content(text, store, verbatim)
         return part if new_text == text else {**part, "text": new_text}
 
     fr = part.get("functionResponse")
     if isinstance(fr, dict) and "response" in fr:
         resp = fr.get("response")
+        if not verbatim and _refetch_verbatim(_json_text(resp)):
+            return part  # ADR 0025 — a re-fetch of folded content goes out verbatim
         new_resp = _compress_json_value(resp, store, verbatim, is_recent)
         if new_resp is resp:
             return part
@@ -329,6 +359,8 @@ def compress_generate_request(
     *,
     verbatim: bool = False,
     keep: Any = None,
+    persist: bool = True,
+    refetch: bool | None = None,
 ) -> tuple[dict[str, Any], RestoreStore]:
     """Compress a Gemini ``generateContent`` request body (non-mutating).
 
@@ -350,11 +382,9 @@ def compress_generate_request(
     # request off the same thread, and a stale count from an earlier Anthropic request
     # would be reported against this one.
     _hazard_tls.counts = None
-    # ponytail: Gemini's text/functionResponse walking has no census of its own yet
-    # (a separate, pre-existing gap this adapter never opened one for). Opened here
-    # only so the NEW image buckets below are attributed rather than silently dropped
-    # (an unopened census is a no-op, per _census_tokens), and so a stale census from
-    # a prior request on this thread cannot leak into this one's images.
+    # Opened per call like the other adapters' (an unopened census is a no-op), so a
+    # stale census from a prior request on this thread cannot leak into this one. Text,
+    # tool results, exact-quote reads and images land in the Messages path's buckets.
     _census_tls.counts = {}
     contents = body.get("contents")
     # Empty by design, not an oversight: this provider caches prefixes
@@ -365,48 +395,73 @@ def compress_generate_request(
     # See compress.recency.exempt_indices.
     _intent_tls.terms = frozenset()
     try:
-        # ADR 0003 — None unless the content type has been certified, so the
-        # default path is byte-for-byte what it was before.
-        _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
-        store = RestoreStore()
         if not isinstance(contents, list):
-            return body, store
-
+            return body, RestoreStore(persist=persist)
         recent = _recent_gemini_verbatim_indices(contents, _RECENCY_KEEP_TURNS)
-        # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact = _exact_quote_positions(contents)
-        new_contents: list[Any] = []
-        changed = False
-        for idx, content in enumerate(contents):
-            if not isinstance(content, dict):
-                new_contents.append(content)
-                continue
-            parts = content.get("parts")
-            if not isinstance(parts, list):
-                new_contents.append(content)
-                continue
-            role = content.get("role", "")
-            is_recent = idx in recent
-            content_verbatim = verbatim or is_recent
-            new_parts = [
-                _compress_part(
-                    p, store, role, content_verbatim, is_recent, exact_quote=(idx, pi) in exact
-                )
-                for pi, p in enumerate(parts)
-            ]
-            if any(np is not p for np, p in zip(new_parts, parts)):
-                new_contents.append({**content, "parts": new_parts})
-                changed = True
-            else:
-                new_contents.append(content)
 
-        if not changed:
+        def _walk(exact: dict[tuple[int, int], str]) -> tuple[list[Any], RestoreStore]:
+            # Per pass, as on the other paths: a quote-hazard retry starts afresh.
+            _census_tls.counts = {}
+            # ADR 0003 — None unless the content type has been certified, so the
+            # default path is byte-for-byte what it was before.
+            _vision_tls.dedup = (
+                _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
+            )
+            store = RestoreStore(persist=persist)
+            _refetch_open(refetch, verbatim)
+            new_contents: list[Any] = []
+            for idx, content in enumerate(contents):
+                if not isinstance(content, dict):
+                    new_contents.append(content)
+                    continue
+                parts = content.get("parts")
+                if not isinstance(parts, list):
+                    new_contents.append(content)
+                    continue
+                role = content.get("role", "")
+                is_recent = idx in recent
+                content_verbatim = verbatim or is_recent
+                new_parts = []
+                for pi, p in enumerate(parts):
+                    np = _compress_part(
+                        p,
+                        store,
+                        role,
+                        content_verbatim,
+                        is_recent,
+                        exact_quote=exact.get((idx, pi), ""),
+                    )
+                    fr = p.get("functionResponse") if isinstance(p, dict) else None
+                    if isinstance(fr, dict) and getattr(_refetch_tls, "tracker", None) is not None:
+                        nfr = np.get("functionResponse") if isinstance(np, dict) else None
+                        _observe_result(
+                            _json_text(fr.get("response")),
+                            _json_text(nfr.get("response") if isinstance(nfr, dict) else None),
+                        )
+                    new_parts.append(np)
+                if any(np is not p for np, p in zip(new_parts, parts)):
+                    new_contents.append({**content, "parts": new_parts})
+                else:
+                    new_contents.append(content)
+            return new_contents, store
+
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        new_contents, store = _walk(_exact_quote_positions(contents))
+        new_contents, store = _guard_quotes_with(
+            _provenance.gemini_edit_quotes(contents),
+            lambda: _walk(_exact_quote_positions(contents, widen=True)),
+            new_contents,
+            store,
+            verbatim,
+        )
+        if all(n is c for n, c in zip(new_contents, contents)):
             return body, store
         return {**body, "contents": new_contents}, store
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
         _vision_tls.dedup = None
+        _refetch_close()
 
 
 # ---------------------------------------------------------------------------

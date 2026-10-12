@@ -34,10 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from . import _filelock
-from ._log import log
-from .adapters.anthropic import compress_messages
-from .adapters.gemini import compress_generate_request
-from .adapters.gemini import count_tokens as _gemini_count
+from . import coldpoint as _coldpoint
 from .adapters.gemini import is_gemini_path
 from .authz import TENANT_RE as _TENANT_RE
 from .authz import AuthzError as _AuthzError
@@ -49,23 +46,35 @@ from .gateway_keys import GatewayKeyStore, KeyRecord  # noqa: F401
 from .prefixreplay import _CREDENTIAL_HEADERS
 from .httpguard import (
     framing_rejection,
-    is_chat_completions_path,
     is_compressible_path,
-    is_responses_path,
+    is_messages_path,
     parse_content_length,
     safe_forward_path,
     strip_query,
 )
-from .pricing import Pricing, get as pricing_get
+from .pricing import DEFAULT_MODEL, Pricing, get as pricing_get
+from .expand import is_miss
 from .proxy import (
+    _count_messages,
     _CLIENT_TIMEOUT,
     _OPENER,
     _UPSTREAM_TIMEOUT,
     QuietHTTPServer,
     _install_sigterm_flush,
     _warn_if_version_skew,
+    requery_input_equiv,
 )
-from .tokenizer import DEFAULT as _tokenizer
+from .serve_core import (
+    Outbound,
+    TenantHandles,
+    _expand_should_intercept,
+    _serialize_if_changed,
+    buffer_for_expand,
+    compress_or_forward,
+    open_stream,
+    run_expand,
+    sse_body,
+)
 
 
 class _OidcRejected(Exception):
@@ -375,34 +384,6 @@ def tenant_of(headers: Any, *, trust_tenant_header: bool = False) -> str:
             return f"anon-{h}"
 
     return "default"
-
-
-# ---------------------------------------------------------------------------
-# Token-saving estimator (mirrors proxy.py)
-# ---------------------------------------------------------------------------
-
-
-def _count_tokens(msgs: list[dict[str, Any]]) -> int:
-    total = 0
-    for msg in msgs:
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            total += _tokenizer.count(content)
-        elif isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                for key in ("text", "content"):
-                    val = block.get(key)
-                    if isinstance(val, str):
-                        total += _tokenizer.count(val)
-                    elif isinstance(val, list):
-                        for sub in val:
-                            if isinstance(sub, dict):
-                                sv = sub.get("text", "")
-                                if isinstance(sv, str):
-                                    total += _tokenizer.count(sv)
-    return total
 
 
 # ---------------------------------------------------------------------------
@@ -719,6 +700,9 @@ def build_gateway_handler(
     default_rpm: int = 0,
     default_daily_tokens: int = 0,
     prefix_replay: bool = True,
+    session_delta: bool = False,
+    cold_point: bool = True,
+    digest: bool = False,
 ) -> type[BaseHTTPRequestHandler]:
     """Return a BaseHTTPRequestHandler subclass for the multi-tenant gateway.
 
@@ -734,6 +718,13 @@ def build_gateway_handler(
         Policy mode (no tool injection): Tier-0 lossless only; no Tier-1 digest runs.
     verbatim:
         When *True*, skip the Tier-1 digest (Tier-0 only) — interactive-safe.
+    digest:
+        Operator opt-in (``distil gateway --digest``): a PAYG gateway runs the
+        recoverable digest with the expand loop, the same compression a local
+        ``distil wrap`` user gets (ADR 0023). Off by default: the gateway stays Tier-0,
+        because the per-mode certification hold, shadow and drift guard that hold a
+        local proxy's digest when it is over its decision-change budget (ADR 0022) are
+        proxy-only — a gateway digest is UNGUARDED.
     admin_token:
         When set, ``/distil/stats`` and ``/distil/dashboard`` require
         ``Authorization: Bearer <token>``. When unset AND the server is bound
@@ -767,6 +758,12 @@ def build_gateway_handler(
         Gateway-wide per-tenant daily input-token cap (0 = unlimited).
         Per-key overrides win when a key record carries a non-None
         ``daily_tokens``.
+    session_delta:
+        Cache-delta coding (cross-turn dedup + cross-version delta), sessions scoped
+        per tenant. Off by default, as on the proxy.
+    cold_point:
+        Cold-point recompression (ADR 0014), lineages scoped per tenant. On by default
+        wherever the recoverable digest runs; ``DISTIL_COLD_POINT=0`` also disables.
 
     Not held by the drift guard (``distil.drift.DriftGuard``), by design: the gateway runs
     no shadow, so the machine-global e-process carries no evidence about any tenant, and
@@ -784,18 +781,32 @@ def build_gateway_handler(
     # Route the lossy-allowed decision through policy (single source of truth):
     # subscription / OAuth sessions are lossless-only, forcing Tier-0-only (verbatim).
     _auth_mode = AuthMode.SUBSCRIPTION if lossless_only else AuthMode.PAYG
-    # The gateway injects no distil_expand tool and runs no expand loop, so a Tier-1
-    # stub it emitted could NEVER be recovered — irreversibly lossy, and invisibly so:
-    # the tenant gets a "<< +N lines, handle=… >>" marker naming a recovery that does
-    # not exist here. `not may_compress_lossy` folded that into verbatim for
-    # subscription only, leaving every PAYG gateway session silently lossy. Fold it
-    # for EVERY session, the same fix aproxy already took. Tier-0 still runs, so the
-    # reversible lossless transforms keep earning real savings.
-    # ponytail: the ceiling is the missing expand loop, not the digest. Wire the
-    # shape-correct loops proxy.py already has (run_expand_loop / _chat / _responses /
-    # _gemini) plus tool injection, and this line becomes `verbatim or not
-    # may_compress_lossy(_auth_mode)` again.
-    verbatim = True
+    # Tier-0 unless the operator opted in with --digest (ADR 0023). Where the digest does
+    # run (opt-in, PAYG, not --verbatim) the expand loop is ON so every stub is
+    # recoverable through distil_expand — which this gateway injects and answers
+    # (buffered loops for every shape, the streaming splice for Anthropic Messages). Not
+    # the default because nothing here holds a digest that is over its decision-change
+    # budget: the per-mode certification hold, shadow and drift guard are proxy-only.
+    from .policy import may_compress_lossy
+
+    expand = digest and may_compress_lossy(_auth_mode) and not verbatim
+    _mode_label = (
+        "verbatim"
+        if verbatim or not (expand or lossless_only)
+        else ("lossless-only" if lossless_only else "digest")
+    )
+    verbatim = verbatim or not expand
+    # Cold-point recompression (ADR 0014) under the proxy's gating: only where the
+    # recoverable digest runs, not alongside --session-delta, DISTIL_COLD_POINT=0 kills.
+    _cold_on = (
+        cold_point
+        and expand
+        and not verbatim
+        and not session_delta
+        and os.environ.get("DISTIL_COLD_POINT", "1") != "0"
+    )
+    # A tenant's distil_expand resolves only handles issued to that tenant.
+    _grants = TenantHandles()
 
     # Eager-load the streaming relay the handler otherwise imports lazily per
     # request, so a gateway upgraded in place never loads a post-upgrade .py
@@ -1275,7 +1286,13 @@ def build_gateway_handler(
             raw = self._read_body()
             if raw is None:
                 return  # _read_body already sent the rejection
-            headers = self._client_headers(strip_header)
+            # Identity encoding, as on the proxy: a gzip upstream body would silently
+            # defeat the expand loop, which has to read the response.
+            headers = {
+                k: v
+                for k, v in self._client_headers(strip_header).items()
+                if k.lower() != "accept-encoding"
+            }
             # Use key-derived tenant when auth is active; fall back to the
             # credential-hash path for the no-auth (single-user localhost) case.
             tenant = tenant_override or tenant_of(
@@ -1309,126 +1326,145 @@ def build_gateway_handler(
             # explicit label — an anon-<hash> is a stable credential-derived
             # correlator that shouldn't ride response headers.
             extras: dict[str, str] = {}
-            # Tenant accounting is booked only after a confirmed 2xx (P0-1).
-            _pending_tenant_record: tuple[str, int, int] | None = None
-            # Forwarded-bytes prefix replay (ADR 0011): the body key holding the
-            # conversation, and the items as the CLIENT sent them this turn.
-            _replay_key: str | None = None
-            _replay_orig: list[Any] | None = None
             if not tenant.startswith("anon-"):
                 extras["x-distil-tenant"] = tenant
+            # Everything per-tenant is keyed by this scope: cold-point lineages and
+            # expanded-handle exclusions, cache-delta sessions, prefix replay (ADR 0023).
+            scope = tenant + "\0"
+            # The same compress-or-forward path the local proxy runs. The daily quota is
+            # charged against the PRE-compression count, before any per-tenant state
+            # moves, so a rejected request leaves no lineage or delta behind.
+            out = compress_or_forward(
+                body,
+                self.path,
+                count=_count_messages,
+                verbatim=verbatim,
+                expand=expand,
+                mode=_mode_label,
+                session_delta=session_delta,
+                cold=_cold_on,
+                scope=scope,
+                replay_scope=scope if prefix_replay else None,
+                admit=lambda n: self._check_daily(tenant, n, default_daily_tokens),
+            )
+            if out is None:
+                return  # 429 already sent by _check_daily
+            try:
+                self._forward_compressed(raw, out, headers, extras, tenant, scope)
+            finally:
+                if out.cold_key is not None:
+                    _coldpoint.end(out.cold_key)
 
-            _path = strip_query(self.path)
-            if is_responses_path(_path) and isinstance(body.get("input"), list):
-                # OpenAI Responses API (``/v1/responses``, and the Azure form). The
-                # gateway dispatched on ``messages``/``contents`` only, so a Responses
-                # body matched no branch: it was forwarded uncompressed AND booked
-                # nothing against the tenant's quota — a tenant could spend an
-                # unlimited daily budget just by using this endpoint.
-                from .adapters.openai import compress_responses_input, count_responses_tokens
+        def _forward_compressed(
+            self,
+            raw: bytes,
+            out: Outbound,
+            headers: dict[str, str],
+            extras: dict[str, str],
+            tenant: str,
+            scope: str,
+        ) -> None:
+            """Relay *out* upstream; run the expand loop when its stubs need one."""
+            body = out.body
+            extras.update(out.extras)
+            store = _grants.view(tenant, out.store)
+            # Tenant accounting is booked only after a confirmed 2xx (P0-1), and nets out
+            # what distil_expand re-queries cost (as the proxy's savings ledger does):
+            # the provider bills each round-trip, so it is spend distil caused.
+            usage: dict[str, int] = {}
 
-                _orig_input: list[dict[str, Any]] = body["input"]
-                _replay_key, _replay_orig = "input", _orig_input
-                baseline_tokens = count_responses_tokens(_orig_input)
-                if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
-                    return
-                try:
-                    _compressed_input, _store = compress_responses_input(
-                        _orig_input, verbatim=verbatim
-                    )
-                except Exception:  # noqa: BLE001 — compression must never break a request
-                    log.debug(
-                        "compress_responses_input failed; forwarding uncompressed", exc_info=True
-                    )
-                    _compressed_input = _orig_input
-                compressed_tokens = count_responses_tokens(_compressed_input)
-                body = {**body, "input": _compressed_input}
-                _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
-                extras["x-distil-compressed"] = "1"
-                extras["x-distil-tokens-saved"] = str(max(0, baseline_tokens - compressed_tokens))
+            def book() -> None:
+                if out.pending is not None:
+                    before, after, model = out.pending
+                    state.record(tenant, before, after + requery_input_equiv(usage, model))
 
-            elif "messages" in body and isinstance(body["messages"], list):
-                original: list[dict[str, Any]] = body["messages"]
-                _replay_key, _replay_orig = "messages", original
-                # Chat Completions needs its own adapter (role:"tool" list content is
-                # Tier-1); /v1/messages stays on the Anthropic one.
-                if is_chat_completions_path(_path):
-                    from .adapters.openai import compress_chat_completions
-
-                    _compress_fn = compress_chat_completions
+            new_raw = _serialize_if_changed(raw, body)
+            fwd_path = self.path
+            want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
+            intercept = _expand_should_intercept(expand, store, body)
+            sse_shape: str | None = None
+            if want_stream and intercept and not is_messages_path(strip_query(self.path)):
+                buf = buffer_for_expand(body, raw, self.path)
+                if buf is None:
+                    intercept = False
                 else:
-                    _compress_fn = compress_messages
-                try:
-                    compressed, _store = _compress_fn(original, verbatim=verbatim)
-                except Exception:  # noqa: BLE001 — compression must never break a request
-                    log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
-                    compressed = original
+                    sse_shape, body, new_raw, fwd_path = buf
+                    want_stream = False
 
-                baseline_tokens = _count_tokens(original)
-                compressed_tokens = _count_tokens(compressed)
-                tokens_saved = max(0, baseline_tokens - compressed_tokens)
+            def on_signal(handle: str, original: str) -> None:
+                if not is_miss(original):
+                    _coldpoint.note_expanded(scope, handle)  # never evict what was asked for
 
-                if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
-                    return
-
-                _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
-
-                body = {**body, "messages": compressed}
-                extras["x-distil-compressed"] = "1"
-                extras["x-distil-tokens-saved"] = str(tokens_saved)
-
-            elif "contents" in body and isinstance(body["contents"], list):
-                # Gemini generateContent shape. Same per-key-over-default quota
-                # precedence as the messages branch above.
-                _replay_key, _replay_orig = "contents", body["contents"]
-                baseline_tokens = _gemini_count(body)
-                if not self._check_daily(tenant, baseline_tokens, default_daily_tokens):
-                    return
-                try:
-                    body, _store = compress_generate_request(body, verbatim=verbatim)
-                except Exception:  # noqa: BLE001 — compression must never break a request
-                    log.debug("gemini compression failed; forwarding uncompressed", exc_info=True)
-                compressed_tokens = _gemini_count(body)
-                tokens_saved = max(0, baseline_tokens - compressed_tokens)
-                _pending_tenant_record = (tenant, baseline_tokens, compressed_tokens)
-                extras["x-distil-compressed"] = "1"
-                extras["x-distil-tokens-saved"] = str(tokens_saved)
-
-            # Forwarded-bytes prefix replay (ADR 0011), scoped PER TENANT. A cached
-            # prefix belongs to one credential at the provider, so two tenants posting
-            # the same conversation must never share replay state — the lineage key is
-            # already content-derived, and without the tenant prefix that is exactly
-            # what "the same conversation" would mean.
-            if prefix_replay and _replay_orig is not None and _replay_key is not None:
-                from . import prefixreplay as _prep
-
-                body = _prep.apply(
-                    body, _replay_key, _replay_orig, scope=tenant + "\0", extras=extras
-                )
-
-            new_raw = json.dumps(body).encode()
-            # Streamed requests relay incrementally — TTFT preserved per tenant.
-            if bool(body.get("stream")) or ":streamGenerateContent" in self.path:
+            if want_stream:
                 from .streamrelay import stream_upstream
 
-                status_s, _ = stream_upstream(
-                    self,
-                    _upstream + self.path,
-                    new_raw,
-                    headers,
-                    timeout=_UPSTREAM_TIMEOUT,
-                    hop_by_hop=_HOP_BY_HOP,
-                    extras=extras,
-                )
+                if intercept:
+                    from .streamexpand import stream_with_expand
+
+                    status_s = stream_with_expand(
+                        self,
+                        lambda b: open_stream(
+                            _OPENER,
+                            _upstream + self.path,
+                            _serialize_if_changed(raw, b),
+                            headers,
+                            _UPSTREAM_TIMEOUT,
+                        ),
+                        body,
+                        store,
+                        hop_by_hop=_HOP_BY_HOP,
+                        extras=extras,
+                        usage_sink=usage,
+                        on_signal=on_signal,
+                    )
+                else:
+                    # Streamed requests relay incrementally — TTFT preserved per tenant.
+                    status_s, _ = stream_upstream(
+                        self,
+                        _upstream + self.path,
+                        new_raw,
+                        headers,
+                        timeout=_UPSTREAM_TIMEOUT,
+                        hop_by_hop=_HOP_BY_HOP,
+                        extras=extras,
+                    )
                 # Book tenant accounting only after a fully-relayed 2xx (P0-1).
-                if _pending_tenant_record is not None and 200 <= status_s < 300:
-                    state.record(*_pending_tenant_record)
+                if 200 <= status_s < 300:
+                    book()
                 return
-            status, rhdrs, rbody = self._post_upstream(self.path, new_raw, headers)
+            status, rhdrs, rbody = self._post_upstream(fwd_path, new_raw, headers)
+            if intercept and 200 <= status < 300:
+                try:
+                    resp_json = json.loads(rbody)
+                except (ValueError, TypeError):
+                    resp_json = None
+                if isinstance(resp_json, dict):
+                    from .streamrelay import add_usage, scan_usage
+
+                    def post(b: dict[str, Any]) -> dict[str, Any]:
+                        _s, _h, rb = self._post_upstream(fwd_path, json.dumps(b).encode(), headers)
+                        usage["requeries"] = usage.get("requeries", 0) + 1
+                        try:
+                            add_usage(
+                                usage,
+                                scan_usage(rb[:16384] + b"\n" + rb[-16384:]),
+                                prefix="requery_",
+                            )
+                        except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                            pass
+                        return json.loads(rb)
+
+                    final = run_expand(body, resp_json, store, post, self.path, on_signal)
+                    if final is not resp_json:
+                        rbody = json.dumps(final).encode()
             # Book tenant accounting only after a confirmed 2xx (P0-1): failed or
             # SDK-retried upstream calls must not inflate per-tenant savings.
-            if _pending_tenant_record is not None and 200 <= status < 300:
-                state.record(*_pending_tenant_record)
+            if 200 <= status < 300:
+                book()
+            if sse_shape is not None and 200 <= status < 300:
+                sse = sse_body(sse_shape, rhdrs, rbody)
+                if sse is not None:
+                    rhdrs, rbody = sse
             self._relay(status, rhdrs, rbody, extras=extras)
 
         # ----------------------------------------------------------------
@@ -1606,7 +1642,7 @@ def serve_gateway(
     port: int = 8789,
     upstream: str = "https://api.anthropic.com",
     *,
-    pricing_model: str = "claude-opus-4-8",
+    pricing_model: str = DEFAULT_MODEL,
     lossless_only: bool = False,
     verbatim: bool = False,
     admin_token: str | None = None,
@@ -1615,6 +1651,9 @@ def serve_gateway(
     tenant_rpm: int = 0,
     tenant_daily_tokens: int = 0,
     prefix_replay: bool = True,
+    session_delta: bool = False,
+    cold_point: bool = True,
+    digest: bool = False,
 ) -> None:
     """Run a blocking ThreadingHTTPServer gateway.
 
@@ -1637,6 +1676,10 @@ def serve_gateway(
     tenant_rpm:     Gateway-wide requests-per-minute cap per tenant (0 = unlimited).
     tenant_daily_tokens:
                     Gateway-wide per-tenant daily input-token cap (0 = unlimited).
+    session_delta:  Cache-delta coding, sessions scoped per tenant (off by default).
+    cold_point:     Cold-point recompression (ADR 0014), scoped per tenant.
+    digest:         Operator opt-in to the recoverable digest (``--digest``). Unguarded:
+                    no per-mode certification on the gateway yet (ADR 0023).
     """
     price = pricing_get(pricing_model)
     state = GatewayState(price)
@@ -1657,9 +1700,18 @@ def serve_gateway(
         default_rpm=tenant_rpm,
         default_daily_tokens=tenant_daily_tokens,
         prefix_replay=prefix_replay,
+        session_delta=session_delta,
+        cold_point=cold_point,
+        digest=digest,
     )
     server = QuietHTTPServer((host, port), handler)
     print(f"distil gateway listening on http://{host}:{port}")
+    if digest and not (lossless_only or verbatim):
+        print(
+            "  ! --digest: recoverable digest on, UNGUARDED — the gateway has no per-mode "
+            "certification hold (ADR 0022 is proxy-only), so nothing switches it off if "
+            "it is over its decision-change budget"
+        )
     print(f"  dashboard: http://{host}:{port}/distil/dashboard")
     print(f"  metrics:   http://{host}:{port}/distil/metrics  (Prometheus)")
     auth_active = require_keys or key_store.has_active_keys()
@@ -1671,6 +1723,20 @@ def serve_gateway(
         print(f"  daily quota: {tenant_daily_tokens:,} tokens/day per tenant")
     if not loopback and not (admin_token or os.environ.get("DISTIL_GATEWAY_TOKEN")):
         print("  ! non-loopback bind without --admin-token: /distil/* routes are disabled")
+    # The line above covers the management routes only. The inbound proxy has its own
+    # gate (the expression `_auth_required` evaluates per request), and with no keys,
+    # no --require-keys and no OIDC issuer it is OPEN: anyone who can reach the address
+    # spends the upstream credentials. Warn loudly; refusing to start would break
+    # deployments that sit behind their own authenticating front door.
+    if not loopback and not (
+        require_keys or key_store.has_any_keys() or _oidc_config_from_env().get("issuer")
+    ):
+        print(
+            f"  !! WARNING: inbound proxy is UNAUTHENTICATED on {host}:{port} — anyone who "
+            "can reach it spends your upstream credentials. Issue a key "
+            "(distil gateway keys issue --tenant NAME) or pass --require-keys, unless an "
+            "authenticating proxy fronts this port."
+        )
     print(f"  → upstream: {upstream}")
     # Turn SIGTERM (systemd stop / kill) into KeyboardInterrupt so the finally
     # block persists tenant accounting instead of a kill zeroing it.

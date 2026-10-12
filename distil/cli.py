@@ -117,19 +117,35 @@ def cmd_savings_screen(args: argparse.Namespace) -> int:
         return cmd_savings(args)
     from . import savings_screen as ss
 
+    days = getattr(args, "days", None)
     try:
-        since = None if args.all else time.time() - ss.parse_since(args.since)
+        if days is not None and days <= 0:
+            raise ValueError(f"--days must be positive, got {days:g}")
+        window = f"{days:g}d" if days is not None else args.since
+        since = None if args.all else time.time() - ss.parse_since(window)
     except ValueError as e:
         print(f"distil savings: {e}", file=sys.stderr)
         return 2
-    screen = ss.build(since)
+    t0 = time.monotonic()
+    shown = False
+
+    def progress(done: int, cap: int) -> None:
+        nonlocal shown
+        if time.monotonic() - t0 > 2.0 and sys.stderr.isatty():
+            print(f"\r  replaying your requests offline… {done}/{cap}", end="", file=sys.stderr)
+            sys.stderr.flush()
+            shown = True
+
+    screen = ss.build(since, progress=progress)
+    if shown:
+        print("\r\033[K", end="", file=sys.stderr)
     print(ss.to_json(screen) if args.json else ss.render(screen))
     return 0
 
 
 def cmd_savings(args: argparse.Namespace) -> int:
     traj = _load(args.trajectory)
-    price = pricing.get(args.pricing or "claude-opus-4-8")
+    price = pricing.get(args.pricing or pricing.DEFAULT_MODEL)
     tk = args.tokenizer or "heuristic"
     tok = tokenizer.resolve(tk, model=price.name)
     out_t = args.output_tokens_per_turn or 0
@@ -210,6 +226,16 @@ def _release_drift_guard(stamp: str) -> bool | None:
         "drift alarm archived and reset — the lossless-only hold is released. Running "
         f"proxies resume lossy compression within {DriftGuard.POLL_S:.0f}s; no restart needed."
     )
+    from .drift import uncertified
+
+    why = uncertified()
+    if why:
+        # The certification hold is re-derived from the shadow evidence, so releasing
+        # the e-process does not lift it — say so rather than promise a resume.
+        print(
+            f"  still held: lossy compression is not certified ({why}). It lifts once "
+            "fresh evidence is inside the budget, or DISTIL_NO_DRIFT_GUARD=1."
+        )
     return True
 
 
@@ -1546,6 +1572,27 @@ def _print_shadow_sampling(_ctrs: dict) -> None:
             print(_line(_ctrs, "Sampling (lifetime — no samples yet on this build)"))
 
 
+def _by_mode_json(led: Any) -> dict[str, dict[str, Any]]:
+    """Per-mode counts plus the paired difference and its interval — never only the
+    pooled verdict, which averages lossless-only with digest."""
+    eqs = led.equivalence_by_mode()
+    return {
+        m: {
+            "ab_n": a.ab_n,
+            "ab_eq": a.ab_eq,
+            "aa_n": a.aa_n,
+            "aa_eq": a.aa_eq,
+            "n_paired": eqs[m].n_paired if m in eqs else 0,
+            "paired_difference": eqs[m].diff if m in eqs else None,
+            "paired_difference_ci": list(eqs[m].diff_ci or ()) if m in eqs else [],
+            "equivalence_pct": eqs[m].pct if m in eqs else None,
+            "equivalence_pct_ci": list(eqs[m].pct_ci or ()) if m in eqs else [],
+            "below_reporting_floor": eqs[m].below_floor if m in eqs else True,
+        }
+        for m, a in sorted(led.by_mode.items())
+    }
+
+
 def cmd_shadow_stats(args: argparse.Namespace) -> int:
     """Show the live decision-equivalence measured by shadow mode on real traffic."""
     from .shadow import ShadowCounters, ShadowLedger
@@ -1651,6 +1698,7 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                 "equivalence_pct": eqv.pct,
                 "equivalence_pct_ci": list(eqv.pct_ci or ()),
                 "below_reporting_floor": eqv.below_floor,
+                "by_mode": _by_mode_json(led),
             },
             gates=gates,
         )
@@ -1707,10 +1755,7 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
                     "byte_identical_samples": led.identical,
                     "pinned_temperature_samples": led.pinned,
                     "hot_samples": led.unpinned,
-                    "by_mode": {
-                        m: {"ab_n": a.ab_n, "ab_eq": a.ab_eq, "aa_n": a.aa_n, "aa_eq": a.aa_eq}
-                        for m, a in sorted(led.by_mode.items())
-                    },
+                    "by_mode": _by_mode_json(led),
                     "output_token_delta": None if cost is None else cost.out_delta_mean,
                     "output_token_delta_ci": None if cost is None else list(cost.out_delta_ci),
                     "net_usd_after_output": None if cost is None else cost.net_usd,
@@ -1811,11 +1856,27 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
             f"  paired difference (A/B − A/A)           : {eqv.diff * 100:+6.2f}pp"
             f" [{eqv.diff_ci[0] * 100:+.1f}, {eqv.diff_ci[1] * 100:+.1f}]"
         )
+    _by_mode = led.equivalence_by_mode()
     if eqv.pct is not None:
         ci = eqv.pct_ci
         tail = f"  [{ci[0]:.1f}, {ci[1]:.1f}]" if ci else ""
-        label = f"decision-equivalence ({eqv.estimator})"
+        pooled = ", POOLED across modes" if len(_by_mode) > 1 else ""
+        label = f"decision-equivalence ({eqv.estimator}{pooled})"
         print(f"  {label:<39} : {eqv.pct:6.2f}%{tail}")
+    if _by_mode:
+        # lossless-only and digest are different experiments; the pooled number is the
+        # average of two things nobody runs, and can sit inside the budget while digest
+        # alone does not. Each mode gets its own paired difference AND interval.
+        print("\n  by compression mode (paired difference A/B − A/A, 95% CI):")
+        for _m, _e in _by_mode.items():
+            if _e.diff is None or _e.diff_ci is None or _e.below_floor:
+                _d = f"— ({_e.shortfall or 'no paired rows'})"
+            else:
+                _d = (
+                    f"{_e.diff * 100:+.1f}pp [{_e.diff_ci[0] * 100:+.1f}, "
+                    f"{_e.diff_ci[1] * 100:+.1f}]"
+                )
+            print(f"    {_m:<14} n={_e.n_ab} A/B, {_e.n_aa} A/A  {_d}")
     if eqv.estimator == "paired":
         print(
             "\n  Each sampled request was replayed THREE times — A and A' on the original"
@@ -1844,14 +1905,6 @@ def cmd_shadow_stats(args: argparse.Namespace) -> int:
             "\n  agent's own sampling (extended thinking and current models reject a pinned"
             "\n  temperature). The A/A arm is what absorbs that noise."
         )
-    _modes = {m: a for m, a in sorted(led.by_mode.items()) if a.ab_n or a.aa_n}
-    if len(_modes) > 1:
-        # lossless-only and digest are different experiments; pooling them reports
-        # the average of two things nobody runs.
-        print("\n  by compression mode:")
-        for _m, _a in _modes.items():
-            _d = f"{sum(_a.diffs) / len(_a.diffs) * 100:+.1f}pp" if _a.diffs else "—"
-            print(f"    {_m:<14} n={_a.ab_n} A/B, {_a.aa_n} A/A, paired diff {_d}")
     _cost = led.cost()
     if _cost is not None:
         _lo, _hi = _cost.out_delta_ci
@@ -2314,7 +2367,12 @@ def cmd_setup_front(args: argparse.Namespace) -> int:
     if args.settings or args.statusline_only:
         return cmd_setup(args)
     if getattr(args, "hooks", False):
-        return cmd_hook(argparse.Namespace(action="install", client="auto", digest=args.digest))
+        rc = cmd_hook(argparse.Namespace(action="install", client="auto", digest=args.digest))
+        if getattr(args, "shell", False):
+            print()
+            shell_ns = argparse.Namespace(action="install", shell=True, digest=args.digest)
+            rc = max(rc, cmd_hook(shell_ns))
+        return rc
     if getattr(args, "vscode", False):
         return _print_vscode_entry(args.port)
     interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interactive
@@ -3161,6 +3219,10 @@ def cmd_hook(args: argparse.Namespace) -> int:
             else [client]
         )
         digest = bool(getattr(args, "digest", False))
+        if getattr(args, "shell", False):
+            if action == "install":
+                return install_hook("claude", digest=digest, shell=True)
+            return uninstall_hook("claude", shell=True)
         rc = 0
         for i, key in enumerate(keys):
             if i:
@@ -3172,6 +3234,16 @@ def cmd_hook(args: argparse.Namespace) -> int:
     if getattr(args, "stats", False):
         return _hook_stats()
     return hook_main(["--selftest"] if getattr(args, "selftest", False) else [])
+
+
+def cmd_sh(args: argparse.Namespace) -> int:
+    """``distil sh -- <command>``: run it, print its output shaped at the source."""
+    from .shell import main as sh_main
+
+    command = list(args.command)
+    if command and command[0] == "--":  # argparse REMAINDER keeps the separator
+        command = command[1:]
+    return sh_main(command, digest=bool(args.digest))
 
 
 def cmd_expand(args: argparse.Namespace) -> int:
@@ -3913,7 +3985,9 @@ def cmd_certify_provider(args: argparse.Namespace) -> int:
     )
 
     arms_cls = OpenAIArms if args.provider == "openai" else ProviderArms
-    model = args.model or ("gpt-5.2" if args.provider == "openai" else "claude-opus-4-8")
+    model = args.model or (
+        pricing.DEFAULT_OPENAI_MODEL if args.provider == "openai" else pricing.DEFAULT_MODEL
+    )
     episodes = load_episodes(Path(args.episodes))
     cases = [c for c in (to_case(e, i) for i, e in enumerate(episodes)) if c is not None]
     if args.n is not None:
@@ -3984,6 +4058,9 @@ def cmd_gateway(args: argparse.Namespace) -> int:
         tenant_rpm=args.tenant_rpm,
         tenant_daily_tokens=args.tenant_daily_tokens,
         prefix_replay=not getattr(args, "no_prefix_replay", False),
+        session_delta=getattr(args, "session_delta", False),
+        cold_point=not getattr(args, "no_cold_point", False),
+        digest=getattr(args, "digest", False),
     )
     return 0
 
@@ -4780,15 +4857,45 @@ everyday commands:
   version, upgrade                    show version / update distil in place
 
 analysis & tuning:
-  compress, savings, bench, prune, calibrate, certify, certify-trajectories
+  compress, simulate, dissect, discover, calibrate, audit, ab
 
-research / CI internals:
-  verify, holdout, conformal, frontier, eval, online,
-  train-transformer, federated-leaderboard
+research / CI (distil research <command>):
+  bench, certify, certify-trajectories, certify-provider, verify, validate,
+  holdout, conformal, frontier, eval, online, retention, fidelity, benchmark,
+  suite, perf, prune, ingest, learn, output-savings, query-relevance,
+  federated-leaderboard, train-transformer
 
 `distil <command> --help` shows each command's flags.
 """
 
+
+#: Maker-side research and CI gates: not on a user's hot path. Reached as
+#: `distil research <name>`; the bare `distil <name>` spelling still works, deprecated.
+RESEARCH_COMMANDS = (
+    "prune",
+    "certify",
+    "certify-trajectories",
+    "certify-provider",
+    "bench",
+    "output-savings",
+    "ingest",
+    "perf",
+    "eval",
+    "retention",
+    "fidelity",
+    "benchmark",
+    "frontier",
+    "learn",
+    "conformal",
+    "verify",
+    "suite",
+    "validate",
+    "holdout",
+    "online",
+    "query-relevance",
+    "federated-leaderboard",
+    "train-transformer",
+)
 
 #: What a newcomer sees. Everything else still parses; `--help-all` lists it.
 FRONT_DOOR = ("setup", "wrap", "savings", "doctor")
@@ -4922,6 +5029,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     s.add_argument("--since", default="7d", help="window, e.g. 7d, 24h, 2w (default 7d)")
     s.add_argument("--all", action="store_true", help="all history, no window")
+    s.add_argument("--days", type=float, help="window in days, e.g. --days 7 (same as --since 7d)")
     s.add_argument("--json", action="store_true", help="machine-readable output")
     s.add_argument(
         "--strategies",
@@ -5090,7 +5198,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     be = sub.add_parser("bench", help="corpus-wide CI gate across every domain")
     add_tokenizer(be)
-    be.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    be.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     be.add_argument(
         "--margin",
         type=float,
@@ -5140,7 +5248,7 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--input", required=True, help="path to a .json/.jsonl of recorded requests")
     ig.add_argument("--out", default="./ingested-corpus", help="output corpus directory")
     ig.add_argument("--provider", default="anthropic", choices=("anthropic", "openai"))
-    ig.add_argument("--model", default="claude-opus-4-8")
+    ig.add_argument("--model", default=pricing.DEFAULT_MODEL)
     ig.set_defaults(func=cmd_ingest)
 
     pf = sub.add_parser("perf", help="latency/throughput benchmark (p50/p95)")
@@ -5217,7 +5325,7 @@ def build_parser() -> argparse.ArgumentParser:
     bn.add_argument("--corpus", help="custom corpus dir (e.g. ingested benchmark traces)")
     bn.add_argument("--runner", default="deterministic", choices=("deterministic", "anthropic"))
     add_live(bn)
-    bn.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    bn.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     bn.add_argument("--tokenizer", default="heuristic", choices=("heuristic", "anthropic"))
     bn.add_argument(
         "--margin", type=float, default=_budget.CERT_MARGIN, help="TOST non-inferiority margin"
@@ -5379,7 +5487,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ho = sub.add_parser("holdout", help="holdout A/B savings with a bootstrap CI (phase 5)")
     add_tokenizer(ho)
-    ho.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    ho.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     ho.add_argument("--control-fraction", type=float, default=0.2)
     ho.set_defaults(func=cmd_holdout)
 
@@ -5420,7 +5528,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     px.add_argument(
         "--pricing",
-        default="claude-opus-4-8",
+        default=pricing.DEFAULT_MODEL,
         choices=sorted(pricing.CATALOG),
         help="model used to price genuine savings recorded to the ledger",
     )
@@ -5580,6 +5688,12 @@ def build_parser() -> argparse.ArgumentParser:
     # harvest(), which folds session files on every call; add it with its own test.
     _register_ab(sub)
 
+    from .referee import register as _register_audit
+
+    # `distil audit` — distil as referee of any compressor (distil/referee.py, ADR 0024).
+    # Opt-in and capped; hidden from the front door like `distil ab`.
+    _register_audit(sub)
+
     dash = sub.add_parser(
         "dashboard",
         help="live dashboard of your savings (terminal, or --web for a browser)",
@@ -5657,6 +5771,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with --hooks: opt a subscription login into the recoverable digest (metered keys "
         "get it by default; subscriptions stay lossless-only without this)",
+    )
+    su.add_argument(
+        "--shell",
+        action="store_true",
+        help="with --hooks: also rewrite Claude Code Bash test runs and `git status` to "
+        "`distil sh` (opt-in, ADR 0026)",
     )
     su.add_argument(
         "--vscode",
@@ -5861,7 +5981,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="install: opt a subscription login into the recoverable digest (recorded; "
         "metered keys get it by default, subscriptions stay lossless-only without it)",
     )
+    hk.add_argument(
+        "--shell",
+        action="store_true",
+        help="install/uninstall: the Claude Code PreToolUse rewrite that runs test runners and "
+        "`git status` under `distil sh` (opt-in, ADR 0026)",
+    )
     hk.set_defaults(func=cmd_hook)
+
+    shp = sub.add_parser(
+        "sh",
+        help="run a command and print its output shaped at the source "
+        "(e.g. distil sh -- pytest -q); failures stay verbatim",
+    )
+    shp.add_argument(
+        "--digest",
+        action="store_true",
+        help="allow the lossy filters on a subscription login (metered keys get them by "
+        "default; the full output stays behind a `distil expand` handle)",
+    )
+    shp.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
+    shp.set_defaults(func=cmd_sh)
 
     ex = sub.add_parser(
         "expand", help="print the original behind a digest handle (`<< … handle=XXXXXXXX >>`)"
@@ -5923,7 +6063,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     wr.add_argument(
         "--pricing",
-        default="claude-opus-4-8",
+        default=pricing.DEFAULT_MODEL,
         choices=sorted(pricing.CATALOG),
         help="model used to price genuine savings recorded to the ledger",
     )
@@ -6087,12 +6227,20 @@ def build_parser() -> argparse.ArgumentParser:
     gw.add_argument("--host", default="127.0.0.1")
     gw.add_argument("--port", type=int, default=8789)
     gw.add_argument("--upstream", default="https://api.anthropic.com")
-    gw.add_argument("--pricing", default="claude-opus-4-8", choices=sorted(pricing.CATALOG))
+    gw.add_argument("--pricing", default=pricing.DEFAULT_MODEL, choices=sorted(pricing.CATALOG))
     gw.add_argument("--lossless-only", "--safe", action="store_true")
     gw.add_argument(
         "--verbatim",
         action="store_true",
         help="skip the Tier-1 digest (Tier-0 only) for all tenants — lower savings",
+    )
+    gw.add_argument(
+        "--digest",
+        action="store_true",
+        help="opt IN to the recoverable digest for PAYG tenants (distil_expand injected and "
+        "answered; ADR 0023). Off by default: the gateway serves Tier-0. UNGUARDED — the "
+        "per-mode certification hold, shadow and drift guard are proxy-only, so nothing "
+        "switches a gateway digest off when it is over its decision-change budget.",
     )
     gw.add_argument(
         "--admin-token",
@@ -6122,8 +6270,21 @@ def build_parser() -> argparse.ArgumentParser:
         "are issued.  Auth activates automatically once keys exist; this flag "
         "lets you lock down the gateway first.  "
         "Note: tenants share one process; no memory isolation. "
-        "The restore store (digest originals) is per-gateway, not per-tenant — "
+        "Digest originals live in one per-gateway restore store, but a tenant's "
+        "distil_expand resolves only handles issued to that tenant — "
         "see THREAT_MODEL.md for the full shared-gateway security model.",
+    )
+    gw.add_argument(
+        "--session-delta",
+        action="store_true",
+        help="cache-delta coding: cross-turn dedup + cross-version delta (re-reads after "
+        "edits sent as a diff), cache-monotonic and reversible; sessions scoped per tenant",
+    )
+    gw.add_argument(
+        "--no-cold-point",
+        action="store_true",
+        help="opt OUT of cold-point recompression (ADR 0014), scoped per tenant here. On by "
+        "default wherever the recoverable digest runs (--digest). Also: DISTIL_COLD_POINT=0.",
     )
     gw.add_argument(
         "--tenant-rpm",
@@ -6200,6 +6361,21 @@ def build_parser() -> argparse.ArgumentParser:
     tt.add_argument("--base-model", default="google/bert_uncased_L-2_H-128_A-2")
     tt.add_argument("--epochs", type=int, default=3)
     tt.set_defaults(func=cmd_train_transformer)
+
+    # `distil research <name>` is the one door for maker-side research and CI gates.
+    # The SAME parser objects stay registered at top level (hidden from --help-all)
+    # so every old `distil <name>` script keeps working; main() prints a one-line note.
+    rs = sub.add_parser(
+        "research", help="maker-side research and CI gates (distil research --help)"
+    )
+    rsub = rs.add_subparsers(dest="research_cmd", required=True, metavar="<command>")
+    shown = {a.dest: a for a in sub._choices_actions}
+    for name in RESEARCH_COMMANDS:
+        # One parser object serves both spellings; its usage/errors name the new one.
+        sub.choices[name].prog = f"{rs.prog} {name}"
+        rsub.choices[name] = sub.choices[name]
+        rsub._choices_actions.append(shown[name])
+        sub._choices_actions.remove(shown[name])
     return p
 
 
@@ -6242,7 +6418,16 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass  # a wrapped/non-reconfigurable stream is not worth failing over
 
+    _argv = sys.argv[1:] if argv is None else argv
+    if _argv and _argv[0] in RESEARCH_COMMANDS:
+        print(
+            f"distil: `distil {_argv[0]}` is now `distil research {_argv[0]}` "
+            "(the old name still works)",
+            file=sys.stderr,
+        )
     args = build_parser().parse_args(argv)
+    # "distil research bench: ..." not "distil research: ..." when a research command fails.
+    where = " ".join(filter(None, (getattr(args, "cmd", ""), getattr(args, "research_cmd", ""))))
     try:
         rc = args.func(args)
     except BrokenPipeError:
@@ -6252,17 +6437,17 @@ def main(argv: list[str] | None = None) -> int:
         # a clean message beats an 8-line pathlib traceback. Covers every
         # file-reading command at the dispatch chokepoint (no per-command patch).
         # NotADirectoryError = a --corpus that points at a file, not a dir.
-        print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
+        print(f"distil {where}: {e}", file=sys.stderr)
         return 2
     except json.JSONDecodeError as e:
         path = getattr(args, "trajectory", None) or getattr(args, "outcomes", None) or "input"
-        print(f"distil {getattr(args, 'cmd', '')}: {path} is not valid JSON — {e}", file=sys.stderr)
+        print(f"distil {where}: {path} is not valid JSON — {e}", file=sys.stderr)
         return 2
     except OSError as e:
         # e.g. EADDRINUSE when a proxy/gateway port is already taken, or any other
         # OS-level failure the specific handlers above didn't catch — a one-line
         # message beats a full traceback for what is almost always a user setup issue.
-        print(f"distil {getattr(args, 'cmd', '')}: {e}", file=sys.stderr)
+        print(f"distil {where}: {e}", file=sys.stderr)
         return 2
 
     # The status line is piped to a consumer (Claude Code) that may close the

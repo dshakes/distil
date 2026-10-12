@@ -1,0 +1,94 @@
+============================= test session starts ==============================
+platform x -- Python 3.x, pytest-x, pluggy-x -- python
+rootdir: /tmp/proj
+collecting ... collected 60 items
+
+test_demo.py::test_case_00 PASSED                                        [  1%]
+test_demo.py::test_case_01 PASSED                                        [  3%]
+test_demo.py::test_case_02 PASSED                                        [  5%]
+test_demo.py::test_case_03 PASSED                                        [  6%]
+test_demo.py::test_case_04 PASSED                                        [  8%]
+test_demo.py::test_case_05 PASSED                                        [ 10%]
+test_demo.py::test_case_06 PASSED                                        [ 11%]
+test_demo.py::test_case_07 PASSED                                        [ 13%]
+test_demo.py::test_case_08 PASSED                                        [ 15%]
+test_demo.py::test_case_09 PASSED                                        [ 16%]
+test_demo.py::test_case_10 PASSED                                        [ 18%]
+test_demo.py::test_case_11 PASSED                                        [ 20%]
+test_demo.py::test_case_12 PASSED                                        [ 21%]
+test_demo.py::test_case_13 PASSED                                        [ 23%]
+test_demo.py::test_case_14 PASSED                                        [ 25%]
+test_demo.py::test_case_15 PASSED                                        [ 26%]
+test_demo.py::test_case_16 PASSED                                        [ 28%]
+test_demo.py::test_case_17 PASSED                                        [ 30%]
+test_demo.py::test_case_18 PASSED                                        [ 31%]
+test_demo.py::test_case_19 PASSED                                        [ 33%]
+test_demo.py::test_case_20 PASSED                                        [ 35%]
+test_demo.py::test_case_21 PASSED                                        [ 36%]
+test_demo.py::test_case_22 PASSED                                        [ 38%]
+test_demo.py::test_case_23 PASSED                                        [ 40%]
+test_demo.py::test_case_24 PASSED                                        [ 41%]
+test_demo.py::test_case_25 PASSED                                        [ 43%]
+test_demo.py::test_case_26 PASSED                                        [ 45%]
+test_demo.py::test_case_27 PASSED                                        [ 46%]
+test_demo.py::test_case_28 PASSED                                        [ 48%]
+test_demo.py::test_case_29 PASSED                                        [ 50%]
+test_demo.py::test_case_30 PASSED                                        [ 51%]
+test_demo.py::test_case_31 PASSED                                        [ 53%]
+test_demo.py::test_case_32 PASSED                                        [ 55%]
+test_demo.py::test_case_33 PASSED                                        [ 56%]
+test_demo.py::test_case_34 PASSED                                        [ 58%]
+test_demo.py::test_case_35 PASSED                                        [ 60%]
+test_demo.py::test_case_36 PASSED                                        [ 61%]
+test_demo.py::test_case_37 PASSED                                        [ 63%]
+test_demo.py::test_case_38 PASSED                                        [ 65%]
+test_demo.py::test_case_39 PASSED                                        [ 66%]
+test_demo.py::test_case_40 PASSED                                        [ 68%]
+test_demo.py::test_case_41 PASSED                                        [ 70%]
+test_demo.py::test_case_42 PASSED                                        [ 71%]
+test_demo.py::test_case_43 PASSED                                        [ 73%]
+test_demo.py::test_case_44 PASSED                                        [ 75%]
+test_demo.py::test_case_45 PASSED                                        [ 76%]
+test_demo.py::test_case_46 PASSED                                        [ 78%]
+test_demo.py::test_case_47 PASSED                                        [ 80%]
+test_demo.py::test_case_48 PASSED                                        [ 81%]
+test_demo.py::test_case_49 PASSED                                        [ 83%]
+test_demo.py::test_case_50 PASSED                                        [ 85%]
+test_demo.py::test_case_51 PASSED                                        [ 86%]
+test_demo.py::test_case_52 PASSED                                        [ 88%]
+test_demo.py::test_case_53 PASSED                                        [ 90%]
+test_demo.py::test_case_54 PASSED                                        [ 91%]
+test_demo.py::test_case_55 PASSED                                        [ 93%]
+test_demo.py::test_case_56 PASSED                                        [ 95%]
+test_demo.py::test_parses_header FAILED                                  [ 96%]
+test_demo.py::test_raises_on_empty FAILED                                [ 98%]
+test_demo.py::test_fetch SKIPPED (needs network)                         [100%]
+
+=================================== FAILURES ===================================
+______________________________ test_parses_header ______________________________
+
+    def test_parses_header():
+>       assert 'a,b'.split(',') == ['a', 'b', 'c']
+E       AssertionError: assert ['a', 'b'] == ['a', 'b', 'c']
+E         
+E         Right contains one more item: 'c'
+E         
+E         Full diff:
+E           [
+E               'a',
+E               'b',
+E         -     'c',
+E           ]
+
+test_demo.py:174: AssertionError
+_____________________________ test_raises_on_empty _____________________________
+
+    def test_raises_on_empty():
+>       raise ValueError('empty input: expected at least one row')
+E       ValueError: empty input: expected at least one row
+
+test_demo.py:177: ValueError
+=========================== short test summary info ============================
+FAILED test_demo.py::test_parses_header - AssertionError: assert ['a', 'b'] =...
+FAILED test_demo.py::test_raises_on_empty - ValueError: empty input: expected...
+=================== 2 failed, 57 passed, 1 skipped in 0.01s ====================

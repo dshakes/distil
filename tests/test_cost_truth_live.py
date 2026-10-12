@@ -43,6 +43,9 @@ def test_pilot_cap_matches_the_published_estimate() -> None:
     est = json.loads(ESTIMATE.read_text())
     for phase in live.DESIGN:
         assert live.phase_cap(phase) == est["phases"][phase]["hard_cap_usd"]
+        # The frozen cap must still cover the design at today's list prices: a price
+        # rise above the pre-registration's would make the approved cap too small.
+        assert live.estimate_cap(phase) <= live.phase_cap(phase)
     assert live.phase_cap("pilot") == 92.07
 
 

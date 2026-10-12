@@ -1,0 +1,88 @@
+
+running 59 tests
+test tests::case_00 ... ok
+test tests::case_01 ... ok
+test tests::case_02 ... ok
+test tests::case_03 ... ok
+test tests::case_06 ... ok
+test tests::case_05 ... ok
+test tests::case_04 ... ok
+test tests::case_07 ... ok
+test tests::case_08 ... ok
+test tests::case_09 ... ok
+test tests::case_10 ... ok
+test tests::case_11 ... ok
+test tests::case_12 ... ok
+test tests::case_13 ... ok
+test tests::case_14 ... ok
+test tests::case_15 ... ok
+test tests::case_16 ... ok
+test tests::case_17 ... ok
+test tests::case_18 ... ok
+test tests::case_19 ... ok
+test tests::case_20 ... ok
+test tests::case_21 ... ok
+test tests::case_22 ... ok
+test tests::case_23 ... ok
+test tests::case_24 ... ok
+test tests::case_25 ... ok
+test tests::case_26 ... ok
+test tests::case_27 ... ok
+test tests::case_28 ... ok
+test tests::case_29 ... ok
+test tests::case_30 ... ok
+test tests::case_31 ... ok
+test tests::case_32 ... ok
+test tests::case_33 ... ok
+test tests::case_34 ... ok
+test tests::case_35 ... ok
+test tests::case_36 ... ok
+test tests::case_37 ... ok
+test tests::case_38 ... ok
+test tests::case_39 ... ok
+test tests::case_40 ... ok
+test tests::case_41 ... ok
+test tests::case_42 ... ok
+test tests::case_43 ... ok
+test tests::case_44 ... ok
+test tests::case_45 ... ok
+test tests::case_46 ... ok
+test tests::case_47 ... ok
+test tests::case_48 ... ok
+test tests::case_49 ... ok
+test tests::case_50 ... ok
+test tests::case_51 ... ok
+test tests::case_52 ... ok
+test tests::case_53 ... ok
+test tests::case_54 ... ok
+test tests::case_55 ... ok
+test tests::case_56 ... ok
+test tests::raises_on_empty ... FAILED
+test tests::parses_header ... FAILED
+
+failures:
+
+---- tests::raises_on_empty stdout ----
+
+thread 'tests::raises_on_empty' (5347072) panicked at src/lib.rs:120:28:
+empty input: expected at least one row
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tests::parses_header stdout ----
+
+thread 'tests::parses_header' (5347071) panicked at src/lib.rs:118:26:
+assertion `left == right` failed
+  left: 2
+ right: 3
+
+
+failures:
+    tests::parses_header
+    tests::raises_on_empty
+
+test result: FAILED. 57 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Compiling rsproj v0.1.0 (/tmp/proj/rsproj)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/rsproj-df110b9ed99f94fe)
+error: test failed, to rerun pass `--lib`

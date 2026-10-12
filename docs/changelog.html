@@ -46,79 +46,44 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
+          <li><a href="shell.html">Shell at the Source <span class="nav-badge">New</span></a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group" open>
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html" class="active" aria-current="page">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -134,6 +99,82 @@
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
 
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-58-0">1.58.0 — 2026-10-07 — the referee, turned on itself: a confound corrected, every provider at parity, shell output at the source</h2>
+<h3>Added</h3>
+<ul>
+<li><strong>Cross-provider parity: every mechanism on Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini</strong> (matrix: <code>docs/research/provider-parity.md</code>). Re-fetch verbatim (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>) now runs in the Chat, Responses and Gemini walkers, where it matters most (no recency window, so every result digests on first sight), and Chat's <code>--session-delta</code> pass leaves a re-fetch whole. Cold-point eviction (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>) runs on both OpenAI shapes, keyed on the documented upper bound of the request's <code>prompt_cache_retention</code> (<code>in_memory</code> 1h, <code>24h</code>/unset 24h; GPT-5.6+ and Gemini document no maximum, so never). The edit-quote guard now measures Chat Completions and Gemini (Gemini CLI's <code>replace</code> tool counts as an edit), and Gemini's census attributes text, exact-quote reads and tool output like the other adapters. OpenAI and Gemini price rows (<code>distil/pricing.py</code>, each provider's cached-input discount, GPT-5.6+/6.x cache writes at 1.25x, checked 2026-10-06; long-context tiers not modelled), and <code>resolve()</code> reads LiteLLM <code>openai/</code>-style and Gemini <code>models/</code> prefixes — so savings, <code>distil audit</code>, what-if and the census price those providers instead of booking $0. The <code>distil savings</code> what-if (<code>distil/whatif.py</code>) replays Codex CLI (<code>~/.codex/sessions</code>) and Gemini CLI (<code>~/.gemini/tmp/*/chats</code>) sessions through their own adapters, and <code>dissect</code> correlates them. Shadow sampling reads Responses answers (they were all dropped as "none" while still billed), pins Gemini's <code>generationConfig.temperature</code>, and the referee reads Gemini's model from the URL. The LiteLLM hook compresses <code>responses</code>/<code>aresponses</code>; the async proxy shapes Gemini output.</li>
+<li><strong><code>distil sh</code> — shell output shaped at the source</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0026-shell-output-at-the-source.md">ADR 0026</a>, <code>distil/shell.py</code>). <code>distil sh -- &lt;command&gt;</code> runs the command and prints its output through one deterministic, versioned filter (<code>sh-v1</code>): always lossless (ANSI and <code>\r</code> progress resolved, exact repeats collapsed, <code>git status</code> advice lines dropped); on a metered key, or with <code>--digest</code> on a subscription, the per-test lines of <em>passing</em> tests from pytest, unittest/Django, <code>cargo test</code>, <code>go test</code> and npm/jest/vitest are elided, with the full output behind a <code>distil expand</code> handle. Failure, error, warning and summary lines are never dropped (property-tested on real captured output) and the exit code is the command's own; anything it does not recognise, or any error, runs the command untouched (<code>DISTIL_SH_OFF=1</code> forces that). Opt-in Claude Code <code>PreToolUse</code> rewrite: <code>distil hook install --shell</code> / <code>distil setup --hooks --shell</code>; it only prefixes one simple command, never rewrites what a deny/ask rule could touch, and auto-approves only when your own allow rule matches the original. Search, listing, <code>git diff/log</code> and reads stay verbatim (1.56.3). Receipts land in <code>distil hook --stats</code> as <code>sh:&lt;filter&gt;</code>. New <code>distil-sh</code> arm in the SWE-bench outcome harness. Offline: 61.3% (elide) / 15.9% (lossless) on the fixtures, but <strong>0.06%</strong> of bash-output tokens on 300 SWE-bench Lite transcripts, where only 27 of 1,390 calls are test runs — so no effect is expected there, and it stays opt-in until an outcome run says otherwise. <code>benchmarks/results/2026-10-05/shell_replay*.json</code>.</li>
+<li><strong>A re-fetch of folded content is forwarded verbatim</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>, <code>distil/compress/refetch.py</code>). When a tool result is mostly lines an earlier result carried but distil forwarded only as a digest, it goes out verbatim instead of digested — before, a byte-identical re-run came back as the same stub that had just failed the agent. The earlier digest is never rewritten (cached prefix), and the verdict is a function of the history alone, so it stays stateless and byte-stable. On by default; <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off. New census bucket <code>tool_result_refetch</code>. Proxy and gateway both apply it (shared serve path); it is off wherever serving is verbatim (certification hold, lossless-only, subscription). Under <code>--session-delta</code> the cache-delta pass now leaves a re-fetch whole instead of replacing it with a reference to the folded copy. Offline, on the 300 post-fix SWE-bench transcripts: re-reads of content the agent could only see as a digest 36 → 31, for 0.7 points of request-size savings (11.9% → 11.2%) and 0.5 points cache-aware; zero prefix rewrites. Not yet measured live. Replay and rejected alternatives in <code>benchmarks/results/reinflate-replay/</code>.</li>
+<li><strong><code>distil research</code> groups the maker-side research and CI commands</strong> (<code>bench</code>, <code>certify*</code>, <code>verify</code>, <code>validate</code>, <code>eval</code>, <code>retention</code>, ...); the bare <code>distil &lt;name&gt;</code> spellings still work as hidden, deprecated aliases. Every <code>DISTIL_*</code> environment variable the code reads is in one registry (<code>distil/envvars.py</code>), the CLI reference's env table is generated from it, and test hooks are read only under <code>DISTIL_TESTING=1</code> (<code>distil/_testing.py</code>). The docs site is consolidated from 51 pages to 21; every old URL is a redirect stub to its new section (<code>scripts/site_nav.py</code> <code>REDIRECTS</code>), so no inbound link breaks.</li>
+<li><strong>eval: headroom arm for the SWE-bench outcome harness</strong> (<code>benchmarks/swebench_outcome/arm_headroom.py</code>): the real <code>headroom-ai[proxy]==0.40.0</code> proxy, one process per run, refusing to start (exit 2, before any API call) if the pinned package is missing or the proxy is not live. Not run yet; the scoreboard row says "pending run".</li>
+<li><strong>research: why RTK looked cheaper than distil</strong> (<code>docs/research/why-rtk-wins.md</code>, <code>benchmarks/why_rtk_wins.py</code>, offline, $0): most of RTK's Lite cost win was the shared-cache confound (corrected under Fixed); on short tasks tool output is 11.5% of the bill, so no tool-output compressor can show a significant cost win there; distil 1.57 makes 0 prefix rewrites in 1,134 replayed steps.</li>
+<li><strong>research: offline policy simulator</strong> (<code>benchmarks/policysim/</code>, <code>docs/research/policy-simulator.md</code>, <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0027-cache-aware-entry-compression.md">ADR 0027</a> draft): replays real trajectories through a compression policy and an exact Anthropic/OpenAI/Gemini prompt-cache cost model. Fitted on half the Lite trajectories, it predicts the held-out long-horizon bill within -2.5%. Every lossless policy lands within 0.2% of plain; lossy entry compression saves only if the agent takes fewer extra steps than the breakeven, which a live A/B has to measure. Research tooling, not a shipped mode.</li>
+<li><strong>eval: SWE-bench Lite head-to-head result</strong> (<code>benchmarks/results/swebench-outcome-300-h2h/</code>, <code>docs/scoreboard.html</code>): claude-sonnet-5-5, effort medium, 298 tasks graded in every arm, $25.07 live spend. RTK was the only arm shown non-inferior (+0.3 pts [-2.7, +3.3]). Its billed $ per solved task ($0.0306 vs $0.0387 plain) is confounded by a shared prompt cache: cold re-priced it is $0.0360, -6.5% per task, not significant (see the correction under Fixed). distil was cost-neutral ($0.0393) and inconclusive (-1.7 [-5.1, +1.7]); selective and provider context editing were also inconclusive. plain and distil are reused from the 2026-10-03 run, provider drift between dates is not controlled, and provider-cm ran at an aggressive setting. The scoreboard's separate medium section is folded into this one.</li>
+<li><strong>eval: long-horizon head-to-head on SWE-bench Verified hard tasks</strong> (<code>benchmarks/results/swebench-verified-hard-max/</code>, protocol <code>docs/research/long-horizon-protocol.md</code>, <code>docs/scoreboard.html</code>): claude-sonnet-5-5 at effort max, median 63-69 steps per task, plain vs distil vs rtk. The $100 cap bought 7 tasks, so this is a pilot with no verdict. <strong>distil did not save money on long-horizon tasks here.</strong> Its $ per solved task ($3.03 vs plain $3.61) looks lower only because one distil attempt crashed after 4 steps (max_tokens at effort max) on a task plain also failed after spending $5.42. On the other 6 tasks distil cost 9.7% more than plain, took more steps and made 37 <code>distil_expand</code> calls. Its prompt per step was only ~4.5% smaller. rtk: $3.08 per solved, no difference shown. selective and provider context editing were dropped to fit the cap. $83.43 spent, pilots included.</li>
+<li><strong>swebench-outcome harness</strong>: <code>--dataset</code> (default SWE-bench Lite, unchanged) and <code>--difficulty</code> to select SWE-bench Verified's annotated buckets; <code>--effort xhigh|max</code> and <code>--max-tokens</code>; <code>report --cost-per-solved</code> adds $ per solved task vs plain with the cost_truth paired cluster bootstrap.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li><strong>Correction: the SWE-bench Lite head-to-head cost column was confounded, and rtk's cost win is not significant.</strong> rtk, selective and provider-cm ran the same day with byte-identical first requests and read each other's prompt cache: 190/300 rtk, 167/300 selective and 139/300 provider-cm rows report <code>cache_write + input &lt; cache_read / (steps - 1)</code>, which a cold run cannot produce (plain and distil: 0/300). Re-priced as a cold run, rtk vs plain is <strong>-6.5% per task, 95% CI [-13.1%, +0.1%]</strong>, not the -20.7% the billed rows gave; rtk's $ per solved task is $0.0360, not $0.0306. Success rates and verdicts are unchanged. <code>docs/scoreboard.html</code> now shows the cold figure for rtk and "confounded" for selective and provider-cm (the billed figures move to a footnote); <code>benchmarks/results/swebench-outcome-300-h2h/README.md</code> has the method (<code>docs/research/why-rtk-wins.md</code>). Guards: <code>report</code> appends a <code>## Cost confound</code> section when any arm fails the cold-accounting check (<code>report.cache_check</code>), the scoreboard builder applies it to every run, and <code>swebench_outcome run</code> now gives each arm its own cache namespace by default (a per-run nonce at the start of the system prompt; <code>--no-cache-namespace</code> opts out; <code>specs/swebench-outcome-eval.md</code>). The long-horizon run passes the check (plain 0/8, distil 0/7, rtk 0/9).</li>
+<li><strong>swebench-outcome grader gets an absolute predictions path</strong>: the grader runs with cwd set to the output dir, so a relative path pointed nowhere.</li>
+</ul>
+<ul>
+<li><strong>Responses API usage booked the cached prefix as fresh input.</strong> It names its counts like Anthropic (<code>input_tokens</code>) but counts like OpenAI (inclusive, split under <code>input_tokens_details.cached_tokens</code> / <code>cache_write_tokens</code>); read as the Anthropic convention, every cached Codex turn recorded no cache read. Gemini's <code>thoughtsTokenCount</code> (billed as output) is now added to output. Chat's <code>cache_write_tokens</code> is split out too.</li>
+<li><strong>A buffered expand on a streamed Responses request returned an empty turn to Codex.</strong> The re-encoded stream carried only <code>response.created</code>/<code>response.completed</code>; it now emits every item's <code>output_item.added</code>/<code>done</code> with the text and argument deltas between. A <code>:streamGenerateContent</code> request without <code>alt=sse</code> gets the JSON array it asked for instead of SSE frames.</li>
+<li><strong>The Responses expand loop dropped the reasoning item</strong> that produced a <code>distil_expand</code> call, which reasoning models reject on the re-query; the whole output now goes back as history.</li>
+<li><strong>The in-process LiteLLM wrapper ran Chat-shaped messages through the Anthropic adapter</strong> and ignored the subscription policy; it now uses the hook's Chat path and its <code>policy.session_auth_mode</code> gate.</li>
+<li><strong>A Gemini key passed as <code>?key=</code> scoped no lineage</strong>: prefix replay and cold-point now hash it like the <code>x-goog-api-key</code> header. Calibration overhead counts Responses <code>instructions</code> and Gemini <code>systemInstruction</code>, and tool costs find Chat and Gemini tool names.</li>
+</ul>
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-57-0">1.57.0 — 2026-10-05 — the referee: distil says when compression hurts, and measures the others the same way</h2>
+<h3>Added</h3>
+<ul>
+<li><strong>LiteLLM Proxy hook</strong> (<code>distil.integrations.litellm_hook</code>, extra <code>distil-llm[litellm]</code>): a <code>CustomLogger.async_pre_call_hook</code> that compresses <code>completion</code>/<code>acompletion</code> (OpenAI Chat shape) and <code>anthropic_messages</code> requests through the serving adapters before LiteLLM routes them. Lossless-only by default (<code>digest=True</code> / <code>DISTIL_LITELLM_DIGEST=1</code> opts into digests, which have no <code>distil_expand</code> recovery in this path, so the opt-in logs a one-time warning pointing at <code>distil proxy</code>, and is refused with a warning on a subscription session, via the same <code>policy.session_auth_mode</code> check the proxy uses); fail-open; content never logged; savings go to the normal ledger. <code>litellm</code> is imported lazily; the logic (<code>HookCore</code>) is testable without it. Docs: <code>docs/litellm.html#hook</code>.</li>
+<li><strong>Head-to-head outcome harness</strong> (<code>benchmarks/swebench_outcome</code>): arms are now pluggable (<code>arms.Arm</code>: request transform, extra tools, request params/betas, tool-output wrapper, metadata) and selected with <code>--arms</code> on <code>plan</code>/<code>run</code>/<code>grade</code>/<code>report</code>. <code>plain</code> and <code>distil</code> behave exactly as before (existing tests unchanged; every committed <code>report.md</code> and chart regenerates identically). Three competitor arms, each calling the real thing, pinned: <code>rtk</code> (RTK v0.51.0, Apache-2.0, its <code>rtk rewrite</code> hook protocol run in the task container), <code>selective</code> (<code>selective-context==0.1.4</code>, MIT, GPT-2 via an out-of-process worker; optional, refuses before any spend if absent) and <code>provider-cm</code> (Anthropic context editing, <code>clear_tool_uses_20250919</code>, beta <code>context-management-2025-06-27</code>). Rows record <code>arm_meta</code> (library + version) and per-run <code>arm_stats</code>.</li>
+<li><code>report</code> compares every arm with plain (paired McNemar/Wald CI, non-inferiority verdict per arm, uncorrected-multiplicity note) plus a side-by-side summary table; the outcome chart handles N arms.</li>
+<li><code>plan --calibrate &lt;run dir&gt;</code> prices each arm from cached results (unmeasured arms at plain x1.5); <code>run --reuse-arm plain=&lt;dir&gt;</code> copies a finished arm's rows (same model/effort enforced, free against the budget, grades carried over, stated in the report). No paid head-to-head run is included; see <code>specs/swebench-outcome-eval.md</code>.</li>
+<li><strong><code>distil savings</code> what-if, on your own transcripts</strong> (no install: <code>uvx --from distil-llm distil savings</code>): with no distil ledger it replays your recent Claude Code requests (<code>~/.claude/projects</code>, last 7 days, <code>--days N</code>) offline through the shipped adapter (<code>compress_messages</code>, <code>persist=False</code>) in both lossless-only and digest mode, and shows input tokens removed and cache-aware $ next to what you actually spent (subscription logins: rate-limit headroom per day, lossless-only as the default and what digest would add). Sampled (most recent sessions, evenly spaced requests, 15 s cap) and scaled to the window by billed input tokens; aggregates only, <code>--json</code> too. With a ledger on a subscription it adds one "digest would remove ≈N more" line when that is ≥1% of billed input. Every digest figure carries digest's certification status from this machine's per-mode shadow evidence (certified / held by the per-mode hold / not enough evidence yet) and the published state (over its decision-change budget on the maintainer's live data); a held digest is never recommended. Transcript parsing and the request planner moved from <code>benchmarks/session_replay.py</code> into <code>distil/whatif.py</code>, which the benchmark now imports. Codex sessions are not read (no parser yet).</li>
+<li><strong><code>distil audit</code> — distil as referee</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0024-distil-as-referee.md">ADR 0024</a>): opt-in, capped, content-free paired A/A′/B replay of your own requests as another compressor shapes them (<code>distil</code>, <code>anthropic-context-editing</code> via <code>clear_tool_uses_20250919</code>, <code>openai-compaction</code> on the Responses API, <code>headroom</code> through your own loopback proxy). <code>distil audit report</code> gives helped / hurt / can't tell yet (need N more) per compressor from the shadow's paired estimator and dollars at uncached list price. Default 0.02 sample rate, hard $1/day cap reserved before any replay; the budget file is written atomically and an unreadable one counts as today's cap spent (fail-closed). Never on a subscription: <code>distil audit --compressor</code> refuses on a flat-rate login, and the proxy never samples a subscription session (real billing via <code>policy.session_auth_mode</code>, not the <code>--lossless-only</code> flag), because replays would draw on the plan's limits and a per-token dollar cap does not apply. RTK is refused with the reason: it cannot be audited per request.</li>
+<li><strong>Scoreboard</strong> (<code>docs/scoreboard.html</code>, <code>docs/scoreboard.json</code>, <code>scripts/build_scoreboard.py</code>): compressors scored on $ per solved task (failed attempts counted), success rate with CI, tokens and pinned versions, regenerated from committed runs only; unrun arms read "pending run". Run plan with costs: <code>docs/research/referee-runs.md</code>.</li>
+<li><code>benchmarks/session_replay.py</code>: offline replay of local Claude Code transcripts through the real <code>compress_messages</code> serving adapter, with per-session-length and per-context-size savings, cache-aware ($-weighted) savings, digest rate by tool and shell class, quote hazard, and the shell-search-exemption counterfactual. Committed artifact is aggregates only (<code>benchmarks/results/session-replay/</code>); method and results in <code>docs/EVALUATION.md</code> §6.10.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li><strong>Decision-equivalence is reported per compression mode, with an interval each.</strong> <code>distil shadow-stats</code> prints every mode's paired difference and 95% CI under the headline and labels the headline "POOLED across modes"; <code>--json</code> and <code>--record</code> carry the per-mode difference, CI and floor flag. The pooled number averages lossless-only (which barely changes a byte) with digest: on the 2026-09-15 ledger it read 97.5% while digest alone measured 5.3 pp of harm, over the 5% budget.</li>
+<li><strong>The drift guard now holds digest when digest is not certified, per mode</strong> (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0022-per-mode-certification-hold.md">ADR 0022</a>). Besides the existing breach e-process (which now folds only rows from modes a hold can switch off), the proxy serves lossless-only while the last 7 days of digest shadow rows are above the reporting floor and their paired-harm upper bound is over the budget — the same rule the published verdicts use. The 1.54.0 guard could not have held on that ledger: it pooled both modes and only fired on a <em>proven</em> breach. Evidence-driven per machine, re-checked hourly, not sticky but with hysteresis: it engages on the first over-budget check and lifts only after two consecutive clear checks, persisted in <code>~/.distil/cert-hold.json</code> so a restart does not reset it (a bound oscillating across the budget no longer flips the served mode, and the prompt cache, every hour); <code>DISTIL_NO_DRIFT_GUARD=1</code> opts out.</li>
+<li><strong>Public claims re-sourced to what ships</strong> (README, landing page, <code>llms.txt</code>, compare, research, benchmark pages, plugin README; <code>docs/claims.json</code>). The hero "42.0% vs 39.2%, the only compressor that proves it" described a research harness configuration (<code>DISTIL_DIGEST_MODE=surprise</code>, which the package never reads); it now lives only on the research page, labelled as such. The public task-outcome claim is the shipped path on SWE-bench Lite: cost-neutral and within about 2 points on task success, not statistically distinguishable at n=300. The live decision-equivalence figure is stated per mode instead of pooled. E8 loses its "tied" badge (its CI fails the 5-point margin). "Will it save money? On metered billing, yes — directly" is restated against the outcome runs. The 83.2% head-to-head is labelled as a synthetic-corpus result; the unsourced hero animation is removed from the README; the subscription A/B is labelled a single session. Of the 17 <code>unsourced</code> ledger entries, 10 are now tied to committed artifacts (including new <code>benchmarks/results/retention-2026-10-04.json</code> and <code>prune-sre-disk-incident-2026-10-04.out</code>; stale README recall figures were corrected by the re-run), 3 claims were removed from the pages, and 4 remain unsourced but are labelled as illustrative or unaudited where they appear.</li>
+<li><strong>The gateway can compress like a local <code>wrap</code></strong> (ADR 0023): proxy and gateway now share one compress-or-forward path (<code>distil/serve_core.py</code>). The default gateway is still Tier-0 only. <code>distil gateway --digest</code> is an operator opt-in to the recoverable digest for PAYG tenants, with <code>distil_expand</code> injected and answered, cold-point recompression on (<code>--no-cold-point</code> to opt out) and <code>--session-delta</code> available. A gateway digest is unguarded: the per-mode certification hold, shadow and drift guard are proxy-only, and the gateway prints an <code>UNGUARDED</code> warning at start when the opt-in is on. Cold-point lineages, expanded-handle exclusions and cache-delta sessions are keyed per tenant, and a tenant's <code>distil_expand</code> resolves only handles issued to that tenant. <code>--lossless-only</code> / <code>--verbatim</code> gateways are unchanged (Tier-0 only, no tool injection).</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li><strong>Security: a subscription session with <code>--expand</code> no longer gets output shaping.</strong> The proxy, async proxy and <code>wrap</code> derived the auth mode from the <code>--lossless-only</code> flag, and <code>--expand</code> (or <code>distil default --mode expand</code>) leaves that flag off on a subscription — so the session was treated as metered and a system-role verbosity directive was appended to first-party traffic. The mode now comes from real billing (<code>policy.session_auth_mode</code>); the recoverable-digest opt-in still works.</li>
+<li><code>distil doctor</code> on a machine where nothing has reached distil yet says "not set up yet — run <code>distil setup</code>" once instead of warning about routing, the session and shadow. A running proxy that has never seen a request no longer prints "NO traffic recorded in 1000000000 min" (a sentinel leaking into the text). Shadow that was never turned on is information, not a warning.</li>
+<li><code>distil gateway</code> bound to a non-loopback address with no keys, no <code>--require-keys</code> and no OIDC issuer now prints a loud warning that the inbound proxy itself is unauthenticated (the old banner only mentioned the management routes). It still starts, so deployments behind their own authenticating proxy keep working.</li>
+<li><code>distil/atrest.py</code> docs: the docstring claimed nonce reuse does not reuse the keystream; it does. Corrected to say a fresh random nonce per write is required (the code already does this).</li>
+<li>Every third-party GitHub Action is pinned to a full commit SHA (<code>census-ingest</code> and <code>adoption-stats</code> ran a mutable <code>actions/checkout@v4</code> with <code>contents: write</code>).</li>
+<li><code>distil gateway --digest</code> tenant savings now subtract what <code>distil_expand</code> re-queries cost (in base-input-equivalent tokens, as the proxy's ledger has done since 1.55.0), on the buffered and streaming paths. Before, the provider billed each expand round-trip and the tenant record counted none of it, overstating savings.</li>
+<li>Gateway tenant accounting and daily quotas now count image and thinking blocks (the gateway used an outdated copy of the proxy's token counter).</li>
+<li>The gateway forwards an unmodified body byte-for-byte and re-encodes a modified one compactly, as the proxy does, so prefix replay models the bytes actually sent.</li>
+<li><code>claude-sonnet-5-5</code> (the replay grader's default) has its own pricing row at $2/$10 per MTok; it was being priced as <code>claude-sonnet-5</code> through the prefix fallback. <code>claude-sonnet-5</code> itself is now $2/$10 (was $3/$15): Anthropic's pricing page states the launch price is the standard price and the scheduled 2026-09-01 rise did not happen. New rows for <code>claude-opus-5-5</code> ($4/$20, cache hits 0.05x) and <code>claude-fable-5-1</code> ($10/$50, cache hits 0.025x), which the prefix fallback priced as their predecessors. Dollar figures recorded at the old Sonnet 5 rate (the cost-truth pilot's metered <code>cost_usd</code>) are left as recorded; every price moved by the same 2/3, so ratios between arms are unaffected. The cost-truth benchmark's hard caps are read from the frozen <code>cost_estimate.json</code> instead of recomputed, so the approved pilot cap stays $92.07. <code>scripts/check_pricing.py</code> reads the current pricing-page layout (it was matching the first prose mention and the old column order). Trajectories without a model now default to <code>claude-opus-4-8</code> instead of the non-existent <code>claude-opus-4</code>, which reached <code>count_tokens</code> under <code>--tokenizer anthropic</code>.</li>
+<li><code>distil/pricing.py</code> is the single source for default model ids, cache multipliers and cache TTLs (previously restated in ~15 modules). A drift canary test fails when code names a model id the table does not list exactly, and <code>scripts/check_pricing.py</code> (manual, reads the live pages) compares the table with the providers' published prices.</li>
+</ul>
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-56-4">1.56.4 — 2026-10-03 — a second outcome run, and a harness fix</h2>
+<h3>Added</h3>
+<ul>
+<li><strong>SWE-bench outcome, medium effort</strong> (<code>benchmarks/results/swebench-outcome-300-medium/</code>): with the shell-search fix, <code>claude-sonnet-5-5</code> at effort medium and 60 steps — distil-served 213/298 vs plain 218/298, −1.7 pts (95% CI −5.1 to +1.7), cost at parity. The second run at about −2 pts; non-inferiority still not shown. Not a long-horizon test after all (median 4 steps), so savings on long sessions remain unmeasured. $16.97.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>SWE-bench outcome harness: command output that is not valid UTF-8 no longer aborts a run as <code>internal_error</code> (decoded with <code>errors="replace"</code>).</li>
+</ul>
 </section>
 
 <section class="changelog-entry">

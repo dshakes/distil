@@ -70,7 +70,33 @@ _CHAT_CACHED = re.compile(rb'"cached_tokens"\s*:\s*(\d+)')
 _GEM_IN = re.compile(rb'"promptTokenCount"\s*:\s*(\d+)')
 _GEM_OUT = re.compile(rb'"candidatesTokenCount"\s*:\s*(\d+)')
 _GEM_CACHED = re.compile(rb'"cachedContentTokenCount"\s*:\s*(\d+)')
+# Gemini bills thinking as output but reports it apart from candidatesTokenCount
+# (usageMetadata.thoughtsTokenCount); Anthropic's output_tokens and OpenAI's
+# completion/output tokens already include their reasoning, so it is added here.
+_GEM_THOUGHTS = re.compile(rb'"thoughtsTokenCount"\s*:\s*(\d+)')
+# The Responses API reuses Anthropic's key names with OpenAI's semantics: its input_tokens
+# INCLUDES the cached prefix and, on GPT-5.6+, the cache write, both broken out under
+# input_tokens_details ({cached_tokens, cache_write_tokens}; the prompt-caching guide's own
+# cost code is ``input_tokens - cached_tokens - cache_write_tokens``,
+# https://developers.openai.com/api/docs/guides/prompt-caching). Read as the Anthropic
+# convention, a Codex turn priced its whole cached prefix at the full input rate.
+_OAI_DETAILS = re.compile(rb'"(?:input|prompt)_tokens_details"\s*:\s*\{([^{}]*)\}')
+_OAI_WRITE = re.compile(rb'"cache_write_tokens"\s*:\s*(\d+)')
 _USAGE_SCAN_CAP = 16384  # head/tail window — usage lives at the edges of a stream
+
+
+def _split_openai_input(out: dict[str, int], details: bytes) -> None:
+    """OpenAI's input count includes the cache hit and the cache write; move both out of
+    ``input_tokens`` into the Anthropic-convention keys every consumer sums."""
+    cm = _CHAT_CACHED.search(details)
+    wm = _OAI_WRITE.search(details)
+    cached = int(cm.group(1)) if cm else 0
+    write = int(wm.group(1)) if wm else 0
+    out["input_tokens"] = max(0, out["input_tokens"] - cached - write)
+    if cached:
+        out["cache_read_input_tokens"] = cached
+    if write:
+        out["cache_creation_input_tokens"] = write
 
 
 def scan_usage(blob: bytes) -> dict[str, int]:
@@ -100,6 +126,13 @@ def scan_usage(blob: bytes) -> dict[str, int]:
         pass
     if last is not None:
         out["output_tokens"] = int(last.group(1))
+    details = None
+    for details in _OAI_DETAILS.finditer(blob):  # noqa: B007 — the final report
+        pass
+    if "input_tokens" in out and "cache_read_input_tokens" not in out and details is not None:
+        # Responses: the final usage report (response.completed), not the first match.
+        out["input_tokens"] = int(list(_USAGE_IN.finditer(blob))[-1].group(1))
+        _split_openai_input(out, details.group(1))
     if "input_tokens" not in out:
         for rin, rout, rcached in (
             (_CHAT_IN, _CHAT_OUT, _CHAT_CACHED),
@@ -110,17 +143,27 @@ def scan_usage(blob: bytes) -> dict[str, int]:
                 pass
             if m is None:
                 continue
-            cached = 0
-            for cm in rcached.finditer(blob):
-                cached = int(cm.group(1))
-            out["input_tokens"] = max(0, int(m.group(1)) - cached)
-            if cached:
-                out["cache_read_input_tokens"] = cached
+            out["input_tokens"] = int(m.group(1))
+            if rin is _CHAT_IN and details is not None:
+                _split_openai_input(out, details.group(1))
+            else:
+                cached = 0
+                for cm in rcached.finditer(blob):
+                    cached = int(cm.group(1))
+                out["input_tokens"] = max(0, out["input_tokens"] - cached)
+                if cached:
+                    out["cache_read_input_tokens"] = cached
             o = None
             for o in rout.finditer(blob):  # noqa: B007
                 pass
             if o is not None:
                 out["output_tokens"] = int(o.group(1))
+            if rin is _GEM_IN:
+                th = None
+                for th in _GEM_THOUGHTS.finditer(blob):  # noqa: B007
+                    pass
+                if th is not None:
+                    out["output_tokens"] = out.get("output_tokens", 0) + int(th.group(1))
             break
     return out
 

@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from . import ledger as _ledger
+from . import pricing as _pricing
 from .dissect import Dissection, SessionOverview, _human, _read_jsonl, dissect, list_sessions
 
 if TYPE_CHECKING:  # pragma: no cover — annotation only, avoids a module-level import
@@ -56,7 +57,7 @@ MIN_DRIFT_PAIRS = 4
 #: Provider cache economics (pricing.Pricing defaults): a cache *write* bills at
 #: 1.25x the base input rate and a *read* at 0.10x. A prefix that drifts pays the
 #: difference on every re-billed token.
-CACHE_WRITE_PREMIUM = 1.25 - 0.10
+CACHE_WRITE_PREMIUM = _pricing.CACHE_WRITE_5M_MULT - _pricing.CACHE_READ_MULT
 
 #: Above this share of billed input served from the provider's prompt cache, resent
 #: content is already discounted and any dedup mechanism recovers far less than the
@@ -424,8 +425,10 @@ def _tools_rate_mult(r: dict[str, Any]) -> float:
     b = min(tools - a, int(wr))
     c = tools - a - b
     share_1h = min(1.0, int(r.get("usage_cache_create_1h") or 0) / int(wr)) if int(wr) else 0.0
-    write_mult = 2.0 * share_1h + 1.25 * (1.0 - share_1h)
-    return (a * 0.10 + b * write_mult + c * 1.0) / tools
+    write_mult = _pricing.CACHE_WRITE_1H_MULT * share_1h + _pricing.CACHE_WRITE_5M_MULT * (
+        1.0 - share_1h
+    )
+    return (a * _pricing.CACHE_READ_MULT + b * write_mult + c * 1.0) / tools
 
 
 def _d_unused_connectors(w: _Window) -> Action | None:

@@ -1,0 +1,89 @@
+test_case_00 (test_demo.Case.test_case_00) ... ok
+test_case_01 (test_demo.Case.test_case_01) ... ok
+test_case_02 (test_demo.Case.test_case_02) ... ok
+test_case_03 (test_demo.Case.test_case_03) ... ok
+test_case_04 (test_demo.Case.test_case_04) ... ok
+test_case_05 (test_demo.Case.test_case_05) ... ok
+test_case_06 (test_demo.Case.test_case_06) ... ok
+test_case_07 (test_demo.Case.test_case_07) ... ok
+test_case_08 (test_demo.Case.test_case_08) ... ok
+test_case_09 (test_demo.Case.test_case_09) ... ok
+test_case_10 (test_demo.Case.test_case_10) ... ok
+test_case_11 (test_demo.Case.test_case_11) ... ok
+test_case_12 (test_demo.Case.test_case_12) ... ok
+test_case_13 (test_demo.Case.test_case_13) ... ok
+test_case_14 (test_demo.Case.test_case_14) ... ok
+test_case_15 (test_demo.Case.test_case_15) ... ok
+test_case_16 (test_demo.Case.test_case_16) ... ok
+test_case_17 (test_demo.Case.test_case_17) ... ok
+test_case_18 (test_demo.Case.test_case_18) ... ok
+test_case_19 (test_demo.Case.test_case_19) ... ok
+test_case_20 (test_demo.Case.test_case_20) ... ok
+test_case_21 (test_demo.Case.test_case_21) ... ok
+test_case_22 (test_demo.Case.test_case_22) ... ok
+test_case_23 (test_demo.Case.test_case_23) ... ok
+test_case_24 (test_demo.Case.test_case_24) ... ok
+test_case_25 (test_demo.Case.test_case_25) ... ok
+test_case_26 (test_demo.Case.test_case_26) ... ok
+test_case_27 (test_demo.Case.test_case_27) ... ok
+test_case_28 (test_demo.Case.test_case_28) ... ok
+test_case_29 (test_demo.Case.test_case_29) ... ok
+test_case_30 (test_demo.Case.test_case_30) ... ok
+test_case_31 (test_demo.Case.test_case_31) ... ok
+test_case_32 (test_demo.Case.test_case_32) ... ok
+test_case_33 (test_demo.Case.test_case_33) ... ok
+test_case_34 (test_demo.Case.test_case_34) ... ok
+test_case_35 (test_demo.Case.test_case_35) ... ok
+test_case_36 (test_demo.Case.test_case_36) ... ok
+test_case_37 (test_demo.Case.test_case_37) ... ok
+test_case_38 (test_demo.Case.test_case_38) ... ok
+test_case_39 (test_demo.Case.test_case_39) ... ok
+test_case_40 (test_demo.Case.test_case_40) ... ok
+test_case_41 (test_demo.Case.test_case_41) ... ok
+test_case_42 (test_demo.Case.test_case_42) ... ok
+test_case_43 (test_demo.Case.test_case_43) ... ok
+test_case_44 (test_demo.Case.test_case_44) ... ok
+test_case_45 (test_demo.Case.test_case_45) ... ok
+test_case_46 (test_demo.Case.test_case_46) ... ok
+test_case_47 (test_demo.Case.test_case_47) ... ok
+test_case_48 (test_demo.Case.test_case_48) ... ok
+test_case_49 (test_demo.Case.test_case_49) ... ok
+test_case_50 (test_demo.Case.test_case_50) ... ok
+test_case_51 (test_demo.Case.test_case_51) ... ok
+test_case_52 (test_demo.Case.test_case_52) ... ok
+test_case_53 (test_demo.Case.test_case_53) ... ok
+test_case_54 (test_demo.Case.test_case_54) ... ok
+test_case_55 (test_demo.Case.test_case_55) ... ok
+test_case_56 (test_demo.Case.test_case_56) ... ok
+test_parses_header (test_demo.Case.test_parses_header) ... FAIL
+test_raises_on_empty (test_demo.Case.test_raises_on_empty) ... ERROR
+
+======================================================================
+ERROR: test_raises_on_empty (test_demo.Case.test_raises_on_empty)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/proj/utproj/test_demo.py", line 120, in test_raises_on_empty
+    raise ValueError('empty input: expected at least one row')
+ValueError: empty input: expected at least one row
+
+======================================================================
+FAIL: test_parses_header (test_demo.Case.test_parses_header)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/proj/utproj/test_demo.py", line 118, in test_parses_header
+    self.assertEqual('a,b'.split(','), ['a', 'b', 'c'])
+AssertionError: Lists differ: ['a', 'b'] != ['a', 'b', 'c']
+
+Second list contains 1 additional elements.
+First extra element 2:
+'c'
+
+- ['a', 'b']
++ ['a', 'b', 'c']
+?          +++++
+
+
+----------------------------------------------------------------------
+Ran 59 tests in 0.01s
+
+FAILED (failures=1, errors=1)

@@ -72,3 +72,57 @@ def test_outcome_bubbles_cover_every_run_and_match_source() -> None:
             cost = round(math.fsum(r.get("cost_usd", 0) for r in rs) / len(rs), 6)
             n, k = a["arms"][arm]["n"], a["arms"][arm]["resolved"]
             assert got[f"{run} {arm}"] == (cost, k / n * 100, float(n))
+
+
+def _write_run(root: Path, name: str, arms: tuple[str, ...]) -> None:
+    d = root / f"swebench-outcome-{name}"
+    d.mkdir(parents=True)
+    res, grades = [], []
+    for i in range(4):
+        for k, arm in enumerate(arms):
+            res.append(
+                {
+                    "instance_id": f"i{i}",
+                    "arm": arm,
+                    "failure_class": None,
+                    "cost_usd": 0.01 * (k + 1),
+                    "usage": {"cache_read": 1},
+                }
+            )
+            status = "resolved" if i <= k else "unresolved"
+            grades.append({"instance_id": f"i{i}", "arm": arm, "status": status})
+    (d / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in res))
+    (d / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+
+
+def test_outcome_chart_handles_n_arms(tmp_path) -> None:
+    _write_run(tmp_path, "7", ("plain", "distil", "rtk", "provider-cm", "zzz-new"))
+    _write_run(tmp_path, "8", ("plain", "selective"))
+    bubbles = mod.outcome_bubbles(tmp_path)
+    assert [b.label for b in bubbles] == [
+        "7 plain",
+        "7 distil",
+        "7 rtk",
+        "7 provider-cm",
+        "7 zzz-new",
+        "8 plain",
+        "8 selective",
+    ]
+    by = {b.label: b for b in bubbles}
+    # rtk is the 3rd arm (k=2): solves i0..i2 of 4 paired tasks at $0.03 each
+    assert by["7 rtk"].x == 0.03 and by["7 rtk"].y == 75.0 and by["7 rtk"].size == 4.0
+    assert by["7 plain"].color == by["8 plain"].color == mod.ACC2
+    assert by["7 zzz-new"].color == mod.EXTRA_COLORS[0]  # unknown arms still get a colour
+    assert len({b.color for b in bubbles}) == 6
+    assert mod.outcome_key(tmp_path) == [
+        ("plain agent", mod.ACC2),
+        ("distil-served agent", mod.ACC),
+        ("RTK (rewrite hook)", mod.ARM_STYLE["rtk"][0]),
+        ("Selective Context", mod.ARM_STYLE["selective"][0]),
+        ("Anthropic context editing", mod.ARM_STYLE["provider-cm"][0]),
+        ("zzz-new", mod.EXTRA_COLORS[0]),
+    ]
+    assert mod.outcome_key(_ROOT / "benchmarks" / "results") == [
+        ("plain agent", mod.ACC2),
+        ("distil-served agent", mod.ACC),
+    ]

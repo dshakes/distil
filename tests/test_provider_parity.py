@@ -644,10 +644,64 @@ class TestSseSynthesis:
         out = sse_from_response("responses", resp).decode()
         assert "event: response.created" in out
         assert "event: response.completed" in out
-        assert out.count("resp_1") == 2
+        assert out.count("resp_1") == 3  # created, in_progress, completed
+
+    def test_responses_items_arrive_as_item_events(self):
+        """A client that builds the turn from ``output_item.done`` (Codex does) must see
+        every item, and the SDK's text accumulator must see the text — in order, with
+        monotonic sequence numbers, exactly one ``completed`` carrying the final object."""
+        from distil.streamexpand import sse_from_response
+
+        reasoning = {"type": "reasoning", "id": "rs_1", "summary": []}
+        msg = {
+            "type": "message",
+            "id": "msg_1",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "the answer"}],
+        }
+        call = {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "c",
+            "name": "shell",
+            "arguments": '{"command": ["ls"]}',
+        }
+        resp = {"id": "resp_1", "status": "completed", "output": [reasoning, msg, call]}
+        frames = [
+            json.loads(f.split("data: ", 1)[1])
+            for f in sse_from_response("responses", resp).decode().split("\n\n")
+            if f
+        ]
+        assert [f["sequence_number"] for f in frames] == list(range(len(frames)))
+        done = [f["item"] for f in frames if f["type"] == "response.output_item.done"]
+        assert done == [reasoning, msg, call]
+        text = "".join(f["delta"] for f in frames if f["type"] == "response.output_text.delta")
+        assert text == "the answer"
+        args = [f for f in frames if f["type"] == "response.function_call_arguments.done"]
+        assert args[0]["arguments"] == call["arguments"]
+        assert frames[-1] == {
+            "type": "response.completed",
+            "sequence_number": len(frames) - 1,
+            "response": resp,
+        }
+        assert frames[0]["response"]["output"] == []  # created carries no items yet
 
     def test_gemini_is_one_frame(self):
         from distil.streamexpand import sse_from_response
 
         resp = {"candidates": []}
         assert sse_from_response("gemini", resp) == b'data: {"candidates": []}\n\n'
+
+    def test_gemini_without_alt_sse_is_a_json_array(self):
+        """``:streamGenerateContent`` without ``alt=sse`` streams a JSON array, so the
+        buffered answer goes back in that format, not as SSE frames."""
+        from distil.serve_core import buffer_for_expand, sse_body
+
+        body = {"contents": [{"role": "user", "parts": [{"text": "q"}]}]}
+        path = "/v1beta/models/gemini-2.5-pro:streamGenerateContent"
+        shape = buffer_for_expand(body, b"{}", path)[0]
+        assert shape == "gemini-array"
+        assert buffer_for_expand(body, b"{}", path + "?alt=sse")[0] == "gemini"
+        hdrs, out = sse_body(shape, {}, b'{"candidates": []}')
+        assert hdrs["Content-Type"] == "application/json"
+        assert json.loads(out) == [{"candidates": []}]

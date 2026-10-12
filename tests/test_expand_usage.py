@@ -159,9 +159,14 @@ def _responses(shape: str, handle: str | None) -> dict:
             }
         ]
     )
+    # Responses spells them like Anthropic but counts like Chat: input is inclusive.
     return {
         "output": out,
-        "usage": {"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"]},
+        "usage": {
+            "input_tokens": usage["input_tokens"] + cached,
+            "input_tokens_details": {"cached_tokens": cached},
+            "output_tokens": usage["output_tokens"],
+        },
     }
 
 
@@ -275,11 +280,9 @@ def test_buffered_expand_records_and_nets_every_call(shape, monkeypatch, tmp_pat
     assert len(calls) == 2, "the fixture must make the model expand once"
     rec = recs[-1]
     assert rec["upstream_calls"] == 2
-    if shape == "responses":  # Responses reports no cache split; input is inclusive
-        assert rec["usage_input_tokens"] == 2200
-    else:
-        assert rec["usage_input_tokens"] == 2200  # was 1200 (last call) or None (Chat)
-        assert rec["usage_cache_read"] == 10_000
+    # Was 1200 (last call), None (Chat), or the cached prefix booked as input (Responses).
+    assert rec["usage_input_tokens"] == 2200
+    assert rec["usage_cache_read"] == 10_000
     assert rec["usage_output_tokens"] == 50
     assert rec["expand_requery_usage"]["output_tokens"] == 30
     # The savings ledger nets the re-query out: distil side = compressed + re-query cost.
@@ -288,8 +291,7 @@ def test_buffered_expand_records_and_nets_every_call(shape, monkeypatch, tmp_pat
         {"requeries": 1, **{"requery_" + k: v for k, v in rec["expand_requery_usage"].items()}},
         "claude-opus-4-8",
     )
-    if shape != "responses":
-        assert equiv == REQUERY_EQUIV
+    assert equiv == REQUERY_EQUIV
     compressed = rec["compressible_tokens"] - rec["tokens_saved"]
     assert row["distil_input_tokens"] == compressed + equiv
     assert row["baseline_input_tokens"] == rec["compressible_tokens"]
@@ -347,6 +349,64 @@ def test_scan_usage_reads_chat_and_gemini_in_the_anthropic_convention():
     assert scan_usage(anth) == {"input_tokens": 5, "output_tokens": 2}
 
 
+def test_scan_usage_reads_the_responses_api_and_gemini_thinking():
+    """Every provider's usage lands in one convention: input EXCLUDES the cache hit and
+    the cache write. The Responses API names its counts like Anthropic's but counts them
+    like OpenAI's — read as Anthropic, a cached Codex turn booked no cache read at all."""
+    resp = {
+        "usage": {
+            "input_tokens": 1000,
+            "input_tokens_details": {"cached_tokens": 700, "cache_write_tokens": 200},
+            "output_tokens": 50,
+            "output_tokens_details": {"reasoning_tokens": 30},
+        }
+    }
+    want = {
+        "input_tokens": 100,
+        "cache_read_input_tokens": 700,
+        "cache_creation_input_tokens": 200,
+        "output_tokens": 50,
+    }
+    assert scan_usage(json.dumps(resp).encode()) == want
+    # Streamed: response.created carries no usage; response.completed carries the final.
+    sse = (
+        b'event: response.created\ndata: {"type":"response.created","response":{"usage":null}}\n\n'
+        b"event: response.completed\ndata: "
+        + json.dumps({"type": "response.completed", "response": resp}).encode()
+        + b"\n\n"
+    )
+    assert scan_usage(sse) == want
+    # Pre-5.6 models report no write: input is input minus the hit.
+    old = {"usage": {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 4}}}
+    assert scan_usage(json.dumps(old).encode()) == {
+        "input_tokens": 6,
+        "cache_read_input_tokens": 4,
+    }
+    # Chat Completions with a cache write (same details object, prompt_* names).
+    chat = {
+        "usage": {
+            "prompt_tokens": 90,
+            "completion_tokens": 4,
+            "prompt_tokens_details": {"cached_tokens": 60, "cache_write_tokens": 20},
+        }
+    }
+    assert scan_usage(json.dumps(chat).encode()) == {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 60,
+        "cache_creation_input_tokens": 20,
+        "output_tokens": 4,
+    }
+    # Gemini bills thinking as output but reports it apart from the candidates.
+    gem = {
+        "usageMetadata": {
+            "promptTokenCount": 50,
+            "candidatesTokenCount": 9,
+            "thoughtsTokenCount": 21,
+        }
+    }
+    assert scan_usage(json.dumps(gem).encode()) == {"input_tokens": 50, "output_tokens": 30}
+
+
 def test_input_equivalents():
     assert requery_input_equiv({}, "claude-opus-4-8") == 0
     assert (
@@ -371,3 +431,152 @@ def test_zero_baseline_spend_is_flushed_not_dropped(tmp_path):
     assert s.flush()
     (row,) = [json.loads(x) for x in (tmp_path / "l.jsonl").read_text().splitlines()]
     assert (row["baseline_input_tokens"], row["distil_input_tokens"]) == (0, 500)
+
+
+# --------------------------------------------------------------------------- #
+# Gateway `--digest`: per-tenant savings net out the expand re-query
+# --------------------------------------------------------------------------- #
+
+
+def _sse_upstream():
+    """Anthropic upstream that streams when asked: an expand call first, then a final."""
+
+    class _Up(BaseHTTPRequestHandler):
+        calls: list[bytes] = []
+
+        def log_message(self, fmt, *args):  # noqa: ARG002
+            pass
+
+        def do_POST(self):  # noqa: N802
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            _Up.calls.append(body)
+            m = _HANDLE.search(body.decode("utf-8", "replace"))
+            if len(_Up.calls) == 1 and m:
+                call = json.dumps({"handle": m.group(1)})
+                blocks = [
+                    _evt(
+                        type="content_block_start",
+                        index=0,
+                        content_block={
+                            "type": "tool_use",
+                            "id": "tu1",
+                            "name": "distil_expand",
+                            "input": {},
+                        },
+                    ),
+                    _evt(
+                        type="content_block_delta",
+                        index=0,
+                        delta={"type": "input_json_delta", "partial_json": call},
+                    ),
+                    _evt(type="content_block_stop", index=0),
+                ]
+                usage, stop = FIRST, "tool_use"
+            else:
+                blocks = [
+                    _evt(
+                        type="content_block_start",
+                        index=0,
+                        content_block={"type": "text", "text": ""},
+                    ),
+                    _evt(
+                        type="content_block_delta",
+                        index=0,
+                        delta={"type": "text_delta", "text": "done"},
+                    ),
+                    _evt(type="content_block_stop", index=0),
+                ]
+                usage, stop = REQUERY, "end_turn"
+            inp = {k: v for k, v in usage.items() if k != "output_tokens"}
+            out = _msg(inp, blocks, stop, usage["output_tokens"])
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    return _Up
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_gateway_digest_nets_the_expand_requery_out_of_tenant_savings(stream):
+    from distil.gateway import GatewayState, build_gateway_handler
+    from distil.pricing import get as pricing_get
+
+    up_cls = _sse_upstream() if stream else _upstream("anthropic")
+    up = _serve(up_cls)
+    price = pricing_get("claude-opus-4-8")
+    state = GatewayState(price)
+    gw = _serve(
+        build_gateway_handler(
+            f"http://127.0.0.1:{up.server_address[1]}",
+            state,
+            price,
+            trust_tenant_header=True,
+            digest=True,
+        )
+    )
+    try:
+        path, payload = _request("anthropic")
+        payload["stream"] = stream
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{gw.server_address[1]}{path}",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "x-distil-tenant": "t1"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as r:
+            saved = int(r.headers["x-distil-tokens-saved"])
+            r.read()
+    finally:
+        gw.shutdown()
+        up.shutdown()
+    assert len(up_cls.calls) == 2, "the fixture must make the model expand once"
+    assert saved > 0
+    t = state._tenants["t1"]
+    # distil side = what was forwarded + what the re-query cost (base-input equivalent)
+    assert t.tokens_compressed - (t.tokens_baseline - saved) == REQUERY_EQUIV
+
+
+@pytest.mark.parametrize(
+    "shape, key, val, tool",
+    [
+        (
+            "responses",
+            "instructions",
+            "You are a careful coding agent. " * 20,
+            {"type": "function", "name": "shell", "parameters": {}},
+        ),
+        (
+            "chat",
+            "tools",
+            None,
+            {"type": "function", "function": {"name": "shell", "parameters": {}}},
+        ),
+    ],
+)
+def test_overhead_reads_every_providers_system_prompt_and_tool_names(
+    shape, key, val, tool, monkeypatch, tmp_path
+):
+    """The calibrator compares the estimate (overhead + compressible) with the bill, so
+    the overhead must count the system prompt under the provider's own key, and a tool's
+    name must be found where that provider puts it."""
+    import sys
+
+    monkeypatch.setenv("DISTIL_SESSION", "s7-7")
+    mod = sys.modules[__name__]
+    base = mod._request
+
+    def with_extras(s):
+        path, payload = base(s)
+        if val is not None:
+            payload[key] = val
+        payload["tools"] = [tool]
+        return path, payload
+
+    monkeypatch.setattr(mod, "_request", with_extras)
+    _, recs, _ = _roundtrip(shape, {}, tmp_path)
+    rec = recs[-1]
+    if val is not None:
+        assert rec["system_tokens"] > 50
+    assert sorted(t["name"] for t in rec["tools"]) == ["distil_expand", "shell"]

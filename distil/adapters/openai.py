@@ -74,15 +74,27 @@ from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
 from ..compress import provenance as _provenance
 from ..compress import vision as _vision
+from ..tokenizer import DEFAULT as _tokenizer
 from .anthropic import (
+    _EVICT_MIN_TOKENS,
     _active_vision,
+    _handle,
+    _replace_result_text,
+    _result_text,
+    evicted_stub,
     _census,
     _census_tls,
     _census_tokens,
     _census_tool_result,
     _hazard_tls,
+    _observe_result,
+    _refetch_close,
+    _refetch_open,
+    _refetch_tls,
+    _refetch_verbatim,
     _widen_rescued,
     RestoreStore,
+    refetch_enabled,
     _compress_text_content,
     _compress_tool_result_text,
     _intent_tls,
@@ -159,7 +171,9 @@ def _chat_tool_calls(messages: list[dict[str, Any]]) -> list[_provenance.ToolCal
     return calls
 
 
-def exact_quote_tool_call_ids(messages: list[dict[str, Any]]) -> dict[str, str]:
+def exact_quote_tool_call_ids(
+    messages: list[dict[str, Any]], *, widen: bool = False
+) -> dict[str, str]:
     """``tool_call_id``s whose ``role:"tool"`` result must stay byte-exact.
 
     Same guarantee and same classifier as the Messages path — a file the agent read,
@@ -167,7 +181,80 @@ def exact_quote_tool_call_ids(messages: list[dict[str, Any]]) -> dict[str, str]:
     apply. This provider caches prefixes implicitly and commits everything it is sent,
     so nothing may be demoted once sent: ``cached_through`` is the last index.
     """
-    return _provenance.exact_quote_ids(_chat_tool_calls(messages), cached_through=len(messages) - 1)
+    return _provenance.exact_quote_ids(
+        _chat_tool_calls(messages), cached_through=len(messages) - 1, widen=widen
+    )
+
+
+def _evict(
+    item: dict[str, Any], key: str, text: str | None, store: RestoreStore
+) -> dict[str, Any] | None:
+    """Cold-point eviction (ADR 0014) of one tool result, or None to leave it alone.
+
+    The Messages path's rule exactly: a pure function of the content (same stub every
+    turn), and only when the stub is smaller. *key* is the field holding the result."""
+    if text is None:
+        return None
+    h = _handle(text)
+    stub = evicted_stub(text, h)
+    if _tokenizer.count(stub) >= _tokenizer.count(text) or not store._record(h, text):
+        return None
+    _census("tool_result_evicted", text)
+    if key == "content":
+        return _replace_result_text(item, stub)
+    return {**item, key: stub}
+
+
+def _evictable(
+    tid: Any,
+    text: str | None,
+    exact: Mapping[str, str],
+    quotes: list[str],
+    keep: Any,
+    exclude_handles: frozenset[str],
+) -> bool:
+    """``adapters.anthropic.cold_candidates``' per-block test, shape-free."""
+    if not isinstance(tid, str) or not tid or tid in exact or text is None:
+        return False
+    if _handle(text) in exclude_handles:
+        return False
+    if (keep is not None and keep(text)) or any(q in text for q in quotes):
+        return False
+    return _tokenizer.count(text) >= _EVICT_MIN_TOKENS
+
+
+def cold_candidates_chat(
+    messages: list[dict[str, Any]],
+    *,
+    keep: Any = None,
+    exclude_handles: frozenset[str] = frozenset(),
+) -> frozenset[str]:
+    """``tool_call_id``s a cold turn may evict — ``adapters.anthropic.cold_candidates``'
+    protections, Chat shape: never the freshest ``RECENCY_KEEP_TURNS`` user/tool turns,
+    never an exact-quote result, an Edit's quote, learned-keep or expanded content."""
+    idxs = [
+        i
+        for i, m in enumerate(messages)
+        if isinstance(m, dict) and m.get("role") in ("user", "tool")
+    ]
+    recent = set(idxs[-_RECENCY_KEEP_TURNS:]) if _RECENCY_KEEP_TURNS > 0 else set()
+    exact = exact_quote_tool_call_ids(messages)
+    quotes = _provenance.chat_edit_quotes(messages)
+    return frozenset(
+        m["tool_call_id"]
+        for i, m in enumerate(messages)
+        if i not in recent
+        and isinstance(m, dict)
+        and m.get("role") == "tool"
+        and _evictable(
+            m.get("tool_call_id"),
+            _result_text(m.get("content")),
+            exact,
+            quotes,
+            keep,
+            exclude_handles,
+        )
+    )
 
 
 def _compress_openai_message(
@@ -176,6 +263,7 @@ def _compress_openai_message(
     verbatim: bool,
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
+    evict: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) Chat Completions message dict after compressing.
 
@@ -196,6 +284,16 @@ def _compress_openai_message(
         # and counting only the string form leaves list-shaped reads out of a census whose
         # whole value is that it accounts for the entire payload.
         _census_tool_result(bucket, content)
+        return msg
+    if role == "tool" and not is_recent and msg.get("tool_call_id") in evict:
+        # After the exact-quote check, as on Messages: an Edit that comes to depend on
+        # the block puts it back to verbatim.
+        evicted = _evict(msg, "content", _result_text(content), store)
+        if evicted is not None:
+            return evicted
+    if role == "tool" and not verbatim and _refetch_verbatim(content, msg.get("tool_call_id")):
+        # ADR 0025, same point as the Messages path: after the exact-quote exemption,
+        # before the digester — the agent re-fetched what it was only shown folded.
         return msg
 
     # --- bare string content ---
@@ -284,6 +382,9 @@ def compress_chat_completions(
     *,
     verbatim: bool = False,
     keep: Any = None,
+    evict: frozenset[str] = frozenset(),
+    persist: bool = True,
+    refetch: bool | None = None,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an OpenAI Chat Completions messages list.
 
@@ -303,6 +404,10 @@ def compress_chat_completions(
         Optional learned keep-byte-exact predicate (same role as in the Anthropic
         adapter — blocks whose content the agent historically expands are never
         digested).
+    evict, persist, refetch:
+        As in ``compress_messages``: *evict* names the ``tool_call_id``s a cold turn
+        evicts (ADR 0014, :func:`cold_candidates_chat`); *persist* False keeps originals
+        in memory only; *refetch* forwards a re-fetch of folded content verbatim (ADR 0025).
 
     Returns
     -------
@@ -315,10 +420,8 @@ def compress_chat_completions(
     # Same contract as the Anthropic entry point: open a fresh census so a thread that
     # previously served Anthropic traffic cannot leak its counts into this request.
     _census_tls.counts = {}
-    # The quote-hazard counter is Messages-path only (that is where Edit/MultiEdit
-    # live), so it is CLEARED here rather than left alone: the proxy reads it per
-    # request off the same thread, and a stale count from an earlier Anthropic request
-    # would be reported against this one.
+    # Cleared, then recomputed by _guard_chat_quotes: the proxy reads this counter per
+    # request off the same thread, so a stale count must never be reported against this one.
     _hazard_tls.counts = None
     # Empty by design, not an oversight: this provider caches prefixes
     # implicitly and commits everything it is sent, so every block is cached
@@ -332,27 +435,62 @@ def compress_chat_completions(
         # default path is byte-for-byte what it was before. Reset every call so a
         # thread that previously served a different request cannot leak "already
         # seen" state into this one.
-        _vision_tls.dedup = _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
-        store = RestoreStore()
-        new_messages: list[dict[str, Any]] = []
         recent = _recent_chat_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
-        # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact_ids = exact_quote_tool_call_ids(messages)
-        for idx, msg in enumerate(messages):
-            if not isinstance(msg, dict):
-                new_messages.append(msg)  # malformed entry — pass through untouched
-                continue
-            msg_verbatim = verbatim or idx in recent
-            new_messages.append(
-                _compress_openai_message(
-                    msg, store, msg_verbatim, is_recent=idx in recent, exact_ids=exact_ids
-                )
+        evict = frozenset() if verbatim else evict
+
+        def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
+            # Per pass, as on the other paths: a quote-hazard retry starts afresh.
+            _census_tls.counts = {}
+            _vision_tls.dedup = (
+                _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
             )
-        return new_messages, store
+            store = RestoreStore(persist=persist)
+            _refetch_open(refetch, verbatim)
+            new_messages: list[dict[str, Any]] = []
+            for idx, msg in enumerate(messages):
+                if not isinstance(msg, dict):
+                    new_messages.append(msg)  # malformed entry — pass through untouched
+                    continue
+                msg_verbatim = verbatim or idx in recent
+                new_msg = _compress_openai_message(
+                    msg,
+                    store,
+                    msg_verbatim,
+                    is_recent=idx in recent,
+                    exact_ids=exact_ids,
+                    evict=evict,
+                )
+                if msg.get("role") == "tool":
+                    _observe_result(msg.get("content"), new_msg.get("content"))
+                new_messages.append(new_msg)
+            return new_messages, store
+
+        # Results the agent must quote back byte-exact to edit — provenance, not position.
+        new_messages, store = _walk(exact_quote_tool_call_ids(messages))
+        return _guard_quotes_with(
+            _provenance.chat_edit_quotes(messages),
+            lambda: _walk(exact_quote_tool_call_ids(messages, widen=True)),
+            new_messages,
+            store,
+            verbatim,
+        )
     finally:
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
         _vision_tls.dedup = None
+        _refetch_close()
+
+
+def refetch_tool_call_ids(messages: list[dict[str, Any]], *, keep: Any = None) -> frozenset[str]:
+    """``tool_call_id``s ``compress_chat_completions`` would forward verbatim as re-fetches
+    (ADR 0025) — the Chat twin of ``adapters.anthropic.refetch_tool_use_ids``, for the
+    cache-delta pre-pass that must not turn a re-fetch into a reference to the folded copy.
+    """
+    # ponytail: a full extra pass, paid only under --session-delta (opt-in), as on Messages.
+    if not refetch_enabled():
+        return frozenset()
+    compress_chat_completions(messages, keep=keep, persist=False)
+    return frozenset(getattr(_refetch_tls, "hits", frozenset()))
 
 
 # ---------------------------------------------------------------------------
@@ -441,12 +579,44 @@ def _census_opaque_response_item(bucket: str, item: dict[str, Any]) -> None:
                 _census(bucket, part["text"])
 
 
+def cold_candidates_responses(
+    items: list[dict[str, Any]],
+    *,
+    keep: Any = None,
+    exclude_handles: frozenset[str] = frozenset(),
+) -> frozenset[str]:
+    """``call_id``s a cold turn may evict — :func:`cold_candidates_chat`, Responses shape
+    (the freshest turns are the last user messages / function_call_outputs)."""
+    idxs = [
+        i
+        for i, it in enumerate(items)
+        if isinstance(it, dict)
+        and (
+            it.get("type") == "function_call_output"
+            or (it.get("type") == "message" and it.get("role") == "user")
+        )
+    ]
+    recent = set(idxs[-_RECENCY_KEEP_TURNS:]) if _RECENCY_KEEP_TURNS > 0 else set()
+    exact = exact_quote_call_ids(items)
+    quotes = _provenance.response_edit_quotes(items)
+    return frozenset(
+        it["call_id"]
+        for i, it in enumerate(items)
+        if i not in recent
+        and isinstance(it, dict)
+        and it.get("type") == "function_call_output"
+        and isinstance(it.get("output"), str)
+        and _evictable(it.get("call_id"), it["output"], exact, quotes, keep, exclude_handles)
+    )
+
+
 def _compress_response_item(
     item: dict[str, Any],
     store: RestoreStore,
     verbatim: bool,
     is_recent: bool = False,
     exact_ids: Mapping[str, str] = MappingProxyType({}),
+    evict: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Return a (possibly new) Responses API input item after compression.
 
@@ -470,6 +640,12 @@ def _compress_response_item(
             # File content the agent must quote back verbatim to edit it.
             _census(bucket, output)
             return item
+        if not is_recent and item.get("call_id") in evict:
+            evicted = _evict(item, "output", output, store)
+            if evicted is not None:
+                return evicted
+        if not verbatim and _refetch_verbatim(output, item.get("call_id")):
+            return item  # ADR 0025 — a re-fetch of folded content goes out verbatim
         new_output = _compress_tool_result_text(output, store, verbatim, is_recent)
         if new_output == output:
             return item
@@ -552,6 +728,28 @@ def _compress_response_item(
     return item
 
 
+def _guard_quotes_with(
+    quotes: list[str],
+    widened: Any,
+    compressed: list[dict[str, Any]],
+    store: RestoreStore,
+    verbatim: bool,
+) -> tuple[list[dict[str, Any]], RestoreStore]:
+    """The quote guard, any shape: book whether every edit's quote survives the payload,
+    and adopt the widened pass (``widened()``) only if it strictly rescues one."""
+    _hazard_tls.counts = None
+    if not quotes or verbatim:
+        return compressed, store
+    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
+    if missing:
+        wide, wide_store = widened()
+        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
+        if _widen_rescued(missing, w_missing):
+            compressed, store, missing = wide, wide_store, w_missing
+    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
+    return compressed, store
+
+
 def _guard_response_quotes(
     items: list[dict[str, Any]],
     compressed: list[dict[str, Any]],
@@ -574,18 +772,13 @@ def _guard_response_quotes(
     dropped for the rest of the session (the history only grows, so the miss is re-detected
     every turn). A miss widening cannot repair keeps the narrow pass — see ``_widen_rescued``.
     """
-    _hazard_tls.counts = None
-    quotes = _provenance.response_edit_quotes(items)
-    if not quotes or verbatim:
-        return compressed, store
-    missing = _provenance.missing_quotes(quotes, _provenance.observed_view(compressed))
-    if missing:
-        wide, wide_store = walk(exact_quote_call_ids(items, widen=True))
-        w_missing = _provenance.missing_quotes(quotes, _provenance.observed_view(wide))
-        if _widen_rescued(missing, w_missing):
-            compressed, store, missing = wide, wide_store, w_missing
-    _hazard_tls.counts = {"survived": len(quotes) - len(missing), "lost": len(missing)}
-    return compressed, store
+    return _guard_quotes_with(
+        _provenance.response_edit_quotes(items),
+        lambda: walk(exact_quote_call_ids(items, widen=True)),
+        compressed,
+        store,
+        verbatim,
+    )
 
 
 def compress_responses_input(
@@ -593,6 +786,9 @@ def compress_responses_input(
     *,
     verbatim: bool = False,
     keep: Any = None,
+    evict: frozenset[str] = frozenset(),
+    persist: bool = True,
+    refetch: bool | None = None,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an OpenAI Responses API ``input`` array.
 
@@ -616,6 +812,13 @@ def compress_responses_input(
         When *True*, apply only in-context-lossless Tier-0 transforms.
     keep:
         Optional learned keep-byte-exact predicate.
+    evict:
+        ``call_id``s a cold turn evicts (ADR 0014, :func:`cold_candidates_responses`).
+    persist:
+        When *False*, originals stay in the returned in-memory store only (offline replay).
+    refetch:
+        Forward a re-fetch of folded content verbatim (ADR 0025); ``None`` follows
+        ``refetch_enabled``.
 
     Returns
     -------
@@ -638,6 +841,7 @@ def compress_responses_input(
     _intent_tls.terms = frozenset()
     try:
         recent = _recent_response_verbatim_indices(items, _RECENCY_KEEP_TURNS)
+        evict = frozenset() if verbatim else evict
 
         def _walk(exact_ids: Mapping[str, str]) -> tuple[list[dict[str, Any]], RestoreStore]:
             _census_tls.counts = {}
@@ -648,18 +852,26 @@ def compress_responses_input(
             _vision_tls.dedup = (
                 _vision.ImageDedup() if (not verbatim and _vision.enabled()) else None
             )
-            store = RestoreStore()
+            store = RestoreStore(persist=persist)
+            # Per pass, like the deduper: the widened retry must see the lines afresh.
+            _refetch_open(refetch, verbatim)
             new_items: list[dict[str, Any]] = []
             for idx, item in enumerate(items):
                 if not isinstance(item, dict):
                     new_items.append(item)  # malformed entry — pass through
                     continue
                 item_verbatim = verbatim or idx in recent
-                new_items.append(
-                    _compress_response_item(
-                        item, store, item_verbatim, is_recent=idx in recent, exact_ids=exact_ids
-                    )
+                new_item = _compress_response_item(
+                    item,
+                    store,
+                    item_verbatim,
+                    is_recent=idx in recent,
+                    exact_ids=exact_ids,
+                    evict=evict,
                 )
+                if item.get("type") == "function_call_output":
+                    _observe_result(item.get("output"), new_item.get("output"))
+                new_items.append(new_item)
             return new_items, store
 
         # Results the agent must quote back byte-exact to edit — provenance, not position.
@@ -669,6 +881,7 @@ def compress_responses_input(
         _keep_tls.fn = None
         _intent_tls.terms = frozenset()
         _vision_tls.dedup = None
+        _refetch_close()
 
 
 def count_responses_tokens(items: list[dict[str, Any]]) -> int:

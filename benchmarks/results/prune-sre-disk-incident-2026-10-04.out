@@ -1,0 +1,22 @@
+causal ablation over 'sre-disk-incident' — what is free to drop?
+
+block                  occ  tokens  verdict
+doc-0                    1     164  PRUNE (causally inert)
+doc-1                    1     101  PRUNE (causally inert)
+doc-2                    1      86  PRUNE (causally inert)
+doc-3                    1      73  PRUNE (causally inert)
+hist-0                   3      48  PRUNE (causally inert)
+hist-1                   2      47  PRUNE (causally inert)
+hist-2                   1      44  PRUNE (causally inert)
+user-0                   1      20  PRUNE (causally inert)
+user-3                   1      12  PRUNE (causally inert)
+user-2                   1      11  PRUNE (causally inert)
+user-1                   1       9  PRUNE (causally inert)
+obs-0                    1     343  keep (changed a decision)
+obs-1                    1     303  keep (changed a decision)
+obs-2                    1     257  keep (changed a decision)
+tools                    4     213  keep (changed a decision)
+obs-3                    1     206  keep (changed a decision)
+system                   4      82  keep (changed a decision)
+
+tokens provably free to drop: 615 across 11 block(s).

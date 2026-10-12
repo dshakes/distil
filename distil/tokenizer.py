@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from typing import Protocol, runtime_checkable
 
+from .pricing import DEFAULT_MODEL
+
 # Word-ish + punctuation segmentation. BPE tends to split long/rare words into
 # multiple sub-word units, so we inflate the raw piece count by a factor that
 # lands within ~10-15% of cl100k/Claude tokenizers on mixed code+prose.
@@ -47,7 +49,7 @@ class AnthropicTokenizer:
     Results are memoized.
     """
 
-    def __init__(self, model: str = "claude-opus-4-8", client: object | None = None) -> None:
+    def __init__(self, model: str = DEFAULT_MODEL, client: object | None = None) -> None:
         self.model = model
         self._client = client
         self._cache: dict[str, int] = {}
@@ -125,7 +127,7 @@ class SubwordHeuristicTokenizer:
         return max(1, round(toks))
 
 
-def resolve(name: str = "heuristic", *, model: str = "claude-opus-4-8") -> Tokenizer:
+def resolve(name: str = "heuristic", *, model: str = DEFAULT_MODEL) -> Tokenizer:
     """Factory: 'heuristic' (flat, default), 'subword' (length-aware offline, closer to BPE),
     or 'anthropic' (billing-grade, needs the SDK + a network call per string)."""
     if name == "heuristic":

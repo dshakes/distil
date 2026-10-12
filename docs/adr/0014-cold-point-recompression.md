@@ -174,18 +174,25 @@ already lost, and it is then stable for the rest of the lineage.**
 
 ## Scope
 
-- **Anthropic Messages only**, through the threaded proxy (`distil proxy` / `distil wrap`).
+- **Anthropic Messages, and OpenAI Chat Completions / Responses** (below), through the
+  threaded proxy (`distil proxy` / `distil wrap`) and the gateway.
 - **Not the async proxy.** It is verbatim-only and has no expand loop, so it has no
   recoverable stubs.
-- **Not the gateway yet.** TODO: scope the state per tenant, the same way replay is
-  scoped, then wire `plan`/`end` into `gateway.py`.
+- **The gateway** runs it through the shared serve path (`serve_core`), scoped per tenant.
 - **Not `--session-delta`.** Its references would be evicted into stubs of stubs.
-- **OpenAI Responses / Chat Completions: TODO, deliberately not implemented.** OpenAI
-  caches prefixes automatically and gives no client TTL. Its documented eviction is
-  "typically 5–10 minutes of inactivity, up to an hour off-peak", which is not a bound
-  distil can call *certain*. Extended retention (`prompt_cache_retention`) differs again.
-  The mechanism would be the same, keyed on a TTL the provider guarantees. That guarantee
-  does not exist today.
+- **OpenAI Responses / Chat Completions: implemented 2026-10 (cross-provider parity),
+  keyed on the retention policy the request names.** OpenAI caches automatically; its
+  prompt-caching guide (read 2026-10-06) now gives each retention policy an upper bound:
+  `in_memory` "up to one hour", `24h` "up to 24 hours", and an unset field defaults to
+  `24h` (or `in_memory` under Zero Data Retention), so 24h bounds it either way
+  (`coldpoint.openai_request_ttl`). GPT-5.6+ (`prompt_cache_options.ttl`, "at least 30
+  minutes ... OpenAI may retain it longer") has a minimum and no maximum, so it is `inf`
+  and never cold. The stakes of a wrong call are also lower than on Anthropic: before 5.6
+  OpenAI bills no cache write, so evicting into a prefix that was in fact still warm costs
+  one turn's cache discount, not a 1.25x rewrite. Same candidate protections, same stub,
+  same persistence.
+- **Gemini: not implemented, not implementable today.** Implicit caching documents no
+  lifetime at all, so there is no bound to wait out.
 
 ## Controls and observability
 

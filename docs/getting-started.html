@@ -49,79 +49,44 @@
       <details class="sidebar-group" open>
         <summary class="sidebar-section">Learn</summary>
         <ul>
-          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a>
-            <ul class="sidebar-sub">
-              <li><a href="learn-tokens.html">1. Fundamentals</a></li>
-              <li><a href="learn-compression.html">2. Compression</a></li>
-              <li><a href="learn-distil.html">3. Distil &amp; Proof</a></li>
-            </ul></li>
-          <li><a href="concepts.html">Concepts</a></li>
+          <li><a href="token-economics.html">Token Economics <span class="nav-badge">Start here</span></a></li>
+          <li><a href="concepts.html">Concepts &amp; Course</a></li>
           <li><a href="techniques.html">Techniques</a></li>
           <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="cache.html">Prompt Caching</a></li>
           <li><a href="research.html">Research &amp; Frontier</a></li>
-          <li><a href="cache-contract.html">Cache Contract</a></li>
-          <li><a href="subscription.html">Subscription</a></li>
-          <li><a href="provider-compaction.html">Provider Compaction</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Evaluation &amp; benchmarks</summary>
         <ul>
-          <li><a href="evals.html">Evaluation</a></li>
+          <li><a href="scoreboard.html">Scoreboard</a></li>
+          <li><a href="benchmark.html">Benchmarks &amp; Evals</a></li>
           <li><a href="ab.html">Task-level A/B</a></li>
-          <li><a href="model-migration.html">Model Migration <span class="nav-badge">New</span></a></li>
-          <li><a href="benchmark-independent.html">Independent Benchmark</a></li>
-          <li><a href="benchmark.html">Live Benchmark</a></li>
-          <li><a href="benchmarks.html">Reproduce Benchmarks</a></li>
           <li><a href="compare.html">Compare</a></li>
-          <li><a href="adoption.html">Adoption <span class="nav-badge">Live</span></a></li>
+          <li><a href="adoption.html">Adoption &amp; Metrics <span class="nav-badge">Live</span></a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Reference</summary>
         <ul>
-          <li><a href="library.html">Library API</a></li>
           <li><a href="cli.html">CLI Reference</a></li>
-          <li><a href="metrics.html">Metrics &amp; Observability</a></li>
-          <li><a href="cache.html">Prompt Caching</a></li>
-          <li><a href="output.html">Output &amp; I/O</a></li>
-          <li><a href="corpus.html">Corpus</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="code-skeletons.html">Code Skeletons</a></li>
+          <li><a href="shell.html">Shell at the Source <span class="nav-badge">New</span></a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
-        </ul>
-      </details>
-      <details class="sidebar-group">
-        <summary class="sidebar-section">Integrations</summary>
-        <ul>
-          <li><a href="integrations.html">Overview</a></li>
-          <li><a href="adapters.html">Adapters</a></li>
-          <li><a href="anthropic-sdk.html">Anthropic SDK</a></li>
-          <li><a href="openai-sdk.html">OpenAI SDK</a></li>
-          <li><a href="litellm.html">LiteLLM</a></li>
-          <li><a href="langchain.html">LangChain</a></li>
-          <li><a href="langgraph.html">LangGraph</a></li>
-          <li><a href="vercel-ai-sdk.html">Vercel AI SDK</a></li>
-          <li><a href="agno.html">Agno</a></li>
-          <li><a href="strands.html">Strands</a></li>
-          <li><a href="autogen.html">AutoGen</a></li>
-          <li><a href="llamaindex.html">LlamaIndex</a></li>
-          <li><a href="crewai.html">CrewAI</a></li>
-          <li><a href="asgi.html">ASGI Middleware</a></li>
+          <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
       </details>
       <details class="sidebar-group">
         <summary class="sidebar-section">More</summary>
         <ul>
           <li><a href="faq.html">FAQ</a></li>
-          <li><a href="security.html">Security</a></li>
-          <li><a href="deploy-security.html">Deploy &amp; Security</a></li>
-          <li><a href="threat-model.html">Threat Model</a></li>
+          <li><a href="security.html">Security &amp; Deploy</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="index.html">← Landing page</a></li>
         </ul>
@@ -165,10 +130,12 @@
     <p>What distil saved on <em>your</em> traffic, calibrated against the usage your provider bills.
       Something looks off? <code>distil doctor</code> checks the wiring.</p>
     <div class="callout">
-      <strong>What to expect.</strong> On an API key the saving is dollars off the bill; on a subscription it is
-      rate-limit headroom. For reference, the maintainer's own Claude Code traffic (13,191 requests, September 2026)
+      <strong>What to expect.</strong> On an API key distil cuts the tokens you are billed for; on a subscription the
+      saving is rate-limit headroom. Fewer tokens is not automatically a lower bill: on short SWE-bench tasks no
+      compressor, distil included, is shown to save money end to end (<a href="scoreboard.html">scoreboard</a>), so
+      run <code>distil savings</code> on your own traffic. For reference, the maintainer's own Claude Code traffic (13,191 requests, September 2026)
       came out an estimated 10.2% cheaper, cache included, before distil's own expand re-queries and
-      shadow replays were netted out; about 9% (8.3–9.2%) net of them
+      shadow replays were netted out; about 9% (8.3–9.2%) net of them, assuming the agent behaved the same
       (<a href="https://github.com/dshakes/distil/blob/main/docs/research/expand-undercount.md">how</a>)
       (<a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/2026-09-24/live_savings_decomposition.json">data</a>).
       Savings come from large, repetitive tool output, so a short session that never reads a big file showing
@@ -180,8 +147,8 @@
     <h2>Next</h2>
     <ul>
       <li><a href="cli.html">CLI reference</a> — every command and flag.</li>
-      <li><a href="cache-contract.html">Cache contract</a> and <a href="compare.html">the proof</a> — why the number holds up.</li>
-      <li><a href="library.html">Library API</a> — compress inside your own agent loop.</li>
+      <li><a href="cache.html#cache-contract">Cache contract</a> and <a href="compare.html">the proof</a> — why the number holds up.</li>
+      <li><a href="integrations.html#library">Library API</a> — compress inside your own agent loop.</li>
       <li><a href="adoption.html">Adoption</a> — the opt-in census (off unless you turn it on).</li>
       <li>Leaving? <code>distil offboard</code> removes everything distil wired, then prints the uninstall command.</li>
     </ul>

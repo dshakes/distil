@@ -29,14 +29,11 @@ from distil.pricing import get as pricing_get
 # Shared test data
 # ---------------------------------------------------------------------------
 
-# A large tool_result, as pretty-printed JSON rather than log prose.
-#
-# The gateway runs no expand loop, so it is Tier-0 only: it must never emit a digest
-# stub it cannot restore (see test_payg_never_emits_an_unrecoverable_stub). Tier-0's
-# win on real agent traffic is lossless minification, which needs structure to bite —
-# on 12 lines of prose it correctly finds nothing, and every "savings > 0" assertion
-# below would be asserting that the digest tier ran, which is exactly what must not
-# happen here.
+# A large tool_result, as pretty-printed JSON rather than log prose: Tier-0's lossless
+# minification bites on it in every mode, so "savings > 0" below holds whether or not
+# the digest tier runs. It does not by default — the gateway is Tier-0 unless the
+# operator passes --digest (ADR 0023; see test_payg_never_emits_an_unrecoverable_stub
+# and test_digest_opt_in_stub_is_always_recoverable).
 _LONG_TOOL_RESULT = json.dumps(
     {
         "host": "build-07",
@@ -405,7 +402,7 @@ def test_gateway_state_save_oserror(tmp_path: Any) -> None:
 
 def test_count_tokens_nested_list_content() -> None:
     """_count_tokens handles non-dict blocks (line 346) and nested list values (lines 352-356)."""
-    from distil.gateway import _count_tokens
+    from distil.proxy import _count_messages as _count_tokens  # the gateway's counter
 
     msgs = [
         {
@@ -789,25 +786,55 @@ def test_azure_chat_path_is_compressed(gw_servers: Any) -> None:
 
 
 def test_payg_never_emits_an_unrecoverable_stub(gw_servers: Any) -> None:
-    """The gateway must not digest what it cannot restore.
+    """The default gateway is Tier-0: no digest stub, no injected tool.
 
-    It injects no distil_expand tool and runs no expand loop, so a Tier-1 stub here
-    names a recovery that does not exist: the tenant sees "<< +N lines, handle=… >>"
-    and has no way to get the lines back. That is the silent-lossy failure distil
-    exists to prevent, and it was live on every PAYG session — `verbatim` was folded
-    in for subscription only.
-
-    The fixture builds the handler with lossless_only=False, i.e. PAYG, which is
-    exactly the configuration that was lossy.
+    The digest is an operator opt-in (``--digest``) because the per-mode certification
+    hold, shadow and drift guard that hold a local proxy's digest when it is over its
+    decision-change budget are proxy-only (ADR 0022/0023). The fixture builds a PAYG
+    handler (lossless_only=False) without the opt-in.
     """
     gw_port, _state = gw_servers
-    req = _post(gw_port, "/v1/messages", _messages_payload(), {"x-distil-tenant": "payg"})
+    big = "\n".join(f"line {i}: build step {i} finished in {i * 7 % 13}ms" for i in range(400))
+    req = _post(gw_port, "/v1/messages", _messages_payload(big), {"x-distil-tenant": "payg"})
     with urllib.request.urlopen(req) as resp:
         assert resp.status == 200
+        assert resp.headers["x-distil-mode"] == "verbatim"
         forwarded = resp.read().decode()  # the upstream echoes the body verbatim
 
-    assert "handle=" not in forwarded, "a digest stub the gateway cannot expand"
-    assert "distil_expand" not in forwarded, "a tool the gateway has no loop to answer"
+    assert "handle=" not in forwarded, "a digest stub without the operator's opt-in"
+    assert "distil_expand" not in forwarded, "a tool injected without the opt-in"
+
+
+def test_digest_opt_in_stub_is_always_recoverable() -> None:
+    """With ``--digest`` a PAYG gateway digests like a local wrap proxy (ADR 0023) — and
+    every stub it forwards must be recoverable: distil_expand is injected in the same
+    request."""
+    upstream = ThreadingHTTPServer(("127.0.0.1", 0), _EchoHandler)
+    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+    price = pricing_get("claude-opus-4-8")
+    handler_cls = build_gateway_handler(
+        f"http://127.0.0.1:{upstream.server_address[1]}",
+        GatewayState(price),
+        price,
+        trust_tenant_header=True,
+        digest=True,
+    )
+    gw = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    threading.Thread(target=gw.serve_forever, daemon=True).start()
+    try:
+        big = "\n".join(f"line {i}: build step {i} finished in {i * 7 % 13}ms" for i in range(400))
+        payload = _messages_payload(big)
+        req = _post(gw.server_address[1], "/v1/messages", payload, {"x-distil-tenant": "payg"})
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            assert resp.headers["x-distil-mode"] == "digest"
+            forwarded = json.loads(resp.read())  # the upstream echoes the body verbatim
+    finally:
+        gw.shutdown()
+        upstream.shutdown()
+
+    assert "handle=" in json.dumps(forwarded["messages"]), "fixture no longer digests"
+    assert any(t.get("name") == "distil_expand" for t in forwarded["tools"])
 
 
 def test_unknown_path_is_still_passthrough(gw_servers: Any) -> None:

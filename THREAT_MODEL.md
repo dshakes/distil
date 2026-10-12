@@ -137,11 +137,17 @@ the provider never sees it; the provider credential (`x-api-key` /
   another.  Run separate gateway processes for tenants with strict isolation
   requirements.
 
-- **Restore store is per-gateway, not per-tenant.**  `compress_messages` writes
+- **Restore store is per-gateway; expand is per-tenant.**  `compress_messages` writes
   digest originals to `~/.distil/restore/` (a directory shared across all
-  tenants of a single gateway process).  The gateway has no expand HTTP
-  endpoint, so no tenant can retrieve another tenant's original content through
-  the gateway API.  However, a local user with access to `~/.distil/restore/`
+  tenants of a single gateway process).  By default the gateway is Tier-0 and emits
+  no digest stub.  With the operator opt-in `--digest` (unguarded: no per-mode
+  certification on the gateway yet) it answers `distil_expand`
+  tool calls (ADR 0023), but only for handles it issued to the asking tenant: a
+  handle another tenant was issued — or one a tenant typed into its own history —
+  resolves to the miss placeholder, never to content.  Cold-point lineages and
+  cache-delta sessions are keyed by tenant too.  The grant table is in memory, so
+  after a gateway restart an older stub's expand also returns the placeholder.
+  However, a local user with access to `~/.distil/restore/`
   (which is chmod 0600, owner-only) could expand any handle via the `distil
   expand` CLI or MCP server.  In a multi-tenant shared deployment, run distil
   as a dedicated OS user so that directory is not readable by tenant processes.

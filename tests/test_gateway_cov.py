@@ -1029,3 +1029,30 @@ def test_a_crlf_tenant_claim_never_reaches_a_response_header(oidc_gw: Any) -> No
     assert status == 200, data
     assert resp.headers.get("X-Injected") is None
     assert resp.headers.get("x-distil-tenant", "").startswith("oidc-")
+
+
+class _NoServe:
+    def __init__(self, *a: Any, **k: Any) -> None:
+        pass
+
+    def serve_forever(self) -> None:
+        raise KeyboardInterrupt
+
+    def server_close(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    ("host", "require_keys", "open_"),
+    [("0.0.0.0", False, True), ("0.0.0.0", True, False), ("127.0.0.1", False, False)],
+)
+def test_banner_warns_when_inbound_proxy_is_open(monkeypatch, capsys, host, require_keys, open_):
+    """The admin-token line only covers /distil/*; an exposed bind with no keys, no
+    --require-keys and no OIDC issuer leaves the PROXY itself open — say so."""
+    import distil.gateway as gw
+
+    monkeypatch.delenv("DISTIL_OIDC_ISSUER", raising=False)
+    monkeypatch.setattr(gw, "QuietHTTPServer", _NoServe)
+    monkeypatch.setattr(gw, "_install_sigterm_flush", lambda: None)
+    gw.serve_gateway(host=host, port=1, require_keys=require_keys)
+    assert ("inbound proxy is UNAUTHENTICATED" in capsys.readouterr().out) is open_

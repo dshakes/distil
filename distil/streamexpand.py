@@ -360,12 +360,12 @@ def sse_from_response(shape: str, resp: dict[str, Any]) -> bytes:
     if shape == "gemini":
         # Gemini SSE frames are whole GenerateContentResponse objects, one per event.
         return f"data: {json.dumps(resp)}\n\n".encode()
+    if shape == "gemini-array":
+        # ``:streamGenerateContent`` WITHOUT ``alt=sse`` streams a JSON array of the same
+        # objects; an SSE frame there is not something the client can parse.
+        return json.dumps([resp]).encode()
     if shape == "responses":
-        # The Responses stream is a typed event sequence; ``response.completed`` is the
-        # one the SDK reads the final object off (``stream.get_final_response()``).
-        created = {"type": "response.created", "sequence_number": 0, "response": resp}
-        done = {"type": "response.completed", "sequence_number": 1, "response": resp}
-        return _frame(created) + _frame(done)
+        return _responses_events(resp)
     # Chat Completions: two ``chat.completion.chunk`` frames then the [DONE] sentinel.
     choice = (resp.get("choices") or [{}])[0] if isinstance(resp.get("choices"), list) else {}
     msg = choice.get("message") or {} if isinstance(choice, dict) else {}
@@ -395,6 +395,51 @@ def sse_from_response(shape: str, resp: dict[str, Any]) -> bytes:
         + f"data: {json.dumps(tail)}\n\n".encode()
         + b"data: [DONE]\n\n"
     )
+
+
+def _responses_events(resp: dict[str, Any]) -> bytes:
+    """A finished Responses object as the typed event stream a live one would have been.
+
+    ``response.completed`` alone is not enough: clients that build the turn from the
+    per-item events — Codex collects its items from ``response.output_item.done`` and
+    reads only the id and usage off ``response.completed`` — saw an empty answer. So every
+    output item gets its ``added``/``done`` pair, with the text and argument deltas the
+    SDK accumulators read in between, before the ``completed`` event that carries it all.
+    """
+    events: list[dict[str, Any]] = []
+
+    def emit(etype: str, **fields: Any) -> None:
+        events.append({"type": etype, "sequence_number": len(events), **fields})
+
+    head = {**resp, "status": "in_progress", "output": []}
+    emit("response.created", response=head)
+    emit("response.in_progress", response=head)
+    for oi, item in enumerate(o for o in resp.get("output") or () if isinstance(o, dict)):
+        iid = item.get("id", "")
+        itype = item.get("type")
+        if itype == "message":
+            emit("response.output_item.added", output_index=oi, item={**item, "content": []})
+            for ci, part in enumerate(item.get("content") or ()):
+                if not isinstance(part, dict):
+                    continue
+                where = {"item_id": iid, "output_index": oi, "content_index": ci}
+                text = part.get("text") if part.get("type") == "output_text" else None
+                emit("response.content_part.added", **where, part={**part, "text": ""})
+                if isinstance(text, str):
+                    emit("response.output_text.delta", **where, delta=text)
+                    emit("response.output_text.done", **where, text=text)
+                emit("response.content_part.done", **where, part=part)
+        elif itype == "function_call":
+            emit("response.output_item.added", output_index=oi, item={**item, "arguments": ""})
+            args = item.get("arguments") or ""
+            where = {"item_id": iid, "output_index": oi}
+            emit("response.function_call_arguments.delta", **where, delta=args)
+            emit("response.function_call_arguments.done", **where, arguments=args)
+        else:
+            emit("response.output_item.added", output_index=oi, item=item)
+        emit("response.output_item.done", output_index=oi, item=item)
+    emit("response.completed", response=resp)
+    return b"".join(_frame(e) for e in events)
 
 
 def _relay_raw(

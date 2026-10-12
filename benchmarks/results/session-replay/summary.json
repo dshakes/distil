@@ -1,0 +1,595 @@
+{
+  "distil_version": "1.56.4",
+  "method": {
+    "adapter": "distil.adapters.anthropic.compress_messages(persist=False, verbatim=False)",
+    "cache_control": "not recorded by Claude Code; placed on the newest message of each request",
+    "cache_model": "prefix shared with the previous request is read (0.1x), the rest written (1.25x); compressed read prefix ends at the first message whose compressed bytes changed (a bust); TTL expiry ignored; input tokens only",
+    "cache_prices": {
+      "base": 1.0,
+      "read": 0.1,
+      "write": 1.25
+    },
+    "counterfactual": "provenance.is_shell_search patched to False in-process",
+    "request": "every prefix ending in a user message (tool_result turns included)",
+    "tokenizer": "distil.tokenizer.DEFAULT (offline heuristic) over per-message JSON"
+  },
+  "sample": {
+    "requests_replayed": 9071,
+    "requests_total": 34586,
+    "sessions_replayed": 2498,
+    "sessions_skipped": {
+      "empty": 1,
+      "over_work_budget": 1
+    },
+    "sessions_subsampled": 25,
+    "sessions_with_recorded_cache_control": 0,
+    "transcripts_found": 2951,
+    "unparseable_lines": 0
+  },
+  "schema": 1,
+  "seed": 0,
+  "served": {
+    "by_bash_command_class": {
+      "build_test": {
+        "bytes_digested_share": 0.8189,
+        "digest_rate": 0.4463,
+        "results": 147897
+      },
+      "listing": {
+        "bytes_digested_share": 0.9374,
+        "digest_rate": 0.6896,
+        "results": 17369
+      },
+      "network_infra": {
+        "bytes_digested_share": 0.4486,
+        "digest_rate": 0.3319,
+        "results": 2335
+      },
+      "other": {
+        "bytes_digested_share": 0.8453,
+        "digest_rate": 0.4931,
+        "results": 175127
+      },
+      "search": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 76329
+      },
+      "vcs": {
+        "bytes_digested_share": 0.7872,
+        "digest_rate": 0.3363,
+        "results": 48333
+      },
+      "whole_file_read": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 26264
+      }
+    },
+    "by_context_size_tokens": {
+      "100k-200k": {
+        "bytes_saving": {
+          "mean": 0.115,
+          "median": 0.1122,
+          "p90": 0.2173
+        },
+        "cache_aware_cost_saving": 0.136,
+        "no_cache_cost_saving": 0.1415,
+        "requests": 316,
+        "token_saving": {
+          "mean": 0.1422,
+          "median": 0.1422,
+          "p90": 0.2405
+        },
+        "weighted_bytes_saving": 0.1152,
+        "weighted_token_saving": 0.1415
+      },
+      "10k-50k": {
+        "bytes_saving": {
+          "mean": 0.4444,
+          "median": 0.3005,
+          "p90": 0.8533
+        },
+        "cache_aware_cost_saving": 0.483,
+        "no_cache_cost_saving": 0.3897,
+        "requests": 752,
+        "token_saving": {
+          "mean": 0.4736,
+          "median": 0.3829,
+          "p90": 0.8574
+        },
+        "weighted_bytes_saving": 0.3552,
+        "weighted_token_saving": 0.3897
+      },
+      "200k+": {
+        "bytes_saving": {
+          "mean": 0.0795,
+          "median": 0.0595,
+          "p90": 0.1635
+        },
+        "cache_aware_cost_saving": 0.075,
+        "no_cache_cost_saving": 0.0761,
+        "requests": 1119,
+        "token_saving": {
+          "mean": 0.0958,
+          "median": 0.0806,
+          "p90": 0.168
+        },
+        "weighted_bytes_saving": 0.0465,
+        "weighted_token_saving": 0.0761
+      },
+      "50k-100k": {
+        "bytes_saving": {
+          "mean": 0.1369,
+          "median": 0.1402,
+          "p90": 0.2156
+        },
+        "cache_aware_cost_saving": 0.1551,
+        "no_cache_cost_saving": 0.17,
+        "requests": 159,
+        "token_saving": {
+          "mean": 0.1744,
+          "median": 0.1843,
+          "p90": 0.2792
+        },
+        "weighted_bytes_saving": 0.1337,
+        "weighted_token_saving": 0.17
+      },
+      "<10k": {
+        "bytes_saving": {
+          "mean": 0.2596,
+          "median": 0.0,
+          "p90": 0.832
+        },
+        "cache_aware_cost_saving": 0.57,
+        "no_cache_cost_saving": 0.5426,
+        "requests": 6725,
+        "token_saving": {
+          "mean": 0.2612,
+          "median": 0.0,
+          "p90": 0.8353
+        },
+        "weighted_bytes_saving": 0.551,
+        "weighted_token_saving": 0.5426
+      }
+    },
+    "by_exact_quote_bucket": {
+      "digestible": {
+        "bytes_digested_share": 0.8079,
+        "digest_rate": 0.4272,
+        "results": 488297
+      },
+      "tool_result_exact_quote": {
+        "bytes_digested_share": 0.0174,
+        "digest_rate": 0.016,
+        "results": 41939
+      },
+      "tool_result_expand_recovered": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 1923
+      },
+      "tool_result_shell_read": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 26615
+      },
+      "tool_result_shell_search": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 76329
+      }
+    },
+    "by_session_length": {
+      "1-5": {
+        "bytes_saving": {
+          "mean": 0.2751,
+          "median": 0.0,
+          "p90": 0.8345
+        },
+        "cache_aware_cost_saving": 0.6072,
+        "no_cache_cost_saving": 0.6127,
+        "requests": 6219,
+        "sessions": 2356,
+        "token_saving": {
+          "mean": 0.2767,
+          "median": 0.0,
+          "p90": 0.8382
+        },
+        "weighted_bytes_saving": 0.6166,
+        "weighted_token_saving": 0.6127
+      },
+      "100+": {
+        "bytes_saving": {
+          "mean": 0.0973,
+          "median": 0.0694,
+          "p90": 0.2045
+        },
+        "cache_aware_cost_saving": 0.0802,
+        "no_cache_cost_saving": 0.0812,
+        "requests": 1695,
+        "sessions": 25,
+        "token_saving": {
+          "mean": 0.1181,
+          "median": 0.0918,
+          "p90": 0.2218
+        },
+        "weighted_bytes_saving": 0.0504,
+        "weighted_token_saving": 0.0812
+      },
+      "21-50": {
+        "bytes_saving": {
+          "mean": 0.1659,
+          "median": 0.1656,
+          "p90": 0.2853
+        },
+        "cache_aware_cost_saving": 0.2224,
+        "no_cache_cost_saving": 0.2293,
+        "requests": 303,
+        "sessions": 9,
+        "token_saving": {
+          "mean": 0.2137,
+          "median": 0.202,
+          "p90": 0.3754
+        },
+        "weighted_bytes_saving": 0.1717,
+        "weighted_token_saving": 0.2293
+      },
+      "51-100": {
+        "bytes_saving": {
+          "mean": 0.0742,
+          "median": 0.0623,
+          "p90": 0.162
+        },
+        "cache_aware_cost_saving": 0.1989,
+        "no_cache_cost_saving": 0.1888,
+        "requests": 65,
+        "sessions": 1,
+        "token_saving": {
+          "mean": 0.1058,
+          "median": 0.0855,
+          "p90": 0.2349
+        },
+        "weighted_bytes_saving": 0.133,
+        "weighted_token_saving": 0.1888
+      },
+      "6-20": {
+        "bytes_saving": {
+          "mean": 0.3752,
+          "median": 0.1095,
+          "p90": 0.8567
+        },
+        "cache_aware_cost_saving": 0.561,
+        "no_cache_cost_saving": 0.5623,
+        "requests": 789,
+        "sessions": 107,
+        "token_saving": {
+          "mean": 0.38,
+          "median": 0.1712,
+          "p90": 0.8576
+        },
+        "weighted_bytes_saving": 0.5747,
+        "weighted_token_saving": 0.5623
+      }
+    },
+    "by_tool": {
+      "Agent": {
+        "bytes_digested_share": 0.7797,
+        "digest_rate": 0.4729,
+        "results": 10650
+      },
+      "Bash": {
+        "bytes_digested_share": 0.5957,
+        "digest_rate": 0.3674,
+        "results": 493654
+      },
+      "Edit": {
+        "bytes_digested_share": 0.0808,
+        "digest_rate": 0.0238,
+        "results": 16691
+      },
+      "ExitPlanMode": {
+        "bytes_digested_share": 1.0,
+        "digest_rate": 1.0,
+        "results": 287
+      },
+      "Glob": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 1
+      },
+      "Grep": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 105
+      },
+      "Read": {
+        "bytes_digested_share": 0.0174,
+        "digest_rate": 0.0161,
+        "results": 41833
+      },
+      "WebFetch": {
+        "bytes_digested_share": 0.9619,
+        "digest_rate": 0.7189,
+        "results": 2586
+      },
+      "WebSearch": {
+        "bytes_digested_share": 1.0,
+        "digest_rate": 1.0,
+        "results": 937
+      },
+      "Write": {
+        "bytes_digested_share": 0.0,
+        "digest_rate": 0.0,
+        "results": 8670
+      },
+      "mcp": {
+        "bytes_digested_share": 0.7626,
+        "digest_rate": 0.5898,
+        "results": 27257
+      },
+      "other": {
+        "bytes_digested_share": 0.2908,
+        "digest_rate": 0.0808,
+        "results": 32432
+      }
+    },
+    "cache": {
+      "bust_rate": 0.0,
+      "requests_considered": 6573
+    },
+    "overall": {
+      "bytes_saving": {
+        "mean": 0.2455,
+        "median": 0.0424,
+        "p90": 0.8245
+      },
+      "cache_aware_cost_saving": 0.1444,
+      "no_cache_cost_saving": 0.0933,
+      "requests": 9071,
+      "token_saving": {
+        "mean": 0.2527,
+        "median": 0.054,
+        "p90": 0.8316
+      },
+      "weighted_bytes_saving": 0.0591,
+      "weighted_token_saving": 0.0933
+    },
+    "quote_hazard": {
+      "loss_rate": 0.6679,
+      "quotes_lost": 11148,
+      "quotes_lost_without_compression": 9582,
+      "quotes_survived": 5543,
+      "requests_with_literal_edits": 847,
+      "requests_with_loss": 815
+    },
+    "savings_by_region_tokens": {
+      "cached_prefix_share": 0.9311,
+      "new_since_last_request_share": 0.0689
+    },
+    "tool_results": {
+      "bytes_digested_share": 0.491,
+      "count": 635103,
+      "digest_rate": 0.3295
+    }
+  },
+  "without_shell_search_exemption": {
+    "by_context_size_tokens": {
+      "100k-200k": {
+        "bytes_saving": {
+          "mean": 0.1358,
+          "median": 0.1392,
+          "p90": 0.2474
+        },
+        "cache_aware_cost_saving": 0.1629,
+        "no_cache_cost_saving": 0.1691,
+        "requests": 316,
+        "token_saving": {
+          "mean": 0.1702,
+          "median": 0.1777,
+          "p90": 0.2793
+        },
+        "weighted_bytes_saving": 0.1357,
+        "weighted_token_saving": 0.1691
+      },
+      "10k-50k": {
+        "bytes_saving": {
+          "mean": 0.4579,
+          "median": 0.3287,
+          "p90": 0.8542
+        },
+        "cache_aware_cost_saving": 0.5034,
+        "no_cache_cost_saving": 0.4108,
+        "requests": 752,
+        "token_saving": {
+          "mean": 0.4883,
+          "median": 0.4179,
+          "p90": 0.8575
+        },
+        "weighted_bytes_saving": 0.3736,
+        "weighted_token_saving": 0.4108
+      },
+      "200k+": {
+        "bytes_saving": {
+          "mean": 0.0918,
+          "median": 0.0677,
+          "p90": 0.1894
+        },
+        "cache_aware_cost_saving": 0.0874,
+        "no_cache_cost_saving": 0.0886,
+        "requests": 1119,
+        "token_saving": {
+          "mean": 0.1118,
+          "median": 0.091,
+          "p90": 0.1963
+        },
+        "weighted_bytes_saving": 0.0532,
+        "weighted_token_saving": 0.0886
+      },
+      "50k-100k": {
+        "bytes_saving": {
+          "mean": 0.1609,
+          "median": 0.1667,
+          "p90": 0.2436
+        },
+        "cache_aware_cost_saving": 0.1861,
+        "no_cache_cost_saving": 0.1998,
+        "requests": 159,
+        "token_saving": {
+          "mean": 0.2058,
+          "median": 0.2197,
+          "p90": 0.3199
+        },
+        "weighted_bytes_saving": 0.1562,
+        "weighted_token_saving": 0.1998
+      },
+      "<10k": {
+        "bytes_saving": {
+          "mean": 0.2597,
+          "median": 0.0,
+          "p90": 0.832
+        },
+        "cache_aware_cost_saving": 0.5704,
+        "no_cache_cost_saving": 0.5429,
+        "requests": 6725,
+        "token_saving": {
+          "mean": 0.2612,
+          "median": 0.0,
+          "p90": 0.8353
+        },
+        "weighted_bytes_saving": 0.5513,
+        "weighted_token_saving": 0.5429
+      }
+    },
+    "by_session_length": {
+      "1-5": {
+        "bytes_saving": {
+          "mean": 0.2751,
+          "median": 0.0,
+          "p90": 0.8345
+        },
+        "cache_aware_cost_saving": 0.6072,
+        "no_cache_cost_saving": 0.6127,
+        "requests": 6219,
+        "sessions": 2356,
+        "token_saving": {
+          "mean": 0.2767,
+          "median": 0.0,
+          "p90": 0.8382
+        },
+        "weighted_bytes_saving": 0.6166,
+        "weighted_token_saving": 0.6127
+      },
+      "100+": {
+        "bytes_saving": {
+          "mean": 0.1124,
+          "median": 0.0784,
+          "p90": 0.2372
+        },
+        "cache_aware_cost_saving": 0.0938,
+        "no_cache_cost_saving": 0.0948,
+        "requests": 1695,
+        "sessions": 25,
+        "token_saving": {
+          "mean": 0.1378,
+          "median": 0.1059,
+          "p90": 0.2535
+        },
+        "weighted_bytes_saving": 0.0577,
+        "weighted_token_saving": 0.0948
+      },
+      "21-50": {
+        "bytes_saving": {
+          "mean": 0.1828,
+          "median": 0.1929,
+          "p90": 0.303
+        },
+        "cache_aware_cost_saving": 0.2604,
+        "no_cache_cost_saving": 0.2603,
+        "requests": 303,
+        "sessions": 9,
+        "token_saving": {
+          "mean": 0.2342,
+          "median": 0.2429,
+          "p90": 0.3925
+        },
+        "weighted_bytes_saving": 0.1981,
+        "weighted_token_saving": 0.2603
+      },
+      "51-100": {
+        "bytes_saving": {
+          "mean": 0.0852,
+          "median": 0.0881,
+          "p90": 0.1725
+        },
+        "cache_aware_cost_saving": 0.2176,
+        "no_cache_cost_saving": 0.2093,
+        "requests": 65,
+        "sessions": 1,
+        "token_saving": {
+          "mean": 0.1215,
+          "median": 0.1218,
+          "p90": 0.2505
+        },
+        "weighted_bytes_saving": 0.1469,
+        "weighted_token_saving": 0.2093
+      },
+      "6-20": {
+        "bytes_saving": {
+          "mean": 0.3794,
+          "median": 0.116,
+          "p90": 0.8569
+        },
+        "cache_aware_cost_saving": 0.567,
+        "no_cache_cost_saving": 0.5724,
+        "requests": 789,
+        "sessions": 107,
+        "token_saving": {
+          "mean": 0.3834,
+          "median": 0.1712,
+          "p90": 0.8579
+        },
+        "weighted_bytes_saving": 0.5871,
+        "weighted_token_saving": 0.5724
+      }
+    },
+    "cache": {
+      "bust_rate": 0.0,
+      "requests_considered": 6573
+    },
+    "overall": {
+      "bytes_saving": {
+        "mean": 0.2494,
+        "median": 0.0485,
+        "p90": 0.8246
+      },
+      "cache_aware_cost_saving": 0.1568,
+      "no_cache_cost_saving": 0.1069,
+      "requests": 9071,
+      "token_saving": {
+        "mean": 0.2575,
+        "median": 0.0638,
+        "p90": 0.8317
+      },
+      "weighted_bytes_saving": 0.0665,
+      "weighted_token_saving": 0.1069
+    },
+    "quote_hazard": {
+      "loss_rate": 0.6752,
+      "quotes_lost": 11270,
+      "quotes_lost_without_compression": 9582,
+      "quotes_survived": 5421,
+      "requests_with_literal_edits": 847,
+      "requests_with_loss": 815
+    },
+    "savings_by_region_tokens": {
+      "cached_prefix_share": 0.9392,
+      "new_since_last_request_share": 0.0608
+    },
+    "tool_results": {
+      "bytes_digested_share": 0.563,
+      "count": 635103,
+      "digest_rate": 0.3987
+    }
+  }
+}

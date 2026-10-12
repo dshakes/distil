@@ -383,6 +383,7 @@ def test_failed_upgrade_rolls_back_and_session_survives(tmp_path):
         tmp_path,
         upstream.server_address[1],
         extra_env={
+            "DISTIL_TESTING": "1",
             "DISTIL_HOTSWAP_TEST_FAIL_READY": str(fail_marker),
             "DISTIL_WORKER_READY_TIMEOUT": "5",
         },
@@ -493,6 +494,7 @@ def test_supervisor_inprocess_handover_and_reap(tmp_path, monkeypatch):
 def test_supervisor_inprocess_rollback_keeps_old_worker(tmp_path, monkeypatch):
     upstream = _start_upstream()
     fail_marker = tmp_path / "break-replacements"
+    monkeypatch.setenv("DISTIL_TESTING", "1")
     monkeypatch.setenv("DISTIL_HOTSWAP_TEST_FAIL_READY", str(fail_marker))
     monkeypatch.setenv("DISTIL_WORKER_READY_TIMEOUT", "5")
     sup = _inproc_supervisor(tmp_path, monkeypatch, upstream.server_address[1])

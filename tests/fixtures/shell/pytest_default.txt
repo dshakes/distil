@@ -1,0 +1,30 @@
+============================= test session starts ==============================
+platform x -- Python 3.x, pytest-x, pluggy-x
+rootdir: /tmp/proj
+collected 60 items
+
+test_demo.py .........................................................FF [ 98%]
+s                                                                        [100%]
+
+=================================== FAILURES ===================================
+______________________________ test_parses_header ______________________________
+
+    def test_parses_header():
+>       assert 'a,b'.split(',') == ['a', 'b', 'c']
+E       AssertionError: assert ['a', 'b'] == ['a', 'b', 'c']
+E         
+E         Right contains one more item: 'c'
+E         Use -v to get more diff
+
+test_demo.py:174: AssertionError
+_____________________________ test_raises_on_empty _____________________________
+
+    def test_raises_on_empty():
+>       raise ValueError('empty input: expected at least one row')
+E       ValueError: empty input: expected at least one row
+
+test_demo.py:177: ValueError
+=========================== short test summary info ============================
+FAILED test_demo.py::test_parses_header - AssertionError: assert ['a', 'b'] =...
+FAILED test_demo.py::test_raises_on_empty - ValueError: empty input: expected...
+=================== 2 failed, 57 passed, 1 skipped in 0.01s ====================

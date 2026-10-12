@@ -16,7 +16,12 @@ from pathlib import Path
 import pytest
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
-PAGES = sorted(p for p in DOCS.glob("*.html") if p.name != "index.html")
+# Moved-page stubs (scripts/site_nav.py REDIRECTS) carry no chrome by design.
+PAGES = sorted(
+    p
+    for p in DOCS.glob("*.html")
+    if p.name != "index.html" and 'name="distil-redirect"' not in p.read_text(encoding="utf-8")
+)
 LINK = re.compile(r'<a href="([a-z0-9\-]+\.html)"[^>]*>(.*?)</a>', re.S)
 
 
@@ -94,6 +99,8 @@ def test_no_nav_list_item_holds_two_links():
     offenders = []
     for page in sorted(docs.glob("*.html")):
         text = page.read_text(encoding="utf-8")
+        if 'name="distil-redirect"' in text:
+            continue
         for region in re.finditer(r"<(nav|aside)\b.*?</\1>", text, re.S):
             # stop each item at a nested <ul>: a parent link plus a sub-menu is fine
             for item in re.finditer(r"<li>(?:(?!</li>).)*?(?=<ul|</li>)", region.group(0), re.S):

@@ -629,3 +629,91 @@ def test_gemini_exempts_an_expand_recovery() -> None:
     contents = out["contents"]
     assert contents[4]["parts"][0]["functionResponse"]["response"]["stdout"] == RECOVERED
     assert "handle=" in contents[2]["parts"][0]["functionResponse"]["response"]["stdout"]
+
+
+# --------------------------------------------------------------------------- every shape
+
+
+def _edit_session(shape: str, quote: str):
+    """A piped read (not exempt, so it digests), noise, then an edit quoting *quote*,
+    in each provider's shape: (compress, history)."""
+    piped = "cat /app/handlers.py | head -400"
+    if shape == "chat":
+
+        def call(cid: str, name: str, args: dict) -> dict:
+            fn = {"name": name, "arguments": json.dumps(args)}
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": cid, "type": "function", "function": fn}],
+            }
+
+        msgs = [
+            {"role": "user", "content": "refactor"},
+            call("r1", "shell", {"command": piped}),
+            {"role": "tool", "tool_call_id": "r1", "content": SRC},
+        ]
+        for i in range(6):
+            msgs += [
+                call(f"n{i}", "shell", {"command": "pytest -q"}),
+                {"role": "tool", "tool_call_id": f"n{i}", "content": NOISE},
+            ]
+        msgs.append(call("e1", "str_replace_editor", {"old_str": quote, "new_str": ""}))
+        return lambda: compress_chat_completions(msgs)
+    if shape == "gemini":
+
+        def fc(name: str, args: dict) -> dict:
+            return {"role": "model", "parts": [{"functionCall": {"name": name, "args": args}}]}
+
+        def fr(name: str, out: str) -> dict:
+            return {
+                "role": "user",
+                "parts": [{"functionResponse": {"name": name, "response": {"output": out}}}],
+            }
+
+        contents = [
+            {"role": "user", "parts": [{"text": "refactor"}]},
+            fc("run_shell_command", {"command": piped}),
+            fr("run_shell_command", SRC),
+        ]
+        for _ in range(6):
+            contents += [
+                fc("run_shell_command", {"command": "pytest -q"}),
+                fr("run_shell_command", NOISE),
+            ]
+        contents.append(
+            fc("replace", {"file_path": "/app/handlers.py", "old_string": quote, "new_string": ""})
+        )
+        return lambda: compress_generate_request({"contents": contents})
+    msgs = _anthropic_session(piped)
+    msgs.append(
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "e1", "name": "Edit", "input": {"old_string": quote}}
+            ],
+        }
+    )
+    return lambda: compress_messages(msgs)
+
+
+@pytest.mark.parametrize("shape", ["messages", "chat", "gemini"])
+def test_every_shape_measures_whether_an_edit_can_still_apply(shape: str) -> None:
+    """The guarantee is only worth what it measures. Chat Completions and Gemini edited
+    files with no count at all — `dissect` reported them as "no edit here". Same counter
+    on every shape now (Responses has its own test above): a quote the digest folded is
+    booked as lost, and one the agent never read is lost on every shape alike."""
+    _edit_session(shape, QUOTE)()
+    hz = take_quote_hazard()
+    assert hz is not None and hz["survived"] + hz["lost"] == 1
+    _edit_session(shape, UNREAD)()
+    assert take_quote_hazard() == {"survived": 0, "lost": 1}
+
+
+def test_gemini_model_turns_are_not_the_view_a_quote_must_survive_in() -> None:
+    """The edit call itself carries the quote; counting the model's own turn would make
+    every quote 'survive' however the read was digested."""
+    from distil.compress.provenance import observed_view
+
+    view = observed_view([{"role": "model", "parts": [{"text": "QUOTE_X"}]}])
+    assert "QUOTE_X" not in view

@@ -503,8 +503,21 @@ keeps the next action in 78.0% of held-out coding decisions, against 94.1% for t
 identical uncompressed calls. Whether that costs solved tasks is the question of
 `specs/swebench-outcome-eval.md` (`benchmarks/swebench_outcome/`), a SWE-bench Lite
 plain-versus-served harness graded by the official grader and McNemar's test. It is
-built, and it has been run on all 300 SWE-bench Lite tasks with both agents using prompt caching (`benchmarks/results/swebench-outcome-300/report.md`): 201/299 paired tasks resolved with distil serving against 210/299 plain (discordant 9 vs 18), a paired difference of −3.0 pts with 95% Wald CI [−6.4, +0.4] and exact McNemar p = 0.12. Non-inferiority at the pre-registered 5-point margin is **not shown**, and the point estimate is on the wrong side. Serving cost 12.4% more ($8.07 vs $7.18) and took 29.9% more steps (1,629 vs 1,254). The extra tool calls are mostly searches and slice reads (`grep` 539 vs 410, `sed` 624 vs 406; `tool_calls.json`), while the agent called `distil_expand` 13 times in 300 tasks. Replaying each distil-arm final request through `compress_messages` offline (`digest_replay.json`) shows what it lost: 704 of 1,583 tool results were digested, including 436 of 539 shell `grep` results but only 105 of 595 `sed` reads, which the shell-read exemption already keeps verbatim. The agent's search results, its file:line map, were digested; it searched and re-read again rather than expanding. distil exempts a `Grep` tool's output by name, but not the same search run through `bash`. This supersedes a 100-task run (`benchmarks/results/swebench-outcome-100/`) that passed the margin by a tenth of a point without prompt caching. A fix that keeps shell search output verbatim (`is_shell_search`) was then measured by re-running only the distil arm on the same 300 tasks against the same plain rows (`benchmarks/results/swebench-outcome-300-grepfix/report.md`): steps over plain fell from +29.9% to +3.1%, cost from +12.4% to parity ($7.18 vs $7.18), give-ups from 4 to 1, and resolved rose to 204/299 (−2.0 pts, 95% CI [−5.5, +1.5], p = 0.34), a change within noise. Non-inferiority is still not shown, by half a point. The fix's price, measured offline on the unfixed run's transcripts, is request-size savings falling from 24.1% to 9.1%. Decision record:
+built, and it has been run on all 300 SWE-bench Lite tasks with both agents using prompt caching (`benchmarks/results/swebench-outcome-300/report.md`): 201/299 paired tasks resolved with distil serving against 210/299 plain (discordant 9 vs 18), a paired difference of −3.0 pts with 95% Wald CI [−6.4, +0.4] and exact McNemar p = 0.12. Non-inferiority at the pre-registered 5-point margin is **not shown**, and the point estimate is on the wrong side. Serving cost 12.4% more ($8.07 vs $7.18) and took 29.9% more steps (1,629 vs 1,254). The extra tool calls are mostly searches and slice reads (`grep` 539 vs 410, `sed` 624 vs 406; `tool_calls.json`), while the agent called `distil_expand` 13 times in 300 tasks. Replaying each distil-arm final request through `compress_messages` offline (`digest_replay.json`) shows what it lost: 704 of 1,583 tool results were digested, including 436 of 539 shell `grep` results but only 105 of 595 `sed` reads, which the shell-read exemption already keeps verbatim. The agent's search results, its file:line map, were digested; it searched and re-read again rather than expanding. distil exempts a `Grep` tool's output by name, but not the same search run through `bash`. This supersedes a 100-task run (`benchmarks/results/swebench-outcome-100/`) that passed the margin by a tenth of a point without prompt caching. A fix that keeps shell search output verbatim (`is_shell_search`) was then measured by re-running only the distil arm on the same 300 tasks against the same plain rows (`benchmarks/results/swebench-outcome-300-grepfix/report.md`): steps over plain fell from +29.9% to +3.1%, cost from +12.4% to parity ($7.18 vs $7.18), give-ups from 4 to 1, and resolved rose to 204/299 (−2.0 pts, 95% CI [−5.5, +1.5], p = 0.34), a change within noise. Non-inferiority is still not shown, by half a point. The fix's price, measured offline on the unfixed run's transcripts, is request-size savings falling from 24.1% to 9.1%. A second run with the fix at medium effort and a 60-step limit (`benchmarks/results/swebench-outcome-300-medium/report.md`) points the same way: 213/298 vs 218/298, −1.7 pts (95% CI [−5.1, +1.7], p = 0.44), cost at parity ($8.44 vs $8.52). It was meant as a long-horizon check but was not one (median 4 steps), so savings on long sessions remain unmeasured. Decision record:
 `docs/adr/0021-served-path-certification.md`.
+
+After the fix the agent still re-read instead of expanding (5 `distil_expand` calls in 300
+tasks). Replaying the fixed run's 300 distil transcripts request by request
+(`benchmarks/results/reinflate-replay/`), 61 of 894 tool calls returned lines an earlier
+result already carried, and in 36 of them that earlier result had reached the model only as
+a digest. Because a caching client commits the newest turn, a re-run was itself digested on
+first sight, and an identical one came back as the same stub. distil now forwards such a
+re-fetch verbatim, never rewriting the earlier digest (ADR 0025). Offline that makes 5 of
+the 36 visible (36 → 31) for 0.7 points of request-size savings (11.9% → 11.2%; 9.3% →
+8.9% cache-aware) and no rewritten prefix. The larger lever, keeping compound read commands
+verbatim, makes 14 to 28 visible but gives back 2.7 to 6 points of the 9.3; it is recorded
+there and not adopted. Neither number says the agent would have skipped those calls; that
+needs a live distil-arm run, which has not been done.
 
 **Harness fixes and lessons.** The recovery loop now commits through the runner's
 structured decision tool (the free-text format difference alone had flipped about one action
@@ -529,7 +542,69 @@ upstream files. The fact-recall benchmarks are listed separately in §5.2.
 | τ-bench historical trajectories (MIT) | [sierra-research/tau-bench](https://github.com/sierra-research/tau-bench) `historical_trajectories/` | `gpt-4o-airline`, `gpt-4o-retail`, `sonnet-35-new-airline`, `sonnet-35-new-retail` | sha256 per file in `TAU_SHA256` (`benchmarks/model_migration_eval.py`); 100 decision points (25 / 21 / 25 / 29), seed 20260929, list in `benchmarks/model_migration_cases_real.json` | Certifier model migration (§6.8): the incumbent vs candidate models |
 | SWE-agent GPT-4o trajectories on SWE-bench Lite | `s3://swe-bench-submissions/lite/20240728_sweagent_gpt4o/trajs/` (the SWE-bench leaderboard's submission artifacts) | 120 `.traj` files drawn at random | sha256 per file in `benchmarks/swe_agent_trajs_manifest.json` (seed 20260929); 100 decision points from 109 eligible trajectories in `benchmarks/model_migration_cases_coding.json`; all 4,616 turns for the savings report | Certified-vs-served savings and the served-path decision gap (§6.8) |
 | SWE-bench Lite | [`princeton-nlp/SWE-bench_Lite`](https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite), `test` split, with the prebuilt `swebench/sweb.eval.x86_64.*` Docker images | 10 instances (pilot) and 100 instances (`--seed 1`), then all 300 in dataset order (three batches of 100, images pre-pulled) | Instance ids in each run's `results.jsonl`; graded by the official harness, `swebench>=4,<5` | Task-outcome eval: plain agent vs distil-served agent (`benchmarks/results/swebench-outcome-*`) |
+| RTK (Apache-2.0) | [rtk-ai/rtk](https://github.com/rtk-ai/rtk) release binary `rtk-x86_64-unknown-linux-musl.tar.gz` | the real `rtk rewrite` + filtered `rtk <cmd>` run inside each task container, as its documented Claude Code hook does (bash tool only) | v0.51.0, sha256 `5028d3b1...eb5` pinned in `benchmarks/swebench_outcome/arm_rtk.py` | Head-to-head arm `rtk` in the task-outcome eval (`specs/swebench-outcome-eval.md`); not yet run |
+| Selective Context (MIT) | PyPI [`selective-context`](https://pypi.org/project/selective-context/) ([liyucheng09/Selective_Context](https://github.com/liyucheng09/Selective_Context)); LM [`openai-community/gpt2`](https://huggingface.co/openai-community/gpt2) (MIT, 548 MB `model.safetensors`, fetched on first use) + spaCy `en_core_web_sm` | tool-result text pruned with upstream defaults (`reduce_ratio=0.35`, `reduce_level="phrase"`), out-of-process because it pins `spacy==3.2.0` (CPython <= 3.10) | `selective-context==0.1.4`, checked at start-up; optional, `run` refuses before any spend if absent | Head-to-head arm `selective`; not yet run |
+| Anthropic context editing | [docs](https://platform.claude.com/docs/en/build-with-claude/context-editing), API feature (beta) | `clear_tool_uses_20250919` via `client.beta.messages.create(betas=["context-management-2025-06-27"], context_management=...)`; trigger 3000 tokens / keep 2 / clear_at_least 1000 (harness choice; the documented defaults never fire on these short tasks) | beta header above; `anthropic` version recorded per result row | Head-to-head arm `provider-cm`; not yet run |
 | distil synthetic corpus | `corpus/` + `benchmarks/corpus_xl/` (in-repo) | all trajectories | in-repo | Offline certification only. Not used for live model comparisons: it plants `DECISION:` answer markers that a live model can read (§6.8) |
+
+### 6.10 Savings on real long sessions
+
+Every other number in this document is on a corpus someone built. This one is on the author's
+own Claude Code transcripts, replayed offline through the real serving adapter
+(`distil.adapters.anthropic.compress_messages(..., persist=False)`, digest mode) at distil 1.56.4.
+`benchmarks/session_replay.py` rebuilds each API request from the JSONL (streamed assistant
+blocks merged, parallel `tool_result` lines merged, sidechains and sub-agent transcripts
+skipped), replays every prefix that ends in a user turn, and measures bytes and tokens (distil's
+offline estimator) before and after. Claude Code does not record `cache_control` in the
+transcript, so the replay places the breakpoint on the newest message of each request, as the
+client does; the report states which applied. Committed artifact:
+`benchmarks/results/session-replay/{summary.json,report.md}`: aggregates only, no text, path,
+command or session id. Run it yourself with
+`uv run python benchmarks/session_replay.py --max-sessions 2500 --seed 0`.
+
+Sample: 2,498 sessions, 34,586 requests. Replaying request *i* is O(prefix), so a long session is
+quadratic; sessions above 100 requests (25 of them) are replayed on 100 evenly spaced requests
+(each preceded by its true predecessor so the cache comparison is exact), and one session over
+the per-session work budget was skipped. Tokens are the offline heuristic: ratios are robust to
+it, absolute counts are not.
+
+| session length (requests) | sessions | tokens saved, weighted | median / p90 per request | cache-aware $ saved |
+|---|---:|---:|---|---:|
+| 1-5 | 2,356 | 61.3% | 0.0% / 83.8% | 60.7% |
+| 6-20 | 107 | 56.2% | 17.1% / 85.8% | 56.1% |
+| 21-50 | 9 | 22.9% | 20.2% / 37.5% | 22.2% |
+| 51-100 | 1 | 18.9% | 8.6% / 23.5% | 19.9% |
+| 100+ | 25 | 8.1% | 9.2% / 22.2% | 8.0% |
+
+What it says:
+
+- **Savings fall as sessions get long.** A short session is mostly one large fresh tool output,
+  which digests well. A long one is dominated by files read to be edited, which the exact-quote
+  rule keeps byte-exact, and the digestible remainder is a shrinking fraction of a growing
+  prefix. Across all replayed requests 9.3% of tokens are removed; 49.1% of tool-result bytes
+  are digested.
+- **Cached-prefix economics change the dollar picture.** 93.1% of the tokens saved sit inside
+  the cached prefix, worth about 0.1x, so the cache-aware saving (14.4% overall) is driven by
+  the 6.9% saved on content new since the last request, which is written at 1.25x. The replayed
+  compressed prefix did not change between consecutive requests (0.0% bust rate over 6,573
+  requests), so digesting does not cost a cache rewrite on this traffic. Model: shared prefix
+  read at 0.1x, the rest written at 1.25x, TTL expiry ignored, input tokens only.
+- **The shell-search fix has a measurable price.** With the exemption disabled in-process the
+  overall token saving is 10.7% (cache-aware 15.7%) against 9.3% (14.4%) served; on 100+ request
+  sessions 9.5% against 8.1%. That is the cost of keeping `grep`/`rg` output verbatim, which
+  the SWE-bench outcome runs justify (§6.9) but which is not free.
+- **Quote hazard is not zero, and the number needs care.** Of 16,691 literal-edit quotes
+  (counted once per request that carries them, so long sessions weigh repeatedly), 66.8% are not
+  found in the forwarded payload, but 57.4% are not found in the *uncompressed* history either
+  (a quote against line-numbered `Read` output, or a file the agent `Write`-ed itself). The
+  difference, about 9.4% of quotes, is attributable to compression after the adapter's own
+  widen-and-retry guard. Disabling the shell-search exemption adds 122 more lost quotes. This is
+  the figure to watch; the replay cannot say how many of those edits the agent then recovered
+  from.
+
+Limits: one person's sessions, one tool (Claude Code), no model in the loop, so this measures
+what is removed and priced, not whether the agent still succeeds (that is §6.8 and the SWE-bench
+outcome runs). Where the transcript lacks a recorded breakpoint the placement is an assumption.
 
 ## 7. How to reproduce
 

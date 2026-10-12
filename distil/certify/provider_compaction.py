@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from ..conformal import certified_risk_bound, hb_pvalue
+from ..pricing import DEFAULT_MODEL, DEFAULT_OPENAI_MODEL
 from ..shadow import SIG_VERSION, bootstrap_ci, decision_signature, wilson_ci
 
 CONTEXT_MGMT_BETA = "context-management-2025-06-27"
@@ -248,7 +249,7 @@ class ProviderArms:
 
     def __init__(
         self,
-        model: str = "claude-opus-4-8",
+        model: str = DEFAULT_MODEL,
         client: object | None = None,
         max_tokens: int = 512,
         max_calls: int | None = None,
@@ -440,7 +441,7 @@ class OpenAIArms(ProviderArms):
 
     def __init__(
         self,
-        model: str = "gpt-5.2",
+        model: str = DEFAULT_OPENAI_MODEL,
         client: object | None = None,
         max_tokens: int = 512,
         max_calls: int | None = None,

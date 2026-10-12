@@ -260,6 +260,26 @@ def _rewrite_tool_texts(
                 return {**msg, "content": new}
         return msg
 
+    if isinstance(content, list) and role == "tool":
+        # Chat Completions' list form of a tool message: every text part is tool output.
+        if msg.get("tool_call_id") in keep_ids:
+            return msg
+        parts: list[Any] = []
+        changed = False
+        for sub in content:
+            if (
+                isinstance(sub, dict)
+                and sub.get("type") == "text"
+                and isinstance(sub.get("text"), str)
+            ):
+                nt = transform(sub["text"])
+                if nt != sub["text"]:
+                    parts.append({**sub, "text": nt})
+                    changed = True
+                    continue
+            parts.append(sub)
+        return {**msg, "content": parts} if changed else msg
+
     if isinstance(content, list):
         new_list: list[Any] = []
         changed = False

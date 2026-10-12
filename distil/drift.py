@@ -154,9 +154,130 @@ def _state_path() -> Path:
 
 _FIELDS = ("alpha", "delta", "capital", "n", "tripped", "_run_sum", "_run_sq", "_sig2_prev")
 
-#: drift.json schema. 2 = the proxy-folded e-process. Anything older was the exit-time
-#: fold of shadow.jsonl and is rebuilt once, from that file, on the next proxy start.
-_SCHEMA = 2
+#: drift.json schema. 2 = the proxy-folded e-process. 3 = the same, folding only rows from
+#: modes the hold can switch off (:func:`guarded`) — schema 2 pooled lossless-only rows in,
+#: which diluted the digest arm. Anything older is rebuilt once, from shadow.jsonl, on the
+#: next proxy start (a held state is never rebuilt: the hold is evidence).
+_SCHEMA = 3
+
+#: Modes the hold cannot make safer. A hold serves lossless-only, so lossless-only (and
+#: verbatim) rows say nothing about whether to hold — folding them into the e-process
+#: averaged digest's harm with an experiment the hold never switches off. A row with no
+#: mode (pre-mode ledgers, tests) counts as guarded: unknown is not proof of safety.
+UNGUARDED_MODES = frozenset({"lossless-only", "verbatim"})
+
+
+def guarded(mode: object) -> bool:
+    return mode not in UNGUARDED_MODES
+
+
+def uncertified(path: Path | None = None, *, now: float | None = None) -> str:
+    """Why lossy compression is NOT certified on this machine's traffic, or ``""``.
+
+    The e-process above answers "is a breach PROVEN" (``H0: harm <= alpha``). That cannot
+    fire when harm sits near the budget: on the 2026-09-15 ledger digest measured
+    5.3 pp of harm, 95% CI at best [2.4, 8.7] — not provably over 5%, so the e-process
+    sat at capital ~0.9 of the 20 it needs, and not provably under it either.
+    This is the other half of the same budget, the rule every published verdict already
+    uses: a mode is inside the budget only when the upper end of its paired harm interval
+    (the bootstrap 95% CI :meth:`ShadowLedger.equivalence` reports) is. Evaluated PER
+    MODE, only for modes the hold can switch off, only above the shared reporting floor
+    (:data:`shadow.VERDICT_MIN_AB` paired rows — below it there is no verdict to act on),
+    and only over the last ``SHAPE_EVIDENCE_DAYS`` — the window auto output shaping
+    already uses. The window is what lets a hold end: rows served while held are booked
+    as lossless-only, so after the window digest drops below the floor, resumes, and
+    re-earns (or re-loses) its certificate on fresh traffic. See ADR 0022.
+    """
+    from .output import SHAPE_EVIDENCE_DAYS
+    from .shadow import ShadowLedger
+
+    since = (time.time() if now is None else now) - SHAPE_EVIDENCE_DAYS * 86400
+    led = ShadowLedger.load(path, current_only=True, since_ts=since)
+    for mode, eq in led.equivalence_by_mode().items():
+        if not guarded(mode) or eq.below_floor or eq.diff_ci is None:
+            continue
+        harm_hi = -eq.diff_ci[0]
+        if not _budget.within_budget(harm_hi):
+            return (
+                f"{mode}: paired harm {-(eq.diff or 0.0) * 100:.1f} pp, upper bound "
+                f"{harm_hi * 100:.1f} pp > the {_budget.budget_pct()} budget "
+                f"(n={eq.n_paired}, last {SHAPE_EVIDENCE_DAYS}d)"
+            )
+    return ""
+
+
+#: Clear checks in a row before a certification hold lifts (ADR 0022). The hold engages
+#: on the first over-budget check; lifting it takes this many clear ones, at least
+#: :data:`CERT_CLEAR_GAP_S` apart, so a bound oscillating across the budget does not flip
+#: the served mode every re-check. Persisted (:func:`_cert_path`): a restart, or a second
+#: proxy re-checking a minute later, does not shorten it.
+CERT_CLEAR_CHECKS = 2
+CERT_CLEAR_GAP_S = 1800.0
+
+
+def _cert_path() -> Path:
+    return _home() / "cert-hold.json"
+
+
+def cert_hold_step(why: str, *, path: Path | None = None, now: float | None = None) -> str:
+    """Fold one :func:`uncertified` result into the persisted certification hold and
+    return the reason it is engaged (``""`` = not held).
+
+    Over budget engages (or keeps) the hold at once and zeroes the clear streak. A clear
+    check counts toward release only if it is :data:`CERT_CLEAR_GAP_S` after the last one
+    that counted; the hold lifts on the :data:`CERT_CLEAR_CHECKS`-th. An unreadable state
+    file fails closed (held, streak zero) — liveness is kept because clear checks still
+    release it. Never raises on I/O: an unwritable file leaves this call's answer intact.
+    """
+    from . import _filelock
+
+    p = path or _cert_path()
+    t = time.time() if now is None else now
+    with _locked(p):
+        try:
+            st = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(st, dict) or not isinstance(st.get("why", ""), str):
+                raise ValueError("bad certification state")
+            st = {
+                "why": st.get("why", ""),
+                "clear": int(st.get("clear", 0)),
+                "clear_ts": float(st.get("clear_ts", 0.0)),
+            }
+        except FileNotFoundError:
+            st = {"why": "", "clear": 0, "clear_ts": 0.0}
+        except (OSError, ValueError, TypeError):
+            st = {"why": "certification state unreadable", "clear": 0, "clear_ts": 0.0}
+        if why:
+            st = {"why": why, "clear": 0, "clear_ts": 0.0}
+        elif st["why"] and (st["clear"] == 0 or t - st["clear_ts"] >= CERT_CLEAR_GAP_S):
+            st["clear"] += 1
+            st["clear_ts"] = t
+            if st["clear"] >= CERT_CLEAR_CHECKS:
+                st = {"why": "", "clear": 0, "clear_ts": 0.0}
+        tmp = p.with_name(p.name + ".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(st))
+                fh.flush()
+                os.fsync(fh.fileno())
+            _filelock.replace_retrying(tmp, p)
+        except OSError:
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+    return str(st["why"])
+
+
+def cert_hold_reason(path: Path | None = None) -> str:
+    """The persisted certification hold's reason (``""`` = not held). Read-only, for
+    surfaces that report it; an unreadable file reads as held, as in :func:`cert_hold_step`."""
+    try:
+        st = json.loads((path or _cert_path()).read_text(encoding="utf-8"))
+        return str(st.get("why", "")) if isinstance(st, dict) else "certification state unreadable"
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError):
+        return "certification state unreadable"
+
 
 #: The one command that releases a hold. Printed by every surface that reports one.
 RELEASE_CMD = "distil reset --drift-guard"
@@ -438,7 +559,8 @@ def _bootstrap(path: Path | None = None) -> LiveDrift:
         from .shadow import ShadowLedger
 
         state = LiveDrift.fresh()
-        tripped_now = state.advance(list(ShadowLedger.load(current_only=True).paired_diffs))
+        rows = ShadowLedger.load(current_only=True, where=lambda r: guarded(r.get("mode")))
+        tripped_now = state.advance(list(rows.paired_diffs))
         state._write(p)
         if tripped_now:
             _trip_receipt(state)
@@ -554,11 +676,20 @@ class DriftGuard:
 
     held: bool = False
     disabled: bool = False
+    #: :func:`uncertified`'s sentence while a guarded mode's harm bound is over budget.
+    #: Not released by ``distil reset --drift-guard``: it is re-derived from the evidence
+    #: at start and every :attr:`CERT_RECHECK_S` by the watcher, with hysteresis
+    #: (:func:`cert_hold_step`: engages at once, lifts after two clear checks).
+    uncertified: str = ""
     _seen: tuple[int, int] | None = None
+    _cert_at: float = 0.0
     _stop: threading.Event = field(default_factory=threading.Event)
 
     #: Watcher interval. Coarse on purpose: a trip already took hundreds of samples.
     POLL_S = 30.0
+    #: How often the watcher re-reads shadow.jsonl for the certification check. It is a
+    #: whole-file read, so hourly; a verdict needs 50 rows anyway.
+    CERT_RECHECK_S = 3600.0
 
     @classmethod
     def start(cls, *, watch: bool = True, write: bool = True) -> DriftGuard:
@@ -575,6 +706,7 @@ class DriftGuard:
                 g.refresh()
         except Exception:  # noqa: BLE001 — the alarm must never stop the proxy starting
             log.debug("drift guard start failed", exc_info=True)
+        g.recertify()
         if watch:
             with _WATCHERS_LOCK:
                 _WATCHERS.append(g)
@@ -584,7 +716,26 @@ class DriftGuard:
     @property
     def engaged(self) -> bool:
         """Serve lossless-only? The hot-path check — no I/O, no lock."""
-        return self.held and not self.disabled
+        return (self.held or bool(self.uncertified)) and not self.disabled
+
+    def recertify(self) -> None:
+        """Re-run :func:`uncertified` against the ledger. Never raises; a failed read
+        keeps the previous answer rather than releasing a hold on no evidence."""
+        try:
+            why = cert_hold_step(uncertified())
+        except Exception:  # noqa: BLE001 — the alarm must never break the proxy
+            log.debug("drift guard recertify failed", exc_info=True)
+            return
+        finally:
+            self._cert_at = time.monotonic()
+        if why != self.uncertified:
+            log.warning(
+                "distil drift guard: %s",
+                f"lossy compression not certified ({why}) — serving lossless-only"
+                if why
+                else "certified again — lossy compression resumes",
+            )
+        self.uncertified = why
 
     def refresh(self) -> None:
         """Re-read the state iff the file changed since the last look. Never raises."""
@@ -601,12 +752,15 @@ class DriftGuard:
         except Exception:  # noqa: BLE001 — the alarm must never break the proxy
             log.debug("drift guard refresh failed", exc_info=True)
 
-    def observe(self, diff: int) -> None:
-        """Fold this proxy's paired shadow difference into the one e-process.
+    def observe(self, diff: int, mode: str | None = None) -> None:
+        """Fold this proxy's paired shadow difference into the one e-process — only when
+        it was measured in a mode the hold can switch off (:func:`guarded`).
 
         Fail-open: an exception here is logged and swallowed. The request this verdict
         came from was served long ago; the alarm must never be why the next one is not.
         """
+        if not guarded(mode):
+            return
         try:
             self._set(fold([diff]).held)
         except Exception:  # noqa: BLE001 — the alarm must never break the proxy
@@ -618,6 +772,8 @@ class DriftGuard:
     def _watch(self) -> None:
         while not self._stop.wait(self.POLL_S):
             self.refresh()
+            if time.monotonic() - self._cert_at >= self.CERT_RECHECK_S:
+                self.recertify()
 
     def _set(self, tripped: bool) -> None:
         if tripped != self.held:

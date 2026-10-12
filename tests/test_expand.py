@@ -508,6 +508,36 @@ def test_responses_loop_tolerates_unparseable_arguments():
     assert out is final
 
 
+def test_responses_loop_returns_the_reasoning_item_with_the_call():
+    """A reasoning model's function_call is rejected without the reasoning item that
+    produced it; the re-query must carry the whole output, in order, before the answer."""
+    from distil.expand import run_expand_loop_responses
+
+    store = _Store({"deadbeef": "ORIGINAL"})
+    reasoning = {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque", "summary": []}
+    call = {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "c1",
+        "name": EXPAND_TOOL_NAME,
+        "arguments": json.dumps({"handle": "deadbeef"}),
+    }
+    sent: list[dict] = []
+
+    def post(body):
+        sent.append(body)
+        return {"output": [{"type": "message", "content": "done"}]}
+
+    user = {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "q"}]}
+    run_expand_loop_responses({"input": [user]}, {"output": [reasoning, call]}, store, post)
+    assert sent[0]["input"] == [
+        user,
+        reasoning,
+        call,
+        {"type": "function_call_output", "call_id": "c1", "output": "ORIGINAL"},
+    ]
+
+
 def test_streaming_expand_is_reported_in_the_receipt(tmp_path, monkeypatch):
     """The streaming splice resolves expansions; the session record must say so.
 

@@ -392,3 +392,38 @@ def test_prefix_replay_counters_reach_the_response_headers(proxy_factory):
     assert int(h["x-distil-replay-hits"]) == 3
     assert int(h["x-distil-replay-restored"]) >= 1
     assert int(h["x-distil-replay-misses"]) == 0
+
+
+@pytest.mark.parametrize("shape", ["light", "aggressive", "auto"])
+def test_subscription_expand_never_shapes_output(proxy_factory, monkeypatch, shape):
+    # `--expand` on a subscription arrives with lossless_only=False (the safe default
+    # steps aside for the explicit opt-in). Deriving the auth mode from the flag alone
+    # called that PAYG and appended a system-role verbosity directive to a first-party
+    # session. Real billing must win: no directive, no shaping header — while the
+    # recoverable digest the user opted into still runs.
+    from distil.output import OUTPUT_DIRECTIVES
+
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "1")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{proxy_factory(expand=True, shape_output=shape)}/v1/messages",
+        data=json.dumps(_digestible()).encode(),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    headers = urllib.request.urlopen(req).headers
+    sent = _LAST_BODY["raw"].decode()
+    assert headers.get("x-distil-output-shaping") is None
+    assert all(d not in sent for d in OUTPUT_DIRECTIVES.values() if d)
+    assert "handle=" in sent, "--expand must still run the recoverable digest"
+
+
+def test_payg_expand_still_shapes(proxy_factory, monkeypatch):
+    monkeypatch.setenv("DISTIL_SUBSCRIPTION", "0")
+    port = proxy_factory(expand=True, shape_output="light")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/v1/messages",
+        data=json.dumps(_digestible()).encode(),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    assert urllib.request.urlopen(req).headers.get("x-distil-output-shaping") == "light"

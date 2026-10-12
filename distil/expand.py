@@ -375,9 +375,12 @@ def run_expand_loop_responses(
         ]
         if not calls:
             return resp
+        # The whole output becomes conversation history, not just the call: a reasoning
+        # model's function_call must go back with the reasoning item that produced it, or
+        # the provider rejects the re-query (the Messages loop likewise returns the whole
+        # assistant turn, thinking blocks included).
+        input_items.extend(item for item in resp.get("output") or () if isinstance(item, dict))
         for call in calls:
-            # The function_call item itself becomes conversation history.
-            input_items.append(call)
             call_id = call.get("call_id") or call.get("id", "")
             handle = ""
             try:

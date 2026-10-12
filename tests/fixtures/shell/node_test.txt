@@ -1,0 +1,105 @@
+✔ case 00 (0.01s)
+✔ case 01 (0.01s)
+✔ case 02 (0.01s)
+✔ case 03 (0.01s)
+✔ case 04 (0.01s)
+✔ case 05 (0.01s)
+✔ case 06 (0.01s)
+✔ case 07 (0.01s)
+✔ case 08 (0.01s)
+✔ case 09 (0.01s)
+✔ case 10 (0.01s)
+✔ case 11 (0.01s)
+✔ case 12 (0.01s)
+✔ case 13 (0.01s)
+✔ case 14 (0.01s)
+✔ case 15 (0.01s)
+✔ case 16 (0.01s)
+✔ case 17 (0.01s)
+✔ case 18 (0.01s)
+✔ case 19 (0.01s)
+✔ case 20 (0.01s)
+✔ case 21 (0.01s)
+✔ case 22 (0.01s)
+✔ case 23 (0.01s)
+✔ case 24 (0.01s)
+✔ case 25 (0.01s)
+✔ case 26 (0.01s)
+✔ case 27 (0.01s)
+✔ case 28 (0.01s)
+✔ case 29 (0.01s)
+✔ case 30 (0.01s)
+✔ case 31 (0.01s)
+✔ case 32 (0.01s)
+✔ case 33 (0.01s)
+✔ case 34 (0.01s)
+✔ case 35 (0.01s)
+✔ case 36 (0.01s)
+✔ case 37 (0.01s)
+✔ case 38 (0.01s)
+✔ case 39 (0.01s)
+✔ case 40 (0.01s)
+✔ case 41 (0.01s)
+✔ case 42 (0.01s)
+✔ case 43 (0.01s)
+✔ case 44 (0.01s)
+✔ case 45 (0.01s)
+✔ case 46 (0.01s)
+✔ case 47 (0.01s)
+✔ case 48 (0.01s)
+✔ case 49 (0.01s)
+✔ case 50 (0.01s)
+✔ case 51 (0.01s)
+✔ case 52 (0.01s)
+✔ case 53 (0.01s)
+✔ case 54 (0.01s)
+✔ case 55 (0.01s)
+✔ case 56 (0.01s)
+✖ parses header (0.01s)
+✖ raises on empty (0.01s)
+ℹ tests 59
+ℹ suites 0
+ℹ pass 57
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1
+
+✖ failing tests:
+
+test at demo.test.js:60:1
+✖ parses header (0.01s)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'a',
+      'b',
+  -   'c'
+    ]
+  
+      at TestContext.<anonymous> (/tmp/proj/nodeproj/demo.test.js:60:36)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+      at Test.postRun (node:internal/test_runner/test:1173:19)
+      at Test.run (node:internal/test_runner/test:1101:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'a', 'b' ],
+    expected: [ 'a', 'b', 'c' ],
+    operator: 'deepStrictEqual'
+  }
+
+test at demo.test.js:61:1
+✖ raises on empty (0.01s)
+  Error: empty input: expected at least one row
+      at TestContext.<anonymous> (/tmp/proj/nodeproj/demo.test.js:61:39)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+      at Test.postRun (node:internal/test_runner/test:1173:19)
+      at Test.run (node:internal/test_runner/test:1101:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7)

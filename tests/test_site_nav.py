@@ -61,7 +61,10 @@ def test_canonical_set_covers_every_page_but_landing_and_which_mode():
 def test_which_mode_is_on_every_topbar():
     """9 pages had a shorter topbar variant that silently dropped this link."""
     for path in sorted(_DOCS.glob("*.html")):
-        if path.name in {"index.html", "which-mode.html"}:
+        if (
+            path.name in {"index.html", "which-mode.html"}
+            or path.name in _load_site_nav().REDIRECTS
+        ):
             continue
         text = path.read_text(encoding="utf-8")
         assert 'href="which-mode.html"' in text, f"{path.name} topbar is missing Which Mode?"
@@ -71,12 +74,12 @@ def test_new_badge_follows_the_release_window():
     """ "New" retires itself: only pages introduced in the current minor release
     carry it, judged against the version argument, not a wall clock."""
     mod = _load_site_nav()
-    assert mod.is_new("model-migration.html", "1.56.1")
+    assert mod.is_new("scoreboard.html", "1.57.1")
     assert mod.is_new("ab.html", "1.55.2")  # new in its own release
     assert not mod.is_new("ab.html", "1.56.1")  # the next minor release retires it
     assert not mod.is_new("cache.html", "1.56.1")  # 1.41: long since not new
     assert not mod.is_new("cli.html", "1.56.1")  # untracked pages never get it
-    assert not mod.is_new("model-migration.html", "2.0.0")
+    assert not mod.is_new("scoreboard.html", "2.0.0")
 
 
 def test_landing_page_badges_are_in_sync():
@@ -84,3 +87,20 @@ def test_landing_page_badges_are_in_sync():
     mod = _load_site_nav()
     text = (_DOCS / "index.html").read_text(encoding="utf-8")
     assert mod.refresh_new_badges(text) == text, "Run: python3 scripts/site_nav.py"
+
+
+def test_moved_pages_are_redirect_stubs_that_resolve():
+    """No inbound URL 404s: every retired page is a stub pointing at a real page and,
+    when it names an anchor, a real id on it."""
+    import re
+
+    mod = _load_site_nav()
+    assert len(mod.REDIRECTS) >= 20
+    for old, to in mod.REDIRECTS.items():
+        stub = (_DOCS / old).read_text(encoding="utf-8")
+        assert mod.is_redirect(stub), old
+        assert f'http-equiv="refresh" content="0; url={to}"' in stub and f'href="{to}"' in stub
+        page, _, frag = to.partition("#")
+        text = (_DOCS / page).read_text(encoding="utf-8")
+        assert not mod.is_redirect(text), f"{old} -> {page} is itself a stub"
+        assert not frag or re.search(rf'\bid="{re.escape(frag)}"', text), f"{old}: #{frag} missing"

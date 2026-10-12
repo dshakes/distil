@@ -52,7 +52,11 @@ def test_committed_index_is_current():
 def test_every_docs_page_is_searchable():
     """A page absent from the index is a page search cannot find."""
     mod = _load_builder()
-    on_disk = {p.name for p in _DOCS.glob("*.html")} - mod.SKIP
+    on_disk = {
+        p.name
+        for p in _DOCS.glob("*.html")
+        if 'name="distil-redirect"' not in p.read_text(encoding="utf-8")  # moved-page stubs
+    } - mod.SKIP
     indexed = {p["u"] for p in json.loads(_INDEX.read_text(encoding="utf-8"))}
     assert on_disk == indexed, f"not searchable: {sorted(on_disk - indexed)}"
 

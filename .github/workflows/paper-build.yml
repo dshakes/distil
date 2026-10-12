@@ -24,14 +24,14 @@ jobs:
   build-paper:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # TeX Live full ships every package main.tex needs (tikz, pgfplots,
       # algorithm2e, cleveref, microtype...). The paper has no external images
       # and a manual thebibliography, so latexmk alone is sufficient — no
       # bibtex/biber pass required.
       - name: Compile paper
-        uses: xu-cheng/latex-action@v3
+        uses: xu-cheng/latex-action@e2f99d4b3685b0da93f97e1b86ad8fab81105098 # v3
         with:
           working_directory: docs/paper
           root_file: main.tex
@@ -78,7 +78,7 @@ jobs:
       # so there is no staleness check to satisfy — this step exists to catch a
       # LaTeX error or a missing generated/ macro fragment before it reaches arXiv.
       - name: Compile provider-compaction paper
-        uses: xu-cheng/latex-action@v3
+        uses: xu-cheng/latex-action@e2f99d4b3685b0da93f97e1b86ad8fab81105098 # v3
         with:
           working_directory: docs/paper
           root_file: provider_compaction.tex
@@ -86,7 +86,7 @@ jobs:
           args: -pdf -g -interaction=nonstopmode -halt-on-error -file-line-error
 
       - name: Compile NeurIPS variant
-        uses: xu-cheng/latex-action@v3
+        uses: xu-cheng/latex-action@e2f99d4b3685b0da93f97e1b86ad8fab81105098 # v3
         with:
           working_directory: docs/paper
           root_file: main_neurips.tex
@@ -148,7 +148,7 @@ jobs:
       # artifact holds them at its root as main.pdf / main_neurips.pdf.
       - name: Upload paper PDFs
         if: success()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: distil-paper-pdf
           path: |
@@ -160,7 +160,7 @@ jobs:
       # TeX toolchain.
       - name: Upload build log on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: distil-paper-log
           path: docs/paper/main.log

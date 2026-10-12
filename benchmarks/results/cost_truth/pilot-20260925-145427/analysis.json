@@ -1,0 +1,204 @@
+{
+  "alpha_per_comparison": 0.016666666666666666,
+  "blocks": 18,
+  "bootstrap_b": 10000,
+  "comparisons": {
+    "distil": {
+      "cost_verdict": "inconclusive",
+      "ni_margin": 0.05,
+      "noninferior": false,
+      "ratio_ci": [
+        0.7691449626201687,
+        1.8949228899317576
+      ],
+      "ratio_ci_level": 0.9833333333333333,
+      "secondary": {
+        "claims": {
+          "billed_input_tokens_saved": -8216313,
+          "billed_usd_saved": -2.429188,
+          "claim_over_billed_tokens": null,
+          "claimed_tokens_saved": null,
+          "runs_with_claim": 0
+        },
+        "leave_one_task_out_ratio": [
+          1.0808329591806132,
+          1.3412208019503284
+        ],
+        "mcnemar_cert_margin": {
+          "ci95_high": 0.2895902762952635,
+          "ci95_low": -0.2895902762952635,
+          "delta": 0.0,
+          "margin": 0.02,
+          "n": 18,
+          "noninferior": false,
+          "se": 0.13608276348795434
+        },
+        "mean_turns": {
+          "control": 19.5,
+          "distil": 31.61111111111111
+        },
+        "mean_wall_s": {
+          "control": 255.7472708888889,
+          "distil": 317.29908133333333
+        },
+        "task_mean_log_ratio": 0.2597746469565132,
+        "task_mean_log_ratio_ci": [
+          -0.04096119050406977,
+          0.5681877962746517
+        ],
+        "total_usd_ratio": 1.214540196914397,
+        "warm_start_ratio": 1.1810370776317687
+      },
+      "success_diff": 0.0,
+      "success_diff_ci": [
+        -0.3333333333333333,
+        0.35
+      ],
+      "tost_equivalent": false,
+      "usd_per_solved_ratio": 1.214540196914397,
+      "verdict": "not shown"
+    },
+    "headroom": {
+      "cost_verdict": "inconclusive",
+      "ni_margin": 0.05,
+      "noninferior": false,
+      "ratio_ci": [
+        0.6097619046169649,
+        1.573709954748492
+      ],
+      "ratio_ci_level": 0.9833333333333333,
+      "secondary": {
+        "claims": {
+          "billed_input_tokens_saved": 1639788,
+          "billed_usd_saved": 1.167027,
+          "claim_over_billed_tokens": null,
+          "claimed_tokens_saved": null,
+          "runs_with_claim": 0
+        },
+        "leave_one_task_out_ratio": [
+          0.8736814922969294,
+          1.1860204802597836
+        ],
+        "mcnemar_cert_margin": {
+          "ci95_high": 0.1473108023560987,
+          "ci95_low": -0.2584219134672098,
+          "delta": -0.05555555555555555,
+          "margin": 0.02,
+          "n": 18,
+          "noninferior": false,
+          "se": 0.09532990871284261
+        },
+        "mean_turns": {
+          "control": 19.5,
+          "headroom": 17.333333333333332
+        },
+        "mean_wall_s": {
+          "control": 255.7472708888889,
+          "headroom": 382.86167855555556
+        },
+        "task_mean_log_ratio": -0.024688131982400763,
+        "task_mean_log_ratio_ci": [
+          -0.5225532801416152,
+          0.3355399775671838
+        ],
+        "total_usd_ratio": 0.8969309367539295,
+        "warm_start_ratio": 0.9342086415918978
+      },
+      "success_diff": -0.05555555555555555,
+      "success_diff_ci": [
+        -0.29411764705882354,
+        0.11764705882352941
+      ],
+      "tost_equivalent": false,
+      "usd_per_solved_ratio": 0.9659256241965395,
+      "verdict": "not shown"
+    },
+    "rtk": {
+      "cost_verdict": "inconclusive",
+      "ni_margin": 0.05,
+      "noninferior": false,
+      "ratio_ci": [
+        0.5062384720555199,
+        1.0854382072881863
+      ],
+      "ratio_ci_level": 0.9833333333333333,
+      "secondary": {
+        "claims": {
+          "billed_input_tokens_saved": 258741,
+          "billed_usd_saved": 2.348323,
+          "claim_over_billed_tokens": null,
+          "claimed_tokens_saved": null,
+          "runs_with_claim": 0
+        },
+        "leave_one_task_out_ratio": [
+          0.6693223073211797,
+          0.8287010847718705
+        ],
+        "mcnemar_cert_margin": {
+          "ci95_high": 0.2584219134672098,
+          "ci95_low": -0.1473108023560987,
+          "delta": 0.05555555555555555,
+          "margin": 0.02,
+          "n": 18,
+          "noninferior": false,
+          "se": 0.09532990871284261
+        },
+        "mean_turns": {
+          "control": 19.5,
+          "rtk": 18.166666666666668
+        },
+        "mean_wall_s": {
+          "control": 255.7472708888889,
+          "rtk": 247.09767522222222
+        },
+        "task_mean_log_ratio": -0.14605740026194125,
+        "task_mean_log_ratio_ci": [
+          -0.41906431014654455,
+          0.1334995931786337
+        ],
+        "total_usd_ratio": 0.7926016245460941,
+        "warm_start_ratio": 0.7544200790207477
+      },
+      "success_diff": 0.05555555555555555,
+      "success_diff_ci": [
+        -0.17647058823529413,
+        0.25
+      ],
+      "tost_equivalent": false,
+      "usd_per_solved_ratio": 0.7397615162430211,
+      "verdict": "not shown"
+    }
+  },
+  "excluded_runs": 10,
+  "per_arm": {
+    "control": {
+      "attempts": 18,
+      "cost_usd": 11.322763,
+      "solved": 14,
+      "success_rate": 0.7777777777777778,
+      "usd_per_solved": 0.8087687678571429
+    },
+    "distil": {
+      "attempts": 18,
+      "cost_usd": 13.75195,
+      "solved": 14,
+      "success_rate": 0.7777777777777778,
+      "usd_per_solved": 0.9822821785714285
+    },
+    "headroom": {
+      "attempts": 18,
+      "cost_usd": 10.155736,
+      "solved": 13,
+      "success_rate": 0.7222222222222222,
+      "usd_per_solved": 0.7812104769230769
+    },
+    "rtk": {
+      "attempts": 18,
+      "cost_usd": 8.97444,
+      "solved": 15,
+      "success_rate": 0.8333333333333334,
+      "usd_per_solved": 0.59829601
+    }
+  },
+  "tasks": 10
+}

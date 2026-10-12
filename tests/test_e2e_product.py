@@ -134,10 +134,11 @@ def test_wrap_refuses_a_config_that_would_take_the_agent_down(tmp_path, monkeypa
     """The three-outages-in-a-day regression, end to end through the real CLI."""
     import socket
 
+    # Keep the port bound but not listening for the whole test: connections are
+    # refused, and no other test's server can take the port in between.
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     dead_port = s.getsockname()[1]
-    s.close()
 
     proj = tmp_path / "proj"
     (proj / ".claude").mkdir(parents=True)
@@ -161,6 +162,7 @@ def test_wrap_refuses_a_config_that_would_take_the_agent_down(tmp_path, monkeypa
             "USERPROFILE": str(tmp_path),
         },
     )
+    s.close()
     assert result.returncode == 1, "wrap must refuse, not start into a guaranteed outage"
     assert "NOT accepting connections" in result.stderr
     assert "distil offboard" in result.stderr, "must name the fix, not just the fault"

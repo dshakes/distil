@@ -1,15 +1,28 @@
-# Distil — cut what your coding agent costs
+# Distil — the context compressor that measures itself
 
-Distil cuts what Claude Code and other coding agents cost, and shows the real
-bill, cache included. It trims the tool output, logs and history an agent
-re-sends every turn, never rewrites bytes the provider still has cached, and
-keeps every byte it trims recoverable through a `distil_expand` tool. On the
-maintainer's own Claude Code traffic (13,191 requests, 2026-09-01..24) it saved
-an estimated 10.2% of the bill, cache reads and writes priced in
-(benchmarks/results/2026-09-24/live_savings_decomposition.json), before its own
-expand re-queries and shadow replays were netted out; net of them the corrected
-estimate is about 9%, 8.3-9.2% (docs/research/expand-undercount.md); results depend
-on how much large, repetitive tool output the agent reads.
+Distil trims the tool output, logs and history a coding agent re-sends every
+turn, never rewrites bytes the provider still has cached, keeps every byte it
+trims recoverable through a `distil_expand` tool, and measures, on itself and on
+every other compressor through the same harness, whether that saved money or
+changed what the agent did.
+
+What the measurements say (2026-10-06): on short SWE-bench Lite tasks (298
+graded in every arm) no compressor is shown to save money. distil is at parity
+with no compression; RTK read 20.7% cheaper per task until a shared prompt-cache
+confound was found (rtk, selective and provider-cm read each other's cache), and
+re-priced as a cold run it is -6.5% per task, 95% CI [-13.1%, +0.1%], not
+significant (docs/scoreboard.json, docs/research/why-rtk-wins.md). A 7-task
+long-horizon pilot is inconclusive (distil cost 9.7% more on 6 of the tasks;
+benchmarks/results/swebench-verified-hard-max/). An offline policy simulator that
+reproduces the bill within 2.5% on held-out runs finds lossless policies within
+0.2% of plain, and lossy savings that depend on whether the agent takes extra
+steps, which the next live A/B measures (docs/research/policy-simulator.md). On
+the maintainer's own Claude Code traffic (13,191 requests, 2026-09-01..24) distil
+removed an estimated 10.2% of the bill, cache priced in
+(benchmarks/results/2026-09-24/live_savings_decomposition.json), about 9%,
+8.3-9.2% net of its own expand re-queries and shadow replays
+(docs/research/expand-undercount.md); that is a same-trajectory estimate that
+assumes the agent behaved the same.
 
 Install (one line; the PyPI package is distil-llm, the command is distil):
 
@@ -20,6 +33,13 @@ Alternatives: `curl -LsSf https://dshakes.github.io/distil/install.sh | sh`
 `powershell -ExecutionPolicy ByPass -c "irm https://dshakes.github.io/distil/install.ps1 | iex"`.
 Then `distil wrap -- claude` to run an agent through it, `distil savings` to
 see what it saved, `distil doctor` if something looks off.
+Maker-side research and CI gates (bench, certify, verify, validate, holdout, ...) live
+under `distil research <name>`; the old top-level names still work.
+`distil sh -- <command>` (opt-in, ADR 0026) shapes test-runner and `git status`
+output at the source, every failure line verbatim; `distil hook install --shell`
+makes Claude Code use it. The `distil savings` what-if replays Claude Code, Codex CLI and
+Gemini CLI sessions. The scoreboard (docs/scoreboard.html) runs distil, RTK, Headroom,
+Selective Context and Anthropic context editing through one harness.
 
 Beyond cost, distil also checks itself: it certifies that the agent's
 decisions are statistically unchanged (non-inferiority test) rather than
@@ -57,7 +77,9 @@ all reach the same tier:
 Framework hooks (in-process, no network hop): LiteLLM, LangChain, LangGraph,
 Agno, Strands, AutoGen, LlamaIndex. A generic ASGI middleware (distil.integrations.asgi)
 compresses provider-shaped POST bodies for apps that host their own LLM-facing
-endpoint. An MCP server exposes distil_compress / distil_expand /
+endpoint. For the LiteLLM Proxy server, distil.integrations.litellm_hook is a
+pre-call hook (litellm_settings.callbacks) that compresses each request before
+routing, lossless-only by default. An MCP server exposes distil_compress / distil_expand /
 distil_savings to any MCP client.
 
 IMPORTANT for anyone integrating: the reversible DIGEST tier is reached by the
@@ -68,9 +90,12 @@ TypeScript port is held byte-identical to the Python engine by a conformance
 suite; where it cannot match Python's bytes it declines rather than emitting
 output the certificate does not cover.
 
-Graded on SWE-bench Verified: 42.0% task success
-vs 39.2% full context (paired non-inferiority certified; superiority not
-significant). 83.2% savings at 0% decision-change rate on a live head-to-head
+Task outcome of the shipped path, SWE-bench Lite (n=300, two runs): cost-neutral
+and within about 2 points on task success (-2.0 pts, 95% CI -5.5..+1.5; -1.7 pts,
+95% CI -5.1..+1.7), not statistically distinguishable; non-inferiority at the
+5-point margin not shown; a 7-task long-session pilot is inconclusive. Research
+configurations on SWE-bench Verified (E8-E14) are not the shipped path. On a
+synthetic offline corpus: 83.2% savings at 0% decision-change rate on a head-to-head
 (2026-07-05, distil 1.10.1 vs llmlingua 0.2.2 and headroom-ai 0.27.0; that run's Headroom figures are 0.27.0-era). Re-run 2026-09-04
 against headroom-ai 0.37.0: distil-causal 52.9% tokens / 58.7% dollars at 100%
 decision-equivalence (PASS) vs Headroom 1.7% / 2.0% / 81% (FAIL) on the warm
@@ -113,9 +138,11 @@ runnable:
     difference 1{A=B} - 1{A=A'} with a bootstrap 95% CI, unclipped, so it can
     report harm. One reporting floor (50 A/B + 30 A/A) gates every surface, and
     below it every surface prints "below reporting floor" rather than a number.
-    The maintainer's live sample cleared that floor on 2026-09-15: paired
-    equivalence 97.5% with a 95% CI of [95.5, 99.5] over n=398 A/B and 399 A/A,
-    paired difference -0.025 [-0.045, -0.005], digest and lossless-only mixed.
+    It reports per compression mode. The maintainer's 2026-09-15 sample: digest
+    agreed 102/206 against a self-agreement of 113/206 (-5.3 pp, over the 5%
+    budget); lossless-only 109/192 against 109/193 (about 0). Pooled, the two
+    read inside the budget, which is why pooling is no longer the headline; the
+    drift guard holds digest at lossless-only when its harm bound is over budget.
     Replays run hot (399 of 399, temperature not pinned), so the paired
     difference is the statistic, not the 53.0% raw agreement. Artifact:
     benchmarks/results/shadow-live-2026-09-15.json
@@ -181,7 +208,7 @@ CLI reference (every subcommand, flags, sample output):
 https://dshakes.github.io/distil/cli.html
 
 Deploy & Security (topologies, encrypt-at-rest, gateway keys, OTel session id):
-https://dshakes.github.io/distil/deploy-security.html
+https://dshakes.github.io/distil/security.html#deploy-security
 
 Security (where to report a vulnerability, the full data-handling whitepaper,
 and the deploy security guide — one page, three links):
@@ -189,7 +216,7 @@ https://dshakes.github.io/distil/security.html
 
 Metrics & Observability (Prometheus /distil/metrics exposition and its admin
 gate, OpenTelemetry counters + GenAI spans, what to alert on):
-https://dshakes.github.io/distil/metrics.html
+https://dshakes.github.io/distil/adoption.html#metrics
 
 FAQ (decision-equivalence, nightly gate, OpenAI/Gemini adapters, troubleshooting):
 https://dshakes.github.io/distil/faq.html
@@ -202,10 +229,10 @@ server-side compaction: does the provider's own context manipulation change
 agent decisions? clearing changed 92.5% of agent decisions at keep=0 and 95-100% at the
 shipped keep=3 default, where the failure shifts from stalling to acting on the
 wrong facts; OpenAI compaction 12.5-20%):
-https://dshakes.github.io/distil/provider-compaction.html
+https://dshakes.github.io/distil/research.html#provider-compaction
 
 Reproduce the numbers (all CI gates, real-model grading, scorecard):
-https://dshakes.github.io/distil/benchmarks.html
+https://dshakes.github.io/distil/benchmark.html#benchmarks
 
 Compare (distil vs LLMLingua-2 vs Headroom):
 https://dshakes.github.io/distil/compare.html
@@ -218,7 +245,7 @@ https://dshakes.github.io/distil/concepts.html
 
 Library API (embed distil in your own agent — Python and TypeScript, the tier
 boundary, and why the in-process path is lossless-only):
-https://dshakes.github.io/distil/library.html
+https://dshakes.github.io/distil/integrations.html#library
 
 Which mode am I? (proxy vs hook vs library — the one page that answers "which
 one applies to me" before any jargon; start here if unsure):
@@ -227,7 +254,7 @@ https://dshakes.github.io/distil/which-mode.html
 Subscription mode (why the proxy stays lossless-only on a flat-rate plan, what
 the PostToolUse hook does instead, and what "savings" means when the bill is
 fixed):
-https://dshakes.github.io/distil/subscription.html
+https://dshakes.github.io/distil/which-mode.html#subscription
 
 Post-tool hooks (Claude Code, Cursor MCP output, Gemini CLI, Codex CLI: compress
 tool output before it enters the history; lossless-only on a subscription unless
@@ -237,21 +264,21 @@ https://dshakes.github.io/distil/hooks.html
 
 Evals (every probe distil runs on itself, including the three bugs these probes
 found in distil's OWN harness — published, not hidden):
-https://dshakes.github.io/distil/evals.html
+https://dshakes.github.io/distil/benchmark.html#evals
 
 Model migration (how the default live certifier, claude-sonnet-5-5 at low effort, was chosen by a paired, pre-registered eval on real traffic; the served-path gap: the certified strategy saves 2.6% of tokens on real SWE-agent trajectories, serving saves 52.6%, and `distil certify --strategy served` grades the real adapter, whose result is an open risk; the SWE-bench outcome eval that would settle it is built and not yet run):
-https://dshakes.github.io/distil/model-migration.html
+https://dshakes.github.io/distil/ab.html#model-migration
 
 What the exit summary proves (the four verdicts every `distil wrap` session ends
 with — an anytime-valid alarm on the certified risk budget, a distribution-free
 upper bound on the live decision-change rate, compression's measured effect on
 reply length, and the hash-chained receipts — and the method behind each):
-https://dshakes.github.io/distil/evals.html#exit-summary
+https://dshakes.github.io/distil/benchmark.html#exit-summary
 
 Independent benchmark (75 agent runs by an outside engineer, graded from the
 API's own usage fields: the defect that finished 6 of 15 tasks, why it happened,
 and what 1.49.0 changed):
-https://dshakes.github.io/distil/benchmark-independent.html
+https://dshakes.github.io/distil/benchmark.html#benchmark-independent
 
 Research (the negative results too: where compression did NOT survive real
 end-to-end execution, and what that bounds):
@@ -259,24 +286,25 @@ https://dshakes.github.io/distil/research.html
 
 Cache contract (the invariant: compression may never rewrite bytes the provider
 has already cached, and what happens when it does):
-https://dshakes.github.io/distil/cache-contract.html
+https://dshakes.github.io/distil/cache.html#cache-contract
 
 Threat model (compression as an attack surface: the COMA-class battery, what is
 mitigated by construction, what is only detected, and the two cases that do not
 come back clean):
-https://dshakes.github.io/distil/threat-model.html
+https://dshakes.github.io/distil/security.html#threat-model
 
 Cache (prompt-prefix economics: why a compressor that removes tokens can still
 cost more, and how distil stays cache-monotonic):
 https://dshakes.github.io/distil/cache.html
 
-Integrations (framework hooks and SDK adapters — LiteLLM, LangChain, LangGraph,
-Agno, Strands, AutoGen, LlamaIndex, an ASGI middleware, Vercel AI SDK, OpenAI,
+Integrations (framework hooks and SDK adapters — LiteLLM, the LiteLLM Proxy
+pre-call hook distil.integrations.litellm_hook, LangChain, LangGraph, Agno,
+Strands, AutoGen, LlamaIndex, an ASGI middleware, Vercel AI SDK, OpenAI,
 Anthropic, Gemini):
 https://dshakes.github.io/distil/integrations.html
-https://dshakes.github.io/distil/autogen.html
-https://dshakes.github.io/distil/llamaindex.html
-https://dshakes.github.io/distil/asgi.html
+https://dshakes.github.io/distil/integrations.html#autogen-page
+https://dshakes.github.io/distil/integrations.html#llamaindex-page
+https://dshakes.github.io/distil/integrations.html#asgi-page
 
 Adoption (install counts and community savings, and why an opt-in census can
 never attribute them to individual users):

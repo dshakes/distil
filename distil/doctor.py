@@ -158,6 +158,21 @@ def _check_shadowed_install() -> Check:
     )
 
 
+_NOT_SET_UP = "not set up yet — no request has reached distil on this machine"
+
+
+def _never_used() -> bool:
+    """True on a machine where no request has ever reached distil: no savings rows and
+    no receipt chain. Doctor reports "not set up yet" once on such a machine instead of
+    a page of warnings about routing, sessions and shadow it was never asked to do."""
+    from . import ledger, receipts
+
+    try:
+        return ledger.summary().runs == 0 and not receipts.receipts_path().exists()
+    except Exception:  # noqa: BLE001 — unreadable is not "never used"
+        return False
+
+
 def _check_ledger() -> Check:
     from . import ledger
 
@@ -165,6 +180,13 @@ def _check_ledger() -> Check:
         s = ledger.summary()
     except Exception as exc:  # noqa: BLE001
         return Check("savings ledger", FAIL, f"could not read ledger — {exc}")
+    if s.runs == 0 and _never_used():
+        return Check(
+            "savings ledger",
+            INFO,
+            _NOT_SET_UP,
+            "run:  distil setup",
+        )
     if s.runs == 0:
         return Check(
             "savings ledger",
@@ -277,7 +299,18 @@ def _check_live_routing() -> Check:
             last_ts = max(last_ts, p.stat().st_mtime)
     except Exception:  # noqa: BLE001 — diagnosis must never crash the doctor
         pass
-    age_min = (time.time() - last_ts) / 60 if last_ts else 1e9
+    if not last_ts:
+        # Never one request, ever. Not "N minutes ago" — there is no N, and printing a
+        # sentinel for it ("1000000000 min") read as a broken tool.
+        return Check(
+            "live routing",
+            WARN,
+            "a distil wrap/proxy is running but NO traffic has ever reached it",
+            "your agent is probably bypassing distil. In its terminal run "
+            "`echo $ANTHROPIC_BASE_URL` — empty means that shell was opened before the "
+            "alias; open a fresh terminal, or launch it with `distil wrap -- <agent>`.",
+        )
+    age_min = (time.time() - last_ts) / 60
     if age_min <= 5:
         return Check(
             "live routing", OK, f"wrapped agent live · traffic recorded {age_min:.0f}m ago"
@@ -303,9 +336,15 @@ def _check_shadow() -> Check:
     except Exception as exc:  # noqa: BLE001
         return Check("shadow validation", FAIL, f"could not read shadow ledger — {exc}")
     if led.samples == 0:
+        # Shadow is opt-in. Never turned on is information, not a warning; a ledger
+        # that exists but holds no current samples (retired signature, or the run that
+        # wrote it was the last one) is a set-up thing that stopped — that warns.
+        from .shadow import _state_dir
+
+        was_on = (_state_dir() / "shadow.jsonl").exists()
         return Check(
             "shadow validation",
-            WARN,
+            WARN if was_on else INFO,
             "not running — no decision-equivalence samples",
             "start it in one command:  distil wrap --shadow 0.1 -- claude",
         )
@@ -419,7 +458,7 @@ def _check_proxy_selftest() -> Check:
 
         payload = json.dumps(
             {
-                "model": "claude-3-5-haiku",
+                "model": "claude-haiku-4-5",
                 "max_tokens": 8,
                 "messages": [{"role": "user", "content": "hello from doctor"}],
             }
@@ -732,7 +771,7 @@ def diagnose() -> list[Check]:
         _check_tls_trust,
         _check_shadowed_install,
         _check_ledger,
-        _check_session,
+        _check_session,  # dropped below on a never-used machine: the ledger line says it once
         _check_live_routing,
         _check_shadow,
         _check_expand_recovery,
@@ -752,4 +791,6 @@ def diagnose() -> list[Check]:
         checks.extend(_check_claude_code())
     except Exception as exc:  # noqa: BLE001 — a check must never crash doctor
         checks.append(Check("claude_code", FAIL, f"check errored — {exc}"))
+    if any(c.detail == _NOT_SET_UP for c in checks):
+        checks = [c for c in checks if c.name != "this session"]
     return checks

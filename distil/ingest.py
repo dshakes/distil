@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .pricing import DEFAULT_MODEL
 from .trajectory import Block, Kind, Stability, Trajectory, Turn
 
 
@@ -300,7 +301,7 @@ def ingest_session(
     *,
     provider: str = "anthropic",
     id: str = "ingested",
-    model: str = "claude-opus-4-8",
+    model: str = DEFAULT_MODEL,
 ) -> Trajectory:
     """Convert a list of provider request bodies into a multi-turn Trajectory.
 
@@ -338,7 +339,7 @@ def ingest_file(
     path: str,
     *,
     provider: str = "anthropic",
-    model: str = "claude-opus-4-8",
+    model: str = DEFAULT_MODEL,
 ) -> Trajectory:
     """Load a file of captured request bodies and build a Trajectory.
 

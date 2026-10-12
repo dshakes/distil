@@ -284,7 +284,7 @@ distil shadow-stats            # what shadow mode measured
 
 The decision-equivalence eval that chose the default live certifier
 (`claude-sonnet-5-5` at `effort=low`) and graded the `served` strategy. Method, results
-and diagrams: <https://dshakes.github.io/distil/model-migration.html>.
+and diagrams: <https://dshakes.github.io/distil/ab.html#model-migration>.
 
 ```bash
 python benchmarks/model_migration_eval.py --fetch-tau-bench          # pinned, sha256-verified
@@ -309,7 +309,11 @@ The live certifier is chosen per command with `--model` and `--effort` on `certi
 certifies the serving adapter's digests of earlier tool outputs.
 
 The SWE-bench task-outcome harness (`benchmarks/swebench_outcome/`, spec
-`specs/swebench-outcome-eval.md`) is built and tested offline and has **not been run**.
+`specs/swebench-outcome-eval.md`) has committed runs under `benchmarks/results/swebench-*`;
+`docs/scoreboard.html` shows them. Each arm's system prompt now starts with a per-run cache
+namespace, so arms run together cannot read each other's prompt cache (that confounded the
+2026-10-05 head-to-head; see `docs/research/why-rtk-wins.md`). To add arms to a committed run
+whose rows have no namespace, pass `--no-cache-namespace` and run them apart in time.
 
 ## Extending the corpus
 
