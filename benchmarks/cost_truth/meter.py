@@ -223,6 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _proxy(self) -> None:
         cfg = self.server.cfg
         self._began = False  # response headers not yet sent (per request on keep-alive)
+        self._stream_sent = False  # every body byte relayed to the client yet
         self._canary = False
         n = int(self.headers.get("content-length") or 0)
         body = self.rfile.read(n) if n else b""
@@ -249,24 +250,57 @@ class _Handler(BaseHTTPRequestHandler):
                 self._record(model, 402, None, 0.0, t0, len(body), 0, stream, "budget_exceeded")
                 return self._send_error(402, "cost_truth_budget_exceeded", str(e))
 
-        actual, usage, status, resp_bytes, note = 0.0, None, 502, 0, None
+        actual, usage, status, resp_bytes, note, forwarded = 0.0, None, 502, 0, None, False
+        # settle()/_record()/the terminator write (in the outer finally below) must run
+        # once a reservation exists, whatever raises below — in _forward() itself (not
+        # just OSError/HTTPException) or in pricing — or the reservation leaks forever
+        # and/or the client is left hanging on an unterminated chunked response.
         try:
-            status, usage, resp_model, resp_bytes = self._forward(body)
-            model = resp_model or model
-            if usage is not None and model:
-                actual = usage_cost(model, usage)
-        except (OSError, http.client.HTTPException) as e:
-            note = f"upstream_error:{type(e).__name__}"
-            if not getattr(self, "_began", False):
+            try:
+                status, usage, resp_model, resp_bytes = self._forward(body)
+                model = resp_model or model
+                forwarded = True  # usage/model/status parsed cleanly: safe to price this
+            except (OSError, http.client.HTTPException) as e:
+                note = f"upstream_error:{type(e).__name__}"
+                if not getattr(self, "_began", False):
+                    try:
+                        self._send_error(502, "cost_truth_upstream_error", type(e).__name__)
+                    except OSError:
+                        pass
+            if forwarded and usage is not None and model:
                 try:
-                    self._send_error(502, "cost_truth_upstream_error", type(e).__name__)
-                except OSError:
-                    pass
+                    actual = usage_cost(model, usage)
+                except UnpricedModel:
+                    # The served model has no list price: bill it at $0, never at some
+                    # other model's rate — a substituted price would be fabricated
+                    # cost-truth data, which is worse than a visible, honest zero.
+                    note = f"unpriced_model:{model}"
         finally:
             if billable:
                 cfg.spend.settle(reservation, actual)
-        if billable or usage is not None:
-            self._record(model, status, usage, actual, t0, len(body), resp_bytes, stream, note)
+            try:
+                if billable or usage is not None:
+                    self._record(
+                        model, status, usage, actual, t0, len(body), resp_bytes, stream, note
+                    )
+            except Exception:
+                # A log-write failure here would otherwise strand the client on an open
+                # chunked stream; settle() above already landed, so this can only ever
+                # make the log SHORT relative to spend.spent, not long. That is exactly
+                # the divergence tests/test_cost_truth.py::test_dry_run_end_to_end and
+                # tests/test_cost_truth_live.py's manifest["spent_usd"] ==
+                # sum(cost_usd) assertions already check for, so it does not go undetected.
+                pass
+            if self._stream_sent:
+                # Gated on the client already having every body byte, not on _forward()
+                # returning normally — conn.close() or the post-loop response parsing can
+                # still raise after the last chunk went out, and the client is owed this
+                # EOF regardless.
+                try:
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except OSError:
+                    pass
 
     def _forward(self, body: bytes) -> tuple[int, dict[str, Any] | None, str | None, int]:
         cfg = self.server.cfg
@@ -302,8 +336,7 @@ class _Handler(BaseHTTPRequestHandler):
                     buf += chunk
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
                 self.wfile.flush()
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            self._stream_sent = True  # every body byte relayed: the client is owed an EOF
         finally:
             conn.close()
         if sse is not None:
