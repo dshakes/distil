@@ -231,14 +231,24 @@ class Anthropic:
         return out
 
     def request(
-        self, segs: list[Seg], t: float, ttl: str, breakpoints: list[int] | None = None
+        self,
+        segs: list[Seg],
+        t: float,
+        ttl: str,
+        breakpoints: list[int] | None = None,
+        ttls: list[str] | None = None,
     ) -> Usage:
+        """``breakpoints`` (ascending) default to the newest block; ``ttls`` is a TTL per
+        breakpoint (the API requires longer TTLs first), defaulting to ``ttl`` for all."""
         h, c = _chain(segs), _cum(segs)
         bps = breakpoints if breakpoints is not None else [len(segs) - 1]
+        tl = ttls if ttls is not None else [ttl] * len(bps)
         last = max(bps)
         total = c[-1]
         if c[last] < self.min_tokens:
             return Usage(input=total + self.framing)
+        keep = [(b, x) for b, x in zip(bps, tl) if c[b] >= self.min_tokens]
+        bps, tl = [b for b, _ in keep], [x for _, x in keep]
         hit = -1
         for bp in bps:
             for j in self._positions(segs, bp):
@@ -248,15 +258,16 @@ class Anthropic:
                     self._store[h[j]] = (t + e[1], e[1])  # a hit refreshes the TTL
                     break
         read = c[hit] if hit >= 0 else 0.0
-        life = TTL_S[ttl]
-        for bp in bps:
-            self._store[h[bp]] = (t + life, life)
-        write = c[last] - read
         u = Usage(input=total - c[last] + self.framing, read=read)
-        if ttl == "1h":
-            u.write_1h = write
-        else:
-            u.write_5m = write
+        lo = read
+        for bp, x in zip(bps, tl):
+            life = TTL_S[x]
+            self._store[h[bp]] = (t + life, life)
+            w, lo = max(0.0, c[bp] - lo), max(lo, c[bp])
+            if x == "1h":
+                u.write_1h += w
+            else:
+                u.write_5m += w
         return u
 
 
