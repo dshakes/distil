@@ -251,21 +251,22 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send_error(402, "cost_truth_budget_exceeded", str(e))
 
         actual, usage, status, resp_bytes, note, forwarded = 0.0, None, 502, 0, None, False
+        # settle()/_record()/the terminator write (in the outer finally below) must run
+        # once a reservation exists, whatever raises below — in _forward() itself (not
+        # just OSError/HTTPException) or in pricing — or the reservation leaks forever
+        # and/or the client is left hanging on an unterminated chunked response.
         try:
-            status, usage, resp_model, resp_bytes = self._forward(body)
-            model = resp_model or model
-            forwarded = True  # usage/model/status parsed cleanly: safe to price this request
-        except (OSError, http.client.HTTPException) as e:
-            note = f"upstream_error:{type(e).__name__}"
-            if not getattr(self, "_began", False):
-                try:
-                    self._send_error(502, "cost_truth_upstream_error", type(e).__name__)
-                except OSError:
-                    pass
-        # Everything below must run no matter what (any exception here used to both skip
-        # settle() — leaking the reservation forever — and strand the client on an
-        # unterminated chunked response, since it escaped before the terminator write).
-        try:
+            try:
+                status, usage, resp_model, resp_bytes = self._forward(body)
+                model = resp_model or model
+                forwarded = True  # usage/model/status parsed cleanly: safe to price this
+            except (OSError, http.client.HTTPException) as e:
+                note = f"upstream_error:{type(e).__name__}"
+                if not getattr(self, "_began", False):
+                    try:
+                        self._send_error(502, "cost_truth_upstream_error", type(e).__name__)
+                    except OSError:
+                        pass
             if forwarded and usage is not None and model:
                 try:
                     actual = usage_cost(model, usage)
@@ -285,9 +286,10 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception:
                 # A log-write failure here would otherwise strand the client on an open
                 # chunked stream; settle() above already landed, so this can only ever
-                # make the log SHORT relative to spend.spent, not long — and dry_run's own
-                # spent_usd == sum(log cost_usd) assertion is exactly the check that would
-                # catch that divergence, so no silent drift goes undetected.
+                # make the log SHORT relative to spend.spent, not long. That is exactly
+                # the divergence tests/test_cost_truth.py::test_dry_run_end_to_end and
+                # tests/test_cost_truth_live.py's manifest["spent_usd"] ==
+                # sum(cost_usd) assertions already check for, so it does not go undetected.
                 pass
             if self._stream_sent:
                 # Gated on the client already having every body byte, not on _forward()
