@@ -223,6 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _proxy(self) -> None:
         cfg = self.server.cfg
         self._began = False  # response headers not yet sent (per request on keep-alive)
+        self._stream_sent = False  # every body byte relayed to the client yet
         self._canary = False
         n = int(self.headers.get("content-length") or 0)
         body = self.rfile.read(n) if n else b""
@@ -253,7 +254,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             status, usage, resp_model, resp_bytes = self._forward(body)
             model = resp_model or model
-            forwarded = True  # full response body already streamed: the client is owed an EOF
+            forwarded = True  # usage/model/status parsed cleanly: safe to price this request
         except (OSError, http.client.HTTPException) as e:
             note = f"upstream_error:{type(e).__name__}"
             if not getattr(self, "_began", False):
@@ -288,7 +289,11 @@ class _Handler(BaseHTTPRequestHandler):
                 # spent_usd == sum(log cost_usd) assertion is exactly the check that would
                 # catch that divergence, so no silent drift goes undetected.
                 pass
-            if forwarded:
+            if self._stream_sent:
+                # Gated on the client already having every body byte, not on _forward()
+                # returning normally — conn.close() or the post-loop response parsing can
+                # still raise after the last chunk went out, and the client is owed this
+                # EOF regardless.
                 try:
                     self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
@@ -329,6 +334,7 @@ class _Handler(BaseHTTPRequestHandler):
                     buf += chunk
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
                 self.wfile.flush()
+            self._stream_sent = True  # every body byte relayed: the client is owed an EOF
         finally:
             conn.close()
         if sse is not None:
