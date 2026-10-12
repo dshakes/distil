@@ -15,10 +15,13 @@ PRICES = {  # $/MTok (in, out); mirrors benchmarks/model_migration_eval.py PRICE
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-5-5": (0.10, 0.50),  # ponytail: <=100k-token prompt tier; 5x above it
     "claude-haiku-4-5": (1.0, 5.0),
     "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-5": (5.0, 25.0),
 }
+# Cache hits that are not the standard 0.1x of input (pricing page footnote, 2026-10-11).
+READ_MULT = {"claude-sonnet-5-5": 0.05, "claude-opus-5-5": 0.05}
 OUT_CAP = 20_000
 _USAGE = (
     ("input", "input_tokens"),
@@ -56,9 +59,9 @@ def price(model: str, pin: float | None = None, pout: float | None = None) -> tu
     return PRICES[base]
 
 
-def cost_usd(u: dict[str, int], pin: float, pout: float) -> float:
-    """Cache tokens at the standard 1.25x write / 0.1x read multipliers."""
-    inp = u["input"] + 1.25 * u["cache_write"] + 0.1 * u["cache_read"]
+def cost_usd(u: dict[str, int], pin: float, pout: float, read: float = 0.1) -> float:
+    """Cache tokens at the 1.25x write multiplier and the model's read multiplier (READ_MULT)."""
+    inp = u["input"] + 1.25 * u["cache_write"] + read * u["cache_read"]
     return (inp * pin + u["output"] * pout) / 1e6
 
 
@@ -172,6 +175,7 @@ def run_agent(
 
     arm = resolve_arm(arm, compress)
     pin, pout = price(cfg.model, cfg.pin, cfg.pout)
+    read = READ_MULT.get(cfg.model.split("@")[0], 0.1)
     use = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
     res: dict[str, Any] = {
         "instance_id": task["instance_id"],
@@ -242,7 +246,7 @@ def run_agent(
             d = {k: getattr(resp.usage, a, 0) or 0 for k, a in _USAGE}
             for k, v in d.items():
                 use[k] += v
-            budget.add(cost_usd(d, pin, pout))
+            budget.add(cost_usd(d, pin, pout, read))
             assistant = {"role": "assistant", "content": [_param(b) for b in resp.content]}
             messages.append(assistant)
             transcript.append(assistant)
@@ -281,7 +285,7 @@ def run_agent(
         patch=patch,
         wall_s=round(clock() - t0, 2),
         usage=use,
-        cost_usd=round(cost_usd(use, pin, pout), 6),
+        cost_usd=round(cost_usd(use, pin, pout, read), 6),
         transcript=transcript,
     )
     if arm_stats:

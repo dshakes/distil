@@ -66,8 +66,8 @@ class Pricing:
 
 
 # Public list prices (USD / Mtok), current Claude model IDs. VERIFY before billing use.
-# Checked against https://platform.claude.com/docs/en/about-claude/pricing on 2026-10-04.
-# Newer models whose cache hit is NOT 0.1x carry their own multiplier: Opus 5.5 reads
+# Checked against https://platform.claude.com/docs/en/about-claude/pricing on 2026-10-11.
+# Newer models whose cache hit is NOT 0.1x carry their own multiplier: Opus 5.5 and Sonnet 5.5 read
 # at 0.05x and Fable 5.1 at 0.025x; without a row they would resolve, through the
 # prefix fallback, to the older model's price.
 CATALOG: dict[str, Pricing] = {
@@ -81,10 +81,12 @@ CATALOG: dict[str, Pricing] = {
     "claude-opus-4-5": Pricing("claude-opus-4-5", 5.0, 25.0),
     # $2/$10 is Sonnet 5's standard price: the scheduled 2026-09-01 rise to $3/$15
     # was cancelled (the pricing page's footnote).
-    "claude-sonnet-5-5": Pricing("claude-sonnet-5-5", 2.0, 10.0),
+    "claude-sonnet-5-5": Pricing("claude-sonnet-5-5", 2.0, 10.0, cache_read_mult=0.05),
     "claude-sonnet-5": Pricing("claude-sonnet-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
+    # ponytail: Haiku 5.5's <=100k-token prompt tier; a longer prompt bills 5x (0.50/2.50).
+    "claude-haiku-5-5": Pricing("claude-haiku-5-5", 0.10, 0.50),
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),
 }
 
