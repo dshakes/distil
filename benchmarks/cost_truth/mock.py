@@ -78,7 +78,7 @@ class _Handler(BaseHTTPRequestHandler):
             "cache_creation": {"ephemeral_5m_input_tokens": write, "ephemeral_1h_input_tokens": 0},
             "output_tokens": out,
         }
-        model = req.get("model")
+        model = self.server.respond_as_model or req.get("model")
         if req.get("stream"):
             start = {**usage, "output_tokens": 1}
             events: list[dict[str, Any]] = [
@@ -108,6 +108,9 @@ class MockUpstream(ThreadingHTTPServer):
         self.cache = _Cache(clock)
         self.requests = 0
         self.fail_next = 0
+        #: override the model reported back in the response, independent of what was
+        #: requested — simulates a provider serving/aliasing a different model than asked.
+        self.respond_as_model: str | None = None
         self._t = threading.Thread(target=self.serve_forever, daemon=True)
 
     @property

@@ -192,6 +192,21 @@ def test_meter_refuses_unpriced_model(tmp_path: Path) -> None:
         assert status == 400 and up.requests == 0
 
 
+def test_meter_served_model_unpriced_bills_zero_not_a_hang(tmp_path: Path) -> None:
+    """The requested model prices fine (preflight passes, request is forwarded), but the
+    provider's response claims a different, unpriced model — a response the meter has
+    already committed to relaying in full by the time it discovers that."""
+    spend = m.SpendMeter(5.0)
+    log = tmp_path / "l.jsonl"
+    with mock.MockUpstream() as up, m.UsageMeter(m.MeterConfig(up.url, log, spend, "r")) as meter:
+        up.respond_as_model = "mystery-model"
+        status, body = _post(meter.base_url, _BODY)
+        assert status == 200 and json.loads(body)["content"][0]["text"] == "ok"
+    rec = m.read_log(log)[0]
+    assert rec["cost_usd"] == 0.0 and rec["note"] == "unpriced_model:mystery-model"
+    assert spend.spent == 0.0 and spend.reserved == pytest.approx(0.0)
+
+
 def test_meter_upstream_error_bills_nothing_and_releases_reservation(tmp_path: Path) -> None:
     spend = m.SpendMeter(5.0)
     log = tmp_path / "l.jsonl"
