@@ -250,7 +250,6 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send_error(402, "cost_truth_budget_exceeded", str(e))
 
         actual, usage, status, resp_bytes, note, forwarded = 0.0, None, 502, 0, None, False
-        requested_model = model
         try:
             status, usage, resp_model, resp_bytes = self._forward(body)
             model = resp_model or model
@@ -270,14 +269,9 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     actual = usage_cost(model, usage)
                 except UnpricedModel:
-                    # The served model has no list price. Bill at the model that was
-                    # actually reserved against, if it has one, rather than letting the
-                    # bill silently disappear to $0.
-                    if requested_model and requested_model != model:
-                        try:
-                            actual = usage_cost(requested_model, usage)
-                        except UnpricedModel:
-                            pass
+                    # The served model has no list price: bill it at $0, never at some
+                    # other model's rate — a substituted price would be fabricated
+                    # cost-truth data, which is worse than a visible, honest zero.
                     note = f"unpriced_model:{model}"
         finally:
             if billable:
@@ -288,7 +282,12 @@ class _Handler(BaseHTTPRequestHandler):
                         model, status, usage, actual, t0, len(body), resp_bytes, stream, note
                     )
             except Exception:
-                pass  # a logging failure must not strand the client on an open chunked stream
+                # A log-write failure here would otherwise strand the client on an open
+                # chunked stream; settle() above already landed, so this can only ever
+                # make the log SHORT relative to spend.spent, not long — and dry_run's own
+                # spent_usd == sum(log cost_usd) assertion is exactly the check that would
+                # catch that divergence, so no silent drift goes undetected.
+                pass
             if forwarded:
                 try:
                     self.wfile.write(b"0\r\n\r\n")
