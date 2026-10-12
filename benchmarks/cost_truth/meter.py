@@ -250,6 +250,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send_error(402, "cost_truth_budget_exceeded", str(e))
 
         actual, usage, status, resp_bytes, note, forwarded = 0.0, None, 502, 0, None, False
+        requested_model = model
         try:
             status, usage, resp_model, resp_bytes = self._forward(body)
             model = resp_model or model
@@ -261,25 +262,39 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send_error(502, "cost_truth_upstream_error", type(e).__name__)
                 except OSError:
                     pass
-        if forwarded and usage is not None and model:
+        # Everything below must run no matter what (any exception here used to both skip
+        # settle() — leaking the reservation forever — and strand the client on an
+        # unterminated chunked response, since it escaped before the terminator write).
+        try:
+            if forwarded and usage is not None and model:
+                try:
+                    actual = usage_cost(model, usage)
+                except UnpricedModel:
+                    # The served model has no list price. Bill at the model that was
+                    # actually reserved against, if it has one, rather than letting the
+                    # bill silently disappear to $0.
+                    if requested_model and requested_model != model:
+                        try:
+                            actual = usage_cost(requested_model, usage)
+                        except UnpricedModel:
+                            pass
+                    note = f"unpriced_model:{model}"
+        finally:
+            if billable:
+                cfg.spend.settle(reservation, actual)
             try:
-                actual = usage_cost(model, usage)
-            except UnpricedModel as e:
-                # pricing failed after the client already has the full body; still settle
-                # (at 0.0) and still terminate below — the response itself was good.
-                note = f"unpriced_model:{e}"
-        if billable:
-            cfg.spend.settle(reservation, actual)
-        if billable or usage is not None:
-            self._record(model, status, usage, actual, t0, len(body), resp_bytes, stream, note)
-        if forwarded:
-            # settle()/_record() above must land before the client can observe end-of-stream,
-            # or a reader of the log racing the still-open connection sees an incomplete total.
-            try:
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
-            except OSError:
-                pass
+                if billable or usage is not None:
+                    self._record(
+                        model, status, usage, actual, t0, len(body), resp_bytes, stream, note
+                    )
+            except Exception:
+                pass  # a logging failure must not strand the client on an open chunked stream
+            if forwarded:
+                try:
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except OSError:
+                    pass
 
     def _forward(self, body: bytes) -> tuple[int, dict[str, Any] | None, str | None, int]:
         cfg = self.server.cfg
