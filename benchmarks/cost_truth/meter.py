@@ -249,12 +249,11 @@ class _Handler(BaseHTTPRequestHandler):
                 self._record(model, 402, None, 0.0, t0, len(body), 0, stream, "budget_exceeded")
                 return self._send_error(402, "cost_truth_budget_exceeded", str(e))
 
-        actual, usage, status, resp_bytes, note = 0.0, None, 502, 0, None
+        actual, usage, status, resp_bytes, note, forwarded = 0.0, None, 502, 0, None, False
         try:
             status, usage, resp_model, resp_bytes = self._forward(body)
             model = resp_model or model
-            if usage is not None and model:
-                actual = usage_cost(model, usage)
+            forwarded = True  # full response body already streamed: the client is owed an EOF
         except (OSError, http.client.HTTPException) as e:
             note = f"upstream_error:{type(e).__name__}"
             if not getattr(self, "_began", False):
@@ -262,12 +261,18 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send_error(502, "cost_truth_upstream_error", type(e).__name__)
                 except OSError:
                     pass
-        finally:
-            if billable:
-                cfg.spend.settle(reservation, actual)
+        if forwarded and usage is not None and model:
+            try:
+                actual = usage_cost(model, usage)
+            except UnpricedModel as e:
+                # pricing failed after the client already has the full body; still settle
+                # (at 0.0) and still terminate below — the response itself was good.
+                note = f"unpriced_model:{e}"
+        if billable:
+            cfg.spend.settle(reservation, actual)
         if billable or usage is not None:
             self._record(model, status, usage, actual, t0, len(body), resp_bytes, stream, note)
-        if note is None:
+        if forwarded:
             # settle()/_record() above must land before the client can observe end-of-stream,
             # or a reader of the log racing the still-open connection sees an incomplete total.
             try:
