@@ -22,6 +22,8 @@ PRICES = {  # $/MTok (in, out); mirrors benchmarks/model_migration_eval.py PRICE
 }
 # Cache hits that are not the standard 0.1x of input (pricing page footnote, 2026-10-11).
 READ_MULT = {"claude-sonnet-5-5": 0.05, "claude-opus-5-5": 0.05}
+# Prompt-length tiers: a call whose prompt exceeds the threshold bills every token at the multiplier.
+LONG_TIER = {"claude-haiku-5-5": (100_000, 5.0)}
 OUT_CAP = 20_000
 _USAGE = (
     ("input", "input_tokens"),
@@ -59,10 +61,18 @@ def price(model: str, pin: float | None = None, pout: float | None = None) -> tu
     return PRICES[base]
 
 
-def cost_usd(u: dict[str, int], pin: float, pout: float, read: float = 0.1) -> float:
-    """Cache tokens at the 1.25x write multiplier and the model's read multiplier (READ_MULT)."""
+def cost_usd(
+    u: dict[str, int],
+    pin: float,
+    pout: float,
+    read: float = 0.1,
+    tier: tuple[float, float] | None = None,
+) -> float:
+    """Cache tokens at the 1.25x write multiplier and the model's read multiplier (READ_MULT).
+    With *tier* (per-call usage only), a prompt above the threshold bills at the multiplier."""
     inp = u["input"] + 1.25 * u["cache_write"] + read * u["cache_read"]
-    return (inp * pin + u["output"] * pout) / 1e6
+    m = tier[1] if tier and u["input"] + u["cache_write"] + u["cache_read"] > tier[0] else 1.0
+    return m * (inp * pin + u["output"] * pout) / 1e6
 
 
 class Budget:
@@ -176,6 +186,8 @@ def run_agent(
     arm = resolve_arm(arm, compress)
     pin, pout = price(cfg.model, cfg.pin, cfg.pout)
     read = READ_MULT.get(cfg.model.split("@")[0], 0.1)
+    tier = LONG_TIER.get(cfg.model.split("@")[0])
+    spent = 0.0
     use = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
     res: dict[str, Any] = {
         "instance_id": task["instance_id"],
@@ -246,7 +258,9 @@ def run_agent(
             d = {k: getattr(resp.usage, a, 0) or 0 for k, a in _USAGE}
             for k, v in d.items():
                 use[k] += v
-            budget.add(cost_usd(d, pin, pout, read))
+            step_usd = cost_usd(d, pin, pout, read, tier)
+            spent += step_usd
+            budget.add(step_usd)
             assistant = {"role": "assistant", "content": [_param(b) for b in resp.content]}
             messages.append(assistant)
             transcript.append(assistant)
@@ -285,7 +299,7 @@ def run_agent(
         patch=patch,
         wall_s=round(clock() - t0, 2),
         usage=use,
-        cost_usd=round(cost_usd(use, pin, pout, read), 6),
+        cost_usd=round(spent, 6),
         transcript=transcript,
     )
     if arm_stats:
