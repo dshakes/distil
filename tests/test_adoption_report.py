@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -16,6 +16,11 @@ import adoption_report as ar  # noqa: E402
 
 REPO = "dshakes/distil"
 SINCE = date(2026, 9, 11)
+
+# fetch_pypi_downloads() filters /system rows against date.today() - 30d, not
+# against SINCE — so this fixture date must float with the real clock (it
+# previously stood still at 2026-09-20 and aged out of the 30-day window).
+PYPI_SYSTEM_DATE = (date.today() - timedelta(days=5)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +92,10 @@ def _http_fixture(url: str, headers: dict | None = None) -> dict:
     if url.endswith("/system"):
         return {
             "data": [
-                {"category": "Darwin", "date": "2026-09-20", "downloads": 27},
-                {"category": "Windows", "date": "2026-09-20", "downloads": 6},
-                {"category": "Linux", "date": "2026-09-20", "downloads": 87},
-                {"category": "null", "date": "2026-09-20", "downloads": 1579},
+                {"category": "Darwin", "date": PYPI_SYSTEM_DATE, "downloads": 27},
+                {"category": "Windows", "date": PYPI_SYSTEM_DATE, "downloads": 6},
+                {"category": "Linux", "date": PYPI_SYSTEM_DATE, "downloads": 87},
+                {"category": "null", "date": PYPI_SYSTEM_DATE, "downloads": 1579},
             ]
         }
     raise AssertionError(f"unexpected http call: {url}")
