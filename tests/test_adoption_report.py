@@ -22,6 +22,11 @@ SINCE = date(2026, 9, 11)
 # never at the boundary).
 PYPI_SYSTEM_DATE = (date.today() - timedelta(days=5)).isoformat()
 
+# fetch_pypi_downloads() filters /system rows against date.today() - 30d, not
+# against SINCE — so this fixture date must float with the real clock (it
+# previously stood still at 2026-09-20 and aged out of the 30-day window).
+PYPI_SYSTEM_DATE = (date.today() - timedelta(days=5)).isoformat()
+
 
 # ---------------------------------------------------------------------------
 # gh api fixtures — recorded shapes, not live calls.
