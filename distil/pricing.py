@@ -85,8 +85,9 @@ CATALOG: dict[str, Pricing] = {
     "claude-sonnet-5": Pricing("claude-sonnet-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
-    # ponytail: Haiku 5.5's <=100k-token prompt tier; a longer prompt bills 5x (0.50/2.50).
-    "claude-haiku-5-5": Pricing("claude-haiku-5-5", 0.10, 0.50),
+    # claude-haiku-5-5 is deliberately unpriced: every token bills 5x once a prompt passes
+    # 100k, and a one-tier row would underbill long prompts 5x. The SWE-bench harness
+    # prices it per call (benchmarks/swebench_outcome/agent.py LONG_TIER).
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),
 }
 
