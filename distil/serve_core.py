@@ -280,6 +280,8 @@ def compress_or_forward(
     returning False aborts with ``None`` (the caller has already answered the client).
     """
     extras: dict[str, str] = {}
+    client_body = body  # as the client sent it (thinkguard compares against it)
+    thinking_lineage = False  # Anthropic Messages on a preserved-thinking model, ADR 0028
     store: Any = None
     before_tok: int | None = None
     after_tok: int | None = None
@@ -359,6 +361,13 @@ def compress_or_forward(
             # an Azure Chat Completions path is exactly the guarantee-voiding bug this
             # block exists to fix, reintroduced by a second, narrower path test.
             is_chat = is_chat_completions_path(_path)
+            if not is_chat:
+                from . import thinkguard as _tg
+
+                thinking_lineage = _tg.lineage(body)
+                if thinking_lineage:
+                    # A system edit invalidates every thinking block: no shaping, ever.
+                    shape_output = "off"
             # OpenAI Chat Completions needs its own adapter (role:"tool" list content is
             # Tier-1; the Anthropic adapter applies Tier-0 to generic list text items).
             if is_chat:
@@ -534,7 +543,23 @@ def compress_or_forward(
         if replay_scope is not None and replay_orig is not None and replay_key is not None:
             from . import prefixreplay as _prep
 
-            body = _prep.apply(body, replay_key, replay_orig, scope=replay_scope, extras=extras)
+            body = _prep.apply(
+                body,
+                replay_key,
+                replay_orig,
+                scope=replay_scope,
+                extras=extras,
+                # Preserved thinking: freeze every earlier message as it last went out,
+                # except on a cold turn, whose eviction is the one sanctioned edit (it
+                # drops the thinking after it itself).
+                freeze=thinking_lineage and not getattr(cold_plan, "fresh", 0),
+            )
+        if thinking_lineage:
+            # Last, on the final body: whatever still differs from what a thinking block
+            # was produced over loses that block and every later one, never a 400.
+            from . import thinkguard as _tg
+
+            body = _tg.guard(client_body, body, scope=scope, extras=extras)
     except BaseException:
         # A planned lineage is in flight until end(); a raise after plan() would leave it
         # in flight forever (never cold again). The caller never sees the key, so close it.

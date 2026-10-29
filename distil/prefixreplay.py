@@ -340,7 +340,9 @@ def _put(key: str, lin: _Lineage) -> None:
             _LINEAGES.popitem(last=False)
 
 
-def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[Any], ReplayStats]:
+def replay(
+    key: str, original: List[Any], forwarded: List[Any], *, freeze: bool = False
+) -> Tuple[List[Any], ReplayStats]:
     """Forward the previous turn's bytes for the canonically-equal leading prefix.
 
     Returns ``(items_to_forward, stats)`` and records this turn as the new state. The
@@ -348,6 +350,12 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
     prefix, so an item restored after a break repairs nothing and only risks pairing
     old bytes with a history the client has since edited (contract clause (d) — that
     divergence is the client's rewrite and is forwarded exactly as it arrived).
+
+    *freeze* (preserved-thinking lineages, ADR 0028) restores decisions too: a client
+    item that is unchanged goes out as it went out last turn even when distil would now
+    decide differently (recency exit, a new intent, a wider quote guard, a drift-guard
+    flip, a fail-open turn), because a thinking block after it is signed over those bytes.
+    Only items the previous turn did not have get fresh decisions.
     """
     stats = ReplayStats(misses=len(forwarded))
     if not isinstance(original, list) or not isinstance(forwarded, list):
@@ -378,7 +386,7 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
             if i >= len(prev_fwd_canon):
                 prev_fwd_canon.append(canonical(prev.forwarded[i]))
             cur_key = canonical(forwarded[i])
-            if cur_key != prev_fwd_canon[i]:
+            if cur_key != prev_fwd_canon[i] and not freeze:
                 # We would send something semantically different this turn (an
                 # exact-quote exemption came into range, say). Replay restores bytes,
                 # never decisions — so this is a divergence like any other.
@@ -393,7 +401,7 @@ def replay(key: str, original: List[Any], forwarded: List[Any]) -> Tuple[List[An
             if _wire(item) != _wire(forwarded[i]):
                 stats.restored += 1
             out[i] = item
-            fwd_canon.append(cur_key)
+            fwd_canon.append(prev_fwd_canon[i])
             stats.hits += 1
         else:
             # Walked off the end without a divergence. That is "held" only when the end
@@ -419,6 +427,7 @@ def apply(
     *,
     scope: str = "",
     extras: Optional[Dict[str, str]] = None,
+    freeze: bool = False,
 ) -> Dict[str, Any]:
     """Replay the prefix of ``body[list_key]`` and record the counters in *extras*.
 
@@ -436,7 +445,7 @@ def apply(
         forwarded = body.get(list_key)
         if not isinstance(forwarded, list):
             return body
-        out, stats = replay(scope + lineage_key(body, original), original, forwarded)
+        out, stats = replay(scope + lineage_key(body, original), original, forwarded, freeze=freeze)
         if extras is not None:
             extras["x-distil-replay-hits"] = str(stats.hits)
             extras["x-distil-replay-misses"] = str(stats.misses)

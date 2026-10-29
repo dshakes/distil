@@ -218,7 +218,11 @@ def test_compress_messages_applies_it_and_verbatim_does_not() -> None:
 def _body(done: int) -> dict[str, Any]:
     msgs = _history(done, continuing=False)
     msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
-    return {"model": "claude-opus-5-5", "max_tokens": 64, "messages": msgs}
+    # A model that bills prior thinking but does not bind it to the prefix: these
+    # histories are fabricated, never produced through distil, and on a preserved-thinking
+    # model the thinkguard rightly drops unknown blocks after any distil edit
+    # (tests/test_thinking_prefix_e2e.py drives those models through real productions).
+    return {"model": "claude-opus-4-8", "max_tokens": 64, "messages": msgs}
 
 
 def test_warm_keeps_thinking_cold_drops_it_and_later_turns_stay_byte_stable(proxy, clock) -> None:  # noqa: F811

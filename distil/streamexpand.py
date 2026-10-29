@@ -26,7 +26,7 @@ import re
 from http.server import BaseHTTPRequestHandler
 from typing import Any, Callable
 
-from .expand import EXPAND_TOOL_NAME, record_signal, resolve_expands
+from .expand import EXPAND_TOOL_NAME, _taint, record_signal, resolve_expands
 from .streamrelay import TTL_KEYS, USAGE_KEYS, add_usage
 
 _EVENT_SEP = re.compile(rb"\r?\n\r?\n")
@@ -231,6 +231,10 @@ def stream_with_expand(
                     break  # end of this upstream message; decide below
                 # ping / unknown keepalive — relay to keep the connection warm
                 client.write(evt)
+
+            if it:
+                # A continuation's thinking is signed over the hidden round (ADR 0028).
+                _taint(body, list(blocks.values()))
 
             if not saw_expand or saw_client_tool_use:
                 # Terminal turn: emit the (usage-corrected) message_delta + message_stop.

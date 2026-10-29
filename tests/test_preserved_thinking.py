@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from distil import coldpoint, prefixreplay
+from distil import coldpoint, prefixreplay, thinkguard
 from distil.adapters import anthropic as A
 from tests.test_coldpoint import _log, _post, _settle_coldpoint, _wire, clock, proxy  # noqa: F401
 
@@ -34,6 +34,7 @@ OLDER = ["claude-opus-4-5", "claude-opus-4-6", "claude-sonnet-4-5"]
 def _reset(monkeypatch):
     coldpoint.reset()
     prefixreplay.reset()
+    thinkguard.reset()
     monkeypatch.delenv("DISTIL_COLD_POINT", raising=False)
     monkeypatch.delenv("DISTIL_COLD_THINKING", raising=False)
     yield
@@ -72,7 +73,21 @@ def _conv(model: str, rounds: int, *, partial: bool = False) -> dict[str, Any]:
                 {"role": "user", "content": [{"type": "text", "text": f"next {k}"}]},
             ]
     msgs[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
-    return {"model": model, "max_tokens": 64, "messages": msgs}
+    return {"model": model, "max_tokens": 64, "thinking": {"type": "adaptive"}, "messages": msgs}
+
+
+def _play(port: int, model: str, rounds: int) -> dict[str, str]:
+    """Drive the session up to ``_conv(model, rounds)`` the way a client does, one request
+    per assistant message, so every thinking block was produced through distil (the
+    thinkguard keeps an unknown block only when distil changed nothing before it).
+    Returns the FIRST request's headers."""
+    first, _ = _post(port, _conv(model, 0))
+    _post(port, _conv(model, 0, partial=True))
+    for k in range(1, rounds):
+        _post(port, _conv(model, k))
+        _post(port, _conv(model, k, partial=True))
+    _post(port, _conv(model, rounds))
+    return first
 
 
 def _sigs(msgs: list[dict[str, Any]]) -> list[str]:
@@ -96,7 +111,7 @@ def _thinking_after(msgs: list[dict[str, Any]], p: int) -> list[str]:
 @pytest.mark.parametrize("model", PRESERVED)
 def test_cold_eviction_drops_every_thinking_block_after_the_edit(proxy, clock, model) -> None:  # noqa: F811
     port = proxy()
-    h, _ = _post(port, _conv(model, 3))
+    h = _play(port, model, 3)
     assert h["x-distil-cold"] == "first-seen"
     clock[0] += 20 * 60
     h, cold = _post(port, _conv(model, 4))
@@ -109,6 +124,7 @@ def test_cold_eviction_drops_every_thinking_block_after_the_edit(proxy, clock, m
     # and the thinking produced after the cold point is kept.
     for rounds in (5, 6):
         clock[0] += 60
+        _post(port, _conv(model, rounds - 1, partial=True))
         h, fwd = _post(port, _conv(model, rounds))
         assert h["x-distil-cold"] == "warm"
         assert [_wire(m) for m in fwd[: len(cold)]] == [_wire(m) for m in cold], "prefix moved"
@@ -123,7 +139,7 @@ def test_a_tool_use_continuation_defers_the_eviction_to_the_turn_boundary(
     model,
 ) -> None:
     port = proxy()
-    _post(port, _conv(model, 3))
+    _play(port, model, 3)
     clock[0] += 20 * 60
     body = _conv(model, 3, partial=True)
     h, fwd = _post(port, body)
