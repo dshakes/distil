@@ -567,6 +567,7 @@ holdout A/B savings measurement (deterministic partition + bootstrap CI)
         <tr><th scope="row"><code>DISTIL_NO_UPDATE_CHECK</code></th><td>unset</td><td>Set to 1 to skip the once-a-day new-version check.</td></tr>
         <tr><th scope="row"><code>DISTIL_NO_LEDGER</code></th><td>unset</td><td>Set to 1 to stop the proof ledger being printed on exit.</td></tr>
         <tr><th scope="row"><code>DISTIL_NO_DRIFT_GUARD</code></th><td>unset</td><td>Set to 1 to opt out of the drift guard that holds compression after evidence of drift.</td></tr>
+        <tr><th scope="row"><code>DISTIL_CONTEXT_GUARD</code></th><td>1</td><td>Set to 0 to disable the context guard that nudges reported usage near the context-window limit.</td></tr>
         <tr><th scope="row"><code>DISTIL_NO_ENCRYPT_AT_REST</code></th><td>unset</td><td>Set to 1 to store the restore data unencrypted (strict-FS setups).</td></tr>
         <tr><th scope="row"><code>DISTIL_CENSUS_ENDPOINT</code></th><td>distil-census.vercel.app/v1/ping</td><td>Where the opt-in, content-free daily census is POSTed (self-hosted ingest). https:// only, or http://localhost / 127.0.0.1; any other value is ignored with a note.</td></tr>
         <tr><th scope="row"><code>DISTIL_BEAT_ENDPOINT</code></th><td>distil-census.vercel.app/v1/beat</td><td>Where the opt-in, content-free savings heartbeat is POSTed. Same rules as DISTIL_CENSUS_ENDPOINT.</td></tr>
