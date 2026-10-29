@@ -42,6 +42,9 @@ class Pricing:
     cache_write_mult: float = CACHE_WRITE_5M_MULT
     cache_read_mult: float = CACHE_READ_MULT
     cache_write_1h_mult: float = CACHE_WRITE_1H_MULT
+    #: ``(threshold_tokens, multiplier)`` — every token billed at ``multiplier`` times
+    #: the base rate once total input exceeds the threshold. None for no tier.
+    long_tier: tuple[int, float] | None = None
 
     # per-token USD
     @property
@@ -85,9 +88,12 @@ CATALOG: dict[str, Pricing] = {
     "claude-sonnet-5": Pricing("claude-sonnet-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
-    # claude-haiku-5-5 is deliberately unpriced: every token bills 5x once a prompt passes
-    # 100k, and a one-tier row would underbill long prompts 5x. The SWE-bench harness
-    # prices it per call (benchmarks/swebench_outcome/agent.py LONG_TIER).
+    # Haiku 5.5 uses a two-tier price: prompts ≤100k tokens bill at the base rate ($0.10/$0.50
+    # per Mtok), prompts >100k bill every token at 5x ($0.50/$2.50 per Mtok).  The long_tier
+    # field carries the threshold and multiplier; callers that need accurate per-call pricing
+    # (replay-model, the SWE-bench harness) must apply it. The base input/output rates reflect
+    # the short-context tier; resolve() will return this row for all haiku-5-5 traffic.
+    "claude-haiku-5-5": Pricing("claude-haiku-5-5", 0.10, 0.50, long_tier=(100_000, 5.0)),
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),
 }
 
