@@ -78,9 +78,10 @@ def test_digest_widens_keep_with_promoted_model(monkeypatch):
     # A domain term the curated bridge can't reach ("frobnicate_level" is no synonym of
     # "widget"), sitting next to a lexical hit ("widget"). The always-on bridge misses it;
     # the learned proximity model catches it — the marginal value phase 2 adds over the bridge.
+    # A word value, not a number: `key = 7` is an identifier the digest now keeps on its own.
     lines = (
         ["preamble noise line"] * 4
-        + ["widget policy section", "  frobnicate_level = 7", "  other setting"]
+        + ["widget policy section", "  frobnicate_level = maximal", "  other setting"]
         + ["trailing noise line"] * 6
     )
     text = "\n".join(lines)
@@ -96,8 +97,10 @@ def test_digest_widens_keep_with_promoted_model(monkeypatch):
     monkeypatch.setattr(qr, "get_model", lambda: QueryRelevanceModel(w))
     phase2, _ = tier1.digest(text, intent=q)
 
-    assert "frobnicate_level = 7" in phase2, "phase 2 should pin the proximate answer line"
-    assert "frobnicate_level = 7" not in phase1, "the curated bridge can't reach it — phase 2's gap"
+    assert "frobnicate_level = maximal" in phase2, "phase 2 should pin the proximate answer line"
+    assert "frobnicate_level = maximal" not in phase1, (
+        "the curated bridge can't reach it — phase 2's gap"
+    )
 
 
 # --- content-free flywheel ----------------------------------------------------------

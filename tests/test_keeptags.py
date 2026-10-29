@@ -101,9 +101,15 @@ def test_proxy_adapter_keeps_the_span_and_compresses_around_it():
 
 
 def test_proxy_adapter_same_text_without_tag_digests_the_span():
+    # Control: the same span untagged is fair game for the digester. Its lines are
+    # identifier-dense, so the digest may keep them in view (keep_policy.identifier_lines)
+    # — but nothing guarantees it: the block is digested behind a handle.
     bare = KEPT.replace(keeptags.OPEN, "").replace(keeptags.CLOSE, "")
-    out, _ = compress_messages(_tool_result_messages(LOG + bare + LOG))
-    assert bare not in out[2]["content"][0]["content"]
+    text = LOG + bare + LOG
+    out, store = compress_messages(_tool_result_messages(text))
+    got = out[2]["content"][0]["content"]
+    assert "handle=" in got and len(got) < len(text) / 2
+    assert [store.expand(h) for h in store.handles] == [text]
 
 
 def test_user_text_span_survives_tier0():

@@ -20,7 +20,9 @@ def _markers(out: str) -> list[tuple[int, str]]:
 
 
 def _long(i: int) -> str:
-    return f"row {i:03d} " + "payload " * 12
+    # Lettered, not numbered: "row 003" is a key-number identifier the digest keeps in
+    # view (keep_policy.identifier_lines), and these tests are about the fold markers.
+    return f"row {chr(97 + i // 26)}{chr(97 + i % 26)} " + "payload " * 12
 
 
 def _three_runs() -> str:

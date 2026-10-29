@@ -25,7 +25,7 @@ from ..trajectory import Block, Kind
 from .base import CompressResult
 from . import query_relevance as _query_relevance
 from .intent import relevant_lines
-from .keep_policy import ContentKind, classify, must_keep
+from .keep_policy import IDENT_BUDGET, ContentKind, classify, identifier_lines, must_keep
 from .keep_policy import _SUMMARY_RE  # re-exported: keep_model imports it from here (1.14.1 compat)
 
 _DIGESTIBLE = {Kind.TOOL_OUTPUT, Kind.RETRIEVED}
@@ -123,14 +123,20 @@ def digest(
         if _qmodel is not None:
             keep_idx |= _qmodel.relevant_lines(lines, intent, kind)
     shape_seen: dict[str, int] = {}
+    governed: set[int] = set()  # lines the keep policy already decided, kept or deduped
     for i, ln in enumerate(lines):
         if "DECISION:" in ln or _SUMMARY_RE.search(ln) is not None:
             keep_idx.add(i)  # answers — never deduped
         elif must_keep(ln, kind):
+            governed.add(i)
             s = _shape(ln)
             shape_seen[s] = shape_seen.get(s, 0) + 1
             if shape_seen[s] <= max_repeats:
                 keep_idx.add(i)
+    # Identifier lines (paths, URLs, SHAs, key=value) the agent acts on stay in view,
+    # within a fixed share of the block. Additive: only widens the keep set, and never
+    # re-adds a line the per-shape dedup above folded as noise.
+    keep_idx |= identifier_lines(lines, int(len(text) * IDENT_BUDGET), skip=governed | keep_idx)
 
     # A dropped run shorter than the marker that would replace it is shown inline
     # instead: more faithful AND fewer tokens. Compared against the exact marker
@@ -211,7 +217,7 @@ class Tier1Reversible:
                 #    is one long line, which defeats every fold below it (measured: 0%
                 #    savings on a real 8.3k-token page). Extraction yields lines, so the
                 #    line-oriented machinery downstream works again.
-                from .htmlx import extract as _html_extract
+                from .htmlx import extract_any as _html_extract
 
                 stripped = _html_extract(b.text)
                 if stripped is not None:

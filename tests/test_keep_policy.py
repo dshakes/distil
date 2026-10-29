@@ -9,6 +9,7 @@ from __future__ import annotations
 from distil.compress.keep_policy import (
     ContentKind,
     classify,
+    identifier_lines,
     must_keep,
     summarize_dropped,
 )
@@ -281,3 +282,40 @@ def test_summary_literals_cover_every_alternative() -> None:
             f"{line!r} matches _SUMMARY_RE but contains no _SUMMARY_LITERALS entry — "
             "the prefilter in must_keep would drop it"
         )
+
+
+# ---------------------------------------------------------------------------
+# identifier lines — the visible-recall keep
+# ---------------------------------------------------------------------------
+
+
+def test_identifier_lines_keep_unseen_identifiers_within_budget():
+    lines = [
+        "plain words only",
+        "opened /srv/app/models/user.py",
+        "opened /srv/app/models/user.py",  # repeat: adds nothing unseen
+        "commit 3f9a2b1c pushed",
+        "retries=3 timeout=30",
+    ]
+    assert identifier_lines(lines, 10_000) == {1, 3, 4}
+    assert identifier_lines(lines, 10_000, skip={4}) == {1, 3}
+    # Densest first within the budget: the two-identifier line wins a tight budget.
+    assert identifier_lines(lines, len(lines[4]) + 1) == {4}
+    assert identifier_lines(lines, 0) == set()
+
+
+def test_digest_keeps_a_mid_block_identifier_in_view():
+    filler = [f"step ok {'.' * 60}" for _ in range(40)]
+    lines = ["h0", "h1", "h2", *filler[:20], "wrote /srv/out/report-final.json", *filler[20:]]
+    text = "\n".join(lines)
+    out, changed = digest(text)
+    assert changed and "/srv/out/report-final.json" in out
+    assert len(out) < len(text) / 3, "filler still folds"
+
+
+def test_identifier_keep_never_undoes_the_noise_dedup():
+    # A green run's repeated errors fold to one sample per shape even though each
+    # carries a distinct key-number identifier.
+    lines = [f"ERROR decrypt failed for payload {i}" for i in range(12)] + ["5 passed in 0.1s"]
+    out, _ = digest("\n".join(["start", "go", "run", *lines]))
+    assert sum("ERROR" in ln for ln in out.splitlines()) == 1

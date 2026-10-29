@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 from distil.adapters.anthropic import compress_messages
-from distil.compress.htmlx import extract, looks_like_html
+from distil.compress.htmlx import extract, extract_any, looks_like_html
 from distil.compress.tier1 import Tier1Reversible
 from distil.tokenizer import DEFAULT as TOK
 from distil.trajectory import Block, Kind, Stability
@@ -289,3 +289,38 @@ def test_retention_on_html_loses_nothing() -> None:
     dims = measure_live(messages, compressed, store)
     assert sum(t.total for t in dims.values()) > 0
     assert sum(t.lost for t in dims.values()) == 0  # nothing unrecoverable
+
+
+# --------------------------------------------------------------------------- visible recall
+
+
+_PAGE = (
+    "<!doctype html><html><head><style>.a{font-size:12px}</style></head><body><nav>menu</nav>"
+    + "<p>Read the <a href='https://example.com/docs/guide'>guide</a> first.</p>" * 20
+    + "</body></html>"
+)
+
+
+def test_link_targets_stay_in_view():
+    out = extract(_PAGE)
+    assert out is not None and "https://example.com/docs/guide" in out
+    assert "font-size" not in out
+
+
+def test_xml_with_balanced_tags_is_not_html():
+    # A docs API's document: balanced, but its attributes are node handles the agent
+    # edits by, not chrome.
+    doc = "".join(f'<paragraph h="a{i:07x}">para {i}</paragraph>' for i in range(30))
+    assert not looks_like_html(doc)
+    assert extract(doc) is None
+
+
+def test_json_envelope_keeps_its_keys_and_extracts_the_page():
+    text = json.dumps({"id": "run-8f3a2c1d", "status": 200, "body": _PAGE})
+    out = extract_any(text)
+    assert out is not None
+    got = json.loads(out)
+    assert got["id"] == "run-8f3a2c1d" and got["status"] == 200
+    assert "<p>" not in got["body"] and "guide" in got["body"]
+    assert extract_any("not json " + _PAGE) == extract("not json " + _PAGE)
+    assert extract_any(json.dumps({"k": "v" * 900})) is None

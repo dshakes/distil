@@ -125,6 +125,26 @@ _MIN_GAIN = 0.15  # require a real win, not a rounding one
 # Fraction of closeable open tags that must actually be closed for a doctype-less
 # fragment to count as markup. Well below 1.0: real-world HTML omits </li>, </p>, </td>.
 _MIN_CLOSE_RATIO = 0.5
+# ...and its tags must be mostly HTML elements. Balanced tags alone also describe XML
+# (a docs API's `<paragraph h="…">`, an RSS feed, a JUnit report), where the attributes
+# ARE the data — node handles the agent edits by — and stripping them as chrome hid
+# them from view. Measured: 242 such handles per 30 real JSON tool results.
+_MIN_HTML_SHARE = 0.5
+_INLINE = frozenset(
+    {
+        *("a", "span", "b", "i", "u", "s", "em", "strong", "small", "code", "kbd", "samp"),
+        *("var", "sub", "sup", "abbr", "cite", "q", "mark", "time", "label", "button"),
+        *("textarea", "picture", "caption", "tfoot", "html", "head", "body", "details"),
+        *("summary", "dialog", "menu", "colgroup", "fieldset", "legend", "address", "del"),
+        *("ins", "dfn", "bdi", "bdo", "wbr", "output", "progress", "meter", "track"),
+        *("param", "slot", "font", "center", "nobr"),
+    }
+)
+
+
+_HTML_NAMES = _DROP_SUBTREE | _DROP_CHROME | _BLOCK | _VOID | _INLINE
+# Link targets survive extraction: a URL is what the agent fetches next.
+_REF_TAGS = frozenset({"a", "link", "img", "source", "area"})
 
 
 def looks_like_html(text: str) -> bool:
@@ -143,6 +163,8 @@ def looks_like_html(text: str) -> bool:
     # closing tags — which prose mentioning a tag name never is.
     opens = _TAG_RE.findall(text)
     if len(opens) < _MIN_TAGS:
+        return False
+    if sum(t.lower() in _HTML_NAMES for t in opens) < len(opens) * _MIN_HTML_SHARE:
         return False
     closes = _CLOSE_RE.findall(text)
     voidish = sum(1 for t in opens if t.lower() in _VOID)
@@ -189,6 +211,10 @@ class _Extractor(HTMLParser):
             return
         if tag in _BLOCK:
             self.parts.append("\n")
+        if tag in _REF_TAGS:
+            ref = next((v for k, v in attrs if k.lower() in ("href", "src") and v), None)
+            if ref and not ref.startswith(("#", "javascript:", "data:")):
+                self.parts.append(f" <{ref}> ")
         if tag == "img":
             # Alt text is real content and often the only description of a figure.
             alt = next((v for k, v in attrs if k.lower() == "alt" and v), None)
@@ -250,3 +276,45 @@ def extract(text: str) -> str | None:
     if len(body) > len(text) * (1.0 - _MIN_GAIN):
         return None  # not a real win: leave the block alone
     return body
+
+
+def extract_any(text: str) -> str | None:
+    """`extract`, made safe for JSON: a JSON block is never extracted whole.
+
+    A JSON envelope around a page (an MCP fetch result, an API returning rendered HTML)
+    trips `looks_like_html` on the whole block, and whole-block extraction then threw
+    away the envelope's ids, paths and counts along with the chrome. Instead each string
+    value that is itself a page becomes its extracted text and every other key and value
+    is kept. None when nothing is extractable or the result is not a real win.
+    """
+    if text.lstrip()[:1] not in ("{", "["):
+        return extract(text)
+    import json
+
+    try:
+        obj = json.loads(text)
+    except (ValueError, RecursionError):
+        return extract(text)
+    changed = False
+
+    def walk(v: object) -> object:
+        nonlocal changed
+        if isinstance(v, str):
+            body = extract(v)
+            if body is None:
+                return v
+            changed = True
+            return body
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        return v
+
+    try:
+        out = json.dumps(walk(obj), ensure_ascii=False)
+    except RecursionError:
+        return None
+    if not changed or len(out) > len(text) * (1.0 - _MIN_GAIN):
+        return None
+    return out
