@@ -16,7 +16,7 @@ import re
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler
-from typing import Any
+from typing import Any, Callable
 
 _CHUNK = 8192
 
@@ -216,6 +216,8 @@ def stream_upstream(
     extras: dict[str, str] | None = None,
     want_body: bool = False,
     usage_sink: dict[str, int] | None = None,
+    chunk_transform: Callable[[bytes], bytes] | None = None,
+    on_upstream_error: Callable[[int, bytes], None] | None = None,
 ) -> tuple[int, bytes | None]:
     """Send the request and relay the response to *handler* incrementally.
 
@@ -254,6 +256,11 @@ def stream_upstream(
         # A 429 carries the most informative quota state of any response — capture it
         # here too, or the one request that proves the cap is the one we fail to record.
         handler._distil_ratelimit = capture_ratelimit(exc.headers)  # type: ignore[attr-defined]
+        if on_upstream_error is not None:
+            try:
+                on_upstream_error(exc.code, rbody)
+            except Exception:  # noqa: BLE001 — a callback must never break the relay
+                pass
         handler.send_response(exc.code)
         for k, v in exc.headers.items():
             if k.lower() not in hop_by_hop:
@@ -304,6 +311,9 @@ def stream_upstream(
                 chunk = resp.read1(_CHUNK)
                 if not chunk:
                     break
+                # Accounting always uses the original (unmodified) upstream bytes —
+                # usage figures, savings, and shadow decisions must not be based on
+                # the client-bound rewrite.
                 if want_body:
                     buf += chunk
                 if usage_sink is not None:
@@ -312,11 +322,24 @@ def stream_upstream(
                     tail += chunk
                     if len(tail) > _USAGE_SCAN_CAP:
                         del tail[: len(tail) - _USAGE_SCAN_CAP]
-                if chunked:
-                    handler.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
-                else:
-                    handler.wfile.write(chunk)
-                handler.wfile.flush()
+                # Client-bound: transform only what goes to the client.
+                out = chunk_transform(chunk) if chunk_transform is not None else chunk
+                if out:
+                    if chunked:
+                        handler.wfile.write(f"{len(out):X}\r\n".encode() + out + b"\r\n")
+                    else:
+                        handler.wfile.write(out)
+                    handler.wfile.flush()
+            # Flush any bytes the transform buffered (e.g. StreamGuard holding a
+            # partial SSE event across chunk boundaries).
+            if chunk_transform is not None and hasattr(chunk_transform, "flush"):
+                out = chunk_transform.flush()  # type: ignore[call-arg]
+                if out:
+                    if chunked:
+                        handler.wfile.write(f"{len(out):X}\r\n".encode() + out + b"\r\n")
+                    else:
+                        handler.wfile.write(out)
+                    handler.wfile.flush()
             if chunked:
                 handler.wfile.write(b"0\r\n\r\n")
                 handler.wfile.flush()

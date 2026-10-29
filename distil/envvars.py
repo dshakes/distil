@@ -48,6 +48,12 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "Set to 1 to opt out of the drift guard that holds compression after evidence of drift.",
     ),
     (
+        "DISTIL_CONTEXT_GUARD",
+        "user",
+        "1",
+        "Set to 0 to disable the context guard that nudges reported usage near the context-window limit.",
+    ),
+    (
         "DISTIL_NO_ENCRYPT_AT_REST",
         "user",
         "unset",
