@@ -365,6 +365,7 @@ def test_cmd_replay_model_live_without_spend_cap_returns_2(tmp_path: Path, capsy
 
     args = argparse.Namespace(
         live=True,
+        preflight=False,
         spend_cap=None,
         target="claude-haiku-5-5",
         n=10,
@@ -386,6 +387,7 @@ def test_cmd_replay_model_dryrun_no_records_returns_1(tmp_path: Path, capsys, mo
 
     args = argparse.Namespace(
         live=False,
+        preflight=False,
         spend_cap=None,
         target="claude-haiku-5-5",
         n=10,
@@ -534,6 +536,388 @@ def test_load_transcript_turns_respects_since(tmp_path: Path) -> None:
     root = _make_transcript(tmp_path, rows)
     turns = rm.load_transcript_turns(10, since=time.time() - 86400, transcripts_dir=root)
     assert len(turns) == 0
+
+
+# --------------------------------------------------------------------------- #
+# CC-shaped fixtures: split assistant rows + interleaved tool_results
+# --------------------------------------------------------------------------- #
+#
+# Real CC JSONL writes one row per content block of an assistant message.
+# The same message.id spans multiple rows chained via parentUuid.
+
+
+def _asst_row_split(
+    uuid: str,
+    parent: str,
+    content: list[dict],
+    model: str = "claude-opus-5-5",
+    message_id: str = "msg_001",
+    inp: int = 5000,
+    out: int = 100,
+) -> dict:
+    """Assistant row with an explicit message.id for split-message testing."""
+    return {
+        "type": "assistant",
+        "uuid": uuid,
+        "parentUuid": parent,
+        "sessionId": "sess1",
+        "timestamp": "2026-10-29T10:01:00Z",
+        "message": {
+            "id": message_id,
+            "role": "assistant",
+            "model": model,
+            "content": content,
+            "usage": {
+                "input_tokens": inp,
+                "output_tokens": out,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+        },
+    }
+
+
+def _tool_result_row(uuid: str, parent: str, tool_use_id: str = "t1") -> dict:
+    return {
+        "type": "user",
+        "uuid": uuid,
+        "parentUuid": parent,
+        "timestamp": "2026-10-29T10:01:30Z",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "content": "ok"}],
+        },
+    }
+
+
+def test_split_assistant_rows_merged_into_one_message(tmp_path: Path) -> None:
+    """Three fragments of the same message.id are merged into one API message."""
+    rows = [
+        _user_row("u0", None, "do it"),
+        _asst_row_split("a0", "u0", [{"type": "thinking", "thinking": "..."}]),
+        _asst_row_split("a1", "a0", [{"type": "text", "text": "on it"}]),
+        _asst_row_split(
+            "a2", "a1", [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}]
+        ),
+    ]
+    root = _make_transcript(tmp_path, rows)
+    turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root, rng=random.Random(0))
+    assert len(turns) == 1
+    t = turns[0]
+    # Decision should come from the merged content (thinking + text + tool_use)
+    # → first tool_use found → "tool:bash:..."
+    assert t.recorded_decision.startswith("tool:")
+    # Context: only the user message (thinking stripped → no preceding assistant message)
+    assert t.messages[-1]["role"] == "user"
+    # Only ONE turn sampled (a0 and a1 are non-last fragments, skipped)
+    assert len(turns) == 1
+
+
+def test_split_assistant_rows_only_last_fragment_sampled(tmp_path: Path) -> None:
+    """Non-last fragments (a0, a1) produce no separate turns."""
+    rows = [
+        _user_row("u0", None, "go"),
+        _asst_row_split("a0", "u0", [{"type": "thinking", "thinking": "..."}]),
+        _asst_row_split("a1", "a0", [{"type": "tool_use", "id": "t1", "name": "ls", "input": {}}]),
+    ]
+    root = _make_transcript(tmp_path, rows)
+    turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root)
+    # Only 1 turn: from a1 (the last fragment)
+    assert len(turns) == 1
+    assert turns[0].recorded_decision.startswith("tool:")
+
+
+def test_split_tool_result_rows_merged(tmp_path: Path) -> None:
+    """Two consecutive tool_result user rows are merged into one API message."""
+    rows = [
+        _user_row("u0", None, "run tools"),
+        # Single assistant message with two parallel tool_uses
+        _asst_row_split(
+            "a0",
+            "u0",
+            [
+                {"type": "tool_use", "id": "t1", "name": "bash", "input": {}},
+                {"type": "tool_use", "id": "t2", "name": "read", "input": {}},
+            ],
+        ),
+        # Two separate tool_result user rows (CC sometimes writes one per result)
+        _tool_result_row("tr1", "a0", tool_use_id="t1"),
+        _tool_result_row("tr2", "tr1", tool_use_id="t2"),
+        # Final text response (decision row for the NEXT turn)
+        _asst_row_split("a1", "tr2", [{"type": "text", "text": "done"}], message_id="msg_002"),
+    ]
+    root = _make_transcript(tmp_path, rows)
+    turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root)
+    # We expect the turn for a1 to have valid messages with merged tool_results
+    text_turns = [t for t in turns if t.recorded_decision == "text"]
+    assert len(text_turns) >= 1
+    msg_list = text_turns[0].messages
+    # The user message containing tool_results should have BOTH in one message
+    tr_msgs = [
+        m
+        for m in msg_list
+        if isinstance(m.get("content"), list)
+        and any(b.get("type") == "tool_result" for b in m["content"] if isinstance(b, dict))
+    ]
+    assert len(tr_msgs) == 1  # merged into one
+    assert len(tr_msgs[0]["content"]) == 2  # both tool_results
+
+
+def test_thinking_only_fragment_skipped(tmp_path: Path) -> None:
+    """A fragment with ONLY thinking contributes nothing to the context messages."""
+    rows = [
+        _user_row("u0", None, "think then act"),
+        _asst_row_split("a0", "u0", [{"type": "thinking", "thinking": "hmm"}]),
+        _asst_row_split(
+            "a1", "a0", [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}]
+        ),
+    ]
+    root = _make_transcript(tmp_path, rows)
+    turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root)
+    assert len(turns) == 1
+    # The context has no assistant messages (thinking stripped, nothing left)
+    assert all(m["role"] == "user" for m in turns[0].messages)
+
+
+def test_thinking_not_stripped_when_paired_with_text(tmp_path: Path) -> None:
+    """Prior assistant message with thinking + text: thinking stripped, text kept.
+
+    a0 (thinking+text, msg_000) and a1 (tool_use, msg_001) are BOTH last fragments,
+    so two turns are sampled.  The turn from a1 carries a0's context with the text
+    block intact but the thinking block removed.
+    """
+    rows = [
+        _user_row("u0", None, "start"),
+        # Previous turn: thinking + text (singleton for msg_000)
+        _asst_row_split(
+            "a0",
+            "u0",
+            [{"type": "thinking", "thinking": "..."}, {"type": "text", "text": "interim"}],
+            message_id="msg_000",
+        ),
+        _user_row("u1", "a0", "continue"),
+        _asst_row_split(
+            "a1",
+            "u1",
+            [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}],
+            message_id="msg_001",
+        ),
+    ]
+    root = _make_transcript(tmp_path, rows)
+    turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root)
+    # Both a0 and a1 are last fragments → 2 turns
+    assert len(turns) == 2
+    # Find the tool-use turn (from a1)
+    tool_turn = next(t for t in turns if t.recorded_decision.startswith("tool:"))
+    # Its context must include an assistant message with text but NOT thinking
+    asst_msgs = [m for m in tool_turn.messages if m["role"] == "assistant"]
+    assert asst_msgs
+    for m in asst_msgs:
+        types = [b.get("type") for b in m["content"] if isinstance(b, dict)]
+        assert "thinking" not in types
+        assert "text" in types
+
+
+def test_sibling_branch_tool_results_collected(tmp_path: Path) -> None:
+    """CC writes tool_result for T1 as a sibling child of frag1, not in the main chain.
+
+    Structure (Pattern A from CC JSONL):
+      u0  ← user message
+      a0  ← assistant frag1 [tool_use:t1], msg_id=msg_001, parent=u0
+      a1  ← assistant frag2 [tool_use:t2], msg_id=msg_001, parent=a0   (same msg_id)
+      tr2 ← user [tool_result:t2], parent=a1                            (in main chain)
+      a2  ← assistant [text "done"],   msg_id=msg_002, parent=tr2       (decision row)
+
+    tr1 (user [tool_result:t1], parent=a0) is a SIBLING of a1 — a child of a0 that
+    is NOT on the main parentUuid chain.  The reconstruction must pick it up via the
+    children_by_uuid index so that the API turn gets both results.
+    """
+    # tr1 is a sibling: its parentUuid=a0, but the main chain goes a0→a1→tr2→a2.
+    tr1 = {
+        "type": "user",
+        "uuid": "tr1",
+        "parentUuid": "a0",
+        "timestamp": "2026-10-29T10:01:30Z",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok1"}],
+        },
+    }
+    rows = [
+        _user_row("u0", None, "run two tools"),
+        _asst_row_split(
+            "a0",
+            "u0",
+            [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}],
+            message_id="msg_001",
+        ),
+        # sibling tool_result for t1 — NOT on the main parentUuid chain
+        tr1,
+        _asst_row_split(
+            "a1",
+            "a0",  # direct child of a0, same msg_id
+            [{"type": "tool_use", "id": "t2", "name": "read", "input": {}}],
+            message_id="msg_001",
+        ),
+        _tool_result_row("tr2", "a1", tool_use_id="t2"),  # in main chain
+        _asst_row_split("a2", "tr2", [{"type": "text", "text": "done"}], message_id="msg_002"),
+    ]
+    root = _make_transcript(tmp_path, rows)
+    turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root)
+
+    # The turn for a2 carries context with the merged assistant + merged user results.
+    text_turns = [t for t in turns if t.recorded_decision == "text"]
+    assert len(text_turns) >= 1
+    msg_list = text_turns[0].messages
+
+    # The assistant message in context should contain BOTH tool_uses.
+    asst_msgs = [m for m in msg_list if m["role"] == "assistant"]
+    assert asst_msgs
+    all_asst_content = [b for m in asst_msgs for b in m.get("content", []) if isinstance(b, dict)]
+    tool_use_ids = {b.get("id") for b in all_asst_content if b.get("type") == "tool_use"}
+    assert tool_use_ids == {"t1", "t2"}, f"expected both tool_use ids, got {tool_use_ids}"
+
+    # There should be EXACTLY ONE user message with tool_results, containing BOTH.
+    tr_msgs = [
+        m
+        for m in msg_list
+        if isinstance(m.get("content"), list)
+        and any(b.get("type") == "tool_result" for b in m["content"] if isinstance(b, dict))
+    ]
+    assert len(tr_msgs) == 1, f"expected 1 tool_result user msg, got {len(tr_msgs)}"
+    result_ids = {b.get("tool_use_id") for b in tr_msgs[0]["content"] if isinstance(b, dict)}
+    assert result_ids == {"t1", "t2"}, f"expected both result ids, got {result_ids}"
+
+    # validate_turn must pass (no missing-result errors).
+    errs = rm.validate_turn(text_turns[0])
+    assert errs == [], f"validate_turn errors: {errs}"
+
+
+# --------------------------------------------------------------------------- #
+# validate_turn
+# --------------------------------------------------------------------------- #
+
+
+def _make_turn(messages: list[dict], decision: str = "text") -> rm.TranscriptTurn:
+    return rm.TranscriptTurn(
+        messages=messages,
+        recorded_decision=decision,
+        model="claude-opus-5-5",
+        input_tokens=1000,
+        output_tokens=50,
+        ts=time.time(),
+    )
+
+
+def test_validate_turn_valid_simple() -> None:
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {"role": "user", "content": "ok"},
+        ]
+    )
+    assert rm.validate_turn(turn) == []
+
+
+def test_validate_turn_valid_tool_pair() -> None:
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "run ls"},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x"}],
+            },
+        ]
+    )
+    assert rm.validate_turn(turn) == []
+
+
+def test_validate_turn_detects_ends_with_assistant() -> None:
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": [{"type": "text", "text": "bye"}]},
+        ]
+    )
+    errs = rm.validate_turn(turn)
+    assert any("user" in e for e in errs)
+
+
+def test_validate_turn_detects_consecutive_roles() -> None:
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "a"},
+            {"role": "user", "content": "b"},
+            {"role": "assistant", "content": [{"type": "text", "text": "c"}]},
+            {"role": "user", "content": "d"},
+        ]
+    )
+    errs = rm.validate_turn(turn)
+    assert any("consecutive" in e for e in errs)
+
+
+def test_validate_turn_detects_thinking_block() -> None:
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "hmm"},
+                    {"type": "text", "text": "ok"},
+                ],
+            },
+            {"role": "user", "content": "done"},
+        ]
+    )
+    errs = rm.validate_turn(turn)
+    assert any("thinking" in e for e in errs)
+
+
+def test_validate_turn_detects_orphaned_tool_result() -> None:
+    """Tool result that references a non-existent tool_use."""
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "start"},
+            {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t99", "content": "x"}],
+            },
+        ]
+    )
+    errs = rm.validate_turn(turn)
+    assert any(
+        "tool_result" in e and "orphan" in e.lower() or "not in" in e.lower() or "t99" in e
+        for e in errs
+    )
+
+
+def test_validate_turn_detects_missing_tool_result() -> None:
+    """Tool use with no following tool_result."""
+    turn = _make_turn(
+        [
+            {"role": "user", "content": "run"},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}],
+            },
+            {"role": "user", "content": "next question"},
+        ]
+    )
+    errs = rm.validate_turn(turn)
+    assert any("tool_use" in e or "tool_result" in e for e in errs)
+
+
+def test_validate_turn_empty_messages() -> None:
+    turn = _make_turn([])
+    errs = rm.validate_turn(turn)
+    assert errs  # must have at least one error
 
 
 # --------------------------------------------------------------------------- #
