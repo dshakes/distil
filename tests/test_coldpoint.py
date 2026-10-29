@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from distil import coldpoint, prefixreplay
+from distil import coldpoint, prefixreplay, ttl_estimator
 from distil.adapters.anthropic import cold_candidates, compress_messages, evicted_stub
 
 _STUB = re.compile(
@@ -28,7 +28,9 @@ _STUB = re.compile(
 
 
 @pytest.fixture(autouse=True)
-def _fresh_state(monkeypatch):
+def _fresh_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    ttl_estimator.reset()
     coldpoint.reset()
     prefixreplay.reset()
     monkeypatch.delenv("DISTIL_COLD_POINT", raising=False)

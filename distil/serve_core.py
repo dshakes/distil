@@ -226,6 +226,7 @@ def _cold_plan(
             # (byte-stable prefix), no fresh eviction.
             held=held,
             ttl=_coldpoint.openai_request_ttl(body) if openai else None,
+            provider="openai" if openai else "anthropic",
         )
     except Exception:  # noqa: BLE001 — never break a request for a saving
         log.debug("cold-point plan failed; compressing as usual", exc_info=True)

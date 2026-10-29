@@ -1665,6 +1665,21 @@ def build_handler(
                     _u.get("cache_creation_input_tokens", 0) or 0
                 )
                 _billed_full = int(_u.get("input_tokens") or 0) + _cache
+                # Learned cache TTL (ttl_estimator): was the prefix still cached after the idle
+                # gap this request arrived on? Anthropic reports cache_read_input_tokens, OpenAI
+                # prompt_tokens_details.cached_tokens. Fail-open; once per request.
+                _ck_obs = getattr(self, "_distil_cold_key", None)
+                if _ck_obs is not None:
+                    try:
+                        _det = _u.get("prompt_tokens_details")
+                        _read = int(
+                            _u.get("cache_read_input_tokens")
+                            or (_det.get("cached_tokens") if isinstance(_det, dict) else 0)
+                            or 0
+                        )
+                        _coldpoint.observe_usage(_ck_obs, _read)
+                    except (TypeError, ValueError):
+                        pass
                 # A+C: feed the (heuristic estimate, full billed) pairing into the token calibrator
                 # so reported counts converge to the real tokenizer. Content-free, fail-open.
                 # The estimate describes the FIRST call's prompt; expand re-queries (summed
