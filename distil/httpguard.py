@@ -36,6 +36,23 @@ _CHAT_RE = re.compile(rf"^(?:/v1/chat/completions|{_AZURE}chat/completions)$")
 _RESPONSES_RE = re.compile(rf"^(?:/v1/responses|{_AZURE}responses)$")
 _MESSAGES_PATH = "/v1/messages"
 
+# Anthropic models on Bedrock (InvokeModel) and on Vertex AI (rawPredict) take the SAME
+# Messages body as /v1/messages, with the model in the URL and ``anthropic_version`` in the
+# body. Gemini on Vertex takes the generateContent body under a project-scoped path.
+#   POST /model/{modelId}/invoke | /invoke-with-response-stream   (Bedrock; stream is AWS
+#        binary eventstream, not SSE)
+#   POST /model/{modelId}/converse | /converse-stream             (Bedrock Converse: a
+#        different body shape — forwarded untouched, never compressed)
+#   POST /v1/projects/{p}/locations/{l}/publishers/anthropic/models/{m}:rawPredict | :streamRawPredict
+#   POST /v1/projects/{p}/locations/{l}/publishers/google/models/{m}:generateContent | :streamGenerateContent
+_BEDROCK_INVOKE_RE = re.compile(r"^/model/[^/]+/invoke(?:-with-response-stream)?$")
+_BEDROCK_RE = re.compile(
+    r"^/model/[^/]+/(?:invoke(?:-with-response-stream)?|converse(?:-stream)?)$"
+)
+_VERTEX = r"/v1(?:beta1)?/projects/[^/]+/locations/[^/]+/publishers/"
+_VERTEX_ANTHROPIC_RE = re.compile(rf"^{_VERTEX}anthropic/models/[^/:]+:(?:stream)?[Rr]awPredict$")
+VERTEX_GOOGLE_RE = re.compile(rf"^{_VERTEX}google/models/[^/:]+:(?:stream)?[Gg]enerateContent$")
+
 
 def is_messages_path(target: str) -> bool:
     """True for the Anthropic Messages endpoint (``/v1/messages``)."""
@@ -61,7 +78,31 @@ def is_compressible_path(target: str) -> bool:
     embedded in the path and that adapter owns the pattern.
     """
     p = strip_query(target)
-    return p == _MESSAGES_PATH or bool(_CHAT_RE.match(p)) or bool(_RESPONSES_RE.match(p))
+    return (
+        p == _MESSAGES_PATH
+        or bool(_CHAT_RE.match(p))
+        or bool(_RESPONSES_RE.match(p))
+        or bool(_BEDROCK_INVOKE_RE.match(p))
+        or bool(_VERTEX_ANTHROPIC_RE.match(p))
+    )
+
+
+def is_bedrock_path(target: str) -> bool:
+    """True for any Bedrock runtime inference endpoint (InvokeModel or Converse)."""
+    return bool(_BEDROCK_RE.match(strip_query(target)))
+
+
+def is_eventstream_path(target: str) -> bool:
+    """Bedrock streaming answers are AWS binary eventstream, not SSE or JSON: relay raw,
+    and never run the expand splice/loop over them."""
+    p = strip_query(target)
+    return bool(_BEDROCK_INVOKE_RE.match(p)) and p.endswith("-stream")
+
+
+def is_sigv4(authorization: str | None) -> bool:
+    """SigV4 signs the Host header and the body hash, so neither a proxy hop nor a
+    compressed body can keep it valid."""
+    return (authorization or "").startswith("AWS4-HMAC-SHA256")
 
 
 def safe_forward_path(target: str) -> str | None:
@@ -81,7 +122,10 @@ def safe_forward_path(target: str) -> str | None:
     path = target.split("?", 1)[0].split("#", 1)[0]
     if not path.startswith("/") or path.startswith("//"):
         return None
-    if "@" in path or "://" in path:
+    # Vertex versions model ids with ``@`` (claude-sonnet-4-5@20250929); there it is data,
+    # inside a fixed /v1/projects/... prefix. Anywhere else it stays a host-injection vector.
+    at_ok = bool(_VERTEX_ANTHROPIC_RE.match(path) or VERTEX_GOOGLE_RE.match(path))
+    if ("@" in path and not at_ok) or "://" in path:
         return None
     if any(seg == ".." for seg in path.split("/")):
         return None

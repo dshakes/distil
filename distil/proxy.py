@@ -39,7 +39,10 @@ from ._log import log
 from .adapters.gemini import is_gemini_path
 from .httpguard import (
     framing_rejection,
+    is_bedrock_path,
     is_compressible_path,
+    is_eventstream_path,
+    is_sigv4,
     is_messages_path,
     parse_content_length,
     safe_forward_path,
@@ -932,6 +935,16 @@ def build_handler(
                 _mark_session_traffic()
             _warn_if_version_skew(_version_state)
             p = strip_query(self.path)
+            if is_bedrock_path(p) and is_sigv4(self.headers.get("Authorization")):
+                # SigV4 signs Host + body hash: it cannot survive this hop, with or
+                # without compression, and distil never holds AWS credentials to re-sign.
+                self._reject(
+                    400,
+                    "SigV4-signed Bedrock requests cannot pass through a proxy (the "
+                    "signature covers Host and body). Use a Bedrock API key "
+                    "(AWS_BEARER_TOKEN_BEDROCK) against this proxy.",
+                )
+                return
             if is_compressible_path(p) or is_gemini_path(p):
                 # Content-free integration-surface counter (census schema 3).
                 try:
@@ -1137,7 +1150,11 @@ def build_handler(
             # injected, so stubs already in the history remain recoverable and the
             # cached tools prefix does not change shape at the trip.
             _held, _req_mode = _request_mode()
-            _verb = verbatim or _held
+            # Bedrock's streamed answer is binary eventstream: no digest handles (so no
+            # distil_expand tool the splice/loop could not resolve), Tier-0 only.
+            _eventstream = is_eventstream_path(self.path)
+            _expand_here = expand and not _eventstream
+            _verb = verbatim or _held or _eventstream
             _shape_ok = _lossy_ok and not _held
             if _held and savings is not None:
                 savings.mode = _req_mode
@@ -1202,7 +1219,7 @@ def build_handler(
                     self.path,
                     count=_count_messages,
                     verbatim=_verb,
-                    expand=expand,
+                    expand=_expand_here,
                     mode=_req_mode,
                     keep=_learn_keep,
                     session_delta=session_delta,
@@ -1249,7 +1266,7 @@ def build_handler(
             # agent keeps streaming AND the digest stays recoverable.
             want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
             t_req = time.monotonic()  # upstream + relay latency (compression excluded)
-            _intercept = _expand_should_intercept(expand, store, body)
+            _intercept = _expand_should_intercept(_expand_here, store, body)
             # The splice only speaks Anthropic Messages SSE. It used to run for ANY
             # provider whose request carried a handle, and on an OpenAI or Gemini
             # stream every event fell through to the "unknown keepalive" arm: each
@@ -1462,7 +1479,7 @@ def build_handler(
             # the local store and re-query, invisibly, before returning to the agent.
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
             # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
-            if _expand_should_intercept(expand, store, body):
+            if _expand_should_intercept(_expand_here, store, body):
                 try:
                     resp_json = json.loads(rbody)
                 except (ValueError, TypeError):

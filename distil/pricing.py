@@ -11,6 +11,7 @@ cache-aware compression beats naive compression.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 # The single source of model facts the code relies on (drift canary:
@@ -189,8 +190,8 @@ def resolve(model_id: str | None) -> Pricing | None:
     for pre in _ROUTE_PREFIXES:
         if mid.startswith(pre):
             mid = mid[len(pre) :]
-    if mid.startswith("anthropic."):
-        mid = mid[len("anthropic.") :]
+    # Bedrock: ``anthropic.<id>-v1:0``, or a cross-region profile (``us.``/``eu.``/``global.``).
+    mid = re.sub(r"^(?:[a-z]{2,6}\.)?anthropic\.", "", mid)
     mid = mid.split("@", 1)[0]
     if mid in CATALOG:
         return CATALOG[mid]
