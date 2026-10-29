@@ -132,15 +132,15 @@ def test_the_last_assistant_message_is_never_touched_even_without_a_user_turn() 
     assert A.cold_thinking_candidates(msgs, "claude-opus-5-5") == frozenset()
 
 
-def test_only_a_leading_run_ever_drops() -> None:
+def test_apply_drops_exactly_the_named_blocks_wherever_they_sit() -> None:
+    # The leading-run rule is a SELECTION rule (the candidates above). Applying a set is
+    # positionless: a block chosen on an earlier turn stays out whatever surrounds it now,
+    # because putting it back is what invalidates the chain on preserved-thinking models.
     msgs = _history(3)
     keys = A.cold_thinking_candidates(msgs, "claude-opus-5-5")
-    # Withhold the second-oldest block: everything after it must stay, or the chain breaks.
     second = A._thinking_key(_think("0b"))
     out = A.drop_cold_thinking(msgs, keys - {second})
-    assert _sigs(out) == [
-        "sig-0b", "sig-1a", "sig-1b", "sig-2a", "sig-2b", "sig-cur1", "sig-cur2"
-    ]  # fmt: skip
+    assert _sigs(out) == ["sig-0b", "sig-cur1", "sig-cur2"]
 
 
 def test_a_thinking_only_message_ends_the_run() -> None:
@@ -197,7 +197,10 @@ def test_off_by_default(monkeypatch) -> None:
     keys = A.cold_thinking_candidates(msgs, "claude-opus-5-5")
     monkeypatch.delenv("DISTIL_COLD_THINKING")
     assert A.cold_thinking_candidates(msgs, "claude-opus-5-5") == frozenset()
-    assert A.drop_cold_thinking(msgs, keys) is msgs
+    # The flag gates choosing, never applying: a set chosen while it was on stays applied
+    # ("Once you remove a block, leave it out").
+    assert _sigs(A.drop_cold_thinking(msgs, keys)) == ["sig-cur1", "sig-cur2"]
+    assert A.drop_cold_thinking(msgs, frozenset()) is msgs
 
 
 def test_compress_messages_applies_it_and_verbatim_does_not() -> None:

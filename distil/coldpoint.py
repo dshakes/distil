@@ -111,6 +111,7 @@ class _State:
     inflight: int = 0
     evicted: frozenset[str] = frozenset()
     ambiguous: bool = False
+    pending: bool = False  # a cold turn's eviction deferred to the next turn boundary
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,9 @@ class Plan:
     first evicted on THIS turn (non-zero only on a cold turn)."""
 
     evict: frozenset[str]
-    reason: str  # first-seen | warm | cold | ambiguous | inflight | unknown-ttl | held
+    # first-seen | warm | cold | ambiguous | inflight | unknown-ttl | held | deferred |
+    # deferred-cold (a deferred eviction applied on a later turn, cache possibly warm)
+    reason: str
     fresh: int = 0
 
 
@@ -343,6 +346,7 @@ def plan(
     held: bool = False,
     now: float | None = None,
     ttl: float | None = None,
+    extend: Callable[[frozenset[str]], frozenset[str] | None] | None = None,
 ) -> Plan:
     """Decide this request's eviction set and mark the lineage in flight.
 
@@ -351,6 +355,12 @@ def plan(
     outside the lock. *held* is the drift guard's hook: a held lineage keeps applying the
     set it has but decides nothing new. *ttl* overrides the Anthropic ``cache_control``
     reading for a provider without one (:func:`openai_request_ttl`).
+
+    *extend(fresh)* names what else must go for *fresh* to be a legal edit (the thinking
+    blocks after it on a preserved-thinking model), or returns None: not on this turn. The
+    eviction is then deferred — nothing new now, and every later turn retries until one
+    accepts it (``deferred-cold``), cache warm or not: the edit had to wait, and the saving
+    it buys lasts the rest of the session.
     """
     now = _clock() if now is None else now
     ttl = request_ttl(body) if ttl is None else ttl
@@ -387,27 +397,34 @@ def plan(
             reason = "unknown-ttl"
         elif now - st.last > st.ttl + MARGIN_S:
             reason = "cold"
+        elif st.pending:
+            reason = "deferred-cold"
         else:
             reason = "warm"
         st.last = max(st.last, now)
         st.n = len(messages)
         st.tail = _sig(messages[-1]) if messages else ""
         st.inflight += 1
-        if reason != "cold":
+        if reason not in ("cold", "deferred-cold"):
             return Plan(st.evicted, reason)
         before = st.evicted
 
     try:
         fresh = candidates() - before
+        more = extend(fresh) if fresh and extend is not None else frozenset()
     except Exception:  # noqa: BLE001 — a failed choice evicts nothing new, never breaks
         log.debug("cold-point candidate selection failed", exc_info=True)
-        fresh = frozenset()
+        fresh = more = frozenset()
     with _LOCK:
+        st.pending = more is None
+        if more is None:
+            return Plan(st.evicted, "deferred")
+        fresh = fresh | (more - before)
         st.evicted = st.evicted | fresh
         evict = st.evicted
     if fresh:
         _persist(key, evict)
-    return Plan(evict, "cold", len(fresh))
+    return Plan(evict, reason, len(fresh))
 
 
 def _touch(key: str, delta: int, now: float | None) -> None:

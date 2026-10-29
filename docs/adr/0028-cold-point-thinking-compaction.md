@@ -49,3 +49,26 @@ moment.
   `usage` is the only true measure.
 - To turn it on by default, collect ≥50 paired shadow rows on opted-in cold turns and
   require the paired-harm upper bound to sit inside `BUDGET_ALPHA`.
+
+## Addendum (2026-10-29) — an eviction is a prefix edit on preserved-thinking models
+
+On Fable 5.1, Mythos 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5 each thinking block's
+signature binds the prefix it was produced after; an edit at position P fails that block
+and every later one (a 400 on accounts past the enforcement cutoff and always on Mythos
+5.1; billed garbage input otherwise). ADR 0014's default-on eviction is such an edit. So,
+on those models and any unknown `claude-<family>-5+` id (`preserved_thinking`, fail safe):
+
+* a cold eviction at P also drops every thinking block after P (`thinking_after_edit`) —
+  "remove the newest", which the API allows. Those keys join the evicted set, persist with
+  it, and are re-applied byte-identically every later turn;
+* when a block after P belongs to the turn in progress (tool-use continuation), or the
+  history has a shape this does not reason about, the eviction is deferred: reason
+  `deferred`, then applied on the next turn boundary as `deferred-cold`. That turn's cache
+  may still be warm — one rewrite, accepted, since the alternative is never evicting in
+  an agent loop that went cold mid-tool;
+* the set is sticky (`sticky_evict`): neither a drift-guard hold (verbatim) nor a later
+  exact-quote exemption puts an evicted block or a dropped thinking block back;
+* `drop_cold_thinking` applies its set wherever the blocks sit, independent of
+  `DISTIL_COLD_THINKING` (the flag gates choosing, never applying).
+
+`distil validate` carries the `thinking-prefix` invariant for it.

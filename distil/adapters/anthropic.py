@@ -541,19 +541,104 @@ def cold_thinking_candidates(messages: list[Any], model: str) -> frozenset[str]:
 
 
 def drop_cold_thinking(messages: list[Any], evict: frozenset[str]) -> list[Any]:
-    """Drop the thinking blocks *evict* names, within the API rules. Applied every turn
-    from the cold one on, so the shorter prefix is what stays cached. Non-mutating;
-    returns *messages* itself when nothing is dropped."""
-    if not cold_thinking_enabled() or not any(k.startswith(THINKING_KEY_PREFIX) for k in evict):
-        return messages
-    drop = _droppable_thinking(messages, lambda k: k in evict)
-    if not drop:
+    """Drop every thinking block *evict* names, wherever it now sits. Applied every turn
+    from the one that chose it, so the shorter prefix is what stays cached. Non-mutating;
+    returns *messages* itself when nothing is dropped.
+
+    Not gated on :func:`cold_thinking_enabled`, and no position rule: on preserved-thinking
+    models a removed block must stay removed ("Putting it back invalidates..."), and the
+    set holds both the opt-in leading run and the blocks after a cold edit
+    (:func:`thinking_after_edit`), each chosen legal on its own turn. Blocks only recede
+    into the past, so what was legal to drop then stays legal. A drop that would leave an
+    assistant message empty is skipped (an empty message is a 400 of its own).
+    """
+    if not any(k.startswith(THINKING_KEY_PREFIX) for k in evict):
         return messages
     out = list(messages)
-    for i, js in drop.items():
-        m = out[i]
-        out[i] = {**m, "content": [b for j, b in enumerate(m["content"]) if j not in js]}
-    return out
+    changed = False
+    for i, m in enumerate(messages):
+        c = m.get("content") if isinstance(m, dict) else None
+        if not isinstance(c, list) or m.get("role") != "assistant":
+            continue
+        kept = [
+            b
+            for b in c
+            if not (
+                isinstance(b, dict)
+                and b.get("type") in _THINKING_TYPES
+                and _thinking_key(b) in evict
+            )
+        ]
+        if kept and len(kept) != len(c):
+            out[i] = {**m, "content": kept}
+            changed = True
+    return out if changed else messages
+
+
+# Preserved thinking (platform.claude.com/docs/en/build-with-claude/preserved-thinking,
+# read 2026-10-29): on Fable 5.1, Mythos 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5 every
+# thinking block's signature binds the prefix it was produced after — system, tools, every
+# earlier message. Edit anything before a block and that block and every later one fail
+# the check (a 400 on newer accounts and always on Mythos; billed garbage otherwise).
+# Unknown claude-<family>-5+ ids count as preserved: the wrong guess there costs a few
+# dropped thinking blocks, the other wrong guess a 400.
+_PRESERVED_THINKING = re.compile(r"claude-[a-z]+-(?:[5-9]|[1-9]\d)(?!\d)")
+
+
+def preserved_thinking(model: str) -> bool:
+    """Whether *model* binds each thinking block's signature to its prefix."""
+    return bool(_PRESERVED_THINKING.search(model or ""))
+
+
+def thinking_after_edit(
+    messages: list[Any], ids: frozenset[str], model: str
+) -> frozenset[str] | None:
+    """Thinking keys to drop so that evicting *ids* is legal on *model*, or None: not now.
+
+    An eviction rewrites the earliest tool_result it names, at position P. On a
+    preserved-thinking model every thinking block after P would then fail its prefix check,
+    so they all go too — "remove the newest", which the API allows. The keys join the
+    evicted set, so the same blocks stay out on every later turn.
+
+    None means the edit has to wait for a turn boundary (the caller defers it): a block
+    after P sits in the turn in progress, whose thinking goes back complete and unmodified
+    during tool use; or the history is a shape this does not reason about (a compaction
+    block, an unsigned thinking block, a message that would be left empty). Empty for any
+    other model, and when nothing after P carries thinking.
+    """
+    if not preserved_thinking(model):
+        return frozenset()
+    tools = {i for i in ids if not i.startswith(THINKING_KEY_PREFIX)}
+    p = boundary = -1
+    for i, m in enumerate(messages):
+        if not isinstance(m, dict):
+            return None
+        c = m.get("content")
+        blocks = c if isinstance(c, list) else []
+        if not all(isinstance(b, dict) and b.get("type") != "compaction" for b in blocks):
+            return None
+        if m.get("role") != "user":
+            continue
+        results = [b for b in blocks if b.get("type") == "tool_result"]
+        if not results:
+            boundary = i
+        elif p < 0 and any(b.get("tool_use_id") in tools for b in results):
+            p = i
+    if p < 0:
+        return frozenset()
+    keys: set[str] = set()
+    for i in range(p + 1, len(messages)):
+        c = messages[i].get("content")
+        th = [b for b in c if b.get("type") in _THINKING_TYPES] if isinstance(c, list) else []
+        if not th:
+            continue
+        if messages[i].get("role") != "assistant" or i > boundary or len(th) == len(c):
+            return None
+        found = [_thinking_key(b) for b in th]
+        if any(k is None for k in found):
+            return None
+        keys.update(k for k in found if k is not None)
+    return frozenset(keys)
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -1255,6 +1340,7 @@ def compress_messages(
     evict: frozenset[str] = frozenset(),
     persist: bool = True,
     refetch: bool | None = None,
+    sticky_evict: bool = False,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -1275,6 +1361,10 @@ def compress_messages(
         tool_use ids whose results become a recoverable eviction stub (ADR 0014,
         chosen by :mod:`distil.coldpoint`). Ignored in verbatim mode, on recent
         turns, and for any exact-quote result.
+    sticky_evict:
+        Apply *evict* even in verbatim mode and over the exact-quote exemption. Set on
+        preserved-thinking models (:func:`preserved_thinking`), where putting an evicted
+        block back is a prefix edit that invalidates every later thinking block.
     persist:
         When *False*, originals stay in the returned in-memory store only: nothing is
         written to (or collision-checked against) the on-disk restore store. For
@@ -1292,10 +1382,17 @@ def compress_messages(
         ``store`` maps every 8-hex handle embedded in digest markers back to the
         original text; call ``store.expand(handle)`` to recover it.
     """
-    if evict and not verbatim:
+    if evict and (sticky_evict or not verbatim):
         # Cold-point thinking compaction (ADR 0028), before anything else reads the
         # history, so the census describes the payload actually sent.
         messages = drop_cold_thinking(messages, evict)
+    if verbatim and not sticky_evict:
+        evict = frozenset()
+
+    def _pin(ids: Mapping[str, str]) -> Mapping[str, str]:
+        # A sticky eviction outranks the exact-quote exemption (see *sticky_evict*).
+        return {k: v for k, v in ids.items() if k not in evict} if sticky_evict else ids
+
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
     # Opened per call, NOT drained in the finally block: the caller reads it after we
     # return (see proxy._emit_detail). A re-compression on the same thread overwrites it,
@@ -1323,6 +1420,7 @@ def compress_messages(
             exact_ids: Mapping[str, str],
             reread: Mapping[str, _rereaddelta.Elision],
         ) -> tuple[list[dict[str, Any]], RestoreStore]:
+            exact_ids = _pin(exact_ids)
             # A census describes the payload actually sent, so it is reopened here and
             # not outside — a second walk must not sum with the first one's counts.
             _census_tls.counts = {}
@@ -1355,13 +1453,13 @@ def compress_messages(
                         is_recent=idx in recent,
                         exact_ids=exact_ids,
                         reread=reread,
-                        evict=frozenset() if verbatim else evict,
+                        evict=evict,
                     )
                 )
             return new_messages, store
 
         # Results the agent must quote back byte-exact to edit — provenance, not position.
-        exact_ids = exact_quote_tool_use_ids(messages)
+        exact_ids = _pin(exact_quote_tool_use_ids(messages))
         # ...and, among those, the line runs a later read of the same file need not repeat,
         # because an earlier read still carries them verbatim. Off in verbatim mode: that
         # contract is that the model sees semantically identical content in place, and a
@@ -1385,6 +1483,7 @@ def refetch_tool_use_ids(
     *,
     keep: Any = None,
     evict: frozenset[str] = frozenset(),
+    sticky_evict: bool = False,
 ) -> frozenset[str]:
     """Ids of the tool results ``compress_messages`` would forward verbatim as re-fetches
     (ADR 0025), for a pre-pass that runs before it and must leave them alone.
@@ -1400,7 +1499,9 @@ def refetch_tool_use_ids(
         return frozenset()
     _refetch_tls.probe = True
     try:
-        compress_messages(messages, keep=keep, evict=evict, persist=False)
+        compress_messages(
+            messages, keep=keep, evict=evict, persist=False, sticky_evict=sticky_evict
+        )
     finally:
         _refetch_tls.probe = False
     return frozenset(getattr(_refetch_tls, "hits", frozenset()))

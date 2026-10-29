@@ -209,6 +209,7 @@ def _cold_plan(
     held: bool,
     *,
     openai: bool = True,
+    extend: Callable[..., frozenset[str] | None] | None = None,
 ) -> tuple[Any, str | None, dict[str, Any]]:
     """Plan this request's cold-point eviction: ``(plan, lineage key, compressor kwargs)``,
     or ``(None, None, {})`` when planning failed (never break a request for a saving)."""
@@ -227,6 +228,7 @@ def _cold_plan(
             # (byte-stable prefix), no fresh eviction.
             held=held,
             ttl=_coldpoint.openai_request_ttl(body) if openai else None,
+            extend=None if extend is None else functools.partial(extend, items),
         )
     except Exception:  # noqa: BLE001 — never break a request for a saving
         log.debug("cold-point plan failed; compressing as usual", exc_info=True)
@@ -373,14 +375,29 @@ def compress_or_forward(
                 if is_chat:
                     from .adapters.openai import cold_candidates_chat as _cands
                 else:
-                    from .adapters.anthropic import cold_candidates as _ac
+                    from .adapters import anthropic as _an
 
+                    _model = str(body.get("model") or "")
                     # ADR 0028: prior-turn thinking rides the same cold-point set, so it
                     # inherits its cache safety, persistence and drift-guard hold.
-                    _cands = functools.partial(_ac, model=str(body.get("model") or ""))
+                    _cands = functools.partial(_an.cold_candidates, model=_model)
+                    # Preserved thinking: an eviction is a prefix edit, so the thinking
+                    # after it goes in the same set, or the edit waits for a turn boundary.
+                    _ext = functools.partial(_an.thinking_after_edit, model=_model)
                 cold_plan, cold_key, cold_kw = _cold_plan(
-                    scope, body, original, _cands, keep, held, openai=is_chat
+                    scope,
+                    body,
+                    original,
+                    _cands,
+                    keep,
+                    held,
+                    openai=is_chat,
+                    extend=None if is_chat else _ext,
                 )
+                if cold_kw and not is_chat and _an.preserved_thinking(_model):
+                    # Once out, out for good: no hold, verbatim turn or later Edit quote
+                    # may put an evicted block (or a dropped thinking block) back.
+                    cold_kw["sticky_evict"] = True
             if session_delta:
                 # Cache-delta coding: cross-turn dedup + cross-version delta, applied to
                 # the ORIGINALS before compression so re-reads match across turns.
