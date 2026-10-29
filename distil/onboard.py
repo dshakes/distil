@@ -179,6 +179,15 @@ AGENT_PRESETS: dict[str, tuple[str, str, str, dict[str, str]]] = {
     "kimi": ("KIMI_BASE_URL", "https://api.moonshot.ai", "Kimi CLI", {}),
     "vibe": ("VIBE_PROVIDERS", "https://api.mistral.ai", "Mistral Vibe", {}),
     "kilo": ("KILO_CONFIG_CONTENT", "https://api.anthropic.com", "Kilo Code CLI", {}),
+    # openclaude — OPENAI_BASE_URL only applies on its OpenAI route, which
+    # CLAUDE_CODE_USE_OPENAI=1 selects (README quickstart); without it the var is
+    # ignored and nothing routes. The flag needs OPENAI_API_KEY, as its README says.
+    "openclaude": (
+        "OPENAI_BASE_URL",
+        "https://api.openai.com",
+        "OpenClaude",
+        {"CLAUDE_CODE_USE_OPENAI": "1"},
+    ),
 }
 
 #: Presets whose variable does NOT take a bare base URL. The template is the
@@ -279,6 +288,9 @@ AGENT_ENV_TEMPLATES: dict[str, str] = {
     "grok": "$BASE/v1",
     "kimi": "$BASE/v1",
     "openhands": "$BASE/v1",
+    # openclaude — its README's own example is OPENAI_BASE_URL=http://localhost:11434/v1,
+    # i.e. the literal OpenAI-SDK base with /v1 included.
+    "openclaude": "$BASE/v1",
 }
 
 
@@ -366,6 +378,14 @@ AGENT_META: dict[str, AgentMeta] = {
         "packages/core/package.json depends on the openai npm package directly "
         "(checked 2026-09-24) — same literal-base_url SDK verified for codex's note above, "
         "so it needs the same $BASE/v1 template (AGENT_ENV_TEMPLATES) as aider/opencode",
+    ),
+    "openclaude": AgentMeta(
+        _OPENAI_CHAT,
+        "https://github.com/Gitlawb/openclaude#readme",
+        "2026-10-29",
+        "README quickstart: CLAUDE_CODE_USE_OPENAI=1 + OPENAI_API_KEY + OPENAI_BASE_URL "
+        "(example value ends /v1, so it takes the $BASE/v1 template like qwen). Only the "
+        "OpenAI route is wrapped; its Anthropic route is not redirected",
     ),
     "goose": AgentMeta(
         _OPENAI_CHAT,

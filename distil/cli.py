@@ -3763,6 +3763,8 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     # (and hot-swap worker) inherit it, so wrapped-agent traffic counts as
     # "wrap" while a standalone proxy counts as "proxy".
     _os.environ["DISTIL_SURFACE"] = "wrap"
+    # Project label for the per-project savings breakdown: the directory name only.
+    _os.environ["DISTIL_PROJECT"] = _os.path.basename(_os.getcwd())
     command = list(args.command)
     if command and command[0] == "--":  # argparse REMAINDER keeps the separator
         command = command[1:]

@@ -48,7 +48,7 @@ all reach the same tier:
 
   - Agent wrap: `distil wrap -- <agent>` for claude, codex, gemini, aider,
     opencode, qwen, goose, grok, openhands, copilot (GitHub Copilot CLI, BYOK
-    mode), kimi (Kimi CLI), vibe (Mistral Vibe), kilo (Kilo Code CLI) — all of
+    mode), kimi (Kimi CLI), vibe (Mistral Vibe), kilo (Kilo Code CLI), openclaude (OpenClaude) — all of
     which route through an environment variable — plus cn (Continue CLI),
     droid (Factory Droid), omp (Oh My Pi), crush and cline (Cline CLI), which
     have no env-var contract at all and route through a config file distil
@@ -75,7 +75,7 @@ all reach the same tier:
     plus `distilMiddleware()` for the Vercel AI SDK's wrapLanguageModel.
 
 Framework hooks (in-process, no network hop): LiteLLM, LangChain, LangGraph,
-Agno, Strands, AutoGen, LlamaIndex. A generic ASGI middleware (distil.integrations.asgi)
+Agno, Strands, AutoGen, LlamaIndex, CrewAI. A generic ASGI middleware (distil.integrations.asgi)
 compresses provider-shaped POST bodies for apps that host their own LLM-facing
 endpoint. For the LiteLLM Proxy server, distil.integrations.litellm_hook is a
 pre-call hook (litellm_settings.callbacks) that compresses each request before
@@ -299,7 +299,7 @@ https://dshakes.github.io/distil/cache.html
 
 Integrations (framework hooks and SDK adapters — LiteLLM, the LiteLLM Proxy
 pre-call hook distil.integrations.litellm_hook, LangChain, LangGraph, Agno,
-Strands, AutoGen, LlamaIndex, an ASGI middleware, Vercel AI SDK, OpenAI,
+Strands, AutoGen, LlamaIndex, CrewAI, an ASGI middleware, Vercel AI SDK, OpenAI,
 Anthropic, Gemini):
 https://dshakes.github.io/distil/integrations.html
 https://dshakes.github.io/distil/integrations.html#autogen-page

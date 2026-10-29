@@ -200,6 +200,13 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "Session id; set by `distil wrap` for the agent it launches.",
     ),
     (
+        "DISTIL_PROJECT",
+        "internal",
+        "-",
+        "Working-directory name of the `distil wrap` run; labels ledger rows for the "
+        "dashboard's per-project breakdown.",
+    ),
+    (
         "DISTIL_SURFACE",
         "internal",
         "-",

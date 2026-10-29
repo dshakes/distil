@@ -16,7 +16,7 @@ import os
 import re
 import shutil
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -119,6 +119,9 @@ class SavingsRecord:
     # Accounting-schema era: 2 = record-after-2xx (failed/retried requests excluded);
     # absent/1 = legacy pre-1.10 accounting whose savings may be overstated.
     acct: int = 2
+    # Working-directory basename of the `distil wrap` that launched the proxy ("" for an
+    # always-on/standalone proxy, which has no project). A label only — never a path or content.
+    project: str = ""
 
     @property
     def dollars_saved(self) -> float:
@@ -141,6 +144,7 @@ def record(
     tokenizer: str = "heuristic",
     session: str = "",
     mode: str = "",
+    project: str = "",
     path: Path | None = None,
 ) -> SavingsRecord:
     rec = SavingsRecord(
@@ -155,6 +159,7 @@ def record(
         time.time(),
         session,
         mode=mode,
+        project=project,
     )
     path = path or default_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,6 +214,9 @@ class LedgerSummary:
     # Rows written before the record-after-2xx fix (acct absent/<2): still counted,
     # but their savings may be overstated (failed/retried requests were booked).
     legacy_records: int = 0
+    # project label -> [runs, baseline tokens, distil tokens]; rows without one (always-on
+    # proxy, pre-project ledgers) are left out rather than lumped under a made-up name.
+    by_project: dict[str, list[int]] = field(default_factory=dict)
 
 
 def latest_session(path: Path | None = None) -> tuple[str, float]:
@@ -347,6 +355,7 @@ def summary(
     base_usd = 0.0
     dist_usd = 0.0
     by_traj: dict[str, float] = {}
+    by_proj: dict[str, list[int]] = {}
     toks: set[str] = set()
     corrupt = 0
     legacy = 0
@@ -378,6 +387,12 @@ def summary(
         base_usd += d["baseline_dollars"]
         dist_usd += d["distil_dollars"]
         by_traj[traj] = by_traj.get(traj, 0.0) + saved
+        proj = d.get("project")
+        if isinstance(proj, str) and proj:
+            cell = by_proj.setdefault(proj, [0, 0, 0])
+            cell[0] += 1
+            cell[1] += base_in
+            cell[2] += dist_in
     return LedgerSummary(
         runs,
         dollars,
@@ -390,6 +405,7 @@ def summary(
         frozenset(toks),
         corrupt,
         legacy,
+        by_proj,
     )
 
 
@@ -665,6 +681,15 @@ def render_dashboard(
             tail = "" if subscription else f"  ${val:,.2f}"
             out.append(row(f"{label:<17}{c('36', _bar(val / mx, 12))}{tail}"))
 
+    if s.by_project:
+        # Tokens, not dollars: the unit that holds on a flat-rate subscription too.
+        projs = sorted(s.by_project.items(), key=lambda kv: kv[1][1] - kv[1][2], reverse=True)[:5]
+        mx = max((b - g for _, (_n, b, g) in projs), default=0) or 1
+        out.append(sep)
+        out.append(row(c("90", "by project")))
+        for name, (_n, b, g) in projs:
+            label = (name[:15] + "…") if len(name) > 16 else name
+            out.append(row(f"{label:<17}{c('36', _bar(max(b - g, 0) / mx, 12))}  ▼{_human(b - g)}"))
     out.append(bot)
     if s.legacy_records:
         out.append(

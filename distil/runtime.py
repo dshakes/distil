@@ -12,6 +12,7 @@ community number is genuine, verifiable savings too.
 from __future__ import annotations
 
 import threading
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -148,6 +149,7 @@ class RuntimeSavings:
                     distil_input_tokens=after,
                     session=self.session_id,
                     mode=self.mode,
+                    project=os.environ.get("DISTIL_PROJECT", ""),
                     path=self.ledger_path or ledger.default_path(),
                 )
             self.requests = 0
