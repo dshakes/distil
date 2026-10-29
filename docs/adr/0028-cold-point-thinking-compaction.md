@@ -149,3 +149,75 @@ Consequences and what is still not guaranteed:
   header, works only with adaptive thinking on Sonnet/Haiku 5.5, and would choose for the
   caller); it strips the failing blocks itself instead.
 * The OpenAI shapes and Gemini are untouched: no signed-prefix binding there.
+
+## Addendum 3 (2026-10-29) — decide at first sight, then freeze
+
+Correction to addendum 2's first consequence. "The newest tool result is always in the
+recency window when first sent" holds only for a client whose `cache_control` breakpoint is
+missing or lags. The recency window is anchored to the breakpoint (`compress.recency`), so a
+client that marks its newest block — Claude Code, the harness's `_cc_last` — never had a
+recency exemption: its newest result was already digested the request it first appeared in,
+on main and on the freeze branch alike. Measured on the Headroom 0.42 h2h session set (30
+real Claude Code sessions, 12 requests each, Sonnet 5.5 cache pricing, `benchmarks/
+headroom_h2h.py` sessions arm, offline): main and the freeze branch are identical on that
+shape (−29.7% $/session vs plain). The ~0 savings are real for breakpoint-less and lagging
+clients: there the freeze kept every result verbatim (−0.0%), and main, which re-digested a
+result as it left the window, rewrote its prefix every turn (+181% vs plain, and a 400 on
+these models).
+
+Decision, same scope as addendum 2 plus thinking **on in this request**, a lossy mode, the
+`distil_expand` tool offered and prefix replay on (the freezer) — `thinkguard.first_sight`
+and `serve_core`:
+
+1. **No recency window** (`compress_messages(first_sight=True)`): every tool result,
+   the newest included, gets its compression decision in the request where it first
+   appears; prefix replay's freeze then forwards that rendering for the rest of the
+   lineage. It is the same digest as everywhere else: Tier-1 with errors/verdicts and the
+   densest identifier lines kept in view (commit cd44582, cherry-picked), reject-if-not-
+   ≥5%-smaller in tokens, fail-open, exact-quote and re-fetch exemptions unchanged, full
+   original behind `distil_expand`. Query-aware salience applies where it always did — to
+   content the client has not marked cacheable — with that turn's intent, then frozen.
+2. **Expand stays 400-free.** An expand of a first-sight digest is the hidden round of
+   addendum 2 (4): its continuation's thinking is dropped by `thinkguard`, the rest of the
+   history is untouched. The e2e stub (`tests/test_thinking_prefix_e2e.py`) runs it with the
+   freeze on, buffered and streamed, expanding the result it was just shown.
+3. **Gate: default on, watched as its own mode.** Shadow rows of these requests are booked
+   as `digest-first-sight` (`x-distil-first-sight: 1` on the request), so the per-mode
+   certification hold (ADR 0022) and the drift e-process judge first sight on its own
+   evidence, not on digest's. A hold serves new results verbatim (Tier-0) and leaves frozen
+   ones alone, so it never breaks thinking. Kill switch `DISTIL_FIRST_SIGHT=0`.
+
+Why default on without paired shadow evidence of its own (it has none yet):
+
+* on marker-on-newest clients — most of this traffic — it changes nothing: the newest was
+  already digested at first sight, default on, under digest's shadow evidence. The only new
+  thing there is the mode label;
+* on the clients it does change, the alternatives are 0% (freeze) or +181% and 400s (main);
+* what the model sees at first sight is better than what Claude Code traffic has been
+  shown since the recency anchor shipped: visible recall of the newest results 95.5%
+  (uncached, so query-aware) vs 57.4% on main for marker-on-newest; true recall 100%.
+
+The risk, stated plainly: **the model now sees a digest of the result it is about to act
+on.** 4.5% of the facts in a breakpoint-less client's newest result (24.5% for a marker-on-
+newest client, which was 42.6% before cd44582) are out of view until it calls
+`distil_expand`. Each such expand costs one extra upstream round, the continuation's
+thinking and its share of cache. Neither the expand rate nor task success under first sight
+is measured — offline recall is not decision-equivalence, and E7 (SWE-bench) showed lossy
+compression can cost task success that a certificate did not predict. The live gate is the
+2% default shadow sample; at `VERDICT_MIN_AB` paired rows the mode is inside the budget or
+held. To revisit: if that verdict breaches, or the expand rate on first-sight lineages
+exceeds the savings it buys, turn the default off.
+
+Measured (paired bootstrap over the 30 sessions, $ difference as a share of plain):
+
+| client breakpoint | main | freeze (fix) | first sight | Headroom 0.42 proxy default |
+|---|---|---|---|---|
+| on newest (Claude Code) | −29.7% | −29.7% | −25.9% | −0.2% |
+| none / lagging | +181.4% | −0.0% | −8.5% | −0.2% |
+
+First sight − freeze: +3.8 pp [+2.9, +4.8] on newest (all of it cd44582's recall trade, not
+first sight), −8.5 pp [−11.4, −5.9] without a breakpoint. First sight − Headroom: −25.8 pp
+[−31.1, −20.7] and −8.3 pp [−11.2, −5.8]. Headroom is run with its own harness breakpoint
+in both rows. Session $ is the policysim Anthropic cache model on o200k token counts, 5m TTL,
+10 s between requests; thinking blocks are stripped from the sessions, so this prices the
+text the model reads, not billed reasoning.

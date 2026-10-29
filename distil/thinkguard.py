@@ -357,3 +357,14 @@ def lineage(body: dict[str, Any]) -> bool:
     t = body.get("thinking")
     on = isinstance(t, dict) and t.get("type") not in (None, "disabled")
     return on or has_thinking(body["messages"])
+
+
+def first_sight(body: dict[str, Any]) -> bool:
+    """Decide each tool result's compression the first time it is seen, newest included,
+    then freeze it (ADR 0028 addendum 3): a preserved-thinking model with thinking ON in
+    this request. Kill switch ``DISTIL_FIRST_SIGHT=0``. The caller adds the rest (lossy
+    mode, ``distil_expand`` offered, prefix replay on to do the freezing)."""
+    if os.environ.get("DISTIL_FIRST_SIGHT", "1") == "0" or not _in_scope(body):
+        return False
+    t = body.get("thinking")
+    return isinstance(t, dict) and t.get("type") not in (None, "disabled")

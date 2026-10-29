@@ -94,6 +94,7 @@ class Api:
         self.errors: list[str] = []
         self.requests = 0
         self.expand_next = False  # answer the next request with a distil_expand call
+        self.expanded: list[str] = []
         self.n = 0
         self.lock = threading.Lock()
 
@@ -130,9 +131,10 @@ class Api:
             think = {"type": "thinking", "thinking": "", "signature": sig}
             last = msgs[-1]["content"]
             last = last if isinstance(last, list) else []
-            handles = _HANDLE.findall(json.dumps(msgs[:-1]))
+            handles = _HANDLE.findall(json.dumps(msgs))
             if self.expand_next and handles:
                 self.expand_next = False
+                self.expanded.append(handles[-1])  # the newest: first sight digests it
                 blocks = [
                     think,
                     {"type": "text", "text": "let me look closer"},
@@ -140,7 +142,7 @@ class Api:
                         "type": "tool_use",
                         "id": f"toolu_x{self.n}",
                         "name": "distil_expand",
-                        "input": {"handle": handles[0]},
+                        "input": {"handle": handles[-1]},
                     },
                 ]
                 return {"content": blocks, "stop_reason": "tool_use"}
@@ -648,3 +650,144 @@ def test_async_proxy_recency_and_hold(stack, monkeypatch) -> None:
         stop()
     _ok(api, c)
     assert len({json.dumps(json.loads(r).get("system")) for r in _SEEN}) == 1
+
+
+# ------------------------------------------------------------------ first sight (addendum 3)
+
+
+def _results(raw: bytes) -> list[tuple[int, str]]:
+    """(message index, forwarded tool_result content as JSON) for every tool result."""
+    out = []
+    for i, m in enumerate(json.loads(raw)["messages"]):
+        for b in _blocks(m):
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                out.append((i, json.dumps(_strip(b), sort_keys=True)))
+    return out
+
+
+@pytest.mark.parametrize("marker", [False, True, "lag"], ids=["no-marker", "marker", "lag"])
+def test_first_sight_digests_the_newest_and_freezes_it(stack, marker) -> None:
+    """The newest tool result is digested the request it first appears in (no recency
+    window), and every later request forwards that exact rendering. Zero 400s."""
+    api, proxy = stack
+    c = Client(proxy(), marker=marker)
+    _session(c, 6, vary=True)
+    _ok(api, c)
+    assert c.headers[-1].get("x-distil-first-sight") == "1"
+    first: dict[int, str] = {}
+    for raw in _SEEN:
+        res = _results(raw)
+        if res:
+            i, newest = res[-1]
+            if i == len(json.loads(raw)["messages"]) - 1:
+                assert "handle=" in newest, "the newest result was not decided at first sight"
+        for i, r in res:
+            assert first.setdefault(i, r) == r, f"message {i} re-rendered after first sight"
+    assert len(first) >= 10
+    assert _count_thinking(json.loads(_SEEN[-1])["messages"]) >= 10, "thinking was dropped"
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["buffered", "streamed"])
+def test_first_sight_expand_round(stack, stream) -> None:
+    """The model expands the result it was just shown as a digest; prefix replay ON (the
+    freeze), so this is the production shape. Recovered in full, zero 400s, and the
+    hidden round's thinking never goes back."""
+    api, proxy = stack
+    c = Client(proxy(), stream=stream, marker=True)
+    _session(c, 2)
+    for t in range(2, 6):
+        api.expand_next = True
+        _session(c, 1, start=t)
+        assert not api.expand_next, "the scenario never produced an expand call"
+    hidden = {
+        s
+        for s, (p, _) in api.produced.items()
+        if '"name": "distil_expand", "type": "tool_use"' in p
+    }
+    assert hidden
+    # The hidden round carried the full original of the newest result.
+    rounds = [json.loads(r) for r in _SEEN if b"distil_expand" in r and b"toolu_x" in r]
+    assert any("line 59:" in json.dumps(b["messages"][-1]) for b in rounds)
+    _session(c, 2, start=6)
+    _ok(api, c)
+    for raw in _SEEN[-4:]:
+        sent = {b.get("signature") for m in json.loads(raw)["messages"] for b in _blocks(m)}
+        assert not sent & hidden
+
+
+def test_first_sight_survives_hold_and_restart(stack, monkeypatch) -> None:
+    """A hold serves new results verbatim (the drift guard is first sight's safety net)
+    without re-rendering frozen digests; a restart re-renders and the guard drops."""
+    flag = _fake_guard(monkeypatch)
+    api, proxy = stack
+    c = Client(proxy(), marker=True)
+    _session(c, 3)
+    flag[0] = True
+    _session(c, 2, start=3)
+    assert "x-distil-first-sight" not in c.headers[-1]
+    flag[0] = False
+    _session(c, 2, start=5)
+    prefixreplay.reset()
+    thinkguard.reset()
+    c.port = proxy()
+    _session(c, 2, start=7)
+    _ok(api, c)
+
+
+def _out(body: dict[str, Any]) -> bytes:
+    from distil.serve_core import compress_or_forward
+    from distil.tokenizer import DEFAULT
+
+    o = compress_or_forward(
+        json.loads(json.dumps(body)),
+        "/v1/messages",
+        count=lambda m: DEFAULT.count(json.dumps(m)),
+        verbatim=False,
+        expand=True,
+        mode="digest",
+        replay_scope="",
+    )
+    assert o is not None
+    return json.dumps([o.body, o.extras], sort_keys=True).encode()
+
+
+@pytest.mark.parametrize(
+    "model,thinking",
+    [
+        ("claude-sonnet-4-5", {"type": "enabled", "budget_tokens": 2048}),  # not preserved
+        (MODEL, None),  # thinking off
+        (MODEL, {"type": "disabled"}),
+    ],
+)
+def test_first_sight_off_is_byte_identical(monkeypatch, model, thinking) -> None:
+    """Other models and thinking-off requests go out exactly as with first sight killed."""
+    msgs: list[dict[str, Any]] = [{"role": "user", "content": "go"}]
+    for k in range(4):
+        msgs += [
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": f"t{k}", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": f"t{k}", "content": _log(f"t{k}")}
+                ],
+            },
+        ]
+    body: dict[str, Any] = {"model": model, "max_tokens": 64, "messages": msgs}
+    if thinking is not None:
+        body["thinking"] = thinking
+    on = _out(body)
+    prefixreplay.reset()
+    thinkguard.reset()
+    monkeypatch.setenv("DISTIL_FIRST_SIGHT", "0")
+    assert _out(body) == on
+    assert b"x-distil-first-sight" not in on
+    # ...while the same history WITH thinking on a preserved model digests the newest.
+    prefixreplay.reset()
+    thinkguard.reset()
+    monkeypatch.delenv("DISTIL_FIRST_SIGHT")
+    fs = json.loads(_out({**body, "model": MODEL, "thinking": {"type": "adaptive"}}))
+    assert fs[1].get("x-distil-first-sight") == "1"
+    assert "handle=" in json.dumps(fs[0]["messages"][-1])

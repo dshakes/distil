@@ -574,6 +574,7 @@ holdout A/B savings measurement (deterministic partition + bootstrap CI)
         <tr><th scope="row"><code>DISTIL_RESTORE_TTL_DAYS</code></th><td>14</td><td>Days a restore-store entry is kept.</td></tr>
         <tr><th scope="row"><code>DISTIL_COLD_POINT</code></th><td>1</td><td>0 turns off cold-point recompression (ADR 0014); same as --no-cold-point.</td></tr>
         <tr><th scope="row"><code>DISTIL_COLD_THINKING</code></th><td>0</td><td>1 also drops prior turns' thinking blocks at a cold point (ADR 0028). Off by default: lossy, not yet certified.</td></tr>
+        <tr><th scope="row"><code>DISTIL_FIRST_SIGHT</code></th><td>1</td><td>0 turns off first-sight digests on preserved-thinking sessions with thinking on (ADR 0028 addendum 3): the newest tool result then stays verbatim.</td></tr>
         <tr><th scope="row"><code>DISTIL_REFETCH_VERBATIM</code></th><td>1</td><td>0 turns off re-fetch verbatim (ADR 0025). Read per request.</td></tr>
         <tr><th scope="row"><code>DISTIL_SH_OFF</code></th><td>unset</td><td>Set to 1 and distil sh runs every command untouched; the Claude Code shell rewrite leaves commands as written (ADR 0026).</td></tr>
         <tr><th scope="row"><code>DISTIL_SHADOW_PAIRED</code></th><td>1</td><td>0 restores the cheaper unpaired shadow estimator.</td></tr>

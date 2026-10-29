@@ -87,6 +87,12 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "1 also drops prior turns' thinking blocks at a cold point (ADR 0028). Off by default: lossy, not yet certified.",
     ),
     (
+        "DISTIL_FIRST_SIGHT",
+        "user",
+        "1",
+        "0 turns off first-sight digests on preserved-thinking sessions with thinking on (ADR 0028 addendum 3): the newest tool result then stays verbatim.",
+    ),
+    (
         "DISTIL_REFETCH_VERBATIM",
         "user",
         "1",

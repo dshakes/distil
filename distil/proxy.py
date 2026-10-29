@@ -1182,6 +1182,7 @@ def build_handler(
             # Gemini paths    → Gemini adapter (contents branch, below)
             _path = strip_query(self.path)
 
+            self._distil_first_sight = False  # per request: keep-alive reuses `self`
             if _hold:
                 # Control arm: the original bytes go upstream untouched (body is not
                 # reassigned, so _serialize_if_changed returns `raw`), nothing is booked.
@@ -1211,6 +1212,7 @@ def build_handler(
                     return
                 body, store, extras = _out.body, _out.store, _out.extras
                 before_tok, after_tok = _out.before_tok, _out.after_tok
+                self._distil_first_sight = extras.get("x-distil-first-sight") == "1"
                 self._distil_cold_key = _out.cold_key
                 if savings is not None:
                     _pending_savings = _out.pending
@@ -1875,6 +1877,9 @@ def build_handler(
             # Captured now, on the request thread: a keep-alive connection's next request
             # re-sets it before the replay thread finishes.
             _conv = getattr(self, "_distil_conv", "") or ""
+            # First-sight rows are their own mode (ADR 0028 addendum 3): the newest result
+            # goes out digested even where the recency window used to protect it.
+            _first_sight = bool(getattr(self, "_distil_first_sight", False))
             # ponytail: the unpaired fallback keeps v4's 1/3 split; the paired path
             # ignores it entirely, since every sample now feeds both arms.
             is_aa = _random.random() < 1 / 3
@@ -1945,15 +1950,18 @@ def build_handler(
                     # Evidence for diagnosing divergences and for auditing what each row
                     # actually compared. Every value is a hash, a count or a flag —
                     # content-free, same posture as the savings ledger.
+                    _mode = _request_mode()[1]
+                    if _first_sight and _mode == "digest":
+                        _mode = "digest-first-sight"
                     ev: dict[str, Any] = {
                         "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
-                        "mode": _request_mode()[1],
+                        "mode": _mode,
                         # Every lever that shaped the B arm. `compressed_raw` already
                         # carries the shaping directive, so a gate deciding whether to
                         # shape must read only shape=off rows (see output.resolve_shape_output).
                         # A drift-guard hold serves no shaping, so its rows are shape=off.
                         "levers": {
-                            "compression": _request_mode()[1],
+                            "compression": _mode,
                             "shape": "off"
                             if _request_mode()[0] or _thinking_lineage(compressed_raw)
                             else shape_output,

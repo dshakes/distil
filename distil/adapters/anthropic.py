@@ -1368,6 +1368,7 @@ def compress_messages(
     persist: bool = True,
     refetch: bool | None = None,
     sticky_evict: bool = False,
+    first_sight: bool = False,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -1401,6 +1402,11 @@ def compress_messages(
         Forward a tool result verbatim when it re-fetches content an earlier result
         carried but distil forwarded only as a digest (ADR 0025). ``None`` (the default)
         follows :func:`refetch_enabled`; ``True``/``False`` force it, for offline replay.
+    first_sight:
+        No recency window: every tool result, the newest included, gets its compression
+        decision the first time it is seen (query-aware where uncached, as always). Only
+        for callers that freeze each message as first emitted (prefix replay
+        ``freeze=True`` on a preserved-thinking lineage, ADR 0028 addendum 3) and offer ``distil_expand``.
 
     Returns
     -------
@@ -1431,7 +1437,7 @@ def compress_messages(
     _intent_tls.terms = frozenset() if (verbatim or _probe) else extract_intent(messages)
     use_refetch = (refetch_enabled() if refetch is None else refetch) and not verbatim
     try:
-        recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
+        recent = set() if first_sight else _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
         # Query-aware salience is scoped to content the provider has NOT cached.
         # Intent terms come from the newest user turn and change every turn by
         # design, so letting them choose which lines survive in an already-cached
@@ -1511,6 +1517,7 @@ def refetch_tool_use_ids(
     keep: Any = None,
     evict: frozenset[str] = frozenset(),
     sticky_evict: bool = False,
+    first_sight: bool = False,
 ) -> frozenset[str]:
     """Ids of the tool results ``compress_messages`` would forward verbatim as re-fetches
     (ADR 0025), for a pre-pass that runs before it and must leave them alone.
@@ -1527,7 +1534,12 @@ def refetch_tool_use_ids(
     _refetch_tls.probe = True
     try:
         compress_messages(
-            messages, keep=keep, evict=evict, persist=False, sticky_evict=sticky_evict
+            messages,
+            keep=keep,
+            evict=evict,
+            persist=False,
+            sticky_evict=sticky_evict,
+            first_sight=first_sight,
         )
     finally:
         _refetch_tls.probe = False

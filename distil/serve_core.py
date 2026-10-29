@@ -291,6 +291,7 @@ def compress_or_forward(
     cold_key: str | None = None
     cold_plan: Any = None  # ADR 0014 plan, when cold-point runs on this shape
     cold_kw: dict[str, Any] = {}
+    first_kw: dict[str, Any] = {}  # {"first_sight": True} on a first-sight lineage
     _path = strip_query(path)
 
     try:
@@ -368,6 +369,12 @@ def compress_or_forward(
                 if thinking_lineage:
                     # A system edit invalidates every thinking block: no shaping, ever.
                     shape_output = "off"
+                # First sight (ADR 0028 addendum 3): under the freeze a recency-exempt
+                # result stays verbatim forever, so decide it now — digest recoverable via
+                # distil_expand — and let the freeze keep that decision. Needs a lossy
+                # mode, the expand tool, and prefix replay (the freezer).
+                if _tg.first_sight(body) and not verbatim and expand and replay_scope is not None:
+                    first_kw["first_sight"] = True
             # OpenAI Chat Completions needs its own adapter (role:"tool" list content is
             # Tier-1; the Anthropic adapter applies Tier-0 to generic list text items).
             if is_chat:
@@ -434,13 +441,15 @@ def compress_or_forward(
                         # copy, the stub the agent re-ran the command to get past.
                         from .adapters.anthropic import refetch_tool_use_ids
 
-                        keep_ids |= refetch_tool_use_ids(original, keep=keep, **cold_kw)
+                        keep_ids |= refetch_tool_use_ids(original, keep=keep, **cold_kw, **first_kw)
                     pre, dstore, dstats = delta_encode(original, session=sess, keep_ids=keep_ids)
                 except Exception:  # noqa: BLE001 — never break a request
                     log.debug("cache-delta encode failed", exc_info=True)
                     pre, dstore, dstats = original, None, None
             try:
-                compressed, store = compress_fn(pre, verbatim=verbatim, keep=keep, **cold_kw)
+                compressed, store = compress_fn(
+                    pre, verbatim=verbatim, keep=keep, **cold_kw, **first_kw
+                )
             except Exception:  # noqa: BLE001 — compression must never break a request
                 log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                 compressed, store = pre, None
@@ -474,6 +483,10 @@ def compress_or_forward(
                 # when this is ~0, a ▼0 is "nothing large to compress this turn".
                 "x-distil-compressible-tokens": str(before_tok if before_tok is not None else 0),
             }
+            if first_kw:
+                # Shadow books this request's rows under their own mode (proxy), so the
+                # per-mode certification hold (ADR 0022) watches first sight separately.
+                extras["x-distil-first-sight"] = "1"
             if dstats is not None:
                 extras["x-distil-cache-refs"] = str(dstats.exact_refs + dstats.delta_refs)
                 extras["x-distil-cache-delta"] = str(dstats.delta_refs)
