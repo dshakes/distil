@@ -1101,17 +1101,49 @@ def _cline_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator
 # ---------------------------------------------------------------------------
 
 
+class LeadingArgs(list):
+    """Flags that must precede the wrapped command's own arguments (``wrap_run`` inserts
+    them right after ``argv[0]``). Appending after a user's ``--`` or positional prompt
+    would turn the override into prompt text."""
+
+
+def _codex_chatgpt_login() -> bool:
+    """True when codex authenticates with a ChatGPT login (read-only: only ``auth_mode``
+    is looked at, never a token). That login talks to chatgpt.com/backend-api/codex, not
+    api.openai.com/v1, and the proxy only speaks the latter's Responses path."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return False
+    path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("auth_mode") == "chatgpt"
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 @contextlib.contextmanager
 def _codex_apply(upstream: str, base: str, argv: Sequence[str] = ()) -> Iterator[list[str]]:
-    # Never invent a credential: an exported key is used, else codex's own login.
-    has_key = bool(os.environ.get("OPENAI_API_KEY"))
-    auth = 'env_key="OPENAI_API_KEY"' if has_key else "requires_openai_auth=true"
+    if _codex_chatgpt_login():
+        # Injecting would send a ChatGPT token to api.openai.com (a 401), so leave codex
+        # alone. Loudly: this session is NOT compressed.
+        print(
+            "  ✗ codex is signed in with ChatGPT (chatgpt.com/backend-api/codex, WebSocket): "
+            "distil cannot route it — this session BYPASSES distil.\n"
+            "    Use an API key instead: export OPENAI_API_KEY=… (or `codex login --with-api-key`)."
+        )
+        yield []
+        return
+    # Never invent a credential: an exported key is used, else codex's own (API-key) login.
+    auth = (
+        'env_key="OPENAI_API_KEY"'
+        if os.environ.get("OPENAI_API_KEY")
+        else "requires_openai_auth=true"
+    )
     provider = (
         f'{{name="OpenAI",base_url="{base}/v1",wire_api="responses",'
         f"{auth},supports_websockets=false}}"
     )
     print("  → codex: forcing HTTP Responses (supports_websockets=false) via -c overrides")
-    yield ["-c", 'model_provider="distil"', "-c", f"model_providers.distil={provider}"]
+    yield LeadingArgs(["-c", 'model_provider="distil"', "-c", f"model_providers.distil={provider}"])
 
 
 CONFIG_PRESETS: dict[str, ConfigPreset] = {

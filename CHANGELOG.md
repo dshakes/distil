@@ -7,6 +7,23 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+### Fixed
+- **Codex silently bypassed `distil wrap`.** codex-cli 0.142 ignores `OPENAI_BASE_URL` and opens
+  the Responses API over WebSocket (`GET /v1/responses` + Upgrade). `wrap codex` now passes
+  session-only `-c model_provider=...` overrides (leading, before any `--`/prompt) with
+  `supports_websockets=false`, forcing HTTP through the proxy. ChatGPT-login codex
+  (chatgpt.com/backend-api/codex) cannot be routed; `wrap` now says so instead of pretending.
+  The proxy answers a WebSocket upgrade with 426 rather than relaying it as a plain GET.
+  `onboard --always-on` cannot route codex (env-only); the default alias mode can.
+
+### Added
+- **Bedrock InvokeModel and Vertex AI routes** (Anthropic `rawPredict`, Gemini `generateContent`)
+  compress and book savings like the direct providers; the model comes from the URL and Bedrock
+  cross-region profile ids (`us.anthropic...`) are priced. Bedrock streams (binary eventstream)
+  are Tier-0 only and relayed unchanged, with usage read from the frames. Converse is forwarded
+  untouched. SigV4-signed Bedrock requests are refused by proxy, gateway and aproxy (the signature
+  covers Host and body; distil holds no AWS credentials): use a Bedrock API key.
+
 ## [1.58.0] — 2026-10-07 — the referee, turned on itself: a confound corrected, every provider at parity, shell output at the source
 
 ### Added

@@ -35,6 +35,7 @@ from .httpguard import (
     is_compressible_path,
     is_responses_path,
     safe_forward_path,
+    sigv4_refusal,
 )
 from .pricing import DEFAULT_MODEL
 from .tokenizer import DEFAULT as _tokenizer
@@ -451,6 +452,10 @@ def make_app(
     # -----------------------------------------------------------------------
 
     async def _route_any(request: web.Request) -> web.Response:
+        if request.method == "POST":
+            refusal = sigv4_refusal(request.path, request.headers.get("Authorization"))
+            if refusal:
+                return web.json_response({"error": refusal}, status=400)
         # Single dispatcher: neither Gemini's path (model name in the URL) nor Azure
         # OpenAI's (deployment name in the URL) can be a fixed aiohttp route, so
         # matching happens here for every shape rather than in a route table that

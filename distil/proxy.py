@@ -39,10 +39,9 @@ from ._log import log
 from .adapters.gemini import is_gemini_path
 from .httpguard import (
     framing_rejection,
-    is_bedrock_path,
     is_compressible_path,
     is_eventstream_path,
-    is_sigv4,
+    sigv4_refusal,
     is_messages_path,
     parse_content_length,
     safe_forward_path,
@@ -935,15 +934,9 @@ def build_handler(
                 _mark_session_traffic()
             _warn_if_version_skew(_version_state)
             p = strip_query(self.path)
-            if is_bedrock_path(p) and is_sigv4(self.headers.get("Authorization")):
-                # SigV4 signs Host + body hash: it cannot survive this hop, with or
-                # without compression, and distil never holds AWS credentials to re-sign.
-                self._reject(
-                    400,
-                    "SigV4-signed Bedrock requests cannot pass through a proxy (the "
-                    "signature covers Host and body). Use a Bedrock API key "
-                    "(AWS_BEARER_TOKEN_BEDROCK) against this proxy.",
-                )
+            _refusal = sigv4_refusal(p, self.headers.get("Authorization"))
+            if _refusal:
+                self._reject(400, _refusal)
                 return
             if is_compressible_path(p) or is_gemini_path(p):
                 # Content-free integration-surface counter (census schema 3).
@@ -1467,11 +1460,15 @@ def build_handler(
             # final body (as this did until 1.54) recorded the last call and dropped the
             # first one and every intermediate re-query, so a request that expanded
             # looked cheaper than it was — biasing every savings figure toward distil.
-            from .streamrelay import add_usage, scan_usage
+            from .streamrelay import add_usage, eventstream_payloads, scan_usage
 
             _usage_b: dict[str, int] = {}
             try:
-                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
+                _usage_b = scan_usage(
+                    eventstream_payloads(rbody)
+                    if _eventstream
+                    else rbody[:16384] + b"\n" + rbody[-16384:]
+                )
             except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
                 pass
 
@@ -2710,7 +2707,12 @@ def wrap_run(
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.
         proc_holder.append(None)
-        proc_holder[0] = proc = subprocess.Popen([*command, *config_argv], env=child_env)
+        proc_holder[0] = proc = subprocess.Popen(
+            [*command[:1], *config_argv, *command[1:]]
+            if isinstance(config_argv, config_wrap.LeadingArgs)
+            else [*command, *config_argv],
+            env=child_env,
+        )
         code = proc.wait()
     except FileNotFoundError:
         print(f"distil wrap: command not found: {command[0]}", file=sys.stderr)

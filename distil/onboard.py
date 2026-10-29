@@ -325,8 +325,9 @@ AGENT_META: dict[str, AgentMeta] = {
         # codex-rs/config, so this preset may not route traffic at all today,
         # independent of any /v1 fix. Needs dedicated follow-up (a config-file
         # preset, like Kilo's, may be the real fix) rather than a guessed one.
-        "unverified 2026-09-24 — shape is now confirmed Responses, but whether "
-        "OPENAI_BASE_URL reaches codex's request path at all is still unresolved; see note",
+        "OPENAI_BASE_URL is NOT read by codex 0.142 (and it opens a WebSocket): `wrap` "
+        "routes it with -c model_provider overrides instead (config_wrap.CONFIG_PRESETS['codex']); "
+        "API-key auth only",
     ),
     "gemini": AgentMeta(
         "Gemini generateContent",

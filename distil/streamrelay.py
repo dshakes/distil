@@ -99,6 +99,32 @@ def _split_openai_input(out: dict[str, int], details: bytes) -> None:
         out["cache_creation_input_tokens"] = write
 
 
+def eventstream_payloads(blob: bytes) -> bytes:
+    """Decoded event JSON from an AWS binary eventstream (Bedrock InvokeModelWithResponseStream),
+    newline-joined, for :func:`scan_usage`. Frame = total_len(4) headers_len(4) prelude_crc(4)
+    headers payload message_crc(4); a ``chunk`` payload is ``{"bytes": base64(event JSON)}``.
+    Read-only and best-effort: CRCs are not checked and a truncated or malformed frame ends the
+    scan, since the relayed bytes are never touched."""
+    import base64
+    import json
+
+    out: list[bytes] = []
+    i = 0
+    while i + 16 <= len(blob):
+        total = int.from_bytes(blob[i : i + 4], "big")
+        hlen = int.from_bytes(blob[i + 4 : i + 8], "big")
+        if total < 16 + hlen or i + total > len(blob):
+            break
+        payload = blob[i + 12 + hlen : i + total - 4]
+        i += total
+        try:
+            obj = json.loads(payload)
+            out.append(base64.b64decode(obj["bytes"]) if "bytes" in obj else payload)
+        except (ValueError, KeyError, TypeError):
+            continue
+    return b"\n".join(out)
+
+
 def scan_usage(blob: bytes) -> dict[str, int]:
     """Best-effort billed-token extraction from a response body (JSON or SSE).
 

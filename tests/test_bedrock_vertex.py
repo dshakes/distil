@@ -170,3 +170,79 @@ def test_bedrock_inference_profile_prices_like_base_model():
         "global.anthropic.claude-haiku-4-5-20251001-v1:0",
     ):
         assert pricing.resolve(mid) == base
+
+
+def _frame(payload: bytes) -> bytes:
+    """One AWS eventstream frame (CRCs zeroed: the reader is best-effort and ignores them)."""
+    headers = b""
+    total = 16 + len(headers) + len(payload)
+    return (
+        total.to_bytes(4, "big")
+        + len(headers).to_bytes(4, "big")
+        + b"\0" * 4
+        + headers
+        + payload
+        + b"\0" * 4
+    )
+
+
+def _chunk(event: dict) -> bytes:
+    import base64
+
+    return _frame(
+        json.dumps({"bytes": base64.b64encode(json.dumps(event).encode()).decode()}).encode()
+    )
+
+
+def test_eventstream_usage_is_parsed_and_malformed_tail_is_ignored():
+    from distil.streamrelay import eventstream_payloads, scan_usage
+
+    blob = _chunk(
+        {
+            "type": "message_start",
+            "message": {"usage": {"input_tokens": 123, "cache_read_input_tokens": 7}},
+        }
+    )
+    blob += _chunk({"type": "content_block_delta", "delta": {"text": "hi"}})
+    blob += _chunk({"type": "message_delta", "usage": {"output_tokens": 45}})
+    u = scan_usage(eventstream_payloads(blob + b"\x00\x00\xff"))  # truncated trailing frame
+    assert (
+        u["input_tokens"] == 123 and u["cache_read_input_tokens"] == 7 and u["output_tokens"] == 45
+    )
+    assert eventstream_payloads(b"garbage") == b"" and eventstream_payloads(b"") == b""
+
+
+def test_sigv4_refused_by_gateway_and_aproxy():
+    from distil.gateway import GatewayState, build_gateway_handler
+    from distil.pricing import get as pricing_get
+
+    price = pricing_get("claude-opus-4-8")
+    gw = ThreadingHTTPServer(
+        ("127.0.0.1", 0), build_gateway_handler("http://127.0.0.1:1", GatewayState(price), price)
+    )
+    threading.Thread(target=gw.serve_forever, daemon=True).start()
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", gw.server_address[1], timeout=5)
+        c.request(
+            "POST", BR, body=b"{}", headers={"Authorization": "AWS4-HMAC-SHA256 Credential=x"}
+        )
+        r = c.getresponse()
+        assert r.status == 400 and b"AWS_BEARER_TOKEN_BEDROCK" in r.read()
+    finally:
+        gw.shutdown()
+
+    pytest.importorskip("aiohttp")
+    import asyncio
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from distil.aproxy import make_app
+
+    async def go() -> None:
+        async with TestClient(TestServer(make_app("http://127.0.0.1:1"))) as client:
+            resp = await client.post(
+                BR, data=b"{}", headers={"Authorization": "AWS4-HMAC-SHA256 x"}
+            )
+            assert resp.status == 400 and "AWS_BEARER_TOKEN_BEDROCK" in await resp.text()
+
+    asyncio.run(go())

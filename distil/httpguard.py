@@ -99,10 +99,16 @@ def is_eventstream_path(target: str) -> bool:
     return bool(_BEDROCK_INVOKE_RE.match(p)) and p.endswith("-stream")
 
 
-def is_sigv4(authorization: str | None) -> bool:
-    """SigV4 signs the Host header and the body hash, so neither a proxy hop nor a
-    compressed body can keep it valid."""
-    return (authorization or "").startswith("AWS4-HMAC-SHA256")
+def sigv4_refusal(target: str, authorization: str | None) -> str | None:
+    """Why a Bedrock request must be refused, or None. SigV4 signs the Host header and the
+    body hash, so it cannot survive a proxy hop (with or without compression), and distil
+    never holds AWS credentials to re-sign. A Bedrock API key (bearer) signs nothing."""
+    if is_bedrock_path(target) and (authorization or "").startswith("AWS4-HMAC-SHA256"):
+        return (
+            "SigV4-signed Bedrock requests cannot pass through a proxy (the signature covers "
+            "Host and body). Use a Bedrock API key (AWS_BEARER_TOKEN_BEDROCK) against this proxy."
+        )
+    return None
 
 
 def safe_forward_path(target: str) -> str | None:

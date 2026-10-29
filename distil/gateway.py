@@ -50,6 +50,7 @@ from .httpguard import (
     is_messages_path,
     parse_content_length,
     safe_forward_path,
+    sigv4_refusal,
     strip_query,
 )
 from .pricing import DEFAULT_MODEL, Pricing, get as pricing_get
@@ -1162,6 +1163,10 @@ def build_gateway_handler(
             strip_hdr = auth_result[1] if auth_result else None
             # Strip query string for path matching
             path = self.path.split("?", 1)[0]
+            _refusal = sigv4_refusal(path, self.headers.get("Authorization"))
+            if _refusal:
+                self._reject(400, _refusal)
+                return
             if is_compressible_path(path) or is_gemini_path(path):
                 self._handle_compressible(tenant_override=tenant_override, strip_header=strip_hdr)
             else:
