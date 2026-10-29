@@ -83,8 +83,8 @@ def test_table_rows_are_self_consistent() -> None:
             assert 0 < p.cache_read_mult <= 1.0
             assert p.cache_write_mult == p.cache_write_1h_mult in (1.0, 1.25)
             continue
-        # Opus 5.5 and Fable 5.1 publish a cheaper cache hit; every other row is 0.1x.
-        read = {"claude-opus-5-5": 0.05, "claude-fable-5-1": 0.025}.get(
+        # Opus 5.5, Sonnet 5.5 and Fable 5.1 publish a cheaper cache hit; every other row is 0.1x.
+        read = {"claude-opus-5-5": 0.05, "claude-sonnet-5-5": 0.05, "claude-fable-5-1": 0.025}.get(
             key, pricing.CACHE_READ_MULT
         )
         assert (p.cache_read_mult, p.cache_write_mult, p.cache_write_1h_mult) == (

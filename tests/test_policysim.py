@@ -67,8 +67,8 @@ def test_anthropic_plain_hand_computed() -> None:
     assert r.usage.write_5m == pytest.approx(p3)  # P1 + (P2-P1) + (P3-P2)
     assert r.usage.read == pytest.approx(p1 + p2)
     assert r.usage.input == 0
-    # $ at claude-sonnet-5-5: $2 in, read 0.1x, write 1.25x
-    assert r.usd == pytest.approx((p3 * 1.25 + (p1 + p2) * 0.1) * 2 / 1e6)
+    # $ at claude-sonnet-5-5: $2 in, read 0.05x, write 1.25x
+    assert r.usd == pytest.approx((p3 * 1.25 + (p1 + p2) * 0.05) * 2 / 1e6)
 
 
 def test_plain_reproduces_billed_usage_on_fixture() -> None:
