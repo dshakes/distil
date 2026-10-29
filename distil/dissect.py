@@ -353,6 +353,22 @@ class Dissection:
         return sum(int(r.get("expand_misses") or 0) for r in self.requests)
 
     @property
+    def loops(self) -> dict[str, int] | None:
+        """Extra agent steps, summed over the session: repeated calls, and the share of
+        them that re-fetched a digest (``after_digest`` - extra steps attributable to
+        compression). None when no request carried the counter, which is not "zero"."""
+        keys = ("calls", "repeats", "identical", "reread", "rerun", "after_digest")
+        agg = dict.fromkeys(keys, 0)
+        seen = False
+        for r in self.requests:
+            row = r.get("loops")
+            if isinstance(row, dict):
+                seen = True
+                for k in keys:
+                    agg[k] += int(row.get(k) or 0)
+        return agg if seen else None
+
+    @property
     def quote_survival(self) -> tuple[int, int] | None:
         """``(survived, lost)`` literal-match edit quotes across the session.
 
@@ -1407,6 +1423,13 @@ def render_text(
                 f"  exact-quote: {_q[0]}/{_q[0] + _q[1]} edit quotes still findable "
                 "byte-exact in the forwarded context"
             )
+        _l = d.loops
+        if _l is not None:
+            out.append(
+                f"  extra steps: {_l['repeats']} repeated tool calls "
+                f"({_l['reread']} re-reads, {_l['rerun']} re-runs, {_l['identical']} identical); "
+                f"{_l['after_digest']} attributable to compression (re-fetched a digest)"
+            )
         for sig, exp, total in d.expansion_regret():
             out.append(
                 f"    regret: {sig} blocks pulled back {exp}/{total} — folding this kind "
@@ -1668,6 +1691,7 @@ def to_json(
                 if d.quote_survival is not None
                 else None
             ),
+            "loops": d.loops,
             "shadow_sampled_requests": d.shadow_sampled,
             "shadow_window_rows": d.shadow_window_rows,
             "shadow_window_agree": d.shadow_window_agree,

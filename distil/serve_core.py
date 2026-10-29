@@ -312,6 +312,8 @@ def compress_or_forward(
             except Exception:  # noqa: BLE001 — compression must never break a request
                 log.debug("compress_responses_input failed; forwarding uncompressed", exc_info=True)
                 new_input, store = orig_input, None
+            if on_compressed is not None:
+                on_compressed("input", orig_input, new_input, store)
             after_tok = count_responses_tokens(new_input)
             body = {**body, "input": new_input}
             extras = {
@@ -486,7 +488,7 @@ def compress_or_forward(
                 log.debug("gemini compression failed; forwarding uncompressed", exc_info=True)
                 store = None
             if on_compressed is not None:
-                on_compressed("contents", None, None, store)
+                on_compressed("contents", replay_orig, body.get("contents"), store)
             after_tok = _gemini_count(body)
             extras = {
                 "x-distil-compressed": "1",
