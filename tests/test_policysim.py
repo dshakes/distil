@@ -294,3 +294,22 @@ def test_fit_recovers_known_token_model() -> None:
 def test_policy_names_are_unique() -> None:
     names = [s.name for s in pol.build()]
     assert len(names) == len(set(names))
+
+
+def test_prefix_breakpoint_with_1h_ttl_is_shared_across_tasks() -> None:
+    """A 1h breakpoint on tools+system survives a 20-minute gap; the 5m tail does not."""
+    p = cm.Anthropic(framing=0.0)
+    for task, t in ((traj([200]), 0.0), (traj([300]), 1200.0)):
+        task.messages[0]["content"] = words(100, "task" if t == 0 else "other")
+        segs = cm.segments(task.request(0), TM, {}, 1000)
+        u = p.request(segs, t, "5m", [0, len(segs) - 1], ["1h", "5m"])
+    assert u.read == 1000 and u.write_1h == 0 and u.write_5m == pytest.approx(100)
+
+
+def test_keepalive_pays_only_when_the_resume_comes_inside_the_horizon() -> None:
+    from benchmarks.policysim.levers import keepalive_saving
+
+    # 2h idle, 1M-token context: 2 pings at $0.5 each, then the resume reads ($0.5) instead
+    # of a $4 write
+    assert keepalive_saving(7200, 1e6, 1e6, 4.0, 0.5e-6, 4 * 3600) == pytest.approx(2.5)
+    assert keepalive_saving(9e9, 1e6, 0, 0, 0.5e-6, 4 * 3600) == pytest.approx(-2.0)

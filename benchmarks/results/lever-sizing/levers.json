@@ -1,0 +1,709 @@
+{
+ "compression_reference_anthropic": {
+  "claude-code": {
+   "distil-digest-sh": {
+    "breakeven_lambda": 0.6225,
+    "vs_plain_mid_penalty": 0.0628,
+    "vs_plain_pure": -0.0962
+   },
+   "distil-lossless": {
+    "breakeven_lambda": 2.8098,
+    "vs_plain_mid_penalty": -0.0007,
+    "vs_plain_pure": -0.0012
+   },
+   "entry-digest-sh": {
+    "breakeven_lambda": 0.6873,
+    "vs_plain_mid_penalty": 0.1195,
+    "vs_plain_pure": -0.2402
+   },
+   "entry-lossless": {
+    "breakeven_lambda": null,
+    "vs_plain_mid_penalty": -0.001,
+    "vs_plain_pure": -0.001
+   },
+   "headroom": {
+    "breakeven_lambda": 0.7331,
+    "vs_plain_mid_penalty": 0.0034,
+    "vs_plain_pure": -0.0083
+   },
+   "rtk-like": {
+    "breakeven_lambda": null,
+    "vs_plain_mid_penalty": 0.0,
+    "vs_plain_pure": 0.0
+   },
+   "trunc-2000-sh": {
+    "breakeven_lambda": 0.5573,
+    "vs_plain_mid_penalty": 0.3212,
+    "vs_plain_pure": -0.3794
+   }
+  },
+  "swebench-lite": {
+   "distil-digest-sh": {
+    "breakeven_lambda": 0.6853,
+    "vs_plain_mid_penalty": 0.0244,
+    "vs_plain_pure": -0.0487
+   },
+   "distil-lossless": {
+    "breakeven_lambda": 6.1116,
+    "vs_plain_mid_penalty": -0.0004,
+    "vs_plain_pure": -0.0005
+   },
+   "entry-digest-sh": {
+    "breakeven_lambda": 0.7394,
+    "vs_plain_mid_penalty": 0.0579,
+    "vs_plain_pure": -0.1479
+   },
+   "entry-lossless": {
+    "breakeven_lambda": null,
+    "vs_plain_mid_penalty": -0.0004,
+    "vs_plain_pure": -0.0004
+   },
+   "headroom": {
+    "breakeven_lambda": 0.6631,
+    "vs_plain_mid_penalty": 0.004,
+    "vs_plain_pure": -0.0073
+   },
+   "rtk-like": {
+    "breakeven_lambda": 0.6365,
+    "vs_plain_mid_penalty": 0.001,
+    "vs_plain_pure": -0.0016
+   },
+   "trunc-2000-sh": {
+    "breakeven_lambda": 0.782,
+    "vs_plain_mid_penalty": 0.0005,
+    "vs_plain_pure": -0.0016
+   }
+  },
+  "swebench-long": {
+   "distil-digest-sh": {
+    "breakeven_lambda": 0.2465,
+    "vs_plain_mid_penalty": 0.1228,
+    "vs_plain_pure": -0.0387
+   },
+   "distil-lossless": {
+    "breakeven_lambda": 1.1171,
+    "vs_plain_mid_penalty": -0.0001,
+    "vs_plain_pure": -0.0011
+   },
+   "entry-digest-sh": {
+    "breakeven_lambda": 0.3329,
+    "vs_plain_mid_penalty": 0.3393,
+    "vs_plain_pure": -0.1623
+   },
+   "entry-lossless": {
+    "breakeven_lambda": null,
+    "vs_plain_mid_penalty": -0.0011,
+    "vs_plain_pure": -0.0011
+   },
+   "headroom": {
+    "breakeven_lambda": 0.3357,
+    "vs_plain_mid_penalty": 0.0171,
+    "vs_plain_pure": -0.0083
+   },
+   "rtk-like": {
+    "breakeven_lambda": 0.7,
+    "vs_plain_mid_penalty": 0.0007,
+    "vs_plain_pure": -0.0014
+   },
+   "trunc-2000-sh": {
+    "breakeven_lambda": 0.2863,
+    "vs_plain_mid_penalty": 0.0424,
+    "vs_plain_pure": -0.0163
+   }
+  }
+ },
+ "corpora": {
+  "claude-code-billed": {
+   "bill_share": {
+    "cache_read": 0.6309,
+    "cache_write": 0.301,
+    "input": 0.0017,
+    "output": 0.0664
+   },
+   "cache_write_usd_share_by_when": {
+    "after_gap_5m_to_1h": 0.0209,
+    "after_gap_over_1h": 0.1781,
+    "first_request": 0.0159,
+    "within_5m": 0.086
+   },
+   "cheap_steps_share": 0.3184,
+   "cheap_steps_to_haiku_cache_blind_vs_actual": -0.2048,
+   "cheap_steps_usd_share": 0.275,
+   "first_requests": 1697,
+   "first_requests_with_cache_read": 1619,
+   "keepalive_ping_55min_vs_actual": {
+    "24h": -0.0169,
+    "2h": -0.0278,
+    "4h": -0.0508,
+    "8h": -0.0676
+   },
+   "model_reprice_vs_actual": {
+    "claude-haiku-4-5": -0.756,
+    "claude-opus-5-5": -0.3833,
+    "claude-sonnet-5-5": -0.512
+   },
+   "output_reduction_sensitivity": {
+    "10%": -0.0066,
+    "20%": -0.0133,
+    "30%": -0.0199
+   },
+   "responses": 37997,
+   "sessions": 1697,
+   "span_days": 109.3,
+   "ttl_all_1h_vs_actual": 0.0135,
+   "ttl_all_5m_vs_actual": 0.4638,
+   "usd_by_model_share": {
+    "claude-fable-5-1": 0.2144,
+    "claude-opus-4-8": 0.0201,
+    "claude-opus-5": 0.5513,
+    "claude-opus-5-5": 0.2124,
+    "claude-sonnet-5": 0.0019
+   },
+   "usd_total": 9334.42
+  },
+  "claude-code-sim": {
+   "input_side_usd_per_session_1h": 12.8031,
+   "input_side_usd_per_session_5m": 13.8596,
+   "sessions": 20,
+   "ttl_1h_vs_5m": -0.0762
+  },
+  "swebench-lite": {
+   "batch": {
+    "batchable_share_of_requests": 0.0
+   },
+   "bill_share": {
+    "cache_read": 0.1607,
+    "cache_write": 0.4242,
+    "input": 0.0009,
+    "output": 0.4139
+   },
+   "cache": {
+    "cold_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.02319,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.04285,
+     "vs_baseline": 0.2544
+    },
+    "cold_5m (policysim baseline)": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    },
+    "gap0s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.0104,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.0304,
+     "vs_baseline": -0.1101
+    },
+    "gap0s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.01664,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.03663,
+     "vs_baseline": 0.0723
+    },
+    "gap0s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.0104,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.03039,
+     "vs_baseline": -0.1104
+    },
+    "gap0s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    },
+    "gap120s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.0104,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.0304,
+     "vs_baseline": -0.1101
+    },
+    "gap120s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.01664,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.03663,
+     "vs_baseline": 0.0723
+    },
+    "gap120s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.0104,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.03039,
+     "vs_baseline": -0.1104
+    },
+    "gap120s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    },
+    "gap1800s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.0104,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.0304,
+     "vs_baseline": -0.1101
+    },
+    "gap1800s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.01664,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.03663,
+     "vs_baseline": 0.0723
+    },
+    "gap1800s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    },
+    "gap1800s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    },
+    "gap600s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.0104,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.0304,
+     "vs_baseline": -0.1101
+    },
+    "gap600s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00583,
+      "cache_write": 0.01664,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 5.5,
+     "usd_per_task": 0.03663,
+     "vs_baseline": 0.0723
+    },
+    "gap600s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    },
+    "gap600s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 0.00549,
+      "cache_write": 0.01449,
+      "input": 3e-05,
+      "output": 0.01414
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 0.03416,
+     "vs_baseline": 0.0
+    }
+   },
+   "model": "claude-sonnet-5-5",
+   "model_reprice_usd_per_task": {
+    "claude-haiku-4-5": 0.02307,
+    "claude-opus-5-5": 0.06282,
+    "claude-sonnet-5-5": 0.03416
+   },
+   "model_reprice_vs_plain": {
+    "claude-haiku-4-5": -0.3246,
+    "claude-opus-5-5": 0.839,
+    "claude-sonnet-5-5": 0.0
+   },
+   "output": {
+    "reduction_sensitivity_vs_plain": {
+     "10%": -0.0414,
+     "20%": -0.0828,
+     "30%": -0.1242
+    },
+    "share": 0.4139
+   },
+   "plain_usd_per_task": 0.03416,
+   "requests": 3519,
+   "router": {
+    "cheap_steps_share": 0.443,
+    "cheap_steps_usd_share": 0.4076,
+    "oracle_router_vs_plain_cache_aware": 0.1001,
+    "oracle_router_vs_plain_cache_blind": -0.2038,
+    "steps": 3519
+   },
+   "tools_system_prefix_share_est": 0.1671,
+   "trajectories": 600
+  },
+  "swebench-long": {
+   "batch": {
+    "batchable_share_of_requests": 0.0
+   },
+   "bill_share": {
+    "cache_read": 0.4803,
+    "cache_write": 0.1406,
+    "input": 0.0001,
+    "output": 0.379
+   },
+   "cache": {
+    "cold_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.63832,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 3.07684,
+     "vs_baseline": 0.0844
+    },
+    "cold_5m (policysim baseline)": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    },
+    "gap0s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.39572,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 2.83452,
+     "vs_baseline": -0.001
+    },
+    "gap0s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.63262,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 3.07143,
+     "vs_baseline": 0.0825
+    },
+    "gap0s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.39539,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 2.8342,
+     "vs_baseline": -0.0012
+    },
+    "gap0s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    },
+    "gap120s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.39572,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 2.83452,
+     "vs_baseline": -0.001
+    },
+    "gap120s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.63262,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 3.07143,
+     "vs_baseline": 0.0825
+    },
+    "gap120s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.39539,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 2.8342,
+     "vs_baseline": -0.0012
+    },
+    "gap120s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    },
+    "gap1800s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.39572,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 2.83452,
+     "vs_baseline": -0.001
+    },
+    "gap1800s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.63262,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 3.07143,
+     "vs_baseline": 0.0825
+    },
+    "gap1800s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    },
+    "gap1800s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    },
+    "gap600s_prefixbp1h_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.39572,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 2.83452,
+     "vs_baseline": -0.001
+    },
+    "gap600s_prefixbp_1h": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.3631,
+      "cache_write": 0.63262,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 219.2,
+     "usd_per_task": 3.07143,
+     "vs_baseline": 0.0825
+    },
+    "gap600s_prefixbp_5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    },
+    "gap600s_tail5m": {
+     "expiry_rewrite_tokens_per_task": 0.0,
+     "parts_per_task": {
+      "cache_read": 1.36281,
+      "cache_write": 0.39895,
+      "input": 0.00032,
+      "output": 1.07538
+     },
+     "prefix_tokens_written_per_task": 1644.0,
+     "usd_per_task": 2.83747,
+     "vs_baseline": 0.0
+    }
+   },
+   "model": "claude-sonnet-5-5",
+   "model_reprice_usd_per_task": {
+    "claude-haiku-4-5": 1.42231,
+    "claude-opus-5-5": 4.31214,
+    "claude-sonnet-5-5": 2.83748
+   },
+   "model_reprice_vs_plain": {
+    "claude-haiku-4-5": -0.4987,
+    "claude-opus-5-5": 0.5197,
+    "claude-sonnet-5-5": 0.0
+   },
+   "output": {
+    "reduction_sensitivity_vs_plain": {
+     "10%": -0.0379,
+     "20%": -0.0758,
+     "30%": -0.1137
+    },
+    "share": 0.379
+   },
+   "plain_usd_per_task": 2.83747,
+   "requests": 1001,
+   "router": {
+    "cheap_steps_share": 0.1189,
+    "cheap_steps_usd_share": 0.0808,
+    "oracle_router_vs_plain_cache_aware": 0.1496,
+    "oracle_router_vs_plain_cache_blind": -0.0404,
+    "steps": 1001
+   },
+   "tools_system_prefix_share_est": 0.0091,
+   "trajectories": 15
+  }
+ },
+ "cost": "$0: offline replay and arithmetic on recorded usage; no model or API calls",
+ "generated": "2026-10-11",
+ "harness_timing": {
+  "swebench-lite": {
+   "median_same_arm_gap_s": 20.6,
+   "median_task_wall_s": 13.7,
+   "rows_run_here": 900,
+   "share_gaps_over_5m": 0.007
+  },
+  "swebench-long": {
+   "median_same_arm_gap_s": 1415.7,
+   "median_task_wall_s": 949.8,
+   "rows_run_here": 24,
+   "share_gaps_over_5m": 0.952
+  }
+ },
+ "token_model": {
+  "framing": 2.466,
+  "overhead_tokens": 1643.6
+ }
+}
