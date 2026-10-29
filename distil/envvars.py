@@ -81,6 +81,12 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "0 turns off cold-point recompression (ADR 0014); same as --no-cold-point.",
     ),
     (
+        "DISTIL_COLD_THINKING",
+        "user",
+        "0",
+        "1 also drops prior turns' thinking blocks at a cold point (ADR 0028). Off by default: lossy, not yet certified.",
+    ),
+    (
         "DISTIL_REFETCH_VERBATIM",
         "user",
         "1",

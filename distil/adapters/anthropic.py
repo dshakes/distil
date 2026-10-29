@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import os
+import re
 from types import MappingProxyType
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 from typing import Any
 
 from ..compress.tier0 import collapse_runs, minify_json
@@ -399,8 +401,11 @@ def cold_candidates(
     *,
     keep: Any = None,
     exclude_handles: frozenset[str] = frozenset(),
+    model: str = "",
 ) -> frozenset[str]:
-    """tool_use ids of the tool_results a cold turn may evict.
+    """tool_use ids of the tool_results a cold turn may evict — plus, given the request's
+    *model*, the keys of the prior-turn thinking blocks it may drop (ADR 0028,
+    :func:`cold_thinking_candidates`).
 
     Every protection the digest honours, and then some — an eviction outlives the turn:
 
@@ -440,7 +445,115 @@ def cold_candidates(
                 continue
             if _tokenizer.count(text) >= _EVICT_MIN_TOKENS:
                 out.add(tid)
-    return frozenset(out)
+    return frozenset(out) | cold_thinking_candidates(messages, model)
+
+
+# Cold-point thinking compaction (ADR 0028). On models that keep prior turns' thinking in
+# context and bill it as input (Opus 4.5, and 4.6+ — "Thinking block preservation by
+# model", platform.claude.com/docs/en/build-with-claude/thinking), a cold turn rewrites
+# the prefix anyway, so the oldest thinking can go for free. Older models strip it
+# server-side already: nothing to save, so nothing is touched there.
+_KEEPS_PRIOR_THINKING = re.compile(r"claude-(?:opus-4-5|[a-z]+-(?:4-[6-9]|[5-9]))")
+_THINKING_TYPES = ("thinking", "redacted_thinking")
+THINKING_KEY_PREFIX = "th:"
+
+
+def cold_thinking_enabled() -> bool:
+    """Opt-in until a certificate covers it: dropping old thinking is lossy for the
+    model's own reasoning and no shadow/certify evidence exists for it yet (ADR 0028)."""
+    return os.environ.get("DISTIL_COLD_THINKING", "0") == "1"
+
+
+def _thinking_key(blk: dict[str, Any]) -> str | None:
+    """A content-free, stable id for one signed thinking block (its signature never
+    changes, and the API rejects a request whose signature did)."""
+    sig = blk.get("signature") if blk.get("type") == "thinking" else blk.get("data")
+    if not isinstance(sig, str) or not sig:
+        return None
+    return THINKING_KEY_PREFIX + hashlib.sha256(sig.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _droppable_thinking(messages: list[Any], allow: Callable[[str], bool]) -> dict[int, set[int]]:
+    """``{message index: block indexes}`` of the thinking blocks that may be dropped.
+
+    Every rule here is an API rule, and any doubt drops nothing:
+
+    * only a LEADING run of thinking blocks, oldest first — on preserved-thinking models
+      (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) each block's signature chains to the
+      previous one, so removing from the middle invalidates every later block (a 400 on
+      enforced accounts). The first block kept ends the run for good;
+    * never in the current turn: everything from the last user message that carries no
+      ``tool_result`` onward — the turn the model is continuing, whose thinking must go
+      back "complete and unmodified" during tool use (interleaved thinking included);
+    * never the last assistant message, whatever the turn analysis says;
+    * never leaving an assistant message empty (that would be an edit, not a drop);
+    * nothing at all when a ``compaction`` block is present (the run restarts there) or
+      when the history is not the plain list-of-dicts shape.
+    """
+    boundary = -1
+    last_asst = -1
+    for i, m in enumerate(messages):
+        if not isinstance(m, dict):
+            return {}
+        c = m.get("content")
+        if isinstance(c, list):
+            for b in c:
+                if not isinstance(b, dict) or b.get("type") == "compaction":
+                    return {}
+        if m.get("role") == "assistant":
+            last_asst = i
+        elif m.get("role") == "user" and not (
+            isinstance(c, list) and any(b.get("type") == "tool_result" for b in c)
+        ):
+            boundary = i
+    out: dict[int, set[int]] = {}
+    for i, m in enumerate(messages):
+        c = m.get("content")
+        if m.get("role") != "assistant" or not isinstance(c, list):
+            continue
+        idx = {j for j, b in enumerate(c) if b.get("type") in _THINKING_TYPES}
+        if not idx:
+            continue
+        keys = [_thinking_key(c[j]) for j in idx]
+        if (
+            i >= boundary
+            or i >= last_asst
+            or len(idx) == len(c)
+            or not all(k is not None and allow(k) for k in keys)
+        ):
+            return out  # the leading run ends here
+        out[i] = idx
+    return out
+
+
+def cold_thinking_candidates(messages: list[Any], model: str) -> frozenset[str]:
+    """Keys of the prior-turn thinking blocks a cold turn may drop (see
+    :func:`_droppable_thinking`). Empty unless opted in and the model bills them."""
+    if not cold_thinking_enabled() or not _KEEPS_PRIOR_THINKING.search(model or ""):
+        return frozenset()
+    drop = _droppable_thinking(messages, lambda _k: True)
+    return frozenset(
+        k
+        for i, js in drop.items()
+        for j in js
+        if (k := _thinking_key(messages[i]["content"][j])) is not None
+    )
+
+
+def drop_cold_thinking(messages: list[Any], evict: frozenset[str]) -> list[Any]:
+    """Drop the thinking blocks *evict* names, within the API rules. Applied every turn
+    from the cold one on, so the shorter prefix is what stays cached. Non-mutating;
+    returns *messages* itself when nothing is dropped."""
+    if not cold_thinking_enabled() or not any(k.startswith(THINKING_KEY_PREFIX) for k in evict):
+        return messages
+    drop = _droppable_thinking(messages, lambda k: k in evict)
+    if not drop:
+        return messages
+    out = list(messages)
+    for i, js in drop.items():
+        m = out[i]
+        out[i] = {**m, "content": [b for j, b in enumerate(m["content"]) if j not in js]}
+    return out
 
 
 def _recent_verbatim_indices(messages: list[dict[str, Any]], k: int) -> set[int]:
@@ -1179,6 +1292,10 @@ def compress_messages(
         ``store`` maps every 8-hex handle embedded in digest markers back to the
         original text; call ``store.expand(handle)`` to recover it.
     """
+    if evict and not verbatim:
+        # Cold-point thinking compaction (ADR 0028), before anything else reads the
+        # history, so the census describes the payload actually sent.
+        messages = drop_cold_thinking(messages, evict)
     _keep_tls.fn = keep  # learned keep-byte-exact policy for this call (per-thread)
     # Opened per call, NOT drained in the finally block: the caller reads it after we
     # return (see proxy._emit_detail). A re-compression on the same thread overwrites it,

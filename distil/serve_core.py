@@ -22,6 +22,7 @@ through here.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import socket
@@ -368,10 +369,15 @@ def compress_or_forward(
             # the request compresses exactly as before. Chat's TTL comes from OpenAI's
             # documented retention bounds (coldpoint.openai_request_ttl).
             if cold:
+                _cands: Callable[..., frozenset[str]]
                 if is_chat:
                     from .adapters.openai import cold_candidates_chat as _cands
                 else:
-                    from .adapters.anthropic import cold_candidates as _cands
+                    from .adapters.anthropic import cold_candidates as _ac
+
+                    # ADR 0028: prior-turn thinking rides the same cold-point set, so it
+                    # inherits its cache safety, persistence and drift-guard hold.
+                    _cands = functools.partial(_ac, model=str(body.get("model") or ""))
                 cold_plan, cold_key, cold_kw = _cold_plan(
                     scope, body, original, _cands, keep, held, openai=is_chat
                 )
