@@ -29,7 +29,19 @@ def _log() -> str:
     """Bland, varied lines: Tier-0 keeps every one (nothing to fold), the digest elides
     them — so the marker's presence on the wire tells the two modes apart."""
     rng = random.Random(7)
-    words = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo".split()
+    words = [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel",
+        "india",
+        "juliet",
+        "kilo",
+    ]
     lines = [" ".join(rng.choice(words) for _ in range(rng.randint(3, 9))) for _ in range(40)]
     lines[10] = _FULL_MARK.decode()
     return "\n".join(lines)
@@ -64,7 +76,7 @@ class _Up(BaseHTTPRequestHandler):
 
     last: dict[str, bytes] = {}
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         raw = self.rfile.read(int(self.headers.get("content-length", 0)))
         _Up.last["raw"] = raw
         name = "Read" if _FULL_MARK in raw else "Grep"
@@ -101,14 +113,17 @@ def proxy():  # type: ignore[no-untyped-def]
     up = ThreadingHTTPServer(("127.0.0.1", 0), _Up)
     threading.Thread(target=up.serve_forever, daemon=True).start()
     servers = [up]
+    handlers: list[type] = []
 
     def make(**kw: Any) -> int:
         h = build_handler(f"http://127.0.0.1:{up.server_address[1]}", **kw)
+        handlers.append(h)
         px = ThreadingHTTPServer(("127.0.0.1", 0), h)
         threading.Thread(target=px.serve_forever, daemon=True).start()
         servers.append(px)
         return int(px.server_address[1])
 
+    make.handlers = handlers  # type: ignore[attr-defined]
     yield make
     for s in servers:
         s.shutdown()
@@ -275,12 +290,21 @@ def test_two_processes_crossing_together_write_one_receipt(home):
 def test_live_shadow_verdicts_trip_the_guard_end_to_end(home, proxy, monkeypatch):
     """No test hooks: shadow replays the request, the stub model changes its tool call
     when the log is digested, and the paired rows alone must trip the hold."""
+    from distil.proxy import _drain_shadow
+
     guards = _capture_guard(monkeypatch)
     port = proxy(shape_output="aggressive", shadow_rate=1.0)
     deadline = time.time() + 60
     while not guards[0].engaged and time.time() < deadline:
         _post(port)
     assert guards[0].engaged, "paired shadow harm never reached the guard"
+    # Each pre-trip request above spawned a background shadow replay against the same
+    # stub upstream. Those are still in flight here (the guard trips the moment one of
+    # them calls back, not when it finishes) and, left alone, a straggler can overwrite
+    # _Up.last["raw"] with its own (compressed) body after the held request below writes
+    # the full one — racing the assertion on a thread the test never otherwise waits for.
+    for h in proxy.handlers:  # type: ignore[attr-defined]
+        _drain_shadow(h)
     _assert_held(_post(port)[0])
 
 
