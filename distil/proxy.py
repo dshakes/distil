@@ -957,6 +957,23 @@ def build_handler(
             if strip_query(self.path) == "/distil/health":
                 self._respond_health()
                 return
+            if "websocket" in (self.headers.get("Upgrade") or "").lower():
+                # Codex opens the Responses API as a WebSocket first. This proxy is
+                # plain HTTP: relaying the upgrade as a GET would silently bypass
+                # compression, so refuse loudly and let the client use HTTP POST.
+                log.warning("WebSocket upgrade refused on %s — client should use HTTP", self.path)
+                body = (
+                    b'{"error":{"type":"websocket_unsupported","message":"distil proxy '
+                    b"speaks HTTP only; disable WebSocket (codex: supports_websockets=false, "
+                    b'or use distil wrap -- codex)"}}'
+                )
+                self.send_response(426)
+                self.send_header("Upgrade", "http/1.1")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self._passthrough()
 
         def _respond_health(self) -> None:
