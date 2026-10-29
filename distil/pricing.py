@@ -31,7 +31,7 @@ DEFAULT_OPENAI_MODEL = "gpt-5.2"
 #: Model ids distil routes but deliberately does NOT price: ``resolve()`` returns None
 #: for them and callers count their tokens unweighted (never at Claude rates). Empty since
 #: the OpenAI and Gemini rows below: kept so a model can be routed before it is priced.
-UNPRICED: frozenset[str] = frozenset()
+UNPRICED: frozenset[str] = frozenset({"claude-haiku-5-5"})  # see TIERED
 
 
 @dataclass(frozen=True)
@@ -88,13 +88,17 @@ CATALOG: dict[str, Pricing] = {
     "claude-sonnet-5": Pricing("claude-sonnet-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
-    # Haiku 5.5 uses a two-tier price: prompts ≤100k tokens bill at the base rate ($0.10/$0.50
-    # per Mtok), prompts >100k bill every token at 5x ($0.50/$2.50 per Mtok).  The long_tier
-    # field carries the threshold and multiplier; callers that need accurate per-call pricing
-    # (replay-model, the SWE-bench harness) must apply it. The base input/output rates reflect
-    # the short-context tier; resolve() will return this row for all haiku-5-5 traffic.
-    "claude-haiku-5-5": Pricing("claude-haiku-5-5", 0.10, 0.50, long_tier=(100_000, 5.0)),
+    # claude-haiku-5-5 is deliberately NOT here: prompts >100k bill every token at 5x, and
+    # request_cost/savings/policysim price a row at one tier. TIERED below carries it for
+    # callers that apply long_tier per call (replay-model).
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),
+}
+
+
+#: Rows with a per-call long-prompt tier, kept out of CATALOG so resolve() never prices them
+#: at one rate. Only for callers that apply ``long_tier`` themselves.
+TIERED: dict[str, Pricing] = {
+    "claude-haiku-5-5": Pricing("claude-haiku-5-5", 0.10, 0.50, long_tier=(100_000, 5.0)),
 }
 
 

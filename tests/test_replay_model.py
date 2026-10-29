@@ -58,20 +58,21 @@ def _sessions_dir(tmp_path: Path, rows: list[dict]) -> Path:
 # --------------------------------------------------------------------------- #
 
 
-def test_haiku55_is_in_catalog() -> None:
-    p = pricing.resolve("claude-haiku-5-5")
+def test_haiku55_is_tiered_not_in_catalog() -> None:
+    p = rm._price("claude-haiku-5-5")
     assert p is not None
     assert p.name == "claude-haiku-5-5"
     assert p.input_per_mtok == pytest.approx(0.10)
     assert p.output_per_mtok == pytest.approx(0.50)
     assert p.long_tier == (100_000, 5.0)
+    assert pricing.resolve("claude-haiku-5-5") is None  # one-tier callers never price it
 
 
 def test_haiku55_short_tier_no_multiplier() -> None:
     rec = _record(model="claude-haiku-5-5", inp=50_000, out=100)  # total_input = 50k < 100k
     cost = rm.tiered_cost(rec, "claude-haiku-5-5")
     assert cost is not None
-    p = pricing.resolve("claude-haiku-5-5")
+    p = rm._price("claude-haiku-5-5")
     assert p is not None
     expected = 50_000 * p.input + 100 * p.output
     assert cost == pytest.approx(expected)
@@ -81,7 +82,7 @@ def test_haiku55_long_tier_applies_5x() -> None:
     rec = _record(model="claude-haiku-5-5", inp=120_000, out=100)  # total > 100k
     cost = rm.tiered_cost(rec, "claude-haiku-5-5")
     assert cost is not None
-    p = pricing.resolve("claude-haiku-5-5")
+    p = rm._price("claude-haiku-5-5")
     assert p is not None
     # 5x multiplier on all tokens
     expected = 5.0 * (120_000 * p.input + 100 * p.output)
@@ -113,7 +114,7 @@ def test_cache_fields_use_correct_multipliers() -> None:
     """Cache reads and writes at target model's cache rate, not base rate."""
     rec = _record(model="claude-haiku-5-5", inp=0, cr=50_000, cw=0, out=0)
     cost = rm.tiered_cost(rec, "claude-haiku-5-5")
-    p = pricing.resolve("claude-haiku-5-5")
+    p = rm._price("claude-haiku-5-5")
     assert p is not None and cost is not None
     # total_input = cr = 50k, below threshold; no multiplier
     assert cost == pytest.approx(50_000 * p.cache_read)
@@ -495,8 +496,8 @@ def test_live_result_format() -> None:
 
 
 def test_haiku55_passes_self_consistency() -> None:
-    """New catalog row must satisfy the same invariants as the rest of the table."""
-    p = pricing.CATALOG["claude-haiku-5-5"]
+    """The tiered row must satisfy the same invariants as the rest of the table."""
+    p = pricing.TIERED["claude-haiku-5-5"]
     assert p.name == "claude-haiku-5-5"
     assert p.input_per_mtok > 0
     assert p.output_per_mtok >= p.input_per_mtok

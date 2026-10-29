@@ -152,9 +152,8 @@ def tiered_cost(rec: ReplayRecord, target: str) -> float | None:
     cache_read, cache_write, output) at the target model's rates. The long-tier
     multiplier applies to all input (uncached + cached), matching Anthropic's billing.
     """
-    from . import pricing
 
-    p = pricing.resolve(target)
+    p = _price(target)
     if p is None:
         return None
     m = _tier_mult(p, rec.total_input)
@@ -168,9 +167,8 @@ def tiered_cost(rec: ReplayRecord, target: str) -> float | None:
 
 def original_cost(rec: ReplayRecord) -> float | None:
     """Cost of the original request at the original model's list rate (for the ratio)."""
-    from . import pricing
 
-    p = pricing.resolve(rec.model)
+    p = _price(rec.model)
     if p is None:
         return None
     m = _tier_mult(p, rec.total_input)
@@ -180,6 +178,13 @@ def original_cost(rec: ReplayRecord) -> float | None:
         + rec.cache_write * p.cache_write
         + rec.output_tokens * p.output
     )
+
+
+def _price(model: str) -> Any:
+    """A tiered row (applied per call here) before the single-tier catalog."""
+    from . import pricing
+
+    return pricing.TIERED.get(model) or pricing.resolve(model)
 
 
 def _tier_mult(p: Any, total_input: int) -> float:
