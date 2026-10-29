@@ -35,7 +35,7 @@ import math
 import os
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +51,12 @@ DEFAULT_DAYS = 30  # look-back window for session records
 HAIKU_LONG_TIER_TOKENS = 100_000
 #: Referee's non-inferiority margin (same as distil.referee.EQUIV_MARGIN).
 EQUIV_MARGIN = 0.05
+DEFAULT_TURNS_PER_SEGMENT = 10
+# ICC for the PAIRED DIFFERENCE (1{B==A} − 1{A'==A}).  Differencing cancels most
+# session-level variation, so within-cluster correlation is much lower than for
+# the raw agreement rate.  0.10 is conservative for code-editing agents; adjust
+# via --icc if you observe tighter within-session correlation.
+ASSUMED_ICC_DIFF: float = 0.10
 
 
 # --------------------------------------------------------------------------- #
@@ -240,6 +246,8 @@ class DryRunReport:
     n_unpriced_target: int
     n_unpriced_original: int
     days: float
+    # Plans (a/b/c) — None until computed by dry_run()
+    plans: tuple[ReplayPlan, ReplayPlan, ReplayPlan] | None = None
 
     def format(self) -> str:
         ratio_b = self.arm_b_usd / self.original_total_usd if self.original_total_usd else 0.0
@@ -282,10 +290,54 @@ class DryRunReport:
             "context note: A' and B both use uncompressed CC transcript context.",
             "  The original model saw distil-compressed context; paired A' vs B is",
             "  valid, but raw A vs A'/B rates span a context-size difference.",
-            "",
-            "to run live:",
-            f"  distil replay-model --live --spend-cap {self.arm_b_usd + self.arm_aa_usd:.2f}",
         ]
+        if self.plans is not None:
+            pa, pb, pc = self.plans
+
+            def _fmt_plan(label: str, p: ReplayPlan) -> list[str]:
+                rows = [
+                    f"{label}",
+                    f"  K={p.K} sessions × M={p.M} turns = {p.n_turns} total turns",
+                    f"  cost:  B ${p.cost_b_usd:.2f}  +  A' ${p.cost_aa_usd:.2f}"
+                    f"  =  ${p.total_usd:.2f}",
+                    f"  effective n={p.effective_n:.0f}"
+                    f"  (DEFF={1.0 + (p.M - 1) * ASSUMED_ICC_DIFF:.2f},"
+                    f" ICC={ASSUMED_ICC_DIFF})",
+                    f"  expected CI half-width: ±{100 * p.ci_halfwidth:.1f} pp",
+                ]
+                if p.note:
+                    rows.append(f"  coverage: {p.note}")
+                return rows
+
+            lines += [
+                "",
+                "── prompt-caching plans (1h TTL, cluster bootstrap CI) ──────────────────",
+                f"  assumption: ICC_diff={ASSUMED_ICC_DIFF} (paired diff cancels session"
+                " correlation)",
+                "  A'-agreement ~0.85–0.90 assumed (conservative Wilson CI uses p=0.5)",
+                "",
+            ]
+            lines += _fmt_plan("(a) ±5 pp plan — minimum cost for effective n ≥ 385:", pa)
+            lines += [""]
+            lines += _fmt_plan("(b) best ≤$50 plan — all contexts:", pb)
+            lines += [""]
+            lines += _fmt_plan(
+                f"(c) best ≤$50 plan — ≤{HAIKU_LONG_TIER_TOKENS:,}-token contexts:", pc
+            )
+            lines += [
+                "",
+                "  to run plan (c):",
+                f"  distil replay-model --live --sessions {pc.K}"
+                f" --turns-per-segment {pc.M}"
+                f" --max-context-tokens {HAIKU_LONG_TIER_TOKENS}"
+                f" --spend-cap {pc.total_usd:.2f}",
+            ]
+        else:
+            lines += [
+                "",
+                "to run live:",
+                f"  distil replay-model --live --spend-cap {self.arm_b_usd + self.arm_aa_usd:.2f}",
+            ]
         return "\n".join(lines)
 
 
@@ -305,6 +357,216 @@ def _wilson_halfwidth(n: int, z: float = 1.96) -> float:
     denom = 1.0 + z * z / n
     half = z * math.sqrt(p * (1.0 - p) / n + z * z / (4.0 * n * n)) / denom
     return half
+
+
+def _cluster_ci_halfwidth(n_turns: int, M: int, icc: float = ASSUMED_ICC_DIFF) -> float:
+    """Expected 95% CI half-width for the paired diff mean with a cluster design.
+
+    DEFF = 1 + (M−1)·ICC.  Effective n = n_turns / DEFF.  Wilson formula after.
+    """
+    deff = 1.0 + (M - 1) * icc
+    return _wilson_halfwidth(max(1, int(n_turns / max(deff, 1.0))))
+
+
+# --------------------------------------------------------------------------- #
+# Session-segment cost model (prompt caching)
+# --------------------------------------------------------------------------- #
+
+
+def _segment_cost(
+    ctx_sizes: list[int],
+    arm_model: str,
+    output_per_turn: int = 1_000,
+    *,
+    ttl: str = "1h",
+) -> float:
+    """Estimated cost of one session segment with Anthropic prompt caching.
+
+    First turn: cache-write the full context at the write multiplier.
+    Each subsequent turn: cache-read the previous context (much cheaper)
+    plus cache-write the incremental new tokens.  Output always fresh.
+    Haiku 5.5 long-tier 5× applies to ALL token types when total > 100 k.
+    """
+    p = _price(arm_model)
+    if p is None or not ctx_sizes:
+        return 0.0
+    w = p.input * (p.cache_write_1h_mult if ttl == "1h" else p.cache_write_mult)
+    r = p.input * p.cache_read_mult
+    total = 0.0
+    prev = 0
+    for k, ctx in enumerate(ctx_sizes):
+        m = _tier_mult(p, ctx)
+        if k == 0:
+            total += m * (ctx * w + output_per_turn * p.output)
+        else:
+            delta = max(0, ctx - prev)
+            total += m * (prev * r + delta * w + output_per_turn * p.output)
+        prev = ctx
+    return total
+
+
+def cluster_bootstrap_ci(
+    cluster_diffs: list[list[int]],
+    *,
+    n_boot: int = 2_000,
+    rng: random.Random | None = None,
+) -> tuple[float, float]:
+    """95% bootstrap CI for mean(B≡A − A'≡A), resampling at the segment level.
+
+    *cluster_diffs* — one inner list per session segment; each element is the
+    paired difference (0 or ±1) for one turn in that segment.
+    Returns (lower, upper) of a two-sided 95% CI.
+    """
+    if not cluster_diffs:
+        return (-1.0, 1.0)
+    _rng = rng or random.Random()
+    K = len(cluster_diffs)
+    cmeans = [sum(seg) / len(seg) for seg in cluster_diffs if seg]
+    if not cmeans:
+        return (-1.0, 1.0)
+    boot: list[float] = sorted(
+        sum(_rng.choices(cmeans, k=K)) / K
+        for _ in range(n_boot)  # type: ignore[arg-type]
+    )
+    lo = boot[max(0, int(0.025 * n_boot))]
+    hi = boot[min(len(boot) - 1, int(0.975 * n_boot))]
+    return lo, hi
+
+
+# --------------------------------------------------------------------------- #
+# Dry-run plan optimizer
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class ReplayPlan:
+    """One proposed K-segments × M-turns replay plan."""
+
+    K: int  # session segments
+    M: int  # turns per segment
+    n_turns: int  # K * M
+    cost_b_usd: float
+    cost_aa_usd: float
+    total_usd: float
+    effective_n: float
+    ci_halfwidth: float  # expected Wilson CI half-width
+    note: str = ""
+
+
+def _mode_model(records: list[ReplayRecord]) -> str:
+    """Most common model in *records*."""
+    counts: dict[str, int] = {}
+    for r in records:
+        counts[r.model] = counts.get(r.model, 0) + 1
+    return max(counts, key=lambda m: counts[m]) if counts else "claude-opus-5-5"
+
+
+def _dry_run_plans(
+    records: list[ReplayRecord],
+    target: str,
+    *,
+    icc: float = ASSUMED_ICC_DIFF,
+    budget_usd: float = 50.0,
+) -> tuple[ReplayPlan, ReplayPlan, ReplayPlan]:
+    """Return (plan_a, plan_b, plan_c) for the three target scenarios.
+
+    plan_a — minimum cost that achieves effective_n ≥ 385 (≤ 5 pp CI half-width).
+    plan_b — best effective_n achievable within *budget_usd* (all contexts).
+    plan_c — best effective_n within *budget_usd* restricted to ≤ 100 k-token turns.
+
+    Uses the mean context size from *records* as the representative prompt.
+    Assumes:
+    - A'-agreement ~0.85 (stated, not encoded in the CI formula; the CI formula
+      is conservative at p=0.5).
+    - ICC for the paired difference = *icc* (default ASSUMED_ICC_DIFF=0.10).
+    - 1-hour cache TTL (cache_write_1h_mult × base rate for first turn of each
+      segment; cache_read_mult × base rate for subsequent turns).
+    """
+    _empty = ReplayPlan(0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1.0, "no data")
+    if not records:
+        return _empty, _empty, _empty
+
+    aa_model = _mode_model(records)
+    all_ctx = [r.total_input for r in records]
+    n = len(all_ctx)
+    mean_ctx = int(sum(all_ctx) / n)
+    mean_out = int(sum(r.output_tokens for r in records) / n)
+
+    sc_ctx = [c for c in all_ctx if c <= HAIKU_LONG_TIER_TOKENS]
+    mean_ctx_sc = int(sum(sc_ctx) / len(sc_ctx)) if sc_ctx else mean_ctx
+    cov_count = len(sc_ctx) / n
+    cov_tokens = sum(sc_ctx) / sum(all_ctx) if all_ctx else 0.0
+
+    def _make(M: int, mean_c: int, K_override: int | None, budget: float) -> ReplayPlan:
+        ctx_sizes = [mean_c] * M
+        cost_b_seg = _segment_cost(ctx_sizes, target, mean_out)
+        cost_aa_seg = _segment_cost(ctx_sizes, aa_model, mean_out)
+        cost_seg = cost_b_seg + cost_aa_seg
+        if cost_seg <= 0:
+            return ReplayPlan(0, M, 0, 0.0, 0.0, 0.0, 0.0, 1.0, "unpriced")
+        if K_override is not None:
+            K = K_override
+        else:
+            K = max(0, int(budget / cost_seg))
+        if K == 0:
+            return ReplayPlan(0, M, 0, 0.0, 0.0, 0.0, 0.0, 1.0, "K=0")
+        n_turns = K * M
+        deff = 1.0 + (M - 1) * icc
+        n_eff = n_turns / max(deff, 1.0)
+        return ReplayPlan(
+            K=K,
+            M=M,
+            n_turns=n_turns,
+            cost_b_usd=K * cost_b_seg,
+            cost_aa_usd=K * cost_aa_seg,
+            total_usd=K * cost_seg,
+            effective_n=n_eff,
+            ci_halfwidth=_wilson_halfwidth(max(1, int(n_eff))),
+        )
+
+    Ms = [1, 5, 10, 15, 20]
+
+    # Plan (a): minimize total cost for effective_n ≥ _min_aa_n() = 385
+    n_min = _min_aa_n()
+    best_a: ReplayPlan | None = None
+    for M in Ms:
+        deff = 1.0 + (M - 1) * icc
+        K = math.ceil(n_min * deff / M)
+        p = _make(M, mean_ctx, K, 0.0)
+        if best_a is None or (p.K > 0 and p.total_usd < best_a.total_usd):
+            best_a = p
+    plan_a = best_a or _make(10, mean_ctx, 74, 0.0)
+
+    # Plan (b): maximize effective_n subject to total ≤ budget_usd (all contexts)
+    best_b: ReplayPlan | None = None
+    for M in Ms:
+        p = _make(M, mean_ctx, None, budget_usd)
+        if best_b is None or (p.K > 0 and p.effective_n > best_b.effective_n):
+            best_b = p
+    plan_b = best_b or _make(10, mean_ctx, None, budget_usd)
+
+    # Plan (c): same budget, ≤ 100 k-token contexts only
+    best_c: ReplayPlan | None = None
+    for M in Ms:
+        p = _make(M, mean_ctx_sc, None, budget_usd)
+        if best_c is None or (p.K > 0 and p.effective_n > best_c.effective_n):
+            best_c = p
+    base_c = best_c or _make(10, mean_ctx_sc, None, budget_usd)
+    plan_c = ReplayPlan(
+        K=base_c.K,
+        M=base_c.M,
+        n_turns=base_c.n_turns,
+        cost_b_usd=base_c.cost_b_usd,
+        cost_aa_usd=base_c.cost_aa_usd,
+        total_usd=base_c.total_usd,
+        effective_n=base_c.effective_n,
+        ci_halfwidth=base_c.ci_halfwidth,
+        note=(
+            f"covers {100 * cov_count:.0f}% of requests "
+            f"({100 * cov_tokens:.0f}% of tokens) in this window"
+        ),
+    )
+    return plan_a, plan_b, plan_c
 
 
 def dry_run(
@@ -360,6 +622,7 @@ def dry_run(
     arm_aa_total = sum(per_orig[:n_aa])
     arm_aa_per = arm_aa_total / n_aa if n_aa else 0.0
 
+    plans = _dry_run_plans(records, target)
     return DryRunReport(
         n_sampled=n,
         target_model=target,
@@ -382,6 +645,7 @@ def dry_run(
         n_unpriced_target=n_unp_tgt,
         n_unpriced_original=n_unp_orig,
         days=days,
+        plans=plans,
     )
 
 
@@ -436,8 +700,14 @@ def _sample_file(
     n: int,
     k_before: int,
     rng: random.Random,
+    *,
+    _collect_into: dict[str, list[TranscriptTurn]] | None = None,
 ) -> int:
-    """Parse one transcript file; reservoir-sample turns into *reservoir*. Returns updated k."""
+    """Parse one transcript file; reservoir-sample turns into *reservoir*. Returns updated k.
+
+    When *_collect_into* is provided the function appends every valid turn to that
+    dict keyed by session_id (no reservoir sampling); *reservoir* and *n* are ignored.
+    """
 
     try:
         with path.open(encoding="utf-8") as fh:
@@ -517,7 +787,9 @@ def _sample_file(
             session_id=str(r.get("sessionId") or ""),
         )
         k += 1
-        if len(reservoir) < n:
+        if _collect_into is not None:
+            _collect_into.setdefault(turn.session_id or "", []).append(turn)
+        elif len(reservoir) < n:
             reservoir.append(turn)
         else:
             j = rng.randint(0, k - 1)
@@ -526,7 +798,141 @@ def _sample_file(
     return k
 
 
+def load_transcript_segments(
+    n_sessions: int,
+    turns_per_segment: int,
+    since: float,
+    *,
+    max_context_tokens: int | None = None,
+    transcripts_dir: Path | None = None,
+    rng: random.Random | None = None,
+) -> tuple[list[list[TranscriptTurn]], dict[str, Any]]:
+    """Return (segments, coverage) where each segment is M contiguous turns from one session.
+
+    Only turns with at least *turns_per_segment* qualifying neighbours in their session are
+    eligible.  When *max_context_tokens* is set, turns whose context_tokens exceed the limit
+    are excluded from segment eligibility (but counted toward coverage totals).
+
+    coverage dict keys: total_turns, scoped_turns, total_tokens, scoped_tokens,
+    request_coverage_frac, token_coverage_frac.
+    """
+    _rng = rng or random.Random()
+    root = transcripts_dir or _cc_root()
+
+    all_by_session: dict[str, list[TranscriptTurn]] = {}
+    for jsonl_path in sorted(Path(root).glob("**/*.jsonl")):
+        try:
+            _sample_file(
+                jsonl_path,
+                since,
+                [],
+                0,
+                0,
+                _rng,
+                _collect_into=all_by_session,
+            )
+        except (OSError, ValueError):
+            pass
+
+    # Coverage stats
+    total_turns = sum(len(v) for v in all_by_session.values())
+    total_tokens = sum(t.input_tokens for turns in all_by_session.values() for t in turns)
+
+    # Filter turns per scope
+    if max_context_tokens is not None:
+        scoped_by_session: dict[str, list[TranscriptTurn]] = {
+            sid: [t for t in turns if t.input_tokens <= max_context_tokens]
+            for sid, turns in all_by_session.items()
+        }
+    else:
+        scoped_by_session = all_by_session
+
+    scoped_turns = sum(len(v) for v in scoped_by_session.values())
+    scoped_tokens = sum(t.input_tokens for turns in scoped_by_session.values() for t in turns)
+
+    request_coverage_frac = scoped_turns / total_turns if total_turns else 0.0
+    token_coverage_frac = scoped_tokens / total_tokens if total_tokens else 0.0
+
+    coverage: dict[str, Any] = {
+        "total_turns": total_turns,
+        "scoped_turns": scoped_turns,
+        "total_tokens": total_tokens,
+        "scoped_tokens": scoped_tokens,
+        "request_coverage_frac": request_coverage_frac,
+        "token_coverage_frac": token_coverage_frac,
+    }
+
+    # Eligible sessions: those with >= turns_per_segment qualifying turns
+    eligible: list[str] = [
+        sid for sid, turns in scoped_by_session.items() if len(turns) >= turns_per_segment
+    ]
+
+    if not eligible:
+        return [], coverage
+
+    # Reservoir-sample n_sessions sessions
+    chosen_sessions: list[str] = []
+    for i, sid in enumerate(eligible):
+        if i < n_sessions:
+            chosen_sessions.append(sid)
+        else:
+            j = _rng.randint(0, i)
+            if j < n_sessions:
+                chosen_sessions[j] = sid
+
+    segments: list[list[TranscriptTurn]] = []
+    for sid in chosen_sessions:
+        turns = scoped_by_session[sid]
+        # Pick a random start offset so turns are contiguous
+        max_start = len(turns) - turns_per_segment
+        start = _rng.randint(0, max_start)
+        segments.append(turns[start : start + turns_per_segment])
+
+    return segments, coverage
+
+
 _THINKING_TYPES = frozenset(("thinking", "redacted_thinking"))
+
+_MAX_CACHE_BREAKPOINTS = 4
+
+
+def _add_cache_breakpoints(
+    messages: list[dict[str, Any]],
+    *,
+    ttl: str = "1h",
+    seam_index: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return a shallow copy of *messages* with cache_control breakpoints injected.
+
+    Tags the last content block of the last message.  When *seam_index* is given
+    (the index of the last message from the previous turn) also tags that position
+    so the shared prefix is re-used on turn k+1.  At most _MAX_CACHE_BREAKPOINTS
+    breakpoints are placed.
+    """
+    cc = {"type": "ephemeral", "ttl": ttl} if ttl == "1h" else {"type": "ephemeral"}
+
+    def _tag_last_block(msg: dict[str, Any]) -> dict[str, Any]:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+        if not isinstance(content, list) or not content:
+            return msg
+        blocks = [dict(b) for b in content]
+        blocks[-1] = dict(blocks[-1])
+        blocks[-1]["cache_control"] = cc
+        return {**msg, "content": blocks}
+
+    out = list(messages)
+    positions: list[int] = []
+    if seam_index is not None and 0 <= seam_index < len(out) - 1:
+        positions.append(seam_index)
+    positions.append(len(out) - 1)
+
+    # Apply at most _MAX_CACHE_BREAKPOINTS (de-dup, keep last N)
+    unique_pos = list(dict.fromkeys(positions))[-_MAX_CACHE_BREAKPOINTS:]
+    for idx in unique_pos:
+        out[idx] = _tag_last_block(out[idx])
+    return out
 
 
 def _is_pure_tool_result(content: Any) -> bool:
@@ -886,6 +1292,7 @@ class PairedLiveResult:
     spend_aa_usd: float
     target_model: str
     original_model_counts: dict[str, int]  # for display
+    segment_diffs: list[list[int]] = field(default_factory=list)  # per segment
 
     @property
     def equivalence(self) -> Any:
@@ -951,6 +1358,8 @@ def run_live(
     n_aa: int | None = None,
     api_key: str | None = None,
     max_tokens: int = 4096,
+    segments: list[list[TranscriptTurn]] | None = None,
+    cache_ttl: str = "1h",
 ) -> PairedLiveResult:
     """Paired A/A'/B replay.
 
@@ -960,6 +1369,11 @@ def run_live(
     2. Free ``count_tokens`` preflight — same shape errors return 400 at $0.
 
     A' and B use the IDENTICAL validated turn set.
+
+    When *segments* is provided (list-of-lists from ``load_transcript_segments``),
+    cache breakpoints are injected so turns within a segment reuse the shared prefix.
+    The result's ``segment_diffs`` field groups paired diffs by segment, enabling
+    cluster bootstrap CI via ``cluster_bootstrap_ci``.
     """
     import anthropic
 
@@ -967,16 +1381,20 @@ def run_live(
 
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 
+    # Derive flat turns list (for gates and backward compat) from segments if given.
+    if segments is not None:
+        turns = [t for seg in segments for t in seg]
+
     # Gate 1: structural validation — drop invalid turns from BOTH arms equally.
-    valid_turns: list[TranscriptTurn] = []
+    valid_set: set[int] = set()
     n_struct_fail = 0
-    for t in turns:
+    for idx, t in enumerate(turns):
         errs = validate_turn(t)
         if errs:
             log.debug("replay-model: structural validation failed: %s", errs)
             n_struct_fail += 1
         else:
-            valid_turns.append(t)
+            valid_set.add(idx)
     if n_struct_fail:
         log.info(
             "replay-model: %d/%d turns failed structural validation (dropped from both arms)",
@@ -985,18 +1403,67 @@ def run_live(
         )
 
     # Gate 2: count_tokens preflight (free; same 400 errors as a real call at $0).
-    valid_turns, n_ct_pass, n_ct_fail = preflight_count_tokens(valid_turns, target, api_key=key)
+    valid_list = [turns[i] for i in sorted(valid_set)]
+    valid_list, n_ct_pass, n_ct_fail = preflight_count_tokens(valid_list, target, api_key=key)
     if n_ct_fail:
         log.info(
             "replay-model: %d turns rejected by count_tokens preflight (dropped from both arms)",
             n_ct_fail,
         )
+    valid_set = {id(t) for t in valid_list}
 
-    turns = valid_turns
+    # Rebuild segments/flat turns retaining only validated entries.
+    if segments is not None:
+        filtered_segments: list[list[TranscriptTurn]] = [
+            [t for t in seg if id(t) in valid_set] for seg in segments
+        ]
+        filtered_segments = [seg for seg in filtered_segments if seg]
+        turns_flat: list[TranscriptTurn] = [t for seg in filtered_segments for t in seg]
+    else:
+        filtered_segments = []
+        turns_flat = valid_list
+
     n_aa_actual = _min_aa_n() if n_aa is None else n_aa
-    n_aa_actual = min(n_aa_actual, len(turns))
+    n_aa_actual = min(n_aa_actual, len(turns_flat))
     aa_indices: set[int] = set(range(n_aa_actual))  # first n_aa turns get A' call
     client = anthropic.Anthropic(api_key=key, base_url="https://api.anthropic.com")
+
+    # Build a mapping from turn object id → flat index.
+    turn_flat_index: dict[int, int] = {id(t): i for i, t in enumerate(turns_flat)}
+
+    # Build per-segment seam table: for each turn inside a segment, the index of
+    # the last message from the *previous* turn's context (for cache placement).
+    seam_table: dict[int, int | None] = {}  # id(turn) → seam_index or None
+    if segments is not None:
+        for seg in filtered_segments:
+            for k, t in enumerate(seg):
+                seam_table[id(t)] = (len(seg[k - 1].messages) - 1) if k > 0 else None
+    else:
+        for t in turns_flat:
+            seam_table[id(t)] = None
+
+    # Group flat turns by segment index (for cluster diff tracking).
+    # flat_turn_seg_idx[i] = which segment turn i belongs to (-1 if flat mode)
+    flat_turn_seg_idx: dict[int, int] = {}
+    if segments is not None:
+        for si, seg in enumerate(filtered_segments):
+            for t in seg:
+                flat_idx = turn_flat_index.get(id(t))
+                if flat_idx is not None:
+                    flat_turn_seg_idx[flat_idx] = si
+    else:
+        for i in range(len(turns_flat)):
+            flat_turn_seg_idx[i] = 0  # single "segment"
+
+    def _cached_messages(turn: TranscriptTurn) -> list[dict[str, Any]]:
+        seam = seam_table.get(id(turn))
+        if seam is None and not filtered_segments:
+            return list(turn.messages)
+        return _add_cache_breakpoints(
+            list(turn.messages),
+            ttl=cache_ttl,
+            seam_index=seam,
+        )
 
     n_eq_b = 0
     n_eq_aa = 0
@@ -1007,8 +1474,11 @@ def run_live(
     # Record B decisions for the paired turns (we need them when computing A' diffs).
     b_decisions: dict[int, str] = {}
 
+    n_segments = max(max(flat_turn_seg_idx.values(), default=0) + 1, 1)
+    seg_diffs: list[list[int]] = [[] for _ in range(n_segments)]
+
     # --- B arm: all turns ---
-    for i, turn in enumerate(turns):
+    for i, turn in enumerate(turns_flat):
         est_rec = ReplayRecord(
             model=target,
             input_tokens=turn.input_tokens,
@@ -1026,7 +1496,7 @@ def run_live(
             resp_b = client.messages.create(
                 model=target,
                 max_tokens=max_tokens,
-                messages=turn.messages,  # type: ignore[arg-type]
+                messages=_cached_messages(turn),  # type: ignore[arg-type]
             )
         except Exception as exc:  # noqa: BLE001 — non-fatal
             log.warning("replay-model: B turn %d failed: %s", i, exc)
@@ -1052,9 +1522,9 @@ def run_live(
     n_aa_done = 0
     orig_model_counts: dict[str, int] = {}
     for i in sorted(aa_indices):
-        if i >= len(turns):
+        if i >= len(turns_flat):
             break
-        turn = turns[i]
+        turn = turns_flat[i]
         orig_model_counts[turn.model] = orig_model_counts.get(turn.model, 0) + 1
 
         # Estimate cost to check cap (use original model and recorded token count)
@@ -1075,7 +1545,7 @@ def run_live(
             resp_aa = client.messages.create(
                 model=turn.model,
                 max_tokens=max_tokens,
-                messages=turn.messages,  # type: ignore[arg-type]
+                messages=_cached_messages(turn),  # type: ignore[arg-type]
             )
         except Exception as exc:  # noqa: BLE001 — non-fatal
             log.warning("replay-model: A' turn %d failed: %s", i, exc)
@@ -1100,7 +1570,11 @@ def run_live(
         # Paired diff: only for turns where both B and A' completed.
         if i in b_decisions:
             b_eq = int(b_decisions[i] == turn.recorded_decision)
-            diffs.append(b_eq - aa_eq)
+            diff = b_eq - aa_eq
+            diffs.append(diff)
+            si = flat_turn_seg_idx.get(i, 0)
+            if si < len(seg_diffs):
+                seg_diffs[si].append(diff)
 
     return PairedLiveResult(
         n_b=n_b_done,
@@ -1112,6 +1586,7 @@ def run_live(
         spend_aa_usd=spend_aa,
         target_model=target,
         original_model_counts=orig_model_counts,
+        segment_diffs=[s for s in seg_diffs if s],
     )
 
 
@@ -1177,6 +1652,27 @@ def register(sub: Any) -> None:
         help="hard per-run spend ceiling in USD covering both arms (required for --live)",
     )
     p.add_argument(
+        "--sessions",
+        type=int,
+        default=None,
+        metavar="K",
+        help="number of session segments to sample (enables caching; default: use flat --n turns)",
+    )
+    p.add_argument(
+        "--turns-per-segment",
+        type=int,
+        default=DEFAULT_TURNS_PER_SEGMENT,
+        metavar="M",
+        help=f"contiguous turns per session segment (default: {DEFAULT_TURNS_PER_SEGMENT})",
+    )
+    p.add_argument(
+        "--max-context-tokens",
+        type=int,
+        default=None,
+        metavar="TOKENS",
+        help="exclude turns whose reconstructed context exceeds this token count",
+    )
+    p.add_argument(
         "--json",
         action="store_true",
         help="machine-readable output",
@@ -1199,9 +1695,30 @@ def cmd_replay_model(args: Any) -> int:
     rng = random.Random()
     n_aa = getattr(args, "n_aa", None)
     preflight_mode = getattr(args, "preflight", False)
+    n_sessions = getattr(args, "sessions", None)
+    turns_per_seg = getattr(args, "turns_per_segment", DEFAULT_TURNS_PER_SEGMENT)
+    max_ctx_tok = getattr(args, "max_context_tokens", None)
 
     if args.live or preflight_mode:
-        turns = load_transcript_turns(args.n, since=since, rng=rng)
+        if n_sessions is not None:
+            segs, coverage = load_transcript_segments(
+                n_sessions,
+                turns_per_seg,
+                since,
+                max_context_tokens=max_ctx_tok,
+                rng=rng,
+            )
+            turns = [t for seg in segs for t in seg]
+            if coverage.get("request_coverage_frac", 1.0) < 0.99:
+                pct_req = 100.0 * coverage["request_coverage_frac"]
+                pct_tok = 100.0 * coverage["token_coverage_frac"]
+                print(
+                    f"scope: ≤{max_ctx_tok:,} tokens covers {pct_req:.1f}% of requests "
+                    f"and {pct_tok:.1f}% of token volume in the window",
+                )
+        else:
+            segs = None
+            turns = load_transcript_turns(args.n, since=since, rng=rng)
         if not turns:
             print(
                 "distil replay-model: no usable transcript turns found in the last "
@@ -1214,7 +1731,13 @@ def cmd_replay_model(args: Any) -> int:
         if preflight_mode:
             return _cmd_preflight(turns, args)
 
-        result = run_live(turns, args.target, args.spend_cap, n_aa=n_aa)
+        result = run_live(
+            turns,
+            args.target,
+            args.spend_cap,
+            n_aa=n_aa,
+            segments=segs,
+        )
         if args.json:
             import dataclasses
 

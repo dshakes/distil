@@ -1057,3 +1057,328 @@ def test_haiku55_passes_self_consistency() -> None:
         pricing.CACHE_WRITE_5M_MULT,
         pricing.CACHE_WRITE_1H_MULT,
     )
+
+
+# --------------------------------------------------------------------------- #
+# _segment_cost
+# --------------------------------------------------------------------------- #
+
+
+def test_segment_cost_single_turn_is_cache_write() -> None:
+    """A single-turn segment should pay cache-write (not read) for the full context."""
+    model = "claude-opus-5-5"
+    ctx = 50_000
+    cost_seg = rm._segment_cost([ctx], model, output_per_turn=0)
+
+    # p.input is already dollars-per-token (not per-MTok); no / 1_000_000 needed.
+    p = rm._price(model)
+    assert p is not None
+    w = p.input * p.cache_write_1h_mult
+    expected = ctx * w
+    assert cost_seg == pytest.approx(expected, rel=1e-6)
+
+
+def test_segment_cost_subsequent_turns_read_prefix() -> None:
+    """Turn k>0 should read the previous context at cache_read_mult, not write it."""
+    model = "claude-opus-5-5"
+    ctx0 = 50_000
+    ctx1 = 52_000  # adds 2_000 new tokens
+
+    cost_seg = rm._segment_cost([ctx0, ctx1], model, output_per_turn=0)
+
+    p = rm._price(model)
+    assert p is not None
+    w = p.input * p.cache_write_1h_mult
+    r = p.input * p.cache_read_mult
+    expected_turn0 = ctx0 * w
+    expected_turn1 = ctx0 * r + 2_000 * w
+    assert cost_seg == pytest.approx(expected_turn0 + expected_turn1, rel=1e-6)
+
+
+def test_segment_cost_cache_reads_cheaper_than_writes() -> None:
+    """Multi-turn segment must be cheaper than sending each turn fresh (no caching)."""
+    model = "claude-opus-5-5"
+    ctx_sizes = [100_000, 102_000, 104_000]
+    cost_seg = rm._segment_cost(ctx_sizes, model, output_per_turn=0)
+
+    # Uncached cost: every turn pays full fresh-input price (p.input is $/token).
+    p = rm._price(model)
+    assert p is not None
+    cost_uncached = sum(c * p.input for c in ctx_sizes)
+    assert cost_seg < cost_uncached
+
+
+def test_segment_cost_haiku_long_tier_applied() -> None:
+    """Haiku 5.5 turns > 100k tokens should apply the 5x long-tier multiplier."""
+    model = "claude-haiku-5-5"
+    ctx = 150_000  # above 100k threshold
+
+    cost_with_tier = rm._segment_cost([ctx], model, output_per_turn=0)
+
+    p = rm._price(model)
+    assert p is not None
+    w = p.input * p.cache_write_1h_mult  # dollars per token
+    base = ctx * w
+    # Long tier applies 5x
+    assert cost_with_tier == pytest.approx(5.0 * base, rel=1e-6)
+
+
+def test_segment_cost_empty_returns_zero() -> None:
+    assert rm._segment_cost([], "claude-opus-5-5") == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# cluster_bootstrap_ci
+# --------------------------------------------------------------------------- #
+
+
+def test_cluster_bootstrap_ci_zero_mean_straddles_zero() -> None:
+    """Zero-mean diffs should produce a CI containing 0."""
+    # Mix of +1 and -1 clusters so the overall mean = 0 but bootstrap has variance.
+    cluster_diffs = [[1]] * 20 + [[-1]] * 20
+    rng = random.Random(42)
+    lo, hi = rm.cluster_bootstrap_ci(cluster_diffs, n_boot=2_000, rng=rng)
+    assert lo <= 0 <= hi
+
+
+def test_cluster_bootstrap_ci_positive_mean_has_positive_lo() -> None:
+    """All-positive diffs: lower bound should be positive."""
+    cluster_diffs = [[1, 1, 1]] * 40
+    rng = random.Random(42)
+    lo, hi = rm.cluster_bootstrap_ci(cluster_diffs, n_boot=500, rng=rng)
+    assert lo > 0
+
+
+def test_cluster_bootstrap_ci_empty_returns_wide_interval() -> None:
+    lo, hi = rm.cluster_bootstrap_ci([])
+    assert lo == -1.0 and hi == 1.0
+
+
+def test_cluster_bootstrap_ci_single_cluster() -> None:
+    """A single cluster gives a CI anchored at the cluster mean."""
+    rng = random.Random(0)
+    lo, hi = rm.cluster_bootstrap_ci([[0, 0, 0]], n_boot=200, rng=rng)
+    # All bootstraps sample [[0,0,0]]; mean is always 0.
+    assert lo == pytest.approx(0.0) and hi == pytest.approx(0.0)
+
+
+# --------------------------------------------------------------------------- #
+# _add_cache_breakpoints
+# --------------------------------------------------------------------------- #
+
+
+def test_add_cache_breakpoints_tags_last_message() -> None:
+    """Tags cache_control on the last block of the last message."""
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        {"role": "user", "content": "next"},
+    ]
+    out = rm._add_cache_breakpoints(messages, ttl="1h")
+    last = out[-1]
+    content = last["content"]
+    assert isinstance(content, list)
+    assert "cache_control" in content[-1]
+    assert content[-1]["cache_control"]["ttl"] == "1h"
+
+
+def test_add_cache_breakpoints_converts_string_content() -> None:
+    """String content on the last message is converted to a list block."""
+    messages = [{"role": "user", "content": "hello"}]
+    out = rm._add_cache_breakpoints(messages)
+    assert isinstance(out[0]["content"], list)
+    assert "cache_control" in out[0]["content"][-1]
+
+
+def test_add_cache_breakpoints_does_not_mutate_input() -> None:
+    """Original messages list and dicts are not mutated."""
+    msg = {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+    messages = [msg]
+    rm._add_cache_breakpoints(messages, ttl="1h")
+    assert "cache_control" not in messages[0]["content"][0]
+
+
+def test_add_cache_breakpoints_seam_index_also_tagged() -> None:
+    """seam_index message also receives a cache breakpoint."""
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "a"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
+        {"role": "user", "content": [{"type": "text", "text": "c"}]},
+    ]
+    out = rm._add_cache_breakpoints(messages, seam_index=0)
+    # First message (seam) should be tagged
+    assert "cache_control" in out[0]["content"][-1]
+    # Last message should also be tagged
+    assert "cache_control" in out[-1]["content"][-1]
+
+
+def test_add_cache_breakpoints_empty_content_skips() -> None:
+    """Messages with empty content are not touched."""
+    messages = [
+        {"role": "user", "content": []},
+    ]
+    out = rm._add_cache_breakpoints(messages)
+    # No crash; content remains empty
+    assert out[0]["content"] == []
+
+
+# --------------------------------------------------------------------------- #
+# load_transcript_segments
+# --------------------------------------------------------------------------- #
+
+
+def _make_jsonl_file(
+    path: Path,
+    session_id: str,
+    n_turns: int,
+    ctx_tokens: int = 10_000,
+    ts: float | None = None,
+) -> None:
+    """Write a minimal synthetic CC-style JSONL transcript."""
+    import json as _json
+
+    _ts = ts or time.time()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        for i in range(n_turns):
+            # Each turn: one assistant row (decision), one user row (tool result)
+            # We write simplified rows that _sample_file can parse.
+            # A minimal user message (the "decision trigger")
+            user_msg: dict = {
+                "type": "user",
+                "uuid": f"{session_id}-u{i}",
+                "parentUuid": f"{session_id}-a{i - 1}" if i > 0 else None,
+                "sessionId": session_id,
+                "timestamp": _ts + i * 10,
+                "message": {"role": "user", "content": "do something"},
+            }
+            # An assistant message (the decision)
+            asst_msg: dict = {
+                "type": "assistant",
+                "uuid": f"{session_id}-a{i}",
+                "parentUuid": f"{session_id}-u{i}",
+                "sessionId": session_id,
+                "timestamp": _ts + i * 10 + 5,
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": f"response {i}"}],
+                    "model": "claude-opus-5-5",
+                    "usage": {
+                        "input_tokens": ctx_tokens,
+                        "output_tokens": 50,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                    },
+                },
+            }
+            f.write(_json.dumps(user_msg) + "\n")
+            f.write(_json.dumps(asst_msg) + "\n")
+
+
+def test_load_transcript_segments_returns_correct_shape(tmp_path: Path) -> None:
+    """Should return K segments of M turns each when data is available."""
+    session_id = "sess-abc"
+    jsonl = tmp_path / "proj" / "session.jsonl"
+    _make_jsonl_file(jsonl, session_id, n_turns=20, ctx_tokens=5_000)
+
+    segs, cov = rm.load_transcript_segments(
+        2,
+        5,
+        0.0,
+        transcripts_dir=tmp_path,
+        rng=random.Random(0),
+    )
+    assert len(segs) <= 2
+    for seg in segs:
+        assert len(seg) == 5
+
+
+def test_load_transcript_segments_coverage_stats(tmp_path: Path) -> None:
+    """Coverage stats should reflect max_context_tokens filtering."""
+    session_id = "sess-cov"
+    jsonl = tmp_path / "proj" / "session.jsonl"
+    # 20 turns at 200k tokens each (long-tier)
+    _make_jsonl_file(jsonl, session_id, n_turns=20, ctx_tokens=200_000)
+
+    _, cov = rm.load_transcript_segments(
+        1,
+        3,
+        0.0,
+        max_context_tokens=100_000,
+        transcripts_dir=tmp_path,
+    )
+    # All turns exceed 100k → scoped_turns = 0
+    assert cov["scoped_turns"] == 0
+    assert cov["request_coverage_frac"] == 0.0
+
+
+def test_load_transcript_segments_no_eligible_sessions(tmp_path: Path) -> None:
+    """When sessions have fewer turns than turns_per_segment, return empty."""
+    jsonl = tmp_path / "proj" / "short.jsonl"
+    _make_jsonl_file(jsonl, "sess-short", n_turns=3)
+
+    segs, _ = rm.load_transcript_segments(
+        5,
+        10,  # need 10 turns, only 3 available
+        0.0,
+        transcripts_dir=tmp_path,
+    )
+    assert segs == []
+
+
+# --------------------------------------------------------------------------- #
+# _dry_run_plans
+# --------------------------------------------------------------------------- #
+
+
+def test_dry_run_plans_returns_three_plans() -> None:
+    """_dry_run_plans should return a 3-tuple of ReplayPlan objects."""
+    records = [_record(inp=50_000, out=200)] * 200
+    target = "claude-haiku-5-5"
+    a, b, c = rm._dry_run_plans(records, target)
+    assert isinstance(a, rm.ReplayPlan)
+    assert isinstance(b, rm.ReplayPlan)
+    assert isinstance(c, rm.ReplayPlan)
+
+
+def test_dry_run_plans_a_has_effective_n_385_or_more() -> None:
+    """Plan (a) must target effective_n >= 385."""
+    records = [_record(inp=50_000, out=200)] * 300
+    _, _, _ = rm._dry_run_plans(records, "claude-haiku-5-5")
+    a, _, _ = rm._dry_run_plans(records, "claude-haiku-5-5")
+    assert a.effective_n >= 385 or a.n_turns == 0  # 0 only if no records
+
+
+def test_dry_run_plans_b_within_50_usd() -> None:
+    """Plan (b) total cost must be ≤ $50."""
+    records = [_record(inp=100_000, out=500)] * 500
+    _, b, _ = rm._dry_run_plans(records, "claude-opus-5-5")
+    assert b.total_usd <= 50.0 + 1e-6  # small float tolerance
+
+
+def test_dry_run_plans_c_within_50_usd() -> None:
+    """Plan (c) total cost must be ≤ $50."""
+    records = [_record(inp=150_000, out=200)] * 300
+    _, _, c = rm._dry_run_plans(records, "claude-opus-5-5")
+    assert c.total_usd <= 50.0 + 1e-6
+
+
+def test_dry_run_format_includes_all_three_plans() -> None:
+    """DryRunReport.format() should mention plans (a), (b), (c) when plans are set."""
+    records = [_record(inp=40_000, out=300)] * 100
+    report = rm.dry_run(records, "claude-haiku-5-5", n_aa=30, days=30)
+    text = report.format()
+    assert "(a)" in text
+    assert "(b)" in text
+    assert "(c)" in text
+    # Should mention effective n and DEFF
+    assert "DEFF" in text or "effective n" in text.lower()
+
+
+def test_dry_run_format_includes_coverage_note() -> None:
+    """Plan (c) section should mention traffic coverage fraction."""
+    records = [_record(inp=150_000, out=500)] * 100
+    report = rm.dry_run(records, "claude-haiku-5-5", n_aa=30, days=30)
+    text = report.format()
+    # Coverage fraction should appear somewhere in the (c) block
+    assert "%" in text or "coverage" in text.lower()
