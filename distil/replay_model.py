@@ -1,26 +1,37 @@
 """``distil replay-model`` — does a cheaper model make the same next decision on YOUR traffic?
 
 Dry-run (default): samples N recorded requests from ``~/.distil/sessions/*.requests.jsonl``
-and prints the sample statistics plus the estimated cost of replaying them against a target
-model. No API calls, no content read, no spend.
+and prints the estimated cost of both replay arms, with no API calls.
 
 Live: reconstructs message context from Claude Code session transcripts
-(``~/.claude/projects/**/*.jsonl``), calls the target model for each sampled turn, and
-reports the decision-equivalence rate with a Wilson 95% CI and the $/request ratio.
-Requires ``--spend-cap``; refuses to run without it.
+(``~/.claude/projects/**/*.jsonl``), calls the target model (B arm) for all N turns and
+the original model (A' arm) for a configurable subsample, then reports the paired
+A/A'/B decision-equivalence using the same estimator as ``distil shadow-stats``.
+Requires ``--spend-cap`` covering both arms; refuses to run without it.
 
-Decision equivalence: ``decision_signature(replay_response) == recorded_decision``.
-Both are ``tool:<name>:<args_hash>`` for tool calls, ``text`` for plain replies, ``none``
-when the response cannot be parsed. Same signature as shadow mode; numbers are comparable.
+Arms
+----
+A  — the turn's RECORDED decision (from the transcript; no API call).
+A' — the ORIGINAL model replayed on the same reconstructed context (noise-floor arm).
+B  — the TARGET model replayed on the same context (the switch-candidate arm).
 
-Haiku 5.5 pricing: base $0.10/$0.50 per Mtok for prompts ≤100k total input tokens;
-5× ($0.50/$2.50) when total input > 100k. See ``pricing.Pricing.long_tier``.
+Paired statistic: mean(1{B==A} − 1{A'==A}) with a bootstrap 95% CI.
+Non-inferiority: the lower bound of that CI is ≥ −EQUIV_MARGIN (5 pp, the referee's margin).
+
+Context note: CC transcripts carry the uncompressed messages CC sent. When distil is active
+the original call used compressed context; A' and B both use the uncompressed form. The
+paired structure (same context for A' and B) preserves the A' vs B comparison; the A vs
+{A', B} raw rates include a context-size difference — interpret those with that in mind.
+
+Haiku 5.5 pricing: base $0.10/$0.50 per Mtok for prompts ≤100 k total input tokens;
+5× ($0.50/$2.50) when total input > 100 k. From ``pricing.TIERED["claude-haiku-5-5"]``.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import time
@@ -36,10 +47,25 @@ log = logging.getLogger(__name__)
 
 DEFAULT_TARGET = "claude-haiku-5-5"
 DEFAULT_N = 200
-#: How many days of session history to look back by default.
-DEFAULT_DAYS = 30
-#: Threshold at which haiku-5-5 switches to its 5× long-prompt tier.
+DEFAULT_DAYS = 30  # look-back window for session records
 HAIKU_LONG_TIER_TOKENS = 100_000
+#: Referee's non-inferiority margin (same as distil.referee.EQUIV_MARGIN).
+EQUIV_MARGIN = 0.05
+
+
+# --------------------------------------------------------------------------- #
+# Minimum A' sample: smallest n such that the Wilson CI half-width ≤ EQUIV_MARGIN
+# --------------------------------------------------------------------------- #
+
+
+def _min_aa_n(margin: float = EQUIV_MARGIN, z: float = 1.96) -> int:
+    """Smallest A' sample for Wilson CI half-width on the noise-floor proportion ≤ *margin*.
+
+    Conservative bound: assumes p = 0.5 (maximum variance for a proportion). The formula
+    is the standard sample-size for a proportion CI: n = ceil((z / (2 * margin)) ** 2).
+    For EQUIV_MARGIN=0.05: n = ceil((1.96 / 0.10) ** 2) = 385.
+    """
+    return math.ceil((z / (2 * margin)) ** 2)
 
 
 # --------------------------------------------------------------------------- #
@@ -49,7 +75,7 @@ HAIKU_LONG_TIER_TOKENS = 100_000
 
 @dataclass
 class ReplayRecord:
-    """One proxied request, metadata only — no prompt or response content."""
+    """One proxied request — metadata only, no prompt or response content."""
 
     model: str
     input_tokens: int
@@ -78,14 +104,13 @@ def load_records(
 ) -> list[ReplayRecord]:
     """Reservoir-sample up to *n* usable request records from the sessions store.
 
-    "Usable" means: booked (status 200), model present, at least one input token.
+    "Usable" = booked (status 200), model present, at least one input token.
     Content-free: only metadata fields are read. Fails open on malformed rows.
     """
     if since is None:
         since = time.time() - DEFAULT_DAYS * 86400
     root = sessions_dir or (_home() / "sessions")
     rng = rng or random.Random()
-
     reservoir: list[ReplayRecord] = []
     k = 0
     for path in sorted(Path(root).glob("*.requests.jsonl")):
@@ -112,9 +137,7 @@ def _parse_record(line: str, since: float) -> ReplayRecord | None:
         r = json.loads(line)
     except ValueError:
         return None
-    if not isinstance(r, dict):
-        return None
-    if not r.get("booked"):
+    if not isinstance(r, dict) or not r.get("booked"):
         return None
     ts = float(r.get("ts") or 0)
     if ts < since:
@@ -146,13 +169,11 @@ def _parse_record(line: str, since: float) -> ReplayRecord | None:
 
 
 def tiered_cost(rec: ReplayRecord, target: str) -> float | None:
-    """Estimated cost of replaying *rec* against *target*, applying long_tier if present.
+    """Cost of *rec* at *target*'s rates with the long tier applied.
 
-    Returns None if *target* is unknown. Uses the RECORDED token breakdown (input,
-    cache_read, cache_write, output) at the target model's rates. The long-tier
-    multiplier applies to all input (uncached + cached), matching Anthropic's billing.
+    Looks up TIERED first (haiku-5-5 and future per-call-tier models), then the
+    single-tier CATALOG. Returns None for unknown models.
     """
-
     p = _price(target)
     if p is None:
         return None
@@ -166,8 +187,7 @@ def tiered_cost(rec: ReplayRecord, target: str) -> float | None:
 
 
 def original_cost(rec: ReplayRecord) -> float | None:
-    """Cost of the original request at the original model's list rate (for the ratio)."""
-
+    """Cost of the original request at the recorded model's list rate."""
     p = _price(rec.model)
     if p is None:
         return None
@@ -181,14 +201,13 @@ def original_cost(rec: ReplayRecord) -> float | None:
 
 
 def _price(model: str) -> Any:
-    """A tiered row (applied per call here) before the single-tier catalog."""
+    """TIERED row (applied per call) before the single-tier CATALOG."""
     from . import pricing
 
     return pricing.TIERED.get(model) or pricing.resolve(model)
 
 
 def _tier_mult(p: Any, total_input: int) -> float:
-    """Long-tier multiplier: 1.0 unless pricing has a long_tier and we exceed it."""
     lt = getattr(p, "long_tier", None)
     if lt is not None and total_input > lt[0]:
         return float(lt[1])
@@ -196,7 +215,7 @@ def _tier_mult(p: Any, total_input: int) -> float:
 
 
 # --------------------------------------------------------------------------- #
-# Dry-run: statistics without any API calls
+# Dry-run report: both arms, no API calls
 # --------------------------------------------------------------------------- #
 
 
@@ -207,15 +226,23 @@ class DryRunReport:
     model_counts: dict[str, int]
     token_percentiles: dict[str, int]  # p50/p90/p95/max total_input
     n_long_tier: int  # records where total_input > HAIKU_LONG_TIER_TOKENS
-    estimated_total_usd: float
-    estimated_usd_per_request: float
-    original_total_usd: float
-    cost_ratio: float  # estimated_total / original_total (< 1 = cheaper)
+    # Arm B (target model, all N turns)
+    arm_b_usd: float
+    arm_b_per_request: float
+    # Arm A' (original model, n_aa turns)
+    n_aa: int  # subsample size for A' (default = _min_aa_n(), capped at n_sampled)
+    arm_aa_usd: float  # estimated A' cost
+    arm_aa_per_request: float
+    arm_aa_ci_halfwidth: float  # Wilson CI half-width on the noise floor at n_aa, p=0.5
+    n_aa_min: int  # _min_aa_n() — n needed to reach the CI target
+    # Totals
+    original_total_usd: float  # arm A baseline (all N turns)
     n_unpriced_target: int
     n_unpriced_original: int
     days: float
 
     def format(self) -> str:
+        ratio_b = self.arm_b_usd / self.original_total_usd if self.original_total_usd else 0.0
         lines = [
             f"dry-run: {self.n_sampled} requests sampled from the last {self.days:.0f} days",
             f"  original models: {_fmt_counts(self.model_counts)}",
@@ -228,25 +255,36 @@ class DryRunReport:
             f"({100 * self.n_long_tier // max(self.n_sampled, 1)}%) "
             f"— billed 5x against {self.target_model}",
             "",
-            f"  target: {self.target_model}",
-            f"  estimated cost:  ${self.estimated_total_usd:.4f} total  "
-            f"(${self.estimated_usd_per_request:.6f}/request)",
-            f"  original cost:   ${self.original_total_usd:.4f} total",
-            f"  cost ratio:      {self.cost_ratio:.3f}x "
-            f"({'cheaper' if self.cost_ratio < 1 else 'more expensive'})",
+            "arm B  (target model, all N turns):",
+            f"  model:   {self.target_model}",
+            f"  n:       {self.n_sampled}",
+            f"  cost:    ${self.arm_b_usd:.4f} total  (${self.arm_b_per_request:.6f}/request)",
+            f"  vs original: {ratio_b:.3f}x",
+            "",
+            "arm A' (original model, A'/B noise-floor subsample):",
+            f"  n:       {self.n_aa}  "
+            f"(need {self.n_aa_min} for CI half-width ≤ {EQUIV_MARGIN * 100:.0f} pp"
+            + ("; WARNING: sample below CI target" if self.n_aa < self.n_aa_min else "")
+            + ")",
+            f"  cost:    ${self.arm_aa_usd:.4f} total  (${self.arm_aa_per_request:.6f}/request)",
+            f"  Wilson CI half-width at n={self.n_aa}: ±{100 * self.arm_aa_ci_halfwidth:.1f} pp",
+            "",
+            f"  total estimated spend (B + A'): ${self.arm_b_usd + self.arm_aa_usd:.4f}",
+            f"  original cost baseline (all N): ${self.original_total_usd:.4f}",
         ]
         if self.n_unpriced_target or self.n_unpriced_original:
             lines.append(
                 f"  note: {self.n_unpriced_target} requests unpriced at target, "
-                f"{self.n_unpriced_original} unpriced at original (excluded from ratio)"
+                f"{self.n_unpriced_original} unpriced at original (excluded)"
             )
         lines += [
             "",
-            "equivalence test (live path):",
-            "  replays N turns against the target, reports the fraction where",
-            "  target decision == original decision, with a Wilson 95% CI",
-            "  (same estimator as `distil shadow-stats`)",
-            "  to run live: distil replay-model --live --spend-cap <USD>",
+            "context note: A' and B both use uncompressed CC transcript context.",
+            "  The original model saw distil-compressed context; paired A' vs B is",
+            "  valid, but raw A vs A'/B rates span a context-size difference.",
+            "",
+            "to run live:",
+            f"  distil replay-model --live --spend-cap {self.arm_b_usd + self.arm_aa_usd:.2f}",
         ]
         return "\n".join(lines)
 
@@ -259,33 +297,51 @@ def _fmt_counts(counts: dict[str, int]) -> str:
     return ", ".join(parts[:4])
 
 
+def _wilson_halfwidth(n: int, z: float = 1.96) -> float:
+    """Wilson CI half-width at worst case p=0.5 for the given n."""
+    if n <= 0:
+        return 1.0
+    p = 0.5
+    denom = 1.0 + z * z / n
+    half = z * math.sqrt(p * (1.0 - p) / n + z * z / (4.0 * n * n)) / denom
+    return half
+
+
 def dry_run(
     records: list[ReplayRecord],
     target: str,
     *,
+    n_aa: int | None = None,
     days: float = float(DEFAULT_DAYS),
 ) -> DryRunReport:
+    """Compute both arm cost estimates without any API calls.
+
+    *n_aa* is the A' subsample size. If None, defaults to the minimum that gives
+    Wilson CI half-width ≤ EQUIV_MARGIN on the noise floor, capped at len(records).
+    """
     model_counts: dict[str, int] = {}
     toks: list[int] = []
     n_long = n_unp_tgt = n_unp_orig = 0
-    est_total = orig_total = 0.0
+    arm_b_total = orig_total = 0.0
+    per_orig: list[float] = []  # original cost per record (for A' arm estimate)
 
     for rec in records:
         model_counts[rec.model] = model_counts.get(rec.model, 0) + 1
-        total_in = rec.total_input
-        toks.append(total_in)
-        if total_in > HAIKU_LONG_TIER_TOKENS:
+        toks.append(rec.total_input)
+        if rec.total_input > HAIKU_LONG_TIER_TOKENS:
             n_long += 1
         c_tgt = tiered_cost(rec, target)
         c_orig = original_cost(rec)
         if c_tgt is None:
             n_unp_tgt += 1
         else:
-            est_total += c_tgt
+            arm_b_total += c_tgt
         if c_orig is None:
             n_unp_orig += 1
+            per_orig.append(0.0)
         else:
             orig_total += c_orig
+            per_orig.append(c_orig)
 
     toks.sort()
     n = len(toks)
@@ -293,7 +349,17 @@ def dry_run(
     def pct(q: float) -> int:
         return toks[min(int(q * n), n - 1)] if n else 0
 
-    ratio = est_total / orig_total if orig_total > 0 else 0.0
+    n_aa_min = _min_aa_n()
+    if n_aa is None:
+        n_aa = min(n, n_aa_min)
+    else:
+        n_aa = min(n, n_aa)
+
+    # A' arm cost: take the first n_aa records (ordered as they arrived; a random
+    # subsample would give the same expectation, so this is a clean estimate).
+    arm_aa_total = sum(per_orig[:n_aa])
+    arm_aa_per = arm_aa_total / n_aa if n_aa else 0.0
+
     return DryRunReport(
         n_sampled=n,
         target_model=target,
@@ -305,10 +371,14 @@ def dry_run(
             "max": toks[-1] if toks else 0,
         },
         n_long_tier=n_long,
-        estimated_total_usd=est_total,
-        estimated_usd_per_request=est_total / n if n else 0.0,
+        arm_b_usd=arm_b_total,
+        arm_b_per_request=arm_b_total / n if n else 0.0,
+        n_aa=n_aa,
+        arm_aa_usd=arm_aa_total,
+        arm_aa_per_request=arm_aa_per,
+        arm_aa_ci_halfwidth=_wilson_halfwidth(n_aa),
+        n_aa_min=n_aa_min,
         original_total_usd=orig_total,
-        cost_ratio=ratio,
         n_unpriced_target=n_unp_tgt,
         n_unpriced_original=n_unp_orig,
         days=days,
@@ -344,27 +414,20 @@ def load_transcript_turns(
     transcripts_dir: Path | None = None,
     rng: random.Random | None = None,
 ) -> list[TranscriptTurn]:
-    """Reservoir-sample up to *n* turns from Claude Code session transcripts.
-
-    A "turn" is one assistant response that produced a tool_use or text decision, with
-    its reconstructed messages context. Content stays in memory; nothing is written.
-    """
+    """Reservoir-sample up to *n* turns from Claude Code session transcripts."""
     from .shadow import decision_signature
 
     if since is None:
         since = time.time() - DEFAULT_DAYS * 86400
     root = transcripts_dir or _cc_root()
     rng = rng or random.Random()
-
     reservoir: list[TranscriptTurn] = []
     k = 0
-
     for jsonl_path in sorted(Path(root).glob("**/*.jsonl")):
         try:
             k = _sample_file(jsonl_path, since, reservoir, n, k, rng, decision_signature)
         except (OSError, ValueError):
             pass
-
     return reservoir
 
 
@@ -377,9 +440,7 @@ def _sample_file(
     rng: random.Random,
     decision_signature: Any,
 ) -> int:
-    """Parse one transcript file; reservoir-sample turns into *reservoir*.
-    Returns the updated total-seen count (k)."""
-    """Parse one transcript file and reservoir-sample turns into *reservoir*."""
+    """Parse one transcript file; reservoir-sample turns into *reservoir*. Returns updated k."""
     try:
         with path.open(encoding="utf-8") as fh:
             raw = fh.read()
@@ -394,7 +455,6 @@ def _sample_file(
             pass
 
     by_uuid: dict[str, dict[str, Any]] = {str(r.get("uuid")): r for r in rows if r.get("uuid")}
-
     k = k_before
     for r in rows:
         if r.get("type") != "assistant":
@@ -411,22 +471,17 @@ def _sample_file(
         model = str(msg.get("model") or "")
         if not model:
             continue
-
-        resp_obj = {"content": content}
-        rec_dec = decision_signature(resp_obj)
+        rec_dec = decision_signature({"content": content})
         if rec_dec == "none":
             continue
-
         messages = _build_messages(r, by_uuid)
         if not messages:
             continue
-
         usage = msg.get("usage") or {}
         inp = int(usage.get("input_tokens") or 0)
         cr = int(usage.get("cache_read_input_tokens") or 0)
         cw = int(usage.get("cache_creation_input_tokens") or 0)
         out = int(usage.get("output_tokens") or 0)
-
         turn = TranscriptTurn(
             messages=messages,
             recorded_decision=rec_dec,
@@ -451,12 +506,7 @@ def _build_messages(
     by_uuid: dict[str, dict[str, Any]],
     max_depth: int = 40,
 ) -> list[dict[str, Any]]:
-    """Walk the parent chain to reconstruct the messages list for this turn.
-
-    Returns messages sent TO the model (up to but NOT including this assistant response).
-    Strips thinking blocks from prior assistant messages (same rule as deterministic_body).
-    Returns [] if context cannot be reconstructed.
-    """
+    """Walk the parent chain to reconstruct the messages list for this turn."""
     chain: list[dict[str, Any]] = []
     cur = assistant_row
     for _ in range(max_depth):
@@ -468,10 +518,8 @@ def _build_messages(
             break
         chain.append(par)
         cur = par
-
     if not chain:
         return []
-
     chain.reverse()
     messages: list[dict[str, Any]] = []
     for row in chain:
@@ -485,7 +533,7 @@ def _build_messages(
         if isinstance(content, str):
             api_content: Any = content
         elif isinstance(content, list):
-            # Strip thinking blocks — cannot re-inject them into a fresh call.
+            # Strip thinking blocks — cannot re-inject into a fresh call.
             filtered = [
                 b
                 for b in content
@@ -497,7 +545,6 @@ def _build_messages(
         if not api_content:
             continue
         messages.append({"role": role, "content": api_content})
-
     return messages
 
 
@@ -507,38 +554,88 @@ def _epoch(iso: Any) -> float:
     try:
         import datetime
 
-        s = str(iso).rstrip("Z")
-        dt = datetime.datetime.fromisoformat(s)
+        dt = datetime.datetime.fromisoformat(str(iso).rstrip("Z"))
         return dt.replace(tzinfo=datetime.timezone.utc).timestamp()
     except (ValueError, TypeError):
         return 0.0
 
 
 # --------------------------------------------------------------------------- #
-# Live replay
+# Paired live replay
 # --------------------------------------------------------------------------- #
 
 
 @dataclass
-class LiveResult:
-    n: int
-    n_equivalent: int
-    spend_usd: float
+class PairedLiveResult:
+    """Result of a live A/A'/B paired replay.
+
+    n_b: total B-arm turns.
+    n_aa: A'-arm turns (a subset of the B turns, sharing the same context).
+    Equivalence fields reuse shadow.Equivalence via _equivalence().
+    """
+
+    n_b: int
+    n_aa: int
+    n_eq_b: int  # B == A (recorded)
+    n_eq_aa: int  # A' == A (recorded)
+    diffs: list[int]  # per paired turn: 1{B==A} − 1{A'==A}
+    spend_b_usd: float
+    spend_aa_usd: float
     target_model: str
-    cost_ratio: float  # target spend / original spend estimate
-    equivalence_rate: float
-    equivalence_ci: tuple[float, float]
+    original_model_counts: dict[str, int]  # for display
+
+    @property
+    def equivalence(self) -> Any:
+        """shadow.Equivalence via _equivalence(). Lazy to avoid import at module load."""
+        from .shadow import _equivalence
+
+        return _equivalence(self.n_b, self.n_eq_b, self.n_aa, self.n_eq_aa, self.diffs)
 
     def format(self) -> str:
-        from .shadow import wilson_ci
+        from .shadow import bootstrap_ci, wilson_ci
 
-        lo, hi = wilson_ci(self.n_equivalent, self.n)
         lines = [
-            f"live replay: {self.n} turns against {self.target_model}",
-            f"  equivalent decisions: {self.n_equivalent}/{self.n} "
-            f"({100 * self.equivalence_rate:.1f}%)",
-            f"  Wilson 95% CI: [{100 * lo:.1f}%, {100 * hi:.1f}%]",
-            f"  spend: ${self.spend_usd:.4f}  cost ratio: {self.cost_ratio:.3f}x",
+            f"live replay: B arm n={self.n_b}, A' arm n={self.n_aa}",
+            f"  target model:  {self.target_model}",
+            f"  B spend: ${self.spend_b_usd:.4f}  "
+            f"A' spend: ${self.spend_aa_usd:.4f}  "
+            f"total: ${self.spend_b_usd + self.spend_aa_usd:.4f}",
+            "",
+            "equivalence (B vs A, the raw rate):",
+            f"  {self.n_eq_b}/{self.n_b} ({100 * self.n_eq_b / max(self.n_b, 1):.1f}%)",
+        ]
+        b_lo, b_hi = wilson_ci(self.n_eq_b, self.n_b)
+        lines.append(f"  Wilson 95% CI: [{100 * b_lo:.1f}%, {100 * b_hi:.1f}%]")
+
+        lines += [
+            "",
+            "noise floor (A' vs A, the model's own self-agreement):",
+            f"  {self.n_eq_aa}/{self.n_aa} ({100 * self.n_eq_aa / max(self.n_aa, 1):.1f}%)",
+        ]
+        if self.n_aa:
+            aa_lo, aa_hi = wilson_ci(self.n_eq_aa, self.n_aa)
+            lines.append(f"  Wilson 95% CI: [{100 * aa_lo:.1f}%, {100 * aa_hi:.1f}%]")
+
+        if self.diffs:
+            diff_mean = sum(self.diffs) / len(self.diffs)
+            diff_ci = bootstrap_ci(self.diffs)
+            lines += [
+                "",
+                "paired diff mean(1{B==A} − 1{A'==A}):",
+                f"  {diff_mean:+.3f}  bootstrap 95% CI: "
+                f"[{diff_ci[0]:+.3f}, {diff_ci[1]:+.3f}]  n={len(self.diffs)}",
+                f"  non-inferiority (lower bound ≥ −{EQUIV_MARGIN}): "
+                + (
+                    "PASS"
+                    if diff_ci[0] >= -EQUIV_MARGIN
+                    else f"FAIL (lower bound {diff_ci[0]:+.3f} < −{EQUIV_MARGIN})"
+                ),
+            ]
+        lines += [
+            "",
+            "context note: A' and B use reconstructed (uncompressed) context.",
+            "  Paired A' vs B comparison is valid; raw A vs A'/B rates span a",
+            "  context-size difference when distil was active.",
         ]
         return "\n".join(lines)
 
@@ -548,54 +645,62 @@ def run_live(
     target: str,
     spend_cap: float,
     *,
+    n_aa: int | None = None,
     api_key: str | None = None,
     max_tokens: int = 4096,
-) -> LiveResult:
-    """Replay each turn against *target*; compare decisions; track spend.
+) -> PairedLiveResult:
+    """Paired A/A'/B replay.
 
-    Stops early if accumulated cost would exceed *spend_cap*. Makes real API calls;
-    requires a valid ``ANTHROPIC_API_KEY`` in the environment (or *api_key*).
+    Selects the first *n_aa* turns (or all if n_aa >= len(turns)) for the A' arm.
+    All turns get a B call. B calls happen first (cheaper); A' calls only start if
+    the cap allows. Stops early on either arm when the cap is exhausted.
     """
     import anthropic
 
     from .shadow import decision_signature
 
+    n_aa_actual = _min_aa_n() if n_aa is None else n_aa
+    n_aa_actual = min(n_aa_actual, len(turns))
+    aa_indices: set[int] = set(range(n_aa_actual))  # first n_aa turns get A' call
+
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     client = anthropic.Anthropic(api_key=key, base_url="https://api.anthropic.com")
 
-    n_eq = 0
-    spend = 0.0
-    orig_spend = 0.0
-    n_done = 0
+    n_eq_b = 0
+    n_eq_aa = 0
+    spend_b = 0.0
+    spend_aa = 0.0
+    n_b_done = 0
+    diffs: list[int] = []
+    # Record B decisions for the paired turns (we need them when computing A' diffs).
+    b_decisions: dict[int, str] = {}
 
-    for turn in turns:
-        # Reserve cost before calling to avoid overshooting the cap.
+    # --- B arm: all turns ---
+    for i, turn in enumerate(turns):
         est_rec = ReplayRecord(
             model=target,
             input_tokens=turn.input_tokens,
             cache_read=0,
             cache_write=0,
-            output_tokens=max_tokens // 4,  # conservative
+            output_tokens=max_tokens // 4,
             mode="",
             ts=turn.ts,
         )
         est = tiered_cost(est_rec, target) or 0.0
-        if spend + est > spend_cap:
-            log.info("replay-model: spend cap reached at $%.4f after %d turns", spend, n_done)
+        if spend_b + spend_aa + est > spend_cap:
+            log.info("replay-model: spend cap reached in B arm after %d turns", n_b_done)
             break
-
         try:
-            resp = client.messages.create(
+            resp_b = client.messages.create(
                 model=target,
                 max_tokens=max_tokens,
                 messages=turn.messages,  # type: ignore[arg-type]
             )
-        except Exception as exc:  # noqa: BLE001 — individual turn failures are non-fatal
-            log.warning("replay-model: turn %d failed: %s", n_done, exc)
+        except Exception as exc:  # noqa: BLE001 — non-fatal
+            log.warning("replay-model: B turn %d failed: %s", i, exc)
             continue
-
-        usage = resp.usage
-        actual_rec = ReplayRecord(
+        usage = resp_b.usage
+        actual = ReplayRecord(
             model=target,
             input_tokens=getattr(usage, "input_tokens", 0),
             cache_read=getattr(usage, "cache_read_input_tokens", 0),
@@ -604,37 +709,77 @@ def run_live(
             mode="",
             ts=turn.ts,
         )
-        spend += tiered_cost(actual_rec, target) or 0.0
+        spend_b += tiered_cost(actual, target) or 0.0
+        dec_b = decision_signature(resp_b.model_dump())
+        b_decisions[i] = dec_b
+        if dec_b == turn.recorded_decision:
+            n_eq_b += 1
+        n_b_done += 1
 
-        orig_rec = ReplayRecord(
+    # --- A' arm: subsample of turns ---
+    n_aa_done = 0
+    orig_model_counts: dict[str, int] = {}
+    for i in sorted(aa_indices):
+        if i >= len(turns):
+            break
+        turn = turns[i]
+        orig_model_counts[turn.model] = orig_model_counts.get(turn.model, 0) + 1
+
+        # Estimate cost to check cap (use original model and recorded token count)
+        est_orig = ReplayRecord(
             model=turn.model,
             input_tokens=turn.input_tokens,
             cache_read=0,
             cache_write=0,
-            output_tokens=turn.output_tokens,
+            output_tokens=max_tokens // 4,
             mode="",
             ts=turn.ts,
         )
-        orig_spend += original_cost(orig_rec) or 0.0
+        est_aa = original_cost(est_orig) or 0.0
+        if spend_b + spend_aa + est_aa > spend_cap:
+            log.info("replay-model: spend cap reached in A' arm after %d turns", n_aa_done)
+            break
+        try:
+            resp_aa = client.messages.create(
+                model=turn.model,
+                max_tokens=max_tokens,
+                messages=turn.messages,  # type: ignore[arg-type]
+            )
+        except Exception as exc:  # noqa: BLE001 — non-fatal
+            log.warning("replay-model: A' turn %d failed: %s", i, exc)
+            continue
+        usage_aa = resp_aa.usage
+        actual_aa = ReplayRecord(
+            model=turn.model,
+            input_tokens=getattr(usage_aa, "input_tokens", 0),
+            cache_read=getattr(usage_aa, "cache_read_input_tokens", 0),
+            cache_write=getattr(usage_aa, "cache_creation_input_tokens", 0),
+            output_tokens=getattr(usage_aa, "output_tokens", 0),
+            mode="",
+            ts=turn.ts,
+        )
+        spend_aa += original_cost(actual_aa) or 0.0
+        dec_aa = decision_signature(resp_aa.model_dump())
+        aa_eq = int(dec_aa == turn.recorded_decision)
+        if aa_eq:
+            n_eq_aa += 1
+        n_aa_done += 1
 
-        replay_dec = decision_signature(resp.model_dump())
-        if replay_dec == turn.recorded_decision:
-            n_eq += 1
+        # Paired diff: only for turns where both B and A' completed.
+        if i in b_decisions:
+            b_eq = int(b_decisions[i] == turn.recorded_decision)
+            diffs.append(b_eq - aa_eq)
 
-        n_done += 1
-
-    from .shadow import wilson_ci
-
-    rate = n_eq / n_done if n_done else 0.0
-    lo, hi = wilson_ci(n_eq, n_done)
-    return LiveResult(
-        n=n_done,
-        n_equivalent=n_eq,
-        spend_usd=spend,
+    return PairedLiveResult(
+        n_b=n_b_done,
+        n_aa=n_aa_done,
+        n_eq_b=n_eq_b,
+        n_eq_aa=n_eq_aa,
+        diffs=diffs,
+        spend_b_usd=spend_b,
+        spend_aa_usd=spend_aa,
         target_model=target,
-        cost_ratio=spend / orig_spend if orig_spend > 0 else 0.0,
-        equivalence_rate=rate,
-        equivalence_ci=(lo, hi),
+        original_model_counts=orig_model_counts,
     )
 
 
@@ -649,6 +794,11 @@ def register(sub: Any) -> None:
         "replay-model",
         help="does a cheaper model make the same next decision on your traffic? "
         "(dry-run: free; live: requires --spend-cap)",
+        epilog=(
+            "Uses a paired A/A'/B design (same as `distil audit`): B = target model, "
+            "A' = original model replayed on the same turn. Paired diff mean(1{B==A} - "
+            "1{A'==A}) with bootstrap CI and the referee's non-inferiority margin."
+        ),
     )
     p.add_argument(
         "--target",
@@ -661,25 +811,32 @@ def register(sub: Any) -> None:
         type=int,
         default=DEFAULT_N,
         metavar="N",
-        help=f"number of recorded requests to sample (default: {DEFAULT_N})",
+        help=f"number of turns for the B arm (default: {DEFAULT_N})",
+    )
+    p.add_argument(
+        "--n-aa",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"A' arm subsample size (default: {_min_aa_n()} or --n, whichever is smaller)",
     )
     p.add_argument(
         "--days",
         type=float,
         default=float(DEFAULT_DAYS),
         metavar="DAYS",
-        help=f"look back this many days in the sessions history (default: {DEFAULT_DAYS})",
+        help=f"look back this many days (default: {DEFAULT_DAYS})",
     )
     p.add_argument(
         "--live",
         action="store_true",
-        help="run the live equivalence test (calls the provider; requires --spend-cap)",
+        help="run the live paired equivalence test (calls the provider; requires --spend-cap)",
     )
     p.add_argument(
         "--spend-cap",
         type=float,
         metavar="USD",
-        help="hard per-run spend ceiling in USD (required for --live)",
+        help="hard per-run spend ceiling in USD covering both arms (required for --live)",
     )
     p.add_argument(
         "--json",
@@ -694,14 +851,15 @@ def cmd_replay_model(args: Any) -> int:
 
     if args.live and args.spend_cap is None:
         print(
-            "distil replay-model: --live requires --spend-cap USD "
-            "(e.g. --spend-cap 1.00 for a $1 ceiling)",
+            "distil replay-model: --live requires --spend-cap USD covering both arms "
+            "(e.g. --spend-cap 15.00 for a $15 ceiling)",
             file=sys.stderr,
         )
         return 2
 
     since = time.time() - args.days * 86400
     rng = random.Random()
+    n_aa = getattr(args, "n_aa", None)
 
     if args.live:
         turns = load_transcript_turns(args.n, since=since, rng=rng)
@@ -713,12 +871,15 @@ def cmd_replay_model(args: Any) -> int:
                 file=sys.stderr,
             )
             return 1
-
-        result = run_live(turns, args.target, args.spend_cap)
+        result = run_live(turns, args.target, args.spend_cap, n_aa=n_aa)
         if args.json:
             import dataclasses
 
-            print(json.dumps(dataclasses.asdict(result), indent=2))
+            d = dataclasses.asdict(result)
+            # Equivalence is a property, not a field; include it separately.
+            eq = result.equivalence
+            d["equivalence"] = dataclasses.asdict(eq)
+            print(json.dumps(d, indent=2))
         else:
             print(result.format())
         return 0
@@ -729,12 +890,11 @@ def cmd_replay_model(args: Any) -> int:
         print(
             "distil replay-model: no usable session records found in the last "
             f"{args.days:.0f} days under {_home() / 'sessions'}\n"
-            "Run distil wrap for a few sessions first, or pass --days N to look back further.",
+            "Run distil wrap for a few sessions first, or pass --days N.",
             file=sys.stderr,
         )
         return 1
-
-    report = dry_run(records, args.target, days=args.days)
+    report = dry_run(records, args.target, n_aa=n_aa, days=args.days)
     if args.json:
         import dataclasses
 

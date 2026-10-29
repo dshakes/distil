@@ -1,13 +1,15 @@
 """``distil replay-model`` (distil/replay_model.py): offline tests.
 
-Covers: tiered pricing, dry-run statistics, spend-cap refusal, transcript turn
-parsing, and the Wilson CI used for the equivalence report. All offline — no API
-calls, no real session or transcript files needed.
+Covers: tiered pricing, dry-run statistics (both arm costs), spend-cap refusal,
+transcript turn parsing, the paired A/A'/B design, Wilson CI, and the minimum
+A' sample size computation. All offline — no API calls, no real session or
+transcript files needed.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -15,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from distil import pricing, replay_model as rm
-from distil.shadow import wilson_ci
+from distil.shadow import bootstrap_ci, wilson_ci
 
 
 # --------------------------------------------------------------------------- #
@@ -111,7 +113,7 @@ def test_original_cost_unknown_model_returns_none() -> None:
 
 
 def test_cache_fields_use_correct_multipliers() -> None:
-    """Cache reads and writes at target model's cache rate, not base rate."""
+    """Cache reads at target model's cache rate, not base rate."""
     rec = _record(model="claude-haiku-5-5", inp=0, cr=50_000, cw=0, out=0)
     cost = rm.tiered_cost(rec, "claude-haiku-5-5")
     p = rm._price("claude-haiku-5-5")
@@ -199,20 +201,46 @@ def test_load_records_malformed_line_is_skipped(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Dry-run report
+# Minimum A' sample size
 # --------------------------------------------------------------------------- #
 
 
-def test_dry_run_basic() -> None:
+def test_min_aa_n_default_matches_formula() -> None:
+    """ceil((1.96 / (2 * 0.05))^2) = ceil(384.16) = 385."""
+    n = rm._min_aa_n()
+    assert n == math.ceil((1.96 / (2 * 0.05)) ** 2)
+    # Wilson CI half-width at n=385, p=0.5 must be ≤ EQUIV_MARGIN
+    assert rm._wilson_halfwidth(n) <= rm.EQUIV_MARGIN + 1e-9
+
+
+def test_min_aa_n_wider_margin_smaller_n() -> None:
+    n_tight = rm._min_aa_n(margin=0.05)
+    n_loose = rm._min_aa_n(margin=0.10)
+    assert n_loose < n_tight
+
+
+def test_wilson_halfwidth_decreases_with_n() -> None:
+    assert rm._wilson_halfwidth(100) > rm._wilson_halfwidth(400)
+
+
+def test_wilson_halfwidth_zero_n_returns_one() -> None:
+    assert rm._wilson_halfwidth(0) == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Dry-run report: both arms
+# --------------------------------------------------------------------------- #
+
+
+def test_dry_run_basic_arm_b_cheaper_than_original() -> None:
     records = [_record(model="claude-opus-5-5", inp=50_000 + i * 1000) for i in range(20)]
     report = rm.dry_run(records, "claude-haiku-5-5", days=7.0)
     assert report.n_sampled == 20
     assert report.target_model == "claude-haiku-5-5"
     assert "claude-opus-5-5" in report.model_counts
-    # All prompts are ~50k tokens (below 100k), so no long tier
     assert report.n_long_tier == 0
     # Haiku-5-5 base rate is much cheaper than opus-5-5
-    assert report.cost_ratio < 0.5
+    assert report.arm_b_usd < report.original_total_usd * 0.5
 
 
 def test_dry_run_long_tier_counted() -> None:
@@ -222,20 +250,68 @@ def test_dry_run_long_tier_counted() -> None:
     assert report.n_long_tier == 5
 
 
-def test_dry_run_format_contains_key_fields() -> None:
+def test_dry_run_n_aa_defaults_to_min_capped_at_n() -> None:
+    """With only 10 records, n_aa cannot exceed 10 even if _min_aa_n() = 385."""
+    records = [_record() for _ in range(10)]
+    report = rm.dry_run(records, "claude-haiku-5-5")
+    assert report.n_aa == 10
+    assert report.n_aa_min == rm._min_aa_n()
+    # CI warning is flagged (10 < 385)
+    text = report.format()
+    assert "WARNING" in text
+
+
+def test_dry_run_n_aa_explicit_subsample() -> None:
+    """Explicit n_aa < n_sampled: A' arm covers only that many records."""
+    records = [_record(model="claude-opus-5-5", inp=10_000) for _ in range(50)]
+    report = rm.dry_run(records, "claude-haiku-5-5", n_aa=20)
+    assert report.n_aa == 20
+    # A' cost ~ 20/50 of total original cost
+    expected_aa_usd = report.original_total_usd * 20 / 50
+    assert report.arm_aa_usd == pytest.approx(expected_aa_usd, rel=0.01)
+
+
+def test_dry_run_n_aa_capped_at_n_sampled() -> None:
+    """Passing n_aa > n_sampled is silently capped."""
+    records = [_record() for _ in range(5)]
+    report = rm.dry_run(records, "claude-haiku-5-5", n_aa=9999)
+    assert report.n_aa == 5
+
+
+def test_dry_run_arm_aa_cost_increases_with_subsample() -> None:
+    records = [_record(model="claude-opus-5-5", inp=20_000) for _ in range(100)]
+    report_small = rm.dry_run(records, "claude-haiku-5-5", n_aa=10)
+    report_large = rm.dry_run(records, "claude-haiku-5-5", n_aa=50)
+    assert report_large.arm_aa_usd > report_small.arm_aa_usd
+
+
+def test_dry_run_format_contains_arm_labels() -> None:
     records = [_record(inp=200_000)] * 10
     report = rm.dry_run(records, "claude-haiku-5-5", days=30.0)
     text = report.format()
-    assert "dry-run" in text
-    assert "claude-haiku-5-5" in text
-    assert "cost ratio" in text
-    assert "live" in text  # hint about live path
+    assert "arm B" in text
+    assert "arm A'" in text
+    assert "total estimated spend" in text
+    assert "--live" in text  # hint for running live
+    assert "context note" in text
+
+
+def test_dry_run_format_shows_both_arm_costs() -> None:
+    records = [_record(model="claude-opus-5-5", inp=20_000) for _ in range(10)]
+    report = rm.dry_run(records, "claude-haiku-5-5", n_aa=5)
+    text = report.format()
+    # Both $ amounts must appear
+    assert f"${report.arm_b_usd:.4f}" in text
+    assert f"${report.arm_aa_usd:.4f}" in text
+    assert f"${report.arm_b_usd + report.arm_aa_usd:.4f}" in text
 
 
 def test_dry_run_empty_records() -> None:
     report = rm.dry_run([], "claude-haiku-5-5")
     assert report.n_sampled == 0
-    assert report.estimated_total_usd == 0.0
+    assert report.arm_b_usd == 0.0
+    assert report.arm_aa_usd == 0.0
+    assert report.original_total_usd == 0.0
 
 
 def test_dry_run_unpriced_original_counted() -> None:
@@ -251,13 +327,13 @@ def test_dry_run_unpriced_target_counted() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Wilson CI (the equivalence statistic)
+# Wilson CI (used for the equivalence report)
 # --------------------------------------------------------------------------- #
 
 
 def test_wilson_ci_all_equivalent() -> None:
     lo, hi = wilson_ci(50, 50)
-    assert lo > 0.90  # near 1 but interval is nonzero
+    assert lo > 0.90
     assert hi <= 1.0
 
 
@@ -292,6 +368,7 @@ def test_cmd_replay_model_live_without_spend_cap_returns_2(tmp_path: Path, capsy
         spend_cap=None,
         target="claude-haiku-5-5",
         n=10,
+        n_aa=None,
         days=30.0,
         json=False,
     )
@@ -312,6 +389,7 @@ def test_cmd_replay_model_dryrun_no_records_returns_1(tmp_path: Path, capsys, mo
         spend_cap=None,
         target="claude-haiku-5-5",
         n=10,
+        n_aa=None,
         days=30.0,
         json=False,
     )
@@ -401,7 +479,6 @@ def test_load_transcript_turns_finds_text_decision(tmp_path: Path) -> None:
 def test_load_transcript_turns_skips_no_parent(tmp_path: Path) -> None:
     """An assistant turn with no reconstructable messages is excluded."""
     rows = [
-        # assistant row with no parentUuid chain into the file
         _asst_row("a1", "missing-uuid", tool_name="bash"),
     ]
     root = _make_transcript(tmp_path, rows)
@@ -439,7 +516,6 @@ def test_load_transcript_turns_strips_thinking_blocks(tmp_path: Path) -> None:
     ]
     root = _make_transcript(tmp_path, rows)
     turns = rm.load_transcript_turns(10, since=0.0, transcripts_dir=root)
-    # The reconstructed messages must not contain thinking blocks
     all_types = [
         b.get("type")
         for turn in turns
@@ -451,43 +527,134 @@ def test_load_transcript_turns_strips_thinking_blocks(tmp_path: Path) -> None:
 
 
 def test_load_transcript_turns_respects_since(tmp_path: Path) -> None:
-    old_ts = "2020-01-01T00:00:00Z"
     rows = [
         _user_row("u1", None),
-        {
-            **_asst_row("a1", "u1", tool_name="bash"),
-            "timestamp": old_ts,
-            "message": {
-                **_asst_row("a1", "u1", tool_name="bash")["message"],
-            },
-        },
+        {**_asst_row("a1", "u1", tool_name="bash"), "timestamp": "2020-01-01T00:00:00Z"},
     ]
-    # Replace the timestamp
-    rows[1]["timestamp"] = old_ts
     root = _make_transcript(tmp_path, rows)
     turns = rm.load_transcript_turns(10, since=time.time() - 86400, transcripts_dir=root)
     assert len(turns) == 0
 
 
 # --------------------------------------------------------------------------- #
-# Live result formatting
+# Paired live result
 # --------------------------------------------------------------------------- #
 
 
-def test_live_result_format() -> None:
-    r = rm.LiveResult(
-        n=100,
-        n_equivalent=85,
-        spend_usd=0.42,
+def test_paired_live_result_format_contains_key_fields() -> None:
+    r = rm.PairedLiveResult(
+        n_b=100,
+        n_aa=50,
+        n_eq_b=90,
+        n_eq_aa=44,  # 44/50 — k must not exceed n
+        diffs=[1] * 30 + [0] * 20,
+        spend_b_usd=0.35,
+        spend_aa_usd=4.20,
         target_model="claude-haiku-5-5",
-        cost_ratio=0.15,
-        equivalence_rate=0.85,
-        equivalence_ci=(0.76, 0.91),
+        original_model_counts={"claude-opus-5-5": 50},
     )
     text = r.format()
-    assert "85/100" in text
+    assert "90/100" in text
+    assert "44/50" in text
     assert "claude-haiku-5-5" in text
-    assert "$0.42" in text
+    assert "$0.3500" in text
+    assert "$4.2000" in text
+    assert "context note" in text
+
+
+def test_paired_live_result_non_inferiority_pass() -> None:
+    """If diff CI lower bound ≥ −0.05 the verdict is PASS."""
+    # B matches A on 95/100 turns; A' matches A on 45/50 (90%) — same rate
+    # paired diffs: mostly 0 (both match) or +1 (B matches, A' doesn't)
+    diffs = [1] * 5 + [0] * 45  # n=50 paired: B better on 5, tied on 45 → mean +0.10
+    r = rm.PairedLiveResult(
+        n_b=100,
+        n_aa=50,
+        n_eq_b=95,
+        n_eq_aa=45,  # 45/50 (90%)
+        diffs=diffs,
+        spend_b_usd=0.10,
+        spend_aa_usd=2.00,
+        target_model="claude-haiku-5-5",
+        original_model_counts={},
+    )
+    text = r.format()
+    assert "PASS" in text
+
+
+def test_paired_live_result_non_inferiority_fail() -> None:
+    """If diff CI lower bound < −0.05 the verdict is FAIL."""
+    # B is worse than A' on most paired turns
+    diffs = [-1] * 40 + [0] * 10  # mean = -0.80
+    r = rm.PairedLiveResult(
+        n_b=100,
+        n_aa=50,
+        n_eq_b=20,
+        n_eq_aa=45,  # 45/50 (90%)
+        diffs=diffs,
+        spend_b_usd=0.10,
+        spend_aa_usd=2.00,
+        target_model="claude-haiku-5-5",
+        original_model_counts={},
+    )
+    text = r.format()
+    assert "FAIL" in text
+
+
+def test_paired_live_result_no_diffs_skips_paired_section() -> None:
+    """When A' arm is empty (diffs=[]), the paired section is omitted."""
+    r = rm.PairedLiveResult(
+        n_b=10,
+        n_aa=0,
+        n_eq_b=8,
+        n_eq_aa=0,
+        diffs=[],
+        spend_b_usd=0.05,
+        spend_aa_usd=0.0,
+        target_model="claude-haiku-5-5",
+        original_model_counts={},
+    )
+    text = r.format()
+    assert "paired diff" not in text
+
+
+def test_paired_live_result_equivalence_property() -> None:
+    """The .equivalence property returns a shadow.Equivalence object."""
+    r = rm.PairedLiveResult(
+        n_b=60,
+        n_aa=30,
+        n_eq_b=55,
+        n_eq_aa=28,
+        diffs=[0] * 30,
+        spend_b_usd=0.10,
+        spend_aa_usd=1.0,
+        target_model="claude-haiku-5-5",
+        original_model_counts={},
+    )
+    eq = r.equivalence
+    assert eq.n_ab == 60
+    assert eq.n_aa == 30
+    assert eq.p_ab == pytest.approx(55 / 60, rel=1e-9)
+    assert eq.p_aa == pytest.approx(28 / 30, rel=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# Bootstrap CI (used for the paired diff)
+# --------------------------------------------------------------------------- #
+
+
+def test_bootstrap_ci_symmetric_around_zero() -> None:
+    """For a zero-mean diff vector the CI should straddle 0."""
+    diffs = [1, -1] * 50  # alternating, mean=0
+    lo, hi = bootstrap_ci(diffs, seed=42)
+    assert lo < 0 < hi
+
+
+def test_bootstrap_ci_positive_mean_has_positive_lo() -> None:
+    """For consistently positive diffs, the lower bound should be positive."""
+    diffs = [1] * 100
+    lo, hi = bootstrap_ci(diffs, seed=42)
+    assert lo > 0
 
 
 # --------------------------------------------------------------------------- #
