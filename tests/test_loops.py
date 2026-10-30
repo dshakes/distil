@@ -6,6 +6,8 @@ import json
 from typing import Any
 
 from distil.learn import ExpandStats, keep_predicate, signature
+import pytest
+
 from distil.loops import detect, feed_stats
 
 STUB = "head\n<< +40 lines, handle=abcd1234 >>"
@@ -222,3 +224,50 @@ def test_text_turn_after_a_round_does_not_recount_it():
     assert detect(rnd).repeats == 1
     chat = [{"role": "assistant", "content": "done"}, {"role": "user", "content": "thanks"}]
     assert detect(rnd + chat).repeats == 0
+
+
+def test_distinct_args_to_a_generic_tool_are_not_repeats():
+    def call(i, q):
+        return {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": i, "name": "web_search", "input": {"query": q}}],
+        }
+
+    def res(i):
+        return {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": i, "content": "x"}],
+        }
+
+    go = {"role": "user", "content": "go"}
+    assert detect([go, call("1", "alpha"), res("1"), call("2", "beta"), res("2")]).repeats == 0
+    assert detect([go, call("1", "alpha"), res("1"), call("2", "alpha"), res("2")]).repeats == 1
+
+
+@pytest.mark.parametrize(
+    "stub",
+    [
+        "<< +3 lines, handle=abcdef12 >>",
+        "<<distil elided, handle=abcdef12>>",
+        "<<distil evicted older tool output (5 lines); distil_expand handle=abcdef12 recovers it>>",
+    ],
+)
+def test_every_stub_form_counts_as_after_digest(stub):
+    def call(i):
+        return {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": i, "name": "Read", "input": {"file_path": "/a"}}
+            ],
+        }
+
+    def res(i, t):
+        return {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": i, "content": t}],
+        }
+
+    rep = detect(
+        [{"role": "user", "content": "go"}, call("1"), res("1", stub), call("2"), res("2", "y")]
+    )
+    assert rep.after_digest == 1 and rep.handles == ["abcdef12"]

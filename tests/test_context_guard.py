@@ -792,3 +792,39 @@ def test_stream_with_expand_no_nudge_when_none():
                 pass
     # If we reach here the event wasn't found — test infrastructure issue
     assert False, "message_start event not found in output"
+
+
+def test_stream_guard_survives_a_ping_before_message_start():
+    guard = StreamGuard(140_000, "claude-opus-4-8")
+    out = guard.feed(b'event: ping\ndata: {"type": "ping"}\n\n' + _make_start_event(50_000))
+    data = json.loads(out.split(b"event: message_start\ndata: ")[1].split(b"\n")[0])
+    assert data["message"]["usage"]["input_tokens"] == 190_000
+
+
+def test_openai_chat_usage_is_never_given_input_tokens():
+    body = json.dumps({"usage": {"prompt_tokens": 10, "completion_tokens": 1}}).encode()
+    assert nudge_body(body, 900_000, "gpt-5.2") == body
+
+
+def test_learned_limit_age_survives_a_restart(tmp_path, monkeypatch):
+    import time
+
+    import distil.context_guard as cg
+
+    state = tmp_path / "context_limits.json"
+    monkeypatch.setattr(cg, "_state_path", lambda: state)
+    learn_from_error("claude-opus-4-8", b"prompt is too long: 95000 tokens > 90000 maximum")
+    saved = json.loads(state.read_text())
+    assert [e["limit"] for e in saved.values()] == [90_000]
+    assert not list(tmp_path.glob("*.tmp"))  # written via rename, no stray temp file
+
+    def restart(entry):
+        state.write_text(json.dumps({"k": entry}))
+        cg._learned.clear()
+        cg._loaded = False
+        cg._ensure_loaded()
+        return dict(cg._learned)
+
+    assert "k" in restart({"limit": 90_000, "at": time.time() - 60})
+    assert restart({"limit": 90_000, "at": time.time() - 2 * cg._LEARNED_TTL}) == {}
+    assert restart({"limit": 90_000}) == {}  # pre-timestamp file: no fresh hour

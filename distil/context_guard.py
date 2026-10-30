@@ -105,12 +105,16 @@ def _load() -> None:
     _loaded = True
     try:
         data = json.loads(_state_path().read_text(encoding="utf-8"))
-        now = time.monotonic()
+        now, wall = time.monotonic(), time.time()
         for key, entry in (data or {}).items():
             if isinstance(entry, dict):
                 lim = int(entry.get("limit", 0))
-                if _MIN_LEARNED <= lim <= _MAX_LEARNED:
-                    _learned[key] = (lim, now)
+                # Age carries across restarts (monotonic time does not), so a learned
+                # limit still expires after _LEARNED_TTL. Entries without a timestamp
+                # (older files) are dropped rather than given a fresh hour.
+                age = wall - float(entry.get("at", wall - _LEARNED_TTL))
+                if _MIN_LEARNED <= lim <= _MAX_LEARNED and 0 <= age < _LEARNED_TTL:
+                    _learned[key] = (lim, now - age)
     except (OSError, ValueError, TypeError, KeyError):
         pass
 
@@ -120,8 +124,12 @@ def _save() -> None:
     try:
         path = _state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {k: {"limit": lim} for k, (lim, _) in _learned.items()}
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        offset = time.time() - time.monotonic()
+        payload = {k: {"limit": lim, "at": at + offset} for k, (lim, at) in _learned.items()}
+        # Write-then-rename: a concurrent reader sees the old file or the new one, never half.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
     except OSError:
         pass
 
@@ -252,6 +260,8 @@ def nudged_input_tokens(
     """
     if not context_guard_enabled():
         return None
+    if "input_tokens" not in usage:
+        return None  # e.g. OpenAI Chat (prompt_tokens): never inject a field it lacks
     has_1m = _has_1m_beta(beta_header)
     effective = _effective_limit(model, has_1m=has_1m)
     if not effective:
@@ -390,7 +400,7 @@ class StreamGuard:
 
     def _process(self, event: bytes) -> bytes:
         etype = _event_type(event)
-        if etype is None:
+        if etype is None or etype == b"ping":
             return event  # ping / keepalive / comment — not part of the message protocol
         if not self._seen_start:
             self._seen_start = True

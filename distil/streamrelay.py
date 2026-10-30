@@ -19,6 +19,8 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any, Callable
 
 _CHUNK = 8192
+#: Response framing headers: stream_upstream sets exactly one itself, never relays them.
+_FRAMING = frozenset({"content-length", "transfer-encoding"})
 
 # Provider-reported quota state, echoed on every response as `anthropic-ratelimit-*`.
 # Worth recording because it is the ONLY first-party signal for how a request is charged
@@ -317,7 +319,8 @@ def stream_upstream(
         chunked = length is None or chunk_transform is not None
         handler.send_response(resp.status)
         for k, v in resp.headers.items():
-            if k.lower() not in hop_by_hop:
+            # Framing is decided here, never copied: a caller's hop set may omit it.
+            if k.lower() not in hop_by_hop and k.lower() not in _FRAMING:
                 handler.send_header(k, v)
         for k, v in (extras or {}).items():
             handler.send_header(k, v)

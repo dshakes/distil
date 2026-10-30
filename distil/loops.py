@@ -33,7 +33,9 @@ from .compress import provenance as _prov
 
 __all__ = ["LoopReport", "detect", "feed_stats"]
 
-_HANDLE_RE = re.compile(r"handle=([0-9a-f]{8}) >>")
+# Every distil stub form: digest ``handle=X >>``, skeleton ``handle=X>>`` and the
+# cold-point eviction ``handle=X recovers it>>``.
+_HANDLE_RE = re.compile(r"handle=([0-9a-f]{8})\b")
 
 
 @dataclass
@@ -140,7 +142,9 @@ def _key(name: str, args: Any) -> tuple[str, str]:
     cmd = _prov.command_text(args)
     if cmd:
         return "run", cmd
-    return "call", name
+    # Any other tool repeats only on identical arguments: web_search("a") then ("b")
+    # is two questions, not a loop, and must not book compression regret.
+    return "call", _digest(name, args)
 
 
 def _digest(name: str, args: Any) -> str:
@@ -161,7 +165,7 @@ def detect(items: list[Any]) -> LoopReport:
     """Count the newest round's repeated calls in *items* (messages, ``input`` or ``contents``).
 
     Pass the list as *forwarded*: a result that reached the model as a distil stub carries
-    ``handle=... >>``, which is how ``after_digest`` is told from an ordinary repeat.
+    ``handle=...``, which is how ``after_digest`` is told from an ordinary repeat.
     """
     ev = _events(items)
     results = {i: p for k, i, _n, p in ev if k == "result"}

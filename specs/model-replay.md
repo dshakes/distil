@@ -85,9 +85,10 @@ rate, CI bounds, n, model names, token counts, and dollar estimates.
 
 ## Non-goals (step 1)
 
-- No A/A' noise-control arm: that is referee's design, and it triples the spend. Add when
-  the raw equivalence rate is ambiguous and the user needs to separate sampling noise from
-  model-switch signal.
+- ~~No A/A' noise-control arm~~ — superseded: the shipped command runs an A' subsample
+  (the original model replayed on the same context) so sampling noise is separated from
+  model-switch signal, sized for a Wilson half-width within the equivalence margin rather
+  than a full third arm.
 - No automatic switching recommendation: the feature reports evidence, the human decides.
 - No persistent ledger: results are printed and the command exits. Add persistence if
   users want rolling accumulation.

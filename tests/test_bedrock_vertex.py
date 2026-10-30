@@ -144,6 +144,28 @@ def test_eventstream_is_verbatim_with_no_expand_tool_and_relayed_raw(stack):
     assert "distil_expand" not in seen[0]["raw"].decode()
 
 
+def test_eventstream_streams_without_the_sse_guard(stack, monkeypatch):
+    """Bedrock streams by URL: relayed incrementally (not buffered), with no SSE
+    transform over the binary frames and the body kept for the usage scan."""
+    import distil.streamrelay as sr
+
+    calls: list[dict] = []
+    real = sr.stream_upstream
+
+    def spy(*a, **kw):
+        calls.append(kw)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(sr, "stream_upstream", spy)
+    start, post, _ = stack
+    st, _, out, _ = post(
+        start(), BR + "-with-response-stream", BEDROCK, {"Authorization": "Bearer t"}
+    )
+    assert st == 200 and out == b"\x00\x01binary-eventstream\xff"
+    assert len(calls) == 1 and calls[0]["chunk_transform"] is None
+    assert calls[0]["want_body"] is True and calls[0]["usage_sink"] is None
+
+
 def test_paths_and_model_extraction():
     assert _model_from_path(BR) == "anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert _model_from_path(VX) == "claude-sonnet-4-5@20250929"

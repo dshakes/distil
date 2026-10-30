@@ -184,7 +184,9 @@ def summarize_dropped(dropped: list[str]) -> str:
 # skipped, so true repetition still folds.
 _IDENT_RE = re.compile(
     r"https?://[^\s\"'<>)\]]+"  # URL
-    r"|(?:~/|\.{1,2}/|/)?(?:[\w.-]+/){2,}[\w.@-]+"  # path with >= 2 segments
+    # path with >= 2 segments; starts only at a token boundary, else a long slash-free
+    # run is rescanned from every offset (quadratic: 80k chars took 10s)
+    r"|(?<![\w.~/-])(?:~/|\.{1,2}/|/)?(?:[\w.-]+/){2,}[\w.@-]+"
     r"|\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b"  # hash / short SHA
     r"|(?<![\w:.-])[^\W\d][\w.-]{0,24}\"?[ =:]{1,3}\d+(?:\.\d+)?"  # key=number
 )
@@ -206,8 +208,8 @@ def identifier_lines(
     """
     cand = []
     for i, ln in enumerate(lines):
-        if i in skip:
-            continue
+        if i in skip or len(ln) + 1 > budget:
+            continue  # a line over budget can never be kept; don't scan it
         idents = frozenset(_IDENT_RE.findall(ln))
         if idents:
             cand.append((-len(idents) / (len(ln) + 1), i, idents))

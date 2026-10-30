@@ -111,6 +111,9 @@ describe("minifyJson", () => {
   it("returns null for duplicate keys", () => {
     expect(minifyJson('{"a": 1, "a": 2}')).toBeNull();
   });
+  it("returns null for duplicate keys spelled with escapes", () => {
+    expect(minifyJson('{"a": 1, "\\u0061": 2}')).toBeNull();
+  });
   it("does not mistake text inside strings for numbers (line1 → not exponent)", () => {
     expect(minifyJson('{"msg": "line1"}')).toBe('{"msg":"line1"}');
   });

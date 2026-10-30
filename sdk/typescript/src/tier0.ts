@@ -162,7 +162,8 @@ function hasDuplicateKeys(src: string): boolean {
         esc = true;
       } else if (c === '"') {
         inStr = false;
-        pendingKey = src.slice(cur + 1, i);
+        // Compare decoded keys: "a" and "a" are the same key (Python rejects both).
+        pendingKey = JSON.parse(src.slice(cur, i + 1)) as string;
       }
       continue;
     }

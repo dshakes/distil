@@ -52,7 +52,7 @@ def test_transform_forces_chunked_over_upstream_content_length():
             b"{}",
             {},
             timeout=5,
-            hop_by_hop=frozenset({"content-length", "transfer-encoding", "connection"}),
+            hop_by_hop=frozenset({"connection"}),  # framing omitted on purpose
             chunk_transform=lambda c: c.replace(b'"n":1', b'"n":1000'),
         )
     finally:

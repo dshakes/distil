@@ -1310,7 +1310,10 @@ def build_handler(
             # expand loop (losing TTFT); streamexpand now speculatively streams and
             # intercepts a distil_expand call mid-stream, splicing the re-query so the
             # agent keeps streaming AND the digest stays recoverable.
-            want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
+            # Bedrock streams by URL (/invoke-with-response-stream), not by a body flag.
+            want_stream = (
+                bool(body.get("stream")) or ":streamGenerateContent" in self.path or _eventstream
+            )
             t_req = time.monotonic()  # upstream + relay latency (compression excluded)
             _intercept = _expand_should_intercept(_expand_here, store, body)
             # The splice only speaks Anthropic Messages SSE. It used to run for ANY
@@ -1470,11 +1473,20 @@ def build_handler(
                         timeout=_UPSTREAM_TIMEOUT,
                         hop_by_hop=_HOP_BY_HOP,
                         extras=extras,
-                        want_body=False,  # v3 shadow re-issues its own temp-0 calls; no need to buffer
-                        usage_sink=_usage_s,
-                        chunk_transform=_stream_guard,
+                        # Binary eventstream: kept (usage is read from decoded frames
+                        # below) and never fed to the SSE guard or the text usage scan.
+                        want_body=_eventstream,
+                        usage_sink=None if _eventstream else _usage_s,
+                        chunk_transform=None if _eventstream else _stream_guard,
                         on_upstream_error=_on_stream_error,
                     )
+                    if _eventstream and _rbody_opt:
+                        from .streamrelay import eventstream_payloads, scan_usage
+
+                        try:
+                            _usage_s = scan_usage(eventstream_payloads(_rbody_opt))
+                        except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                            log.debug("eventstream usage scan failed", exc_info=True)
                     set_result_attrs(
                         _span,
                         original_tokens=before_tok,
