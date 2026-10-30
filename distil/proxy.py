@@ -489,6 +489,16 @@ def _adapter_census() -> dict[str, int] | None:
         return None
 
 
+_loops_tls = threading.local()
+
+
+def _take_loops() -> dict[str, Any] | None:
+    """This thread's loop/re-fetch record for the request just compressed (read once)."""
+    rec = getattr(_loops_tls, "record", None)
+    _loops_tls.record = None
+    return rec
+
+
 def _adapter_quote_hazard() -> dict[str, int] | None:
     """This thread's most recent quote-survival counts, or None when no edit needed one."""
     try:
@@ -761,6 +771,28 @@ def build_handler(
     def _on_compressed(kind: str, original: Any, compressed: Any, store: Any) -> None:
         """After the messages/contents compressors (serve_core): tally what was digested
         by content-free signature, and feed the live retention meter (messages only)."""
+        _loops_tls.record = None
+        try:  # extra steps the agent took, and which of them compression caused
+            from .loops import detect, feed_stats
+
+            _rep = detect(compressed if compressed is not None else [])
+            _loops_tls.record = _rep.as_record()
+            if _rep.handles and _learn_stats is not None and store is not None:
+                from .learn import signature
+
+                def _sig(h: str) -> str | None:
+                    from .expand import is_miss
+
+                    try:
+                        text = store.expand(h)
+                        return None if is_miss(text) else signature(text)
+                    except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+                        return None
+
+                if feed_stats(_rep, _learn_stats, _sig):
+                    _learn_stats.save()
+        except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+            log.debug("loop detection failed", exc_info=True)
         if _learn_stats is not None and getattr(store, "handles", None):
             from .learn import signature
 
@@ -1869,6 +1901,9 @@ def build_handler(
                     # from "the digester declined" (a defect) from "mostly recent"
                     # (transient). Content-free; see adapters.anthropic.take_census.
                     "census": _adapter_census(),
+                    # Extra steps: repeated calls in the newest round, and how many re-fetched
+                    # a digest (compression likely caused them). Counts only; absent = none.
+                    "loops": _take_loops(),
                     # Does the exact-quote guarantee actually hold? For every
                     # literal-match edit in the history, whether its `old_string` still
                     # occurs in the payload we forwarded. Two counts, no text. Absent
