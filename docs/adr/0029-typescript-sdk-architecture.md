@@ -1,4 +1,4 @@
-# ADR 0028 — TypeScript SDK architecture: pure-TS port over WASM or proxy client
+# ADR 0029 — TypeScript SDK architecture: pure-TS port over WASM or proxy client
 
 - Status: Accepted
 - Date: 2026-10-29
